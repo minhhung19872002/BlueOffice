@@ -21,6 +21,8 @@ fn main() {
         .name("ui".into())
         .stack_size(64 * 1024 * 1024)
         .spawn(|| {
+            win32::enable_sheet_keys();
+            bo_ui::SheetWindow::set_utc_offset(win32::utc_offset_minutes());
             if let Err(e) = sheet_app::run() {
                 win32::fatal(&e);
             }

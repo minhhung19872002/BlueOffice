@@ -13,9 +13,17 @@ bo-render.workspace = true
 bo-edit.workspace = true
 bo-model.workspace = true
 bo-pptx = { path = "../bo-pptx" }
+bo-drawingml = { path = "../bo-drawingml" }
+bo-opc.workspace = true
 bo-sheet.workspace = true
 bo-pdfread = { path = "../bo-pdfread" }
+# BlueEditor signs PDFs with certificates from .p12 / .pfx files.
+bo-sign = { path = "../bo-sign", features = ["pkcs12", "http"] }
 bo-text.workspace = true
+# Check Spelling (Vietnamese rules + the engine's bundled English dictionary).
+bo-spell.workspace = true
+# JPEG encoder for Optimize.
+bo-raster.workspace = true
 serde = { workspace = true }
 serde_json.workspace = true
 
@@ -23,6 +31,8 @@ serde_json.workspace = true
 bo-engine = { workspace = true, features = ["bundled-fonts"] }
 zip.workspace = true
 bo-raster.workspace = true
+png.workspace = true
+rand = "0.8"
 
 [lints]
 workspace = true

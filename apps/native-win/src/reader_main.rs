@@ -20,7 +20,7 @@ fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args
         .first()
-        .is_some_and(|a| a == "--render" || a == "--bench")
+        .is_some_and(|a| a == "--render" || a == "--bench" || a == "--print")
     {
         if let Err(e) = reader_app::tool(&args) {
             eprintln!("{e}");
@@ -32,7 +32,7 @@ fn main() {
         .name("ui".into())
         .stack_size(64 * 1024 * 1024)
         .spawn(|| {
-            if let Err(e) = reader_app::run() {
+            if let Err(e) = reader_app::run(false) {
                 win32::fatal(&e);
             }
         });

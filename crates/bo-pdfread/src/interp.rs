@@ -8,7 +8,7 @@ use crate::function::Function;
 use crate::image::{self, Image};
 use crate::lexer::{Lexer, Op};
 use crate::{RenderOptions, TextChar};
-use bo_render::{Command, Glyph, GradientStop, Paint, PathSeg, Rgba, Stroke};
+use bo_render::{BlendMode, Command, Glyph, GradientStop, Paint, PathSeg, Rgba, SoftMask, Stroke};
 use bo_text::FontManager;
 use lopdf::{Dictionary, Document, Object, ObjectId};
 use std::collections::{HashMap, HashSet};
@@ -98,6 +98,25 @@ pub(crate) struct Out {
     pub commands: Vec<Command>,
     pub images: HashMap<String, Arc<Image>>,
     pub chars: Vec<TextChar>,
+    /// Page objects with their content stream spans (BlueEditor), when recording.
+    pub objects: Option<Vec<crate::objects::Recorded>>,
+}
+
+/// Text state at a text-showing operator (to write the run again elsewhere).
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct TextState {
+    pub font: Vec<u8>,
+    pub size: f32,
+    pub tm: M,
+    pub tm_after: M,
+    pub tc: f32,
+    pub tw: f32,
+    pub th: f32,
+    pub tl: f32,
+    pub rise: f32,
+    pub mode: u8,
+    pub fill: Rgba,
+    pub stroke: Rgba,
 }
 
 #[derive(Clone)]
@@ -122,6 +141,8 @@ struct Gs {
     fill_alpha: f32,
     stroke_alpha: f32,
     font: Option<Rc<Font>>,
+    /// Resource name of the font.
+    font_name: Vec<u8>,
     size: f32,
     tc: f32,
     tw: f32,
@@ -129,8 +150,15 @@ struct Gs {
     tl: f32,
     rise: f32,
     mode: u8,
+    /// Blend mode (§11.3.5, ExtGState `/BM`); `None` = Normal.
+    blend: Option<BlendMode>,
+    /// Soft mask (§11.6.5, ExtGState `/SMask`) in page space.
+    smask: Option<Rc<SoftMask>>,
     /// Clips pushed while this state was current.
     clips: u32,
+    /// Overprint of fills and strokes (§8.7.4.5, ExtGState `/op` and `/OP`).
+    op_fill: bool,
+    op_stroke: bool,
 }
 
 impl Gs {
@@ -150,6 +178,7 @@ impl Gs {
             fill_alpha: 1.0,
             stroke_alpha: 1.0,
             font: None,
+            font_name: Vec::new(),
             size: 0.0,
             tc: 0.0,
             tw: 0.0,
@@ -157,7 +186,11 @@ impl Gs {
             tl: 0.0,
             rise: 0.0,
             mode: 0,
+            blend: None,
+            smask: None,
             clips: 0,
+            op_fill: false,
+            op_stroke: false,
         }
     }
 }
@@ -239,6 +272,8 @@ pub(crate) struct Interp<'s, 'a> {
     cur: (f32, f32),
     start: (f32, f32),
     clip: Option<bool>,
+    /// Glyph outlines of text shown with a clipping render mode (4–7) since BT (§9.3.6).
+    text_clip: Option<Vec<PathSeg>>,
     tm: M,
     tlm: M,
     depth: u32,
@@ -255,6 +290,12 @@ pub(crate) struct Interp<'s, 'a> {
     /// Type 3 glyph with `d1`: colours come from the text state.
     uncolored: bool,
     image_prefix: String,
+    /// Where the clip pushed by the last path painting operator starts.
+    clip_mark: Option<usize>,
+    /// Colour of all shown text, fill and stroke (BlueReader Night Mode); alpha is kept.
+    pub(crate) text_color: Option<Rgba>,
+    /// Simulate overprinting ([`crate::RenderExtra::overprint`]).
+    pub(crate) overprint: bool,
 }
 
 impl<'s, 'a> Interp<'s, 'a> {
@@ -275,6 +316,7 @@ impl<'s, 'a> Interp<'s, 'a> {
             cur: (0.0, 0.0),
             start: (0.0, 0.0),
             clip: None,
+            text_clip: None,
             tm: IDENTITY,
             tlm: IDENTITY,
             depth: 0,
@@ -287,6 +329,9 @@ impl<'s, 'a> Interp<'s, 'a> {
             page,
             uncolored: false,
             image_prefix,
+            clip_mark: None,
+            text_color: None,
+            overprint: false,
         }
     }
 
@@ -319,13 +364,32 @@ impl<'s, 'a> Interp<'s, 'a> {
         ColorSpace::parse(self.doc(), o, &lookup, 0)
     }
 
+    /// Whether `o` (or the named `/ColorSpace` resource) is a Separation / DeviceN array.
+    fn is_tint_space(&self, o: &Object) -> bool {
+        let doc = self.doc();
+        let o = match o {
+            Object::Name(n) => match self.resource(b"ColorSpace", n) {
+                Some(v) => v,
+                None => return false,
+            },
+            other => other.clone(),
+        };
+        let o = doc.dereference(&o).map_or(o.clone(), |(_, v)| v.clone());
+        o.as_array().ok().and_then(|a| a.first()).is_some_and(|k| {
+            let k = doc.dereference(k).map_or(k, |(_, v)| v);
+            matches!(k.as_name(), Ok(b"Separation" | b"DeviceN"))
+        })
+    }
+
     fn hidden(&self) -> bool {
         self.hidden_depth > 0
     }
 
     /// Run a content stream.
     pub(crate) fn run(&mut self, content: &[u8]) {
-        for op in Lexer::new(content) {
+        let mut lexer = Lexer::new(content);
+        let mut path_start: Option<usize> = None;
+        while let Some(op) = lexer.next() {
             self.ops += 1;
             if self.ops > MAX_OPS
                 || (self.ops.is_multiple_of(4096)
@@ -333,7 +397,83 @@ impl<'s, 'a> Interp<'s, 'a> {
             {
                 break;
             }
-            self.op(&op);
+            if self.out.objects.is_some() && self.depth == 0 {
+                self.recorded_op(&op, lexer.span(), &mut path_start);
+            } else {
+                self.op(&op);
+            }
+        }
+    }
+
+    /// Run one top-level operator and note the page object it drew (BlueEditor).
+    fn recorded_op(&mut self, op: &Op, span: (usize, usize), path_start: &mut Option<usize>) {
+        use crate::objects::{ObjectKind, Recorded};
+        let name = op.name.as_slice();
+        let (n_cmds, n_chars) = (self.out.commands.len(), self.out.chars.len());
+        let show = matches!(name, b"Tj" | b"TJ" | b"'" | b"\"");
+        let before = show.then(|| (self.tm, self.gs.clone()));
+        let clipping = self.clip.is_some();
+        if matches!(name, b"m" | b"re") && path_start.is_none() {
+            *path_start = Some(span.0);
+        }
+        let ctm = self.gs.ctm;
+        self.op(op);
+        let mut start = span.0;
+        let kind = match name {
+            b"Tj" | b"TJ" | b"'" | b"\"" => Some(ObjectKind::Text),
+            b"S" | b"s" | b"f" | b"F" | b"f*" | b"B" | b"B*" | b"b" | b"b*" | b"n" => {
+                let first = path_start.take();
+                // Clipping paths and `n` belong to the content around them.
+                match first {
+                    Some(p) if name != b"n" && !clipping => {
+                        start = p;
+                        Some(ObjectKind::Path)
+                    }
+                    _ => None,
+                }
+            }
+            b"Do" => Some(
+                if self.out.commands[n_cmds..]
+                    .iter()
+                    .any(|c| matches!(c, Command::Image { .. }))
+                {
+                    ObjectKind::Image
+                } else {
+                    ObjectKind::Form
+                },
+            ),
+            b"BI" => Some(ObjectKind::Image),
+            b"sh" => Some(ObjectKind::Shading),
+            _ => None,
+        };
+        let Some(kind) = kind else { return };
+
+        let text_state = before.map(|(tm, gs)| TextState {
+            font: gs.font_name.clone(),
+            size: gs.size,
+            tm,
+            tm_after: self.tm,
+            tc: gs.tc,
+            tw: gs.tw,
+            th: gs.th,
+            tl: gs.tl,
+            rise: gs.rise,
+            mode: gs.mode,
+            fill: rgba(&gs.fill_cs, &gs.fill, 1.0),
+            stroke: rgba(&gs.stroke_cs, &gs.stroke, 1.0),
+        });
+        let rec = Recorded {
+            kind,
+            span: (start, span.1),
+            commands: (n_cmds, self.out.commands.len()),
+            chars: (n_chars, self.out.chars.len()),
+            ctm,
+            op: op.name.clone(),
+            args: op.args.clone(),
+            text: text_state,
+        };
+        if let Some(list) = self.out.objects.as_mut() {
+            list.push(rec);
         }
     }
 
@@ -453,7 +593,29 @@ impl<'s, 'a> Interp<'s, 'a> {
                     .fill_pattern
                     .clone()
                     .is_some_and(|n| self.is_tiling(&n));
-            if tiling {
+            let mesh = if fill && !tiling {
+                self.gs
+                    .fill_pattern
+                    .clone()
+                    .and_then(|n| self.mesh_pattern(&n))
+            } else {
+                None
+            };
+            if let Some((shading, m)) = mesh {
+                // A mesh or function shading pattern: its triangles clipped to the path.
+                self.push_clip(&segs);
+                self.mesh_fill(&shading, m);
+                self.out.commands.push(Command::PopClip);
+                self.gs.clips = self.gs.clips.saturating_sub(1);
+                if stroke {
+                    let st = self.stroke_style();
+                    self.out.commands.push(Command::Path {
+                        segs: segs.clone(),
+                        fill: None,
+                        stroke: st,
+                    });
+                }
+            } else if tiling {
                 if let Some(n) = self.gs.fill_pattern.clone() {
                     self.tiling_fill(&n, &segs);
                 }
@@ -478,6 +640,7 @@ impl<'s, 'a> Interp<'s, 'a> {
             }
         }
         if self.clip.take().is_some() {
+            self.clip_mark = Some(self.out.commands.len());
             self.push_clip(&segs);
         }
     }
@@ -504,8 +667,69 @@ impl<'s, 'a> Interp<'s, 'a> {
         self.gs.clips += 1;
     }
 
-    #[allow(clippy::too_many_lines)]
+    /// Run one operator; painting operators under a blend mode or soft mask are wrapped in a
+    /// group (§11.3.5 / §11.6.5: each object is composited on its own). Form XObjects are
+    /// treated as transparency groups: their content starts with Normal and no soft mask.
     fn op(&mut self, op: &Op) {
+        let painting = matches!(
+            op.name.as_slice(),
+            b"S" | b"s"
+                | b"f"
+                | b"F"
+                | b"f*"
+                | b"B"
+                | b"B*"
+                | b"b"
+                | b"b*"
+                | b"sh"
+                | b"Do"
+                | b"BI"
+                | b"Tj"
+                | b"'"
+                | b"\""
+                | b"TJ"
+        );
+        // Overprint simulation: an overprinting CMYK / spot colour multiplies with the
+        // backdrop (subtractive inks add up), the usual on-screen approximation.
+        let simulate = painting && self.overprint && self.gs.blend.is_none() && {
+            let stroke_only = matches!(op.name.as_slice(), b"S" | b"s");
+            let (on, cs) = if stroke_only {
+                (self.gs.op_stroke, &self.gs.stroke_cs)
+            } else {
+                (self.gs.op_fill, &self.gs.fill_cs)
+            };
+            on && cs.is_subtractive()
+        };
+        if simulate {
+            self.gs.blend = Some(BlendMode::Multiply);
+        }
+        if !painting || (self.gs.blend.is_none() && self.gs.smask.is_none()) {
+            self.op_inner(op);
+            return;
+        }
+        let blend = self.gs.blend.take();
+        let mask = self.gs.smask.take();
+        let start = self.out.commands.len();
+        self.clip_mark = None;
+        self.op_inner(op);
+        let end = self.clip_mark.take().unwrap_or(self.out.commands.len());
+        if end > start {
+            self.out.commands.insert(end, Command::PopGroup);
+            self.out.commands.insert(
+                start,
+                Command::PushGroup {
+                    blend,
+                    mask: mask.as_ref().map(|m| Box::new(SoftMask::clone(m))),
+                    knockout: false,
+                },
+            );
+        }
+        self.gs.blend = if simulate { None } else { blend };
+        self.gs.smask = mask;
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn op_inner(&mut self, op: &Op) {
         let a = &op.args;
         let n = |i: usize| a.get(i).map_or(0.0, f);
         match op.name.as_slice() {
@@ -568,10 +792,13 @@ impl<'s, 'a> Interp<'s, 'a> {
             b"W" | b"W*" => self.clip = Some(op.name == b"W*"),
             // Colour.
             b"CS" | b"cs" => {
-                let cs = a
-                    .first()
-                    .and_then(|o| self.color_space(o))
-                    .unwrap_or(ColorSpace::Gray);
+                let parsed = a.first().and_then(|o| self.color_space(o));
+                // A Separation / DeviceN space whose tint transform is unusable is ignored:
+                // the previous space stays current (measured on the reference reader).
+                if parsed.is_none() && a.first().is_some_and(|o| self.is_tint_space(o)) {
+                    return;
+                }
+                let cs = parsed.unwrap_or(ColorSpace::Gray);
                 let init = cs.initial();
                 if op.name == b"CS" {
                     self.gs.stroke_cs = Arc::new(cs);
@@ -619,8 +846,14 @@ impl<'s, 'a> Interp<'s, 'a> {
             b"BT" => {
                 self.tm = IDENTITY;
                 self.tlm = IDENTITY;
+                self.text_clip = None;
             }
-            b"ET" => {}
+            // Text shown with a clipping render mode adds its outlines to the clip at ET.
+            b"ET" => {
+                if let Some(segs) = self.text_clip.take() {
+                    self.push_clip(&segs);
+                }
+            }
             b"Tc" => self.gs.tc = n(0),
             b"Tw" => self.gs.tw = n(0),
             b"Tz" => self.gs.th = n(0) / 100.0,
@@ -631,6 +864,7 @@ impl<'s, 'a> Interp<'s, 'a> {
                 self.gs.size = n(1);
                 if let Some(Object::Name(name)) = a.first() {
                     self.gs.font = self.load_font(name);
+                    self.gs.font_name.clone_from(name);
                 }
             }
             b"Td" => self.next_line(n(0), n(1)),
@@ -779,8 +1013,33 @@ impl<'s, 'a> Interp<'s, 'a> {
                             .unwrap_or_default();
                     }
                 }
+                // `/OP` sets both unless `/op` is given too (§8.4.5 Table 58).
+                b"OP" => {
+                    let on = v.as_bool().unwrap_or(false);
+                    self.gs.op_stroke = on;
+                    if d.get(b"op").is_err() {
+                        self.gs.op_fill = on;
+                    }
+                }
+                b"op" => self.gs.op_fill = v.as_bool().unwrap_or(false),
                 b"CA" => self.gs.stroke_alpha = f(v).clamp(0.0, 1.0),
                 b"ca" => self.gs.fill_alpha = f(v).clamp(0.0, 1.0),
+                b"BM" => {
+                    self.gs.blend = match v {
+                        Object::Name(n) => BlendMode::from_pdf_name(n),
+                        Object::Array(a) => a
+                            .iter()
+                            .filter_map(|o| o.as_name().ok())
+                            .find_map(BlendMode::from_pdf_name),
+                        _ => None,
+                    };
+                }
+                b"SMask" => {
+                    self.gs.smask = match v {
+                        Object::Dictionary(m) => self.soft_mask(m).map(Rc::new),
+                        _ => None,
+                    };
+                }
                 b"Font" => {
                     if let Ok(arr) = v.as_array() {
                         if let (Some(fo), Some(size)) = (arr.first(), arr.get(1)) {
@@ -792,6 +1051,76 @@ impl<'s, 'a> Interp<'s, 'a> {
                 _ => {}
             }
         }
+    }
+
+    /// Draw a soft mask's group (§11.6.5.2) with the current matrix into its own commands.
+    fn soft_mask(&mut self, d: &Dictionary) -> Option<SoftMask> {
+        let doc = self.doc();
+        let luminosity = d.get(b"S").and_then(Object::as_name).ok() != Some(b"Alpha");
+        let id = d.get(b"G").ok()?.as_reference().ok()?;
+        if self.depth > 12 || self.forms.contains(&id) {
+            return None;
+        }
+        let Object::Stream(s) = doc.get_object(id).ok()? else {
+            return None;
+        };
+        let content = filters::stream_bytes(doc, s).ok()?;
+        let num_array = |o: &Object| -> Vec<f32> {
+            doc.dereference(o)
+                .map_or(o, |(_, o)| o)
+                .as_array()
+                .map(|a| a.iter().map(f).collect())
+                .unwrap_or_default()
+        };
+        let matrix = s
+            .dict
+            .get(b"Matrix")
+            .ok()
+            .map(num_array)
+            .and_then(|v| <[f32; 6]>::try_from(v.as_slice()).ok())
+            .unwrap_or(IDENTITY);
+        let bbox = s.dict.get(b"BBox").ok().map(num_array);
+        let res = s
+            .dict
+            .get(b"Resources")
+            .ok()
+            .map(|o| doc.dereference(o).map_or(o, |(_, o)| o))
+            .and_then(|o| o.as_dict().ok());
+        // Backdrop colour in the group's colour space (default black: nothing shows outside).
+        let space = s
+            .dict
+            .get(b"Group")
+            .ok()
+            .map(|o| doc.dereference(o).map_or(o, |(_, o)| o))
+            .and_then(|o| o.as_dict().ok())
+            .and_then(|g| g.get(b"CS").ok())
+            .and_then(|o| self.color_space(o));
+        let bc = d.get(b"BC").ok().map(num_array).unwrap_or_default();
+        let backdrop = match (&space, bc.is_empty()) {
+            (Some(cs), false) => rgba(cs, &bc, 1.0),
+            (None, false) if bc.len() == 1 => rgba(&ColorSpace::Gray, &bc, 1.0),
+            (None, false) if bc.len() == 3 => rgba(&ColorSpace::Rgb, &bc, 1.0),
+            (None, false) if bc.len() == 4 => rgba(&ColorSpace::Cmyk, &bc, 1.0),
+            _ => Rgba(0, 0, 0, 255),
+        };
+        let saved = std::mem::take(&mut self.out.commands);
+        let chars = self.out.chars.len();
+        let path = std::mem::take(&mut self.path);
+        self.save();
+        let ctm = self.gs.ctm;
+        self.gs = Gs::new(ctm);
+        self.forms.push(id);
+        self.run_form(&content, matrix, bbox.as_deref(), res);
+        self.forms.pop();
+        self.restore();
+        self.path = path;
+        self.out.chars.truncate(chars);
+        let commands = std::mem::replace(&mut self.out.commands, saved);
+        Some(SoftMask {
+            luminosity,
+            backdrop,
+            commands,
+        })
     }
 
     fn load_font(&mut self, name: &[u8]) -> Option<Rc<Font>> {
@@ -817,12 +1146,21 @@ impl<'s, 'a> Interp<'s, 'a> {
         let visible = !self.hidden() && !matches!(mode, 3 | 7) && fs != 0.0;
         let fill = !matches!(mode, 1 | 5);
         let stroke = matches!(mode, 1 | 2 | 5 | 6);
-        let color = if fill {
+        let clip_mode = mode >= 4;
+        let mut color = if fill {
             self.fill_rgba()
         } else {
             rgba(&self.gs.stroke_cs, &self.gs.stroke, self.gs.stroke_alpha)
         };
-        let paths = self.sh.opts.text_as_paths || font.face.is_none() || font.is_type1_program();
+        if let Some(t) = self.text_color {
+            color = Rgba(t.0, t.1, t.2, color.3);
+        }
+        // Outlines for stroked and clipping text too (glyph runs only fill).
+        let paths = self.sh.opts.text_as_paths
+            || font.face.is_none()
+            || font.is_type1_program()
+            || stroke
+            || clip_mode;
         let mut run: Vec<Glyph> = Vec::new();
         let mut run_text = String::new();
         let mut run_origin = (0.0, 0.0);
@@ -877,8 +1215,8 @@ impl<'s, 'a> Interp<'s, 'a> {
                     });
                 }
             }
-            if visible {
-                if let Some(t3) = &font.type3 {
+            if visible || clip_mode && fs != 0.0 {
+                if let Some(t3) = font.type3.as_ref().filter(|_| visible) {
                     let name = font.glyph_name(code);
                     if let Some(proc_) = name.and_then(|n| t3.procs.get(n.as_bytes())).cloned() {
                         let m = mul(font.matrix, trm);
@@ -955,9 +1293,17 @@ impl<'s, 'a> Interp<'s, 'a> {
             run_size,
             color,
         );
-        if !glyph_path.is_empty() {
+        if clip_mode {
+            self.text_clip
+                .get_or_insert_with(Vec::new)
+                .extend_from_slice(&glyph_path);
+        }
+        if !glyph_path.is_empty() && visible {
             let fill_paint = fill.then_some(Paint::Solid { color });
-            let stroke_style = if stroke { self.stroke_style() } else { None };
+            let mut stroke_style = if stroke { self.stroke_style() } else { None };
+            if let (Some(t), Some(st)) = (self.text_color, stroke_style.as_mut()) {
+                st.color = Rgba(t.0, t.1, t.2, st.color.3);
+            }
             self.out.commands.push(Command::Path {
                 segs: glyph_path,
                 fill: fill_paint,
@@ -1109,7 +1455,8 @@ impl<'s, 'a> Interp<'s, 'a> {
                     })
                 });
                 if let Some(img) = img {
-                    self.place_image(key, img);
+                    let smooth = interpolate(doc, &s.dict);
+                    self.place_image(key, img, smooth);
                 }
             }
             Ok(b"Form") => {
@@ -1139,12 +1486,32 @@ impl<'s, 'a> Interp<'s, 'a> {
                     .ok()
                     .map(|o| doc.dereference(o).map_or(o, |(_, o)| o))
                     .and_then(|o| o.as_dict().ok());
+                // §11.4.6.2 / §11.6.6: a transparency group with `/K true` is a knockout group.
+                let knockout = s
+                    .dict
+                    .get(b"Group")
+                    .ok()
+                    .map(|o| doc.dereference(o).map_or(o, |(_, o)| o))
+                    .and_then(|o| o.as_dict().ok())
+                    .and_then(|g| g.get(b"K").ok())
+                    .and_then(|k| k.as_bool().ok())
+                    .unwrap_or(false);
+                if knockout {
+                    self.out.commands.push(Command::PushGroup {
+                        blend: None,
+                        mask: None,
+                        knockout: true,
+                    });
+                }
                 if let Some(i) = id {
                     self.forms.push(i);
                 }
                 self.run_form(&content, matrix, bbox.as_deref(), res);
                 if id.is_some() {
                     self.forms.pop();
+                }
+                if knockout {
+                    self.out.commands.push(Command::PopGroup);
                 }
             }
             _ => {}
@@ -1218,16 +1585,24 @@ impl<'s, 'a> Interp<'s, 'a> {
             fill,
         });
         if let Some(img) = img {
-            self.place_image(key, Arc::new(img));
+            let smooth = interpolate(self.doc(), d);
+            self.place_image(key, Arc::new(img), smooth);
         }
     }
 
     /// Draw a picture into the unit square of the current matrix.
-    fn place_image(&mut self, key: String, img: Arc<Image>) {
+    /// Without `/Interpolate true` (§8.9.5.3) the image id ends in [`PIXELATED`]: backends
+    /// enlarge it pixel by pixel, as other readers do.
+    fn place_image(&mut self, key: String, img: Arc<Image>, smooth: bool) {
         let t = mul([1.0, 0.0, 0.0, -1.0, 0.0, 1.0], self.gs.ctm);
         if !t.iter().all(|v| v.is_finite()) {
             return;
         }
+        let key = if smooth {
+            key
+        } else {
+            format!("{key}{PIXELATED}")
+        };
         self.out.images.insert(key.clone(), img);
         let alpha = self.gs.fill_alpha;
         if alpha < 0.999 {
@@ -1286,7 +1661,81 @@ impl<'s, 'a> Interp<'s, 'a> {
                 fill: Some(p),
                 stroke: None,
             });
+        } else {
+            let m = self.gs.ctm;
+            self.mesh_fill(&o, m);
         }
+    }
+
+    /// Draw a function-based or mesh shading (types 1, 4–7) as small triangles in pattern
+    /// space `m`; false when it is not one.
+    fn mesh_fill(&mut self, o: &Object, m: M) -> bool {
+        let doc = self.doc();
+        let Ok((_, obj)) = doc.dereference(o) else {
+            return false;
+        };
+        let (dict, data) = match obj {
+            Object::Stream(s) => (&s.dict, filters::stream_bytes(doc, s).ok()),
+            Object::Dictionary(d) => (d, None),
+            _ => return false,
+        };
+        let kind = dict
+            .get(b"ShadingType")
+            .ok()
+            .and_then(|v| v.as_i64().ok())
+            .unwrap_or(0);
+        if !matches!(kind, 1 | 4..=7) {
+            return false;
+        }
+        let Some(cs) = dict
+            .get(b"ColorSpace")
+            .ok()
+            .and_then(|c| self.color_space(c))
+        else {
+            return false;
+        };
+        let func = dict
+            .get(b"Function")
+            .ok()
+            .and_then(|o| Function::parse(doc, o, 0));
+        let tris = match (kind, &func, &data) {
+            (1, Some(f), _) => crate::mesh::function_based(doc, dict, f),
+            (4..=7, _, Some(d)) => {
+                crate::mesh::mesh(kind, dict, d, cs.components(), func.is_some())
+            }
+            _ => return false,
+        };
+        let alpha = self.gs.fill_alpha;
+        // A hairline in each triangle's colour hides the seams between neighbours.
+        let seam = self.sh.opts.min_line * 0.8;
+        for t in tris {
+            let vals = match &func {
+                Some(f) if kind != 1 => f.eval(&t.color),
+                _ => t.color,
+            };
+            let color = rgba(&cs, &vals, alpha);
+            let p: Vec<(f32, f32)> = t.pts.iter().map(|&(x, y)| apply(m, x, y)).collect();
+            if !p.iter().all(|q| q.0.is_finite() && q.1.is_finite()) {
+                continue;
+            }
+            self.out.commands.push(Command::Path {
+                segs: vec![
+                    PathSeg::M(p[0].0, p[0].1),
+                    PathSeg::L(p[1].0, p[1].1),
+                    PathSeg::L(p[2].0, p[2].1),
+                    PathSeg::Z,
+                ],
+                fill: Some(Paint::Solid { color }),
+                stroke: (alpha >= 0.999 && seam > 0.0).then(|| Stroke {
+                    width: seam,
+                    color,
+                    dash: Vec::new(),
+                    cap: "butt".to_owned(),
+                    join: "round".to_owned(),
+                }),
+            });
+        }
+        true
     }
 
     /// Gradient paint of an axial or radial shading in pattern space `m`.
@@ -1358,8 +1807,9 @@ impl<'s, 'a> Interp<'s, 'a> {
                     stops: stops(&|u| (r0 + u * (r1 - r0)) / outer),
                 })
             }
+            1 | 4..=7 => None,
             _ => {
-                // Mesh and function shadings: their background, or the middle colour.
+                // Other shadings: their background.
                 let bg: Vec<f32> = dict
                     .get(b"Background")
                     .ok()
@@ -1375,6 +1825,25 @@ impl<'s, 'a> Interp<'s, 'a> {
                 }
             }
         }
+    }
+
+    /// The shading and pattern matrix of a shading pattern whose shading is a mesh or
+    /// function-based one.
+    fn mesh_pattern(&self, name: &[u8]) -> Option<(Object, M)> {
+        let doc = self.doc();
+        let o = self.pattern_object(name)?;
+        let d = match doc.dereference(&o).ok()?.1 {
+            Object::Dictionary(d) => d,
+            Object::Stream(s) => &s.dict,
+            _ => return None,
+        };
+        let sh = d.get(b"Shading").ok()?;
+        let kind = match doc.dereference(sh).ok()?.1 {
+            Object::Dictionary(s) => s.get(b"ShadingType").ok()?.as_i64().ok()?,
+            Object::Stream(s) => s.dict.get(b"ShadingType").ok()?.as_i64().ok()?,
+            _ => return None,
+        };
+        matches!(kind, 1 | 4..=7).then(|| (sh.clone(), self.pattern_matrix(d)))
     }
 
     fn pattern_object(&self, name: &[u8]) -> Option<Object> {
@@ -1503,6 +1972,19 @@ impl<'s, 'a> Interp<'s, 'a> {
         self.out.commands.push(Command::PopClip);
         self.gs.clips = self.gs.clips.saturating_sub(1);
     }
+}
+
+/// Suffix of the id of an image that is enlarged without smoothing (no `/Interpolate true`).
+pub const PIXELATED: &str = "#px";
+
+/// `/Interpolate` (or `/I` inline) of an image dictionary.
+fn interpolate(doc: &Document, d: &Dictionary) -> bool {
+    d.get(b"Interpolate")
+        .or_else(|_| d.get(b"I"))
+        .ok()
+        .and_then(|o| doc.dereference(o).ok().map(|(_, o)| o))
+        .and_then(|o| o.as_bool().ok())
+        .unwrap_or(false)
 }
 
 #[cfg(test)]

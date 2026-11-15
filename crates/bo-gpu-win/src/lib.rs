@@ -41,6 +41,16 @@ pub enum TextRendering {
         /// Snap outlines to the pixel grid (font hinting).
         grid_fit: bool,
     },
+    /// Grayscale symmetric antialiasing with one gamma / contrast for every face (PDF pages
+    /// in BlueReader, tuned against the desktop PDF reader; BlueDoc keeps [`Self::Grayscale`]).
+    GrayscaleTuned {
+        /// Gamma, normally 1.0 to 2.2.
+        gamma: f32,
+        /// Extra contrast, 0 or more.
+        contrast: f32,
+        /// Snap outlines to the pixel grid (font hinting).
+        grid_fit: bool,
+    },
 }
 
 impl TextRendering {
@@ -374,6 +384,109 @@ mod tests {
         assert_eq!(px(&image, 16, 16), [0, 0, 0, 255]);
         // Corner of the bounding box lies outside the rotated square.
         assert_eq!(px(&image, 6, 6), [255, 255, 255, 255]);
+    }
+
+    #[test]
+    fn blend_modes_and_soft_masks() {
+        use bo_render::{BlendMode, Command, PathSeg, Rgba, SoftMask};
+        let rect = |x: f32, w: f32, color: Rgba| Command::FillRect {
+            x,
+            y: 0.0,
+            w,
+            h: 32.0,
+            color,
+        };
+        let image = render(vec![
+            // Grey backdrop on the left half; Multiply orange over both halves.
+            rect(0.0, 16.0, Rgba(128, 128, 128, 255)),
+            Command::PushGroup {
+                blend: Some(BlendMode::Multiply),
+                mask: None,
+                knockout: false,
+            },
+            rect(0.0, 32.0, Rgba(255, 128, 0, 255)),
+            Command::PopGroup,
+        ]);
+        let over_grey = px(&image, 4, 4);
+        assert!(
+            (over_grey[0] as i32 - 128).abs() <= 2
+                && (over_grey[1] as i32 - 64).abs() <= 2
+                && over_grey[2] <= 2,
+            "{over_grey:?}"
+        );
+        assert_eq!(px(&image, 24, 4), [255, 128, 0, 255]);
+        // Luminosity mask: white over the left half (opaque), black backdrop elsewhere.
+        let image = render(vec![
+            Command::PushGroup {
+                blend: None,
+                mask: Some(Box::new(SoftMask {
+                    luminosity: true,
+                    backdrop: Rgba(0, 0, 0, 255),
+                    commands: vec![rect(0.0, 16.0, Rgba(255, 255, 255, 255))],
+                })),
+                knockout: false,
+            },
+            rect(0.0, 32.0, Rgba(0, 0, 255, 255)),
+            Command::PopGroup,
+        ]);
+        assert_eq!(px(&image, 4, 4), [0, 0, 255, 255]);
+        assert_eq!(px(&image, 24, 4), [255, 255, 255, 255]);
+        // Multiply inside a triangular clip (a layer): blended inside, untouched outside.
+        let image = render(vec![
+            rect(0.0, 32.0, Rgba(128, 128, 128, 255)),
+            Command::PushClipPath {
+                segs: vec![
+                    PathSeg::M(0.0, 0.0),
+                    PathSeg::L(32.0, 0.0),
+                    PathSeg::L(0.0, 32.0),
+                    PathSeg::Z,
+                ],
+            },
+            Command::PushGroup {
+                blend: Some(BlendMode::Multiply),
+                mask: None,
+                knockout: false,
+            },
+            rect(0.0, 32.0, Rgba(255, 128, 0, 255)),
+            Command::PopGroup,
+            Command::PopClip,
+        ]);
+        let inside = px(&image, 4, 4);
+        assert!(
+            (inside[0] as i32 - 128).abs() <= 2 && (inside[1] as i32 - 64).abs() <= 2,
+            "{inside:?}"
+        );
+        assert_eq!(px(&image, 28, 28), [128, 128, 128, 255]);
+    }
+
+    #[test]
+    fn knockout_group_objects_replace_each_other() {
+        use bo_render::{Command, Rgba};
+        let half = |x: f32, color: Rgba| Command::FillRect {
+            x,
+            y: 0.0,
+            w: 20.0,
+            h: 32.0,
+            color,
+        };
+        let group = |knockout: bool| {
+            render(vec![
+                Command::PushGroup {
+                    blend: None,
+                    mask: None,
+                    knockout,
+                },
+                half(0.0, Rgba(255, 0, 0, 128)),
+                half(12.0, Rgba(0, 0, 255, 128)),
+                Command::PopGroup,
+            ])
+        };
+        // Overlap (x 12–20): blue alone at 50 % over white, not blue over red.
+        let k = px(&group(true), 16, 16);
+        assert!(k[0] >= 125 && k[0] <= 130 && k[2] == 255, "{k:?}");
+        let n = px(&group(false), 16, 16);
+        // Normal group: blue over red over white.
+        assert!(n[1] < 100, "{n:?}");
     }
 
     #[test]

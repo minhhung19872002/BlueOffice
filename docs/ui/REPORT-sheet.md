@@ -299,3 +299,326 @@ cửa sổ, không thì bày gọn (`sheet_ribbon::tabs_wide` / `tabs`; ribbon t
   `traceArrows`); Page Layout: Themes, Background, Print Titles, Arrange; Review: Show All Comments, thẻ hiện chú thích
   khi rê chuột.
 - Ô đánh dấu “View / Print” của Sheet Options đang là nút bật/tắt có nhãn.
+
+## Vòng 4 — cuộn vòng, hộp thoại tự vẽ, Formulas / Data / Review / Help
+
+Nhánh `worktree-agent-af1e12dc87f070ae8` (từ `work/desktop-performance` 8d99794b). Ảnh chụp và số đo trong thư mục
+scratch của phiên (`sheet4/`): `xfc-0.png`, `xd-43-381.png`, `xd-45-84.png` (Format Cells của đối chứng: Number,
+Alignment / Font, Border / Fill), `xnote-all.png` (thẻ chú thích), `ring-runs.txt` (độ trễ bánh xe), `cmp-*.png`
+(đối chứng trên / BlueSheet dưới).
+
+Cách mở hộp thoại của đối chứng không gửi input thật: tiến trình con tạo phiên bản COM riêng rồi gọi
+`Application.Dialogs(id).Show()` (chặn trong tiến trình con); tiến trình đo tìm cửa sổ `bosa_sdm_XL9` của phiên bản đó,
+chụp `PrintWindow`, đóng bằng `WM_CLOSE` (`xdlgs.ps1`, `xshow.ps1`). Nhấp gửi vào hộp thoại `bosa_sdm` không ổn định
+(lần chụp lỡ khung đang vẽ) nên mỗi thẻ mở bằng id hộp thoại riêng (42 Number, 43 Alignment, 381 Font, 45 Border,
+84 Fill, 46 Protection).
+
+### Vòng 12 — bánh xe: ảnh lưới dạng vòng, chỉ chuẩn bị chữ trong dải, thanh cuộn lưu đệm
+
+- `GridRing` (bo-ui): ảnh lưới lưu theo pha (px, py); cuộn chỉ đổi pha và vẽ dải mới lộ ra vào đúng chỗ trong vòng
+  (`Device::draw_page_at`, bo-gpu-win, thêm mới: vẽ một dải display list dời đi số nguyên điểm ảnh), khi hiện ghép tối
+  đa 4 mảnh (`Frame::draw_page_rect`). Không còn chép cả ảnh sang ảnh thứ hai mỗi nấc. Hàng/cột cố định theo trục cuộn
+  vẫn dùng cách dời ảnh cũ. Test rasterizer CPU: 17 lần cuộn (bánh xe + cột) qua vòng = vẽ cả trang
+  (`scrolling_turns_a_ring_image_without_copying`). `BLUEOFFICE_SHEET_RING=0` tắt để so.
+- Vẽ theo dải trên GPU bỏ qua các lượt chữ nằm hẳn ngoài dải (trước đây bước 1 chuẩn bị glyph run DirectWrite cho mọi
+  ô của trang dù chỉ vẽ 3 hàng).
+- Thanh cuộn: `SheetEngine::content_size` duyệt mọi ô (2 lần mỗi trục, mỗi input); nay lưu đệm theo (cuộn, khung,
+  trang tính, thu phóng, số lần sửa).
+
+Đo thời gian CPU trong tiến trình (test `wheel_step_timing`, bản release, `big10k.xlsx`, 40 nấc, kho ảnh rỗng):
+
+| Bước mỗi nấc | Trước | Sau |
+|---|---|---|
+| cuộn (`scroll_rows`) | 0,99–1,23 ms | 1,45 ms (dao động do máy tải) |
+| thanh cuộn (`update_bars`) | 1,49–2,10 ms | 0,00 ms |
+| display list | 0,72 ms | 0,78 ms |
+| `handle(Wheel)` cộng lại | 2,32–3,41 ms | 1,50 ms |
+
+Trên màn hình (`thumb.ps1`, 30 nấc, 144 Hz; máy đang chạy build của 4 phiên khác nên số dao động ±5 ms giữa các lần):
+
+| Cửa sổ | vòng tắt (4 lần, trung vị) | vòng bật (4 lần, trung vị) |
+|---|---|---|
+| 1500×1000 | 21,0 · 18,6 · 14,8 · 14,8 ms | 21,5 · 18,8 · 15,2 · 15,9 ms |
+| 900×700 | 15,7 · 20,9 · 14,6 · 15,2 ms | 20,8 · 14,6 · 15,2 · 15,1 ms |
+
+Riêng ảnh vòng không đổi độ trễ thấy được (trong sai số). Sau khi lưu đệm kích thước nội dung (bản cuối, 3 lần mỗi cỡ,
+`r4-runs.txt`; đối chứng đo cùng lúc, cùng cách):
+
+| Cửa sổ | Đối chứng trung vị / p95 | BlueSheet vòng 3 | BlueSheet vòng 4 | nội bộ: xử lý / lưới / phím→present |
+|---|---|---|---|---|
+| 1500×1000 | 7,5 / 14,3 ms | 19,9 / 26,9 | 14,6–14,9 / 20,8–23,0 | 1,8–2,0 / 2,4–2,7 / 5,2–5,8 ms |
+| 900×700 | 7,8 / 14,3 ms | 14,6 / 15,3 | 14,4–14,6 / 15,0–15,7 | 1,5–1,7 / 1,3 / 3,7–3,9 ms |
+
+Đọc số: 1500×1000 xuống từ ~3 khung còn 2 khung 144 Hz (p95 20,8–23 so với 26,9); 900×700 giữ 2 khung với p95 sát
+trung vị. Đối chứng vẫn nhanh hơn một khung: nó vẽ GDI và được ghép ở vblank kế tiếp; BlueSheet sau present cần thêm
+một vblank của swap chain flip. Việc còn lại: present sớm hơn trong khung (waitable object + đo vblank), dựng display
+list chỉ cho dải mới lộ ra (hiện dựng cả khung nhìn 0,8 ms rồi chỉ vẽ dải).
+
+### Vòng 13 — Format Cells tự vẽ (`sheet_form.rs`, `sheet_fcells.rs`)
+
+Bộ điều khiển hộp thoại riêng của BlueSheet (không đổi `dialog.rs` dùng chung): list box, drop-down, ô số có mũi tên,
+ô đánh dấu, ô màu, nút, vùng do chủ vẽ, thẻ trang. Đo trên đối chứng (`xfc-0.png`):
+
+| Hạng mục | Đối chứng | BlueSheet |
+|---|---|---|
+| Cửa sổ / thanh tiêu đề | 692×636, 38 px #F3F3F3, mặt #F0F0F0 | như đối chứng |
+| Trang thẻ | x 18–671, y 74–575, #F9F9F9 viền #E5E5E5 | như đối chứng |
+| List box | viền #828790, hàng 17 px, chọn #0078D7 | như đối chứng |
+| Nút OK / Cancel | 112×28 tại (434, 588) / (561, 588), #FDFDFD, viền #0078D4 / #D0D0D0 | như đối chứng |
+| Chữ | Segoe UI, "Number" rộng 47 px, chữ hoa 10 px | 13,5 px: 47–48 px (trước sửa 15 px: 53 px) |
+
+Các thẻ (`cmp-fc0..5.png`, đối chứng trái / BlueSheet phải): Number — danh sách 12 loại, Sample sống (định dạng giá
+trị ô hiện hành bằng `bo_sheet::numfmt`), số chữ số thập phân, dấu phân cách, ký hiệu, kiểu số âm (danh sách mẫu
+−1234,10), danh sách Type cho Date / Time / Fraction / Special / Custom (Custom có ô mã); Alignment — Horizontal /
+Vertical, Indent, Justify distributed (mờ), Wrap / Shrink / Merge, Text direction, Orientation (cột chữ dọc, mặt
+đồng hồ bấm đặt góc, ô độ); Font — ô + danh sách phông / kiểu / cỡ, Underline, Color, Normal font, Strikethrough /
+Superscript / Subscript, Preview với đường nền hai bên; Border — 14 kiểu nét theo thứ tự đối chứng, Color, Presets
+None / Outline / Inside, 8 nút cạnh có hình cạnh, hộp xem trước bấm gần cạnh nào thì bật cạnh đó; Fill — No Color,
+bảng màu chủ đề 10×6 (sắc độ tính từ theme của sổ) + 10 màu chuẩn ở đúng vị trí, Pattern Color / Style, Sample;
+Protection — Locked / Hidden + ghi chú. Engine: `StylePatch` thêm `fillPattern` / `patternColor` (§18.8.32) và
+`vertAlign` (§18.4.14). Mở bằng menu chuột phải → Format cells… (chụp bằng nhấp gửi vào cửa sổ, `bcap.ps1`).
+
+Còn khác: màu chữ / màu hoa văn là danh sách tên màu (đối chứng: bảng màu thả xuống); Fill Effects / More Colors mờ;
+viền chéo vẽ trong hộp nhưng engine chưa có cạnh chéo; Text to Columns chưa có định dạng từng cột.
+
+### Vòng 14 — Formulas và Data
+
+- Formulas: Insert Function (tìm, nhóm, danh sách hàm, chữ ký đối số kiểu BlueOffice), nhóm Defined Names (Name
+  Manager: danh sách, thêm / sửa / xoá qua `defineName` / `deleteName`; Create from Selection), nhóm Formula Auditing
+  (mũi tên dò ô được tham chiếu / phụ thuộc từ `traceArrows`, mỗi lần bấm thêm một mức; khung quanh vùng; chấm ở
+  nguồn, đầu mũi tên ở đích; Remove Arrows; Show Formulas; Error Checking chọn ô lỗi kế tiếp; Evaluate Formula liệt kê
+  các bước của `evaluateFormula`).
+- Data: Sort nhiều mức (Add / Delete / Copy Level, “My data has headers” đoán bằng `sortRegion`, cột theo tên tiêu
+  đề, A→Z / Z→A), Data Validation 3 thẻ (Settings / Input Message / Error Alert, `setValidation`), Goal Seek (`goalSeek`,
+  áp giá trị tìm được).
+
+### Vòng 15 — Review, Page Layout, Help
+
+- Thẻ chú thích (đo `xnote-all.png`): hộp 193×119 px, nền #FFFFE1, viền đen 1 px, lệch phải 15 px / lên 8 px so với góc
+  trên-phải ô, chữ cách mép 6 px, đường nối từ góc ô; hiện khi rê chuột lên ô có chú thích; Show All Comments (Review)
+  giữ mọi thẻ. Đối chứng (2016/2019) chỉ có chú thích kiểu note nên chú thích theo luồng của BlueSheet vẽ như note
+  (tên tác giả đậm, các trả lời nối sau).
+- Page Layout: Print Titles (hàng lặp ở đầu trang, `setPageSetup.titleRows`); Gridlines / Headings (View, Print) và
+  Formula Bar là ô đánh dấu vẽ đè lên biểu tượng như đối chứng, không còn là nút bật/tắt tô nền.
+- Thẻ Help: Help (giới thiệu, định dạng tương thích) và Keyboard Shortcuts.
+
+## Còn lại (sau vòng 4)
+
+- Bánh xe: vẫn ~2 khung 144 Hz so với ~1 khung của đối chứng (CPU 4–6 ms + một vblank của swap chain flip).
+- Tab Draw (engine bảng tính chưa có nét mực); Page Layout: Themes, Background, Arrange.
+- Insert: thư viện biểu đồ, PivotTable, Table Design, sparkline; Data: hộp lọc thả xuống có tìm kiếm và danh sách giá trị.
+- Format Cells: bảng màu thả xuống cho màu chữ / hoa văn; Text to Columns định dạng từng cột; hộp tên hiện danh sách
+  hàm khi đang sửa công thức.
+
+## Vòng 5 — lọc tự động, Insert, màu Format Cells, thư viện kiểu ô
+
+Nhánh `worktree-agent-aa38ae3d481a9744f` (từ `work/desktop-performance` 250ef53b). Ảnh so sánh (đối chứng trái/trên,
+BlueSheet phải/dưới) trong thư mục scratch của phiên: `show/sheet-01-format-cells-number.png`,
+`show/sheet-02-insert-tab.png`, `show/sheet-03-filter-dropdown.png` (chỉ BlueSheet), `show/sheet-04-cell-styles.png`,
+`show/sheet-05-format-as-table.png`, `show/sheet-06-color-palette.png`.
+
+Cách mở menu thả xuống của đối chứng không gửi input thật: nhấp gửi vào cửa sổ `NetUIHWND` của ribbon mở được thư viện
+Cell Styles (cửa sổ `Net UI Tool Window` 991×639 px); ảnh ghép cửa sổ chính với các cửa sổ bật lên cùng tiến trình
+(`xrib.ps1`, `xgrid.ps1`). Hộp lọc thả xuống của đối chứng **không** mở được bằng nhấp / Alt+↓ gửi vào cửa sổ lưới
+(`EXCEL7` cần trạng thái chuột thật), nên hộp lọc dựng theo bố cục đã biết của đối chứng và chỉ có ảnh BlueSheet.
+
+### Vòng 16 — sửa lỗi Format Cells, hộp lọc thả xuống
+
+- Format Cells / Number: mô tả “General format cells have no specific number format.” bắt đầu bên phải danh sách
+  Category (x 225, y 163 như đối chứng), không vẽ đè lên danh sách nữa; tiêu đề “Format Cells”; nút “?” cách mép phải
+  96 px; danh sách Category luôn có thanh cuộn mờ (LBS_DISABLENOSCROLL như đối chứng).
+- Lọc tự động (`sheet_filter.rs`): nhấp nút lọc ở ô tiêu đề mở hộp 300 px (ở 125 %) canh trái theo ô: Sort A→Z / Z→A
+  (số: Smallest/Largest, ngày: Oldest/Newest), Sort by Color (mờ), Clear Filter From "…", Filter by Color (mờ),
+  Text / Number / Date Filters ▸ (menu con: Equals, Does Not Equal, Begins / Ends With, Contains, Greater / Less Than,
+  Between, Top 10, Above / Below Average, Today / This Week / … Year to Date, Custom Filter), ô Search có kính lúp,
+  danh sách giá trị có (Select All) (ba trạng thái), cây năm / tháng cho cột ngày, (Blanks), OK / Cancel, chấm kéo
+  cỡ. Custom AutoFilter (hai điều kiện, And / Or, ký tự đại diện) và Top 10 AutoFilter là form riêng. Engine:
+  `filterValues` / `setFilter`; thanh trạng thái “x of y records found” như đối chứng, xoá khi nhấp lại vào lưới.
+
+### Vòng 17 — tab Insert theo đối chứng
+
+Nhóm như đối chứng ở 1920 px: Tables (PivotTable, Recommended PivotTables, Table), Illustrations (Pictures, Shapes),
+Charts (Recommended Charts, khối 3 × 3 nút loại biểu đồ có menu: cột/thanh, phân cấp, thác nước/phễu/chứng khoán/bề
+mặt, đường/vùng, thống kê, radar, tròn/vành khuyên, phân tán/bong bóng, 3-D; Maps, PivotChart), Sparklines (Line,
+Column, Win/Loss), Filters (Slicer), Links (Link), Text, Symbols (Symbol). Biểu tượng mới là hình vẽ riêng
+(`Icons::add_solid`).
+
+- Create Table (vùng + “My table has headers”; không có tiêu đề thì chèn hàng Column1…), Create PivotTable (vùng,
+  trang mới / có sẵn, chọn trường Rows và Sum of — chưa có ngăn PivotTable Fields), PivotChart (bảng tổng hợp đề xuất
+  + biểu đồ cột), Create Sparklines (Data Range / Location Range → `sparklineInsert`), Slicer (cột bảng của ô hiện
+  hành; ngoài bảng thì thanh trạng thái nhắc), Insert Hyperlink (ghi công thức `HYPERLINK`), Header/Footer (trái /
+  giữa / phải → `setPageSetup.headerFooter`), Symbol (lưới 16 × 8, chọn trang ký tự, mã U+).
+- Ảnh và hình: engine thêm lệnh `insertDrawing` (hình dạng preset hoặc ảnh PNG/JPEG/GIF/BMP base64, chữ trong hình) —
+  một `xdr:grpSp` trong `SheetShapeGroup`, bộ ghi xlsx đặt vào phần drawing kèm quan hệ ảnh; có test lưu / mở lại.
+  Pictures mở hộp chọn tệp của Windows (`Request::PickPicture`, `BLUEOFFICE_PICTURE` để chạy kịch bản).
+- Chưa làm: Icons, 3D Models, SmartArt, Screenshot, Timeline (cần bảng tổng hợp có trường ngày), Equation (chưa có
+  phương trình trong bảng tính), Text Box.
+
+### Vòng 18 — viền chéo, bảng màu, hộp tên khi gõ công thức
+
+- Viền chéo: `BorderPreset` thêm `diagonalDown` / `diagonalUp` / `noDiagonal` (§18.8.4); Format Cells / Border đọc và
+  ghi hai nút chéo; test lưu / mở lại xlsx.
+- Màu chữ, màu viền, màu hoa văn của Format Cells là nút màu mở bảng như đối chứng: Automatic, Theme Colors 10 × 6
+  (sắc độ tính từ theme), Standard Colors, More Colors… (form Colors: Red / Green / Blue, Hex, ô mới / hiện tại; form
+  Format Cells chờ bên dưới rồi nhận màu).
+- Hộp tên khi đang gõ công thức hiện tên hàm đang gõ (mặc định SUM) và mũi tên liệt kê SUM, AVERAGE, IF, HYPERLINK,
+  COUNT, MAX, SIN, SUMIF, PMT, STDEV, More Functions… như đối chứng; chọn hàm chèn `TÊN(` tại con trỏ.
+
+### Vòng 19 — thư viện Cell Styles và Format as Table
+
+Đo trên đối chứng (`xcs-1.png`): hộp 991 px, sáu ô mỗi hàng, ô 153 × 36 px cách 8 px, tiêu đề nhóm 30 px nền xám.
+Engine thêm các kiểu dựng sẵn còn thiếu (Calculation, Check Cell, Explanatory Text, Input, Linked Cell, Output,
+Warning Text, Heading 3–4, 20 % / 40 % / 60 % – Accent1–6, Accent1–6; builtinId theo §18.8.7) với màu đo được
+(vd 20 % – Accent1 #D9E1F2, Accent1 #4472C4, Accent6 #70AD47). Thư viện vẽ mỗi kiểu bằng phông, màu, nền, viền dưới
+của nó; Format as Table vẽ bảng nhỏ (hàng tiêu đề, dải màu) cho 21 kiểu Light / Medium / Dark.
+
+### Bánh xe — đo lại sau khi gộp thay đổi page.rs của BlueReader
+
+`thumb.ps1`, `big10k.xlsx`, 30 nấc cách 120 ms, 144 Hz:
+
+| Cửa sổ | Đối chứng trung vị / p95 | BlueSheet vòng 4 | BlueSheet vòng 5 |
+|---|---|---|---|
+| 1500×1000 | 7,5 / 13,8 ms | 14,6–14,9 / 20,8–23,0 | 15,3 / 16,6 |
+| 900×700 | 7,6 / 13,5 ms | 14,4–14,6 / 15,0–15,7 | 14,6 / 15,7 (sync 0: 14,7 / 15,9) |
+
+Nội bộ (900×700): xử lý 1,2–1,4 ms, lưới 0,9–1,3 ms, vẽ giao diện 0,2–0,4 ms, gửi 0,4 ms — từ input tới khi
+`Present` trả về ~3 ms; với `BLUEOFFICE_NATIVE_GPU=1` GPU xong sau 1,2–2,0 ms (tổng 4,8–6,6 ms). Khung vẫn hiện sau
+hai vblank: nấc được gửi ngay sau một vblank (cách đo), đối chứng vẽ GDI xong trong ~1 ms và kịp lần ghép của DWM ở
+vblank kế tiếp; BlueSheet xong sau ~5 ms thì trễ lần ghép đó. Sync interval 0 không đổi gì. Muốn còn một khung cần
+cả CPU + GPU dưới ~1–2 ms (dựng display list chỉ cho dải mới lộ ra, bỏ bước `refresh` toàn khung) hoặc đường
+DirectComposition — chưa làm trong vòng này; p95 ở 1500×1000 đã sát trung vị (16,6 so với 20,8–23 ms).
+
+## Còn lại (sau vòng 5)
+
+- Bánh xe vẫn ~2 khung 144 Hz (đối chứng ~1 khung): xem phân tích trên.
+- Page Layout: Themes / Colors / Fonts (engine có `applyThemeFile` nhưng chưa có bộ theme dựng sẵn), Background,
+  Arrange; tab Draw (engine bảng tính chưa có nét mực).
+- Conditional Formatting: menu con theo đối chứng và Manage Rules; Fill Effects (gradient); Text to Columns định dạng
+  từng cột; ngăn PivotTable Fields; chọn / di chuyển hình và ảnh trên lưới; tab Chart Design / Format, Table Design.
+- Kiểu số (Comma, Currency, Percent) trong thư viện Cell Styles; ô thư viện chưa vẽ khung bốn cạnh (Calculation,
+  Output, Check Cell) và chữ đậm tiêu đề nhóm; Format as Table mới có 21 kiểu (đối chứng 60: Light 21, Medium 28,
+  Dark 11) và ô nhỏ hơn (61 × 46 so với 77 × 56 px).
+
+## Vòng 6 — thư viện kiểu ô, Insert, Data / Formulas / View, biểu đồ, phím tắt
+
+Nhánh `worktree-agent-a42d4a0783243dd39` (từ `work/desktop-performance` 296728d7). Ảnh so sánh (đối chứng trên,
+BlueSheet dưới) trong `show/sheet-07…` của thư mục scratch phiên.
+
+### Vòng 20 — thư viện Cell Styles đo lại
+
+Đo trên `xcs-1.png` (đối chứng, 125 %):
+
+| Hạng mục | Đối chứng | BlueSheet vòng 5 | Vòng 6 |
+|---|---|---|---|
+| Ô kiểu | 153 × 34 px, cách 161 × 42 px, cách mép 5 px | 153 × 36, cách 8 px | như đối chứng |
+| Dải tiêu đề nhóm | 34 px, #EBEBEB, chữ đậm xám cách mép 12 px | 30 px #F0F0F0 | như đối chứng |
+| Viền hộp | #949494 | #C6C6C6 | #949494 |
+| Calculation / Input / Output / Note / Check Cell | khung 4 cạnh (Check Cell: kép #3F3F3F) | chỉ gạch dưới | khung 4 cạnh, kép = 2 nét 1 px cách 2 px |
+| Heading 1 / 2 / 3 | nét dưới 3 px #4472C4 / 3 px #A2B8E1 / 2 px #8EA9DB | 2 px cùng màu | như đối chứng (engine: thick / thick / medium) |
+| Good / Bad / Neutral | #C6EFCE / #FFC7CE / #FFEB9C | màu riêng | như đối chứng (chữ 006100 / 9C0006 / 9C5700) |
+| Title | Calibri Light 18 pt thường, #44546A | đậm | phông tiêu đề của theme (scheme major) |
+| Chữ trong ô | phông của kiểu, cao 'l' 16 px (≈ 1,2 × cỡ trên lưới) | phông giao diện | phông của kiểu × 1,2; tên dài kết thúc "…" |
+| Nhóm Number Format, New Cell Style…, Merge Styles… | có | thiếu | có (lệnh engine `newCellStyle`, `mergeStyles`) |
+
+Kiểu số (Comma 43, Comma [0] 41, Currency 44, Currency [0] 42, Percent 9) chỉ đổi định dạng số, giữ phần còn lại của ô
+như đối chứng. New Cell Style… mở hộp Style đo trên đối chứng (404 × 459 px; OK / Cancel ở (146, 411) / (274, 411)),
+mô tả "Style includes" lấy từ ô hiện hành; nhóm Custom hiện các kiểu riêng của sổ. Merge Styles… chọn một sổ
+`.xlsx` (đối chứng liệt kê các sổ đang mở; BlueSheet mỗi sổ một tiến trình).
+
+### Vòng 21 — Insert: Illustrations, Filters, Symbols
+
+- Illustrations như đối chứng: Pictures lớn, hai cột nút nhỏ Shapes / Icons / 3D Models và SmartArt / Screenshot.
+  Shapes và Icons mở thư viện hình (bộ chọn của BlueSlide, thư viện biểu tượng tự vẽ `packages/ui/src/iconLibrary`);
+  biểu tượng chèn dưới dạng PNG vẽ từ SVG (engine `insertDrawing` nhận SVG). SmartArt: menu 7 họ bố cục
+  (`insertSmartArt`). 3D Models, Screenshot mờ (chưa có).
+- Filters: Slicer, Timeline (bảng tổng hợp có trường ngày; không có thì thanh trạng thái nhắc như đối chứng).
+- Symbols: Equation ▾ (Area of Circle, Binomial Theorem, Pythagorean Theorem, Quadratic Formula, Insert New Equation —
+  hộp chữ dạng tuyến tính vì bảng tính của engine chưa có vùng toán) và Symbol.
+
+### Vòng 22 — Formulas, Data, View theo đối chứng ở 1500 px
+
+Đối chứng chụp bằng nhấp gửi vào thẻ ribbon (`xtabs.ps1`, `xt6-1..3c.png`).
+
+- Formulas: Insert Function, AutoSum, rồi ba cột nút nhỏ (Recently Used / Financial / Logical, Text / Date & Time /
+  Lookup & Reference, Math & Trig / More Functions); Defined Names gộp một menu; Formula Auditing + Watch Window (mờ);
+  Calculation Options + hai nút biểu tượng.
+- Data: Get & Transform Data (Get Data ▾, From Text/CSV qua `bo-query`: `querySource` → `queryInspect` → `querySave`
+  lên trang mới, From Table/Range); Queries & Connections (Refresh All, danh sách truy vấn); Sort & Filter (Clear);
+  Data Tools (Flash Fill, Consolidate, Remove Duplicates, Data Validation); Forecast (What-If ▾: Goal Seek, Data Table);
+  Outline ▾ (Group, Ungroup, Subtotal, Show / Hide Detail, Auto Outline, Clear Outline).
+- View: Workbook Views (Normal, Page Break Preview / Page Layout mờ, Custom Views: hiện / thêm / xoá qua
+  `customViews`), Show (Ruler mờ), Zoom (hộp Zoom 200 / 100 / 75 / 50 / 25 %, vừa vùng chọn, tuỳ chỉnh), Window
+  (Freeze Panes; New Window, Split, Arrange, Hide / Unhide, Switch Windows mờ), Macros (mờ).
+- Nhãn riêng của giao diện native theo đối chứng (`sheetNative.*`: Text to Columns, Math & Trig, …) không đổi nhãn
+  của trình sửa web.
+
+### Vòng 23 — biểu đồ trên lưới
+
+Nhấp chọn biểu đồ (khung xám #A6A6A6, 8 tay nắm tròn trắng viền #848484), kéo thân để dời, kéo tay nắm để đổi cỡ
+(theo ô, `moveChart`; khung xanh xem trước khi kéo), Delete xoá, Esc bỏ chọn. Chèn biểu đồ thì biểu đồ mới được chọn và
+thẻ ngữ cảnh Chart Design hiện như đối chứng. Chart Design: Add Chart Element ▾ (tiêu đề, tiêu đề trục, nhãn dữ liệu,
+bảng dữ liệu, chú giải), Quick Layout ▾, Change Colors ▾, Chart Styles ▾ (`chartDesign`), Change Chart Type ▾
+(`editChart`); Switch Row/Column, Select Data, Move Chart mờ. Format: Reset to Match Style, Shape Fill / Outline của
+vùng biểu đồ, Delete Chart.
+
+### Vòng 24 — phím tắt
+
+So với hành vi của đối chứng: F4 khi sửa công thức đổi tham chiếu ở con trỏ $A$1 → A$1 → $A1 → A1 (cả vùng A1:B2);
+Ctrl+D / Ctrl+R điền xuống / sang phải; Ctrl+1 mở Format Cells; Ctrl+; ngày hôm nay, Ctrl+Shift+; giờ (giờ địa
+phương); Alt+= AutoSum; Alt+Enter xuống dòng trong ô (trước đây Windows gửi Alt+phím dạng phím hệ thống nên không tới
+BlueSheet; nay chỉ BlueSheet bật `win32::enable_sheet_keys`, BlueDoc không đổi). Ctrl+mũi tên, Ctrl+Shift+mũi tên, F2,
+Tab / Enter trong vùng chọn đã có từ vòng trước (test `keyboard_shortcuts_as_the_reference`).
+
+### Vòng 25 — góp ý của chủ dự án về Chart Design / Data
+
+- Chart Styles là thư viện ô xem trước nằm ngay trên ribbon (5 ô 130 px + nút More) như đối chứng; ô là hình vẽ riêng
+  (cột, lưới, sắc độ, nền tối) và áp `chartDesign.style`.
+- Khi chọn biểu đồ, vùng nguồn được đóng khung trên lưới như đối chứng (đo `xch2-1.png`): danh mục #8157B7, tên chuỗi
+  #C0353E, giá trị #326AC7, nét 2 px, nền nhạt, tay nắm vuông ở góc; hộp tên hiện "Chart 1". Tay nắm biểu đồ 13 px
+  viền 2 px #616161 (trước 10 px viền 1 px #848484).
+- Thẻ ngữ cảnh vẽ như thẻ thường (gạch dưới xanh khi chọn; `Ribbon::with_plain_contextual`, BlueDoc không đổi).
+- Data › Sort & Filter: A→Z / Z→A, Sort, Filter, rồi cột Clear / Reapply / Advanced như đối chứng (ribbon thêm
+  `with_late_rows`: mục hàng đặt sau nút lớn cuối nhóm). Outline: một nút lớn, không chú thích nhóm.
+- Cỡ chữ biểu đồ đo lại: tiêu đề "Sales" đối chứng 46 × 16 px, BlueSheet 40 × 14 px (nhỏ hơn chút, không lớn hơn);
+  chưa đổi bộ vẽ biểu đồ của engine trong vòng này.
+
+### Bánh xe — đo lại vòng 6
+
+`thumb.ps1`, `big10k.xlsx`, 900 × 700, 30 nấc cách 120 ms, 144 Hz: đối chứng trung vị 7,4 / p95 13,4 ms; BlueSheet
+14,5 / 16,1 ms (vòng 5: 14,6 / 15,7). Không đổi: vẫn hai vblank so với một của đối chứng. Phân tích ở vòng 5 vẫn đúng
+(CPU + GPU ~5 ms sau input làm lỡ lần ghép DWM kế tiếp); muốn một khung cần dựng display list chỉ cho dải mới lộ ra và
+đường DirectComposition — chưa làm vòng này.
+
+### Vòng 26 — biểu đồ đang chọn, thang trục tự động, cỡ chữ biểu đồ
+
+- Khi chọn biểu đồ: thanh công thức trống, tiêu đề hàng/cột không tô, không khung ô chọn (như đối chứng;
+  `SheetView::set_object_selected`).
+- Thang trục giá trị tự động (bo-sheet `auto_scale`, dùng chung cho web) đo trên đối chứng qua object model
+  (`xaxis.ps1`, `Axes(xlValue).MinimumScale/MaximumScale/MajorUnit`):
+
+| Dữ liệu | Đối chứng | Trước | Sau |
+|---|---|---|---|
+| 5 / 7 / 4 | 0..8 bước 1 | 0..8 bước 2 | 0..8 bước 1 |
+| 0..47 | 0..50 bước 5 | 0..50 bước 10 | 0..50 bước 5 |
+| 0..95 | 0..100 bước 10 | — | 0..100 bước 10 |
+| 0..100 | 0..120 bước 20 | — | 0..120 bước 20 |
+| 100..105 | 97..106 bước 1 | — | 97..106 bước 1 |
+| 19..23 | 0..25 bước 5 | 19..23 bước 1 | 0..25 bước 5 |
+| −5..10 | −6..12 bước 2 | — | −6..12 bước 2 |
+| 1000..1300 | 0..1400 bước 200 | — | 0..1400 bước 200 |
+
+  Quy tắc: lấy 0 khi độ trải > 1/6 giá trị lớn nhất; đầu vượt qua 0 thêm 5 % độ trải, đầu chưa tới 0 thêm nửa độ trải;
+  bước = 0,2 / 0,5 / 1 × 10ⁿ theo chữ số đầu của độ trải đã thêm (< 2, < 5, còn lại). Test bo-sheet cập nhật theo số đo.
+- Chữ biểu đồ trên trang tính: nhãn trục / chú giải 9 pt, tiêu đề 14 pt như đối chứng (tiêu đề "Sales" 46 × 16 px cả hai) (trước: theo chiều cao biểu đồ, tiêu đề
+  1,35 ×); biểu đồ trong slide / văn bản giữ cách cũ.
+
+## Còn lại (sau vòng 6)
+
+- Bánh xe: một khung như đối chứng (xem trên).
+- Insert ở 1500 px vẫn tràn (mũi tên cuộn ribbon): nhóm Tables / Sparklines rộng hơn đối chứng ~50 px; nhãn một từ
+  có ▾ chưa xuống dòng riêng như đối chứng ("Illustrations ▾").
+- Biểu đồ: Switch Row/Column, Select Data, Move Chart (engine chưa có lệnh); Format tab chưa có Shape Styles gallery,
+  WordArt, Size; ô kiểu biểu đồ là hình vẽ chung chứ chưa là ảnh xem trước thật của từng kiểu (`chartGallery` trả SVG).
+- Format as Table 60 kiểu (engine mới 21) và Table Design; Conditional Formatting menu con + Manage Rules; Page Layout
+  Themes; Page Break Preview / Page Layout view; Split, New Window, Watch Window, Macros (mờ).
+- Merge Styles chọn tệp thay vì danh sách sổ đang mở (mỗi sổ một tiến trình).

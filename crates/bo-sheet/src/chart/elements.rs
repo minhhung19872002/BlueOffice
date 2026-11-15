@@ -614,13 +614,13 @@ mod tests {
     use super::*;
 
     // source: the scale is arithmetic on the bounds — an automatic scale over 0..47 takes the
-    // "nice" unit 10 (0, 10, … 50); a fixed unit of 25 gives 0, 25, 50; a fixed maximum of 500 on
+    // reference's unit 5 (0, 5, … 50); a fixed unit of 25 gives 0, 25, 50; a fixed maximum of 500 on
     // a base-10 log axis from 1 ends at log10(500) with ticks at 1, 10, 100.
     #[test]
     fn scales_with_fixed_bounds_units_and_logarithms() {
         let auto = val_scale(0.0, 47.0, 1.0, (None, None), None, None);
-        assert_eq!((auto.lo, auto.hi, auto.step), (0.0, 50.0, 10.0));
-        assert_eq!(auto.ticks().len(), 6);
+        assert_eq!((auto.lo, auto.hi, auto.step), (0.0, 50.0, 5.0));
+        assert_eq!(auto.ticks().len(), 11);
         let unit = val_scale(0.0, 47.0, 1.0, (None, None), None, Some(25.0));
         assert_eq!(unit.ticks(), vec![0.0, 25.0, 50.0]);
         assert_eq!(unit.minor(Some(12.5)).len(), 2);

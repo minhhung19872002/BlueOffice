@@ -889,8 +889,12 @@ dependencies = [
  "bo-engine",
  "bo-render",
  "bo-text",
+ "hayro-ccitt",
+ "hayro-jbig2",
+ "hayro-jpeg2000",
  "lopdf",
  "miniz_oxide 0.8.9",
+ "png",
  "ttf-parser",
  "weezl",
  "zune-jpeg",
@@ -1050,15 +1054,21 @@ name = "bo-ui"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
+ "bo-drawingml",
  "bo-edit",
  "bo-engine",
  "bo-model",
+ "bo-opc",
  "bo-pdfread",
  "bo-pptx",
  "bo-raster",
  "bo-render",
  "bo-sheet",
+ "bo-sign",
+ "bo-spell",
  "bo-text",
+ "png",
+ "rand 0.8.8",
  "serde",
  "serde_json",
  "zip",
@@ -2919,6 +2929,27 @@ dependencies = [
  "equivalent",
  "foldhash",
 ]
+
+[[package]]
+name = "hayro-ccitt"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "adbed896e99325bc312778bb9c9c289d795d51c12775c44dd5e4352f679c7e46"
+
+[[package]]
+name = "hayro-jbig2"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eb5c7f3a4eb551c2bb7fa16e268f728d4bc2a5c9b090554b8dc0ee2503fb5840"
+dependencies = [
+ "hayro-ccitt",
+]
+
+[[package]]
+name = "hayro-jpeg2000"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6e5e5f2b3de970707fc22fd956d8f44211602939d5e4588603afa919cb7b3740"
 
 [[package]]
 name = "heck"

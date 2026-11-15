@@ -145,6 +145,8 @@ fn summary(cmds: &[Command]) -> String {
                 let _ = writeln!(s, "opacity {alpha:.2}");
             }
             Command::PopOpacity => s.push_str("pop opacity\n"),
+            Command::PushGroup { .. } => s.push_str("group\n"),
+            Command::PopGroup => s.push_str("pop group\n"),
             Command::BlurPath {
                 segs,
                 color,

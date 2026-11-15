@@ -71,6 +71,7 @@ Bảng dưới liệt kê dependency **trực tiếp**. Danh sách đầy đủ 
 | serde, serde_json (bo-sign) | 1.0.229, 1.0.154 | MIT OR Apache-2.0 | Giao thức JSON ký số từ xa, báo cáo xác minh |
 | lopdf | 0.38.0 | MIT | Mở PDF thành tài liệu BlueDoc (chỉ văn bản, `bo-engine::pdf_import`); kiểm tra PDF đã ký (dev, bo-sign); đọc PDF của BlueReader (`bo-pdfread`), bảng mã chuẩn và Adobe Glyph List trong `bo-pdfread/src/encoding_data.rs` sinh từ bảng của lopdf |
 | weezl (bo-pdfread) | 0.1.12 | MIT OR Apache-2.0 | Giải nén LZWDecode trong PDF |
+| hayro-jpeg2000 / hayro-jbig2 / hayro-ccitt | 0.5.0 / 0.4.0 / 0.5.0 | MIT OR Apache-2.0 | Giải mã ảnh JPEG 2000, JBIG2 và fax CCITT trong PDF (`bo-pdfread/src/codecs.rs`, BlueReader) |
 | rayon, rayon-core (bo-pdfread, qua lopdf feature `rayon`) | 1.12.0, 1.13.0 | MIT OR Apache-2.0 | Phân tích song song các đối tượng PDF khi mở (tệp 1 202 trang: 1,5 s → 0,21 s) |
 | rand (dev, bo-sign) | 0.8.8 | Apache-2.0 OR MIT | Sinh khoá test |
 | yrs (bo-collab) | 0.25.0 | MIT | CRDT tương thích Yjs, giao thức y-sync/awareness |

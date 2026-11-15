@@ -1,4 +1,5 @@
 import type {
+  BlendMode,
   DisplayCommand,
   EngineHost,
   PageDisplayList,
@@ -46,6 +47,8 @@ export interface CanvasLike {
   lineJoin?: string;
   /** Group opacity (pictures with alphaModFix). */
   globalAlpha?: number;
+  /** Blend mode of transparency groups (PDF pages). */
+  globalCompositeOperation?: string;
   /** CSS filter (blurred shadows). */
   filter?: string;
   getTransform?(): { a: number; b: number };
@@ -391,6 +394,17 @@ function drawCommand(
     case 'popOpacity':
       ctx.restore();
       break;
+    case 'pushGroup':
+      // Transparency group: the blend mode maps onto the canvas composite operation of
+      // the group's content (each draw blends with what is below, close to the group
+      // result for non-overlapping content); the soft mask is not applied on canvas,
+      // the group is drawn as plain content (see `bo_render::Command::PushGroup`).
+      ctx.save();
+      if (cmd.blend) ctx.globalCompositeOperation = COMPOSITE[cmd.blend];
+      break;
+    case 'popGroup':
+      ctx.restore();
+      break;
     case 'blurPath': {
       // Canvas filter blur (CSS px of the device): radius points × current scale.
       ctx.save();
@@ -412,6 +426,25 @@ function drawCommand(
     }
   }
 }
+
+/** Canvas composite operation of each PDF blend mode (same formulas, W3C Compositing §10). */
+const COMPOSITE: Record<BlendMode, string> = {
+  multiply: 'multiply',
+  screen: 'screen',
+  overlay: 'overlay',
+  darken: 'darken',
+  lighten: 'lighten',
+  colorDodge: 'color-dodge',
+  colorBurn: 'color-burn',
+  hardLight: 'hard-light',
+  softLight: 'soft-light',
+  difference: 'difference',
+  exclusion: 'exclusion',
+  hue: 'hue',
+  saturation: 'saturation',
+  color: 'color',
+  luminosity: 'luminosity',
+};
 
 function paintStyle(ctx: CanvasLike, p: Paint): unknown {
   if (p.type === 'solid') return rgba(p.color);

@@ -34,6 +34,103 @@ pub trait GridStore {
         let _ = (moves, bands);
         self.update(list, engine, scale)
     }
+
+    /// The view scrolled by whole device pixels with nothing frozen along that axis: a store
+    /// keeping its image as a ring ([`GridRing`]) turns it by `shift` (the new image at
+    /// (x, y) is the old one at (x + dx, y + dy)) and draws only `bands`, without copying the
+    /// kept pixels. `Ok(false)`: not supported, [`GridStore::scroll`] is used instead.
+    fn turn(
+        &mut self,
+        list: &PageList,
+        engine: &SheetEngine,
+        scale: f32,
+        shift: [i64; 2],
+        bands: &[[u32; 4]],
+    ) -> Result<bool, String> {
+        let _ = (list, engine, scale, shift, bands);
+        Ok(false)
+    }
+}
+
+/// A grid image kept as a ring: image pixel (x, y) is stored at ((x + px) mod w,
+/// (y + py) mod h), so scrolling only changes the phase (px, py) and draws the newly
+/// exposed band, and showing the image takes up to four pieces.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct GridRing {
+    phase: [u32; 2],
+    size: [u32; 2],
+}
+
+impl GridRing {
+    /// A ring of `width` × `height` pixels at phase zero (a freshly drawn image).
+    pub fn new(width: u32, height: u32) -> Self {
+        Self {
+            phase: [0, 0],
+            size: [width, height],
+        }
+    }
+
+    /// Where image pixel (0, 0) is stored.
+    pub fn phase(&self) -> [u32; 2] {
+        self.phase
+    }
+
+    /// Scroll: the new image at (x, y) is the old one at (x + dx, y + dy).
+    pub fn turn(&mut self, shift: [i64; 2]) {
+        for (i, d) in shift.iter().enumerate() {
+            if self.size[i] > 0 {
+                let n = i64::from(self.size[i]);
+                self.phase[i] = (i64::from(self.phase[i]) + d).rem_euclid(n) as u32;
+            }
+        }
+    }
+
+    /// The pieces of image rectangle `r` (left, top, width, height): each is the image
+    /// rectangle and the top-left corner where the ring stores it.
+    pub fn split(&self, r: [u32; 4]) -> Vec<([u32; 4], [u32; 2])> {
+        let axis = |a: u32, len: u32, p: u32, n: u32| -> Vec<(u32, u32, u32)> {
+            let a = a.min(n);
+            let len = len.min(n - a);
+            if len == 0 {
+                return Vec::new();
+            }
+            let s = (a + p) % n;
+            let first = len.min(n - s);
+            let mut v = vec![(a, first, s)];
+            if first < len {
+                v.push((a + first, len - first, 0));
+            }
+            v
+        };
+        let xs = axis(r[0], r[2], self.phase[0], self.size[0]);
+        let ys = axis(r[1], r[3], self.phase[1], self.size[1]);
+        let mut out = Vec::with_capacity(4);
+        for &(ly, lh, py) in &ys {
+            for &(lx, lw, px) in &xs {
+                out.push(([lx, ly, lw, lh], [px, py]));
+            }
+        }
+        out
+    }
+
+    /// The pieces of the whole image (to show it).
+    pub fn pieces(&self) -> Vec<([u32; 4], [u32; 2])> {
+        self.split([0, 0, self.size[0], self.size[1]])
+    }
+}
+
+/// Scroll position, extent and visible size of both axes (vertical first).
+type BarFigures = [(f64, f64, f64); 2];
+
+/// What the cached scroll bar figures were computed for.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct BarKey {
+    scroll: (f64, f64),
+    frame: [f32; 4],
+    sheet: usize,
+    zoom: f32,
+    scale: f32,
+    content_gen: u64,
 }
 
 /// A rectangle of the previous grid image kept at a new place when scrolling.
@@ -260,6 +357,8 @@ pub struct Stats {
 /// The grid of one workbook window.
 pub struct SheetView {
     engine: SheetEngine,
+    /// A drawing (chart) is selected: the cell selection is not drawn.
+    object_selected: bool,
     sheet: usize,
     /// Window rectangle of the grid with its headers.
     frame: [f32; 4],
@@ -274,6 +373,14 @@ pub struct SheetView {
     grid_dirty: bool,
     /// The grid image must be drawn whole (cells, size or scale changed), not only scrolled.
     full_redraw: bool,
+    /// Scroll bar figures of both axes and what they were computed for: the sheet's content
+    /// size scans every cell, so it is only redone after edits, not per scroll step.
+    bar_cache: Option<(BarKey, BarFigures)>,
+    /// The sheet's content size (points) for (sheet, content generation): scanning every
+    /// cell is the costly part of the scroll bars, and scrolling does not change it.
+    content_cache: Option<((usize, u64), (f64, f64))>,
+    /// Counts edits that may change the content size or row / column geometry.
+    content_gen: u64,
     /// Scroll of the last drawn grid image.
     drawn: Option<(f64, f64)>,
     drag: Option<Drag>,
@@ -303,6 +410,8 @@ pub struct SheetView {
     label_size: f32,
     /// View settings: gridlines, row / column headings.
     show_grid: bool,
+    /// Formulas are shown in their cells instead of their results (Formulas tab).
+    show_formulas: bool,
     show_headings: bool,
     /// Cells the fill handle drag would fill (bounds), while dragging.
     fill_to: Option<(u32, u32, u32, u32)>,
@@ -336,6 +445,7 @@ impl SheetView {
             });
         let mut v = Self {
             engine,
+            object_selected: false,
             sheet: 0,
             frame: [0.0, 0.0, 800.0, 600.0],
             scale: 1.0,
@@ -347,6 +457,9 @@ impl SheetView {
             edit: None,
             grid_dirty: true,
             full_redraw: true,
+            bar_cache: None,
+            content_cache: None,
+            content_gen: 0,
             drawn: None,
             drag: None,
             cols: Vec::new(),
@@ -366,6 +479,7 @@ impl SheetView {
             label_widths: std::collections::HashMap::new(),
             label_size: 0.0,
             show_grid: true,
+            show_formulas: false,
             show_headings: true,
             fill_to: None,
         };
@@ -514,7 +628,7 @@ impl SheetView {
     }
 
     /// Viewport of the grid image, in points (no headers: the window draws them).
-    fn viewport(&self) -> Viewport {
+    pub(crate) fn viewport(&self) -> Viewport {
         let k = f64::from(self.k());
         let (gx, gy) = self.grid_origin();
         let w = f64::from((self.frame[0] + self.frame[2] - gx).max(1.0));
@@ -848,12 +962,54 @@ impl SheetView {
         self.refresh();
     }
 
+    /// Show formulas in their cells instead of their results (Formulas tab).
+    pub fn set_show_formulas(&mut self, on: bool) {
+        if self.show_formulas != on {
+            self.show_formulas = on;
+            self.redraw_all();
+        }
+    }
+
+    /// Formulas shown in cells.
+    pub fn show_formulas(&self) -> bool {
+        self.show_formulas
+    }
+
+    /// Window rectangle of cell (`r`, `c`) when its row and column are on screen.
+    pub(crate) fn cell_rect(&self, r: u32, c: u32) -> Option<[f32; 4]> {
+        let row = self.rows.iter().find(|s| s.index == r)?;
+        let col = self.cols.iter().find(|s| s.index == c)?;
+        Some([
+            col.start,
+            row.start,
+            col.line - col.start,
+            row.line - row.start,
+        ])
+    }
+
+    /// The cell under window point (x, y) when it is over the cells.
+    pub(crate) fn cell_under(&self, x: f32, y: f32) -> Option<(u32, u32)> {
+        let (gx, gy) = self.grid_origin();
+        let [fx, fy, fw, fh] = self.frame;
+        (x >= gx && y >= gy && x < fx + fw && y < fy + fh).then(|| self.cell_at(x, y))
+    }
+
+    /// The grid's rectangle in the window (cells and headers).
+    pub(crate) fn grid_frame(&self) -> [f32; 4] {
+        self.frame
+    }
+
     /// Show or hide the gridlines (view setting).
     pub fn set_gridlines(&mut self, on: bool) {
         if self.show_grid != on {
             self.show_grid = on;
             self.redraw_all();
         }
+    }
+
+    /// A drawing (chart) is selected instead of cells: the cell selection is not drawn.
+    pub fn set_object_selected(&mut self, on: bool) {
+        self.object_selected = on;
     }
 
     /// Gridlines shown.
@@ -1077,8 +1233,35 @@ impl SheetView {
     /// Scroll position, scrollable extent and visible size of the main pane, in points
     /// (`vertical` or horizontal), for scroll bars.
     pub fn scroll_info(&mut self, vertical: bool) -> (f64, f64, f64) {
+        let key = BarKey {
+            scroll: self.scroll,
+            frame: self.frame,
+            sheet: self.sheet,
+            zoom: self.zoom,
+            scale: self.scale,
+            content_gen: self.content_gen,
+        };
+        if let Some((k, v)) = &self.bar_cache {
+            if *k == key {
+                return v[usize::from(!vertical)];
+            }
+        }
+        let both = [self.scroll_info_now(true), self.scroll_info_now(false)];
+        self.bar_cache = Some((key, both));
+        both[usize::from(!vertical)]
+    }
+
+    fn scroll_info_now(&mut self, vertical: bool) -> (f64, f64, f64) {
         let vp = self.viewport();
-        let (content_w, content_h) = self.engine.content_size(self.sheet).unwrap_or((0.0, 0.0));
+        let key = (self.sheet, self.content_gen);
+        let (content_w, content_h) = match self.content_cache {
+            Some((k, v)) if k == key => v,
+            _ => {
+                let v = self.engine.content_size(self.sheet).unwrap_or((0.0, 0.0));
+                self.content_cache = Some((key, v));
+                v
+            }
+        };
         let Ok((layout, geom)) = self.engine.view_layout(self.sheet, &vp) else {
             return (0.0, 1.0, 1.0);
         };
@@ -1585,6 +1768,16 @@ impl SheetView {
             Key::Up | Key::Down | Key::Left | Key::Right if typed && !mods.ctrl && pointing => {
                 Some(self.point_key(k, mods, m))
             }
+            // F4 cycles the reference at the caret: $A$1 → A$1 → $A1 → A1 (the reference's
+            // order); the caret goes after it.
+            Key::F(4) if e.text.starts_with('=') => {
+                if let Some((text, caret)) = cycle_reference(&e.text, e.caret) {
+                    e.text = text;
+                    e.caret = caret;
+                    self.measure_edit(m);
+                }
+                Some(true)
+            }
             Key::Enter if mods.alt => {
                 e.text.insert(e.caret, '\n');
                 e.caret += 1;
@@ -2045,6 +2238,7 @@ impl SheetView {
     fn redraw_all(&mut self) {
         self.grid_dirty = true;
         self.full_redraw = true;
+        self.content_gen += 1;
     }
 
     /// Redraw the grid image when the cells, scroll or size changed. A pure scroll by whole
@@ -2056,6 +2250,7 @@ impl SheetView {
         }
         let vp = self.viewport();
         let show_grid = self.show_grid;
+        let show_formulas = self.show_formulas;
         let list = self
             .engine
             .render_viewport_with(self.sheet, &vp, |o| {
@@ -2063,6 +2258,9 @@ impl SheetView {
                 o.gridline_color = GRID_LINE;
                 if !show_grid {
                     o.gridlines = Some(false);
+                }
+                if show_formulas {
+                    o.show_formulas = Some(true);
                 }
             })
             .map_err(|e| e.to_string())?;
@@ -2073,8 +2271,16 @@ impl SheetView {
             self.drawn.and_then(|from| self.blit_plan(from, &list, k))
         };
         match plan {
-            Some((moves, bands)) if moves.is_empty() && bands.is_empty() => {}
-            Some((moves, bands)) => store.scroll(&list, &self.engine, k, &moves, &bands)?,
+            Some((moves, bands, _)) if moves.is_empty() && bands.is_empty() => {}
+            Some((moves, bands, shift)) => {
+                let turned = match shift {
+                    Some(s) => store.turn(&list, &self.engine, k, s, &bands)?,
+                    None => false,
+                };
+                if !turned {
+                    store.scroll(&list, &self.engine, k, &moves, &bands)?;
+                }
+            }
             None => store.update(&list, &self.engine, k)?,
         }
         self.drawn = Some(self.scroll);
@@ -2085,13 +2291,15 @@ impl SheetView {
 
     /// Moves and bands that turn the image drawn at scroll rom into the current one, or
     /// None when it must be drawn whole (both directions, fractional pixels, a jump
-    /// larger than the scrolling part).
+    /// larger than the scrolling part); with the shift of the whole image when nothing is
+    /// frozen along the scroll (a ring store turns instead of moving pixels).
+    #[allow(clippy::type_complexity)]
     fn blit_plan(
         &self,
         from: (f64, f64),
         list: &PageList,
         k: f32,
-    ) -> Option<(Vec<GridMove>, Vec<[u32; 4]>)> {
+    ) -> Option<(Vec<GridMove>, Vec<[u32; 4]>, Option<[i64; 2]>)> {
         let w = (list.width * k).ceil() as i64;
         let h = (list.height * k).ceil() as i64;
         let whole = |v: f64| {
@@ -2101,7 +2309,7 @@ impl SheetView {
         let dx = whole((self.scroll.0 - from.0) * f64::from(k))?;
         let dy = whole((self.scroll.1 - from.1) * f64::from(k))?;
         if dx == 0 && dy == 0 {
-            return Some((Vec::new(), Vec::new()));
+            return Some((Vec::new(), Vec::new(), None));
         }
         if dx != 0 && dy != 0 {
             return None;
@@ -2150,7 +2358,8 @@ impl SheetView {
         let at = if dy == 0 { [u(dst), 0] } else { [0, u(dst)] };
         moves.push(GridMove { src: s, dst: at });
         bands.push(rect(band, n));
-        Some((moves, bands))
+        let shift = (fixed == 0).then_some([dx, dy]);
+        Some((moves, bands, shift))
     }
 
     /// The grid image must be drawn again (text rendering or device changed).
@@ -2177,13 +2386,24 @@ impl SheetView {
         p.push_clip(fx, fy, fw, fh);
         p.fill_rect(gx, gy, right - gx, bottom - gy, Rgba(255, 255, 255, 255));
         p.page(0, gx as i32, gy as i32);
-        let (r0, c0, r1, c1) = self.range_bounds();
+        // A selected drawing (chart) hides the cell selection: no highlighted headers, tint
+        // or frame, as on the reference.
+        let (r0, c0, r1, c1) = if self.object_selected {
+            (u32::MAX, u32::MAX, u32::MAX, u32::MAX)
+        } else {
+            self.range_bounds()
+        };
         let full_cols = r0 == 0 && r1 == MAX_ROWS - 1;
         let full_rows = c0 == 0 && c1 == MAX_COLS - 1;
         // Headers first: the selection frame covers their edge lines, as on the reference.
         self.paint_headers(p, (r0, c0, r1, c1), full_rows, full_cols);
+        let sel_rect = if self.object_selected {
+            None
+        } else {
+            self.sel_rect
+        };
         // Selection tint (all cells but the active one), then the frame.
-        if let Some([l0, t0, r0_, b0]) = self.sel_rect {
+        if let Some([l0, t0, r0_, b0]) = sel_rect {
             // Inside the frame's one-pixel white ring.
             let (l, t, r, b) = (l0 + 1.0, t0 + 1.0, r0_ - 1.0, b0 - 1.0);
             if (r0, c0) != (r1, c1) {
@@ -2263,7 +2483,7 @@ impl SheetView {
             p.fill_rect(r, t, 1.0, b - t + 1.0, grey);
         }
         p.pop_clip();
-        if let Some([l, t, r, b]) = self.sel_rect {
+        if let Some([l, t, r, b]) = sel_rect {
             p.push_clip(gx - 2.0, gy - 2.0, right - gx + 2.0, bottom - gy + 2.0);
             let w = (2.0 * self.scale / 1.25).round().max(2.0);
             let (x0, y0, x1, y1) = (l - w + 1.0, t - w + 1.0, r + w, b + w);
@@ -2564,4 +2784,58 @@ impl SheetView {
             self.label_widths.clear();
         }
     }
+}
+
+/// The next absolute / relative form of the cell reference (or range) touching byte `caret` of
+/// formula `text`, and the caret after it: `$A$1` → `A$1` → `$A1` → `A1` → `$A$1`.
+pub fn cycle_reference(text: &str, caret: usize) -> Option<(String, usize)> {
+    let b = text.as_bytes();
+    let part = |c: u8| c.is_ascii_alphanumeric() || c == b'$' || c == b':';
+    let mut s = caret.min(b.len());
+    while s > 0 && part(b[s - 1]) {
+        s -= 1;
+    }
+    let mut e = caret.min(b.len());
+    while e < b.len() && part(b[e]) {
+        e += 1;
+    }
+    let token = text.get(s..e)?;
+    // Each cell of a range: optional $, letters, optional $, digits.
+    let parse = |cell: &str| -> Option<(bool, String, bool, String)> {
+        let mut rest = cell;
+        let abs_c = rest.starts_with('$');
+        rest = rest.trim_start_matches('$');
+        let letters: String = rest.chars().take_while(char::is_ascii_alphabetic).collect();
+        rest = &rest[letters.len()..];
+        let abs_r = rest.starts_with('$');
+        rest = rest.trim_start_matches('$');
+        let ok = !letters.is_empty()
+            && letters.len() <= 3
+            && !rest.is_empty()
+            && rest.chars().all(|c| c.is_ascii_digit());
+        ok.then(|| (abs_c, letters, abs_r, rest.to_owned()))
+    };
+    let cells: Vec<_> = token.split(':').map(parse).collect::<Option<Vec<_>>>()?;
+    let (ac, _, ar, _) = cells.first()?.clone();
+    // Next state from the first cell's state.
+    let (nc, nr) = match (ac, ar) {
+        (true, true) => (false, true),
+        (false, true) => (true, false),
+        (true, false) => (false, false),
+        (false, false) => (true, true),
+    };
+    let out: Vec<String> = cells
+        .iter()
+        .map(|(_, l, _, d)| {
+            format!(
+                "{}{l}{}{d}",
+                if nc { "$" } else { "" },
+                if nr { "$" } else { "" }
+            )
+        })
+        .collect();
+    let new = out.join(":");
+    let mut text = text.to_owned();
+    text.replace_range(s..e, &new);
+    Some((text, s + new.len()))
 }

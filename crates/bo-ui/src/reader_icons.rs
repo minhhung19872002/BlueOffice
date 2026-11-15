@@ -11,7 +11,7 @@ pub(crate) struct Ink {
     pub accent: Rgba,
 }
 
-enum Part {
+pub(crate) enum Part {
     /// Stroked outline in ink.
     S(&'static str),
     /// Stroked outline in the accent.
@@ -20,9 +20,17 @@ enum Part {
     F(&'static str),
     /// Filled in the accent.
     FA(&'static str),
+    /// Stroked in the text-markup colour (the reference's marks are yellow-orange), grey when
+    /// the icon is drawn disabled.
+    Y(&'static str),
 }
 
-use Part::{A, F, FA, S};
+use Part::{A, F, FA, S, Y};
+
+/// Colour of text-markup marks in the toolbar (measured on the reference: 249, 177, 10).
+const MARK: Rgba = Rgba(249, 177, 10, 255);
+/// Ink of a disabled icon.
+const DISABLED: Rgba = Rgba(175, 175, 176, 255);
 
 fn shape(name: &str) -> &'static [Part] {
     match name {
@@ -60,13 +68,10 @@ fn shape(name: &str) -> &'static [Part] {
         "rotateLeft" => &[S("M7 9h12v12H7z"), A("M3 11a8 8 0 0 1 8-8h3 M11.5 0.5L14 3l-2.5 2.5")],
         "rotateRight" => &[S("M5 9h12v12H5z"), A("M21 11a8 8 0 0 0-8-8h-3 M12.5 0.5L10 3l2.5 2.5")],
         "typewriter" => &[S("M3 4h11 M8.5 4v16 M6 20h5"), A("M18 4v16 M16 4h4 M16 20h4")],
-        "highlight" => &[
-            S("M14.5 3.5l5 5-8 8H6.5v-5z M12 6l5 5"),
-            A("M4 21h16"),
-        ],
-        "underline" => &[S("M6 4h12 M12 4v12"), A("M5 20h14")],
-        "strikeout" => &[S("M6 4h12 M12 4v16"), A("M5 12h14")],
-        "squiggly" => &[S("M6 4h12 M12 4v12"), A("M4 20l2-2 2 2 2-2 2 2 2-2 2 2 2-2 2 2")],
+        "highlight" => &[S("M3 5.5h18 M3 18.5h18"), Y("M3 10.5h18 M3 12h18 M3 13.5h18")],
+        "underline" => &[S("M6 17L12 3l6 14 M8.2 12h7.6"), Y("M4 21h16")],
+        "strikeout" => &[S("M6 19L12 3l6 16 M8.6 15h6.8"), Y("M3 10.5h18")],
+        "squiggly" => &[S("M6 17L12 3l6 14 M8.2 12h7.6"), Y("M3 21l2-1.5 2 1.5 2-1.5 2 1.5 2-1.5 2 1.5 2-1.5 2 1.5")],
         "note" => &[
             S("M3 4h18v13H11l-5 4.5V17H3z"),
             A("M7 8.5h10 M7 12.5h7"),
@@ -75,7 +80,7 @@ fn shape(name: &str) -> &'static [Part] {
         "rectangle" => &[A("M3.5 6h17v12h-17z")],
         "ellipse" => &[A("M12 6c5 0 8.5 2.7 8.5 6s-3.5 6-8.5 6-8.5-2.7-8.5-6 3.5-6 8.5-6z")],
         "pencil" => &[S("M15.5 4.5l4 4L9 19l-5 1 1-5z"), A("M3 22c3-2 5 1 8-1")],
-        "file" => &[S("M5 2.5h10l4 4v15H5z M15 2.5v4h4")],
+        "file" | "blankPage" => &[S("M5 2.5h10l4 4v15H5z M15 2.5v4h4")],
         "bookmark" => &[S("M6 3h12v18l-6-4.5L6 21z")],
         "pages" => &[S("M8 2.5h9l3 3v13H8z M17 2.5v3h3 M5 6v15.5h11")],
         "comments" => &[
@@ -96,7 +101,56 @@ fn shape(name: &str) -> &'static [Part] {
         "facing" => &[S("M2.5 4h8.5v16H2.5z M13 4h8.5v16H13z"), S("M5 8h4 M5 11h4 M15 8h4 M15 11h4")],
         "contFacing" => &[S("M3 2v6h8V2 M13 2v6h8V2 M3 22v-10h8v10 M13 22v-10h8v10")],
         "fullscreen" => &[S("M3 9V3h6 M15 3h6v6 M21 15v6h-6 M9 21H3v-6")],
+        "readMode" => &[S("M2.5 5.5c3.2-1.5 6.5-1.3 9.5 1 3-2.3 6.3-2.5 9.5-1v13c-3.2-1.5-6.5-1.3-9.5 1-3-2.3-6.3-2.5-9.5-1z"), A("M12 6.5v13")],
         "search" => &[S("M10.5 3.5a7 7 0 1 0 0.01 0z M15.5 15.5l5 5")],
+        // Comment tab drawing tools (round 3).
+        "callout" => &[S("M9 3.5h12v9H9z"), A("M9 10l-6 9 M3 19l1-3.5 M3 19l3.4-1.3"), S("M11.5 6.5h7 M11.5 9.5h5")],
+        "line" => &[A("M4 20L20 4")],
+        "arrow" => &[A("M4 20L19 5 M12 4.5h7.5V12")],
+        "polygon" => &[A("M12 3l8.5 6.5-3.5 10.5h-10L3.5 9.5z")],
+        "polyline" => &[A("M3 18l5-9 5 6 4-10 4 5")],
+        "stamp" => &[S("M9.5 3.5h5l-1 8h-3z M4 12.5h16v4H4z"), A("M5 20.5h14")],
+        "measure" => &[S("M2.5 15.5L15.5 2.5l6 6-13 13z"), A("M6.5 11.5l2 2 M9.5 8.5l2 2 M12.5 5.5l2 2")],
+        // View tab additions (round 3).
+        "reverseView" => &[S("M3 5h7.5v14H3z M13.5 5H21v14h-7.5z"), A("M8 12h8 M14 9.5l2.5 2.5-2.5 2.5")],
+        "wordCount" => &[S("M3.5 4h17v16h-17z"), A("M6.5 8.5h5 M6.5 12h8 M6.5 15.5h4"), S("M16 14v4.5 M14 16.2h4")],
+        "viewSetting" => &[S("M5 2.5h10l4 4v15H5z M15 2.5v4h4"), A("M12 11.5a2.5 2.5 0 1 0 .01 0z M12 8.5v1 M12 15.5v1 M8.5 13h1 M14.5 13h1")],
+        "night" => &[F("M14 3a9 9 0 1 0 7 13.5A7.5 7.5 0 0 1 14 3z")],
+        "textViewer" => &[S("M5 2.5h10l4 4v15H5z M15 2.5v4h4"), A("M8 10h8 M8 13h8 M8 16h5")],
+        "read" => &[S("M3.5 9h4l5-4.5v15l-5-4.5h-4z"), A("M15.5 9a4 4 0 0 1 0 6 M18 6.5a7.5 7.5 0 0 1 0 11")],
+        "split" => &[S("M3.5 3.5h17v17h-17z"), A("M12 3.5v17 M3.5 12h17")],
+        "replaceText" => &[S("M4 17L9.5 3 15 17 M6.3 13h6.4"), Y("M2.5 8.5h14 M14.5 21h7 M19 18.5l2.5 2.5-2.5 2.5")],
+        "insertText" => &[S("M4 17L9.5 3 15 17 M6.3 13h6.4"), Y("M18.5 15.5v7 M15 19h7")],
+        // Bookmarks panel tools (round 5).
+        "bmOptions" => &[S("M3.5 4.5h17v15h-17z M7 9h10 M7 12.5h10 M7 16h6")],
+        "bmFind" => &[S("M4.5 3h9v16l-4.5-3.5L4.5 19z"), A("M16.5 12a3 3 0 1 0 .01 0z M18.7 14.2l2.8 2.8")],
+        "textLarger" => &[S("M2.5 19L7.5 5l5 14 M4.5 14.5h6"), A("M18 5v6 M15 8h6")],
+        "textSmaller" => &[S("M2.5 19L7.5 5l5 14 M4.5 14.5h6"), A("M15 8h6")],
+        // Fill & Sign marks (round 5).
+        "check" => &[S("M4 12.5l5 5L20 6.5")],
+        "cross" => &[S("M5.5 5.5l13 13 M18.5 5.5l-13 13")],
+        "dot" => &[F("M12 8.5a3.5 3.5 0 1 0 .01 0z")],
+        // Comment exchange rows and the small icon column (round 5).
+        "importComments" => &[S("M3.5 6.5h17v10H11l-4.5 4v-4h-3z"), A("M12 1.5v9 M9 7.5l3 3 3-3")],
+        "exportComments" => &[S("M3.5 6.5h17v10H11l-4.5 4v-4h-3z"), A("M12 12V2 M9 4.5l3-3 3 3")],
+        "commentList" => &[S("M3.5 3.5h17v12H11l-4.5 4v-4h-3z"), S("M7 7.5h10 M7 11h7")],
+        "commentOptions" => &[S("M3.5 3.5h17v12H11l-4.5 4v-4h-3z"), A("M7 7.5h10 M7 11.5h10"), F("M13 6.5h2v2h-2z M9 10.5h2v2H9z")],
+        "pin" => &[S("M12 3.5a3.5 3.5 0 1 0 .01 0z M12 10.5v11")],
+        "searchHighlight" => &[S("M5 2.5h10l4 4v15H5z M15 2.5v4h4"), A("M11 9.5a3 3 0 1 0 .01 0z M13.2 14.7l3 3")],
+        "summarize" => &[S("M5 2.5h10l4 4v15H5z M15 2.5v4h4"), A("M8 10l1.5 1.5L12 9 M8 15l1.5 1.5L12 14 M13.5 11h3 M13.5 16h3")],
+        "eraser" => &[S("M9 20.5L3 14.5 13.5 4l7 7-9.5 9.5z M20.5 20.5H9"), A("M8 9.5l6.5 6.5")],
+        "areaHighlight" => &[S("M5 2.5h10l4 4v15H5z M15 2.5v4h4"), A("M8 9h8v7H8z")],
+        "customStamp" => &[S("M9.5 3.5h5l-1 8h-3z M4 12.5h16v4H4z"), A("M17 17.5a3 3 0 1 0 .01 0z M17 19v2 M16 20h2")],
+        "formToSheet" => &[S("M3.5 3.5h11v13h-11z M3.5 8h11 M9 3.5v13"), A("M14 15l3 3-3 3 M10 18h7")],
+        "import" => &[S("M5 2.5h10l4 4v15H5z M15 2.5v4h4"), A("M2 13h9 M8 10l3 3-3 3")],
+        "export" => &[S("M5 2.5h10l4 4v15H5z M15 2.5v4h4"), A("M10 13h11 M18 10l3 3-3 3")],
+        "timestamp" => &[S("M5 2.5h10l4 4v15H5z M15 2.5v4h4"), A("M12 11a4 4 0 1 0 .01 0z M12 13v2l1.5 1")],
+        "validate" => &[S("M14 3.5l4 4-8 8H6v-4z"), A("M12 18l2.5 2.5 5-5")],
+        "reflow" => &[S("M5 2.5h14v19H5z"), A("M8 7h8 M8 10.5h8 M8 14h5.5 M13.5 14l2 2-2 2 M8 18h7.5")],
+        "autoScroll" => &[S("M7 2.5h10v19H7z"), A("M12 6v9 M9 12l3 3 3-3 M9 18h6")],
+        "cover" => &[S("M2.5 7h6v11h-6z M10 4h5.5v14H10z M15.5 4H21v14h-5.5")],
+        "ruler" => &[S("M2.5 7.5h19v9h-19z"), A("M6 7.5v3 M9.5 7.5v4.5 M13 7.5v3 M16.5 7.5v4.5 M20 7.5v3")],
+        "grid" => &[S("M3.5 3.5h17v17h-17z"), A("M9.2 3.5v17 M14.8 3.5v17 M3.5 9.2h17 M3.5 14.8h17")],
         "close" => &[S("M5 5l14 14 M19 5L5 19")],
         "arrowDown" => &[F("M7 10h10l-5 5z")],
         "arrowRight" => &[F("M10 7v10l5-5z")],
@@ -113,21 +167,63 @@ fn shape(name: &str) -> &'static [Part] {
         "properties" => &[S("M5 2.5h10l4 4v15H5z M15 2.5v4h4"), S("M8 11h8 M8 14.5h8 M8 18h5")],
         "bell" => &[S("M6 17V11a6 6 0 0 1 12 0v6l2 2H4z M10 21h4")],
         "info" => &[S("M12 2.5a9.5 9.5 0 1 0 0.01 0z M12 10.5v7"), F("M12 6.5a1.1 1.1 0 1 0 .01 0z")],
-        "app" => &[],
-        _ => &[S("M5 5h14v14H5z")],
+        "app" | "appEditor" => &[],
+        "editText" => &[A("M3 4.5h18v15H3z"), S("M7.5 8.5h9 M12 8.5v8 M10 16.5h4")],
+        "editObject" => &[S("M3.5 3.5h11v11h-11z"), A("M12 12l8.5 3.5-3.5 1.2 3.5 3.5-1.4 1.4-3.5-3.5-1.2 3.5z")],
+        "insertPage" => &[S("M5 2.5h10l4 4v15H5z M15 2.5v4h4"), A("M12 10v8 M8 14h8")],
+        "deletePage" => &[S("M5 2.5h10l4 4v15H5z M15 2.5v4h4"), A("M9 11l6 6 M15 11l-6 6")],
+        "extractPage" => &[S("M5 2.5h10l4 4v15H5z M15 2.5v4h4"), A("M12 9v9 M8.5 14.5L12 18l3.5-3.5")],
+        "reversePages" => &[S("M3.5 3h8v11h-8z M12.5 10h8v11h-8z"), A("M15 3.5h3.5V7 M18.5 3.5L14 8 M9 20.5H5.5V17 M5.5 20.5L10 16")],
+        "splitPages" => &[S("M5 2.5h14v7H5z M5 14.5h14v7H5z"), A("M2 12h3 M8 12h3 M13 12h3 M19 12h3")],
+        "combine" => &[S("M3 3h7.5v10H3z M13.5 3H21v10h-7.5z"), A("M6.5 13v3h11v-3 M12 16v5 M9.5 18.5L12 21l2.5-2.5")],
+        "createPdf" => &[S("M5 2.5h10l4 4v15H5z M15 2.5v4h4"), A("M8.5 12.5h7 M8.5 15.5h7 M8.5 18.5h4")],
+        "toWord" => &[S("M5 2.5h10l4 4v15H5z M15 2.5v4h4"), A("M7.5 10.5l1.5 7 3-5 3 5 1.5-7")],
+        "toExcel" => &[S("M5 2.5h10l4 4v15H5z M15 2.5v4h4"), A("M8 10h8v8H8z M8 14h8 M12 10v8")],
+        "toSlides" => &[S("M5 2.5h10l4 4v15H5z M15 2.5v4h4"), A("M7.5 10h9v6h-9z M12 16v2.5 M10 18.5h4")],
+        "toImage" => &[S("M5 2.5h10l4 4v15H5z M15 2.5v4h4"), A("M7.5 18l3-3.5 2 2 1.5-1.5 2.5 3"), FA("M10 10.5a1.2 1.2 0 1 0 .01 0z")],
+        "addText" => &[S("M4 5h12 M10 5v14 M7.5 19h5"), A("M18.5 14v7 M15 17.5h7")],
+        "addImage" => &[S("M2.5 4.5h15v12h-15z M4.5 14.5l3.5-4 2.5 2.5 2-2 2.5 3.5"), A("M19 15v7 M15.5 18.5h7")],
+        "redact" => &[S("M5 2.5h10l4 4v15H5z M15 2.5v4h4"), FA("M7.5 10h9v2.5h-9z M7.5 14.5h6v2.5h-6z")],
+        "applyRedact" => &[S("M5 2.5h10l4 4v15H5z M15 2.5v4h4"), FA("M7.5 10h9v2.5h-9z"), A("M8 16.5l2.5 2.5 5.5-5.5")],
+        "sign" => &[S("M3 20.5h18"), A("M4 16.5c2.5-7 5-10 6-8.5s-2.5 7.5 0 8.5 3.5-4.5 5-4.5 1 3 4 3")],
+        "fillSign" => &[S("M14.5 3.5l5 5L9 19H4v-5z M12 6l5 5"), A("M3 22h18")],
+        "secure" => &[S("M5.5 10.5h13v11h-13z M8.5 10.5V7a3.5 3.5 0 0 1 7 0v3.5"), FA("M12 14.5a1.6 1.6 0 1 0 .01 0z")],
+        "unsecure" => &[S("M5.5 10.5h13v11h-13z M8.5 10.5V7a3.5 3.5 0 0 1 6.8-1.2"), A("M10 16h4")],
+        "flatten" => &[S("M3 8l9-5 9 5-9 5z"), A("M3 12l9 5 9-5 M3 16l9 5 9-5")],
+        "resetForm" => &[S("M5 2.5h10l4 4v15H5z M15 2.5v4h4"), A("M8.5 15a3.5 3.5 0 1 0 1-2.5 M8.5 10.5v2.5H11")],
+        "formFields" => &[S("M3 5h18v5H3z M3 14h18v5H3z"), FA("M5 6.5h7v2H5z M5 15.5h4v2H5z")],
+        "organize" => &[S("M3 3h7v8H3z M14 3h7v8h-7z M3 13h7v8H3z"), A("M14 13h7v8h-7z")],
+        _ => crate::editor_icons::shape(name),
     }
 }
 
 /// Draw reader icon `name` into a `size`-pixel square at (`x`, `y`).
 pub(crate) fn draw(p: &mut dyn Painter, name: &str, x: f32, y: f32, size: f32, c: Ink) {
+    draw_weight(p, name, x, y, size, c, 1.5);
+}
+
+/// [`draw`] with strokes `stroke` grid units wide (at least one device pixel).
+pub(crate) fn draw_weight(
+    p: &mut dyn Painter,
+    name: &str,
+    x: f32,
+    y: f32,
+    size: f32,
+    c: Ink,
+    stroke: f32,
+) {
     let k = size / 24.0;
     // About the 1.5 / 24 stroke of the reference toolbar, at least one device pixel.
-    let width = (1.5 * k).round().max(1.0);
+    let width = (stroke * k).round().max(1.0);
     let (x, y) = (x.round(), y.round());
     // Odd widths sit on pixel centres so straight lines stay solid.
     let off = if (width as i32) % 2 == 1 { 0.5 } else { 0.0 };
     if name == "app" {
         app_mark(p, x, y, size, c);
+        return;
+    }
+    if name == "appEditor" {
+        editor_mark(p, x, y, size, c);
         return;
     }
     for part in shape(name) {
@@ -136,6 +232,7 @@ pub(crate) fn draw(p: &mut dyn Painter, name: &str, x: f32, y: f32, size: f32, c
             A(d) => (*d, false, c.accent),
             F(d) => (*d, true, c.ink),
             FA(d) => (*d, true, c.accent),
+            Y(d) => (*d, false, if c.ink == DISABLED { DISABLED } else { MARK }),
         };
         let segs: Vec<PathSeg> = crate::icons::parse_path(d)
             .into_iter()
@@ -212,6 +309,37 @@ fn app_mark(p: &mut dyn Painter, x: f32, y: f32, size: f32, c: Ink) {
     p.path(&lines, None, Some((c.accent, (1.4 * k).round().max(1.0))));
 }
 
+/// BlueEditor's app mark: a white rounded square with an accent page and pen (for a coloured
+/// title bar).
+fn editor_mark(p: &mut dyn Painter, x: f32, y: f32, size: f32, c: Ink) {
+    let k = size / 24.0;
+    let r = 4.0 * k;
+    let (w, h) = (size, size);
+    let rounded = vec![
+        PathSeg::M(x + r, y),
+        PathSeg::L(x + w - r, y),
+        PathSeg::Q(x + w, y, x + w, y + r),
+        PathSeg::L(x + w, y + h - r),
+        PathSeg::Q(x + w, y + h, x + w - r, y + h),
+        PathSeg::L(x + r, y + h),
+        PathSeg::Q(x, y + h, x, y + h - r),
+        PathSeg::L(x, y + r),
+        PathSeg::Q(x, y, x + r, y),
+        PathSeg::Z,
+    ];
+    p.path(&rounded, Some(Rgba(255, 255, 255, 255)), None);
+    let page: Vec<PathSeg> = crate::icons::parse_path("M6.5 4.5h7.5l3.5 3.5v11.5h-11z")
+        .into_iter()
+        .map(|s| place(s, x, y, k, 0.0))
+        .collect();
+    p.path(&page, Some(c.accent), None);
+    let pen: Vec<PathSeg> = crate::icons::parse_path("M15.5 9.5l2.5 2.5-6 6H9.5v-2.5z")
+        .into_iter()
+        .map(|s| place(s, x, y, k, 0.0))
+        .collect();
+    p.path(&pen, Some(Rgba(255, 255, 255, 255)), None);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -237,6 +365,43 @@ mod tests {
             accent: Rgba(200, 0, 0, 255),
         };
         for name in [
+            "editText",
+            "editObject",
+            "insertPage",
+            "deletePage",
+            "extractPage",
+            "reversePages",
+            "splitPages",
+            "combine",
+            "blankPage",
+            "createPdf",
+            "toWord",
+            "toExcel",
+            "toSlides",
+            "toImage",
+            "addText",
+            "addImage",
+            "redact",
+            "applyRedact",
+            "sign",
+            "fillSign",
+            "secure",
+            "unsecure",
+            "flatten",
+            "resetForm",
+            "formFields",
+            "organize",
+            "check",
+            "cross",
+            "dot",
+            "importComments",
+            "exportComments",
+            "commentList",
+            "commentOptions",
+            "pin",
+            "squiggly",
+            "replaceText",
+            "insertText",
             "hand",
             "select",
             "snapshot",

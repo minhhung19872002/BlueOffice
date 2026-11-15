@@ -59,7 +59,7 @@ fn typing_cost() {
     time("selected ruby", n, || drop(s.selected_ruby()));
     time("control at caret", n, || drop(s.control_at_caret()));
     time("block control at caret", n, || {
-        drop(s.block_control_at_caret())
+        drop(s.block_control_at_caret());
     });
     time("field at", n, || drop(s.field_at()));
     time("form field info", n, || drop(s.form_field_info()));

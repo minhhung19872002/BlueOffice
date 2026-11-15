@@ -188,6 +188,11 @@ pub struct Ribbon {
     labeled_w: fn(&str) -> Option<f32>,
     /// Large buttons placed after the group's rows instead of before them.
     trailing: fn(&str) -> bool,
+    /// Row items placed as a column after the trailing large buttons (BlueSheet's Sort &
+    /// Filter: Clear / Reapply / Advanced after Sort and Filter).
+    late: fn(&str) -> bool,
+    /// Contextual tabs drawn like the others (BlueSheet: no tinted band or accent label).
+    plain_contextual: bool,
     /// Large button labels with a space break into two lines (BlueSheet), measured lines
     /// by command id.
     two_line: bool,
@@ -195,6 +200,10 @@ pub struct Ribbon {
     large_lines: std::cell::RefCell<std::collections::HashMap<&'static str, [(String, f32); 2]>>,
     /// Fixed width (logical px) of some labeled row buttons (BlueSlide's timing boxes).
     row_w: fn(&str) -> Option<f32>,
+    /// One-word menu labels put their drop-down mark on a second line (BlueSlide).
+    mark_line: bool,
+    /// Font and size box widths (logical px) instead of BlueDoc's.
+    box_w: Option<(f32, f32)>,
     /// Whether a command can run now (BlueSheet / BlueSlide pass their own rule).
     enabled: fn(&str, &FormatState) -> bool,
     /// Number of permanent tabs; tabs after them are contextual (table, header/footer,
@@ -556,9 +565,13 @@ impl Ribbon {
             large_w: |_| None,
             labeled_w: |_| None,
             trailing: |_| false,
+            late: |_| false,
+            plain_contextual: false,
             two_line: false,
             large_lines: std::cell::RefCell::new(std::collections::HashMap::new()),
             row_w: |_| None,
+            mark_line: false,
+            box_w: None,
             enabled: commands::enabled,
         }
     }
@@ -577,6 +590,18 @@ impl Ribbon {
     /// Place the large buttons `rule` picks after the group's rows.
     pub(crate) fn with_trailing(mut self, rule: fn(&str) -> bool) -> Self {
         self.trailing = rule;
+        self
+    }
+
+    /// Draw contextual tabs like the permanent ones.
+    pub(crate) fn with_plain_contextual(mut self) -> Self {
+        self.plain_contextual = true;
+        self
+    }
+
+    /// Place the row items `rule` picks in a column after the trailing large buttons.
+    pub(crate) fn with_late_rows(mut self, rule: fn(&str) -> bool) -> Self {
+        self.late = rule;
         self
     }
 
@@ -609,6 +634,20 @@ impl Ribbon {
     ) -> f32 {
         let one = self.measure_label(text, strings, id);
         let label = strings.get(&format!("commands.{id}")).to_owned();
+        if self.mark_line && !label.contains(' ') && crate::catalog::is_menu(id) {
+            let style = TextStyle {
+                size: self.px(12.0),
+                bold: false,
+            };
+            let mark = "\u{25BE}".to_owned();
+            let (wa, wb) = (text.measure(&label, style).0, text.measure(&mark, style).0);
+            let w = wa.max(wb);
+            self.large_lines
+                .borrow_mut()
+                .insert(id, [(label, wa), (mark, wb)]);
+            self.label_w.borrow_mut().insert(id, w);
+            return w;
+        }
         if !self.two_line || !label.contains(' ') {
             self.large_lines.borrow_mut().remove(id);
             return one;
@@ -642,6 +681,24 @@ impl Ribbon {
             }
             None => one,
         }
+    }
+
+    /// The two label lines of large button `id` (tests).
+    #[cfg(test)]
+    pub(crate) fn large_lines_of(&self, id: &str) -> Option<[(String, f32); 2]> {
+        self.large_lines.borrow().get(id).cloned()
+    }
+
+    /// Put the drop-down mark of one-word menu labels on its own line, under the label.
+    pub(crate) fn with_mark_on_own_line(mut self) -> Self {
+        self.mark_line = true;
+        self
+    }
+
+    /// Font and size box widths in logical px.
+    pub(crate) fn with_box_widths(mut self, font: f32, size: f32) -> Self {
+        self.box_w = Some((font, size));
+        self
     }
 
     /// Use `rule` to decide which commands are enabled (dimmed otherwise).
@@ -887,6 +944,7 @@ impl Ribbon {
                 let mut group_w: f32 = 0.0;
                 let mut lx = gx + self.px(4.0);
                 let trailing = |item: &Item| matches!(item, Item::Large(id) if (self.trailing)(id));
+                let late = |item: &Item| matches!(item, Item::Labeled(id) | Item::Button(id) if (self.late)(id));
                 for item in g.large.iter().filter(|i| !trailing(i)) {
                     if *item == Item::Gallery {
                         {
@@ -948,12 +1006,14 @@ impl Ribbon {
                         rows_top + r as f32 * (btn + row_gap)
                     };
                     let mut x = lx;
-                    for item in row {
+                    for item in row.iter().filter(|i| !late(i)) {
                         let w = match item {
-                            Item::FontBox => self.px(150.0),
-                            Item::SizeBox => self.px(52.0),
+                            Item::FontBox => self.px(self.box_w.map_or(150.0, |b| b.0)),
+                            Item::SizeBox => self.px(self.box_w.map_or(52.0, |b| b.1)),
                             Item::Button(id) if crate::catalog::is_menu(id) => self.px(36.0),
-                            Item::Labeled(id) => match (self.labeled_w)(id).or_else(|| (self.row_w)(id)) {
+                            Item::Labeled(id) => match (self.labeled_w)(id)
+                                .or_else(|| (self.row_w)(id))
+                            {
                                 Some(fixed) => self.px(fixed),
                                 None => btn + self.measure_label(text, strings, id) + self.px(8.0),
                             },
@@ -988,6 +1048,27 @@ impl Ribbon {
                     ));
                     tx += w + gap;
                     group_w = group_w.max(tx - gap - gx + self.px(4.0));
+                }
+                // Late row items: one column after the trailing large buttons.
+                let three = g.rows.len() >= 3;
+                for (r, row) in g.rows.iter().enumerate() {
+                    let y = if three {
+                        content_top + r as f32 * (row_h + gap)
+                    } else {
+                        rows_top + r as f32 * (btn + row_gap)
+                    };
+                    let mut x = tx;
+                    for item in row.iter().filter(|i| late(i)) {
+                        let w = match item {
+                            Item::Labeled(id) => {
+                                btn + self.measure_label(text, strings, id) + self.px(8.0)
+                            }
+                            _ => btn,
+                        };
+                        placed.push(Placed::Item(*item, Rect { x, y, w, h: row_h }));
+                        x += w + gap;
+                        group_w = group_w.max(x - gap - gx + self.px(4.0));
+                    }
                 }
                 let label = strings.get(g.label);
                 let (lw, _) = text.measure(
@@ -1347,6 +1428,20 @@ impl Ribbon {
         (fired, was.is_some())
     }
 
+    /// Index of the active tab.
+    pub(crate) fn active_tab(&self) -> usize {
+        self.active
+    }
+
+    /// Make tab `i` active (a contextual tab shown for a new selection); lay out again.
+    pub(crate) fn set_active_tab(&mut self, i: usize) {
+        if i < self.tabs.len() && i != self.active {
+            self.active = i;
+            self.scroll = 0.0;
+            self.placed.clear();
+        }
+    }
+
     /// Whether the layout must be redone (tab change).
     pub fn needs_layout(&self) -> bool {
         self.placed.is_empty()
@@ -1458,7 +1553,7 @@ impl Ribbon {
                     );
                 }
                 Placed::Tab(i, r) => {
-                    let contextual = *i >= self.fixed_tabs;
+                    let contextual = *i >= self.fixed_tabs && !self.plain_contextual;
                     if contextual {
                         // Contextual tabs sit on a tinted band (the reference darkens its
                         // tab strip by about a fifth behind them) with accent labels.

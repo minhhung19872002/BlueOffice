@@ -14,14 +14,46 @@ mod doc_table;
 mod doc_tips;
 mod doc_tools;
 mod doc_view;
+mod editor_actions;
+#[cfg(test)]
+mod editor_actions_tests;
+mod editor_backstage;
+mod editor_comment;
+#[cfg(test)]
+mod editor_comment_tests;
+mod editor_convert;
+mod editor_design;
+#[cfg(test)]
+mod editor_design_tests;
+mod editor_edit;
+mod editor_format;
+#[cfg(test)]
+mod editor_format_tests;
+mod editor_icons;
+mod editor_more;
+mod editor_more2;
+#[cfg(test)]
+mod editor_more_tests;
+mod editor_organize;
+mod editor_sign;
+#[cfg(test)]
+mod editor_tests;
+mod editor_tools;
+#[cfg(test)]
+mod editor_tools_tests;
+mod editor_window;
 mod icons;
 mod input;
 mod nav_pane;
+mod pdf_window;
 mod popup;
 mod reader_icons;
+mod reader_impose;
+mod reader_print;
 #[cfg(test)]
 mod reader_tests;
 mod reader_view;
+mod reader_viewx;
 mod reader_window;
 mod ribbon;
 mod ruler;
@@ -30,7 +62,9 @@ mod sheet_view;
 mod sheet_window;
 mod shell;
 mod slide_anim_pane;
+mod slide_bgpane;
 mod slide_comments;
+mod slide_pickers;
 mod slide_reveal;
 mod slide_ribbon;
 mod slide_show;
@@ -46,18 +80,26 @@ mod titlebar;
 pub use backstage::{Backstage, FileAction};
 pub use dialog::{Dialog, DialogButton, DialogKind};
 pub use doc_view::{DocView, PageSlot, CANVAS_BG};
+pub use editor_window::{EditTool, EditorWindow};
 pub use icons::{parse_path, IconColors, Icons};
 pub use input::{Input, Key, Mods};
+pub use pdf_window::PdfWindow;
 pub use popup::{Choice, Menu, MenuItem};
+pub use reader_impose::{
+    plan as print_plan, BookletSides, Duplex, PageOrder, Placement, PlanOptions, PrintLayout, Sheet,
+};
+pub use reader_print::{
+    parse_pages, Orientation, Paper, PrintAction, PrintDialog, PrintScaling, PrintSettings,
+};
 pub use reader_view::{Fit, Layout, PdfStore, ReaderView, THUMB_KEY};
 pub use reader_window::{Panel, ReaderRequest, ReaderWindow, Tool};
 pub use ribbon::{Ribbon, RibbonHit};
 pub use ruler::Ruler;
-pub use sheet_view::{CellFormat, GridMove, GridStore, SheetView, Stats};
+pub use sheet_view::{CellFormat, GridMove, GridRing, GridStore, SheetView, Stats};
 pub use sheet_window::{PaintHash, SheetWindow};
 pub use shell::{DocWindow, Request};
 pub use slide_view::{Focus, SlideView, ViewMode, SLIDE_CANVAS};
-pub use slide_window::SlideWindow;
+pub use slide_window::{InsertFile, SlideWindow, WindowRequest};
 pub use strings::Strings;
 pub use theme::{parse_color, Theme};
 pub use titlebar::{NcHit, TitleBar};

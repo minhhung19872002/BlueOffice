@@ -18,12 +18,28 @@ pub trait PdfStore {
         images: &HashMap<String, Arc<bo_pdfread::Image>>,
         scale: f32,
     ) -> Result<(), String>;
+    /// Draw only `band` (left, top, width, height in device pixels) of image `key`, which was
+    /// drawn before at `scale` (BlueEditor's typing); stores without bands draw it all.
+    fn update_band(
+        &mut self,
+        key: usize,
+        list: &PageList,
+        fonts: &bo_text::FontManager,
+        images: &HashMap<String, Arc<bo_pdfread::Image>>,
+        scale: f32,
+        band: [u32; 4],
+    ) -> Result<(), String> {
+        let _ = band;
+        self.update(key, list, fonts, images, scale)
+    }
     /// Forget image `key`.
     fn remove(&mut self, key: usize);
 }
 
 /// Key of page `i`'s thumbnail image in the store.
 pub const THUMB_KEY: usize = 1 << 24;
+/// Key of the one preview image (print preview) in the store.
+pub const PREVIEW_KEY: usize = 2 << 24;
 
 /// How pages are arranged.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -49,13 +65,14 @@ pub enum Fit {
     Width,
 }
 
-/// Zoom steps of the zoom-in / zoom-out commands (fractions of 100 %).
-pub const ZOOM_STEPS: [f32; 17] = [
-    0.0833, 0.125, 0.25, 0.3333, 0.5, 0.6667, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0, 4.0, 6.0, 8.0, 12.0,
-    16.0,
+/// Zoom steps of the zoom-in / zoom-out commands and Ctrl + wheel (fractions of 100 %): the
+/// reference reader's preset list (measured, round 5).
+pub const ZOOM_STEPS: [f32; 18] = [
+    0.01, 0.0833, 0.125, 0.25, 0.3333, 0.5, 0.6667, 0.75, 1.0, 1.25, 1.5, 2.0, 4.0, 6.0, 8.0, 16.0,
+    32.0, 64.0,
 ];
-const MIN_ZOOM: f32 = 0.0833;
-const MAX_ZOOM: f32 = 16.0;
+const MIN_ZOOM: f32 = 0.01;
+const MAX_ZOOM: f32 = 64.0;
 
 /// A rendered page kept for drawing, selection and search.
 struct Rendered {
@@ -112,6 +129,8 @@ pub struct ReaderView {
     drawn: HashMap<usize, (f32, u64)>,
     /// Page content changed (annotation added): images older than this are stale.
     generation: Vec<u64>,
+    /// Pages whose content changed only inside a box (page points): drawn again by band.
+    bands: HashMap<usize, [f32; 4]>,
     selection: Option<Selection>,
     hits: Vec<Hit>,
     current_hit: Option<usize>,
@@ -123,9 +142,29 @@ pub struct ReaderView {
     gap: f32,
     /// Spreads start with a single first page (cover) in facing layouts.
     cover: bool,
+    /// Night Mode: pages drawn in the dark scheme (dark paper, grey text).
+    night: bool,
+    /// Reverse View: spreads read right to left.
+    reverse: bool,
     /// First page of the spread shown in single and facing layouts.
     single_page: usize,
+    /// Pages too large to keep whole at this zoom: the part drawn (device pixels from the
+    /// page's top-left corner: x, y, width, height).
+    crops: HashMap<usize, [f32; 4]>,
+    /// Preview image wanted this frame (page, scale) and the one drawn (page, scale, generation).
+    preview_wanted: Option<(usize, f32)>,
+    preview_drawn: Option<(usize, f32, u64)>,
+    /// Print preview images wanted (page, scale) and drawn (page, scale, generation).
+    previews_wanted: Vec<(usize, f32)>,
+    previews_drawn: Vec<Option<(usize, f32, u64)>>,
+    /// Other panes of a split window (frame, scroll): their pages are kept drawn too.
+    extra_views: Vec<([f32; 4], (f32, f32))>,
 }
+
+/// Largest page image side and area (device pixels) drawn whole; larger pages at high zoom
+/// draw only the part around the view.
+const MAX_IMAGE_SIDE: f32 = 8192.0;
+const MAX_IMAGE_AREA: f32 = 32.0 * 1024.0 * 1024.0;
 
 /// Points to device pixels at 100 % zoom and a scale of 1 (96 / 72).
 const PT: f32 = 96.0 / 72.0;
@@ -154,6 +193,7 @@ impl ReaderView {
             lru: VecDeque::new(),
             drawn: HashMap::new(),
             generation: vec![0; n],
+            bands: HashMap::new(),
             selection: None,
             hits: Vec::new(),
             current_hit: None,
@@ -161,7 +201,15 @@ impl ReaderView {
             stale: true,
             gap: 6.0,
             cover: true,
+            night: false,
+            reverse: false,
             single_page: 0,
+            crops: HashMap::new(),
+            preview_wanted: None,
+            preview_drawn: None,
+            previews_wanted: Vec::new(),
+            previews_drawn: Vec::new(),
+            extra_views: Vec::new(),
         };
         v.update_sizes();
         v
@@ -244,6 +292,14 @@ impl ReaderView {
         self.frame
     }
 
+    /// Gap between pages and around them in logical pixels (6 normally; Full Screen uses 1).
+    pub fn set_gap(&mut self, gap: f32) {
+        if (self.gap - gap).abs() > f32::EPSILON {
+            self.gap = gap.max(0.0);
+            self.stale = true;
+        }
+    }
+
     fn margin(&self) -> f32 {
         (self.gap * self.dpi).round()
     }
@@ -262,7 +318,11 @@ impl ReaderView {
                 }
                 while i < n {
                     if i + 1 < n {
-                        rows.push(vec![i, i + 1]);
+                        rows.push(if self.reverse {
+                            vec![i + 1, i]
+                        } else {
+                            vec![i, i + 1]
+                        });
                     } else {
                         rows.push(vec![i]);
                     }
@@ -595,6 +655,46 @@ impl ReaderView {
         ])
     }
 
+    /// Page rectangle in window pixels in another pane (`frame`, scrolled to `scroll`) of
+    /// the same size as the view.
+    pub fn page_rect_at(&self, i: usize, frame: [f32; 4], scroll: (f32, f32)) -> Option<[f32; 4]> {
+        let r = self.rects.get(i)?;
+        Some([
+            frame[0] + r[0] - scroll.0,
+            frame[1] + r[1] - scroll.1,
+            r[2],
+            r[3],
+        ])
+    }
+
+    /// Pages intersecting another pane (`frame`, scrolled to `scroll`).
+    pub fn visible_pages_at(&self, frame: [f32; 4], scroll: (f32, f32)) -> Vec<usize> {
+        let [fx, fy, fw, fh] = frame;
+        let shown: Vec<usize> = match self.layout {
+            Layout::Single | Layout::Facing => self.row_of(self.single_page),
+            _ => (0..self.rects.len()).collect(),
+        };
+        shown
+            .into_iter()
+            .filter(|&i| {
+                self.page_rect_at(i, frame, scroll).is_some_and(|r| {
+                    r[1] < fy + fh && r[1] + r[3] > fy && r[0] < fx + fw && r[0] + r[2] > fx
+                })
+            })
+            .collect()
+    }
+
+    /// Other panes of a split window (frame, scroll); their pages stay drawn.
+    pub fn set_extra_views(&mut self, views: Vec<([f32; 4], (f32, f32))>) {
+        self.extra_views = views;
+    }
+
+    /// Scroll to `scroll` (switching panes of a split window).
+    pub fn set_scroll(&mut self, scroll: (f32, f32)) {
+        self.scroll = scroll;
+        self.clamp_scroll();
+    }
+
     /// Pages intersecting the view.
     pub fn visible_pages(&self) -> Vec<usize> {
         let [fx, fy, fw, fh] = self.frame;
@@ -624,6 +724,32 @@ impl ReaderView {
         None
     }
 
+    /// A rectangle of page `i` in the document's page points (left, top, right, bottom) as a
+    /// window rectangle (x, y, w, h), with the view's rotation.
+    pub fn doc_rect_to_window(&self, i: usize, r: [f32; 4]) -> Option<[f32; 4]> {
+        let pr = self.page_rect(i)?;
+        let shown = rotate_rect(r, self.rotation, self.unrotated(i));
+        let s = self.px_per_pt();
+        Some([
+            pr[0] + shown[0] * s,
+            pr[1] + shown[1] * s,
+            (shown[2] - shown[0]) * s,
+            (shown[3] - shown[1]) * s,
+        ])
+    }
+
+    /// The page under a window point and the point in the document's page points.
+    pub fn window_to_doc(&self, x: f32, y: f32) -> Option<(usize, f32, f32)> {
+        let (i, px, py) = self.page_at(x, y)?;
+        let r = self.unrotate_rect(i, [px, py, px, py]);
+        Some((i, r[0], r[1]))
+    }
+
+    /// Window pixels per document point.
+    pub fn scale(&self) -> f32 {
+        self.px_per_pt()
+    }
+
     fn render_opts(&self) -> RenderOptions {
         RenderOptions {
             text_as_paths: false,
@@ -642,10 +768,15 @@ impl ReaderView {
             return true;
         }
         let opts = self.render_opts();
-        let Ok(page) = self.doc.render(i, opts) else {
+        let Ok(page) = self.doc.render_extra(i, opts, self.render_extra()) else {
             return false;
         };
         let list = rotate_list(page.list, self.rotation);
+        let list = if self.night {
+            crate::reader_viewx::night_list(list)
+        } else {
+            list
+        };
         let links = page
             .links
             .into_iter()
@@ -685,6 +816,14 @@ impl ReaderView {
         true
     }
 
+    /// Night Mode greys every shown text, outlined text included.
+    fn render_extra(&self) -> bo_pdfread::RenderExtra {
+        bo_pdfread::RenderExtra {
+            text_color: self.night.then_some(crate::reader_viewx::NIGHT_TEXT),
+            ..bo_pdfread::RenderExtra::default()
+        }
+    }
+
     fn unrotated(&self, i: usize) -> (f32, f32) {
         let info = self.doc.page_info(i);
         info.map_or((612.0, 792.0), |p| (p.width, p.height))
@@ -694,11 +833,22 @@ impl ReaderView {
     fn render_paths(&mut self, i: usize) -> bool {
         let mut opts = self.render_opts();
         opts.text_as_paths = true;
-        let Ok(page) = self.doc.render(i, opts) else {
+        let Ok(page) = self.doc.render_extra(i, opts, self.render_extra()) else {
             return false;
         };
+        let night = self.night;
         if let Some(r) = self.cache.get_mut(&i) {
             r.list = rotate_list(page.list, self.rotation);
+            if night {
+                r.list = crate::reader_viewx::night_list(std::mem::replace(
+                    &mut r.list,
+                    PageList {
+                        width: 0.0,
+                        height: 0.0,
+                        commands: Vec::new(),
+                    },
+                ));
+            }
             r.images = page.images;
             r.paths = true;
         }
@@ -711,7 +861,14 @@ impl ReaderView {
         self.relayout();
         let start = std::time::Instant::now();
         let scale = self.px_per_pt();
-        let visible = self.visible_pages();
+        let mut visible = self.visible_pages();
+        for &(frame, scroll) in &self.extra_views {
+            for i in self.visible_pages_at(frame, scroll) {
+                if !visible.contains(&i) {
+                    visible.push(i);
+                }
+            }
+        }
         let mut more = false;
         let mut wanted: Vec<usize> = visible.clone();
         // Neighbours for smooth scrolling.
@@ -726,10 +883,22 @@ impl ReaderView {
             }
         }
         for (n, &i) in wanted.iter().enumerate() {
-            let fresh = self
-                .drawn
-                .get(&i)
-                .is_some_and(|&(s, g)| (s - scale).abs() < 1e-4 && g == self.generation[i]);
+            let crop = self.crop_for(i, scale);
+            let covered = match (crop, self.crops.get(&i)) {
+                (None, None) => true,
+                (Some(_), Some(have)) => self.visible_part(i).is_none_or(|v| {
+                    v[0] >= have[0]
+                        && v[1] >= have[1]
+                        && v[0] + v[2] <= have[0] + have[2]
+                        && v[1] + v[3] <= have[1] + have[3]
+                }),
+                _ => false,
+            };
+            let fresh = covered
+                && self
+                    .drawn
+                    .get(&i)
+                    .is_some_and(|&(s, g)| (s - scale).abs() < 1e-4 && g == self.generation[i]);
             if fresh {
                 continue;
             }
@@ -740,8 +909,50 @@ impl ReaderView {
             if !self.ensure(i) {
                 continue;
             }
-            if self.draw(store, i, i, scale).is_ok() {
+            let band = self.bands.remove(&i);
+            let same_scale = self
+                .drawn
+                .get(&i)
+                .is_some_and(|&(s, _)| (s - scale).abs() < 1e-4);
+            let same_crop = crop == self.crops.get(&i).copied();
+            let drawn = match (crop, band) {
+                (_, Some(b)) if same_scale && same_crop => self.draw_band(store, i, scale, b, crop),
+                (None, _) => self.draw(store, i, i, scale),
+                (Some(c), _) => self.draw_part(store, i, scale, c),
+            };
+            if drawn.is_ok() {
                 self.drawn.insert(i, (scale, self.generation[i]));
+                match crop {
+                    Some(c) => self.crops.insert(i, c),
+                    None => self.crops.remove(&i),
+                };
+            }
+        }
+        // Print preview.
+        if let Some((i, s)) = self.preview_wanted.take() {
+            if i < self.sizes.len()
+                && !self.has_preview(i, s)
+                && self.ensure(i)
+                && self.draw(store, PREVIEW_KEY, i, s).is_ok()
+            {
+                self.preview_drawn = Some((i, s, self.generation[i]));
+            }
+        }
+        // Print preview pages of the sheet shown.
+        let previews = std::mem::take(&mut self.previews_wanted);
+        if self.previews_drawn.len() < previews.len() {
+            self.previews_drawn.resize(previews.len(), None);
+        }
+        for (k, &(i, s)) in previews.iter().enumerate() {
+            let fresh = i < self.sizes.len()
+                && self.previews_drawn[k].is_some_and(|(p, ds, g)| {
+                    p == i && (ds - s).abs() < 1e-4 && g == self.generation[i]
+                });
+            if fresh || i >= self.sizes.len() {
+                continue;
+            }
+            if self.ensure(i) && self.draw(store, PREVIEW_KEY + 1 + k, i, s).is_ok() {
+                self.previews_drawn[k] = Some((i, s, self.generation[i]));
             }
         }
         // Thumbnails.
@@ -774,6 +985,7 @@ impl ReaderView {
         for k in drop {
             store.remove(k);
             self.drawn.remove(&k);
+            self.crops.remove(&k);
         }
         let thumbs: Vec<usize> = self
             .drawn
@@ -788,6 +1000,122 @@ impl ReaderView {
             }
         }
         more
+    }
+
+    /// Ask for the print preview's page images this frame: `(page, scale)` drawn under keys
+    /// [`PREVIEW_KEY`] + 1 + their position.
+    pub fn want_previews(&mut self, wanted: &[(usize, f32)]) {
+        self.previews_wanted = wanted.to_vec();
+    }
+
+    /// Ask for the preview image of page `i` at `scale` (key [`PREVIEW_KEY`]) this frame.
+    pub fn want_preview(&mut self, i: usize, scale: f32) {
+        self.preview_wanted = Some((i, scale));
+    }
+
+    /// Whether the preview image shows page `i` at `scale`.
+    pub fn has_preview(&self, i: usize, scale: f32) -> bool {
+        self.preview_drawn
+            .is_some_and(|(p, s, g)| p == i && (s - scale).abs() < 1e-4 && g == self.generation[i])
+    }
+
+    /// The part of page `i` in the view (device pixels from the page's corner).
+    fn visible_part(&self, i: usize) -> Option<[f32; 4]> {
+        let r = self.page_rect(i)?;
+        let f = self.frame;
+        let x0 = (f[0].max(r[0]) - r[0]).max(0.0);
+        let y0 = (f[1].max(r[1]) - r[1]).max(0.0);
+        let x1 = (f[0] + f[2]).min(r[0] + r[2]) - r[0];
+        let y1 = (f[1] + f[3]).min(r[1] + r[3]) - r[1];
+        (x1 > x0 && y1 > y0).then_some([x0, y0, x1 - x0, y1 - y0])
+    }
+
+    /// For a page too large to draw whole at `scale`: the part to draw, the view's part grown
+    /// by half a view each way.
+    fn crop_for(&self, i: usize, scale: f32) -> Option<[f32; 4]> {
+        let (w, h) = self.sizes.get(i).map(|s| (s.0 * scale, s.1 * scale))?;
+        if w <= MAX_IMAGE_SIDE && h <= MAX_IMAGE_SIDE && w * h <= MAX_IMAGE_AREA {
+            return None;
+        }
+        let v = self
+            .visible_part(i)
+            .unwrap_or([0.0, 0.0, self.frame[2], self.frame[3]]);
+        let (mx, my) = ((self.frame[2] / 2.0).round(), (self.frame[3] / 2.0).round());
+        let x0 = (v[0] - mx).max(0.0).floor();
+        let y0 = (v[1] - my).max(0.0).floor();
+        let x1 = (v[0] + v[2] + mx).min(w.floor());
+        let y1 = (v[1] + v[3] + my).min(h.floor());
+        Some([x0, y0, (x1 - x0).max(1.0), (y1 - y0).max(1.0)])
+    }
+
+    /// Where image `key`'s top-left corner lies on its page (device pixels): the drawn part
+    /// of a page too large to draw whole, else (0, 0).
+    pub fn image_offset(&self, key: usize) -> (f32, f32) {
+        self.crops.get(&key).map_or((0.0, 0.0), |c| (c[0], c[1]))
+    }
+
+    /// Draw part `c` (device pixels) of page `i` as its image.
+    fn draw_part(
+        &mut self,
+        store: &mut dyn PdfStore,
+        i: usize,
+        scale: f32,
+        c: [f32; 4],
+    ) -> Result<(), String> {
+        let r = self.cache.get(&i).ok_or("not rendered")?;
+        let mut commands = Vec::with_capacity(r.list.commands.len() + 2);
+        commands.push(Command::PushTransform {
+            m: [1.0, 0.0, 0.0, 1.0, -c[0] / scale, -c[1] / scale],
+        });
+        commands.extend(r.list.commands.iter().cloned());
+        commands.push(Command::PopTransform);
+        let part = PageList {
+            width: c[2] / scale,
+            height: c[3] / scale,
+            commands,
+        };
+        store.update(i, &part, self.doc.fonts(), &r.images, scale)
+    }
+
+    fn draw_band(
+        &mut self,
+        store: &mut dyn PdfStore,
+        i: usize,
+        scale: f32,
+        b: [f32; 4],
+        crop: Option<[f32; 4]>,
+    ) -> Result<(), String> {
+        let r = self.cache.get(&i).ok_or("not rendered")?;
+        // The image is the page, or the `crop` part of it (device pixels).
+        let c = crop.unwrap_or([
+            0.0,
+            0.0,
+            (r.list.width * scale).ceil(),
+            (r.list.height * scale).ceil(),
+        ]);
+        let x0 = (b[0] * scale - 2.0 - c[0]).floor().clamp(0.0, c[2]);
+        let y0 = (b[1] * scale - 2.0 - c[1]).floor().clamp(0.0, c[3]);
+        let x1 = (b[2] * scale + 2.0 - c[0]).ceil().clamp(0.0, c[2]);
+        let y1 = (b[3] * scale + 2.0 - c[1]).ceil().clamp(0.0, c[3]);
+        if x1 <= x0 || y1 <= y0 {
+            return Ok(());
+        }
+        let band = [x0 as u32, y0 as u32, (x1 - x0) as u32, (y1 - y0) as u32];
+        if crop.is_none() {
+            return store.update_band(i, &r.list, self.doc.fonts(), &r.images, scale, band);
+        }
+        let mut commands = Vec::with_capacity(r.list.commands.len() + 2);
+        commands.push(Command::PushTransform {
+            m: [1.0, 0.0, 0.0, 1.0, -c[0] / scale, -c[1] / scale],
+        });
+        commands.extend(r.list.commands.iter().cloned());
+        commands.push(Command::PopTransform);
+        let part = PageList {
+            width: c[2] / scale,
+            height: c[3] / scale,
+            commands,
+        };
+        store.update_band(i, &part, self.doc.fonts(), &r.images, scale, band)
     }
 
     fn draw(
@@ -969,6 +1297,22 @@ impl ReaderView {
         out
     }
 
+    /// Page `i` changed only inside `r` (page points): read it again and draw that band of
+    /// its image again (the whole page when it is not drawn yet or the view is rotated).
+    pub fn invalidate_band(&mut self, i: usize, r: [f32; 4]) {
+        let drawn = self.drawn.contains_key(&i);
+        self.invalidate_page(i);
+        if drawn && self.rotation == 0 && !self.night {
+            let b = self.bands.entry(i).or_insert(r);
+            *b = [
+                b[0].min(r[0]),
+                b[1].min(r[1]),
+                b[2].max(r[2]),
+                b[3].max(r[3]),
+            ];
+        }
+    }
+
     /// The page's content changed (a comment was added): draw it again.
     pub fn invalidate_page(&mut self, i: usize) {
         self.cache.remove(&i);
@@ -988,6 +1332,72 @@ impl ReaderView {
             (w, h)
         };
         rotate_rect(r, back, shown)
+    }
+
+    /// The document's pages changed (inserted, deleted, moved, rotated, content edited, undo):
+    /// forget every rendered page and lay out again.
+    pub fn document_changed(&mut self) {
+        let n = self.doc.page_count();
+        self.cache.clear();
+        self.lru.clear();
+        self.drawn.clear();
+        let g = self.generation.iter().copied().max().unwrap_or(0) + 1;
+        self.generation = vec![g; n];
+        self.selection = None;
+        self.hits.clear();
+        self.current_hit = None;
+        self.single_page = self.single_page.min(n.saturating_sub(1));
+        self.update_sizes();
+        self.relayout();
+        self.clamp_scroll();
+    }
+
+    /// Night Mode: pages drawn with inverted lightness (every page is drawn again).
+    pub fn set_night(&mut self, on: bool) {
+        if self.night == on {
+            return;
+        }
+        self.night = on;
+        self.cache.clear();
+        self.lru.clear();
+        for g in &mut self.generation {
+            *g += 1;
+        }
+    }
+
+    /// Whether Night Mode is on.
+    pub fn night(&self) -> bool {
+        self.night
+    }
+
+    /// Facing layouts show the first page alone (a cover) or pair it with the second.
+    pub fn set_cover(&mut self, on: bool) {
+        if self.cover != on {
+            let anchor = self.anchor();
+            self.cover = on;
+            self.stale = true;
+            self.relayout();
+            self.restore_anchor(anchor);
+        }
+    }
+
+    /// Reverse View: the pages of a spread right to left.
+    pub fn set_reverse(&mut self, on: bool) {
+        if self.reverse != on {
+            self.reverse = on;
+            self.stale = true;
+            self.relayout();
+        }
+    }
+
+    /// Whether spreads read right to left.
+    pub fn reverse(&self) -> bool {
+        self.reverse
+    }
+
+    /// Whether facing layouts show the first page alone.
+    pub fn cover(&self) -> bool {
+        self.cover
     }
 
     /// Whether the document was changed.

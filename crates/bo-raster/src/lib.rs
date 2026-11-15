@@ -232,6 +232,8 @@ fn render_onto(
                     alpha = a;
                 }
             }
+            // No blending here: a group draws as plain content.
+            Command::PushGroup { .. } | Command::PopGroup => {}
             Command::BlurPath {
                 segs,
                 color,

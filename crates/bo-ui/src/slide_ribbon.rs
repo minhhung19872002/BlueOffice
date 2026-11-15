@@ -73,7 +73,7 @@ pub const GALLERY_TILES: usize = 6;
 pub const ANIM_TILES: usize = 4;
 
 /// Other commands of these tabs.
-const OWN: [&str; 34] = [
+const OWN: [&str; 39] = [
     "show.hideSlide",
     "review.deleteComment",
     "review.prevComment",
@@ -108,6 +108,11 @@ const OWN: [&str; 34] = [
     "review.comments",
     "view.sorter",
     "view.reading",
+    CURRENT_THEME,
+    "design.more",
+    "design.variants",
+    "design.effects",
+    "design.layout",
 ];
 
 /// Whether `id` is one of the commands of these tabs.
@@ -115,9 +120,59 @@ pub fn is_command(id: &str) -> bool {
     OWN.contains(&id)
         || DRAW_TOOLS.contains(&id)
         || id == "view.normal"
+        || id == "draw.inkToShape"
         || TRANSITIONS.iter().any(|(c, _)| *c == id)
         || EFFECTS.iter().any(|(c, _)| *c == id)
         || THEMES.iter().any(|(c, _)| *c == id)
+}
+
+/// BlueSlide-only buttons drawn with the drop-down mark (they open a menu or a picker).
+pub fn has_menu_mark(id: &str) -> bool {
+    matches!(
+        id,
+        "sl.table"
+            | "sl.shapes"
+            | "sl.arrange"
+            | "sl.quickStyles"
+            | "sl.fill"
+            | "sl.outline"
+            | "sl.effects"
+            | "sl.editing"
+            | "sl.symbols"
+            | "sl.media"
+            | "sl.align"
+            | "sl.group"
+            | "sl.rotate"
+            | "sl.crop"
+            | "sl.picBorder"
+            | "sl.shading"
+            | "sl.tblDelete"
+            | "design.variants"
+            | "design.colors"
+            | "design.fonts"
+            | "design.effects"
+            | "design.background"
+            | "design.layout"
+            | "design.slideSize"
+            | "show.custom"
+            | "sl.smartart"
+            | "sl.links"
+            | "sl.textStyles"
+            | "sl.textQuick"
+            | "sl.textFill"
+            | "sl.textOutline"
+            | "sl.textEffects"
+            | "sl.corrections"
+            | "sl.picColor"
+            | "sl.transparency"
+            | "sl.changePicture"
+            | "sl.tblBorders"
+            | "sl.tblEffects"
+            | "sl.penColor"
+            | "sl.picQuick"
+            | "pm.orientation"
+            | "pm.perPage"
+    )
 }
 
 /// Commands that open a menu (Slide Size, Effect Options, …).
@@ -126,6 +181,10 @@ pub fn is_menu(id: &str) -> bool {
         id,
         "design.colors"
             | "design.fonts"
+            | "design.variants"
+            | "design.effects"
+            | "design.layout"
+            | "design.more"
             | "design.slideSize"
             | "design.background"
             | "transition.effect"
@@ -145,7 +204,15 @@ pub fn large_width(id: &str) -> Option<f32> {
     // reaching the next divider at 985.
     match id {
         "transition.preview" | "anim.preview" => return Some(48.8),
-        "transition.more" | "anim.more" => return Some(29.6),
+        "transition.more" | "anim.more" | "design.more" => return Some(29.6),
+        // Design tab, measured on the reference at 125 %: Variants 66, Colors 58, Fonts 62,
+        // Effects 60, Background Styles 100, Layout 66, Slide Size 60 device px.
+        "design.variants" | "design.layout" => return Some(52.8),
+        "design.colors" => return Some(46.4),
+        "design.fonts" => return Some(49.6),
+        "design.effects" | "design.slideSize" => return Some(48.0),
+        "design.background" => return Some(80.0),
+        CURRENT_THEME => return Some(109.6),
         "transition.effect" | "anim.effect" => return Some(72.0),
         // Add Animation: reference x 745-850.
         "anim.add" => return Some(89.6),
@@ -169,12 +236,23 @@ pub(crate) fn draw_tab() -> Tab {
         groups: vec![
             Group {
                 label: "slideNative.tools",
-                large: vec![L("draw.eraser"), L("draw.select")],
+                large: vec![L("draw.eraser"), L("draw.select"), L("draw.lasso")],
                 rows: vec![],
             },
             Group {
                 label: "slideNative.pens",
-                large: vec![L("draw.pen"), L("draw.red"), L("draw.highlight")],
+                large: vec![
+                    L("draw.pen"),
+                    L("draw.red"),
+                    L("draw.highlight"),
+                    L("draw.blue"),
+                    L("draw.green"),
+                ],
+                rows: vec![],
+            },
+            Group {
+                label: "slideNative.convert",
+                large: vec![L("draw.inkToShape")],
                 rows: vec![],
             },
         ],
@@ -182,14 +260,20 @@ pub(crate) fn draw_tab() -> Tab {
 }
 
 /// Commands of the Draw tab.
-pub const DRAW_TOOLS: [&str; 5] = [
+pub const DRAW_TOOLS: [&str; 8] = [
     "draw.select",
     "draw.pen",
     "draw.red",
     "draw.highlight",
     "draw.eraser",
+    "draw.lasso",
+    "draw.blue",
+    "draw.green",
 ];
 
+/// Design tab as the reference shows it at 1500 px: six theme cards (this presentation's
+/// theme first) and the gallery's "more" column; Customize (Variants, Colors, Fonts, Effects,
+/// Background Styles); Slides (Layout, Slide Size).
 pub(crate) fn design_tab() -> Tab {
     use Item::Large as L;
     Tab {
@@ -197,22 +281,34 @@ pub(crate) fn design_tab() -> Tab {
         groups: vec![
             Group {
                 label: "slideEditor.design.groupThemes",
-                large: THEMES.iter().map(|(c, _)| L(c)).collect(),
-                rows: vec![],
-            },
-            Group {
-                label: "slideEditor.design.groupVariants",
-                large: vec![L("design.colors"), L("design.fonts")],
+                large: std::iter::once(L(CURRENT_THEME))
+                    .chain(THEMES.iter().map(|(c, _)| L(c)))
+                    .chain([L("design.more")])
+                    .collect(),
                 rows: vec![],
             },
             Group {
                 label: "slideNative.customize",
-                large: vec![L("design.slideSize"), L("design.background")],
+                large: vec![
+                    L("design.variants"),
+                    L("design.colors"),
+                    L("design.fonts"),
+                    L("design.effects"),
+                    L("design.background"),
+                ],
+                rows: vec![],
+            },
+            Group {
+                label: "slideEditor.groupSlides",
+                large: vec![L("design.layout"), L("design.slideSize")],
                 rows: vec![],
             },
         ],
     }
 }
+
+/// The first theme card: this presentation's own theme.
+pub const CURRENT_THEME: &str = "design.theme.current";
 
 pub(crate) fn transitions_tab() -> Tab {
     use Item::{Labeled as S, Large as L};
@@ -343,6 +439,10 @@ pub(crate) fn install_strings(s: &mut Strings) {
             Some((e, _)) => copy(s, id, &format!("slideEditor.effect.{e}")),
         }
     }
+    s.set(&format!("commands.{CURRENT_THEME}"), "");
+    let this = s.get("slideNative.thisPresentation").to_owned();
+    s.set(&format!("commands.tip.{CURRENT_THEME}"), &this);
+    s.set("commands.design.more", "");
     for (id, theme) in THEMES {
         // Theme tiles show a preview, not a label; the name is the tooltip.
         copy(
@@ -357,10 +457,13 @@ pub(crate) fn install_strings(s: &mut Strings) {
         s.set(&format!("commands.{id}"), "");
     }
     for (id, key) in [
-        ("design.slideSize", "slideEditor.design.slideSize"),
-        ("design.background", "slideNative.formatBackground"),
-        ("design.colors", "slideEditor.smartart.colors"),
+        ("design.slideSize", "slideNative.slideSize"),
+        ("design.background", "slideNative.backgroundStyles"),
+        ("design.colors", "slideNative.colors"),
         ("design.fonts", "slideNative.fonts"),
+        ("design.variants", "slideEditor.design.groupVariants"),
+        ("design.effects", "slideNative.themeEffects"),
+        ("design.layout", "slideNative.layout"),
         ("transition.preview", "slideEditor.preview"),
         ("anim.preview", "slideEditor.preview"),
         ("transition.effect", "slideNative.effectOptions"),
@@ -386,6 +489,10 @@ pub(crate) fn install_strings(s: &mut Strings) {
         ("draw.red", "slideNative.redPen"),
         ("draw.highlight", "slideNative.highlighter"),
         ("draw.eraser", "slideNative.eraser"),
+        ("draw.lasso", "slideNative.lasso"),
+        ("draw.blue", "slideNative.bluePen"),
+        ("draw.green", "slideNative.greenPen"),
+        ("draw.inkToShape", "slideNative.inkToShape"),
         ("review.newComment", "slideEditor.comments.new"),
         ("review.comments", "slideNative.showComments"),
         ("review.deleteComment", "slideEditor.comments.delete"),
@@ -590,6 +697,28 @@ pub(crate) fn install_icons(icons: &mut Icons) {
     pen(icons, "draw.pen", Rgba(0x20, 0x20, 0x20, 255), false);
     pen(icons, "draw.red", Rgba(0xe7, 0x12, 0x24, 255), false);
     pen(icons, "draw.highlight", Rgba(0xff, 0xe0, 0x00, 255), true);
+    pen(icons, "draw.blue", Rgba(0x0f, 0x5e, 0xaa, 255), false);
+    pen(icons, "draw.green", Rgba(0x1e, 0x8a, 0x3c, 255), false);
+    // Lasso: a dashed loop with a plus; Ink to Shape: a stroke turning into a square.
+    icons.add_solid(
+        "draw.lasso",
+        &[
+            ("M6 4c5-2 12 0 12 5s-6 7-11 6s-5-9-1-11Z", None),
+            (
+                "M17 15h2v3h3v2h-3v3h-2v-3h-3v-2h3Z",
+                Some(Rgba(0x44, 0x80, 0xc0, 255)),
+            ),
+        ],
+    );
+    icons.add_solid(
+        "draw.inkToShape",
+        &[
+            ("M3 10c2-4 4 4 6 0", None),
+            ("M11 9h10v12h-10Z", Some(Rgba(0xcf, 0xe0, 0xf3, 255))),
+            ("M11 9h10v12h-10Z", None),
+            ("M7 15l3 3l-3 3Z", Some(Rgba(0x44, 0x80, 0xc0, 255))),
+        ],
+    );
     icons.add_solid(
         "draw.eraser",
         &[
@@ -660,6 +789,37 @@ pub(crate) fn install_icons(icons: &mut Icons) {
         ],
     );
     icons.alias("design.fonts", "format.fontDialog");
+    // Variants: a card with a brush; Effects: a bevelled tile (own drawings).
+    icons.add_solid(
+        "design.variants",
+        &[
+            (
+                "M4 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-14a2 2 0 0 1-2-2v-12a2 2 0 0 1 2-2Z",
+                Some(Rgba(255, 255, 255, 255)),
+            ),
+            (
+                "M4 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-14a2 2 0 0 1-2-2v-12a2 2 0 0 1 2-2Z",
+                None,
+            ),
+            (
+                "M12 16l9-9l1.5 1.5l-9 9Z",
+                Some(Rgba(0x5b, 0x8f, 0xd0, 255)),
+            ),
+        ],
+    );
+    icons.add_solid(
+        "design.effects",
+        &[
+            (
+                "M5 6h12l3 3v10h-12l-3-3Z",
+                Some(Rgba(0x80, 0x80, 0x80, 255)),
+            ),
+            ("M5 6h12v10h-12Z", Some(Rgba(0xe6, 0xe6, 0xe6, 255))),
+            ("M5 6h12v10h-12Z", None),
+        ],
+    );
+    icons.alias("design.layout", "layout.pageSetup");
+    icons.alias("design.more", "transition.more");
     icons.alias("design.slideSize", "layout.size");
     icons.alias("design.background", "format.fillColor");
     icons.alias("review.comments", "review.pane");
@@ -772,6 +932,7 @@ const TILE_CORNER: Rgba = Rgba(0xc4, 0xc3, 0xc2, 255);
 const TILE_INNER: Rgba = Rgba(0xc4, 0xc4, 0xc4, 255);
 const TILE_BEVEL: Rgba = Rgba(0xec, 0xf2, 0xf8, 255);
 const TILE_FILL: Rgba = Rgba(0xc9, 0xd9, 0xea, 255);
+const TILE_TOP: Rgba = Rgba(0xe4, 0xed, 0xf7, 255);
 const TILE_BLUE: Rgba = Rgba(0x4d, 0x82, 0xb8, 255);
 const TILE_LIGHT: Rgba = Rgba(0xb1, 0xc7, 0xde, 255);
 const TILE_ARROW: Rgba = Rgba(0x72, 0x72, 0x72, 255);
@@ -780,6 +941,56 @@ const TILE_DIM: Rgba = Rgba(0xd9, 0xd9, 0xd9, 255);
 fn mix(a: Rgba, b: Rgba, t: f32) -> Rgba {
     let l = |x: u8, y: u8| (f32::from(x) + (f32::from(y) - f32::from(x)) * t).round() as u8;
     Rgba(l(a.0, b.0), l(a.1, b.1), l(a.2, b.2), 255)
+}
+
+/// Fill `[x, y, w, h]` shading from `a` (top) to `b` (bottom), one device row at a time.
+fn shade_down(p: &mut dyn Painter, r: [f32; 4], a: Rgba, b: Rgba) {
+    let n = r[3].round().max(1.0) as usize;
+    for i in 0..n {
+        let t = if n > 1 {
+            i as f32 / (n - 1) as f32
+        } else {
+            1.0
+        };
+        p.fill_rect(r[0], r[1] + i as f32, r[2], 1.0, mix(a, b, t));
+    }
+}
+
+/// A five-pointed star centred on (`cx`, `cy`) with outer radius `r`, shaded from a light
+/// top to a darker bottom of `base` and outlined a shade darker (own drawing in the
+/// reference gallery's manner); grey when `enabled` is false.
+pub(crate) fn paint_star(p: &mut dyn Painter, cx: f32, cy: f32, r: f32, base: Rgba, enabled: bool) {
+    let base = if enabled { base } else { NONE };
+    let white = Rgba(255, 255, 255, 255);
+    let black = Rgba(0, 0, 0, 255);
+    let mut segs = Vec::with_capacity(11);
+    for k in 0..10 {
+        let a = std::f32::consts::PI * (k as f32) / 5.0 - std::f32::consts::FRAC_PI_2;
+        let rr = if k % 2 == 0 { r } else { r * 0.45 };
+        let (x, y) = (cx + rr * a.cos(), cy + rr * a.sin());
+        segs.push(if k == 0 {
+            bo_render::PathSeg::M(x, y)
+        } else {
+            bo_render::PathSeg::L(x, y)
+        });
+    }
+    segs.push(bo_render::PathSeg::Z);
+    let (top, bottom) = (cy - r, cy + r * 0.85);
+    let bands = 10;
+    let step = ((bottom - top) / bands as f32).ceil().max(1.0);
+    for b in 0..bands {
+        let y = top + b as f32 * step;
+        let t = b as f32 / (bands - 1) as f32;
+        let c = if t < 0.5 {
+            mix(mix(base, white, 0.45), base, t * 2.0)
+        } else {
+            mix(base, mix(base, black, 0.25), (t - 0.5) * 2.0)
+        };
+        p.push_clip(cx - r - 1.0, y, 2.0 * r + 2.0, step);
+        p.path(&segs, Some(c), None);
+        p.pop_clip();
+    }
+    p.path(&segs, None, Some((mix(base, black, 0.35), 1.0)));
 }
 
 /// Fill `[x, y, w, h]` shading from `a` (left) to `b` (right), one device column at a time.
@@ -845,7 +1056,8 @@ pub(crate) fn paint_transition_tile(
     p.fill_rect(x + 1.0, y + 1.0, w - 2.0, h - 2.0, g(TILE_INNER));
     p.fill_rect(x + 2.0, y + 2.0, w - 4.0, h - 4.0, g(TILE_BEVEL));
     let i = [x + 3.0, y + 3.0, w - 6.0, h - 6.0];
-    p.fill_rect(i[0], i[1], i[2], i[3], g(TILE_FILL));
+    // The card's face shades from a light top to the reference's fill colour.
+    shade_down(p, i, g(TILE_TOP), g(TILE_FILL));
     // Interior point at fractions (u, v).
     let at = |u: f32, v: f32| ((i[0] + u * i[2]).round(), (i[1] + v * i[3]).round());
     let arrow = g(TILE_ARROW);

@@ -1,11 +1,12 @@
-//! BlueReader host: PDF documents, GPU page images and presentation (safe code only; ADR-0018).
+//! BlueReader / BlueEditor host: PDF documents, GPU page images and presentation (safe code
+//! only; ADR-0018). Both products run the same host over a [`PdfWindow`].
 use crate::win32::{self, Handler};
 use bo_gpu_win::{Bitmap, Device, FontSpec, Frame, PageBitmap, TextRendering, WindowSurface};
 use bo_pdfread::{PdfDocument, RenderOptions};
 use bo_render::{PageList, PathSeg, Rgba};
 use bo_ui::{
-    Font, Input, NcHit, Painter, PdfStore, ReaderRequest, ReaderWindow, Request, TextMeasure,
-    TextStyle,
+    EditorWindow, Font, Input, NcHit, Painter, PdfStore, PdfWindow, ReaderRequest, ReaderWindow,
+    Request, TextMeasure, TextStyle,
 };
 use std::collections::HashMap;
 use std::io::Write;
@@ -55,16 +56,18 @@ fn open_pdf(path: &std::path::Path) -> Result<PdfDocument, String> {
     PdfDocument::open(bytes, document_fonts())
 }
 
-fn recent_file() -> Option<std::path::PathBuf> {
-    std::env::var_os("LOCALAPPDATA").map(|d| {
-        std::path::PathBuf::from(d)
-            .join("BlueOffice")
-            .join("reader-recent.txt")
-    })
+fn recent_file(app: &str) -> Option<std::path::PathBuf> {
+    let name = if app == "BlueEditor" {
+        "editor-recent.txt"
+    } else {
+        "reader-recent.txt"
+    };
+    std::env::var_os("LOCALAPPDATA")
+        .map(|d| std::path::PathBuf::from(d).join("BlueOffice").join(name))
 }
 
-fn load_recent() -> Vec<std::path::PathBuf> {
-    recent_file()
+fn load_recent(app: &str) -> Vec<std::path::PathBuf> {
+    recent_file(app)
         .and_then(|f| std::fs::read_to_string(f).ok())
         .map(|s| {
             s.lines()
@@ -75,8 +78,8 @@ fn load_recent() -> Vec<std::path::PathBuf> {
         .unwrap_or_default()
 }
 
-fn save_recent(list: &[std::path::PathBuf]) {
-    if let Some(f) = recent_file() {
+fn save_recent(app: &str, list: &[std::path::PathBuf]) {
+    if let Some(f) = recent_file(app) {
         if let Some(dir) = f.parent() {
             let _ = std::fs::create_dir_all(dir);
         }
@@ -88,28 +91,33 @@ fn save_recent(list: &[std::path::PathBuf]) {
     }
 }
 
-/// Open the PDFs named on the command line and run the window.
-pub fn run() -> Result<(), String> {
+/// Open the PDFs named on the command line and run the window (BlueEditor when `editor`).
+pub fn run(editor: bool) -> Result<(), String> {
     let locale = std::env::var("BLUEOFFICE_LOCALE").unwrap_or_else(|_| "en-US".into());
-    let mut window = ReaderWindow::new(&locale);
-    window.set_recent(load_recent());
+    let mut window: Box<dyn PdfWindow> = if editor {
+        Box::new(EditorWindow::new(&locale))
+    } else {
+        Box::new(ReaderWindow::new(&locale))
+    };
+    let app = window.app();
+    window.set_recent(load_recent(app));
     for arg in std::env::args_os().skip(1) {
         let path = std::path::PathBuf::from(arg);
+        let abs = std::fs::canonicalize(&path).unwrap_or(path.clone());
+        let abs =
+            std::path::PathBuf::from(abs.to_string_lossy().trim_start_matches(r"\\?\").to_owned());
         match open_pdf(&path) {
             Ok(doc) => {
                 let name = path
                     .file_name()
                     .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
-                let abs = std::fs::canonicalize(&path).unwrap_or(path);
-                let abs = std::path::PathBuf::from(
-                    abs.to_string_lossy().trim_start_matches(r"\\?\").to_owned(),
-                );
                 window.open(doc, &name, Some(abs));
             }
+            Err(e) if e.contains("password") => window.password_needed(&abs),
             Err(e) => window.set_status(&e),
         }
     }
-    save_recent(window.recent());
+    save_recent(app, window.recent());
     let title = window.title();
     let perf = std::env::var_os("BLUEOFFICE_NATIVE_PERF").and_then(|p| {
         std::fs::OpenOptions::new()
@@ -132,6 +140,8 @@ pub fn run() -> Result<(), String> {
             more: false,
             pending_input: None,
             last_frame: [std::time::Duration::ZERO; 3],
+            devmodes: HashMap::new(),
+            speech: speech::Speech::default(),
         }),
     )
 }
@@ -187,6 +197,29 @@ impl PdfStore for Store<'_> {
             .draw_page(list, fonts, scale, &pics, None, bitmap)
     }
 
+    fn update_band(
+        &mut self,
+        key: usize,
+        list: &PageList,
+        fonts: &bo_text::FontManager,
+        images: &HashMap<String, Arc<bo_pdfread::Image>>,
+        scale: f32,
+        band: [u32; 4],
+    ) -> Result<(), String> {
+        let (w, h) = (
+            (list.width * scale).ceil() as u32,
+            (list.height * scale).ceil() as u32,
+        );
+        match self.pages.get(&key) {
+            Some(bitmap) if (bitmap.width, bitmap.height) == (w, h) => {
+                let pics = pictures(images);
+                self.device
+                    .draw_page(list, fonts, scale, &pics, Some(band), bitmap)
+            }
+            _ => self.update(key, list, fonts, images, scale),
+        }
+    }
+
     fn remove(&mut self, key: usize) {
         self.pages.remove(&key);
     }
@@ -225,6 +258,24 @@ impl Painter for WinPainter<'_, '_> {
     fn pop_clip(&mut self) {
         self.frame.pop_clip();
     }
+    fn page_part(&mut self, index: usize, src: [f32; 4], dest: [f32; 4], opacity: f32) {
+        if let Some(b) = self.pages.get(&index) {
+            self.frame.draw_page_part(b, src, dest, opacity);
+        }
+    }
+    fn page_part_rotated(
+        &mut self,
+        index: usize,
+        src: [f32; 4],
+        dest: [f32; 4],
+        opacity: f32,
+        degrees: f32,
+    ) {
+        if let Some(b) = self.pages.get(&index) {
+            self.frame
+                .draw_page_part_rotated(b, src, dest, opacity, degrees);
+        }
+    }
 }
 
 struct Measure<'a>(Option<&'a Device>);
@@ -261,7 +312,7 @@ fn spec<'a>(f: &Font<'a>) -> FontSpec<'a> {
 }
 
 struct Shell {
-    window: ReaderWindow,
+    window: Box<dyn PdfWindow>,
     gpu: Option<Gpu>,
     hwnd: isize,
     title: String,
@@ -273,6 +324,10 @@ struct Shell {
     pending_input: Option<PendingInput>,
     /// Last frame: page images, interface paint, end of drawing + present.
     last_frame: [std::time::Duration; 3],
+    /// Printer driver settings chosen with the Print dialog's Properties, by printer.
+    devmodes: HashMap<String, Vec<u64>>,
+    /// Read aloud (made when first used).
+    speech: speech::Speech,
 }
 
 struct PendingInput {
@@ -291,10 +346,102 @@ impl Shell {
                     .file_name()
                     .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
                 self.window.open(doc, &name, Some(path.to_path_buf()));
-                save_recent(self.window.recent());
+                save_recent(self.window.app(), self.window.recent());
             }
+            Err(e) if e.contains("password") => self.window.password_needed(path),
             Err(e) => self.window.set_status(&e),
         }
+    }
+
+    /// Ask where to write `bytes` (suggested `name`) and write them.
+    fn save_bytes(&mut self, name: &str, bytes: &[u8]) -> Option<std::path::PathBuf> {
+        let ext = std::path::Path::new(name)
+            .extension()
+            .map_or_else(|| "pdf".to_owned(), |e| e.to_string_lossy().to_lowercase());
+        let label = format!("{} (*.{ext})", ext.to_uppercase());
+        let pattern = format!("*.{ext}");
+        let path = win32::file_dialog(true, &[(label.as_str(), pattern.as_str())], name)?;
+        match std::fs::write(&path, bytes) {
+            Ok(()) => {
+                self.window.set_status(&format!("{}", path.display()));
+                Some(path)
+            }
+            Err(e) => {
+                self.window.set_status(&format!("{}: {e}", path.display()));
+                None
+            }
+        }
+    }
+
+    /// Render every page of the active document as PNG at `scale` pixels per point.
+    /// SnapShot: part of a page (page points) on the clipboard as a picture at twice the
+    /// screen's 100 % size.
+    fn snapshot(&mut self, page: usize, rect: [f32; 4]) -> Result<(), String> {
+        let gpu = self.gpu.as_ref().ok_or("no device")?;
+        let view = self.window.view_mut().ok_or("no document")?;
+        let doc = view.doc_mut();
+        let scale = 2.0 * 96.0 / 72.0;
+        let opts = RenderOptions {
+            min_line: 1.0 / scale,
+            ..RenderOptions::default()
+        };
+        let p = doc.render(page, opts)?;
+        let pics = pictures(&p.images);
+        let img = gpu.device.render_page(&p.list, doc.fonts(), scale, &pics)?;
+        let (w, h) = (img.width as usize, img.height as usize);
+        let px = |v: f32, max: usize| ((v * scale).round().max(0.0) as usize).min(max);
+        let (x0, y0, x1, y1) = (
+            px(rect[0], w),
+            px(rect[1], h),
+            px(rect[2], w),
+            px(rect[3], h),
+        );
+        if x1 <= x0 || y1 <= y0 {
+            return Err("empty picture".into());
+        }
+        let mut out = Vec::with_capacity((x1 - x0) * (y1 - y0) * 4);
+        for y in y0..y1 {
+            out.extend_from_slice(&img.pixels[(y * w + x0) * 4..(y * w + x1) * 4]);
+        }
+        clip::set_image((x1 - x0) as u32, (y1 - y0) as u32, &out)
+    }
+
+    fn render_pngs(&mut self, scale: f32) -> Result<Vec<Vec<u8>>, String> {
+        let gpu = self.gpu.as_ref().ok_or("no device")?;
+        let view = self.window.view_mut().ok_or("no document")?;
+        let doc = view.doc_mut();
+        let mut out = Vec::new();
+        for i in 0..doc.page_count() {
+            let opts = RenderOptions {
+                min_line: 1.0 / scale,
+                ..RenderOptions::default()
+            };
+            let p = doc.render(i, opts)?;
+            let pics = pictures(&p.images);
+            let img = if let Ok(img) = gpu.device.render_page(&p.list, doc.fonts(), scale, &pics) {
+                img
+            } else {
+                let p = doc.render(
+                    i,
+                    RenderOptions {
+                        text_as_paths: true,
+                        ..opts
+                    },
+                )?;
+                let pics = pictures(&p.images);
+                gpu.device.render_page(&p.list, doc.fonts(), scale, &pics)?
+            };
+            let mut png_bytes = Vec::new();
+            {
+                let mut enc = png::Encoder::new(&mut png_bytes, img.width, img.height);
+                enc.set_color(png::ColorType::Rgba);
+                enc.set_depth(png::BitDepth::Eight);
+                let mut w = enc.write_header().map_err(|e| e.to_string())?;
+                w.write_image_data(&img.pixels).map_err(|e| e.to_string())?;
+            }
+            out.push(png_bytes);
+        }
+        Ok(out)
     }
 
     fn save_to(&mut self, path: &std::path::Path) -> bool {
@@ -311,6 +458,26 @@ impl Shell {
         }
     }
 
+    #[allow(clippy::too_many_lines)]
+    /// Print through the Windows print path (GDI): each page rendered as a bitmap.
+    fn print_pages(&mut self, s: &bo_ui::PrintSettings) {
+        let Some(gpu) = self.gpu.as_ref() else {
+            return;
+        };
+        let title = self.window.title();
+        let Some(view) = self.window.view_mut() else {
+            return;
+        };
+        let devmode = self.devmodes.get(&s.printer).map(Vec::as_slice);
+        let result = print_job(&gpu.device, view.doc_mut(), &title, s, None, devmode);
+        let status = match result {
+            Ok(n) => self.window.text("pdfPrint.done", &[("n", &n.to_string())]),
+            Err(e) => self.window.text("pdfPrint.failed", &[("error", &e)]),
+        };
+        self.window.set_status(&status);
+    }
+
+    #[allow(clippy::too_many_lines)]
     fn handle_requests(&mut self) -> bool {
         let mut redraw = false;
         for r in self.window.take_requests() {
@@ -341,8 +508,17 @@ impl Shell {
                     }
                 }
                 ReaderRequest::Print => {
-                    // Printed through the system's PDF print verb, like BlueDoc's print path.
-                    if let Some(view) = self.window.view_mut() {
+                    // Our own Print dialog with the installed printers; a window without one
+                    // prints through the system's PDF print verb.
+                    let (printers, default) = print::printers();
+                    let m = Measure(self.gpu.as_ref().map(|g| &g.device));
+                    let papers: Vec<Option<bo_ui::Paper>> = printers
+                        .iter()
+                        .map(|p| print::paper(p, self.devmodes.get(p).map(Vec::as_slice)))
+                        .collect();
+                    if self.window.open_print(printers, default.as_deref(), &m) {
+                        self.window.set_print_papers(papers);
+                    } else if let Some(view) = self.window.view_mut() {
                         if let Ok(bytes) = view.doc_mut().save() {
                             let path = std::env::temp_dir()
                                 .join(format!("bluereader-print-{}.pdf", std::process::id()));
@@ -354,6 +530,27 @@ impl Shell {
                         }
                     }
                 }
+                ReaderRequest::PrintPages(settings) => self.print_pages(&settings),
+                ReaderRequest::Speak { text, rate } => {
+                    if let Err(e) = self.speech.speak(&text, rate) {
+                        self.window.set_status(&e);
+                    }
+                }
+                ReaderRequest::SpeechControl(what) => self.speech.control(what),
+                ReaderRequest::Snapshot { page, rect } => {
+                    if let Err(e) = self.snapshot(page, rect) {
+                        self.window.set_status(&e);
+                    }
+                }
+                ReaderRequest::PrinterProperties(name) => {
+                    // The driver's own settings dialog, modal to our window.
+                    let base = self.devmodes.get(&name).map(Vec::as_slice);
+                    if let Some(dm) = print::properties(self.hwnd, &name, base) {
+                        self.devmodes.insert(name.clone(), dm);
+                    }
+                    let paper = print::paper(&name, self.devmodes.get(&name).map(Vec::as_slice));
+                    self.window.set_print_paper(&name, paper);
+                }
                 ReaderRequest::Copy(text) => win32::set_clipboard(&text, "", ""),
                 ReaderRequest::OpenUrl(url) => {
                     if url.starts_with("http://")
@@ -364,6 +561,90 @@ impl Shell {
                     }
                 }
                 ReaderRequest::Window(w) => self.pending.push(w),
+                // BlueEditor's From Clipboard: the bitmap on the clipboard.
+                ReaderRequest::Command(c) if c == "host.clipboardImage" => {
+                    let dib = clip::get_dib().unwrap_or_default();
+                    self.window.file_picked(
+                        "clipboardImage",
+                        std::path::Path::new("clipboard.bmp"),
+                        &dib,
+                    );
+                }
+                // BlueEditor's Ctrl+V while typing: plain text from the clipboard.
+                ReaderRequest::Command(c) if c == "host.pasteText" => {
+                    let (_, _, text) = win32::read_clipboard();
+                    if let Some(t) = text {
+                        self.window.file_picked(
+                            "pasteText",
+                            std::path::Path::new("clipboard.txt"),
+                            t.as_bytes(),
+                        );
+                    }
+                }
+                ReaderRequest::Command(_) => {}
+                ReaderRequest::PickFile { purpose, filters } => {
+                    let f: Vec<(&str, &str)> = filters
+                        .iter()
+                        .map(|(a, b)| (a.as_str(), b.as_str()))
+                        .collect();
+                    if let Some(path) = win32::file_dialog(false, &f, "") {
+                        match std::fs::read(&path) {
+                            Ok(bytes) => self.window.file_picked(&purpose, &path, &bytes),
+                            Err(e) => self.window.set_status(&format!("{}: {e}", path.display())),
+                        }
+                    }
+                }
+                ReaderRequest::SaveBytes { name, bytes } => {
+                    self.save_bytes(&name, &bytes);
+                }
+                ReaderRequest::SaveMany(files) => {
+                    let Some((first, bytes)) = files.first() else {
+                        continue;
+                    };
+                    if let Some(path) = self.save_bytes(first, bytes) {
+                        let dir = path.parent().map(std::path::Path::to_path_buf);
+                        for (name, bytes) in files.iter().skip(1) {
+                            let target = dir
+                                .as_ref()
+                                .map_or_else(|| std::path::PathBuf::from(name), |d| d.join(name));
+                            if let Err(e) = std::fs::write(&target, bytes) {
+                                self.window
+                                    .set_status(&format!("{}: {e}", target.display()));
+                            }
+                        }
+                        if let Some(d) = dir {
+                            self.window
+                                .set_status(&format!("{} × {}", files.len(), d.display()));
+                        }
+                    }
+                }
+                ReaderRequest::RenderPages { purpose, scale } => match self.render_pngs(scale) {
+                    Ok(pngs) => self.window.pages_rendered(&purpose, pngs),
+                    Err(e) => self.window.set_status(&e),
+                },
+                ReaderRequest::OpenWithPassword { path, password } => {
+                    let r = std::fs::read(&path)
+                        .map_err(|e| e.to_string())
+                        .and_then(|b| {
+                            PdfDocument::open_with_password(b, document_fonts(), &password)
+                        });
+                    match r {
+                        Ok(doc) => {
+                            let name = path
+                                .file_name()
+                                .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+                            self.window.open(doc, &name, Some(path));
+                            save_recent(self.window.app(), self.window.recent());
+                        }
+                        Err(e) => self.window.set_status(&e),
+                    }
+                }
+                ReaderRequest::OpenDocument { name, bytes } => {
+                    match PdfDocument::open(bytes, document_fonts()) {
+                        Ok(doc) => self.window.open(doc, &name, None),
+                        Err(e) => self.window.set_status(&e),
+                    }
+                }
             }
         }
         redraw
@@ -404,14 +685,7 @@ impl Handler for Shell {
         if let Err(e) = device.update_window_monitor(hwnd) {
             eprintln!("monitor text settings: {e}");
         }
-        // Page text like the reference reader: the system's ClearType settings
-        // (BLUEOFFICE_TEXT=gray|light compares other renderings).
-        device.set_text_rendering(match std::env::var("BLUEOFFICE_TEXT").as_deref() {
-            Ok("gray") => TextRendering::Grayscale,
-            Ok("light") => TextRendering::light_cleartype(),
-            Ok("doc") => TextRendering::document_default(),
-            _ => TextRendering::System,
-        });
+        device.set_text_rendering(page_text());
         let surface = WindowSurface::new(&device, hwnd, width, height)?;
         self.gpu = Some(Gpu {
             device,
@@ -505,7 +779,7 @@ impl Handler for Shell {
     }
 
     fn caret(&self) -> Option<[f32; 4]> {
-        None
+        self.window.caret()
     }
 
     fn nc_hit(&self, x: f32, y: f32) -> NcHit {
@@ -547,6 +821,277 @@ impl Handler for Shell {
     }
 }
 
+// SnapShot pictures on the clipboard (Win32 calls confined to this child module).
+#[path = "reader_clip.rs"]
+#[allow(unsafe_code)]
+mod clip;
+
+// Read aloud through the Windows speech voice (Win32 calls confined to this child module).
+#[path = "reader_speech.rs"]
+#[allow(unsafe_code)]
+mod speech;
+
+// GDI printing (Win32 calls confined to this child module, like win32.rs).
+#[path = "reader_print.rs"]
+#[allow(unsafe_code)]
+mod print;
+
+/// Print `s` from `doc` (the GUI's Print dialog and `--print`); `output` writes the job to a
+/// file (print-to-file printers). Returns sheets printed.
+fn print_job(
+    device: &Device,
+    doc: &mut PdfDocument,
+    title: &str,
+    s: &bo_ui::PrintSettings,
+    output: Option<String>,
+    devmode: Option<&[u64]>,
+) -> Result<usize, String> {
+    let sizes: Vec<(f32, f32)> = (0..doc.page_count())
+        .map(|i| {
+            doc.page_info(i)
+                .map_or((612.0, 792.0), |p| (p.width, p.height))
+        })
+        .collect();
+    let size_of = |i: usize| sizes.get(i).copied().unwrap_or((612.0, 792.0));
+    let plan_opts = bo_ui::PlanOptions {
+        scaling: s.scaling,
+        auto_rotate: s.auto_rotate,
+        auto_center: s.auto_center,
+        layout: s.layout,
+        copies: s.copies,
+        collate: s.collate,
+    };
+    let plan = |area: (f32, f32)| bo_ui::print_plan(&s.pages, &size_of, s.view, area, &plan_opts);
+    let mut render = |i: usize, scale: f32| -> Option<print::PrintPage> {
+        let opts = RenderOptions {
+            min_line: 1.0 / scale,
+            ..RenderOptions::default()
+        };
+        let extra = bo_pdfread::RenderExtra {
+            printing: true,
+            print_what: s.what,
+            overprint: s.overprint,
+            ..bo_pdfread::RenderExtra::default()
+        };
+        let p = doc.render_extra(i, opts, extra).ok()?;
+        let pics = pictures(&p.images);
+        let img = device
+            .render_page(&p.list, doc.fonts(), scale, &pics)
+            .ok()?;
+        Some(print::PrintPage {
+            width: img.width,
+            height: img.height,
+            pixels: img.pixels,
+        })
+    };
+    let options = print::Options {
+        grayscale: s.grayscale,
+        duplex: match s.duplex {
+            bo_ui::Duplex::Off => 0,
+            bo_ui::Duplex::LongEdge => 1,
+            bo_ui::Duplex::ShortEdge => 2,
+        },
+        output,
+        landscape: match s.orientation {
+            bo_ui::Orientation::Portrait => false,
+            bo_ui::Orientation::Landscape => true,
+            bo_ui::Orientation::Auto => s.pages.first().is_some_and(|&i| {
+                let (w, h) = size_of(i);
+                w > h
+            }),
+        },
+        max_dpi: if s.as_image { 150.0 } else { 300.0 },
+        devmode: devmode.map(<[u64]>::to_vec),
+        paper: if s.paper_by_page {
+            s.pages.first().map(|&i| size_of(i))
+        } else {
+            None
+        },
+    };
+    print::print(&s.printer, title, &plan, &size_of, &options, &mut render)
+}
+
+/// `--print in.pdf <printer> <out-file> [options…]`: print without a window (to a
+/// print-to-file printer such as the system's PDF printer when `out-file` is given; `-` prints
+/// to the printer's port). Options: `--pages 1-3,5`, `--nup 2|4|6|9|16`, `--order h|hr|v|vr`,
+/// `--border`, `--booklet [front|back] [right]`, `--scale fit|shrink|actual|<percent>`,
+/// `--duplex long|short`, `--view x,y,w,h` (with one page), `--copies n`, `--uncollated`,
+/// `--gray`, `--no-rotate`, `--no-center`.
+#[allow(clippy::too_many_lines)]
+fn print_tool(args: &[String], doc: &mut PdfDocument, device: &Device) -> Result<(), String> {
+    let printer = args.get(2).ok_or("missing printer name")?.clone();
+    let out = args.get(3).ok_or("missing output file (or -)")?;
+    let n = doc.page_count();
+    let mut s = bo_ui::PrintSettings {
+        printer,
+        copies: 1,
+        collate: true,
+        pages: (0..n).collect(),
+        scaling: bo_ui::PrintScaling::Fit,
+        grayscale: false,
+        auto_rotate: true,
+        auto_center: true,
+        layout: bo_ui::PrintLayout::Size,
+        duplex: bo_ui::Duplex::Off,
+        view: None,
+        orientation: bo_ui::Orientation::Portrait,
+        what: bo_pdfread::PrintWhat::DocumentAndMarkups,
+        as_image: false,
+        overprint: false,
+        paper_by_page: false,
+    };
+    let mut order = bo_ui::PageOrder::Horizontal;
+    let mut border = false;
+    let mut it = args.iter().skip(4).peekable();
+    while let Some(a) = it.next() {
+        let mut val = || it.next().cloned().unwrap_or_default();
+        match a.as_str() {
+            "--pages" => s.pages = bo_ui::parse_pages(&val(), n),
+            "--nup" => {
+                s.layout = bo_ui::PrintLayout::Multiple {
+                    per_sheet: val().parse().map_err(|_| "--nup wants a number")?,
+                    order,
+                    border,
+                }
+            }
+            "--order" => {
+                order = match val().as_str() {
+                    "hr" => bo_ui::PageOrder::HorizontalReversed,
+                    "v" => bo_ui::PageOrder::Vertical,
+                    "vr" => bo_ui::PageOrder::VerticalReversed,
+                    _ => bo_ui::PageOrder::Horizontal,
+                };
+            }
+            "--border" => border = true,
+            "--booklet" => {
+                let mut sides = bo_ui::BookletSides::Both;
+                let mut right_binding = false;
+                while let Some(w) = it.peek() {
+                    match w.as_str() {
+                        "front" => sides = bo_ui::BookletSides::Front,
+                        "back" => sides = bo_ui::BookletSides::Back,
+                        "right" => right_binding = true,
+                        _ => break,
+                    }
+                    it.next();
+                }
+                s.layout = bo_ui::PrintLayout::Booklet {
+                    sides,
+                    right_binding,
+                };
+            }
+            "--scale" => {
+                s.scaling = match val().as_str() {
+                    "shrink" => bo_ui::PrintScaling::Shrink,
+                    "actual" => bo_ui::PrintScaling::Actual,
+                    "fit" => bo_ui::PrintScaling::Fit,
+                    v => bo_ui::PrintScaling::Custom(
+                        v.parse()
+                            .map_err(|_| "--scale wants fit|shrink|actual|percent")?,
+                    ),
+                }
+            }
+            "--duplex" => {
+                s.duplex = if val() == "short" {
+                    bo_ui::Duplex::ShortEdge
+                } else {
+                    bo_ui::Duplex::LongEdge
+                }
+            }
+            "--view" => {
+                let v: Vec<f32> = val().split(',').filter_map(|x| x.parse().ok()).collect();
+                if let [x, y, w, h] = v[..] {
+                    s.view = Some([x, y, w, h]);
+                }
+            }
+            "--copies" => s.copies = val().parse().unwrap_or(1),
+            "--uncollated" => s.collate = false,
+            "--gray" => s.grayscale = true,
+            "--no-rotate" => s.auto_rotate = false,
+            "--no-center" => s.auto_center = false,
+            "--landscape" => s.orientation = bo_ui::Orientation::Landscape,
+            "--auto-orient" => s.orientation = bo_ui::Orientation::Auto,
+            "--as-image" => s.as_image = true,
+            "--overprint" => s.overprint = true,
+            "--what" => {
+                s.what = match val().as_str() {
+                    "doc" => bo_pdfread::PrintWhat::Document,
+                    "stamps" => bo_pdfread::PrintWhat::DocumentAndStamps,
+                    "forms" => bo_pdfread::PrintWhat::FormFields,
+                    "annots" => bo_pdfread::PrintWhat::Annotations,
+                    _ => bo_pdfread::PrintWhat::DocumentAndMarkups,
+                }
+            }
+            "--tile" => {
+                let zoom = val().parse().map_err(|_| "--tile wants a percent")?;
+                s.layout = bo_ui::PrintLayout::Tile {
+                    zoom,
+                    overlap: 0.36,
+                    cut_marks: true,
+                    labels: true,
+                };
+            }
+            other => return Err(format!("unknown option {other}")),
+        }
+    }
+    if let bo_ui::PrintLayout::Multiple {
+        order: o,
+        border: b,
+        ..
+    } = &mut s.layout
+    {
+        *o = order;
+        *b = border;
+    }
+    let output = (out != "-").then(|| {
+        std::path::absolute(out).map_or_else(|_| out.clone(), |p| p.display().to_string())
+    });
+    let t0 = Instant::now();
+    let sheets = print_job(device, doc, "BlueReader", &s, output, None)?;
+    println!(
+        r#"{{"sheets":{sheets},"ms":{:.0}}}"#,
+        t0.elapsed().as_secs_f64() * 1e3
+    );
+    Ok(())
+}
+
+/// Gamma, enhanced contrast and ClearType level of PDF page text: the same ink coverage on body
+/// text as the reference reader (docs/ui/REPORT-reader.md round 2).
+const PDF_TEXT: (f32, f32, f32) = (1.8, 1.0, 1.0);
+
+/// Page text rendering: [PDF_TEXT] unless `BLUEOFFICE_TEXT=system|gray|light|doc` asks for
+/// another; `BO_PDF_TEXT=gamma,contrast,level[,gray][,nosym][,nofit]` tunes it for comparisons.
+fn page_text() -> TextRendering {
+    match std::env::var("BLUEOFFICE_TEXT").as_deref() {
+        Ok("system") => return TextRendering::System,
+        Ok("gray") => return TextRendering::Grayscale,
+        Ok("light") => return TextRendering::light_cleartype(),
+        Ok("doc") => return TextRendering::document_default(),
+        _ => {}
+    }
+    let tuned = std::env::var("BO_PDF_TEXT").ok();
+    let mut it = tuned.as_deref().unwrap_or("").split(',');
+    let mut num = |d: f32| it.next().and_then(|v| v.trim().parse().ok()).unwrap_or(d);
+    let (gamma, contrast, level) = (num(PDF_TEXT.0), num(PDF_TEXT.1), num(PDF_TEXT.2));
+    let has = |s: &str| tuned.as_deref().is_some_and(|v| v.contains(s));
+    let grid_fit = !has("nofit");
+    // The reference draws page text with ClearType when the system uses it, grayscale else.
+    if has("gray") || !bo_gpu_win::system_cleartype() {
+        return TextRendering::GrayscaleTuned {
+            gamma,
+            contrast,
+            grid_fit,
+        };
+    }
+    TextRendering::Tuned {
+        gamma,
+        contrast,
+        level,
+        symmetric: !has("nosym"),
+        grid_fit,
+    }
+}
+
 /// Command-line tools: `--render in.pdf <page> out.png [zoom%]` and `--bench in.pdf [pages]`.
 pub fn tool(args: &[String]) -> Result<(), String> {
     let path = args.get(1).ok_or("missing PDF path")?;
@@ -554,7 +1099,10 @@ pub fn tool(args: &[String]) -> Result<(), String> {
     let mut doc = open_pdf(std::path::Path::new(path))?;
     let open_ms = t0.elapsed().as_secs_f64() * 1e3;
     let device = Device::new()?;
-    device.set_text_rendering(TextRendering::System);
+    device.set_text_rendering(page_text());
+    if args[0] == "--print" {
+        return print_tool(args, &mut doc, &device);
+    }
     // 125 % display scale at 100 % zoom unless a zoom is given.
     if args[0] == "--render" {
         let page: usize = args.get(2).and_then(|v| v.parse().ok()).unwrap_or(1);

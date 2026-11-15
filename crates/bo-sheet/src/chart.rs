@@ -1097,12 +1097,65 @@ fn vline(x: f64, y1: f64, y2: f64, c: Rgba, w: f64) -> Command {
 /// five steps ([`nice_step`]) and the bounds rounded out to whole units; a fixed `min` / `max`
 /// (§21.2.2.111 min / §21.2.2.106 max) is kept.
 fn auto_scale(lo: f64, hi: f64, min: Option<f64>, max: Option<f64>) -> (f64, f64, f64) {
-    let step = nice_step(hi - lo, 5.0);
+    if !(lo.is_finite() && hi.is_finite()) || hi <= lo {
+        let step = nice_step(hi - lo, 5.0);
+        return (
+            min.unwrap_or((lo / step).floor() * step),
+            max.unwrap_or((hi / step).ceil() * step),
+            step,
+        );
+    }
+    // The desktop spreadsheet's automatic scale, measured on its axes through its object model
+    // (5/7/4 → 0..8 by 1, 0..47 → 0..50 by 5, 0..95 → 0..100 by 10, 0..100 → 0..120 by 20,
+    // 100..105 → 97..106 by 1, 19..23 → 0..25 by 5, -5..10 → -6..12 by 2, 1000..1300 →
+    // 0..1400 by 200): zero is included when the data's spread is more than a sixth of its
+    // largest magnitude; an end beyond zero is padded by 5 % of the span, an end that does
+    // not reach zero by half the span; the major unit is 0.2 / 0.5 / 1 × 10ⁿ by the leading
+    // digits of the padded span (< 2 → 0.2, < 5 → 0.5, else 1).
+    let (mut a, mut b) = (lo, hi);
+    if a > 0.0 && (b - a) / b > 1.0 / 6.0 {
+        a = 0.0;
+    }
+    if b < 0.0 && (b - a) / -a > 1.0 / 6.0 {
+        b = 0.0;
+    }
+    let span = b - a;
+    let pa = match (min, a) {
+        (None, a) if a < 0.0 && b > 0.0 => a - 0.05 * span,
+        (None, a) if a < 0.0 => a - 0.05 * span,
+        (None, a) if a > 0.0 => a - 0.5 * span,
+        _ => a,
+    };
+    let pb = match (max, b) {
+        (None, b) if b > 0.0 => b + 0.05 * span,
+        (None, b) if b < 0.0 => b + 0.5 * span,
+        _ => b,
+    };
+    let (pa, pb) = (min.unwrap_or(pa), max.unwrap_or(pb));
+    let step = excel_unit(pb - pa);
     (
-        min.unwrap_or((lo / step).floor() * step),
-        max.unwrap_or((hi / step).ceil() * step),
+        min.unwrap_or((pa / step).floor() * step),
+        max.unwrap_or((pb / step).ceil() * step),
         step,
     )
+}
+
+/// Major unit of the automatic scale for a padded `span` (see [`auto_scale`]).
+fn excel_unit(span: f64) -> f64 {
+    if span <= 0.0 || !span.is_finite() {
+        return 1.0;
+    }
+    let p = span.log10();
+    let mag = 10f64.powf(p.floor());
+    let lead = span / mag;
+    let k = if lead < 2.0 {
+        0.2
+    } else if lead < 5.0 {
+        0.5
+    } else {
+        1.0
+    };
+    k * mag
 }
 
 /// "Nice" axis step (1, 2, 5 × 10ⁿ).
@@ -1380,9 +1433,11 @@ fn draw_body(
             out.push(c);
         }
     }
-    // Sheet charts sit among cells; slide and document charts are read from further away.
+    // Sheet charts use the desktop spreadsheet's default chart text whatever the chart's size:
+    // axis labels and legend 9 pt, title 14 pt (measured: "Sales" 46 × 16 px at 125 %);
+    // slide and document charts are read from further away.
     let font = look.font.unwrap_or(if framed {
-        (h / 24.0).clamp(6.0, 11.0)
+        9.0
     } else {
         (h / 22.0).clamp(6.0, 14.0)
     });
@@ -1393,7 +1448,8 @@ fn draw_body(
             t,
             [0.0, top, w, top + th],
             Align::Center,
-            font * 1.35,
+            // 14 pt over 9 pt labels on sheets; slide and document charts keep their ratio.
+            font * if framed { 14.0 / 9.0 } else { 1.35 },
             TEXT,
             out,
         );
@@ -4453,6 +4509,36 @@ fn draw_surface(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn automatic_value_scale_follows_the_desktop_rule() {
+        // Data 5 / 7 / 4 (zero included): 0..8 by 1, as the reference draws it.
+        assert_eq!(super::auto_scale(0.0, 7.0, None, None), (0.0, 8.0, 1.0));
+        assert_eq!(super::auto_scale(4.0, 7.0, None, None), (0.0, 8.0, 1.0));
+        assert_eq!(
+            super::auto_scale(0.0, 100.0, None, None),
+            (0.0, 120.0, 20.0)
+        );
+        assert_eq!(super::auto_scale(0.0, 50.0, None, None), (0.0, 60.0, 10.0));
+        assert_eq!(super::auto_scale(0.0, 47.0, None, None), (0.0, 50.0, 5.0));
+        assert_eq!(super::auto_scale(0.0, 95.0, None, None), (0.0, 100.0, 10.0));
+        assert_eq!(super::auto_scale(19.0, 23.0, None, None), (0.0, 25.0, 5.0));
+        assert_eq!(super::auto_scale(-5.0, 10.0, None, None), (-6.0, 12.0, 2.0));
+        assert_eq!(
+            super::auto_scale(1000.0, 1300.0, None, None),
+            (0.0, 1400.0, 200.0)
+        );
+        // A narrow band away from zero keeps its own minimum.
+        assert_eq!(
+            super::auto_scale(100.0, 105.0, None, None),
+            (97.0, 106.0, 1.0)
+        );
+        // Fixed bounds stay.
+        assert_eq!(
+            super::auto_scale(0.0, 7.0, Some(0.0), Some(10.0)),
+            (0.0, 10.0, 2.0)
+        );
+    }
+
     use super::*;
     use bo_model::sheet::Cell;
 
@@ -4832,8 +4918,9 @@ mod tests {
 
     #[test]
     fn a_price_axis_is_scaled_to_its_data() {
-        // source: the automatic value-axis scale (auto_scale): HLC prices 19..23 → range 4, major
-        // unit nice_step(4, 5) = 1, bounds 19 and 23; a column chart of the same values from 0.
+        // source: the automatic value-axis scale (auto_scale) measured on the reference: values
+        // 19..23 spread more than a sixth of 23, so the axis starts at 0 (0..25 by 5) for HLC
+        // prices as for columns.
         let wb = stock_book();
         let c = new_chart(&wb, 0, CellRange::parse("C1:F4").unwrap(), "stock").unwrap();
         assert_eq!(type_name(&c), "stock");
@@ -4843,12 +4930,14 @@ mod tests {
             .filter(|(_, r)| r[0] < 60.0)
             .map(|(t, _)| t.as_str())
             .collect();
-        assert!(left.contains(&"19") && left.contains(&"23"), "{left:?}");
-        assert!(!left.contains(&"0"), "{left:?}");
+        assert!(
+            left.contains(&"0") && left.contains(&"5") && left.contains(&"25"),
+            "{left:?}"
+        );
         let c = new_chart(&wb, 0, CellRange::parse("C1:F4").unwrap(), "column").unwrap();
         let (_, labels) = boxed_labels(&wb, &c);
         assert!(labels.iter().any(|(t, r)| t == "0" && r[0] < 60.0));
-        assert_eq!(auto_scale(19.0, 23.0, None, None), (19.0, 23.0, 1.0));
+        assert_eq!(auto_scale(19.0, 23.0, None, None), (0.0, 25.0, 5.0));
         assert_eq!(
             auto_scale(0.0, 470.0, None, Some(600.0)),
             (0.0, 600.0, 100.0)
@@ -4882,7 +4971,7 @@ mod tests {
             .count();
         assert_eq!(cols, 3 + 1, "columns plus the legend swatch");
         // The primary axis counts the volume (up to 3 000), the secondary one at the right the
-        // prices, scaled to them: 19 to 23 (range 4 → major unit 1), not from 0.
+        // prices: 0 to 25 by 5 (the reference's automatic scale for 19..23).
         assert!(labels.iter().any(|(t, r)| t == "3000" && r[0] < 100.0));
         let right: Vec<&str> = labels
             .iter()
@@ -4890,12 +4979,12 @@ mod tests {
             .map(|(t, _)| t.as_str())
             .collect();
         assert!(
-            ["19", "20", "21", "22", "23"]
+            ["0", "5", "10", "15", "20", "25"]
                 .iter()
                 .all(|v| right.contains(v)),
             "{right:?}"
         );
-        assert!(!right.contains(&"0") && !right.contains(&"24"), "{right:?}");
+        assert!(!right.contains(&"30"), "{right:?}");
         // Up/down bars: two rising sessions (white boxes), one falling (dark).
         let boxes = out
             .iter()

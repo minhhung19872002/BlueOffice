@@ -102,9 +102,26 @@ impl ColorSpace {
                             Object::Name(n) => (1, n == b"None"),
                             _ => (1, false),
                         };
-                        let alt =
-                            Self::parse(doc, a.get(2)?, named, depth + 1).unwrap_or(Self::Gray);
                         let func = a.get(3).and_then(|f| Function::parse(doc, f, 0));
+                        // An alternate space that cannot be read paints nothing (measured on
+                        // the reference reader).
+                        let Some(alt) =
+                            a.get(2).and_then(|o| Self::parse(doc, o, named, depth + 1))
+                        else {
+                            return Some(Self::Tint {
+                                inputs,
+                                alt: Arc::new(Self::Gray),
+                                func,
+                                none: true,
+                            });
+                        };
+                        // §8.6.6.4: the tint transform maps the tints to the alternate space's
+                        // components. A missing function or one with another number of outputs
+                        // makes the space unusable: `parse` fails and `cs` keeps the previous
+                        // space, as the reference does.
+                        if !none && func.as_ref()?.outputs()? != alt.components() {
+                            return None;
+                        }
                         Some(Self::Tint {
                             inputs,
                             alt: Arc::new(alt),
@@ -142,6 +159,16 @@ impl ColorSpace {
             Self::Tint { inputs, .. } => vec![1.0; *inputs],
             Self::Lab => vec![0.0, 0.0, 0.0],
             other => vec![0.0; other.components()],
+        }
+    }
+
+    /// Whether colours of this space are inks (CMYK, Separation, DeviceN): overprinting
+    /// applies to them (§8.7.4.5).
+    pub(crate) fn is_subtractive(&self) -> bool {
+        match self {
+            Self::Cmyk | Self::Tint { .. } => true,
+            Self::Indexed { base, .. } => base.is_subtractive(),
+            _ => false,
         }
     }
 
@@ -183,15 +210,7 @@ impl ColorSpace {
     }
 }
 
-/// CMYK to RGB the simple way most viewers use without a colour profile, slightly darkened
-/// towards printed ink (§10.3.4 suggests 1 − min(1, C + K)).
-pub(crate) fn cmyk_to_rgb(c: f32, m: f32, y: f32, k: f32) -> [f32; 3] {
-    [
-        (1.0 - c) * (1.0 - k),
-        (1.0 - m) * (1.0 - k),
-        (1.0 - y) * (1.0 - k),
-    ]
-}
+pub(crate) use crate::cmyk::cmyk_to_rgb;
 
 fn lab_to_rgb(l: f32, a: f32, b: f32) -> [f32; 3] {
     // CIE L*a*b* (D50) → XYZ → sRGB.
@@ -241,7 +260,11 @@ mod tests {
         )
         .expect("indexed");
         assert_eq!(cs.rgb(&[1.0]), [0.0, 0.0, 1.0]);
-        assert_eq!(ColorSpace::Cmyk.rgb(&[0.0, 0.0, 0.0, 1.0]), [0.0, 0.0, 0.0]);
+        // Pure K is the reference's rich-black-less ink black (36, 32, 33).
+        let k = ColorSpace::Cmyk
+            .rgb(&[0.0, 0.0, 0.0, 1.0])
+            .map(|v| (v * 255.0).round() as u8);
+        assert_eq!(k, [36, 32, 33]);
         assert_eq!(ColorSpace::Cmyk.initial(), vec![0.0, 0.0, 0.0, 1.0]);
     }
 }

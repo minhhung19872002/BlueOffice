@@ -205,6 +205,185 @@ fn scrolling_moves_the_grid_image_and_draws_only_new_rows() {
     assert_eq!(store.fulls, 2);
 }
 
+/// Grid store keeping its CPU image as a ring ([`GridRing`]): scrolling turns it and draws
+/// only the bands where the ring stores them; showing it puts the pieces together.
+#[derive(Default)]
+struct RingRaster {
+    phys: Vec<u8>,
+    ring: crate::GridRing,
+    size: (u32, u32),
+    turns: usize,
+    fulls: usize,
+    moved: usize,
+    band_px: u64,
+    worst: u8,
+    off: usize,
+    pixels: usize,
+}
+
+fn blit(dst: &mut [u8], src: &[u8], (w, h): (u32, u32), r: [u32; 4], at: [u32; 2]) {
+    for y in 0..r[3] {
+        let (sy, dy) = (r[1] + y, at[1] + y);
+        assert!(sy < h && dy < h, "piece inside the image");
+        for x in 0..r[2] {
+            let (sx, dx) = (r[0] + x, at[0] + x);
+            assert!(sx < w && dx < w, "piece inside the image");
+            let s = ((sy * w + sx) * 4) as usize;
+            let d = ((dy * w + dx) * 4) as usize;
+            dst[d..d + 4].copy_from_slice(&src[s..s + 4]);
+        }
+    }
+}
+
+impl GridStore for RingRaster {
+    fn update(
+        &mut self,
+        list: &bo_render::PageList,
+        e: &SheetEngine,
+        scale: f32,
+    ) -> Result<(), String> {
+        (self.phys, self.size) = rasterise(list, e, scale);
+        self.ring = crate::GridRing::new(self.size.0, self.size.1);
+        self.fulls += 1;
+        Ok(())
+    }
+
+    fn scroll(
+        &mut self,
+        list: &bo_render::PageList,
+        e: &SheetEngine,
+        scale: f32,
+        _: &[GridMove],
+        _: &[[u32; 4]],
+    ) -> Result<(), String> {
+        self.moved += 1;
+        self.update(list, e, scale)
+    }
+
+    fn turn(
+        &mut self,
+        list: &bo_render::PageList,
+        e: &SheetEngine,
+        scale: f32,
+        shift: [i64; 2],
+        bands: &[[u32; 4]],
+    ) -> Result<bool, String> {
+        let (full, size) = rasterise(list, e, scale);
+        assert_eq!(size, self.size, "same image size when scrolling");
+        self.ring.turn(shift);
+        for b in bands {
+            for (r, at) in self.ring.split(*b) {
+                // Piece r of the new image, stored at `at`.
+                blit(&mut self.phys, &full, size, r, at);
+            }
+            self.band_px += u64::from(b[2]) * u64::from(b[3]);
+        }
+        // Show: the pieces put back in image order.
+        let mut out = vec![0_u8; full.len()];
+        for (r, at) in self.ring.pieces() {
+            blit(
+                &mut out,
+                &self.phys,
+                size,
+                [at[0], at[1], r[2], r[3]],
+                [r[0], r[1]],
+            );
+        }
+        for (a, b) in out.chunks(4).zip(full.chunks(4)) {
+            let d = a
+                .iter()
+                .zip(b)
+                .map(|(x, y)| x.abs_diff(*y))
+                .max()
+                .unwrap_or(0);
+            self.worst = self.worst.max(d);
+            if d > 4 {
+                self.off += 1;
+            }
+        }
+        self.pixels += out.len() / 4;
+        self.turns += 1;
+        Ok(true)
+    }
+}
+
+#[test]
+fn grid_ring_splits_wrapped_rectangles() {
+    let mut r = crate::GridRing::new(100, 50);
+    assert_eq!(r.pieces(), vec![([0, 0, 100, 50], [0, 0])]);
+    r.turn([0, 30]);
+    r.turn([0, 30]);
+    assert_eq!(r.phase(), [0, 10]);
+    // Image rows 0..40 are stored at 10..50, rows 40..50 at 0..10.
+    assert_eq!(
+        r.pieces(),
+        vec![([0, 0, 100, 40], [0, 10]), ([0, 40, 100, 10], [0, 0])]
+    );
+    r.turn([-20, -15]);
+    assert_eq!(r.phase(), [80, 45]);
+    assert_eq!(r.split([10, 0, 20, 10]).len(), 4);
+    assert_eq!(
+        r.split([30, 10, 5, 5]),
+        vec![([30, 10, 5, 5], [10, 5])],
+        "inside one piece"
+    );
+}
+
+#[test]
+fn scrolling_turns_a_ring_image_without_copying() {
+    let mut e = SheetEngine::with_bundled_fonts();
+    e.new_workbook("Book1.xlsx").expect("workbook");
+    let cells: Vec<(u32, u32, String)> = (0..400)
+        .flat_map(|r| {
+            (0..12).map(move |c| {
+                let v = if c % 3 == 0 {
+                    format!("Row {r} text that overflows")
+                } else {
+                    format!("{}", r * 13 + c)
+                };
+                (r, c, v)
+            })
+        })
+        .collect();
+    e.set_inputs(0, &cells).expect("cells");
+    let mut w = window_with(e);
+    let mut store = RingRaster::default();
+    w.prepare(&mut store).expect("grid");
+    for _ in 0..9 {
+        w.handle(Input::Wheel(75.0), &Fixed);
+        w.prepare(&mut store).expect("grid");
+    }
+    for _ in 0..4 {
+        w.handle(Input::Wheel(-75.0), &Fixed);
+        w.prepare(&mut store).expect("grid");
+    }
+    for _ in 0..3 {
+        assert!(w.view_mut().scroll_cols(1));
+        w.prepare(&mut store).expect("grid");
+    }
+    assert!(w.view_mut().scroll_cols(-1));
+    w.prepare(&mut store).expect("grid");
+    assert_eq!((store.fulls, store.moved, store.turns), (1, 0, 17));
+    assert_ne!(store.ring.phase(), [0, 0]);
+    assert!(
+        store.off * 20_000 < store.pixels && store.worst <= 32,
+        "ring image: {} of {} pixels differ (by up to {})",
+        store.off,
+        store.pixels,
+        store.worst
+    );
+    let (iw, ih) = store.size;
+    assert!(store.band_px / 17 < u64::from(iw) * u64::from(ih) / 4);
+    // Frozen rows: pixels are moved again (after a fresh image).
+    assert!(w
+        .view_mut()
+        .run(json!({ "cmd": "freeze", "rows": 2, "cols": 0 })));
+    w.prepare(&mut store).expect("grid");
+    w.handle(Input::Wheel(75.0), &Fixed);
+    w.prepare(&mut store).expect("grid");
+    assert_eq!(store.moved, 1);
+}
+
 #[test]
 fn scrolling_below_frozen_rows_keeps_them() {
     let mut e = SheetEngine::with_bundled_fonts();
@@ -715,59 +894,108 @@ fn home_tab_is_wide_or_compact_with_the_window_as_on_the_reference() {
     assert_eq!(sort[3], sum[3]);
 }
 
+/// Click the form's control `id` at (dx, dy) reference pixels inside it.
+fn click_form(w: &mut SheetWindow, id: &str, dx: f32, dy: f32) {
+    let (x, y) = {
+        let f = w.form.as_ref().expect("form");
+        let r = f.get(id).expect("control").rect;
+        let d = f.dev([r[0] + dx, r[1] + dy, 0.0, 0.0]);
+        (d[0], d[1])
+    };
+    w.handle(
+        Input::Press {
+            x,
+            y,
+            count: 1,
+            shift: false,
+        },
+        &Fixed,
+    );
+}
+
+#[test]
+fn format_cells_general_description_starts_right_of_the_category_list() {
+    let mut w = window();
+    assert!(w.action("sheet.formatCellsDialog", &Fixed));
+    let f = w.form.as_ref().expect("form");
+    let cat = f.get("cat").expect("cat").rect;
+    let desc = f.get("desc").expect("desc").rect;
+    assert!(desc[0] >= cat[0] + cat[2], "{desc:?} over {cat:?}");
+}
+
 #[test]
 fn format_cells_dialog_has_pages_like_the_reference() {
     let mut w = window();
-    put(&mut w, &[(0, 0, "x")]);
+    put(&mut w, &[(0, 0, "1234,5")]);
     assert!(w.action("sheet.formatCellsDialog", &Fixed));
-    let page = |w: &SheetWindow| w.dialog.as_ref().map(|(_, d)| d.page());
-    assert_eq!(page(&w), Some(0));
-    let key = |w: &mut SheetWindow, k: Key, ctrl: bool, shift: bool| {
+    let tab = |w: &SheetWindow| w.form.as_ref().map(|f| f.tab);
+    assert_eq!(tab(&w), Some(0));
+    let ctrl_tab = |w: &mut SheetWindow, shift: bool| {
         w.handle(
             Input::Key(
-                k,
+                Key::Tab,
                 Mods {
                     shift,
-                    ctrl,
+                    ctrl: true,
                     ..Mods::default()
                 },
             ),
             &Fixed,
         );
     };
-    let retype = |w: &mut SheetWindow, s: &str| {
-        for _ in 0..12 {
-            w.handle(Input::Key(Key::Backspace, Mods::default()), &Fixed);
-        }
-        type_in(w, s);
-    };
-    // Alignment page: horizontal, vertical, indent, orientation, then wrap / shrink / merge.
-    key(&mut w, Key::Tab, true, false);
-    assert_eq!(page(&w), Some(1));
-    retype(&mut w, "center");
-    key(&mut w, Key::Tab, false, false);
-    retype(&mut w, "top");
-    key(&mut w, Key::Tab, false, false);
-    key(&mut w, Key::Tab, false, false);
-    retype(&mut w, "45");
-    // Font page: Tab reaches its check boxes (bold, italic, underline) after the text boxes.
-    key(&mut w, Key::Tab, true, false);
-    assert_eq!(page(&w), Some(2));
-    for _ in 0..5 {
-        key(&mut w, Key::Tab, false, false);
+    // Number: category Number (second row), 1 decimal, thousands separator; the sample
+    // follows.
+    click_form(&mut w, "cat", 20.0, 2.0 + 17.0 + 5.0);
+    {
+        let f = w.form.as_mut().expect("form");
+        assert_eq!(f.sel("cat"), Some(1));
+        assert!(f.get("dec").is_some_and(|c| c.visible));
+        assert!(f.get("type").is_some_and(|c| !c.visible));
+        f.set_num("dec", 1);
+        f.set_on("sep", true);
     }
-    type_in(&mut w, " ");
-    // Protection page (Ctrl+Shift+Tab goes back round): clear Locked.
-    key(&mut w, Key::Tab, true, true);
-    key(&mut w, Key::Tab, true, true);
-    key(&mut w, Key::Tab, true, true);
-    assert_eq!(page(&w), Some(5));
-    type_in(&mut w, " ");
+    assert_eq!(w.fc_sample(), "1.234,5");
+    // Date shows the type list.
+    click_form(&mut w, "cat", 20.0, 2.0 + 4.0 * 17.0 + 5.0);
+    assert!(w
+        .form
+        .as_ref()
+        .and_then(|f| f.get("type"))
+        .is_some_and(|c| c.visible));
+    click_form(&mut w, "cat", 20.0, 2.0 + 17.0 + 5.0);
+    // Alignment: centre (third item of the drop-down), wrap, 45 degrees from the dial.
+    ctrl_tab(&mut w, false);
+    assert_eq!(tab(&w), Some(1));
+    click_form(&mut w, "h", 20.0, 10.0);
+    click_form(&mut w, "h", 20.0, 26.0 + 1.0 + 2.0 * 17.0 + 5.0);
+    click_form(&mut w, "wrap", 5.0, 10.0);
+    click_form(&mut w, "dial", 6.0 + 40.0, 75.0 - 40.0);
+    assert_eq!(w.form.as_ref().map(|f| f.num("deg")), Some(45));
+    // Font: Bold from the style list.
+    ctrl_tab(&mut w, false);
+    click_form(&mut w, "fstyle", 20.0, 2.0 + 2.0 * 17.0 + 5.0);
+    assert_eq!(
+        w.form.as_ref().map(|f| f.text("styleName")),
+        Some("Bold".into())
+    );
+    // Border: thick line, Outline preset.
+    ctrl_tab(&mut w, false);
+    click_form(&mut w, "lines", 80.0, 14.0 + 5.0 * 20.5);
+    assert_eq!(fcells_impl::LINE_STYLES[w.fc.line], "thick");
+    click_form(&mut w, "presets", 80.0 + 30.0, 20.0);
+    // Fill: the standard red.
+    ctrl_tab(&mut w, false);
+    click_form(&mut w, "bg", 22.0 + 8.0, 6.0 * 21.0 + 20.0 + 8.0);
+    // Protection: clear Locked.
+    ctrl_tab(&mut w, false);
+    assert_eq!(tab(&w), Some(5));
+    click_form(&mut w, "locked", 5.0, 10.0);
     w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
-    assert!(w.dialog.is_none());
+    assert!(w.form.is_none());
     let f = w.view().format().clone();
-    assert_eq!((f.h_align.as_str(), f.v_align.as_str()), ("center", "top"));
-    assert!(f.underline, "underline from the Font page");
+    assert_eq!(f.h_align, "center");
+    assert!(f.wrap && f.bold);
+    assert_eq!(f.num_fmt, "#,##0.0");
     let wb = w.view().engine().workbook().expect("workbook");
     let xf = wb
         .styles
@@ -778,6 +1006,16 @@ fn format_cells_dialog_has_pages_like_the_reference() {
         Some(45)
     );
     assert_eq!(xf.protection.as_ref().and_then(|p| p.locked), Some(false));
+    let b = &wb.styles.borders[xf.border_id as usize];
+    assert_eq!(b.top.style.as_deref(), Some("thick"));
+    assert_eq!(b.left.style.as_deref(), Some("thick"));
+    match &wb.styles.fills[xf.fill_id as usize] {
+        bo_model::sheet::Fill::Pattern(p) => assert_eq!(
+            p.fg.as_ref().and_then(|c| c.rgb.as_deref()),
+            Some("FFFF0000")
+        ),
+        other @ bo_model::sheet::Fill::Gradient(_) => panic!("solid fill expected: {other:?}"),
+    }
 }
 
 #[test]
@@ -884,4 +1122,909 @@ fn text_to_columns_wizard_previews_then_splits() {
         ),
         ("a".into(), "b".into(), "c".into(), "e".into())
     );
+}
+
+/// Timing of wheel steps on a large workbook (BLUESHEET_BIG=<xlsx>; run with --ignored
+/// --nocapture): input handling, display list, header labels.
+#[test]
+#[ignore = "manual timing"]
+fn wheel_step_timing() {
+    struct Null;
+    impl GridStore for Null {
+        fn update(
+            &mut self,
+            _: &bo_render::PageList,
+            _: &SheetEngine,
+            _: f32,
+        ) -> Result<(), String> {
+            Ok(())
+        }
+    }
+    let Some(path) = std::env::var_os("BLUESHEET_BIG") else {
+        return;
+    };
+    let bytes = std::fs::read(path).expect("file");
+    let mut e = SheetEngine::with_bundled_fonts();
+    e.open(&bytes, "big.xlsx").expect("open");
+    let mut w = window_with(e);
+    w.prepare(&mut Null).expect("grid");
+    let mut t = [0.0_f64; 6];
+    let n = 40;
+    for i in 0..n {
+        let d: i64 = if i % 10 < 5 { 3 } else { -3 };
+        let t0 = std::time::Instant::now();
+        w.view.scroll_rows(d);
+        let t1 = std::time::Instant::now();
+        w.update_bars();
+        let t2 = std::time::Instant::now();
+        w.view.measure_labels(&Fixed);
+        let t3 = std::time::Instant::now();
+        w.prepare(&mut Null).expect("grid");
+        let t4 = std::time::Instant::now();
+        w.handle(Input::Wheel(if d > 0 { -1.0 } else { 1.0 }), &Fixed);
+        let t5 = std::time::Instant::now();
+        w.prepare(&mut Null).expect("grid");
+        let t6 = std::time::Instant::now();
+        for (k, (a, b)) in [(t0, t1), (t1, t2), (t2, t3), (t3, t4), (t4, t5), (t5, t6)]
+            .iter()
+            .enumerate()
+        {
+            t[k] += (*b - *a).as_secs_f64() * 1e3 / f64::from(n);
+        }
+    }
+    eprintln!(
+        "per wheel step (ms): scroll {:.2}, bars {:.2}, labels {:.2}, display list {:.2}; handle(wheel) {:.2}, list {:.2}",
+        t[0], t[1], t[2], t[3], t[4], t[5]
+    );
+}
+
+#[test]
+fn data_and_formulas_dialogs_sort_validate_seek_name_and_trace() {
+    let mut w = window();
+    put(
+        &mut w,
+        &[
+            (0, 0, "Name"),
+            (0, 1, "Score"),
+            (1, 0, "b"),
+            (1, 1, "2"),
+            (2, 0, "a"),
+            (2, 1, "2"),
+            (3, 0, "c"),
+            (3, 1, "1"),
+        ],
+    );
+    // Sort by Score (descending), then by Name.
+    w.view_mut().select((1, 0), (1, 0), (1, 0));
+    assert!(w.action("sheet.sortDialog", &Fixed));
+    assert_eq!(w.form_kind, form_impl::FormKind::Sort);
+    {
+        let f = w.form.as_mut().expect("sort form");
+        assert!(f.on("header"), "header row guessed");
+        assert_eq!(f.text("col0"), "Name");
+        f.set_sel("col0", Some(1));
+        f.set_sel("ord0", Some(1));
+    }
+    click_form(&mut w, "add", 10.0, 10.0);
+    assert!(w
+        .form
+        .as_ref()
+        .and_then(|f| f.get("col1"))
+        .is_some_and(|c| c.visible));
+    let ok = w.fc_ok_point();
+    w.handle(
+        Input::Press {
+            x: ok.0,
+            y: ok.1,
+            count: 1,
+            shift: false,
+        },
+        &Fixed,
+    );
+    assert!(w.form.is_none());
+    let col0: Vec<String> = (1..4).map(|r| input(&w, r, 0)).collect();
+    assert_eq!(col0, ["a", "b", "c"]);
+    // Data validation: whole number between 1 and 5.
+    w.view_mut().select((5, 1), (5, 1), (5, 1));
+    assert!(w.action("sheet.dataValidation", &Fixed));
+    {
+        let f = w.form.as_mut().expect("validation form");
+        f.set_sel("allow", Some(1));
+        f.set_text("f1", "1");
+        f.set_text("f2", "5");
+    }
+    w.handle(Input::Key(Key::Escape, Mods::default()), &Fixed);
+    assert!(w.form.is_none(), "Escape cancels");
+    assert!(w.action("sheet.dataValidation", &Fixed));
+    {
+        let f = w.form.as_mut().expect("validation form");
+        f.set_sel("allow", Some(1));
+        f.set_text("f1", "1");
+        f.set_text("f2", "5");
+    }
+    let ok = w.fc_ok_point();
+    w.handle(
+        Input::Press {
+            x: ok.0,
+            y: ok.1,
+            count: 1,
+            shift: false,
+        },
+        &Fixed,
+    );
+    let sheet = w.view().sheet();
+    let rule = w
+        .view_mut()
+        .query(json!({ "cmd": "validation", "sheet": sheet, "row": 5, "col": 1 }))
+        .unwrap_or(serde_json::Value::Null);
+    assert_eq!(rule["kind"], json!("whole"));
+    // Goal seek: B8 = B7 * 2 should reach 10 by changing B7.
+    put(&mut w, &[(6, 1, "1"), (7, 1, "=B7*2")]);
+    w.view_mut().select((7, 1), (7, 1), (7, 1));
+    assert!(w.action("sheet.goalSeek", &Fixed));
+    {
+        let f = w.form.as_mut().expect("goal seek form");
+        assert_eq!(f.text("set"), "B8");
+        f.set_text("to", "10");
+        f.set_text("by", "B7");
+    }
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert!(w.form.is_none());
+    assert_eq!(shown(&w, 6, 1), "5");
+    // Name Manager: define Rate = 0,1.
+    assert!(w.action("sheet.nameManager", &Fixed));
+    {
+        let f = w.form.as_mut().expect("names form");
+        f.set_text("name", "Rate");
+        f.set_text("ref", "=0,1");
+    }
+    click_form(&mut w, "new", 10.0, 10.0);
+    assert!(w.name_rows.iter().any(|(n, _)| n == "Rate"));
+    w.handle(Input::Key(Key::Escape, Mods::default()), &Fixed);
+    // Insert Function: search IF, pick it, OK starts the formula.
+    w.view_mut().select((9, 0), (9, 0), (9, 0));
+    assert!(w.action("sheet.insertFunction", &Fixed));
+    type_in(&mut w, "IFERROR");
+    assert_eq!(
+        w.form.as_ref().map(|f| f.text("fns")),
+        Some("IFERROR".into())
+    );
+    assert!(matches!(
+        w.form.as_ref().and_then(|f| f.get("sig")).map(|c| &c.kind),
+        Some(form_impl::Kind::Label(s)) if s == "IFERROR(value, value_if_error)"
+    ));
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert!(w.view().editing());
+    assert_eq!(w.view().formula_text(), "=IFERROR(");
+    w.handle(Input::Key(Key::Escape, Mods::default()), &Fixed);
+    // Trace precedents of B8: one arrow from B7.
+    w.view_mut().select((7, 1), (7, 1), (7, 1));
+    assert!(w.action("sheet.tracePrecedents", &Fixed));
+    assert_eq!(w.arrows.len(), 1);
+    assert_eq!(w.arrows[0].from, (6, 1, 6, 1));
+    assert!(w.action("sheet.removeArrows", &Fixed));
+    assert_eq!(w.arrows.len(), 0);
+    assert!(w.action("sheet.showFormulas", &Fixed));
+    assert!(w.view().show_formulas());
+}
+
+#[test]
+fn comment_cards_show_on_hover_and_all_at_once() {
+    let mut w = window();
+    put(&mut w, &[(1, 1, "x"), (4, 2, "y")]);
+    for (r, c, t) in [(1, 1, "Check this value before sending"), (4, 2, "Second")] {
+        w.view_mut().select((r, c), (r, c), (r, c));
+        let sheet = w.view().sheet();
+        w.view_mut().query(json!({
+            "cmd": "addComment", "sheet": sheet, "row": r, "col": c, "text": t, "author": "An",
+        }));
+        w.view_mut().changed();
+    }
+    assert_eq!(w.commented_cells().len(), 2);
+    let (x, y) = cell_xy(&w, 1, 1);
+    w.handle(Input::Move { x, y }, &Fixed);
+    assert_eq!(w.hover_comment, Some((1, 1)));
+    assert_eq!(w.cards.len(), 1);
+    assert!(w.cards[0].lines.join(" ").contains("Check this value"));
+    let (x, y) = cell_xy(&w, 3, 3);
+    w.handle(Input::Move { x, y }, &Fixed);
+    assert_eq!(w.cards.len(), 0);
+    assert!(w.action("sheet.showComments", &Fixed));
+    w.handle(Input::Blink, &Fixed);
+    assert_eq!(w.cards.len(), 2);
+}
+
+#[test]
+fn print_titles_help_tab_and_option_check_boxes() {
+    let mut w = window();
+    assert!(w.action("sheet.printTitles", &Fixed));
+    type_in(&mut w, "$1:$2");
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert!(w.form.is_none());
+    let titles = w
+        .view()
+        .engine()
+        .workbook()
+        .and_then(|wb| wb.sheets[0].print_titles.clone())
+        .unwrap_or_default();
+    assert!(titles.contains("$1:$2"), "{titles}");
+    assert!(w.action("sheet.shortcuts", &Fixed));
+    assert_eq!(w.form_kind, form_impl::FormKind::Help);
+    w.handle(Input::Key(Key::Escape, Mods::default()), &Fixed);
+    assert!(w.form.is_none());
+    assert!(sheet_ribbon::tab_ids().contains(&"sheet.help"));
+    // Gridlines / headings / print options are check boxes, not toggled buttons.
+    assert!(!w.on_ids().contains(&"sheet.gridlines"));
+    let checks = w.check_items();
+    assert!(checks
+        .iter()
+        .any(|(id, on)| *id == "sheet.gridlines" && *on));
+}
+
+#[test]
+fn filter_drop_down_checks_values_and_reports_records_found() {
+    let mut w = window();
+    put(
+        &mut w,
+        &[
+            (0, 0, "Name"),
+            (0, 1, "Region"),
+            (1, 0, "An"),
+            (1, 1, "North"),
+            (2, 0, "Binh"),
+            (2, 1, "South"),
+            (3, 0, "Chi"),
+            (3, 1, "North"),
+        ],
+    );
+    assert!(w.action("sheet.filter", &Fixed));
+    assert_eq!(w.auto_filter(), Some([0, 0, 3, 1]));
+    // The button sits at the right end of the header cell.
+    let b = w.view().cell_box(0, 1).expect("header");
+    let at = (b[2] - 4.0, f32::midpoint(b[1], b[3]));
+    assert_eq!(w.filter_button_at(at.0, at.1), Some(1));
+    assert_eq!(w.filter_button_at(b[0] + 4.0, at.1), None);
+    press(&mut w, at, 1);
+    let f = w.filter.as_ref().expect("drop-down open");
+    assert_eq!(f.header, "Region");
+    assert_eq!(f.kind, filter_impl::ColumnKind::Text);
+    let texts: Vec<&str> = f.lines.iter().map(|l| l.text.as_str()).collect();
+    assert_eq!(texts, ["North", "South"]);
+    // Untick South (list row 2 after Select All) and press OK.
+    w.filter.as_mut().expect("open").toggle(2);
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert!(w.filter.is_none());
+    assert_eq!(w.status, "2 of 3 records found");
+    let info = w.view().engine().info().expect("info");
+    assert_eq!(info.sheets[0].hidden_rows, vec![(2, 2)]);
+    // Clear Filter From "Region" shows every row again.
+    press(&mut w, at, 1);
+    assert!(w.filter.as_ref().is_some_and(|f| f.active));
+    assert!(w.filter_item(3));
+    let info = w.view().engine().info().expect("info");
+    assert_eq!(info.sheets[0].hidden_rows.len(), 0);
+    // Number Filters > Greater Than opens the Custom AutoFilter form.
+    put(&mut w, &[(1, 1, "5"), (2, 1, "7"), (3, 1, "9")]);
+    press(&mut w, at, 1);
+    assert_eq!(
+        w.filter.as_ref().map(|f| f.kind),
+        Some(filter_impl::ColumnKind::Number)
+    );
+    assert!(w.filter_item(5));
+    assert!(w.menu.is_some(), "submenu");
+    w.menu = None;
+    assert!(w.filter_choice("op.2"));
+    let f = w.form.as_mut().expect("custom filter");
+    assert_eq!(f.sel("op1"), Some(2));
+    f.set_text("v1", "6");
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert_eq!(w.status, "2 of 3 records found");
+    // A press in the grid clears the message.
+    let at = cell_xy(&w, 5, 3);
+    press(&mut w, at, 1);
+    assert_eq!(w.status, "");
+}
+
+#[test]
+fn insert_tab_forms_create_tables_pivots_sparklines_links_and_headers() {
+    let mut w = window();
+    put(
+        &mut w,
+        &[
+            (0, 0, "Region"),
+            (0, 1, "Amount"),
+            (1, 0, "North"),
+            (1, 1, "5"),
+            (2, 0, "South"),
+            (2, 1, "7"),
+            (3, 0, "North"),
+            (3, 1, "9"),
+        ],
+    );
+    // Create Table: the region and the header guess are filled in.
+    assert!(w.action("sheet.table", &Fixed));
+    assert_eq!(
+        w.form.as_ref().map(|f| f.text("range")).as_deref(),
+        Some("$A$1:$B$4")
+    );
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert!(w.form.is_none());
+    let tables = w.view.query(json!({ "cmd": "tables" })).expect("tables");
+    assert_eq!(tables["tables"].as_array().map(Vec::len), Some(1));
+    // Recommended PivotTable: Region as rows, Sum of Amount, on a new sheet.
+    assert!(w.action("sheet.recPivot", &Fixed));
+    {
+        let f = w.form.as_ref().expect("pivot form");
+        assert_eq!(f.sel("rows"), Some(0));
+        assert_eq!(f.sel("values"), Some(1));
+    }
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert_eq!(w.view().sheet(), 1, "the report's new sheet is shown");
+    let shown_cells: Vec<String> = (0..8).map(|r| shown_on(&w, 1, r, 1)).collect();
+    assert!(shown_cells.iter().any(|s| s == "21"), "{shown_cells:?}");
+    w.view_mut().set_sheet(0);
+    // Sparklines in D2:D4 from B2:B4.
+    w.view_mut().select((1, 1), (3, 1), (1, 1));
+    assert!(w.action("sheet.sparkColumn", &Fixed));
+    w.form.as_mut().expect("form").set_text("loc", "D2:D4");
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    let sp = w
+        .view
+        .query(json!({ "cmd": "sparklines" }))
+        .expect("sparklines");
+    assert!(sp.to_string().contains("column"), "{sp}");
+    // Link: a HYPERLINK formula in the active cell.
+    w.view_mut().select((5, 0), (5, 0), (5, 0));
+    assert!(w.action("sheet.link", &Fixed));
+    {
+        let f = w.form.as_mut().expect("link");
+        f.set_text("text", "Site");
+        f.set_text("addr", "https://example.com");
+    }
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert_eq!(
+        input(&w, 5, 0),
+        "=HYPERLINK(\"https://example.com\",\"Site\")"
+    );
+    assert_eq!(shown(&w, 5, 0), "Site");
+    // Header & Footer sections.
+    assert!(w.action("sheet.headerFooter", &Fixed));
+    w.form.as_mut().expect("hf").set_text("hc", "Report");
+    w.form.as_mut().expect("hf").set_text("fr", "Page &P");
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    let ps = &w.view().engine().workbook().expect("wb").sheets[0].page_setup;
+    assert_eq!(ps.odd_header.as_deref(), Some("&CReport"));
+    assert_eq!(ps.odd_footer.as_deref(), Some("&RPage &P"));
+    // Symbol: the chosen character goes into the cell editor.
+    assert!(w.action("sheet.symbol", &Fixed));
+    w.symbol = (0, 2);
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert!(w.view().editing());
+    assert_eq!(w.view().formula_text(), "#");
+}
+
+fn shown_on(w: &SheetWindow, sheet: usize, r: u32, c: u32) -> String {
+    w.view()
+        .engine()
+        .cell(sheet, r, c)
+        .map(|d| d.display)
+        .unwrap_or_default()
+}
+
+#[test]
+fn format_cells_diagonal_borders_reach_the_engine_and_come_back() {
+    let mut w = window();
+    put(&mut w, &[(0, 0, "x")]);
+    assert!(w.action("sheet.formatCellsDialog", &Fixed));
+    w.fc.edges[7] = (6, "FF0000".into());
+    w.fc.border_changed = true;
+    let ok = w.fc_ok_point();
+    press(&mut w, ok, 1);
+    assert!(w.form.is_none());
+    let wb = w.view().engine().workbook().expect("wb");
+    let xf = wb
+        .styles
+        .xf(wb.sheets[0].cell(0, 0).expect("cell").style)
+        .expect("xf");
+    let b = &wb.styles.borders[xf.border_id as usize];
+    assert!(b.diagonal_down && !b.diagonal_up);
+    assert!(w.action("sheet.formatCellsDialog", &Fixed));
+    assert_eq!(w.fc.edges[7], (6, "FF0000".to_owned()));
+    assert_eq!(w.fc.edges[6].0, 0);
+}
+
+#[test]
+fn insert_shapes_pictures_pivot_charts_and_slicers() {
+    let mut w = window();
+    put(
+        &mut w,
+        &[
+            (0, 0, "Region"),
+            (0, 1, "Amount"),
+            (1, 0, "North"),
+            (1, 1, "5"),
+            (2, 0, "South"),
+            (2, 1, "7"),
+        ],
+    );
+    // Shapes menu entry: an oval at the active cell.
+    assert_eq!(
+        sheet_ribbon::menu("sheet.shapes", &[]).len(),
+        sheet_ribbon::SHAPES.len()
+    );
+    w.view_mut().select((4, 1), (4, 1), (4, 1));
+    assert!(w.action("shape.ellipse", &Fixed));
+    // A picture from the host (1 × 1 PNG): one column, one row.
+    let png = [
+        0x89, b'P', b'N', b'G', b'\r', b'\n', 0x1a, b'\n', 0, 0, 0, 13, b'I', b'H', b'D', b'R', 0,
+        0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0,
+    ];
+    assert!(w.insert_picture(&png, "dot.png"));
+    {
+        let ws = &w.view().engine().workbook().expect("wb").sheets[0];
+        assert_eq!(ws.shape_groups.len(), 2);
+        assert!(ws.shape_groups[0].grp_sp.contains("ellipse"));
+        assert_eq!(ws.shape_groups[1].to.map(|t| (t.row, t.col)), Some((5, 2)));
+    }
+    // Pictures asks the host for files.
+    assert!(w.action("sheet.pictures", &Fixed));
+    assert!(w.take_requests().contains(&Request::PickPicture));
+    // Slicer outside a table: a hint; inside a table: a slicer.
+    w.view_mut().select((1, 0), (1, 0), (1, 0));
+    assert!(w.action("sheet.slicer", &Fixed));
+    assert!(w.status.contains("table"), "{}", w.status);
+    w.view_mut().select((0, 0), (2, 1), (0, 0));
+    assert!(w.action("table.TableStyleMedium2", &Fixed));
+    w.view_mut().select((1, 0), (1, 0), (1, 0));
+    assert!(w.action("sheet.slicer", &Fixed));
+    assert_eq!(
+        w.view().engine().workbook().expect("wb").sheets[0]
+            .slicers
+            .len(),
+        1
+    );
+    // PivotChart: a pivot table and its chart on a new sheet.
+    w.view_mut().select((1, 0), (1, 0), (1, 0));
+    assert!(w.action("sheet.pivotChart", &Fixed));
+    let wb = w.view().engine().workbook().expect("wb");
+    let last = wb.sheets.last().expect("sheet");
+    assert_eq!((last.pivots.len(), last.charts.len()), (1, 1));
+}
+
+#[test]
+fn name_box_lists_functions_while_a_formula_is_typed() {
+    let mut w = window();
+    assert_eq!(w.name_box_text(), "A1");
+    type_text_in(&mut w, "=round(");
+    assert_eq!(w.name_box_text(), "ROUND");
+    let a = w.name_arrow_rect();
+    press(&mut w, (a[0] + 2.0, a[1] + 2.0), 1);
+    let items = w.menu.as_ref().expect("function list").items().len();
+    assert_eq!(items, fbar_impl::RECENT_FUNCTIONS.len() + 1);
+    w.menu = None;
+    assert!(w.choose(Choice::Command("fnin.SUM".into()), &Fixed));
+    assert_eq!(w.view().formula_text(), "=round(SUM(");
+    assert_eq!(w.name_box_text(), "SUM");
+}
+
+fn type_text_in(w: &mut SheetWindow, s: &str) {
+    w.handle(Input::Text(s.into()), &Fixed);
+}
+
+#[test]
+fn colour_drop_downs_open_the_palette_and_more_colors() {
+    let mut w = window();
+    put(&mut w, &[(0, 0, "x")]);
+    assert!(w.action("sheet.formatCellsDialog", &Fixed));
+    {
+        let f = w.form.as_mut().expect("form");
+        f.set_tab(2);
+        assert_eq!(f.color("color"), "");
+    }
+    // Click the Font page's colour box, then a standard colour (red, second cell).
+    let click = |w: &mut SheetWindow, x: f32, y: f32| {
+        let d = w.form.as_ref().expect("form").dev([x, y, 0.0, 0.0]);
+        press(w, (d[0], d[1]), 1);
+    };
+    let r = w
+        .form
+        .as_ref()
+        .expect("form")
+        .get("color")
+        .expect("color")
+        .rect;
+    click(&mut w, r[0] + 10.0, r[1] + 10.0);
+    click(&mut w, r[0] + 8.0 + 18.0 + 5.0, r[1] + r[3] + 166.0 + 5.0);
+    assert_eq!(w.form.as_ref().expect("form").color("color"), "FF0000");
+    // More Colors…: a Colors form over Format Cells; its hex code comes back.
+    click(&mut w, r[0] + 10.0, r[1] + 10.0);
+    click(&mut w, r[0] + 40.0, r[1] + r[3] + 200.0);
+    assert_eq!(w.form_kind, form_impl::FormKind::MoreColors);
+    w.form.as_mut().expect("colors").set_num("green", 128);
+    w.more_colors_event(&form_impl::Event::Changed("green"));
+    assert_eq!(w.form.as_ref().expect("colors").text("hex"), "FF8000");
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert_eq!(w.form_kind, form_impl::FormKind::FormatCells);
+    assert_eq!(w.form.as_ref().expect("form").color("color"), "FF8000");
+    let ok = w.fc_ok_point();
+    press(&mut w, ok, 1);
+    assert_eq!(w.view().format().color.to_uppercase(), "FF8000");
+}
+
+#[test]
+fn insert_icons_shapes_smartart_equation_and_timeline() {
+    let mut w = window();
+    w.relayout(&Fixed);
+    let groups = |w: &SheetWindow| {
+        w.view
+            .engine()
+            .workbook()
+            .map_or(0, |wb| wb.sheets[0].shape_groups.len())
+    };
+    // Icons: the library gallery; choosing an icon inserts its drawing (SVG stored as PNG).
+    let [x, y, ww, hh] = w.ribbon.rect_of(RibbonHit::Tab(1)).expect("insert tab");
+    press(&mut w, (x + ww / 2.0, y + hh / 2.0), 1);
+    w.handle(
+        Input::Release {
+            x: x + ww / 2.0,
+            y: y + hh / 2.0,
+        },
+        &Fixed,
+    );
+    assert!(w.action("sheet.icons", &Fixed));
+    assert!(w.picker.is_some() && !w.library.is_empty());
+    let id = w.library[0].id.clone();
+    w.picker = None;
+    assert!(w.pick_drawing(&format!("icon:{id}")));
+    assert_eq!(groups(&w), 1);
+    // Shapes: the shapes gallery.
+    assert!(w.action("sheet.shapes", &Fixed));
+    assert!(w.picker.is_some());
+    w.picker = None;
+    assert!(w.pick_drawing("shape:ellipse"));
+    assert_eq!(groups(&w), 2);
+    // Equation: a text box with the equation's linear form.
+    assert!(w.action("equation.eqPythagoras", &Fixed));
+    assert_eq!(groups(&w), 3);
+    // SmartArt by family.
+    assert!(w.action("smartart.process", &Fixed));
+    assert_eq!(
+        w.view
+            .engine()
+            .workbook()
+            .map(|wb| wb.sheets[0].diagrams.len()),
+        Some(1)
+    );
+    // Timeline without a pivot table: a hint.
+    assert!(w.action("sheet.timeline", &Fixed));
+    assert!(w.status.contains("PivotTable"));
+    // Screenshot and 3D Models are shown dimmed.
+    assert!(!sheet_enabled("sheet.screenshot", &w.format_state()));
+}
+
+#[test]
+fn charts_select_move_resize_and_design() {
+    let mut w = window();
+    put(
+        &mut w,
+        &[
+            (0, 0, "Q"),
+            (0, 1, "Sales"),
+            (1, 0, "Q1"),
+            (1, 1, "5"),
+            (2, 0, "Q2"),
+            (2, 1, "7"),
+        ],
+    );
+    w.relayout(&Fixed);
+    assert!(w.action("chart.column", &Fixed));
+    // The new chart is selected and Chart Design is shown.
+    assert_eq!(w.chart_sel, Some(0));
+    assert_eq!(w.ribbon.active_label(), "sheetChart.tabDesign");
+    assert_eq!(w.name_box_text(), "Chart 1");
+    // The cell selection is not drawn while the chart is selected.
+    let mut with = PaintHash::default();
+    w.view.paint(&mut with);
+    w.view.set_object_selected(false);
+    let mut without = PaintHash::default();
+    w.view.paint(&mut without);
+    assert_ne!(with.finish(), without.finish());
+    w.view.set_object_selected(true);
+    // The chart tab is laid out after the input (its buttons have places), not left blank.
+    w.handle(Input::Move { x: 1.0, y: 1.0 }, &Fixed);
+    assert!(w
+        .ribbon
+        .rect_of(RibbonHit::Command("sheet.chartQuickLayout"))
+        .is_some());
+    let charts = |w: &mut SheetWindow| w.view.query(json!({ "cmd": "charts" })).expect("charts");
+    let from = charts(&mut w)[0]["from"].clone();
+    // Drag its body two rows down.
+    let f = [
+        from[0].as_u64().unwrap() as u32,
+        from[1].as_u64().unwrap() as u32,
+    ];
+    let r = w.view.cell_rect(f[0] + 1, f[1] + 1).expect("cell");
+    let b = w.view.cell_rect(f[0] + 3, f[1] + 1).expect("cell");
+    press(&mut w, (r[0] + 3.0, r[1] + 3.0), 1);
+    w.handle(
+        Input::Drag {
+            x: b[0] + 3.0,
+            y: b[1] + 3.0,
+        },
+        &Fixed,
+    );
+    w.handle(
+        Input::Release {
+            x: b[0] + 3.0,
+            y: b[1] + 3.0,
+        },
+        &Fixed,
+    );
+    assert_eq!(
+        charts(&mut w)[0]["from"][0].as_u64(),
+        Some(u64::from(f[0]) + 2)
+    );
+    // Design commands reach the chart.
+    assert!(w.action("chartEl.title", &Fixed));
+    assert_eq!(charts(&mut w)[0]["title"], "Chart Title");
+    assert!(w.action("chartEl.legendBottom", &Fixed));
+    assert_eq!(charts(&mut w)[0]["legend"], "b");
+    assert!(w.action("chartType.line", &Fixed));
+    assert_eq!(charts(&mut w)[0]["kind"], "line");
+    let layout = format!("chartLayout.{}", bo_sheet::chart_style::LAYOUTS[1]);
+    assert!(w.action(&layout, &Fixed));
+    assert!(w.status.is_empty(), "{}", w.status);
+    assert_ne!(sheet_ribbon::menu("sheet.chartColors", &[]), vec![]);
+    // Pressing a cell deselects; Delete on a selected chart removes it.
+    let far = w.view.cell_rect(0, 0).expect("a1");
+    press(&mut w, (far[0] + 2.0, far[1] + 2.0), 1);
+    w.handle(
+        Input::Release {
+            x: far[0] + 2.0,
+            y: far[1] + 2.0,
+        },
+        &Fixed,
+    );
+    assert_eq!(w.chart_sel, None);
+    w.set_chart_selection(Some(0), false);
+    w.handle(Input::Key(Key::Delete, Mods::default()), &Fixed);
+    assert_eq!(charts(&mut w).as_array().map(Vec::len), Some(0));
+}
+
+#[test]
+fn keyboard_shortcuts_as_the_reference() {
+    use crate::sheet_view::cycle_reference;
+    // F4 cycles $A$1 → A$1 → $A1 → A1 → $A$1, ranges as a whole.
+    assert_eq!(cycle_reference("=A1+2", 2), Some(("=$A$1+2".into(), 5)));
+    assert_eq!(cycle_reference("=$A$1", 5), Some(("=A$1".into(), 4)));
+    assert_eq!(cycle_reference("=A$1", 4), Some(("=$A1".into(), 4)));
+    assert_eq!(cycle_reference("=$A1", 4), Some(("=A1".into(), 3)));
+    assert_eq!(
+        cycle_reference("=SUM(B2:C3)", 9),
+        Some(("=SUM($B$2:$C$3)".into(), 14))
+    );
+    assert_eq!(cycle_reference("=SUM(", 5), None);
+    let mut w = window();
+    put(&mut w, &[(0, 0, "1"), (1, 0, "2"), (0, 1, "x")]);
+    let ctrl = |c: char| {
+        Input::Key(
+            Key::Letter(c),
+            Mods {
+                ctrl: true,
+                ..Mods::default()
+            },
+        )
+    };
+    // F2 then F4 in the editor.
+    w.view_mut().select((5, 0), (5, 0), (5, 0));
+    type_text_in(&mut w, "=A1");
+    w.handle(Input::Key(Key::F(4), Mods::default()), &Fixed);
+    assert_eq!(w.view().formula_text(), "=$A$1");
+    w.handle(Input::Key(Key::Escape, Mods::default()), &Fixed);
+    // Ctrl+D fills the top cell down the selection, Ctrl+R the left cell right.
+    w.view_mut().select((0, 0), (2, 0), (0, 0));
+    w.handle(ctrl('d'), &Fixed);
+    assert_eq!(
+        w.view
+            .engine()
+            .cell(0, 2, 0)
+            .map(|c| c.display)
+            .ok()
+            .as_deref(),
+        Some("1")
+    );
+    w.view_mut().select((0, 1), (0, 2), (0, 1));
+    w.handle(ctrl('r'), &Fixed);
+    assert_eq!(
+        w.view
+            .engine()
+            .cell(0, 0, 2)
+            .map(|c| c.display)
+            .ok()
+            .as_deref(),
+        Some("x")
+    );
+    // Ctrl+1 opens Format Cells.
+    w.view_mut().select((0, 0), (0, 0), (0, 0));
+    w.handle(ctrl('1'), &Fixed);
+    assert_eq!(w.form_kind, form_impl::FormKind::FormatCells);
+    w.form = None;
+    // Ctrl+; types today's date into the editor.
+    w.view_mut().select((7, 0), (7, 0), (7, 0));
+    w.handle(ctrl(';'), &Fixed);
+    assert!(w.view().editing());
+    assert_eq!(w.view().formula_text().matches('/').count(), 2);
+    w.handle(Input::Key(Key::Escape, Mods::default()), &Fixed);
+    // Alt+= puts AutoSum under a column of numbers.
+    w.view_mut().select((3, 0), (3, 0), (3, 0));
+    w.handle(
+        Input::Key(
+            Key::Letter('='),
+            Mods {
+                alt: true,
+                ..Mods::default()
+            },
+        ),
+        &Fixed,
+    );
+    assert!(
+        w.view().formula_text().starts_with("=SUM("),
+        "{}",
+        w.view().formula_text()
+    );
+}
+
+#[test]
+fn data_formulas_and_view_tabs_round_6() {
+    let mut w = window();
+    put(
+        &mut w,
+        &[
+            (0, 0, "Name"),
+            (0, 1, "Amount"),
+            (1, 0, "A"),
+            (1, 1, "5"),
+            (2, 0, "A"),
+            (2, 1, "7"),
+            (3, 0, "B"),
+            (3, 1, "9"),
+        ],
+    );
+    w.relayout(&Fixed);
+    // The reference's Data tab commands are on the ribbon (some dimmed).
+    let ids = sheet_ribbon::tab_ids();
+    for id in [
+        "sheet.getData",
+        "sheet.refreshAll",
+        "sheet.flashFill",
+        "sheet.consolidate",
+        "sheet.whatIf",
+        "sheet.outline",
+        "sheet.definedNames",
+        "sheet.fnRecent",
+        "sheet.customViews",
+        "sheet.zoomDialog",
+    ] {
+        assert!(ids.contains(&id), "{id}");
+    }
+    assert!(!sheet_enabled("sheet.split", &w.format_state()));
+    // Get Data from Text/CSV: a text file becomes a query table on a new sheet.
+    assert!(w.action("sheet.fromText", &Fixed));
+    assert!(w.take_requests().contains(&Request::PickMergeData));
+    assert!(w.pick_filters()[0].1.contains("csv"));
+    assert!(w.picked_file(b"City,Count\nHue,3\nVinh,4\n", "cities.csv"));
+    assert_eq!(w.view.sheet_names().len(), 2);
+    assert_eq!(
+        w.view
+            .engine()
+            .cell(1, 1, 0)
+            .map(|c| c.display)
+            .ok()
+            .as_deref(),
+        Some("Hue")
+    );
+    assert!(w.action("sheet.refreshAllNow", &Fixed));
+    assert!(w.status.contains('1'), "{}", w.status);
+    w.view.set_sheet(0);
+    // Outline: group rows 2–3, then subtotals.
+    w.view_mut().select((1, 0), (2, 1), (1, 0));
+    assert!(w.action("outline.group", &Fixed));
+    assert!(w.action("outline.clear", &Fixed));
+    // Custom views: add one, then the list shows it.
+    assert!(w.action("sheet.customViews", &Fixed));
+    w.form.as_mut().expect("views").set_text("name", "Mine");
+    w.data_form_event(&form_impl::Event::Clicked("add"), &Fixed);
+    assert_eq!(w.custom_view_names().len(), 1);
+    w.data_form_event(&form_impl::Event::Cancel, &Fixed);
+    // Zoom: 75 %.
+    assert!(w.action("sheet.zoomDialog", &Fixed));
+    w.form.as_mut().expect("zoom").set_sel("mag", Some(2));
+    w.data_form_event(&form_impl::Event::Ok, &Fixed);
+    assert!((w.view.zoom() - 0.75).abs() < 0.01);
+    // Consolidate the list by name into D1.
+    w.view_mut().select((0, 3), (0, 3), (0, 3));
+    assert!(w.action("sheet.consolidate", &Fixed));
+    w.form.as_mut().expect("cons").set_text("ref", "$A$1:$B$4");
+    w.data_form_event(&form_impl::Event::Ok, &Fixed);
+    assert_eq!(
+        w.view
+            .engine()
+            .cell(0, 1, 4)
+            .map(|c| c.display)
+            .ok()
+            .as_deref(),
+        Some("12"),
+        "{}",
+        w.status
+    );
+}
+
+#[test]
+fn cell_style_and_table_galleries_apply_their_choice() {
+    let mut w = window();
+    put(
+        &mut w,
+        &[(0, 0, "A"), (0, 1, "B"), (1, 0, "1"), (1, 1, "2")],
+    );
+    w.relayout(&Fixed);
+    assert!(w.action("sheet.cellStyles", &Fixed));
+    let g = w.gallery.as_ref().expect("gallery");
+    // Good / Bad / Neutral, Data and Model, Titles, Themed, Number Format; menu lines.
+    assert_eq!(g.sections.len(), 5);
+    assert_eq!(g.sections[4].1.len(), 5);
+    assert_eq!(g.footer.len(), 2);
+    assert_eq!(
+        w.gallery_choice_at(4, 1).as_deref(),
+        Some("style.Comma [0]")
+    );
+    // Calculation shows its four edges (the reference frames it), Heading 1 a thick rule.
+    let edges = |s: usize, i: usize| match &w.gallery.as_ref().expect("g").sections[s].1[i].1 {
+        gallery_impl::Tile::Cell { edges, .. } => edges.map(|e| e.map(|(l, _)| l)),
+        gallery_impl::Tile::Table { .. } => [None; 4],
+    };
+    assert!(edges(1, 0).iter().all(Option::is_some));
+    assert_eq!(edges(2, 0)[2], Some(gallery_impl::Line::Thick));
+    assert_eq!(edges(1, 4)[2], Some(gallery_impl::Line::Double));
+    assert_eq!(w.gallery_choice_at(0, 2).as_deref(), Some("style.Good"));
+    // Clicking the Good tile styles the selection.
+    let r = w.gallery.as_ref().expect("g").rect();
+    let hit = (0..400)
+        .flat_map(|dx| (0..200).map(move |dy| (dx as f32, dy as f32)))
+        .map(|(dx, dy)| (r[0] + dx, r[1] + dy))
+        .find(|(x, y)| w.gallery.as_ref().and_then(|g| g.hit(*x, *y)) == Some((0, 2)))
+        .expect("Good tile");
+    press(&mut w, hit, 1);
+    assert!(w.gallery.is_none());
+    let st = w
+        .view
+        .query(json!({ "cmd": "formatState", "row": 0, "col": 0 }))
+        .expect("st");
+    assert_eq!(st["styleName"], "Good");
+    // New Cell Style…: the Style form takes the active cell's format under a new name, and
+    // the gallery then shows a Custom group with it.
+    assert!(w.action("sheet.newCellStyle", &Fixed));
+    assert_eq!(w.form_kind, form_impl::FormKind::CellStyle);
+    assert_eq!(w.form.as_ref().expect("form").text("name"), "Style 1");
+    w.cell_style_event(&form_impl::Event::Ok);
+    assert!(w.form.is_none());
+    assert!(w.action("sheet.cellStyles", &Fixed));
+    let g = w.gallery.take().expect("gallery");
+    assert_eq!(g.sections.len(), 6);
+    assert_eq!(g.sections[0].1[0].0, "style.Style 1");
+    // Merge Styles… asks the host for a workbook; a file that is not one is reported.
+    assert!(w.action("sheet.mergeStyles", &Fixed));
+    assert!(w.take_requests().contains(&Request::PickMergeData));
+    assert!(w.pick_filters()[0].1.contains("xlsx"));
+    assert!(w.picked_file(b"not a workbook", "x.xlsx"));
+    assert!(w.status.contains("not a workbook"));
+    // Format as Table: 3 families × 7 styles.
+    assert!(w.action("sheet.formatTable", &Fixed));
+    let g = w.gallery.as_ref().expect("gallery");
+    assert_eq!(g.sections.iter().map(|s| s.1.len()).sum::<usize>(), 21);
+    let c = w.gallery_choice_at(1, 1).expect("medium 2");
+    assert_eq!(c, "table.TableStyleMedium2");
+    w.gallery = None;
+    assert!(w.action(&c, &Fixed));
+    let tables = w.view.query(json!({ "cmd": "tables" })).expect("tables");
+    assert_eq!(tables["tables"].as_array().map(Vec::len), Some(1));
 }

@@ -168,6 +168,97 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "is_zero")]
         spread: f32,
     },
+    /// Start a transparency group (paired with `PopGroup`): the commands up to the matching
+    /// `PopGroup` are composited onto what is below with `blend` (ISO 32000-1 §11.3.5) and,
+    /// when `mask` is set, through that soft mask (§11.6.5). Backends without blending draw
+    /// the group as if it were plain content.
+    PushGroup {
+        /// Separable or non-separable blend mode; `None` = Normal.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        blend: Option<BlendMode>,
+        /// Soft mask, in the coordinate space of this command.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mask: Option<Box<SoftMask>>,
+        /// Knockout group (§11.4.6.2, `/K true`): each object inside replaces what earlier
+        /// objects of the group painted instead of compositing over them.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        knockout: bool,
+    },
+    /// End the group started by the matching `PushGroup`.
+    PopGroup,
+}
+
+/// Blend modes of ISO 32000-1 §11.3.5 (Table 136/137).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum BlendMode {
+    /// `Multiply`.
+    Multiply,
+    /// `Screen`.
+    Screen,
+    /// `Overlay`.
+    Overlay,
+    /// `Darken`.
+    Darken,
+    /// `Lighten`.
+    Lighten,
+    /// `ColorDodge`.
+    ColorDodge,
+    /// `ColorBurn`.
+    ColorBurn,
+    /// `HardLight`.
+    HardLight,
+    /// `SoftLight`.
+    SoftLight,
+    /// `Difference`.
+    Difference,
+    /// `Exclusion`.
+    Exclusion,
+    /// `Hue`.
+    Hue,
+    /// `Saturation`.
+    Saturation,
+    /// `Color`.
+    Color,
+    /// `Luminosity`.
+    Luminosity,
+}
+
+impl BlendMode {
+    /// The mode for a PDF blend mode name (`None` for Normal, Compatible and unknown names).
+    #[must_use]
+    pub fn from_pdf_name(name: &[u8]) -> Option<Self> {
+        Some(match name {
+            b"Multiply" => Self::Multiply,
+            b"Screen" => Self::Screen,
+            b"Overlay" => Self::Overlay,
+            b"Darken" => Self::Darken,
+            b"Lighten" => Self::Lighten,
+            b"ColorDodge" => Self::ColorDodge,
+            b"ColorBurn" => Self::ColorBurn,
+            b"HardLight" => Self::HardLight,
+            b"SoftLight" => Self::SoftLight,
+            b"Difference" => Self::Difference,
+            b"Exclusion" => Self::Exclusion,
+            b"Hue" => Self::Hue,
+            b"Saturation" => Self::Saturation,
+            b"Color" => Self::Color,
+            b"Luminosity" => Self::Luminosity,
+            _ => return None,
+        })
+    }
+}
+
+/// Soft mask of a group (ISO 32000-1 §11.6.5.2): the mask's opacity is the alpha
+/// (`luminosity == false`) or the luminosity of `commands` drawn over `backdrop`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SoftMask {
+    /// Luminosity mask (`/S /Luminosity`) rather than alpha mask.
+    pub luminosity: bool,
+    /// Backdrop colour of a luminosity mask (`/BC`), also its value outside the drawing.
+    pub backdrop: Rgba,
+    /// The mask group's drawing.
+    pub commands: Vec<Command>,
 }
 
 /// Path segment; JSON: `{"M":[x,y]}`, `{"L":[x,y]}`, `{"C":[x1,y1,x2,y2,x,y]}`, `{"Q":[x1,y1,x,y]}`, `"Z"`.

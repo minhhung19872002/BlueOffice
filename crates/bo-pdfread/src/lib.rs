@@ -14,27 +14,75 @@
 #![allow(clippy::items_after_statements, clippy::match_same_arms)]
 
 mod annot;
+mod annot_draw;
+mod annot_edit;
+mod annot_image;
 mod cmap;
+mod cmyk;
+mod codecs;
 mod color;
+mod convert;
+mod crypt;
+mod design;
+mod edit;
 mod encoding;
 #[allow(clippy::unreadable_literal, clippy::large_const_arrays)]
 mod encoding_data;
+mod exchange;
+mod exchange_data;
+mod extract;
+mod fallback;
+mod field_detect;
 mod filters;
 mod font;
+mod forms;
 mod function;
 mod image;
 mod interp;
 mod lexer;
+mod links_edit;
+mod markup;
+mod media_edit;
+mod mesh;
+mod objects;
+mod optimize;
+mod pages_edit;
+mod paragraph;
+mod sanitize;
 mod sfnt;
+mod sigappear;
 mod text;
 mod type1;
+mod viewer;
 mod write;
 
 pub use annot::{Annot, AnnotKind, NewAnnot};
-pub use image::Image;
-pub use text::TextLayer;
+pub use annot_draw::{
+    measure_label, path_length, polygon_area, Shape, StampKind, Style as DrawStyle,
+};
+pub use annot_edit::CommentThread;
 
-use bo_render::PageList;
+pub use convert::{StyledBlock, StyledRun};
+pub use design::{NewField, NewFieldKind, PageMarks};
+pub use edit::{Permissions, SaveOptions};
+pub use exchange::SummaryLabels;
+pub use exchange_data::ImportReport;
+pub use extract::ExtractedImage;
+pub use forms::{FieldKind, FormField};
+pub use image::Image;
+pub use links_edit::{find_web_addresses, FoundLink};
+pub use markup::{Markup, MarkupKind};
+pub use media_edit::ShapeKind;
+pub use objects::{image_size, text_lines, NewImage, ObjectKind, PageObject, TextLine};
+pub use optimize::{JpegEncoder, OptimizeOptions, OptimizeReport};
+pub use pages_edit::{LabelRange, LabelStyle};
+pub use paragraph::{text_blocks, Align, BlockEdit, RunStyle, StyleChange, TextBlock};
+pub use sanitize::{ButtonAction, HiddenCounts, HiddenData};
+pub use sigappear::{signature_appearance, SignatureLook};
+pub use text::TextLayer;
+pub use viewer::{DocInfo, FontInfo};
+
+use bo_render::{PageList, Rgba};
 use bo_text::FontManager;
 use interp::{mul, Interp, Shared, M};
 use lopdf::{Dictionary, Document, Object, ObjectId};
@@ -58,6 +106,54 @@ impl Default for RenderOptions {
             text_as_paths: false,
             min_line: 0.5,
             annotations: true,
+        }
+    }
+}
+
+/// Drawing choices beyond [`RenderOptions`] (a separate type so that its literals stay valid).
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct RenderExtra {
+    /// Colour of every shown text, filled or stroked (alpha kept): BlueReader's Night Mode
+    /// greys all text, outlined text included.
+    pub text_color: Option<Rgba>,
+    /// Simulate overprinting (§8.7.4.5, ExtGState `/OP` `/op`): an overprinting CMYK or spot
+    /// colour multiplies with what is below instead of knocking it out.
+    pub overprint: bool,
+    /// Drawn for printing: annotations print only with their Print flag (§12.5.3 Table 165)
+    /// and `print_what` chooses the parts of the page.
+    pub printing: bool,
+    /// Parts of the page drawn (the print dialog's Print What).
+    pub print_what: PrintWhat,
+}
+
+/// Parts of a page printed (the reference reader's Print What choices).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum PrintWhat {
+    /// Page content and every annotation.
+    #[default]
+    DocumentAndMarkups,
+    /// Page content and form fields, no comments.
+    Document,
+    /// Page content, form fields and stamps.
+    DocumentAndStamps,
+    /// Form fields only.
+    FormFields,
+    /// Annotations only (no page content).
+    Annotations,
+}
+
+impl PrintWhat {
+    /// Whether the page's content stream is drawn.
+    fn content(self) -> bool {
+        !matches!(self, Self::FormFields | Self::Annotations)
+    }
+
+    /// Whether an annotation of `subtype` is drawn.
+    fn annotation(self, subtype: &[u8]) -> bool {
+        match self {
+            Self::DocumentAndMarkups | Self::Annotations => true,
+            Self::Document | Self::FormFields => subtype == b"Widget",
+            Self::DocumentAndStamps => matches!(subtype, b"Widget" | b"Stamp"),
         }
     }
 }
@@ -154,6 +250,8 @@ pub struct PdfDocument {
     changed: Vec<ObjectId>,
     /// The document has `/PageLabels`.
     labelled: bool,
+    /// Undo / redo and page tree edits (BlueEditor).
+    edit: edit::EditState,
 }
 
 fn resolve<'a>(doc: &'a Document, o: &'a Object) -> &'a Object {
@@ -385,66 +483,51 @@ impl PdfDocument {
     /// Open a PDF from its bytes. `fonts` holds the faces that stand in for fonts that are not
     /// embedded (see [`standard_fonts`]); embedded fonts are added to it as pages render.
     pub fn open(bytes: Vec<u8>, fonts: FontManager) -> Result<Self, String> {
+        Self::open_with_password(bytes, fonts, "")
+    }
+
+    /// Whether `bytes` are a PDF that needs a password to open.
+    pub fn needs_password(bytes: &[u8]) -> bool {
+        let start = bytes.windows(5).take(1024).position(|w| w == b"%PDF-");
+        start.is_some_and(|s| {
+            Document::load_mem(&bytes[s..]).is_ok_and(|d| {
+                d.is_encrypted() && d.encryption_state.is_none() || d.objects.is_empty()
+            }) && bytes.windows(8).any(|w| w == b"/Encrypt")
+                && crypt::load(&bytes[s..], "").is_err()
+        })
+    }
+
+    /// Open a PDF encrypted with a user or owner `password` (the standard security handler,
+    /// ISO 32000-1 §7.6.3–7.6.4; an empty password opens unprotected files). The document keeps
+    /// its security handler: it is encrypted again with the same key when saved.
+    pub fn open_with_password(
+        bytes: Vec<u8>,
+        fonts: FontManager,
+        password: &str,
+    ) -> Result<Self, String> {
         let start = bytes
             .windows(5)
             .take(1024)
             .position(|w| w == b"%PDF-")
             .ok_or("not a PDF file")?;
-        let doc = Document::load_mem(&bytes[start..]).map_err(|e| format!("PDF: {e}"))?;
-        if doc.is_encrypted() && doc.trailer.get(b"Encrypt").is_ok() && doc.objects.len() < 2 {
-            return Err("the document is protected by a password".into());
+        let mut doc = Document::load_mem(&bytes[start..]).map_err(|e| format!("PDF: {e}"))?;
+        // lopdf gives up (no objects) on a direct /Encrypt dictionary it cannot decrypt.
+        let unread = doc.objects.is_empty() && bytes.windows(8).any(|w| w == b"/Encrypt");
+        if doc.is_encrypted() && doc.encryption_state.is_none() || unread {
+            // An empty user password lopdf did not take (AES-256, revision 6): try it through
+            // our own loader before asking for one.
+            doc = match crypt::load(&bytes[start..], password) {
+                Ok(d) => d,
+                Err(_) if password.is_empty() => {
+                    return Err("the document is protected by a password".into())
+                }
+                Err(e) => return Err(e),
+            };
         }
-        let ids: Vec<ObjectId> = doc.get_pages().into_values().collect();
-        if ids.is_empty() {
+        let (pages, labelled) = scan_pages(&doc);
+        if pages.is_empty() {
             return Err("the document has no pages".into());
         }
-        let labels = page_labels(&doc, ids.len());
-        let labelled = doc.catalog().is_ok_and(|c| c.has(b"PageLabels"));
-        let pages = ids
-            .iter()
-            .enumerate()
-            .map(|(i, &id)| {
-                let d = doc.get_dictionary(id).ok();
-                let media = d
-                    .and_then(|d| rect_of(&doc, inherited(&doc, d, b"MediaBox")))
-                    .unwrap_or([0.0, 0.0, 612.0, 792.0]);
-                let crop = d
-                    .and_then(|d| rect_of(&doc, inherited(&doc, d, b"CropBox")))
-                    .map_or(media, |c| {
-                        // The crop box is clipped to the media box.
-                        let r = [
-                            c[0].max(media[0]),
-                            c[1].max(media[1]),
-                            c[2].min(media[2]),
-                            c[3].min(media[3]),
-                        ];
-                        if r[2] - r[0] >= 1.0 && r[3] - r[1] >= 1.0 {
-                            r
-                        } else {
-                            media
-                        }
-                    });
-                let rotate = d
-                    .and_then(|d| inherited(&doc, d, b"Rotate"))
-                    .and_then(|o| o.as_i64().ok())
-                    .unwrap_or(0)
-                    .rem_euclid(360);
-                let rotate = (rotate / 90 * 90) as u16;
-                let (w, h) = (crop[2] - crop[0], crop[3] - crop[1]);
-                let (width, height) = if rotate % 180 == 90 { (h, w) } else { (w, h) };
-                PageInfo {
-                    width: width.min(14_400.0),
-                    height: height.min(14_400.0),
-                    rotate,
-                    label: labels
-                        .get(i)
-                        .cloned()
-                        .unwrap_or_else(|| (i + 1).to_string()),
-                    id,
-                    crop,
-                }
-            })
-            .collect();
         let hidden = hidden_groups(&doc);
         Ok(Self {
             doc,
@@ -456,6 +539,7 @@ impl PdfDocument {
             hidden,
             changed: Vec::new(),
             labelled,
+            edit: edit::EditState::default(),
         })
     }
 
@@ -488,6 +572,22 @@ impl PdfDocument {
         (!s.is_empty()).then_some(s)
     }
 
+    /// An entry of the document information dictionary (§14.3.3: `Author`, `Producer`…).
+    pub fn info(&self, key: &str) -> Option<String> {
+        let info = self.doc.trailer.get(b"Info").ok()?;
+        let d = resolve(&self.doc, info).as_dict().ok()?;
+        let t = resolve(&self.doc, d.get(key.as_bytes()).ok()?)
+            .as_str()
+            .ok()?;
+        let s = text_string(t).trim().to_owned();
+        (!s.is_empty()).then_some(s)
+    }
+
+    /// The PDF version in the file header (`1.7`, `2.0`).
+    pub fn version(&self) -> String {
+        self.doc.version.clone()
+    }
+
     /// The bytes the document was opened from, with any saved updates appended.
     pub fn bytes(&self) -> &[u8] {
         &self.bytes
@@ -495,6 +595,16 @@ impl PdfDocument {
 
     /// Render page `index` into a display list.
     pub fn render(&mut self, index: usize, opts: RenderOptions) -> Result<Page, String> {
+        self.render_extra(index, opts, RenderExtra::default())
+    }
+
+    /// [`Self::render`] with BlueReader's extra choices (Night Mode text, overprint).
+    pub fn render_extra(
+        &mut self,
+        index: usize,
+        opts: RenderOptions,
+        extra: RenderExtra,
+    ) -> Result<Page, String> {
         let info = self.pages.get(index).ok_or("no such page")?.clone();
         let base = page_matrix(info.crop, info.rotate);
         let doc = &self.doc;
@@ -516,7 +626,11 @@ impl PdfDocument {
             (info.width, info.height),
             format!("p{index}"),
         );
-        it.run(&content);
+        it.text_color = extra.text_color;
+        it.overprint = extra.overprint;
+        if extra.print_what.content() {
+            it.run(&content);
+        }
         it.finish();
         let mut links = Vec::new();
         if let Some(annots) = page
@@ -540,7 +654,16 @@ impl PdfDocument {
                         });
                     }
                 }
-                if opts.annotations {
+                // §12.5.3: printing draws only annotations with the Print flag (bit 3).
+                let print_flag = d
+                    .get(b"F")
+                    .ok()
+                    .and_then(|o| o.as_i64().ok())
+                    .is_some_and(|f| f & 4 != 0);
+                if opts.annotations
+                    && extra.print_what.annotation(subtype)
+                    && (!extra.printing || print_flag)
+                {
                     draw_annotation(&mut it, doc, d, rect);
                 }
             }
@@ -578,6 +701,60 @@ impl PdfDocument {
     fn page_index(pages: &[PageInfo], id: ObjectId) -> Option<usize> {
         pages.iter().position(|p| p.id == id)
     }
+}
+
+/// Sizes, rotations and labels of every page in page tree order, and whether the document
+/// has `/PageLabels` (§7.7.3, §12.4.2).
+pub(crate) fn scan_pages(doc: &Document) -> (Vec<PageInfo>, bool) {
+    let ids: Vec<ObjectId> = doc.get_pages().into_values().collect();
+    let labels = page_labels(doc, ids.len());
+    let labelled = doc.catalog().is_ok_and(|c| c.has(b"PageLabels"));
+    let pages = ids
+        .iter()
+        .enumerate()
+        .map(|(i, &id)| {
+            let d = doc.get_dictionary(id).ok();
+            let media = d
+                .and_then(|d| rect_of(doc, inherited(doc, d, b"MediaBox")))
+                .unwrap_or([0.0, 0.0, 612.0, 792.0]);
+            let crop = d
+                .and_then(|d| rect_of(doc, inherited(doc, d, b"CropBox")))
+                .map_or(media, |c| {
+                    // The crop box is clipped to the media box.
+                    let r = [
+                        c[0].max(media[0]),
+                        c[1].max(media[1]),
+                        c[2].min(media[2]),
+                        c[3].min(media[3]),
+                    ];
+                    if r[2] - r[0] >= 1.0 && r[3] - r[1] >= 1.0 {
+                        r
+                    } else {
+                        media
+                    }
+                });
+            let rotate = d
+                .and_then(|d| inherited(doc, d, b"Rotate"))
+                .and_then(|o| o.as_i64().ok())
+                .unwrap_or(0)
+                .rem_euclid(360);
+            let rotate = (rotate / 90 * 90) as u16;
+            let (w, h) = (crop[2] - crop[0], crop[3] - crop[1]);
+            let (width, height) = if rotate % 180 == 90 { (h, w) } else { (w, h) };
+            PageInfo {
+                width: width.min(14_400.0),
+                height: height.min(14_400.0),
+                rotate,
+                label: labels
+                    .get(i)
+                    .cloned()
+                    .unwrap_or_else(|| (i + 1).to_string()),
+                id,
+                crop,
+            }
+        })
+        .collect();
+    (pages, labelled)
 }
 
 fn page_content(doc: &Document, page: &Dictionary) -> Vec<u8> {
@@ -639,6 +816,10 @@ fn draw_annotation<'a>(
     let flags = d.get(b"F").ok().and_then(|o| o.as_i64().ok()).unwrap_or(0);
     let subtype = d.get(b"Subtype").and_then(Object::as_name).unwrap_or(b"");
     if flags & (2 | 32) != 0 || subtype == b"Popup" {
+        return;
+    }
+    // Replies (§12.5.6.2 /IRT) show in the comment list, not on the page.
+    if d.has(b"IRT") && d.get(b"RT").and_then(Object::as_name).ok() != Some(b"Group") {
         return;
     }
     let ap = d
@@ -931,5 +1112,15 @@ fn hidden_groups(doc: &Document) -> HashSet<ObjectId> {
     out
 }
 
+#[cfg(test)]
+mod color_tests;
+#[cfg(test)]
+mod edit_tests;
+#[cfg(test)]
+mod forms_tests;
+#[cfg(test)]
+mod objects_tests;
+#[cfg(test)]
+mod paragraph_tests;
 #[cfg(test)]
 mod tests;

@@ -60,16 +60,14 @@ fn ribbon_new_slide_layout_menu_and_delete() {
     assert!(w.menu.is_some(), "layout menu");
     w.handle(Input::Key(Key::Down, Mods::default()), &Fixed);
     w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
-    assert_eq!(
-        w.view().slide_count(),
-        n + 2,
-        "slide with the chosen layout"
-    );
-    click_command(&mut w, "slide.delete");
-    assert_eq!(w.view().slide_count(), n + 1);
+    // The chosen layout goes to the current slide (no new slide), as on the reference.
+    assert_eq!(w.view().slide_count(), n + 1, "layout changed in place");
+    // Delete Slide is not on the reference's Home tab at this width: the command still runs.
+    assert!(w.run_action("slide.delete"));
+    assert_eq!(w.view().slide_count(), n);
     // Undo from the title bar's quick access button runs through the window.
     assert!(w.run_action("edit.undo"));
-    assert_eq!(w.view().slide_count(), n + 2);
+    assert_eq!(w.view().slide_count(), n + 1);
 }
 
 #[test]
@@ -211,6 +209,14 @@ fn design_tab_applies_a_theme_and_slide_size() {
         .and_then(|s| s.design.as_ref())
         .and_then(|d| d.theme.clone());
     assert_eq!(theme.as_deref(), Some("BlueOffice Lotus"));
+    // The fixed-width text measure is wider than the interface font: give the tab room.
+    w.handle(
+        Input::Resize {
+            width: 1900.0,
+            height: 1080.0,
+        },
+        &Fixed,
+    );
     click_command(&mut w, "design.slideSize");
     assert!(w.menu.is_some());
     w.handle(Input::Key(Key::Down, Mods::default()), &Fixed);
@@ -608,4 +614,299 @@ fn review_steps_through_comments_and_slide_show_hides_slides() {
     assert_eq!(hidden(&w), Some(false));
     assert!(w.run_action("show.hideSlide"));
     assert_ne!(hidden(&w), Some(false));
+}
+
+fn pick(w: &mut SlideWindow, value: &str) {
+    let (x, y) = w
+        .picker
+        .as_ref()
+        .and_then(|(p, _)| p.cell_center(value))
+        .expect(value);
+    w.handle(Input::Move { x, y }, &Fixed);
+    click(w, x, y);
+}
+
+fn select_tab(w: &mut SlideWindow, i: usize) {
+    let [x, y, tw, th] = w.ribbon.rect_of(RibbonHit::Tab(i)).expect("tab");
+    click(w, x + tw / 2.0, y + th / 2.0);
+}
+
+#[test]
+fn insert_table_from_the_grid_shows_table_tabs() {
+    let mut w = window();
+    select_tab(&mut w, 1);
+    click_command(&mut w, "sl.table");
+    assert!(w.picker.is_some(), "table grid");
+    pick(&mut w, "table:3x2");
+    assert!(w.picker.is_none());
+    let sel = w.view().selection();
+    assert_eq!(sel.len(), 1);
+    assert_eq!(sel[0].kind, "table");
+    // Table Design and Layout follow the fixed tabs; the first is active after inserting.
+    assert_eq!(w.context, ins::Context::Table);
+    assert_eq!(w.ribbon.active_tab(), w.base_tabs);
+    assert!(w.command_rect("sl.headerRow").is_some());
+    // Without a selection the contextual tabs go and the Insert tab is back.
+    w.view.run(SlideCommand::Select { ids: vec![] });
+    w.handle(Input::Tick, &Fixed);
+    assert_eq!(w.context, ins::Context::None);
+    assert_eq!(w.ribbon.active_tab(), 1);
+}
+
+#[test]
+fn shapes_gallery_inserts_a_preset_and_size_box_steps() {
+    let mut w = window();
+    select_tab(&mut w, 1);
+    click_command(&mut w, "sl.shapes");
+    pick(&mut w, "shape:star5");
+    assert_eq!(w.context, ins::Context::Shape);
+    assert_eq!(w.ribbon.active_tab(), w.base_tabs, "Shape Format");
+    let h0 = w.view().selection()[0].rect.h;
+    // Up arrow of the Height box: 0.1 inch (7.2 pt) taller.
+    let r = w.size_box("sl.height").expect("height box");
+    click(&mut w, r[0] + r[2] - 3.0, r[1] + 3.0);
+    let h1 = w.view().selection()[0].rect.h;
+    assert!((h1 - h0 - 7.2).abs() < 0.2, "{h0} -> {h1}");
+    // Typing a width.
+    let r = w.size_box("sl.width").expect("width box");
+    click(&mut w, r[0] + 5.0, r[1] + r[3] / 2.0);
+    w.handle(Input::Text("2".into()), &Fixed);
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert!((w.view().selection()[0].rect.w - 144.0).abs() < 0.5);
+    // Shape fill from the palette.
+    click_command(&mut w, "sl.fill");
+    pick(&mut w, "color:FF0000");
+    assert!(w.view.run(SlideCommand::Undo));
+}
+
+#[test]
+fn find_selects_the_next_match_and_replace_all_counts() {
+    let mut w = window();
+    let word: String = {
+        let p = w.view().engine().presentation().unwrap();
+        let shapes = bo_engine::slide_edit::a11y::slide_shapes(p, 0);
+        let text = shapes
+            .iter()
+            .find_map(|s| s.text.clone())
+            .expect("some text");
+        text.split_whitespace().next().unwrap().to_owned()
+    };
+    w.run_action("sl.find");
+    assert!(w.dialog.is_some());
+    w.handle(Input::Text(word.to_lowercase()), &Fixed);
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    let te = w.view().text_edit().expect("match selected");
+    let picked: String = String::from_utf16_lossy(
+        &te.text.encode_utf16().collect::<Vec<_>>()[te.start.min(te.end)..te.start.max(te.end)],
+    );
+    assert_eq!(picked.to_lowercase(), word.to_lowercase());
+    w.handle(Input::Key(Key::Escape, Mods::default()), &Fixed);
+    assert!(w.dialog.is_none());
+    assert_eq!(ins::replace_ci(&word, &word, "x").1, 1);
+}
+
+#[test]
+fn header_and_footer_dialog_applies_slide_numbers() {
+    let mut w = window();
+    w.run_action("sl.headerFooter");
+    let (d, _) = w.dialog.as_mut().expect("dialog");
+    // Fields: footer text, then date, slide number, footer, not on title.
+    let mut v = d.values();
+    assert_eq!(v.len(), 5);
+    v[2] = "1".into();
+    w.dialog_button(
+        ins::SlideDialog::HeaderFooter,
+        crate::dialog::DialogButton::Ok,
+        &v,
+    );
+    assert!(w.dialog.is_none());
+    w.view.run(SlideCommand::HeaderFooterInfo);
+    let info = w
+        .view()
+        .state()
+        .and_then(|s| s.header_footer.clone())
+        .unwrap();
+    assert!(info.slide_number);
+}
+
+#[test]
+fn trigger_and_painter_dim_without_an_effect() {
+    let w = window();
+    let f = ribbon_format(&w.view, false);
+    assert!(!slide_enabled("anim.trigger", &f));
+    assert!(!slide_enabled("anim.painter", &f));
+    assert!(!slide_enabled("sl.fill", &f), "needs a selection");
+    let f = ribbon_format(&w.view, true);
+    assert!(slide_enabled("anim.trigger", &f));
+    assert!(slide_enabled("sl.table", &f));
+}
+
+#[test]
+fn shows_skip_hidden_slides_loop_and_rehearse() {
+    let mut w = window();
+    let n = w.view().slide_count();
+    assert!(n >= 3, "deck of {n}");
+    // Hide slide 2: From Beginning plays 1, 3, …
+    w.view_mut().go_to(1);
+    assert!(w.run_action("show.hideSlide"));
+    let plan = w.view().show_plan(None);
+    assert!(!plan.order.contains(&1));
+    assert!(w.run_action("show.fromStart"));
+    assert!(w.view().showing());
+    assert_eq!(w.view().show_slide(), Some(0));
+    w.handle(Input::Key(Key::Right, Mods::default()), &Fixed);
+    // Effects first if slide 1 has any; then slide 3.
+    for _ in 0..10 {
+        if w.view().show_slide() != Some(0) {
+            break;
+        }
+        w.handle(Input::Key(Key::Right, Mods::default()), &Fixed);
+    }
+    assert_eq!(w.view().show_slide(), Some(2), "hidden slide 2 skipped");
+    w.handle(Input::Key(Key::Escape, Mods::default()), &Fixed);
+    assert!(!w.view().showing());
+    // Set Up Slide Show: loop until Esc.
+    w.run_action("show.setUp");
+    let mut v = w.dialog.as_ref().map(|(d, _)| d.values()).expect("dialog");
+    v[2] = "1".into();
+    w.dialog_button(
+        ins::SlideDialog::Show(showtab::ShowDialog::SetUp),
+        crate::dialog::DialogButton::Ok,
+        &v,
+    );
+    let plan = w.view().show_plan(None);
+    assert!(plan.looped);
+    // Rehearse: the show times each slide; ending it asks to keep the timings.
+    w.view_mut().set_clock(0.0);
+    assert!(w.run_action("show.rehearse"));
+    w.view_mut().set_clock(3_000.0);
+    w.handle(Input::Key(Key::Escape, Mods::default()), &Fixed);
+    assert!(matches!(
+        w.dialog.as_ref().map(|(_, k)| *k),
+        Some(ins::SlideDialog::Show(showtab::ShowDialog::KeepTimings))
+    ));
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert!(w.dialog.is_none());
+    let timings = w
+        .view()
+        .engine()
+        .presentation()
+        .map(|p| bo_engine::slide_edit::present::present_out(p).timings)
+        .unwrap();
+    assert_eq!(timings[0], Some(3_000), "{timings:?}");
+}
+
+#[test]
+#[allow(clippy::items_after_statements)] // the recording painter belongs to this test
+fn presenter_view_shows_the_slide_on_the_left() {
+    let mut w = window();
+    assert!(w.run_action("show.presenterView"));
+    assert!(w.view().presenter());
+    struct Texts(Vec<String>);
+    impl Painter for Texts {
+        fn clear(&mut self, _: bo_render::Rgba) {}
+        fn fill_rect(&mut self, _: f32, _: f32, _: f32, _: f32, _: bo_render::Rgba) {}
+        fn page(&mut self, _: usize, _: i32, _: i32) {}
+        fn text(&mut self, t: &str, _: f32, _: f32, _: TextStyle, _: bo_render::Rgba) {
+            self.0.push(t.to_owned());
+        }
+        fn path(
+            &mut self,
+            _: &[PathSeg],
+            _: Option<bo_render::Rgba>,
+            _: Option<(bo_render::Rgba, f32)>,
+        ) {
+        }
+        fn push_clip(&mut self, _: f32, _: f32, _: f32, _: f32) {}
+        fn pop_clip(&mut self) {}
+    }
+    let mut t = Texts(Vec::new());
+    w.paint(&mut t);
+    assert!(t.0.iter().any(|s| s == "Next Slide"), "{:?}", t.0);
+    assert!(t.0.iter().any(|s| s.starts_with("0:00:")), "timer");
+    w.handle(Input::Key(Key::Escape, Mods::default()), &Fixed);
+    assert!(!w.view().presenter());
+}
+
+#[test]
+fn view_tab_outline_master_and_grid() {
+    let mut w = window();
+    assert!(w.run_action("view.outline"));
+    w.handle(Input::Tick, &Fixed);
+    assert_eq!(w.outline_rows.len(), w.view().slide_count());
+    // A press on the second slide's outline row goes there.
+    let (top, slide) = w.outline_rows[1];
+    let area = w.view().thumbs_area();
+    click(&mut w, area[0] + 30.0, top + 4.0);
+    assert_eq!(w.view().current(), slide);
+    assert!(w.run_action("view.normal"));
+    assert!(w.outline_rows.is_empty() || w.pane == viewtab::Pane::Normal);
+    // Slide Master: its tab comes first, Close Master View goes back.
+    let n = w.base_tabs;
+    assert!(w.run_action("view.slideMaster"));
+    assert!(w.master_view);
+    assert_eq!(w.base_tabs, n + 1);
+    assert_eq!(w.ribbon.active_tab(), 0);
+    assert!(w.run_action("view.closeMaster"));
+    assert!(!w.master_view);
+    assert_eq!(w.base_tabs, n);
+    // Gridlines and guides toggle.
+    assert!(w.run_action("view.gridlines"));
+    assert!(w.gridlines);
+    assert!(w.run_action("view.notesPage"));
+    assert_eq!(w.pane, viewtab::Pane::NotesPage);
+}
+
+#[test]
+fn lasso_selects_the_shapes_it_surrounds() {
+    let mut w = window();
+    w.run_action("draw.lasso");
+    let c = w.view().canvas_rect();
+    // A loop round the whole canvas.
+    let pts = [
+        (c[0] + 2.0, c[1] + 2.0),
+        (c[0] + c[2] - 2.0, c[1] + 2.0),
+        (c[0] + c[2] - 2.0, c[1] + c[3] - 2.0),
+        (c[0] + 2.0, c[1] + c[3] - 2.0),
+        (c[0] + 2.0, c[1] + 4.0),
+    ];
+    w.handle(
+        Input::Press {
+            x: pts[0].0,
+            y: pts[0].1,
+            count: 1,
+            shift: false,
+        },
+        &Fixed,
+    );
+    for (x, y) in &pts[1..] {
+        w.handle(Input::Drag { x: *x, y: *y }, &Fixed);
+    }
+    w.handle(
+        Input::Release {
+            x: pts[4].0,
+            y: pts[4].1,
+        },
+        &Fixed,
+    );
+    let n = bo_engine::slide_edit::geom::place_slide(w.view().engine().presentation().unwrap(), 0)
+        .len();
+    assert!(n > 0);
+    assert_eq!(w.view().selection().len(), n);
+}
+
+#[test]
+fn insert_smartart_text_styles_links_and_menu_marks() {
+    let mut w = window();
+    assert_eq!(w.choose_insert("smart", "process"), Some(true));
+    assert_eq!(w.view().selection().len(), 1);
+    assert_eq!(w.choose_insert("tstyle", "1"), Some(true));
+    let sel = w.view().selection()[0].clone();
+    assert_eq!(sel.text.as_deref(), Some("Your text here"));
+    assert_eq!(w.choose_insert("lnk", "next"), Some(true));
+    // One-word menu labels keep the mark on a second line, as on the reference.
+    let [x, y, tw, th] = w.ribbon.rect_of(RibbonHit::Tab(1)).expect("tab");
+    click(&mut w, x + tw / 2.0, y + th / 2.0);
+    let lines = w.ribbon.large_lines_of("sl.table");
+    assert_eq!(lines.as_ref().map(|l| l[1].0.as_str()), Some("\u{25BE}"));
 }

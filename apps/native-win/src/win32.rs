@@ -44,7 +44,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
     SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, WINDOW_EX_STYLE, WM_CHAR, WM_DESTROY, WM_DPICHANGED,
     WM_ERASEBKGND, WM_IME_COMPOSITION, WM_IME_ENDCOMPOSITION, WM_IME_STARTCOMPOSITION, WM_KEYDOWN,
     WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_MOVE, WM_PAINT,
-    WM_SETTINGCHANGE, WM_SIZE, WM_TIMER, WNDCLASSEXW, WS_OVERLAPPEDWINDOW,
+    WM_SETTINGCHANGE, WM_SIZE, WM_SYSCHAR, WM_SYSKEYDOWN, WM_TIMER, WNDCLASSEXW,
+    WS_OVERLAPPEDWINDOW,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     IsZoomed, PeekMessageW, PostMessageW, HTCAPTION, HTCLIENT, HTCLOSE, HTMAXBUTTON, HTMINBUTTON,
@@ -94,6 +95,8 @@ thread_local! {
     static TRACKING: Cell<bool> = const { Cell::new(false) };
     static HIGH_SURROGATE: Cell<u16> = const { Cell::new(0) };
     static LAST_DOUBLE: Cell<(u32, i32, i32)> = const { Cell::new((0, 0, 0)) };
+    /// Shift / Ctrl flags (MK_SHIFT, MK_CONTROL) of the last mouse button / move message.
+    static MOUSE_KEYS: Cell<(bool, bool)> = const { Cell::new((false, false)) };
     /// Window placement before going full screen (slide show), while full screen.
     static FULL_SCREEN: Cell<Option<(isize, RECT, bool)>> = const { Cell::new(None) };
 }
@@ -138,6 +141,22 @@ fn mods() -> Mods {
         ctrl: down(VK_CONTROL),
         alt: down(VK_MENU),
     }
+}
+
+/// Shift / Ctrl held with the last mouse message (its MK_SHIFT / MK_CONTROL flags, so they
+/// hold for posted messages too).
+#[allow(dead_code)] // BlueSlide only.
+pub fn mouse_mods() -> Mods {
+    let (shift, ctrl) = MOUSE_KEYS.with(Cell::get);
+    Mods {
+        shift,
+        ctrl,
+        alt: false,
+    }
+}
+
+fn note_mouse_keys(wparam: WPARAM) {
+    MOUSE_KEYS.with(|k| k.set((wparam.0 & 0x0004 != 0, wparam.0 & 0x0008 != 0)));
 }
 
 fn scale(hwnd: HWND) -> f32 {
@@ -232,7 +251,32 @@ fn point(lparam: LPARAM) -> (f32, f32) {
     )
 }
 
+/// The spreadsheet's extra keys (opt-in, BlueSheet only): Alt+Enter and Alt+= (sent by
+/// Windows as system keys), Ctrl+; and Ctrl+Shift+; (date / time), Ctrl+` (formulas).
+static SHEET_KEYS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Turn on [`SHEET_KEYS`] for this process.
+#[allow(dead_code)] // BlueSheet only.
+pub fn enable_sheet_keys() {
+    SHEET_KEYS.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// A system key (Alt held) that the spreadsheet handles itself.
+fn sheet_sys_key(vk: u16) -> Option<Key> {
+    if !SHEET_KEYS.load(std::sync::atomic::Ordering::Relaxed) {
+        return None;
+    }
+    match vk {
+        0x0D => Some(Key::Enter),
+        0xBB => Some(Key::Letter('=')),
+        _ => None,
+    }
+}
+
 fn key(vk: u16, m: Mods) -> Option<Key> {
+    if m.ctrl && vk == 0xBA && SHEET_KEYS.load(std::sync::atomic::Ordering::Relaxed) {
+        return Some(Key::Letter(';'));
+    }
     let k = VIRTUAL_KEY(vk);
     Some(match k {
         VK_LEFT => Key::Left,
@@ -484,6 +528,18 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             }
             LRESULT(0)
         }
+        WM_SYSKEYDOWN if sheet_sys_key(wparam.0 as u16).is_some() => {
+            if let Some(k) = sheet_sys_key(wparam.0 as u16) {
+                input(hwnd, Input::Key(k, mods()));
+            }
+            LRESULT(0)
+        }
+        WM_SYSCHAR
+            if SHEET_KEYS.load(std::sync::atomic::Ordering::Relaxed)
+                && matches!(wparam.0, 0x0D | 0x3D) =>
+        {
+            LRESULT(0)
+        }
         WM_KEYDOWN => {
             let m = mods();
             match key(wparam.0 as u16, m) {
@@ -518,6 +574,7 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             LRESULT(0)
         }
         WM_LBUTTONDOWN | WM_LBUTTONDBLCLK => {
+            note_mouse_keys(wparam);
             let (x, y) = point(lparam);
             // SAFETY: plain queries and capture of this thread's window.
             let (now, limit) = unsafe {
@@ -549,6 +606,7 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             LRESULT(0)
         }
         WM_MOUSEMOVE => {
+            note_mouse_keys(wparam);
             let (x, y) = point(lparam);
             // MK_LBUTTON
             if wparam.0 & 0x0001 != 0 {
@@ -560,6 +618,7 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             LRESULT(0)
         }
         WM_LBUTTONUP => {
+            note_mouse_keys(wparam);
             // SAFETY: releases this thread's mouse capture.
             unsafe {
                 let _ = ReleaseCapture();
@@ -1120,5 +1179,89 @@ pub fn set_title(hwnd: isize, title: &str) {
     // SAFETY: the string is NUL-terminated and outlives the call; `hwnd` is our window.
     unsafe {
         let _ = SetWindowTextW(HWND(hwnd as *mut _), PCWSTR(text.as_ptr()));
+    }
+}
+
+/// Visible top-level windows whose title ends with `suffix` (BlueSlide's other windows):
+/// handle and title, in z-order.
+#[allow(dead_code)] // BlueSlide only.
+pub fn app_windows(suffix: &str) -> Vec<(isize, String)> {
+    use windows::core::BOOL;
+    use windows::Win32::UI::WindowsAndMessaging::{EnumWindows, GetWindowTextW, IsWindowVisible};
+    unsafe extern "system" fn each(h: HWND, data: LPARAM) -> BOOL {
+        // SAFETY: `data` is the address of the vector below, alive during EnumWindows.
+        let out = unsafe { &mut *(data.0 as *mut Vec<(isize, String)>) };
+        let mut buf = [0u16; 512];
+        // SAFETY: the buffer is valid for its length.
+        let n = unsafe { GetWindowTextW(h, &mut buf) };
+        // SAFETY: plain query on a window handle from the enumeration.
+        if n > 0 && unsafe { IsWindowVisible(h) }.as_bool() {
+            out.push((h.0 as isize, String::from_utf16_lossy(&buf[..n as usize])));
+        }
+        BOOL(1)
+    }
+    let mut all: Vec<(isize, String)> = Vec::new();
+    // SAFETY: the callback only writes to `all`, which outlives the call.
+    unsafe {
+        let _ = EnumWindows(Some(each), LPARAM(std::ptr::from_mut(&mut all) as isize));
+    }
+    all.retain(|(_, t)| t.ends_with(suffix));
+    all
+}
+
+/// Tile (`cascade` false: side by side) or cascade windows over the primary work area.
+#[allow(dead_code)] // BlueSlide only.
+pub fn arrange_windows(windows: &[isize], cascade: bool) {
+    use windows::Win32::UI::WindowsAndMessaging::SPI_GETWORKAREA;
+    if windows.is_empty() {
+        return;
+    }
+    let mut area = RECT::default();
+    // SAFETY: SPI_GETWORKAREA writes one RECT.
+    unsafe {
+        let _ = SystemParametersInfoW(
+            SPI_GETWORKAREA,
+            0,
+            Some(std::ptr::from_mut::<RECT>(&mut area).cast()),
+            SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
+        );
+    }
+    let (aw, ah) = (area.right - area.left, area.bottom - area.top);
+    let count = windows.len() as i32;
+    for (i, &hw) in windows.iter().enumerate() {
+        let i = i as i32;
+        let (x, y, cx, cy) = if cascade {
+            let step = 32;
+            (
+                area.left + i * step,
+                area.top + i * step,
+                aw * 3 / 4,
+                ah * 3 / 4,
+            )
+        } else {
+            (area.left + i * aw / count, area.top, aw / count, ah)
+        };
+        // SAFETY: plain window call on handles from `app_windows`.
+        unsafe {
+            let hwnd = HWND(hw as *mut _);
+            let _ = ShowWindow(hwnd, SW_RESTORE);
+            let _ = SetWindowPos(hwnd, None, x, y, cx, cy, SWP_NOZORDER);
+        }
+    }
+}
+
+/// Bring a window to the front.
+#[allow(dead_code)] // BlueSlide only.
+pub fn activate_window(hwnd: isize) {
+    use windows::Win32::UI::WindowsAndMessaging::SetForegroundWindow;
+    // SAFETY: plain window call.
+    unsafe {
+        let hwnd = HWND(hwnd as *mut _);
+        if IsZoomed(hwnd).as_bool() {
+            let _ = ShowWindow(hwnd, SW_MAXIMIZE);
+        } else {
+            let _ = ShowWindow(hwnd, SW_RESTORE);
+        }
+        let _ = SetForegroundWindow(hwnd);
     }
 }

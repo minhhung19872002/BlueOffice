@@ -9,10 +9,32 @@ use crate::sheet_ribbon;
 use crate::sheet_view::{GridStore, SheetView, SEL_GREEN};
 use commands_impl::SheetDialog;
 
+#[path = "sheet_audit.rs"]
+mod audit_impl;
+#[path = "sheet_chart.rs"]
+mod chart_impl;
 #[path = "sheet_commands.rs"]
 mod commands_impl;
+#[path = "sheet_comments.rs"]
+mod comments_impl;
+#[path = "sheet_data.rs"]
+mod data_impl;
+#[path = "sheet_dataforms.rs"]
+mod dataforms_impl;
 #[path = "sheet_fbar.rs"]
 mod fbar_impl;
+#[path = "sheet_fcells.rs"]
+mod fcells_impl;
+#[path = "sheet_filter.rs"]
+mod filter_impl;
+#[path = "sheet_form.rs"]
+mod form_impl;
+#[path = "sheet_gallery.rs"]
+mod gallery_impl;
+#[path = "sheet_illus.rs"]
+mod illus_impl;
+#[path = "sheet_insert.rs"]
+mod insert_impl;
 #[path = "sheet_review.rs"]
 mod review_impl;
 use crate::strings::Strings;
@@ -23,6 +45,55 @@ use bo_edit::FormatState;
 use bo_model::Alignment;
 use bo_render::{PathSeg, Rgba};
 use serde_json::json;
+
+/// Menus of the chart tabs.
+pub(crate) fn chart_menu(id: &str) -> Vec<(String, String)> {
+    chart_impl::chart_menu(id)
+}
+
+/// SmartArt layout families and built-in equations of the Insert tab's menus.
+pub(crate) const SMARTART_FAMILIES: [&str; 7] = illus_impl::SMARTART;
+pub(crate) const EQUATION_KEYS: [&str; 5] = [
+    illus_impl::EQUATIONS[0].0,
+    illus_impl::EQUATIONS[1].0,
+    illus_impl::EQUATIONS[2].0,
+    illus_impl::EQUATIONS[3].0,
+    illus_impl::EQUATIONS[4].0,
+];
+
+/// Local time offset from UTC in minutes, set by the host ([`SheetWindow::set_utc_offset`]).
+static UTC_OFFSET: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
+
+/// Today's date (`M/D/YYYY`) or the time (`h:mm AM`) in local time.
+fn now_stamp(time: bool) -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs() as i64);
+    let offset = i64::from(UTC_OFFSET.load(std::sync::atomic::Ordering::Relaxed));
+    let t = secs + offset * 60;
+    let (days, rem) = (t.div_euclid(86_400), t.rem_euclid(86_400));
+    if time {
+        let (h, mi) = (rem / 3600, rem % 3600 / 60);
+        let (h12, ap) = match h {
+            0 => (12, "AM"),
+            1..=11 => (h, "AM"),
+            12 => (12, "PM"),
+            _ => (h - 12, "PM"),
+        };
+        return format!("{h12}:{mi:02} {ap}");
+    }
+    // Civil date from days since 1970-01-01 (H. Hinnant's algorithm).
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let mo = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + i64::from(mo <= 2);
+    format!("{mo}/{d}/{y}")
+}
 
 /// Tab strip and status bar greys of the reference spreadsheet.
 const TABS_BG: Rgba = Rgba(0xe6, 0xe6, 0xe6, 255);
@@ -101,6 +172,33 @@ fn sheet_enabled(id: &str, f: &FormatState) -> bool {
     match id {
         "edit.undo" => f.can_undo,
         "edit.redo" => f.can_redo,
+        // No screen capture or 3-D model support in BlueSheet: shown dimmed.
+        "sheet.screenshot"
+        | "sheet.models3d"
+        // Not in BlueSheet yet (shown dimmed like the reference's unavailable commands).
+        | "sheet.recentSources"
+        | "sheet.fromWeb"
+        | "sheet.queryProps"
+        | "sheet.editLinks"
+        | "sheet.filterReapply"
+        | "sheet.filterAdvanced"
+        | "sheet.relationships"
+        | "sheet.dataModel"
+        | "sheet.forecastSheet"
+        | "sheet.watchWindow"
+        | "sheet.viewPageBreak"
+        | "sheet.viewPageLayout"
+        | "sheet.ruler"
+        | "sheet.newWindow"
+        | "sheet.split"
+        | "sheet.arrangeAll"
+        | "sheet.hideWindow"
+        | "sheet.unhideWindow"
+        | "sheet.switchWindows"
+        | "sheet.macros"
+        | "sheet.chartSwitch"
+        | "sheet.chartSelectData"
+        | "sheet.chartMove" => false,
         _ => COMMANDS.contains(&id) || id.starts_with("sheet."),
     }
 }
@@ -227,6 +325,50 @@ pub struct SheetWindow {
     calc_state: (bool, bool),
     /// Settings of the Text to Columns wizard's first step.
     ttc_values: Vec<String>,
+    /// Open self-drawn form (Format Cells, Sort, …), what it is for, and the pointer
+    /// position (wheel input scrolls the list under it).
+    form: Option<form_impl::Form>,
+    form_kind: form_impl::FormKind,
+    form_ptr: (f32, f32),
+    /// Format Cells state beyond its controls (border edges, orientation, fill).
+    fc: fcells_impl::FcState,
+    /// Sort dialog: the range sorted and the number of levels shown.
+    sort_range: Option<serde_json::Value>,
+    sort_levels: usize,
+    /// Name Manager rows (name, refers to).
+    name_rows: Vec<(String, String)>,
+    /// Formula auditing arrows, the traced cell and its precedent / dependent levels.
+    arrows: Vec<audit_impl::Arrow>,
+    trace_cell: Option<(u32, u32)>,
+    trace_levels: (u32, u32),
+    /// Comment cards: the hovered comment cell, Show All Comments, and the laid-out cards.
+    hover_comment: Option<(u32, u32)>,
+    show_all_comments: bool,
+    cards: Vec<comments_impl::Card>,
+    /// Open AutoFilter drop-down, its texts, the column of its Custom AutoFilter / Top 10
+    /// form, and whether the status bar shows its "x of y records found".
+    filter: Option<filter_impl::FilterDrop>,
+    filter_labels: filter_impl::Labels,
+    filter_col: u32,
+    filter_status: bool,
+    /// Create Sparklines: the kind chosen on the ribbon; Symbol: the selected grid cell.
+    spark_kind: String,
+    symbol: (usize, usize),
+    /// A form waiting under More Colors…, and that form's new and current colour.
+    form_stash: Option<(form_impl::Form, form_impl::FormKind)>,
+    more_colors: (String, String),
+    /// Open picture gallery (Cell Styles, Format as Table).
+    gallery: Option<gallery_impl::Gallery>,
+    /// What a file asked of the host (`Request::PickMergeData`) is for: `"styles"` (Merge
+    /// Styles…) or `"text"` (Get Data from Text/CSV).
+    pick: Option<&'static str>,
+    /// Open Shapes / Icons gallery and the icon library (loaded when Icons first opens).
+    picker: Option<crate::slide_pickers::Picker>,
+    library: Vec<crate::slide_pickers::LibIcon>,
+    /// Selected chart, a chart drag in progress, the charts' anchors for painting.
+    chart_sel: Option<usize>,
+    chart_drag: Option<chart_impl::ChartDrag>,
+    chart_cache: Vec<([u32; 2], [u32; 2])>,
 }
 
 impl SheetWindow {
@@ -247,6 +389,9 @@ impl SheetWindow {
                     (id == "sheet.numberFormat").then(|| sheet_ribbon::number_box_width(true))
                 })
                 .with_trailing(sheet_ribbon::trailing)
+                .with_late_rows(sheet_ribbon::late)
+                .with_large_widths(chart_impl::large_width)
+                .with_plain_contextual()
                 .with_two_line_labels(),
             wide_ribbon: true,
             theme: Theme::light("sheet"),
@@ -280,10 +425,47 @@ impl SheetWindow {
             name_widths: Vec::new(),
             calc_state: (false, false),
             ttc_values: Vec::new(),
+            form: None,
+            form_kind: form_impl::FormKind::default(),
+            form_ptr: (0.0, 0.0),
+            fc: fcells_impl::FcState::default(),
+            sort_range: None,
+            sort_levels: 1,
+            name_rows: Vec::new(),
+            arrows: Vec::new(),
+            trace_cell: None,
+            trace_levels: (0, 0),
+            hover_comment: None,
+            show_all_comments: false,
+            cards: Vec::new(),
+            filter: None,
+            filter_labels: filter_impl::Labels::default(),
+            filter_col: 0,
+            filter_status: false,
+            spark_kind: String::new(),
+            symbol: (0, 0),
+            form_stash: None,
+            more_colors: (String::new(), String::new()),
+            gallery: None,
+            pick: None,
+            picker: None,
+            library: Vec::new(),
+            chart_sel: None,
+            chart_drag: None,
+            chart_cache: Vec::new(),
         };
+        insert_impl::add_icons(&mut w.icons);
+        data_impl::add_icons(&mut w.icons);
+        chart_impl::add_icons(&mut w.icons);
+        data_impl::install_labels(&mut w.strings);
         w.load_functions();
         w.refresh_calc_state();
         w
+    }
+
+    /// Local time offset from UTC in minutes (Ctrl+; and Ctrl+Shift+; stamps).
+    pub fn set_utc_offset(minutes: i32) {
+        UTC_OFFSET.store(minutes, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// The grid view (saving).
@@ -397,11 +579,17 @@ impl SheetWindow {
         for wide in [true, false] {
             if self.wide_ribbon != wide {
                 self.wide_ribbon = wide;
+                let active = self.ribbon.active_tab();
                 self.ribbon.set_tabs(if wide {
                     sheet_ribbon::tabs_wide()
                 } else {
                     sheet_ribbon::tabs()
                 });
+                if self.chart_sel.is_some() {
+                    self.ribbon.set_contextual(chart_impl::chart_tabs(), false);
+                }
+                // The same tab stays active (also a contextual one).
+                self.ribbon.set_active_tab(active);
                 self.ribbon.set_labeled_widths(if wide {
                     |id| (id == "sheet.numberFormat").then(|| sheet_ribbon::number_box_width(true))
                 } else {
@@ -607,16 +795,55 @@ impl SheetWindow {
         if self.painter.is_some() {
             on.push("format.painter");
         }
-        if self.view.gridlines() {
-            on.push("sheet.gridlines");
+        if self.view.show_formulas() {
+            on.push("sheet.showFormulas");
         }
-        if self.view.headings() {
-            on.push("sheet.headings");
-        }
-        if self.show_fbar {
-            on.push("sheet.formulaBar");
+        if self.show_all_comments {
+            on.push("sheet.showComments");
         }
         on
+    }
+
+    /// Show / print options drawn as check boxes over their icons, as the reference's View
+    /// tab (Show group) and Page Layout tab (Sheet Options) show them: (id, checked).
+    fn check_items(&self) -> [(&'static str, bool); 5] {
+        let setup = self
+            .view
+            .engine()
+            .workbook()
+            .and_then(|w| w.sheets.get(self.view.sheet()))
+            .map(|ws| (ws.page_setup.print_grid_lines, ws.page_setup.print_headings))
+            .unwrap_or_default();
+        [
+            ("sheet.gridlines", self.view.gridlines()),
+            ("sheet.headings", self.view.headings()),
+            ("sheet.formulaBar", self.show_fbar),
+            ("sheet.printGridlines", setup.0),
+            ("sheet.printHeadings", setup.1),
+        ]
+    }
+
+    /// Check boxes over the icons of [`Self::check_items`] (13 px box, dark frame, tick).
+    fn paint_check_items(&self, p: &mut dyn Painter) {
+        for (id, on) in self.check_items() {
+            let Some([x, y, _, h]) = self.ribbon.rect_of(RibbonHit::Command(id)) else {
+                continue;
+            };
+            // Cover the icon (18 px at x + 5) with the ribbon face, then the box.
+            let size = self.px(18.0);
+            let ix = x + self.px(5.0);
+            let iy = y + (h - size) / 2.0;
+            p.fill_rect(
+                ix - 1.0,
+                iy - 1.0,
+                size + 2.0,
+                size + 2.0,
+                self.theme.ribbon,
+            );
+            let b = self.px(13.0);
+            let (bx, by) = ((ix + (size - b) / 2.0).round(), (y + (h - b) / 2.0).round());
+            form_impl::paint_check(p, [bx, by, b, b], on, true, false, self.scale);
+        }
     }
 
     fn patch(&mut self, patch: serde_json::Value) -> bool {
@@ -901,6 +1128,12 @@ impl SheetWindow {
             Choice::Size(half) => self.patch(json!({ "fontSize": f64::from(half) / 2.0 })),
             Choice::Command(id) => match id.strip_prefix("goto.") {
                 Some(name) => self.go_to(name),
+                None if id.starts_with("fnin.") => {
+                    self.view
+                        .edit_insert(&format!("{}(", &id["fnin.".len()..]), text);
+                    true
+                }
+                None if id.starts_with("filterop.") => self.filter_choice(&id["filterop.".len()..]),
                 None => self.action(&id, text),
             },
             Choice::Style(_) => false,
@@ -958,7 +1191,8 @@ impl SheetWindow {
             return false;
         };
         self.rest += 1;
-        if self.rest != 5 || self.menu.is_some() {
+        if self.rest != 5 || self.menu.is_some() || self.gallery.is_some() || self.filter.is_some()
+        {
             return false;
         }
         let Some(anchor) = self.ribbon.rect_of(RibbonHit::Command(id)) else {
@@ -981,7 +1215,21 @@ impl SheetWindow {
     /// Handle an input event; `true` when a new frame is needed.
     pub fn handle(&mut self, input: Input, text: &dyn TextMeasure) -> bool {
         let sheets = self.view.sheet_names().len();
-        let redraw = self.route(input, text);
+        let moved = match input {
+            Input::Move { x, y } if self.form.is_none() && self.menu.is_none() => Some((x, y)),
+            _ => None,
+        };
+        let mut redraw = self.route(input, text);
+        self.refresh_chart_cache();
+        // Contextual tabs shown or hidden by the input (chart selection) need a layout.
+        if self.ribbon.needs_layout() {
+            self.relayout(text);
+            redraw = true;
+        }
+        if let Some((x, y)) = moved {
+            redraw |= self.hover_comments(x, y);
+        }
+        self.layout_cards(text);
         if self.view.sheet_names().len() != sheets {
             self.layout_tabs(text);
         }
@@ -990,6 +1238,7 @@ impl SheetWindow {
         if let Some((_, d)) = self.dialog.as_mut() {
             d.layout(text, self.size, self.scale);
         }
+        self.layout_form(text);
         if let Some(e) = self.view.take_error() {
             self.status = e;
         }
@@ -1006,6 +1255,11 @@ impl SheetWindow {
 
     #[allow(clippy::too_many_lines)]
     fn route(&mut self, input: Input, text: &dyn TextMeasure) -> bool {
+        if self.form.is_some() {
+            if let Some(r) = self.form_input(&input, text) {
+                return r;
+            }
+        }
         // A dialog is modal: it takes keyboard and pointer input.
         if let Some((_, d)) = self.dialog.as_mut() {
             match input {
@@ -1037,6 +1291,26 @@ impl SheetWindow {
         }
         if self.menu.is_some() {
             if let Some(r) = self.menu_input(&input, text) {
+                return r;
+            }
+        }
+        if self.gallery.is_some() {
+            if let Some(r) = self.gallery_input(&input, text) {
+                return r;
+            }
+        }
+        if self.picker.is_some() {
+            if let Some(r) = self.picker_input(&input) {
+                return r;
+            }
+        }
+        if self.form.is_none() && self.dialog.is_none() {
+            if let Some(r) = self.chart_input(&input) {
+                return r;
+            }
+        }
+        if self.filter.is_some() {
+            if let Some(r) = self.filter_input(&input, text) {
                 return r;
             }
         }
@@ -1074,8 +1348,32 @@ impl SheetWindow {
                 (Key::Letter('i'), Mods { ctrl: true, .. }) => Some("format.italic"),
                 (Key::Letter('u'), Mods { ctrl: true, .. }) => Some("format.underline"),
                 (Key::Letter('5'), Mods { ctrl: true, .. }) => Some("format.strike"),
+                // Spreadsheet shortcuts: fill down / right, Format Cells, AutoSum.
+                (Key::Letter('d'), Mods { ctrl: true, .. }) if !self.view.editing() => {
+                    Some("fill.down")
+                }
+                (Key::Letter('r'), Mods { ctrl: true, .. }) if !self.view.editing() => {
+                    Some("fill.right")
+                }
+                (Key::Letter('1'), Mods { ctrl: true, .. }) if !self.view.editing() => {
+                    Some("sheet.formatCellsDialog")
+                }
+                (Key::Letter('='), Mods { alt: true, .. }) if !self.view.editing() => {
+                    Some("autosum.sum")
+                }
                 _ => None,
             };
+            // Ctrl+; today's date, Ctrl+Shift+; the time, typed into the cell (as the
+            // reference: the editor opens with them).
+            if k == Key::Letter(';') && m.ctrl {
+                let stamp = now_stamp(m.shift);
+                if self.view.editing() {
+                    self.view.edit_insert(&stamp, text);
+                } else {
+                    self.view.edit_with(&stamp, text);
+                }
+                return true;
+            }
             if let Some(id) = id {
                 if self.view.editing() && id.starts_with("format.") {
                     self.view.commit();
@@ -1241,7 +1539,17 @@ impl SheetWindow {
                 }
                 self.ribbon.press(x, y)
             }
+            Input::Press { x, y, .. } if self.filter_button_at(x, y).is_some() => {
+                let col = self.filter_button_at(x, y).unwrap_or_default();
+                if self.view.editing() {
+                    self.view.commit();
+                }
+                self.open_filter(col)
+            }
             Input::Press { .. } => {
+                if std::mem::take(&mut self.filter_status) {
+                    self.status.clear();
+                }
                 self.grid_press = true;
                 self.ribbon.clear_pointer();
                 self.view.handle(input, text)
@@ -1370,17 +1678,25 @@ impl SheetWindow {
             &self.on_ids(),
         );
         self.paint_number_box(p);
+        self.paint_check_items(p);
+        self.paint_chart_style_tiles(p);
     }
 
     /// Formula bar, sheet tabs, scroll bars, status bar, then menus, tooltips and dialogs
     /// (over the top band).
     pub fn paint_overlay(&self, p: &mut dyn Painter) {
+        self.paint_arrows(p);
+        self.paint_chart_selection(p);
+        self.paint_cards(p);
         if self.show_fbar {
             self.paint_formula_bar(p);
         }
         self.paint_tabs(p);
         self.paint_scrollbars(p);
         self.paint_status(p);
+        self.paint_filter(p);
+        self.paint_gallery(p);
+        self.paint_picker(p);
         if let Some(menu) = &self.menu {
             menu.paint(p, &self.theme, &self.icons);
         } else if let Some((label, tw, anchor)) = &self.tooltip {
@@ -1388,6 +1704,74 @@ impl SheetWindow {
         }
         if let Some((_, d)) = &self.dialog {
             d.paint(p, &self.theme, self.size, true);
+        }
+        if let Some(f) = &self.form {
+            f.paint(p, self.size, true, &mut |id, r, p| {
+                self.paint_form_canvas(f, id, r, p);
+            });
+        }
+    }
+
+    /// Window point of the open form's OK button (tests).
+    #[cfg(test)]
+    fn fc_ok_point(&self) -> (f32, f32) {
+        let f = self.form.as_ref().expect("form");
+        let r = f.get("ok").expect("ok").rect;
+        let d = f.dev([r[0] + 10.0, r[1] + 10.0, 0.0, 0.0]);
+        (d[0], d[1])
+    }
+
+    /// Lay out the open form and measure the texts its owner draws.
+    fn layout_form(&mut self, text: &dyn TextMeasure) {
+        let strings = match (self.form.is_some(), self.form_kind) {
+            (true, form_impl::FormKind::FormatCells) => self.fc_strings(),
+            (true, _) => Vec::new(),
+            _ => return,
+        };
+        if let Some(f) = self.form.as_mut() {
+            f.layout(text, self.size, self.scale);
+            f.measure(text, &strings);
+        }
+    }
+
+    /// Input for the open form: `Some(redraw)` when the form took it.
+    fn form_input(&mut self, input: &Input, text: &dyn TextMeasure) -> Option<bool> {
+        let f = self.form.as_mut()?;
+        let ev = match input {
+            Input::Text(s) => f.type_text(s),
+            Input::Key(k, m) => f.key(*k, *m),
+            Input::Move { x, y } => {
+                self.form_ptr = (*x, *y);
+                return Some(f.hover(*x, *y));
+            }
+            Input::Press { x, y, count, .. } => {
+                self.form_ptr = (*x, *y);
+                f.press(*x, *y, *count)
+            }
+            Input::Wheel(d) => {
+                let (x, y) = self.form_ptr;
+                return Some(f.wheel(x, y, *d));
+            }
+            Input::Blink => return Some(true),
+            Input::Drag { .. }
+            | Input::Release { .. }
+            | Input::Context { .. }
+            | Input::Preedit(_) => return Some(false),
+            _ => return None,
+        };
+        Some(match self.form_kind {
+            form_impl::FormKind::FormatCells => self.fc_event(&ev),
+            kind => self.form_event(kind, &ev, text),
+        })
+    }
+
+    fn paint_form_canvas(&self, f: &form_impl::Form, id: &str, r: [f32; 4], p: &mut dyn Painter) {
+        if self.form_kind == form_impl::FormKind::FormatCells {
+            self.fc_paint_canvas(f, id, r, p);
+        } else if self.form_kind == form_impl::FormKind::Symbol {
+            self.paint_symbol_grid(f, r, p);
+        } else if self.form_kind == form_impl::FormKind::MoreColors {
+            self.paint_more_colors(r, p);
         }
     }
 
@@ -1476,7 +1860,7 @@ impl SheetWindow {
         let line = style.size * 1.33;
         let n = self.name_rect;
         p.text(
-            &self.view.name_box(),
+            &self.name_box_text(),
             n[0] + self.px(5.0),
             (n[1] + (n[3] - line) / 2.0).round(),
             style,
@@ -1536,7 +1920,12 @@ impl SheetWindow {
             f[3] - 2.0,
         );
         // One line, or as many as the expanded bar shows (19.2 pt pitch, measured).
-        let content = self.view.formula_text();
+        // Empty while a chart is selected, as on the reference.
+        let content = if self.chart_sel.is_some() {
+            ""
+        } else {
+            self.view.formula_text()
+        };
         for (i, shown) in content
             .lines()
             .take(self.fbar_lines.max(1) as usize)

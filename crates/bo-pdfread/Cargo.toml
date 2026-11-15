@@ -17,7 +17,12 @@ bo-text.workspace = true
 lopdf = { version = "0.38", default-features = false, features = ["rayon"] }
 ttf-parser.workspace = true
 miniz_oxide = "0.8"
+png.workspace = true
 weezl = "0.1"
+# JPEG 2000, JBIG2 and CCITT fax decoders (MIT OR Apache-2.0), without their image/SIMD extras.
+hayro-ccitt = { version = "0.5", default-features = false }
+hayro-jbig2 = { version = "0.4", default-features = false, features = ["std"] }
+hayro-jpeg2000 = { version = "0.5", default-features = false, features = ["std"] }
 zune-jpeg = { version = "0.4", default-features = false, features = ["std"] }
 
 [dev-dependencies]

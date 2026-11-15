@@ -164,7 +164,9 @@ fn paint_bounds(command: &Command, m: &Affine, out: &mut Bounds) -> bool {
         | Command::PushTransform { .. }
         | Command::PopTransform
         | Command::PushOpacity { .. }
-        | Command::PopOpacity => return false,
+        | Command::PopOpacity
+        | Command::PushGroup { .. }
+        | Command::PopGroup => return false,
     }
     true
 }

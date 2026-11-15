@@ -19,7 +19,61 @@ pub(super) struct NameEdit {
     pub(super) all: bool,
 }
 
+/// Functions the name box offers while a formula is typed (the reference's default
+/// "recently used" list).
+pub(super) const RECENT_FUNCTIONS: [&str; 10] = [
+    "SUM",
+    "AVERAGE",
+    "IF",
+    "HYPERLINK",
+    "COUNT",
+    "MAX",
+    "SIN",
+    "SUMIF",
+    "PMT",
+    "STDEV",
+];
+
 impl SheetWindow {
+    /// A formula is being typed in the cell or the formula bar.
+    pub(super) fn formula_editing(&self) -> bool {
+        self.view.editing() && self.view.formula_text().starts_with('=')
+    }
+
+    /// The name box text: the function being typed (or the first recent one) while a
+    /// formula is edited, as the reference shows it; else the cell reference or name.
+    pub(super) fn name_box_text(&self) -> String {
+        // A selected chart is named in the name box ("Chart 1"), as on the reference.
+        if let Some(i) = self.chart_sel {
+            return format!("{} {}", self.t("sheetChart.chartName", "Chart"), i + 1);
+        }
+        if !self.formula_editing() {
+            return self.view.name_box();
+        }
+        let text = self.view.formula_text();
+        let upto = self
+            .view
+            .formula_caret()
+            .map_or(text.len(), |c| c.min(text.len()));
+        let head = text.get(..upto).unwrap_or(text);
+        // The last name followed by "(" before the caret.
+        let mut best = None;
+        for (i, _) in head.match_indices('(') {
+            let name: String = head[..i]
+                .chars()
+                .rev()
+                .take_while(|c| c.is_ascii_alphanumeric() || *c == '.' || *c == '_')
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect();
+            if !name.is_empty() && name.chars().next().is_some_and(|c| c.is_ascii_alphabetic()) {
+                best = Some(name.to_uppercase());
+            }
+        }
+        best.unwrap_or_else(|| RECENT_FUNCTIONS[0].to_owned())
+    }
+
     /// Extra formula bar height of the expanded (three-line) bar.
     pub(super) fn fbar_extra(&self) -> f32 {
         if self.fbar_lines > 1 {
@@ -71,6 +125,27 @@ impl SheetWindow {
     pub(super) fn fbar_press(&mut self, x: f32, y: f32, text: &dyn TextMeasure) -> Option<bool> {
         if !self.show_fbar {
             return None;
+        }
+        if Self::in_rect(self.name_arrow_rect(), x, y) && self.formula_editing() {
+            // While a formula is typed the name box lists functions (the reference's recently
+            // used list), then More Functions… (Insert Function).
+            let mut items: Vec<MenuItem> = RECENT_FUNCTIONS
+                .iter()
+                .map(|n| MenuItem {
+                    choice: Choice::Command(format!("fnin.{n}")),
+                    label: (*n).to_owned(),
+                    checked: false,
+                    dim: false,
+                })
+                .collect();
+            items.push(MenuItem {
+                choice: Choice::Command("sheet.insertFunction".into()),
+                label: self.t("sheetMenu.moreFunctions", "More Functions..."),
+                checked: false,
+                dim: false,
+            });
+            self.menu = Some(Menu::open(items, self.name_rect, self.size, self.scale));
+            return Some(true);
         }
         if Self::in_rect(self.name_arrow_rect(), x, y) {
             self.name_edit = None;

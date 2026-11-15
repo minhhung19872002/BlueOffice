@@ -185,6 +185,8 @@ fn images_clips_forms_and_annotation_appearance() {
     });
     let (x, y, w, h, id) = img.expect("image");
     assert_eq!((x, y, w, h), (10.0, 70.0, 40.0, 20.0));
+    // No /Interpolate: enlarged without smoothing.
+    assert!(id.ends_with(crate::interp::PIXELATED));
     let pic = &p.images[&id];
     assert_eq!((pic.width, pic.height), (2, 1));
     assert_eq!(&pic.pixels[..4], &[255, 0, 0, 255]);
@@ -322,4 +324,127 @@ fn garbage_and_hostile_input_never_panics() {
             let _ = d.annotations();
         }
     }
+}
+
+#[test]
+fn blend_modes_and_soft_masks_become_groups() {
+    // ISO 32000-1 §11.3.5 /BM and §11.6.5 /SMask in an ExtGState: each painted object under
+    // them is one group; the clip of `W n` stays outside the group; a form is one group.
+    let page = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Contents 4 0 R \
+                /Resources << /ExtGState << /M 5 0 R /S 6 0 R >> /XObject << /X 8 0 R >> >> >>";
+    let mask = xstream(
+        "/Type /XObject /Subtype /Form /BBox [0 0 200 100] \
+         /Group << /S /Transparency /CS /DeviceGray >>",
+        "0.5 g 0 0 100 100 re f",
+    );
+    let form = xstream(
+        "/Type /XObject /Subtype /Form /BBox [0 0 200 100]",
+        "0 0 1 rg 0 0 5 5 re f 1 0 0 rg 5 5 5 5 re f",
+    );
+    let objs = [
+        "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_owned(),
+        page.to_owned(),
+        stream(
+            "q /M gs 1 1 0 rg 10 10 50 20 re f 0 0 80 80 re W n /X Do Q \
+             q /S gs 0 0 1 rg 0 0 40 40 re f Q 0 g 0 0 1 1 re f",
+        ),
+        "<< /Type /ExtGState /BM /Multiply >>".to_owned(),
+        "<< /Type /ExtGState /SMask << /Type /Mask /S /Luminosity /G 7 0 R /BC [1] >> >>"
+            .to_owned(),
+        mask,
+        form,
+    ];
+    let refs: Vec<&str> = objs.iter().map(String::as_str).collect();
+    let mut doc = open(build_pdf(&refs));
+    let page = doc.render(0, RenderOptions::default()).expect("renders");
+    let kinds: Vec<&str> = page
+        .list
+        .commands
+        .iter()
+        .map(|c| match c {
+            Command::PushGroup {
+                blend: Some(_),
+                mask: None,
+                ..
+            } => "blend",
+            Command::PushGroup { mask: Some(_), .. } => "mask",
+            Command::PopGroup => "end",
+            Command::Path { .. } => "path",
+            Command::PushClip { .. } | Command::PushClipPath { .. } => "clip",
+            Command::PopClip => "unclip",
+            _ => "other",
+        })
+        .collect();
+    assert_eq!(
+        kinds,
+        [
+            "blend", "path", "end", "clip", "blend", "clip", "path", "path", "unclip", "end",
+            "unclip", "mask", "path", "end", "path"
+        ]
+    );
+    let mask = page.list.commands.iter().find_map(|c| match c {
+        Command::PushGroup { mask: Some(m), .. } => Some(m.clone()),
+        _ => None,
+    });
+    let mask = mask.expect("soft mask");
+    assert!(mask.luminosity);
+    assert_eq!(mask.backdrop, bo_render::Rgba(255, 255, 255, 255));
+    assert!(mask
+        .commands
+        .iter()
+        .any(|c| matches!(c, Command::Path { .. })));
+    assert!(matches!(
+        page.list.commands.first(),
+        Some(Command::PushGroup {
+            blend: Some(bo_render::BlendMode::Multiply),
+            ..
+        })
+    ));
+}
+
+#[test]
+fn text_render_modes_stroke_and_clip() {
+    // Mode 1: outlines stroked, not filled; mode 7: invisible, clips what follows to the text.
+    let mut doc = open(simple_pdf(
+        "BT /F1 40 Tf 1 Tr 1 0 0 RG 10 50 Td (A) Tj ET \
+         q BT /F1 40 Tf 7 Tr 100 50 Td (B) Tj ET 0 0 1 rg 0 0 200 100 re f Q",
+        &[],
+    ));
+    let page = doc.render(0, RenderOptions::default()).expect("renders");
+    let c = &page.list.commands;
+    assert!(c.iter().any(|c| matches!(
+        c,
+        Command::Path {
+            fill: None,
+            stroke: Some(_),
+            ..
+        }
+    )));
+    let clip = c
+        .iter()
+        .position(|c| matches!(c, Command::PushClipPath { .. }))
+        .expect("text clip");
+    let fill = c
+        .iter()
+        .position(|c| {
+            matches!(
+                c,
+                Command::FillRect { .. } | Command::Path { fill: Some(_), .. }
+            )
+        })
+        .expect("fill");
+    assert!(clip < fill);
+    assert!(!c.iter().any(|c| matches!(c, Command::Glyphs { .. })));
+}
+
+#[test]
+fn aes_256_with_an_empty_user_password_opens() {
+    // Revision 6 (ISO 32000-2 §7.6.4.4) with only an owner password (made with MuPDF).
+    let bytes = include_bytes!("../testdata/aes256-empty-user.pdf").to_vec();
+    assert!(!PdfDocument::needs_password(&bytes));
+    let mut doc = open(bytes);
+    let page = doc.render(0, RenderOptions::default()).expect("renders");
+    let text: String = page.chars.iter().map(|c| c.text.as_str()).collect();
+    assert!(text.contains("AES-256"), "{text}");
 }

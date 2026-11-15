@@ -1,16 +1,28 @@
 use super::surface::PageBitmap;
 use super::Device;
 use crate::{Bitmap, PageImage, TextRendering};
-use bo_render::{Command, PageList, Paint, PathSeg, Rgba, Stroke};
+use bo_render::{BlendMode, Command, PageList, Paint, PathSeg, Rgba, SoftMask, Stroke};
 use bo_text::{FaceId, FontManager};
 use std::collections::HashMap;
 use std::mem::ManuallyDrop;
 use windows::core::Interface;
 use windows::Win32::Graphics::Direct2D::Common::{
     D2D1_ALPHA_MODE_IGNORE, D2D1_ALPHA_MODE_PREMULTIPLIED, D2D1_BEZIER_SEGMENT, D2D1_COLOR_F,
-    D2D1_COMPOSITE_MODE_SOURCE_OVER, D2D1_FIGURE_BEGIN_FILLED, D2D1_FIGURE_END_CLOSED,
-    D2D1_FIGURE_END_OPEN, D2D1_FILL_MODE_WINDING, D2D1_GRADIENT_STOP, D2D1_PIXEL_FORMAT,
-    D2D_RECT_F, D2D_RECT_U, D2D_SIZE_U,
+    D2D1_COMPOSITE_MODE_SOURCE_COPY, D2D1_COMPOSITE_MODE_SOURCE_OVER, D2D1_FIGURE_BEGIN_FILLED,
+    D2D1_FIGURE_END_CLOSED, D2D1_FIGURE_END_OPEN, D2D1_FILL_MODE_WINDING, D2D1_GRADIENT_STOP,
+    D2D1_PIXEL_FORMAT, D2D_POINT_2U, D2D_RECT_F, D2D_RECT_U, D2D_SIZE_U,
+};
+use windows::Win32::Graphics::Direct2D::Common::{
+    D2D1_BLEND_MODE, D2D1_BLEND_MODE_COLOR, D2D1_BLEND_MODE_COLOR_BURN,
+    D2D1_BLEND_MODE_COLOR_DODGE, D2D1_BLEND_MODE_DARKEN, D2D1_BLEND_MODE_DIFFERENCE,
+    D2D1_BLEND_MODE_EXCLUSION, D2D1_BLEND_MODE_HARD_LIGHT, D2D1_BLEND_MODE_HUE,
+    D2D1_BLEND_MODE_LIGHTEN, D2D1_BLEND_MODE_LUMINOSITY, D2D1_BLEND_MODE_MULTIPLY,
+    D2D1_BLEND_MODE_OVERLAY, D2D1_BLEND_MODE_SATURATION, D2D1_BLEND_MODE_SCREEN,
+    D2D1_BLEND_MODE_SOFT_LIGHT,
+};
+use windows::Win32::Graphics::Direct2D::{
+    CLSID_D2D1Blend, CLSID_D2D1LuminanceToAlpha, D2D1_BLEND_PROP_MODE, D2D1_IMAGE_BRUSH_PROPERTIES,
+    D2D1_INTERPOLATION_MODE_NEAREST_NEIGHBOR, D2D1_PROPERTY_TYPE_ENUM,
 };
 use windows::Win32::Graphics::Direct2D::{
     CLSID_D2D1GaussianBlur, ID2D1Bitmap1, ID2D1Brush, ID2D1CommandList, ID2D1Geometry, ID2D1Image,
@@ -26,6 +38,9 @@ use windows::Win32::Graphics::Direct2D::{
     D2D1_MAP_OPTIONS_READ, D2D1_PROPERTY_TYPE_FLOAT, D2D1_QUADRATIC_BEZIER_SEGMENT,
     D2D1_RADIAL_GRADIENT_BRUSH_PROPERTIES, D2D1_STROKE_STYLE_PROPERTIES1,
     D2D1_STROKE_TRANSFORM_TYPE_NORMAL,
+};
+use windows::Win32::Graphics::Direct2D::{
+    D2D1_PRIMITIVE_BLEND_COPY, D2D1_PRIMITIVE_BLEND_SOURCE_OVER,
 };
 use windows::Win32::Graphics::Direct2D::{
     D2D1_TEXT_ANTIALIAS_MODE_CLEARTYPE, D2D1_TEXT_ANTIALIAS_MODE_DEFAULT,
@@ -229,6 +244,109 @@ enum Saved {
     LayerClip,
     Transform(Matrix3x2),
     Opacity(f32),
+    /// A group; `true` when it pushed a soft mask layer.
+    Group(bool),
+}
+
+/// Identity of a command within the page being drawn (the page is borrowed throughout).
+fn key(c: &Command) -> usize {
+    std::ptr::from_ref(c) as usize
+}
+
+/// A clip pushed while drawing a list, kept so it can be closed and opened again around a
+/// blended group (the backdrop copy cannot see through a layer).
+struct ClipItem {
+    rect: D2D_RECT_F,
+    /// The layer's geometry; `None` for an axis-aligned clip of `rect`.
+    geometry: Option<ID2D1Geometry>,
+    transform: Matrix3x2,
+}
+
+/// Index of the `PopGroup` matching the `PushGroup` at `start`.
+fn group_end(commands: &[Command], start: usize) -> Option<usize> {
+    let mut depth = 0_usize;
+    for (i, c) in commands.iter().enumerate().skip(start) {
+        match c {
+            Command::PushGroup { .. } => depth += 1,
+            Command::PopGroup => {
+                depth = depth.checked_sub(1)?;
+                if depth == 0 {
+                    return Some(i);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// The Direct2D blend effect mode for a PDF blend mode (ISO 32000-1 §11.3.5).
+fn d2d_blend(mode: BlendMode) -> D2D1_BLEND_MODE {
+    match mode {
+        BlendMode::Multiply => D2D1_BLEND_MODE_MULTIPLY,
+        BlendMode::Screen => D2D1_BLEND_MODE_SCREEN,
+        BlendMode::Overlay => D2D1_BLEND_MODE_OVERLAY,
+        BlendMode::Darken => D2D1_BLEND_MODE_DARKEN,
+        BlendMode::Lighten => D2D1_BLEND_MODE_LIGHTEN,
+        BlendMode::ColorDodge => D2D1_BLEND_MODE_COLOR_DODGE,
+        BlendMode::ColorBurn => D2D1_BLEND_MODE_COLOR_BURN,
+        BlendMode::HardLight => D2D1_BLEND_MODE_HARD_LIGHT,
+        BlendMode::SoftLight => D2D1_BLEND_MODE_SOFT_LIGHT,
+        BlendMode::Difference => D2D1_BLEND_MODE_DIFFERENCE,
+        BlendMode::Exclusion => D2D1_BLEND_MODE_EXCLUSION,
+        BlendMode::Hue => D2D1_BLEND_MODE_HUE,
+        BlendMode::Saturation => D2D1_BLEND_MODE_SATURATION,
+        BlendMode::Color => D2D1_BLEND_MODE_COLOR,
+        BlendMode::Luminosity => D2D1_BLEND_MODE_LUMINOSITY,
+    }
+}
+
+/// Resources prepared before drawing a page, keyed by command identity ([key]).
+struct Prep<'p> {
+    runs: HashMap<usize, bo_dwrite::PreparedGlyphRun>,
+    blurs: HashMap<usize, ID2D1Image>,
+    bitmaps: HashMap<&'p str, Option<ID2D1Bitmap1>>,
+    image_bytes: usize,
+    /// Groups to record (blend mode or soft mask), in list order.
+    jobs: Vec<GroupJob<'p>>,
+    /// Recorded groups by their `PushGroup`.
+    groups: HashMap<usize, GroupImages>,
+    /// Page size in points.
+    page: (f32, f32),
+    ppp: f32,
+    /// Band being redrawn (top, bottom in points), when glyph runs wholly outside it can be
+    /// skipped.
+    band: Option<(f32, f32)>,
+    /// World transform of the page (a whole-pixel shift for `draw_page_at`, else identity).
+    base: Matrix3x2,
+}
+
+struct GroupJob<'p> {
+    key: usize,
+    content: &'p [Command],
+    mask: Option<&'p SoftMask>,
+    blend: Option<BlendMode>,
+    transform: Matrix3x2,
+    alpha: f32,
+}
+
+struct GroupImages {
+    /// Opacity image of the soft mask, page space.
+    mask: Option<ID2D1Image>,
+    /// The group's drawing, page space (recorded only for blend modes).
+    content: Option<ID2D1Image>,
+    blend: Option<BlendMode>,
+}
+
+/// The page target blend modes read their backdrop from.
+struct Backdrop<'t> {
+    target: &'t ID2D1Bitmap1,
+    /// Page-sized copy of the target under blended groups (made on first use).
+    scratch: std::cell::RefCell<Option<ID2D1Bitmap1>>,
+    /// Band being drawn: left, top, width, height in device pixels.
+    band: [u32; 4],
+    /// Page size in device pixels.
+    size: (u32, u32),
 }
 
 /// Walks the list once: checks nesting, the transform and opacity in force for each command.
@@ -283,6 +401,11 @@ impl State {
             Command::PopOpacity => match self.stack.pop() {
                 Some(Saved::Opacity(a)) => self.alpha = a,
                 _ => return Err("unbalanced opacity".into()),
+            },
+            Command::PushGroup { .. } => self.stack.push(Saved::Group(false)),
+            Command::PopGroup => match self.stack.pop() {
+                Some(Saved::Group(_)) => {}
+                _ => return Err("unbalanced group".into()),
             },
             _ => return Ok(false),
         }
@@ -613,7 +736,7 @@ impl Device {
         images: &dyn Fn(&str) -> Option<Bitmap>,
         region: Option<[u32; 4]>,
     ) -> Result<PageImage, String> {
-        self.render_impl(page, fonts, pixels_per_point, images, region, None)
+        self.render_impl(page, fonts, pixels_per_point, images, region, None, [0, 0])
     }
 
     /// Draw a page (or the `region` band of it) into a GPU-resident [`PageBitmap`] made by
@@ -642,11 +765,66 @@ impl Device {
             images,
             region,
             Some(&into.bitmap),
+            [0, 0],
         )
         .map(|_| ())
     }
 
-    #[allow(clippy::too_many_lines, clippy::chunks_exact_to_as_chunks)]
+    /// [`Device::draw_page`] of the `region` band (left, top, width, height in device pixels
+    /// of the page) drawn `shift` device pixels away in `into`: a grid image kept as a ring
+    /// (it wraps around when scrolling) draws a newly exposed band where the ring holds it.
+    /// The band must land inside `into`; pages with blurred shapes are drawn unshifted only.
+    #[allow(clippy::too_many_arguments)]
+    pub fn draw_page_at(
+        &self,
+        page: &PageList,
+        fonts: &FontManager,
+        pixels_per_point: f32,
+        images: &dyn Fn(&str) -> Option<Bitmap>,
+        region: [u32; 4],
+        shift: [i32; 2],
+        into: &PageBitmap,
+    ) -> Result<(), String> {
+        let expected = (
+            (page.width * pixels_per_point).ceil() as u32,
+            (page.height * pixels_per_point).ceil() as u32,
+        );
+        if expected != (into.width, into.height) {
+            return Err("page bitmap size does not match the page".into());
+        }
+        let [x, y, w, h] = region;
+        let inside = |a: u32, l: u32, s: i32, n: u32| {
+            i64::from(a) + i64::from(s) >= 0
+                && i64::from(a) + i64::from(l) + i64::from(s) <= i64::from(n)
+        };
+        if !inside(x, w, shift[0], into.width) || !inside(y, h, shift[1], into.height) {
+            return Err("shifted band outside the bitmap".into());
+        }
+        if shift != [0, 0]
+            && page
+                .commands
+                .iter()
+                .any(|c| matches!(c, Command::BlurPath { .. } | Command::PushGroup { .. }))
+        {
+            return Err("blurred shapes are not drawn shifted".into());
+        }
+        self.render_impl(
+            page,
+            fonts,
+            pixels_per_point,
+            images,
+            Some(region),
+            Some(&into.bitmap),
+            shift,
+        )
+        .map(|_| ())
+    }
+
+    #[allow(
+        clippy::too_many_lines,
+        clippy::chunks_exact_to_as_chunks,
+        clippy::too_many_arguments
+    )]
     fn render_impl(
         &self,
         page: &PageList,
@@ -655,6 +833,7 @@ impl Device {
         images: &dyn Fn(&str) -> Option<Bitmap>,
         region: Option<[u32; 4]>,
         into: Option<&ID2D1Bitmap1>,
+        shift: [i32; 2],
     ) -> Result<PageImage, String> {
         if !pixels_per_point.is_finite()
             || pixels_per_point <= 0.0
@@ -699,78 +878,35 @@ impl Device {
 
         // Pass 1: validate, prepare glyph runs, decode pictures and record blurred shapes.
         let mut faces = self.faces.try_borrow_mut().map_err(|_| "font cache busy")?;
-        let mut state = State::new();
-        let mut runs = HashMap::new();
-        let mut blurs = HashMap::new();
-        let mut bitmaps: HashMap<&str, Option<ID2D1Bitmap1>> = HashMap::new();
-        let mut image_bytes = 0_usize;
-        for (index, command) in page.commands.iter().enumerate() {
-            if state.apply(command)? {
-                continue;
-            }
-            match command {
-                Command::Glyphs {
-                    face, size, glyphs, ..
-                } => {
-                    if (*face as usize) >= fonts.len() {
-                        return Err("unknown font face".into());
-                    }
-                    if glyphs.is_empty() {
-                        continue;
-                    }
-                    let (font, collection) = fonts.data(FaceId(*face));
-                    let positions: Vec<bo_dwrite::Glyph> = glyphs
-                        .iter()
-                        .map(|g| bo_dwrite::Glyph {
-                            id: g.0,
-                            x: g.1,
-                            y: g.2,
-                        })
-                        .collect();
-                    runs.insert(
-                        index,
-                        faces.run(*face, font, collection, &positions, *size)?,
-                    );
-                }
-                Command::Path { segs, .. } | Command::PushClipPath { segs }
-                    if !valid_path(segs) =>
-                {
-                    return Err("invalid path".into());
-                }
-                Command::BlurPath {
-                    segs,
-                    color: c,
-                    radius,
-                    spread,
-                } => {
-                    if !valid_path(segs) || !radius.is_finite() || !spread.is_finite() {
-                        return Err("invalid blurred path".into());
-                    }
-                    blurs.insert(
-                        index,
-                        self.blur_image(segs, *c, (*radius, *spread), &state)?,
-                    );
-                }
-                Command::Image { image, .. } if !bitmaps.contains_key(image.as_str()) => {
-                    let decoded = images(image);
-                    let bitmap = match decoded {
-                        Some(b) => {
-                            image_bytes = image_bytes.saturating_add(b.pixels.len());
-                            if image_bytes > MAX_IMAGE_BYTES {
-                                return Err("pictures too large".into());
-                            }
-                            self.bitmap(&b).ok()
-                        }
-                        None => None,
-                    };
-                    bitmaps.insert(image.as_str(), bitmap);
-                }
-                _ => {}
-            }
-        }
-        if !state.stack.is_empty() {
-            return Err("unbalanced clip, transform or opacity".into());
-        }
+        let mut prep = Prep {
+            runs: HashMap::new(),
+            blurs: HashMap::new(),
+            bitmaps: HashMap::new(),
+            image_bytes: 0,
+            jobs: Vec::new(),
+            groups: HashMap::new(),
+            page: (page.width, page.height),
+            ppp: pixels_per_point,
+            band: region.map(|_| {
+                (
+                    top as f32 / pixels_per_point,
+                    (top + band_h) as f32 / pixels_per_point,
+                )
+            }),
+            base: Matrix3x2 {
+                M31: shift[0] as f32 / pixels_per_point,
+                M32: shift[1] as f32 / pixels_per_point,
+                ..IDENTITY
+            },
+        };
+        self.prepare(
+            &page.commands,
+            State::new(),
+            fonts,
+            &mut faces,
+            images,
+            &mut prep,
+        )?;
         if faces.font_bytes() > MAX_FONT_BYTES {
             // Drop cached copies of a very large font set rather than keep growing.
             faces.clear();
@@ -804,20 +940,57 @@ impl Device {
                     .CreateBitmap(size, None, 0, &props)
                     .map_err(|e| e.to_string())?,
             };
-            self.context.SetTarget(&target);
             self.context.SetDpi(dpi, dpi);
             self.apply_text_rendering()?;
+            // Groups with a blend mode or soft mask, innermost first (they start later).
+            let jobs = std::mem::take(&mut prep.jobs);
+            let recorded = (|| -> Result<(), String> {
+                for job in jobs.iter().rev() {
+                    let mask = match job.mask {
+                        Some(m) => Some(self.record_mask(m, job.transform, fonts, &prep)?),
+                        None => None,
+                    };
+                    let content = match job.blend {
+                        Some(_) => Some(self.record(
+                            job.content,
+                            State {
+                                stack: Vec::new(),
+                                transform: job.transform,
+                                alpha: job.alpha,
+                            },
+                            fonts,
+                            &prep,
+                        )?),
+                        None => None,
+                    };
+                    prep.groups.insert(
+                        job.key,
+                        GroupImages {
+                            mask,
+                            content,
+                            blend: job.blend,
+                        },
+                    );
+                }
+                Ok(())
+            })();
+            if let Err(e) = recorded {
+                self.context.SetDpi(96.0, 96.0);
+                return Err(e);
+            }
+            self.context.SetTarget(&target);
             self.context.BeginDraw();
             self.context.SetTransform(&IDENTITY);
             let banded = region.is_some();
             if banded {
                 // Direct2D culls everything outside the band; coordinates are in DIPs (points).
+                let (sx, sy) = (shift[0] as f32, shift[1] as f32);
                 self.context.PushAxisAlignedClip(
                     &D2D_RECT_F {
-                        left: left as f32 / pixels_per_point,
-                        top: top as f32 / pixels_per_point,
-                        right: (left + band_w) as f32 / pixels_per_point,
-                        bottom: (top + band_h) as f32 / pixels_per_point,
+                        left: (left as f32 + sx) / pixels_per_point,
+                        top: (top as f32 + sy) / pixels_per_point,
+                        right: ((left + band_w) as f32 + sx) / pixels_per_point,
+                        bottom: ((top + band_h) as f32 + sy) / pixels_per_point,
                     },
                     D2D1_ANTIALIAS_MODE_ALIASED,
                 );
@@ -832,11 +1005,527 @@ impl Device {
                 Rgba(255, 255, 255, 255)
             };
             self.context.Clear(Some(&color(paper, 1.0)));
-            let mut state = State::new();
-            // Which document text setting is current (serif / sans-serif faces).
+            let backdrop = Backdrop {
+                target: &target,
+                scratch: std::cell::RefCell::new(None),
+                band: [left, top, band_w, band_h],
+                size: (width, height),
+            };
+            // A shifted band (`draw_page_at`): the whole page moves by whole device pixels.
+            let mut start = State::new();
+            start.transform = prep.base;
+            self.context.SetTransform(&prep.base);
             let mut sans_on: Option<bool> = None;
+            let drawn = self.draw_list(
+                &page.commands,
+                start,
+                fonts,
+                &prep,
+                Some(&backdrop),
+                &mut sans_on,
+            );
+            if banded {
+                self.context.PopAxisAlignedClip();
+            }
+            let ended = self.context.EndDraw(None, None);
+            self.context.SetTarget(None::<&ID2D1Image>);
+            self.context.SetTransform(&IDENTITY);
+            self.context.SetDpi(96.0, 96.0);
+            drawn?;
+            ended.map_err(|e| e.to_string())?;
+            if into.is_some() {
+                return Ok(PageImage {
+                    width: band_w,
+                    height: band_h,
+                    left,
+                    top,
+                    page_width: width,
+                    page_height: height,
+                    pixels: Vec::new(),
+                });
+            }
+            let staging_props = D2D1_BITMAP_PROPERTIES1 {
+                pixelFormat: pixel,
+                dpiX: dpi,
+                dpiY: dpi,
+                bitmapOptions: D2D1_BITMAP_OPTIONS_CPU_READ | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
+                ..Default::default()
+            };
+            let staging = self
+                .context
+                .CreateBitmap(
+                    D2D_SIZE_U {
+                        width: band_w,
+                        height: band_h,
+                    },
+                    None,
+                    0,
+                    &staging_props,
+                )
+                .map_err(|e| e.to_string())?;
+            staging
+                .CopyFromBitmap(
+                    None,
+                    &target,
+                    Some(&D2D_RECT_U {
+                        left,
+                        top,
+                        right: left + band_w,
+                        bottom: top + band_h,
+                    }),
+                )
+                .map_err(|e| e.to_string())?;
+            let mapped = staging
+                .Map(D2D1_MAP_OPTIONS_READ)
+                .map_err(|e| e.to_string())?;
+            let row_bytes = band_w as usize * 4;
+            if mapped.bits.is_null() || (mapped.pitch as usize) < row_bytes {
+                staging.Unmap().map_err(|e| e.to_string())?;
+                return Err("invalid mapped Direct2D surface".into());
+            }
+            let mut pixels = vec![0_u8; bytes];
+            for y in 0..band_h as usize {
+                let src = std::slice::from_raw_parts(
+                    mapped.bits.add(y * mapped.pitch as usize),
+                    row_bytes,
+                );
+                let dst = &mut pixels[y * row_bytes..(y + 1) * row_bytes];
+                // BGRA → RGBA; the target ignores alpha, so the page is written fully opaque.
+                for (d, s) in dst.chunks_exact_mut(4).zip(src.chunks_exact(4)) {
+                    d.copy_from_slice(&[s[2], s[1], s[0], 255]);
+                }
+            }
+            staging.Unmap().map_err(|e| e.to_string())?;
+            Ok(PageImage {
+                width: band_w,
+                height: band_h,
+                left,
+                top,
+                page_width: width,
+                page_height: height,
+                pixels,
+            })
+        }
+    }
+
+    /// Pass 1 over `commands` (recursing into soft masks): check nesting and geometry,
+    /// prepare glyph runs, decode pictures, record blurred shapes and note groups.
+    fn prepare<'p>(
+        &self,
+        commands: &'p [Command],
+        mut state: State,
+        fonts: &FontManager,
+        faces: &mut bo_dwrite::FaceCache,
+        images: &dyn Fn(&str) -> Option<Bitmap>,
+        prep: &mut Prep<'p>,
+    ) -> Result<(), String> {
+        for (index, command) in commands.iter().enumerate() {
+            if let Command::PushGroup { blend, mask, .. } = command {
+                if blend.is_some() || mask.is_some() {
+                    let end = group_end(commands, index).ok_or("unbalanced group")?;
+                    if let Some(m) = mask {
+                        let mut inner = State::new();
+                        inner.transform = state.transform;
+                        self.prepare(&m.commands, inner, fonts, faces, images, prep)?;
+                    }
+                    prep.jobs.push(GroupJob {
+                        key: key(command),
+                        content: &commands[index + 1..end],
+                        mask: mask.as_deref(),
+                        blend: *blend,
+                        transform: state.transform,
+                        alpha: state.alpha,
+                    });
+                }
+            }
+            if state.apply(command)? {
+                continue;
+            }
+            match command {
+                Command::Glyphs {
+                    face,
+                    size,
+                    glyphs,
+                    y,
+                    ..
+                } => {
+                    if (*face as usize) >= fonts.len() {
+                        return Err("unknown font face".into());
+                    }
+                    if glyphs.is_empty() {
+                        continue;
+                    }
+                    // A band redraw skips runs that lie wholly above or below the band (no
+                    // pixel of them would be drawn): preparing every run of a large page
+                    // costs more than drawing the band.
+                    if let (Some(band), true) = (prep.band, axis_aligned(&state.transform)) {
+                        let (lo, hi) = glyphs
+                            .iter()
+                            .fold((f32::MAX, f32::MIN), |(a, b), g| (a.min(g.2), b.max(g.2)));
+                        let k = state.transform.M22;
+                        let (y0, y1) = ((y + lo) * k, (y + hi) * k);
+                        let (y0, y1) = (
+                            y0.min(y1) + state.transform.M32,
+                            y0.max(y1) + state.transform.M32,
+                        );
+                        let margin = size.abs() * 2.0 * k.abs() + 2.0;
+                        if y1 + margin < band.0 || y0 - margin > band.1 {
+                            continue;
+                        }
+                    }
+                    let (font, collection) = fonts.data(FaceId(*face));
+                    let positions: Vec<bo_dwrite::Glyph> = glyphs
+                        .iter()
+                        .map(|g| bo_dwrite::Glyph {
+                            id: g.0,
+                            x: g.1,
+                            y: g.2,
+                        })
+                        .collect();
+                    prep.runs.insert(
+                        key(command),
+                        faces.run(*face, font, collection, &positions, *size)?,
+                    );
+                }
+                Command::Path { segs, .. } | Command::PushClipPath { segs }
+                    if !valid_path(segs) =>
+                {
+                    return Err("invalid path".into());
+                }
+                Command::BlurPath {
+                    segs,
+                    color: c,
+                    radius,
+                    spread,
+                } => {
+                    if !valid_path(segs) || !radius.is_finite() || !spread.is_finite() {
+                        return Err("invalid blurred path".into());
+                    }
+                    prep.blurs.insert(
+                        key(command),
+                        self.blur_image(segs, *c, (*radius, *spread), &state)?,
+                    );
+                }
+                Command::Image { image, .. } if !prep.bitmaps.contains_key(image.as_str()) => {
+                    let decoded = images(image);
+                    let bitmap = match decoded {
+                        Some(b) => {
+                            prep.image_bytes = prep.image_bytes.saturating_add(b.pixels.len());
+                            if prep.image_bytes > MAX_IMAGE_BYTES {
+                                return Err("pictures too large".into());
+                            }
+                            self.bitmap(&b).ok()
+                        }
+                        None => None,
+                    };
+                    prep.bitmaps.insert(image.as_str(), bitmap);
+                }
+                _ => {}
+            }
+        }
+        if !state.stack.is_empty() {
+            return Err("unbalanced clip, transform, opacity or group".into());
+        }
+        Ok(())
+    }
+
+    /// Record `commands` into a command list in page space (identity world transform).
+    unsafe fn record(
+        &self,
+        commands: &[Command],
+        state: State,
+        fonts: &FontManager,
+        prep: &Prep<'_>,
+    ) -> Result<ID2D1Image, String> {
+        // SAFETY: the command list is the target only between BeginDraw and EndDraw here;
+        // the target is reset before returning.
+        unsafe {
+            let list: ID2D1CommandList = self
+                .context
+                .CreateCommandList()
+                .map_err(|e| e.to_string())?;
+            self.context.SetTarget(&list);
+            self.context.BeginDraw();
+            self.context.SetTransform(&state.transform);
+            let mut sans_on = None;
+            let drawn = self.draw_list(commands, state, fonts, prep, None, &mut sans_on);
+            let ended = self.context.EndDraw(None, None);
+            self.context.SetTarget(None::<&ID2D1Image>);
+            self.context.SetTransform(&IDENTITY);
+            drawn?;
+            ended.map_err(|e| e.to_string())?;
+            list.Close().map_err(|e| e.to_string())?;
+            list.cast().map_err(|e| e.to_string())
+        }
+    }
+
+    /// The opacity image of a soft mask (ISO 32000-1 §11.6.5.2): its group drawn over the
+    /// backdrop colour, luminosity turned into alpha for a luminosity mask.
+    unsafe fn record_mask(
+        &self,
+        mask: &SoftMask,
+        transform: Matrix3x2,
+        fonts: &FontManager,
+        prep: &Prep<'_>,
+    ) -> Result<ID2D1Image, String> {
+        // SAFETY: as `record`; the effect holds its own reference to its input.
+        unsafe {
+            let list: ID2D1CommandList = self
+                .context
+                .CreateCommandList()
+                .map_err(|e| e.to_string())?;
+            self.context.SetTarget(&list);
+            self.context.BeginDraw();
+            self.context.SetTransform(&IDENTITY);
+            if mask.luminosity {
+                let (w, h) = prep.page;
+                let brush = self.solid(
+                    Rgba(mask.backdrop.0, mask.backdrop.1, mask.backdrop.2, 255),
+                    1.0,
+                )?;
+                self.context.FillRectangle(
+                    &D2D_RECT_F {
+                        left: -w,
+                        top: -h,
+                        right: 2.0 * w,
+                        bottom: 2.0 * h,
+                    },
+                    &brush,
+                );
+            }
+            self.context.SetTransform(&transform);
+            let state = State {
+                stack: Vec::new(),
+                transform,
+                alpha: 1.0,
+            };
+            let mut sans_on = None;
+            let drawn = self.draw_list(&mask.commands, state, fonts, prep, None, &mut sans_on);
+            let ended = self.context.EndDraw(None, None);
+            self.context.SetTarget(None::<&ID2D1Image>);
+            self.context.SetTransform(&IDENTITY);
+            drawn?;
+            ended.map_err(|e| e.to_string())?;
+            list.Close().map_err(|e| e.to_string())?;
+            let image: ID2D1Image = list.cast().map_err(|e| e.to_string())?;
+            if !mask.luminosity {
+                return Ok(image);
+            }
+            let effect = self
+                .context
+                .CreateEffect(&CLSID_D2D1LuminanceToAlpha)
+                .map_err(|e| e.to_string())?;
+            effect.SetInput(0, &image, true);
+            effect.GetOutput().map_err(|e| e.to_string())
+        }
+    }
+
+    /// Push a layer without mask or opacity (a knockout group draws into it).
+    unsafe fn push_plain_layer(&self) {
+        // SAFETY: the parameters hold no COM reference.
+        unsafe {
+            let params = D2D1_LAYER_PARAMETERS1 {
+                contentBounds: INFINITE,
+                geometricMask: ManuallyDrop::new(None),
+                maskAntialiasMode: D2D1_ANTIALIAS_MODE_PER_PRIMITIVE,
+                maskTransform: IDENTITY,
+                opacity: 1.0,
+                opacityBrush: ManuallyDrop::new(None),
+                layerOptions: D2D1_LAYER_OPTIONS1_NONE,
+            };
+            self.context.PushLayer(&params, None);
+        }
+    }
+
+    /// Push a layer whose opacity comes from `mask` (page space; the world transform is
+    /// identity during the call).
+    unsafe fn push_opacity_mask(&self, mask: &ID2D1Image, page: (f32, f32)) -> Result<(), String> {
+        // SAFETY: Direct2D adds its own reference to the brush; ours is released right after.
+        unsafe {
+            let (w, h) = page;
+            let brush = self
+                .context
+                .CreateImageBrush(
+                    mask,
+                    &D2D1_IMAGE_BRUSH_PROPERTIES {
+                        sourceRectangle: D2D_RECT_F {
+                            left: 0.0,
+                            top: 0.0,
+                            right: w,
+                            bottom: h,
+                        },
+                        extendModeX: D2D1_EXTEND_MODE_CLAMP,
+                        extendModeY: D2D1_EXTEND_MODE_CLAMP,
+                        interpolationMode: D2D1_INTERPOLATION_MODE_LINEAR,
+                    },
+                    None,
+                )
+                .map_err(|e| e.to_string())?;
+            let mut params = D2D1_LAYER_PARAMETERS1 {
+                contentBounds: INFINITE,
+                geometricMask: ManuallyDrop::new(None),
+                maskAntialiasMode: D2D1_ANTIALIAS_MODE_PER_PRIMITIVE,
+                maskTransform: IDENTITY,
+                opacity: 1.0,
+                opacityBrush: ManuallyDrop::new(Some(brush.cast().map_err(|e| e.to_string())?)),
+                layerOptions: D2D1_LAYER_OPTIONS1_NONE,
+            };
+            self.context.PushLayer(&params, None);
+            ManuallyDrop::drop(&mut params.opacityBrush);
+        }
+        Ok(())
+    }
+
+    /// Composite a group's `content` onto the page target with a blend mode: the target
+    /// under the content's bounds is copied out as the backdrop, blended and copied back.
+    unsafe fn blend_onto(
+        &self,
+        content: &ID2D1Image,
+        mode: BlendMode,
+        b: &Backdrop<'_>,
+        ppp: f32,
+        clips: &[ClipItem],
+    ) -> Result<(), String> {
+        let in_clip = !clips.is_empty();
+        // SAFETY: the scratch bitmap and effect are owned COM objects; the clip pushed here is
+        // popped before returning; the world transform is identity during the call.
+        unsafe {
+            let bounds = self
+                .context
+                .GetImageLocalBounds(content)
+                .map_err(|e| e.to_string())?;
+            let [bl, bt, bw, bh] = b.band;
+            let clampx = |v: f32| v.clamp(bl as f32, (bl + bw) as f32) as u32;
+            let clampy = |v: f32| v.clamp(bt as f32, (bt + bh) as f32) as u32;
+            let finite = |v: f32| if v.is_finite() { v } else { 0.0 };
+            let (x0, x1) = (
+                clampx(finite(bounds.left * ppp).floor()),
+                clampx(finite(bounds.right * ppp).ceil()),
+            );
+            let (y0, y1) = (
+                clampy(finite(bounds.top * ppp).floor()),
+                clampy(finite(bounds.bottom * ppp).ceil()),
+            );
+            if x1 <= x0 || y1 <= y0 {
+                return Ok(());
+            }
+            let scratch = {
+                let mut slot = b.scratch.borrow_mut();
+                if slot.is_none() {
+                    let dpi = 96.0 * ppp;
+                    let props = D2D1_BITMAP_PROPERTIES1 {
+                        pixelFormat: b.target.GetPixelFormat(),
+                        dpiX: dpi,
+                        dpiY: dpi,
+                        bitmapOptions: D2D1_BITMAP_OPTIONS_NONE,
+                        ..Default::default()
+                    };
+                    *slot = Some(
+                        self.context
+                            .CreateBitmap(
+                                D2D_SIZE_U {
+                                    width: b.size.0,
+                                    height: b.size.1,
+                                },
+                                None,
+                                0,
+                                &props,
+                            )
+                            .map_err(|e| e.to_string())?,
+                    );
+                }
+                slot.clone().ok_or("no backdrop bitmap")?
+            };
+            self.context.Flush(None, None).map_err(|e| e.to_string())?;
+            scratch
+                .CopyFromBitmap(
+                    Some(&D2D_POINT_2U { x: x0, y: y0 }),
+                    b.target,
+                    Some(&D2D_RECT_U {
+                        left: x0,
+                        top: y0,
+                        right: x1,
+                        bottom: y1,
+                    }),
+                )
+                .map_err(|e| e.to_string())?;
+            let effect = self
+                .context
+                .CreateEffect(&CLSID_D2D1Blend)
+                .map_err(|e| e.to_string())?;
+            // Input 0 is the destination (backdrop), input 1 the source.
+            effect.SetInput(
+                0,
+                &scratch.cast::<ID2D1Image>().map_err(|e| e.to_string())?,
+                true,
+            );
+            effect.SetInput(1, content, true);
+            effect
+                .SetValue(
+                    D2D1_BLEND_PROP_MODE.0 as u32,
+                    D2D1_PROPERTY_TYPE_ENUM,
+                    &(d2d_blend(mode).0 as u32).to_le_bytes(),
+                )
+                .map_err(|e| e.to_string())?;
+            let output = effect.GetOutput().map_err(|e| e.to_string())?;
+            // The backdrop was read with the clips closed; they are opened again so the result
+            // lands inside them only.
+            self.push_clips(clips);
+            self.context.SetTransform(&IDENTITY);
+            self.context.PushAxisAlignedClip(
+                &D2D_RECT_F {
+                    left: x0 as f32 / ppp,
+                    top: y0 as f32 / ppp,
+                    right: x1 as f32 / ppp,
+                    bottom: y1 as f32 / ppp,
+                },
+                D2D1_ANTIALIAS_MODE_ALIASED,
+            );
+            self.context.DrawImage(
+                &output,
+                None,
+                None,
+                D2D1_INTERPOLATION_MODE_NEAREST_NEIGHBOR,
+                // Inside a clip layer the result (backdrop blended with the group) is drawn
+                // over the layer, which keeps it to the clip's shape.
+                if in_clip {
+                    D2D1_COMPOSITE_MODE_SOURCE_OVER
+                } else {
+                    D2D1_COMPOSITE_MODE_SOURCE_COPY
+                },
+            );
+            self.context.PopAxisAlignedClip();
+        }
+        Ok(())
+    }
+
+    /// Draw `commands` with the current target; `backdrop` is the page target when blend
+    /// modes can read what is below (not while recording a group or mask).
+    #[allow(clippy::too_many_lines)]
+    unsafe fn draw_list(
+        &self,
+        commands: &[Command],
+        mut state: State,
+        fonts: &FontManager,
+        prep: &Prep<'_>,
+        backdrop: Option<&Backdrop<'_>>,
+        sans_on: &mut Option<bool>,
+    ) -> Result<(), String> {
+        let pixels_per_point = prep.ppp;
+        // SAFETY: every layer and clip pushed here is popped here (also on error); glyph runs,
+        // bitmaps and recorded images in `prep` outlive the draw.
+        unsafe {
+            let base = state.stack.len();
+            let mut clip_items: Vec<ClipItem> = Vec::new();
+            // Stack depths of the open knockout groups (ISO 32000-1 §11.4.6.2): inside one,
+            // each object replaces what the group painted before (primitive blend Copy in a
+            // layer of its own), then the layer composites over the backdrop.
+            let mut knockouts: Vec<usize> = Vec::new();
             let drawn = (|| -> Result<(), String> {
-                for (index, command) in page.commands.iter().enumerate() {
+                let mut index = 0;
+                while index < commands.len() {
+                    let command = &commands[index];
+                    index += 1;
                     match command {
                         Command::PushClip { x, y, w, h } => {
                             let rect = D2D_RECT_F {
@@ -848,6 +1537,11 @@ impl Device {
                             if axis_aligned(&state.transform) {
                                 self.context
                                     .PushAxisAlignedClip(&rect, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+                                clip_items.push(ClipItem {
+                                    rect,
+                                    geometry: None,
+                                    transform: state.transform,
+                                });
                             } else {
                                 let geometry: ID2D1Geometry = self
                                     .factory
@@ -855,18 +1549,107 @@ impl Device {
                                     .map_err(|e| e.to_string())?
                                     .cast()
                                     .map_err(|e| e.to_string())?;
-                                self.push_mask(geometry);
+                                self.push_mask(geometry.clone());
+                                clip_items.push(ClipItem {
+                                    rect,
+                                    geometry: Some(geometry),
+                                    transform: state.transform,
+                                });
                             }
                         }
                         Command::PushClipPath { segs } => {
                             let geometry: ID2D1Geometry =
                                 self.geometry(segs)?.cast().map_err(|e| e.to_string())?;
-                            self.push_mask(geometry);
+                            self.push_mask(geometry.clone());
+                            clip_items.push(ClipItem {
+                                rect: D2D_RECT_F::default(),
+                                geometry: Some(geometry),
+                                transform: state.transform,
+                            });
                         }
-                        Command::PopClip => match state.stack.last() {
-                            Some(Saved::AxisClip) => self.context.PopAxisAlignedClip(),
-                            _ => self.context.PopLayer(),
-                        },
+                        Command::PopClip => {
+                            clip_items.pop();
+                            match state.stack.last() {
+                                Some(Saved::AxisClip) => self.context.PopAxisAlignedClip(),
+                                _ => self.context.PopLayer(),
+                            }
+                        }
+                        Command::PushGroup { knockout, .. } => {
+                            state.apply(command)?;
+                            if *knockout {
+                                self.push_plain_layer();
+                                if let Some(last) = state.stack.last_mut() {
+                                    *last = Saved::Group(true);
+                                }
+                                knockouts.push(state.stack.len());
+                                self.context.SetPrimitiveBlend(D2D1_PRIMITIVE_BLEND_COPY);
+                            }
+                            let Some(g) = prep.groups.get(&key(command)) else {
+                                continue;
+                            };
+                            if let Some(mask) = &g.mask {
+                                self.context.SetTransform(&IDENTITY);
+                                let pushed = self.push_opacity_mask(mask, prep.page);
+                                self.context.SetTransform(&state.transform);
+                                pushed?;
+                                if let Some(last) = state.stack.last_mut() {
+                                    *last = Saved::Group(true);
+                                }
+                            }
+                            if let (Some(content), Some(mode)) = (&g.content, g.blend) {
+                                let end =
+                                    group_end(commands, index - 1).ok_or("unbalanced group")?;
+                                // The backdrop is read from the page target: inside a soft
+                                // mask layer it is not there yet; inside a clip layer it is
+                                // (ISO 32000-1 §11.4.7: the clip only limits the result).
+                                let in_mask =
+                                    state.stack.iter().any(|s| matches!(s, Saved::Group(true)));
+                                let in_clip =
+                                    state.stack.iter().any(|s| matches!(s, Saved::LayerClip));
+                                self.context.SetTransform(&IDENTITY);
+                                let done = match backdrop {
+                                    Some(b) if !in_mask => {
+                                        // A layer hides the target from the copy: close the
+                                        // clips (their content is composited), blend, open
+                                        // them again.
+                                        let clips: &[ClipItem] =
+                                            if in_clip { &clip_items } else { &[] };
+                                        self.pop_clips(clips);
+                                        self.context.SetTransform(&IDENTITY);
+                                        self.blend_onto(content, mode, b, pixels_per_point, clips)
+                                    }
+                                    // No backdrop to read: the group draws as Normal.
+                                    _ => {
+                                        self.context.DrawImage(
+                                            content,
+                                            None,
+                                            None,
+                                            D2D1_INTERPOLATION_MODE_LINEAR,
+                                            D2D1_COMPOSITE_MODE_SOURCE_OVER,
+                                        );
+                                        Ok(())
+                                    }
+                                };
+                                self.context.SetTransform(&state.transform);
+                                done?;
+                                // Continue at the matching `PopGroup`.
+                                index = end;
+                            }
+                            continue;
+                        }
+                        Command::PopGroup => {
+                            if matches!(state.stack.last(), Some(Saved::Group(true))) {
+                                self.context
+                                    .SetPrimitiveBlend(D2D1_PRIMITIVE_BLEND_SOURCE_OVER);
+                                self.context.PopLayer();
+                                if knockouts.last() == Some(&state.stack.len()) {
+                                    knockouts.pop();
+                                }
+                                if !knockouts.is_empty() {
+                                    self.context.SetPrimitiveBlend(D2D1_PRIMITIVE_BLEND_COPY);
+                                }
+                            }
+                        }
                         _ => {}
                     }
                     if state.apply(command)? {
@@ -955,20 +1738,20 @@ impl Device {
                             size,
                             ..
                         } => {
-                            let Some(run) = runs.get(&index) else {
+                            let Some(run) = prep.runs.get(&key(command)) else {
                                 continue;
                             };
                             // Serif and sans-serif faces each with their own setting.
                             if let Some((serif_p, sans_p)) = self.text_params.borrow().as_ref() {
                                 let want = fonts.info(FaceId(*face)).sans
                                     && *size * pixels_per_point < SANS_SMALL_PX;
-                                if sans_on != Some(want) {
+                                if *sans_on != Some(want) {
                                     self.context.SetTextRenderingParams(if want {
                                         sans_p
                                     } else {
                                         serif_p
                                     });
-                                    sans_on = Some(want);
+                                    *sans_on = Some(want);
                                 }
                             }
                             let brush = self.solid(*c, alpha)?;
@@ -1002,11 +1785,11 @@ impl Device {
                             }
                         }
                         Command::BlurPath { .. } => {
-                            let Some(image) = blurs.get(&index) else {
+                            let Some(image) = prep.blurs.get(&key(command)) else {
                                 continue;
                             };
                             // The blur was recorded in page space: draw without the transform.
-                            self.context.SetTransform(&IDENTITY);
+                            self.context.SetTransform(&prep.base);
                             self.context.DrawImage(
                                 image,
                                 None,
@@ -1040,7 +1823,7 @@ impl Device {
                                 right: x + w,
                                 bottom: y + h,
                             };
-                            match bitmaps.get(image.as_str()).and_then(Option::as_ref) {
+                            match prep.bitmaps.get(image.as_str()).and_then(Option::as_ref) {
                                 Some(bitmap) => {
                                     let s = bitmap.GetPixelSize();
                                     let (iw, ih) = (s.width as f32, s.height as f32);
@@ -1052,11 +1835,21 @@ impl Device {
                                         right: iw * l + iw * (1.0 - l - r).max(0.0001),
                                         bottom: ih * t + ih * (1.0 - t - b).max(0.0001),
                                     };
+                                    // PDF images without /Interpolate (id ending in `#px`,
+                                    // bo-pdfread) enlarged twice or more show their pixels.
+                                    let m = &local;
+                                    let device_w = w * m.M11.hypot(m.M12) * pixels_per_point;
+                                    let pixelated = image.ends_with("#px")
+                                        && device_w >= 2.0 * (source.right - source.left);
                                     self.context.DrawBitmap(
                                         bitmap,
                                         Some(&dest),
                                         alpha,
-                                        D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC,
+                                        if pixelated {
+                                            D2D1_INTERPOLATION_MODE_NEAREST_NEIGHBOR
+                                        } else {
+                                            D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC
+                                        },
                                         Some(&source),
                                         None,
                                     );
@@ -1074,94 +1867,18 @@ impl Device {
                 Ok(())
             })();
             // Unwind whatever an early error left pushed, innermost first.
-            while let Some(saved) = state.stack.pop() {
-                match saved {
-                    Saved::AxisClip => self.context.PopAxisAlignedClip(),
-                    Saved::LayerClip => self.context.PopLayer(),
-                    Saved::Transform(_) | Saved::Opacity(_) => {}
+            if !knockouts.is_empty() {
+                self.context
+                    .SetPrimitiveBlend(D2D1_PRIMITIVE_BLEND_SOURCE_OVER);
+            }
+            while state.stack.len() > base {
+                match state.stack.pop() {
+                    Some(Saved::AxisClip) => self.context.PopAxisAlignedClip(),
+                    Some(Saved::LayerClip | Saved::Group(true)) => self.context.PopLayer(),
+                    _ => {}
                 }
             }
-            if banded {
-                self.context.PopAxisAlignedClip();
-            }
-            let ended = self.context.EndDraw(None, None);
-            self.context.SetTarget(None::<&ID2D1Image>);
-            self.context.SetTransform(&IDENTITY);
-            self.context.SetDpi(96.0, 96.0);
-            drawn?;
-            ended.map_err(|e| e.to_string())?;
-            if into.is_some() {
-                return Ok(PageImage {
-                    width: band_w,
-                    height: band_h,
-                    left,
-                    top,
-                    page_width: width,
-                    page_height: height,
-                    pixels: Vec::new(),
-                });
-            }
-            let staging_props = D2D1_BITMAP_PROPERTIES1 {
-                pixelFormat: pixel,
-                dpiX: dpi,
-                dpiY: dpi,
-                bitmapOptions: D2D1_BITMAP_OPTIONS_CPU_READ | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
-                ..Default::default()
-            };
-            let staging = self
-                .context
-                .CreateBitmap(
-                    D2D_SIZE_U {
-                        width: band_w,
-                        height: band_h,
-                    },
-                    None,
-                    0,
-                    &staging_props,
-                )
-                .map_err(|e| e.to_string())?;
-            staging
-                .CopyFromBitmap(
-                    None,
-                    &target,
-                    Some(&D2D_RECT_U {
-                        left,
-                        top,
-                        right: left + band_w,
-                        bottom: top + band_h,
-                    }),
-                )
-                .map_err(|e| e.to_string())?;
-            let mapped = staging
-                .Map(D2D1_MAP_OPTIONS_READ)
-                .map_err(|e| e.to_string())?;
-            let row_bytes = band_w as usize * 4;
-            if mapped.bits.is_null() || (mapped.pitch as usize) < row_bytes {
-                staging.Unmap().map_err(|e| e.to_string())?;
-                return Err("invalid mapped Direct2D surface".into());
-            }
-            let mut pixels = vec![0_u8; bytes];
-            for y in 0..band_h as usize {
-                let src = std::slice::from_raw_parts(
-                    mapped.bits.add(y * mapped.pitch as usize),
-                    row_bytes,
-                );
-                let dst = &mut pixels[y * row_bytes..(y + 1) * row_bytes];
-                // BGRA → RGBA; the target ignores alpha, so the page is written fully opaque.
-                for (d, s) in dst.chunks_exact_mut(4).zip(src.chunks_exact(4)) {
-                    d.copy_from_slice(&[s[2], s[1], s[0], 255]);
-                }
-            }
-            staging.Unmap().map_err(|e| e.to_string())?;
-            Ok(PageImage {
-                width: band_w,
-                height: band_h,
-                left,
-                top,
-                page_width: width,
-                page_height: height,
-                pixels,
-            })
+            drawn
         }
     }
 
@@ -1238,6 +1955,15 @@ impl Device {
                     (symmetric, grid_fit) = (s, g);
                     (D2D1_TEXT_ANTIALIAS_MODE_CLEARTYPE, (gamma, contrast, level))
                 }
+                TextRendering::GrayscaleTuned {
+                    gamma,
+                    contrast,
+                    grid_fit: g,
+                } => {
+                    (symmetric, grid_fit) = (true, g);
+                    mode1 = Some(DWRITE_RENDERING_MODE1_NATURAL_SYMMETRIC);
+                    (D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE, (gamma, contrast, 0.0))
+                }
             };
             let (gamma, contrast, level) = level;
             let factory: IDWriteFactory2 =
@@ -1310,6 +2036,36 @@ impl Device {
     }
 
     /// Push a layer clipped to `geometry` (in the current world space).
+    /// Close the clips of `items`, innermost first (their content is composited).
+    unsafe fn pop_clips(&self, items: &[ClipItem]) {
+        // SAFETY: each item was pushed by `draw_list` and is pushed again by `push_clips`.
+        unsafe {
+            for c in items.iter().rev() {
+                if c.geometry.is_some() {
+                    self.context.PopLayer();
+                } else {
+                    self.context.PopAxisAlignedClip();
+                }
+            }
+        }
+    }
+
+    /// Open the clips of `items` again, outermost first, each with its own transform.
+    unsafe fn push_clips(&self, items: &[ClipItem]) {
+        // SAFETY: as `pop_clips`; the caller sets the transform it needs afterwards.
+        unsafe {
+            for c in items {
+                self.context.SetTransform(&c.transform);
+                match &c.geometry {
+                    Some(g) => self.push_mask(g.clone()),
+                    None => self
+                        .context
+                        .PushAxisAlignedClip(&c.rect, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE),
+                }
+            }
+        }
+    }
+
     unsafe fn push_mask(&self, geometry: ID2D1Geometry) {
         let mut params = D2D1_LAYER_PARAMETERS1 {
             contentBounds: INFINITE,

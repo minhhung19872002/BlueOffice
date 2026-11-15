@@ -4,8 +4,8 @@ use bo_engine::{SheetEngine, SystemFontIndex};
 use bo_gpu_win::{Device, FontSpec, Frame, PageBitmap, TextRendering, WindowSurface};
 use bo_render::{PageList, PathSeg, Rgba};
 use bo_ui::{
-    Font, GridMove, GridStore, Input, NcHit, PaintHash, Painter, Request, SheetView, SheetWindow,
-    TextMeasure, TextStyle,
+    Font, GridMove, GridRing, GridStore, Input, NcHit, PaintHash, Painter, Request, SheetView,
+    SheetWindow, TextMeasure, TextStyle,
 };
 use std::io::Write;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -105,6 +105,7 @@ pub fn run() -> Result<(), String> {
             gpu_grid_ms: 0.0,
             grid_time: std::time::Duration::ZERO,
             blit: std::env::var("BLUEOFFICE_SHEET_BLIT").as_deref() != Ok("0"),
+            ring: std::env::var("BLUEOFFICE_SHEET_RING").as_deref() != Ok("0"),
             layer: std::env::var("BLUEOFFICE_SHEET_LAYER").as_deref() != Ok("0"),
         }),
     )
@@ -116,6 +117,9 @@ struct Gpu {
     grid: Option<PageBitmap>,
     /// Second grid bitmap: scrolling copies the kept part of grid into it, then swaps.
     spare: Option<PageBitmap>,
+    /// Where the grid image is stored in `grid` (scrolling turns it, BLUEOFFICE_SHEET_RING=0
+    /// copies instead).
+    ring: GridRing,
     /// Image of the title bar and ribbon, and the hash of what it shows.
     top: Option<(PageBitmap, u64)>,
 }
@@ -124,7 +128,9 @@ struct Store<'a> {
     device: &'a Device,
     grid: &'a mut Option<PageBitmap>,
     spare: &'a mut Option<PageBitmap>,
+    ring: &'a mut GridRing,
     blit: bool,
+    use_ring: bool,
 }
 
 impl GridStore for Store<'_> {
@@ -141,8 +147,47 @@ impl GridStore for Store<'_> {
             *self.grid = Some(self.device.create_page_bitmap(list, scale)?);
         }
         let bitmap = self.grid.as_ref().ok_or("grid bitmap")?;
+        *self.ring = GridRing::new(w, h);
         self.device
             .draw_page(list, engine.fonts(), scale, &|_| None, None, bitmap)
+    }
+
+    fn turn(
+        &mut self,
+        list: &PageList,
+        engine: &SheetEngine,
+        scale: f32,
+        shift: [i64; 2],
+        bands: &[[u32; 4]],
+    ) -> Result<bool, String> {
+        let (w, h) = (
+            (list.width * scale).ceil() as u32,
+            (list.height * scale).ceil() as u32,
+        );
+        let Some(bitmap) = self.grid.as_ref() else {
+            return Ok(false);
+        };
+        if !(self.blit && self.use_ring) || (bitmap.width, bitmap.height) != (w, h) {
+            return Ok(false);
+        }
+        let before = *self.ring;
+        self.ring.turn(shift);
+        for band in bands {
+            for (r, at) in self.ring.split(*band) {
+                let moved = [at[0] as i32 - r[0] as i32, at[1] as i32 - r[1] as i32];
+                if self
+                    .device
+                    .draw_page_at(list, engine.fonts(), scale, &|_| None, r, moved, bitmap)
+                    .is_err()
+                {
+                    // Pages the ring cannot draw shifted: draw the whole image again.
+                    *self.ring = before;
+                    self.update(list, engine, scale)?;
+                    return Ok(true);
+                }
+            }
+        }
+        Ok(true)
     }
 
     fn scroll(
@@ -158,6 +203,7 @@ impl GridStore for Store<'_> {
             (list.height * scale).ceil() as u32,
         );
         if !self.blit
+            || self.ring.phase() != [0, 0]
             || self
                 .grid
                 .as_ref()
@@ -191,7 +237,7 @@ impl GridStore for Store<'_> {
 
 struct WinPainter<'a, 'f> {
     frame: &'a Frame<'f>,
-    grid: Option<&'a PageBitmap>,
+    grid: Option<(&'a PageBitmap, GridRing)>,
 }
 
 impl Painter for WinPainter<'_, '_> {
@@ -202,8 +248,16 @@ impl Painter for WinPainter<'_, '_> {
         self.frame.fill_rect(x, y, w, h, color);
     }
     fn page(&mut self, index: usize, x: i32, y: i32) {
-        if let (0, Some(b)) = (index, self.grid) {
-            self.frame.draw_page(b, x, y);
+        if let (0, Some((b, ring))) = (index, self.grid) {
+            if ring.phase() == [0, 0] {
+                self.frame.draw_page(b, x, y);
+            } else {
+                for (r, at) in ring.pieces() {
+                    let src = [at[0], at[1], r[2], r[3]];
+                    self.frame
+                        .draw_page_rect(b, src, x + r[0] as i32, y + r[1] as i32);
+                }
+            }
         }
     }
     fn text(&mut self, text: &str, x: f32, y: f32, style: TextStyle, color: Rgba) {
@@ -257,6 +311,8 @@ fn spec<'a>(f: &Font<'a>) -> FontSpec<'a> {
     }
 }
 
+// Each bool is an independent switch (BLUEOFFICE_SHEET_* measurements) or the dirty flag.
+#[allow(clippy::struct_excessive_bools)]
 struct Shell {
     view: SheetWindow,
     gpu: Option<Gpu>,
@@ -278,6 +334,8 @@ struct Shell {
     blit: bool,
     /// The title bar and ribbon are cached as an image (BLUEOFFICE_SHEET_LAYER=0: off).
     layer: bool,
+    /// Scrolling turns the grid image as a ring instead of copying it (BLUEOFFICE_SHEET_RING=0).
+    ring: bool,
 }
 
 struct PendingInput {
@@ -372,6 +430,40 @@ impl Shell {
                         spawn_self(Some(&path));
                     }
                 }
+                Request::PickPicture => {
+                    let filters = [(
+                        "Pictures (*.png;*.jpg;*.jpeg;*.gif;*.bmp)",
+                        "*.png;*.jpg;*.jpeg;*.gif;*.bmp",
+                    )];
+                    // BLUEOFFICE_PICTURE (a path) skips the dialog, for scripted comparisons.
+                    let path = std::env::var_os("BLUEOFFICE_PICTURE")
+                        .map(std::path::PathBuf::from)
+                        .or_else(|| win32::file_dialog(false, &filters, ""));
+                    if let Some(bytes) = path.and_then(|p| std::fs::read(p).ok()) {
+                        redraw |= self.view.insert_picture(&bytes, "");
+                    }
+                }
+                Request::PickMergeData => {
+                    // A workbook (Merge Styles…) or a text file (Get Data from Text/CSV);
+                    // BLUEOFFICE_PICK (a path) skips the dialog, for scripted comparisons.
+                    let owned = self.view.pick_filters();
+                    let filters: Vec<(&str, &str)> = owned
+                        .iter()
+                        .map(|(d, p)| (d.as_str(), p.as_str()))
+                        .chain([("All files", "*.*")])
+                        .collect();
+                    let path = std::env::var_os("BLUEOFFICE_PICK")
+                        .map(std::path::PathBuf::from)
+                        .or_else(|| win32::file_dialog(false, &filters, ""));
+                    if let Some(p) = path {
+                        if let Ok(bytes) = std::fs::read(&p) {
+                            let name = p
+                                .file_name()
+                                .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+                            redraw |= self.view.picked_file(&bytes, &name);
+                        }
+                    }
+                }
                 other => self.pending.push(other),
             }
         }
@@ -387,7 +479,9 @@ impl Shell {
             device: &gpu.device,
             grid: &mut gpu.grid,
             spare: &mut gpu.spare,
+            ring: &mut gpu.ring,
             blit: self.blit,
+            use_ring: self.ring,
         })?;
         if self.perf.is_some() && std::env::var_os("BLUEOFFICE_NATIVE_GPU").is_some() {
             self.gpu_grid_ms = gpu.device.wait_gpu_ms();
@@ -423,7 +517,7 @@ impl Shell {
             top = gpu.top.as_ref().map(|(b, _)| b);
         }
         let mut painted = p0.elapsed();
-        let (view, grid) = (&self.view, gpu.grid.as_ref());
+        let (view, grid) = (&self.view, gpu.grid.as_ref().map(|g| (g, gpu.ring)));
         let r = gpu.surface.frame(&gpu.device, |frame| {
             let p0 = Instant::now();
             let mut wp = WinPainter { frame, grid };
@@ -473,6 +567,7 @@ impl Handler for Shell {
             surface,
             grid: None,
             spare: None,
+            ring: GridRing::default(),
             top: None,
         });
         let m = Measure(self.gpu.as_ref().map(|g| &g.device));

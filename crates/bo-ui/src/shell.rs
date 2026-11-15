@@ -2678,6 +2678,8 @@ impl DocWindow {
 
     /// Paint `paint` through cached layer `id` over `rect` (window pixels): the backend
     /// keeps its image and draws it again while the drawing it records hashes the same.
+    // A method so callers read like the other paint helpers; it needs no window state.
+    #[allow(clippy::unused_self)]
     fn layered(
         p: &mut dyn Painter,
         id: usize,

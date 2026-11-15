@@ -30,6 +30,7 @@ pub(crate) mod collab;
 mod comments;
 mod compare_cmd;
 mod datatools_cmd;
+mod drawing_insert;
 mod formctl_cmd;
 mod inspect_cmd;
 mod light_undo;
@@ -1127,6 +1128,11 @@ impl SheetEngine {
     /// Takes effect at the next recalculation (the function is volatile).
     pub fn set_web_provider(&mut self, provider: Option<Arc<dyn bo_formula::WebProvider>>) {
         self.live.set_web_provider(provider);
+    }
+
+    /// Number locale (separators, month names) values are shown with.
+    pub fn number_locale(&self) -> &Locale {
+        &self.locale
     }
 
     /// Locale for input parsing and display (`vi-VN` default).

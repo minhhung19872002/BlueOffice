@@ -290,12 +290,21 @@ fn apply_caps(rp: &RunProps, s: &str) -> String {
     }
 }
 
+/// Ascent and descent of a line of `st` text (points). A desktop presentation app lays
+/// lines out with the Windows metrics (`OS/2.usWinAscent` / `usWinDescent`, as GDI does):
+/// measured with Calibri 24 / 54 pt at 100 / 90 / 80 % line spacing, the first baseline
+/// sits `spacing × (winAscent + winDescent) − winDescent` below the inset — the `hhea`
+/// values of the same font (0.75 / 0.25 em) put it 0.2 em too high. Fonts that set
+/// USE_TYPO_METRICS keep their typographic values.
 fn metrics(fonts: &FontManager, st: &Style) -> (f64, f64) {
     let info = fonts.info(st.face);
     let upem = f64::from(info.units_per_em.max(1));
-    let asc = f64::from(info.ascender) / upem * st.size;
-    let desc = -f64::from(info.descender) / upem * st.size;
-    (asc, desc.max(0.0))
+    let (asc, desc) = if info.use_typo_metrics || info.win_ascent == 0 {
+        (f64::from(info.ascender), -f64::from(info.descender))
+    } else {
+        (f64::from(info.win_ascent), f64::from(info.win_descent))
+    };
+    (asc / upem * st.size, (desc / upem * st.size).max(0.0))
 }
 
 fn measure(fonts: &mut FontManager, st: &Style, text: &str) -> f64 {

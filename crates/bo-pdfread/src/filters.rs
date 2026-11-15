@@ -2,7 +2,8 @@
 //! ASCII85, RunLength. Image codecs (DCT, JPX, CCITT, JBIG2) end the chain and are returned
 //! to the image decoder with their parameters. Output is capped so a decompression bomb
 //! cannot exhaust memory.
-use lopdf::{Dictionary, Document, Object};
+use crate::store::Document;
+use lopdf::{Dictionary, Object};
 
 /// Largest decoded stream (bytes).
 pub(crate) const MAX_DECODED: usize = 256 * 1024 * 1024;

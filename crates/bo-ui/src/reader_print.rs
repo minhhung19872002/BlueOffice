@@ -9,6 +9,11 @@ use bo_pdfread::PrintWhat;
 use bo_render::{PathSeg, Rgba};
 
 pub use crate::reader_impose::{BookletSides, Duplex, PageOrder, PrintLayout, PrintScaling};
+pub use sub6::{black_white, PrintColor};
+
+// Advanced and Page Setting panels (BlueReader round 6).
+#[path = "reader_print6.rs"]
+mod sub6;
 
 /// What to print.
 #[derive(Debug, Clone, PartialEq)]
@@ -45,6 +50,14 @@ pub struct PrintSettings {
     pub overprint: bool,
     /// Paper chosen by the PDF page size (the first page printed).
     pub paper_by_page: bool,
+    /// Resolution of pages printed as images (dots per inch; Advanced).
+    pub image_dpi: u32,
+    /// Colour, grayscale or black and white output (Advanced).
+    pub color: PrintColor,
+    /// Paper size in points, portrait, when not the printer's own (Page Setting).
+    pub paper: Option<(f32, f32)>,
+    /// Margins kept free in points: top, bottom, left, right (Page Setting).
+    pub margins: [f32; 4],
 }
 
 /// Paper orientation (the reference's Orientation box).
@@ -294,6 +307,8 @@ pub struct PrintDialog {
     preview_rect: [f32; 4],
     /// Window size and display scale of the last layout.
     window: ((f32, f32), f32),
+    /// Advanced and Page Setting values and the open panel.
+    sub: sub6::Sub6,
 }
 
 const WHITE: Rgba = Rgba(255, 255, 255, 255);
@@ -364,6 +379,7 @@ impl PrintDialog {
             hover: None,
             preview_rect: [0.0; 4],
             window: ((1500.0, 1000.0), 1.0),
+            sub: sub6::Sub6::default(),
         }
     }
 
@@ -671,6 +687,10 @@ impl PrintDialog {
             as_image: self.as_image,
             overprint: self.overprint,
             paper_by_page: self.paper_by_page,
+            image_dpi: sub6::DPIS[self.sub.dpi.min(sub6::DPIS.len() - 1)],
+            color: self.sub.color,
+            paper: self.sub.paper_pt(),
+            margins: self.sub.margins_pt(),
         })
     }
 
@@ -936,6 +956,10 @@ impl PrintDialog {
 
     /// A click.
     pub fn press(&mut self, x: f32, y: f32) -> Option<PrintAction> {
+        if self.sub.open.is_some() {
+            self.press_sub(x, y);
+            return None;
+        }
         let part = self.part_at(x, y);
         if let Some(open) = self.drop.take() {
             if let Some(Part::Item(i)) = part {
@@ -962,7 +986,9 @@ impl PrintDialog {
                     .map(|p| PrintAction::Properties(p.clone()));
             }
             // Not offered (drawn disabled).
-            Part::Item(_) | Part::Advanced | Part::Bleed | Part::Summarize | Part::PageSetting => {}
+            Part::Advanced => self.open_sub(sub6::Panel::Advanced),
+            Part::PageSetting => self.open_sub(sub6::Panel::PageSetting),
+            Part::Item(_) | Part::Bleed | Part::Summarize => {}
             Part::AsImage => self.as_image = !self.as_image,
             Part::Overprint => self.overprint = !self.overprint,
             Part::CutMarks => self.cut_marks = !self.cut_marks,
@@ -1062,6 +1088,10 @@ impl PrintDialog {
 
     /// Typed text: page list, custom scale or copies.
     pub fn text(&mut self, s: &str) {
+        if self.sub.open.is_some() {
+            self.text_sub(s);
+            return;
+        }
         if self.focus == Field::TileZoom {
             self.tile_zoom
                 .extend(s.chars().filter(char::is_ascii_digit));
@@ -1095,6 +1125,10 @@ impl PrintDialog {
     /// A key: Enter prints, Escape cancels, Backspace edits, Up / Down change the copies,
     /// Page Up / Down move the preview.
     pub fn key(&mut self, key: Key, _m: Mods) -> Option<PrintAction> {
+        if self.sub.open.is_some() {
+            self.key_sub(key);
+            return None;
+        }
         match key {
             Key::Enter => return self.settings().map(PrintAction::Print),
             Key::Escape => {
@@ -1335,7 +1369,7 @@ impl PrintDialog {
             .map_or_else(|| s.get("pdfPrint.noPrinter").to_owned(), Clone::clone);
         self.combo(p, pr, &name, self.drop == Some(Part::Printer));
         self.button(p, Part::Properties, s.get("pdfPrint.properties"), false);
-        self.button_off(p, Part::Advanced, s.get("pdfPrint.advanced"));
+        self.button(p, Part::Advanced, s.get("pdfPrint.advanced"), false);
         self.check(
             p,
             self.rect(Part::AsImage),
@@ -1527,7 +1561,7 @@ impl PrintDialog {
             self.overprint,
             s.get("pdfPrint.overprint"),
         );
-        self.button_off(p, Part::PageSetting, s.get("pdfPrint.pageSetting"));
+        self.button(p, Part::PageSetting, s.get("pdfPrint.pageSetting"), false);
         self.paint_preview(p, s);
         // Buttons.
         self.button(p, Part::Ok, s.get("pdfPrint.ok"), true);
@@ -1556,6 +1590,7 @@ impl PrintDialog {
                 self.text_in(p, &self.item_label(d, i, s), r, self.px(4.8), TEXT);
             }
         }
+        self.paint_sub(p, s, caret);
     }
 }
 
@@ -2178,8 +2213,31 @@ mod tests {
                 as_image: false,
                 overprint: false,
                 paper_by_page: false,
+                image_dpi: 150,
+                color: PrintColor::Color,
+                paper: None,
+                margins: [0.0; 4],
             }))
         );
+        // Advanced: 300 dpi, black and white; Page Setting: A4, 10 mm top margin.
+        let (x, y) = centre(&d, Part::Advanced);
+        d.press(x, y);
+        assert!(d.sub.open.is_some());
+        d.key(Key::Escape, Mods::default());
+        assert!(d.sub.open.is_none());
+        d.sub.dpi = 2;
+        d.sub.color = PrintColor::BlackWhite;
+        d.sub.paper = 4;
+        d.sub.margins[0] = vec!['1', '0'];
+        let (x, y) = centre(&d, Part::Ok);
+        match d.press(x, y) {
+            Some(PrintAction::Print(s)) => {
+                assert_eq!((s.image_dpi, s.color), (300, PrintColor::BlackWhite));
+                assert_eq!(s.paper, Some((595.28, 841.89)));
+                assert!((s.margins[0] - 28.35).abs() < 0.01);
+            }
+            other => panic!("{other:?}"),
+        }
         assert_eq!(
             d.key(Key::Escape, Mods::default()),
             Some(PrintAction::Cancel)

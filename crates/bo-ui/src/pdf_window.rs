@@ -66,6 +66,16 @@ pub trait PdfWindow {
     }
     /// Paper of each printer of the open Print dialog (in the order given to `open_print`).
     fn set_print_papers(&mut self, _papers: Vec<Option<crate::Paper>>) {}
+    /// Stored preferences (`key=value` lines; BlueReader's File › Preferences).
+    fn set_preferences(&mut self, _text: &str) {}
+    /// Tab indices a Batch Print prints (taken once); empty for a normal print.
+    fn take_batch(&mut self) -> Vec<usize> {
+        Vec::new()
+    }
+    /// Document of tab `i`.
+    fn view_at_mut(&mut self, _i: usize) -> Option<&mut ReaderView> {
+        None
+    }
     /// Paper of one printer after its driver settings changed.
     fn set_print_paper(&mut self, _name: &str, _paper: Option<crate::Paper>) {}
     /// Interface text `key` with `{{name}}` placeholders filled.
@@ -128,6 +138,15 @@ impl PdfWindow for ReaderWindow {
     ) -> bool {
         ReaderWindow::open_print(self, printers, default, m);
         true
+    }
+    fn set_preferences(&mut self, text: &str) {
+        ReaderWindow::set_preferences(self, text);
+    }
+    fn take_batch(&mut self) -> Vec<usize> {
+        ReaderWindow::take_batch(self)
+    }
+    fn view_at_mut(&mut self, i: usize) -> Option<&mut ReaderView> {
+        ReaderWindow::view_at_mut(self, i)
     }
     fn set_print_papers(&mut self, papers: Vec<Option<crate::Paper>>) {
         ReaderWindow::set_print_papers(self, papers);

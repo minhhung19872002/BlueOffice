@@ -14,6 +14,7 @@
 #![allow(clippy::items_after_statements, clippy::match_same_arms)]
 
 mod annot;
+mod annot_caret;
 mod annot_draw;
 mod annot_edit;
 mod annot_image;
@@ -51,6 +52,7 @@ mod paragraph;
 mod sanitize;
 mod sfnt;
 mod sigappear;
+mod store;
 mod text;
 mod type1;
 mod viewer;
@@ -82,10 +84,11 @@ pub use sigappear::{signature_appearance, SignatureLook};
 pub use text::TextLayer;
 pub use viewer::{DocInfo, FontInfo};
 
+use crate::store::Document;
 use bo_render::{PageList, Rgba};
 use bo_text::FontManager;
 use interp::{mul, Interp, Shared, M};
-use lopdf::{Dictionary, Document, Object, ObjectId};
+use lopdf::{Dictionary, Object, ObjectId};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -490,7 +493,7 @@ impl PdfDocument {
     pub fn needs_password(bytes: &[u8]) -> bool {
         let start = bytes.windows(5).take(1024).position(|w| w == b"%PDF-");
         start.is_some_and(|s| {
-            Document::load_mem(&bytes[s..]).is_ok_and(|d| {
+            lopdf::Document::load_mem(&bytes[s..]).is_ok_and(|d| {
                 d.is_encrypted() && d.encryption_state.is_none() || d.objects.is_empty()
             }) && bytes.windows(8).any(|w| w == b"/Encrypt")
                 && crypt::load(&bytes[s..], "").is_err()
@@ -510,28 +513,26 @@ impl PdfDocument {
             .take(1024)
             .position(|w| w == b"%PDF-")
             .ok_or("not a PDF file")?;
-        let mut doc = Document::load_mem(&bytes[start..]).map_err(|e| format!("PDF: {e}"))?;
-        // lopdf gives up (no objects) on a direct /Encrypt dictionary it cannot decrypt.
-        let unread = doc.objects.is_empty() && bytes.windows(8).any(|w| w == b"/Encrypt");
-        if doc.is_encrypted() && doc.encryption_state.is_none() || unread {
-            // An empty user password lopdf did not take (AES-256, revision 6): try it through
-            // our own loader before asking for one.
-            doc = match crypt::load(&bytes[start..], password) {
-                Ok(d) => d,
-                Err(_) if password.is_empty() => {
-                    return Err("the document is protected by a password".into())
-                }
-                Err(e) => return Err(e),
-            };
-        }
-        let (pages, labelled) = scan_pages(&doc);
+        let bytes = Arc::new(bytes);
+        // Read objects on demand when the cross-reference information allows (store.rs);
+        // encrypted and damaged files load in full as before.
+        let lazy = store::Document::open_lazy(&bytes, start)
+            .map(|d| (scan_pages(&d), d))
+            .filter(|((pages, _), _)| !pages.is_empty());
+        let (doc, (pages, labelled)) = if let Some((scan, d)) = lazy {
+            (d, scan)
+        } else {
+            let d = Self::load_full(&bytes[start..], password)?;
+            let scan = scan_pages(&d);
+            (d, scan)
+        };
         if pages.is_empty() {
             return Err("the document has no pages".into());
         }
         let hidden = hidden_groups(&doc);
         Ok(Self {
             doc,
-            bytes: Arc::new(bytes),
+            bytes,
             pages,
             fonts,
             font_cache: font::FontCache::default(),
@@ -541,6 +542,31 @@ impl PdfDocument {
             labelled,
             edit: edit::EditState::default(),
         })
+    }
+
+    /// The whole file through lopdf, decrypted with `password` when it is encrypted.
+    fn load_full(bytes: &[u8], password: &str) -> Result<Document, String> {
+        let mut doc = lopdf::Document::load_mem(bytes).map_err(|e| format!("PDF: {e}"))?;
+        // lopdf gives up (no objects) on a direct /Encrypt dictionary it cannot decrypt.
+        let unread = doc.objects.is_empty() && bytes.windows(8).any(|w| w == b"/Encrypt");
+        if doc.is_encrypted() && doc.encryption_state.is_none() || unread {
+            // An empty user password lopdf did not take (AES-256, revision 6): try it through
+            // our own loader before asking for one.
+            doc = match crypt::load(bytes, password) {
+                Ok(d) => d,
+                Err(_) if password.is_empty() => {
+                    return Err("the document is protected by a password".into())
+                }
+                Err(e) => return Err(e),
+            };
+        }
+        Ok(doc.into())
+    }
+
+    /// Whether every object of the file has been read: objects load on demand until an edit,
+    /// a save or a whole-document query needs all of them (for benchmarks and tests).
+    pub fn fully_loaded(&self) -> bool {
+        self.doc.is_materialized()
     }
 
     /// Whether the document defines page labels (`/PageLabels`).
@@ -565,7 +591,7 @@ impl PdfDocument {
 
     /// Document title from the information dictionary.
     pub fn title(&self) -> Option<String> {
-        let info = self.doc.trailer.get(b"Info").ok()?;
+        let info = self.doc.trailer_ref().get(b"Info").ok()?;
         let d = resolve(&self.doc, info).as_dict().ok()?;
         let t = resolve(&self.doc, d.get(b"Title").ok()?).as_str().ok()?;
         let s = text_string(t).trim().to_owned();
@@ -574,7 +600,7 @@ impl PdfDocument {
 
     /// An entry of the document information dictionary (§14.3.3: `Author`, `Producer`…).
     pub fn info(&self, key: &str) -> Option<String> {
-        let info = self.doc.trailer.get(b"Info").ok()?;
+        let info = self.doc.trailer_ref().get(b"Info").ok()?;
         let d = resolve(&self.doc, info).as_dict().ok()?;
         let t = resolve(&self.doc, d.get(key.as_bytes()).ok()?)
             .as_str()
@@ -585,7 +611,7 @@ impl PdfDocument {
 
     /// The PDF version in the file header (`1.7`, `2.0`).
     pub fn version(&self) -> String {
-        self.doc.version.clone()
+        self.doc.pdf_version().to_owned()
     }
 
     /// The bytes the document was opened from, with any saved updates appended.

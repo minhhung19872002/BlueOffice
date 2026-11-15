@@ -7505,7 +7505,16 @@
     "zoom": "Zoom:",
     "paper": "Paper:",
     "tileLabel": "Page {{page}} ({{row}}, {{col}})",
-    "paperByPage": "Choose paper source by PDF page size"
+    "paperByPage": "Choose paper source by PDF page size",
+    "paperPrinter": "Printer's paper",
+    "resolution": "Resolution:",
+    "colorOutput": "Color output:",
+    "color": "Color",
+    "grayscaleOut": "Grayscale",
+    "blackWhite": "Black and white",
+    "margins": "Margins:",
+    "top": "Top",
+    "bottom": "Bottom"
   },
   "pdfExtra": {
     "readMode": "Read Mode",
@@ -7614,7 +7623,10 @@
     "fileClick": "Click on the page where the file goes",
     "keep": "Keep Tool Selected",
     "options": "Comment options",
-    "list": "Comment list"
+    "list": "Comment list",
+    "caretNoText": "Click on text to place the insertion caret.",
+    "insertTitle": "Insert Text",
+    "insertText": "Text to insert"
   },
   "pdfForm": {
     "reset": "Reset Form",
@@ -7726,6 +7738,36 @@
     "local": "Local",
     "noRecent": "No recent documents",
     "details": "Document Properties…"
+  },
+  "pdfPrefs": {
+    "menu": "Preferences",
+    "title": "Preferences",
+    "auto": "Automatic",
+    "single": "Single Page",
+    "continuous": "Continuous",
+    "facing": "Facing",
+    "continuousFacing": "Continuous Facing",
+    "inch": "Inches",
+    "mm": "Millimeters",
+    "cm": "Centimeters",
+    "point": "Points",
+    "pica": "Picas",
+    "pageDisplay": "Page Display",
+    "identity": "Identity",
+    "measure": "Measure",
+    "general": "General",
+    "zoom": "Default zoom",
+    "layout": "Page layout",
+    "author": "Comment author",
+    "name": "Name",
+    "units": "Units",
+    "smooth": "Smooth scrolling"
+  },
+  "pdfBatch": {
+    "menu": "Batch Print",
+    "title": "Batch Print",
+    "ask": "Documents to print with the same settings:",
+    "print": "Print…"
   },
   "pdfHome": {
     "snapshot": "SnapShot",

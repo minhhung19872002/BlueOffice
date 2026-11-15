@@ -4,7 +4,8 @@
 //! patch is drawn as the Coons patch of its boundary).
 use crate::function::Function;
 use crate::interp::{apply, M};
-use lopdf::{Dictionary, Document};
+use crate::store::Document;
+use lopdf::Dictionary;
 
 /// A vertex: position and colour components.
 type Vertex = ((f32, f32), Vec<f32>);

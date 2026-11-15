@@ -4,7 +4,8 @@
 //! `bluereader-native.exe [file.pdf…]` opens PDFs in tabs of one Win32 window. Pages become
 //! display lists in-process (`bo-pdfread`) drawn by Direct2D/DirectWrite into GPU page images.
 //! `bluereader-native.exe --render in.pdf <page> out.png [zoom%]` writes one page as PNG and
-//! `--bench in.pdf` prints open and render timings (no window).
+//! `--bench in.pdf` prints open and render timings (no window); `--text in.pdf` prints each
+//! page's text as Select All + Copy gives it.
 //! `BLUEOFFICE_NATIVE_PERF=<file>` appends one JSON line per handled input with its timings.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
@@ -20,7 +21,7 @@ fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args
         .first()
-        .is_some_and(|a| a == "--render" || a == "--bench" || a == "--print")
+        .is_some_and(|a| a == "--render" || a == "--bench" || a == "--print" || a == "--text")
     {
         if let Err(e) = reader_app::tool(&args) {
             eprintln!("{e}");

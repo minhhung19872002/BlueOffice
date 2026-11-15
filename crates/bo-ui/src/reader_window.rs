@@ -5,7 +5,7 @@
 //! Sizes, greys and positions follow the reference desktop PDF reader by black-box measurement
 //! at 125 % (`docs/ui/REPORT-reader.md`); icons and the accent colour are our own.
 use crate::dialog::{Dialog, DialogButton, DialogKind};
-use crate::popup::{Choice, Menu, MenuItem};
+use crate::popup::{Choice, Menu, MenuItem, MenuLook};
 use crate::reader_icons::{self, Ink};
 use crate::reader_view::{
     Fit, Layout, PdfStore, ReaderView, Selection, HIT, HIT_CURRENT, SELECTION, THUMB_KEY,
@@ -49,6 +49,9 @@ mod props5;
 
 #[path = "reader_backstage5_win.rs"]
 mod bs5;
+// Preferences, Batch Print (BlueReader round 6).
+#[path = "reader_prefs6_win.rs"]
+mod prefs6;
 
 /// Measured greys of the reference reader at 125 %.
 const CHROME: Rgba = Rgba(251, 251, 253, 255);
@@ -128,6 +131,8 @@ pub enum ReaderRequest {
     OpenUrl(String),
     /// A window operation.
     Window(Request),
+    /// Store the preferences (`key=value` lines, File › Preferences).
+    SavePreferences(String),
     /// Print with these settings (from the Print dialog, [ReaderWindow::open_print]).
     PrintPages(crate::reader_print::PrintSettings),
     /// A command this window does not know (handled by a window built on it, BlueEditor).
@@ -381,6 +386,20 @@ enum Pending {
     TextBox { page: usize, rect: [f32; 4] },
 }
 
+/// BlueReader's menus at 100 % (see [`ReaderWindow::reader_menu`]).
+pub(crate) const READER_MENU: MenuLook = MenuLook {
+    item_h: 24.0,
+    text: 9.6,
+    text_x: (32.8, 32.8),
+    icon_x: 8.0,
+    icon: 16.0,
+    pad: 4.0,
+    min_w: 96.0,
+    char_w: 7.7,
+    fill: Some(Rgba(251, 251, 253, 255)),
+    frame: Some(Rgba(195, 195, 195, 255)),
+};
+
 /// Window contents of BlueReader.
 pub struct ReaderWindow {
     tabs: Vec<DocTab>,
@@ -464,6 +483,7 @@ pub struct ReaderWindow {
     tabs4: tabs4::Tabs4,
     /// Fill & Sign, signing, comment exchange of round 5.
     tabs5: tabs5::Tabs5,
+    prefs6: prefs6::Prefs6,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -542,6 +562,7 @@ impl ReaderWindow {
             view4: view4::View4::default(),
             tabs4: tabs4::Tabs4::default(),
             tabs5: tabs5::Tabs5::default(),
+            prefs6: prefs6::Prefs6::default(),
         }
     }
 
@@ -552,6 +573,18 @@ impl ReaderWindow {
         w.look = profile.look;
         w.profile = Some(profile);
         w
+    }
+
+    /// A drop-down or context menu. BlueReader's menus are measured on the reference reader at
+    /// 125 % (rows 30 px, label 13 px at 41 px from the frame, 20 px icons at 10 px, frame
+    /// 195 on 251, 251, 253); BlueEditor keeps the shared look.
+    pub(crate) fn reader_menu(&self, items: Vec<MenuItem>, anchor: [f32; 4]) -> Menu {
+        let look = if self.profile.is_none() {
+            READER_MENU
+        } else {
+            MenuLook::default()
+        };
+        Menu::open_with(items, anchor, self.size, self.scale, look)
     }
 
     fn app_name(&self) -> &'static str {
@@ -659,7 +692,7 @@ impl ReaderWindow {
 
     /// Open a menu of commands under `r`.
     pub(crate) fn menu_at(&mut self, items: Vec<MenuItem>, r: [f32; 4], id: &'static str) {
-        self.menu = Some((Menu::open(items, r, self.size, self.scale), id));
+        self.menu = Some((self.reader_menu(items, r), id));
     }
 
     /// Ribbon tab label boxes (File first), from the last layout.
@@ -709,6 +742,7 @@ impl ReaderWindow {
         self.next_key += 1 << 26;
         self.active = self.tabs.len() - 1;
         self.show_start = false;
+        self.apply_view_prefs();
         if let Some(p) = path {
             self.recent.retain(|r| r != &p);
             self.recent.insert(0, p);
@@ -1528,6 +1562,16 @@ impl ReaderWindow {
                 }
             }
         }
+        // Split bars: left-right / up-down arrows (BlueReader round 6).
+        match self.split_bar_at(x, y) {
+            Some((true, false)) => cursor = 1,
+            Some((false, true)) => cursor = 2,
+            Some((true, true)) => cursor = 6,
+            _ => {}
+        }
+        if self.prefs6.caret && cursor != 5 && inside(self.doc_rect, x, y) {
+            cursor = 4;
+        }
         let c = cursor != self.cursor;
         self.cursor = cursor;
         changed || c
@@ -2098,7 +2142,7 @@ impl ReaderWindow {
                 dim: false,
             })
             .collect();
-        self.menu = Some((Menu::open(items, r, self.size, self.scale), id));
+        self.menu = Some((self.reader_menu(items, r), id));
     }
 
     fn open_file_menu(&mut self, r: [f32; 4]) {
@@ -2115,7 +2159,7 @@ impl ReaderWindow {
                 })
                 .collect();
             items.retain(|i| !(open && i.dim));
-            self.menu = Some((Menu::open(items, r, self.size, self.scale), "file"));
+            self.menu = Some((self.reader_menu(items, r), "file"));
             return;
         }
         let mut items = vec![
@@ -2161,7 +2205,9 @@ impl ReaderWindow {
                 dim: false,
             }),
         );
-        self.menu = Some((Menu::open(items, r, self.size, self.scale), "zoom"));
+        // A rule before Actual Size, as the reference's list.
+        let menu = self.reader_menu(items, r).with_decor(Vec::new(), vec![18]);
+        self.menu = Some((menu, "zoom"));
     }
 
     fn open_page_menu(&mut self) {
@@ -2178,7 +2224,7 @@ impl ReaderWindow {
                 dim: false,
             })
             .collect();
-        let mut menu = Menu::open(items, self.page_box, self.size, self.scale);
+        let mut menu = self.reader_menu(items, self.page_box);
         // Keep the current page in view.
         for _ in 0..cur.min(2000) {
             menu.step(1);
@@ -2370,6 +2416,9 @@ impl ReaderWindow {
         if let Some(t) = self.tabs.get_mut(self.active) {
             if !self.show_start {
                 // The reference scrolls 16 logical px per wheel line (the host sends 20).
+                if self.prefs6.prefs.smooth && self.profile.is_none() {
+                    return self.smooth_wheel(dy * 0.8);
+                }
                 t.view.scroll_by(0.0, dy * 0.8);
                 return true;
             }
@@ -2385,7 +2434,7 @@ impl ReaderWindow {
             return false;
         }
         self.prepare_extra();
-        let animating = self.view4_animating();
+        let animating = self.view4_animating() | self.step_smooth();
         let pages_panel = self.panel_open() == Some(Panel::Pages);
         let panel = self.panel_rect;
         let thumb_w = self.px(120.0);

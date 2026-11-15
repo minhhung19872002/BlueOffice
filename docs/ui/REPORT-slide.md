@@ -261,3 +261,57 @@ x 1160–1259; Reorder Animation, Move Earlier/Later). Đường chia nhóm: tha
 - Dán chéo cửa sổ mang cả tệp trình chiếu (base64) trên bảng tạm: tệp lớn chép chậm hơn.
 - Trigger / Animation Painter chưa mờ khi không có hiệu ứng (luật bật/tắt nút của ribbon không
   thấy trạng thái trang chiếu).
+
+## Vòng 12 — nhóm còn thiếu so với tham chiếu (`b1-*.png`, `b3-*.png` so với `pp-*.png`, 1500 × 1102, 125 %)
+
+- Insert: Slides, Tables (lưới 10 × 8 như tham chiếu, đầu đề "Insert Table" → "3x2 Table"), Images
+  (Pictures: host mở hộp thoại chọn tệp, PNG/JPEG/SVG), Illustrations (Shapes: thư viện hình dựng sẵn
+  theo nhóm, vẽ bằng hình học §20.1.9.18 của `bo-drawingml`; Icons: thư viện biểu tượng riêng; Chart),
+  Comments, Text (Text Box, Header & Footer — hộp thoại ngày giờ / số trang / chân trang / không hiện
+  trên trang tiêu đề, Date & Time, Slide Number), Symbols, Media (video / âm thanh từ tệp).
+- Home: Format Painter; Drawing (Shapes, Arrange, Quick Styles, tô / viền / hiệu ứng dạng biểu tượng có
+  mũi tên như tham chiếu ở bề rộng này); Editing (Find / Replace / Select All, hộp thoại tìm thay theo
+  cả bản trình bày, không phân biệt hoa thường).
+- Tab ngữ cảnh sau các tab cố định, hiện ngay khi chèn: Shape Format (3 ô kiểu "Abc" theo màu chủ đề,
+  tô / viền / hiệu ứng, Arrange, Size), Picture Format (Reset, viền, cắt theo hình / tỉ lệ / Fill / Fit),
+  Table Design (ô đánh dấu Header Row / Banded Rows đọc từ `a:tblPr`, Shading), Table Layout (chèn /
+  xoá hàng cột, gộp / tách ô).
+
+| Đo (thiết bị) | Tham chiếu | BlueSlide |
+|---|---|---|
+| Size của hình chữ nhật 150 × 100 pt | 1.39" / 2.08" | 1.39" / 2.08" |
+| Size của ảnh 120 × 90 pt | 1.25" / 1.67" | 1.25" / 1.67" |
+| Ô số Size | rộng 112, cao 32 | 112 × 32 |
+
+- Design: 6 thẻ chủ đề (thẻ đầu là chủ đề của bản trình bày, luôn được đánh dấu) + cột "thêm";
+  Customize (Variants, Colors, Fonts, Effects, Background Styles); Slides (Layout áp cho trang đang
+  chọn — trước đây thêm trang mới, sai so với tham chiếu; Slide Size + hộp thoại cỡ tuỳ chỉnh 1–56 inch);
+  ngăn Format Background (tô đặc theo bảng màu chủ đề, Hide background graphics, Apply to All, Reset).
+- Slide Show: Custom Slide Show (chạy / định nghĩa), hộp thoại Set Up Slide Show (khoảng trang, lặp đến
+  Esc, không thuyết minh, không hoạt hình, dùng thời gian), Rehearse Timings (thanh thời gian góc trên;
+  kết thúc hỏi giữ thời gian → `SetTimings`), ô đánh dấu Play Narrations / Use Timings / Show Media
+  Controls / Use Presenter View, Presenter View (trang hiện tại 62 % bên trái, trang kế, ghi chú, đồng
+  hồ, "Slide n of N"). Trang ẩn bị bỏ qua khi trình chiếu (trước đây vẫn chiếu).
+- View: Outline View (dàn ý thay ngăn hình thu nhỏ, bấm để sang trang), Notes Page, Slide Master (tab
+  riêng + Close Master View), Gridlines (chấm mỗi 1/2 inch), Guides (đường giữa), Zoom.
+- Draw: Lasso Select, bút xanh dương / xanh lá, Ink to Shape.
+- Trigger / Animation Painter mờ khi lựa chọn không có hiệu ứng (cờ trạng thái qua `FormatState.style`).
+- Dấu bình luận đặt tại `p188:pos` của luồng (bo-pptx giờ đọc và ghi lại vị trí này).
+- Bảng tạm giữa hai cửa sổ: chỉ mang một bản trình bày nhỏ chứa đúng các trang / hình đã chép
+  (`Engine::slide_clip_deck`); trang 2 của `slide-album-photos.pptx`: nhỏ hơn cả tệp (kiểm thử).
+
+## Còn lại (sau vòng 12)
+
+- Thư viện Table Styles, WordArt Styles, Alt Text, Selection Pane; Picture Format chưa có Remove
+  Background / Corrections / Color / Artistic Effects trên ribbon (engine có `PictureRemoveBackground`).
+- Presenter View vẽ trong cùng cửa sổ (chưa mở cửa sổ thứ hai trên màn hình phụ); Record chưa có.
+- Ruler (View và Draw), Ink to Math, Grayscale / Black and White, Handout / Notes Master.
+- Dấu bình luận chưa neo theo hình (`ac:deMkLst`); bình luận cũ (`p:cm`) chưa đọc.
+- Hình ô chuyển trang / sao hoạt hình vẫn phẳng hơn tham chiếu; dấu thả xuống của nút lớn là "▾" trên
+  cùng dòng, tham chiếu là chữ v mảnh ở dòng riêng.
+
+Đo lại Design (`b5-Design.png`): 6 thẻ chủ đề x 27 / 167 / … / 727 trùng tham chiếu, cột "thêm" x 863–897, đường chia Customize x 910 (tham chiếu 912), nhóm Slides hiện đủ (trước: tràn, có nút cuộn).
+
+
+Vòng 12b (`slide-07/08/09`): Insert thêm Photo Album, 3D Models, SmartArt, Links, Text Styles; dấu thả xuống của nút lớn một từ xuống dòng riêng như tham chiếu (hết chồng nhãn "Variants ▾ Colors" ở Design); ô phông 211 px (tham chiếu 213), ô cỡ 67 px.
+

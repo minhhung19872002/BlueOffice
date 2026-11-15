@@ -23,6 +23,8 @@ pub enum InkTool {
     },
     /// Removes the strokes it touches.
     Eraser,
+    /// Lasso Select: shapes whose centre the drawn loop surrounds are selected.
+    Lasso,
 }
 
 impl InkTool {
@@ -38,6 +40,9 @@ impl InkTool {
         Some(match id {
             "draw.pen" => pen("000000", 1.0, false),
             "draw.red" => pen("E71224", 1.0, false),
+            "draw.blue" => pen("0F5EAA", 1.0, false),
+            "draw.green" => pen("1E8A3C", 1.0, false),
+            "draw.lasso" => InkTool::Lasso,
             "draw.highlight" => pen("FFFF00", 6.0, true),
             "draw.eraser" => InkTool::Eraser,
             _ => return None,
@@ -47,6 +52,24 @@ impl InkTool {
 
 /// Eraser radius in points.
 const ERASER: f64 = 6.0;
+
+/// Whether (`x`, `y`) is inside the closed polygon `pts` (even-odd crossings).
+fn inside_loop(pts: &[[f64; 2]], x: f64, y: f64) -> bool {
+    let n = pts.len();
+    if n < 3 {
+        return false;
+    }
+    let mut inside = false;
+    let mut j = n - 1;
+    for i in 0..n {
+        let ([xi, yi], [xj, yj]) = (pts[i], pts[j]);
+        if (yi > y) != (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi {
+            inside = !inside;
+        }
+        j = i;
+    }
+    inside
+}
 
 fn rgb(hex: &str) -> Rgba {
     let v = u32::from_str_radix(hex, 16).unwrap_or(0);
@@ -95,6 +118,11 @@ impl SlideView {
             }
             Input::Release { .. } if !self.ink_stroke.is_empty() => {
                 let points = std::mem::take(&mut self.ink_stroke);
+                if tool == InkTool::Lasso {
+                    let ids = self.lasso_ids(&points);
+                    self.run(bo_engine::slide_edit::SlideCommand::Select { ids });
+                    return Some(true);
+                }
                 let cmd = match tool {
                     InkTool::Pen {
                         color,
@@ -121,7 +149,7 @@ impl SlideView {
                             attach_to: None,
                         }
                     }
-                    InkTool::Eraser => InkCommand::EraseInk {
+                    InkTool::Eraser | InkTool::Lasso => InkCommand::EraseInk {
                         points,
                         radius: ERASER,
                         mode: EraseMode::Stroke,
@@ -134,6 +162,34 @@ impl SlideView {
                 Some(true)
             }
             _ => None,
+        }
+    }
+
+    /// Top-level shapes of the current slide whose centre lies inside the loop `pts`
+    /// (slide points; even-odd rule).
+    fn lasso_ids(&self, pts: &[[f64; 2]]) -> Vec<u32> {
+        let Some(pres) = self.engine.presentation() else {
+            return Vec::new();
+        };
+        bo_engine::slide_edit::geom::place_slide(pres, self.current)
+            .into_iter()
+            .filter(|s| inside_loop(pts, s.b.cx, s.b.cy))
+            .map(|s| s.id)
+            .collect()
+    }
+
+    /// Turn the selected ink (all ink of the slide without one) into shapes.
+    pub fn ink_to_shapes(&mut self) -> bool {
+        let ids: Vec<u32> = self.selection().iter().map(|s| s.id).collect();
+        match self
+            .engine
+            .slide_ink_command(InkCommand::InkToShapes { ids })
+        {
+            Ok(r) if r.error.is_none() => {
+                self.apply(r);
+                true
+            }
+            _ => false,
         }
     }
 
@@ -159,6 +215,7 @@ impl SlideView {
                 (c, (*width as f32 * k).max(1.0))
             }
             InkTool::Eraser => (Rgba(0x80, 0x80, 0x80, 160), (ERASER as f32 * k).max(1.0)),
+            InkTool::Lasso => (Rgba(0x40, 0x40, 0x40, 255), 1.0),
         };
         let segs: Vec<PathSeg> = self
             .ink_stroke

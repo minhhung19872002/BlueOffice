@@ -1054,6 +1054,7 @@ name = "bo-ui"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
+ "bo-drawingml",
  "bo-edit",
  "bo-engine",
  "bo-model",

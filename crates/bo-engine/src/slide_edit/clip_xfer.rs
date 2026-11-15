@@ -4,7 +4,7 @@
 //! so the paste brings pictures, layouts and themes along as a paste from another deck does
 //! (ECMA-376 Part 2, §9.3 relationships; Part 1, §19.3.1.39 sldLayout).
 
-use super::clip::Clip;
+use super::clip::{Clip, ClipKind};
 use super::SlideCommand;
 
 /// What a copy in another window held.
@@ -23,6 +23,41 @@ pub enum Copied {
 }
 
 impl crate::Engine {
+    /// A small presentation holding only what the slide clipboard holds (the copied slides
+    /// with their layouts, masters and media, or the copied shapes on one blank slide), and
+    /// what to copy from it: what another window needs to paste, instead of the whole deck.
+    pub fn slide_clip_deck(&self) -> Option<(Vec<u8>, Copied)> {
+        let clip = self.slide_clip.clone()?;
+        let slides = match &clip.kind {
+            ClipKind::Slides(s) => Some(s.len()),
+            ClipKind::Shapes { .. } => None,
+        };
+        let mut other = crate::Engine::new();
+        let blank = super::album::new_deck("").ok()?;
+        other.open(&blank, "clipboard.pptx").ok()?;
+        other.set_foreign_slide_clip(clip);
+        let r = other
+            .slide_command(SlideCommand::Paste {
+                keep_source: slides.is_some(),
+            })
+            .ok()
+            .filter(|r| r.error.is_none())?;
+        let copied = match slides {
+            Some(n) => {
+                // The pasted slides follow the blank first slide, which goes.
+                other
+                    .slide_command(SlideCommand::DeleteSlide { index: Some(0) })
+                    .ok()?;
+                Copied::Slides((0..n).collect())
+            }
+            None => Copied::Shapes {
+                slide: 0,
+                ids: r.selection.iter().map(|s| s.id).collect(),
+            },
+        };
+        Some((other.save_pptx().ok()?, copied))
+    }
+
     /// Take the slide clipboard out of this engine.
     pub fn take_slide_clip(&mut self) -> Option<Clip> {
         self.slide_clip.take()
@@ -39,7 +74,8 @@ impl crate::Engine {
     /// Copy `what` from the presentation `bytes` (another window's deck) onto this engine's
     /// slide clipboard; `false` when the deck cannot be read or nothing was copied.
     pub fn copy_from_deck(&mut self, bytes: &[u8], what: &Copied) -> bool {
-        let mut other = crate::Engine::with_bundled_fonts();
+        // Copying moves parts; no text is laid out, so no fonts are needed.
+        let mut other = crate::Engine::new();
         if other.open(bytes, "clipboard.pptx").is_err() {
             return false;
         }
@@ -120,5 +156,38 @@ mod tests {
             .unwrap();
         assert_eq!(shapes(&a), before + 1);
         assert!(!a.copy_from_deck(b"not a deck", &Copied::Slides(vec![0])));
+    }
+
+    #[test]
+    fn clipboard_deck_carries_only_what_was_copied() {
+        let src = deck("slide-album-photos.pptx");
+        let mut b = crate::Engine::with_bundled_fonts();
+        b.open(&src, "b.pptx").unwrap();
+        // One slide of five.
+        b.slide_command(SlideCommand::CopySlides {
+            indices: Some(vec![1]),
+        })
+        .unwrap();
+        let (bytes, what) = b.slide_clip_deck().expect("deck");
+        assert_eq!(what, Copied::Slides(vec![0]));
+        assert!(bytes.len() < src.len(), "{} < {}", bytes.len(), src.len());
+        let mut a = crate::Engine::with_bundled_fonts();
+        a.open(&deck("slide-text-bullets.pptx"), "a.pptx").unwrap();
+        let n = a.presentation().map_or(0, |p| p.slides.len());
+        assert!(a.copy_from_deck(&bytes, &what));
+        a.slide_command(SlideCommand::Paste { keep_source: false })
+            .unwrap();
+        assert_eq!(a.presentation().map_or(0, |p| p.slides.len()), n + 1);
+        // Shapes travel on one blank slide.
+        b.slide_command(SlideCommand::GoTo { slide: 0 }).unwrap();
+        b.slide_command(SlideCommand::SelectAll).unwrap();
+        b.slide_command(SlideCommand::Copy).unwrap();
+        let (bytes, what) = b.slide_clip_deck().expect("deck");
+        let Copied::Shapes { slide: 0, ids } = &what else {
+            panic!("{what:?}");
+        };
+        assert_ne!(ids.len(), 0);
+        assert!(bytes.len() < src.len());
+        assert!(a.copy_from_deck(&bytes, &what));
     }
 }

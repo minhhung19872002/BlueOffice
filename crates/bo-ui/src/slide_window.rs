@@ -75,7 +75,11 @@ fn home() -> Tab {
             Group {
                 label: "ribbon.groups.clipboard",
                 large: vec![L("edit.paste")],
-                rows: vec![vec![B("edit.cut")], vec![B("edit.copy")]],
+                rows: vec![
+                    vec![B("edit.cut")],
+                    vec![B("edit.copy")],
+                    vec![B("sl.painter")],
+                ],
             },
             Group {
                 label: "slideEditor.groupSlides",
@@ -124,111 +128,22 @@ fn home() -> Tab {
                     ],
                 ],
             },
-            Group {
-                label: "slideEditor.groupDrawing",
-                large: vec![L("insert.textBox")],
-                rows: vec![
-                    vec![
-                        B("insert.rect"),
-                        B("insert.ellipse"),
-                        B("insert.triangle"),
-                        B("insert.arrow"),
-                    ],
-                    vec![
-                        B("arrange.front"),
-                        B("arrange.back"),
-                        B("arrange.group"),
-                        B("arrange.ungroup"),
-                    ],
-                ],
-            },
-            Group {
-                label: "ribbon.groups.editing",
-                large: vec![],
-                rows: vec![vec![S("edit.selectAll")]],
-            },
-        ],
-    }
-}
-
-fn insert_tab() -> Tab {
-    use Item::{Button as B, Large as L};
-    Tab {
-        label: "ribbon.tabs.insert",
-        groups: vec![
-            Group {
-                label: "slideEditor.groupSlides",
-                large: vec![L("slide.new")],
-                rows: vec![],
-            },
-            Group {
-                label: "slideEditor.groupShapes",
-                large: vec![],
-                rows: vec![
-                    vec![B("insert.rect"), B("insert.ellipse")],
-                    vec![B("insert.triangle"), B("insert.arrow")],
-                ],
-            },
-            Group {
-                label: "ribbon.groups.comments",
-                large: vec![L("review.newComment")],
-                rows: vec![],
-            },
-            Group {
-                label: "slideNative.text",
-                large: vec![L("insert.textBox")],
-                rows: vec![],
-            },
-        ],
-    }
-}
-
-fn show_tab() -> Tab {
-    use Item::Large as L;
-    Tab {
-        label: "slideEditor.showTab",
-        groups: vec![
-            Group {
-                label: "slideEditor.groupShow",
-                large: vec![L("show.fromStart"), L("show.fromCurrent")],
-                rows: vec![],
-            },
-            Group {
-                label: "slideNative.setUp",
-                large: vec![L("show.hideSlide")],
-                rows: vec![],
-            },
-        ],
-    }
-}
-
-fn view_tab() -> Tab {
-    use Item::{Labeled as S, Large as L};
-    Tab {
-        label: "slideEditor.viewTab",
-        groups: vec![
-            Group {
-                label: "slideNative.presentationViews",
-                large: vec![L("view.normal"), L("view.sorter"), L("view.reading")],
-                rows: vec![],
-            },
-            Group {
-                label: "ribbon.groups.show",
-                large: vec![L("view.notes")],
-                rows: vec![],
-            },
-            Group {
-                label: "ribbon.groups.zoom",
-                large: vec![L("view.fitSlide")],
-                rows: vec![vec![S("view.zoomIn")], vec![S("view.zoomOut")]],
-            },
+            ins::drawing_group(),
+            ins::editing_group(),
         ],
     }
 }
 
 /// The slide formatting as the ribbon's format state (toggles, font and size boxes, undo).
-fn ribbon_format(view: &SlideView) -> bo_edit::FormatState {
+fn ribbon_format(view: &SlideView, anim: bool) -> bo_edit::FormatState {
     let f = view.format();
+    let mut flags = String::new();
+    if !view.selection().is_empty() {
+        flags.push_str("sel ");
+    }
+    if anim {
+        flags.push_str("anim");
+    }
     let (can_undo, can_redo) = view.history();
     bo_edit::FormatState {
         bold: f.bold,
@@ -249,6 +164,7 @@ fn ribbon_format(view: &SlideView) -> bo_edit::FormatState {
         numbering: f.numbering,
         can_undo,
         can_redo,
+        style: Some(flags),
         ..bo_edit::FormatState::default()
     }
 }
@@ -295,10 +211,93 @@ pub struct SlideWindow {
     text_size: f32,
     /// Controls drawn over ribbon slots (timing boxes, Effect Options).
     controls: controls::Controls,
+    /// Open picker (table grid, shapes, icons, colours…) and the command it belongs to.
+    picker: Option<(crate::slide_pickers::Picker, &'static str)>,
+    /// Icon library (loaded when the icon picker first opens).
+    library: Vec<crate::slide_pickers::LibIcon>,
+    /// Open dialog (Header and Footer, Find, Replace).
+    dialog: Option<(crate::dialog::Dialog, ins::SlideDialog)>,
+    dialog_layout: bool,
+    /// A file the host should pick for Insert.
+    file_request: Option<InsertFile>,
+    /// Typing in a Size spin box.
+    size_edit: Option<crate::spin_box::SpinEdit>,
+    /// Last searched text.
+    find_what: String,
+    /// Contextual tabs shown, and whether the next ones appear active (after inserting).
+    context: ins::Context,
+    activate_context: bool,
+    /// Number of fixed tabs; the fixed tab active before a contextual one.
+    base_tabs: usize,
+    last_base_tab: usize,
+    /// Sizes in centimetres (else inches, as the reference in en-US).
+    metric: bool,
+    /// Format Painter holds the formatting of these shapes.
+    fmt_painter: Option<Vec<u32>>,
+    /// Format Background pane (same place as the comments pane; one at a time).
+    bg_pane: crate::slide_bgpane::BgPane,
+    /// Slide Show tab: Show Media Controls, Use Presenter View.
+    media_controls: bool,
+    use_presenter: bool,
+    /// Rehearsed timings waiting for the user's answer.
+    pending_timings: Option<Vec<bo_engine::slide_edit::present::SlideTiming>>,
+    /// View tab: Outline View / Notes Page drawn by the window, Slide Master view,
+    /// gridlines and guides, outline rows (top, slide) for hit testing.
+    pane: viewtab::Pane,
+    master_view: bool,
+    gridlines: bool,
+    guides: bool,
+    outline_rows: Vec<(f32, usize)>,
 }
 
 #[path = "slide_controls.rs"]
 mod controls;
+
+#[path = "slide_insert.rs"]
+mod ins;
+
+#[path = "slide_showtab.rs"]
+mod showtab;
+
+#[path = "slide_viewtab.rs"]
+mod viewtab;
+pub use ins::InsertFile;
+
+impl SlideWindow {
+    /// The fixed tabs now shown: Slide Master's tab first while the master is edited.
+    fn fixed_tabs(&self) -> Vec<Tab> {
+        let mut tabs = base_tabs();
+        if self.master_view {
+            tabs.insert(0, viewtab::master_tab());
+        }
+        tabs
+    }
+}
+
+/// The fixed tabs, in the reference's order.
+fn base_tabs() -> Vec<Tab> {
+    vec![
+        home(),
+        ins::insert_tab(),
+        sr::draw_tab(),
+        sr::design_tab(),
+        sr::transitions_tab(),
+        sr::animations_tab(),
+        showtab::show_tab(),
+        sr::review_tab(),
+        viewtab::view_tab(),
+    ]
+}
+
+/// Fixed widths of gallery tiles (themes, transitions, effects, shape styles).
+fn large_widths(id: &str) -> Option<f32> {
+    sr::large_width(id).or_else(|| ins::large_width(id))
+}
+
+/// Fixed widths of row slots drawn over by the window (timing and size boxes).
+fn row_widths(id: &str) -> Option<f32> {
+    sr::row_width(id).or_else(|| ins::row_width(id))
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum MenuKind {
@@ -320,6 +319,9 @@ enum MenuKind {
     AnimMore,
     /// Add Animation: every effect, added to the selection's effects.
     AnimAdd,
+    /// Design: theme effects; every theme (the gallery's "more" column).
+    Effects,
+    Themes,
 }
 
 /// Extra height of BlueSlide's command band (logical px): measured 2026-11-15 at 125 %, the
@@ -343,8 +345,27 @@ const BACKGROUNDS: [Option<&str>; 9] = [
     Some("FBE5D6"),
 ];
 
+/// Ribbon state the enabling rule reads, carried in the format state's `style` (BlueSlide
+/// has no paragraph style gallery): `sel` with a selection, `anim` when it has an effect.
+fn slide_flags(f: &bo_edit::FormatState) -> &str {
+    f.style.as_deref().unwrap_or("")
+}
+
 fn slide_enabled(id: &str, f: &bo_edit::FormatState) -> bool {
-    crate::commands::enabled(id, f) || sr::is_command(id)
+    let flags = slide_flags(f);
+    if ins::needs_selection(id) {
+        return flags.contains("sel");
+    }
+    // Trigger and Animation Painter need an effect on the selection (dimmed otherwise, as
+    // on the reference).
+    if matches!(id, "anim.trigger" | "anim.painter") {
+        return flags.contains("anim");
+    }
+    crate::commands::enabled(id, f)
+        || sr::is_command(id)
+        || ins::COMMANDS.contains(&id)
+        || showtab::COMMANDS.contains(&id)
+        || viewtab::COMMANDS.contains(&id)
 }
 
 impl SlideWindow {
@@ -352,11 +373,21 @@ impl SlideWindow {
     pub fn new(mut view: SlideView, locale: &str, name: &str) -> Self {
         let mut strings = Strings::load(locale);
         sr::install_strings(&mut strings);
+        ins::install_strings(&mut strings);
+        showtab::install_strings(&mut strings);
+        viewtab::install_strings(&mut strings);
         let mut icons = Icons::load();
         sr::install_icons(&mut icons);
+        ins::install_icons(&mut icons);
+        showtab::install_icons(&mut icons);
+        viewtab::install_icons(&mut icons);
         view.set_labels(
             strings.get("slideEditor.notesPlaceholder"),
             strings.get("slideEditor.end"),
+        );
+        view.set_present_labels(
+            strings.get("slideNative.nextSlide"),
+            strings.get("slideEditor.slideOf"),
         );
         view.set_prompts(
             strings.get("slideEditor.promptTitle"),
@@ -377,21 +408,15 @@ impl SlideWindow {
             anim_focus: false,
             painter: None,
             gallery_w: Vec::new(),
-            ribbon: Ribbon::with_tabs(vec![
-                home(),
-                insert_tab(),
-                sr::draw_tab(),
-                sr::design_tab(),
-                sr::transitions_tab(),
-                sr::animations_tab(),
-                show_tab(),
-                sr::review_tab(),
-                view_tab(),
-            ])
-            .with_band_extra(RIBBON_EXTRA)
-            .with_large_widths(sr::large_width)
-            .with_row_widths(sr::row_width)
-            .with_enabled(slide_enabled),
+            ribbon: Ribbon::with_tabs(base_tabs())
+                .with_band_extra(RIBBON_EXTRA)
+                .with_large_widths(large_widths)
+                .with_row_widths(row_widths)
+                .with_two_line_labels()
+                .with_mark_on_own_line()
+                // Reference at 125 %: font box 213 px, size box 67.
+                .with_box_widths(170.4, 53.6)
+                .with_enabled(slide_enabled),
             theme: Theme::light("slide"),
             icons,
             strings,
@@ -408,6 +433,28 @@ impl SlideWindow {
             relayout_pending: false,
             text_size: 12.0,
             controls: controls::Controls::default(),
+            picker: None,
+            library: Vec::new(),
+            dialog: None,
+            dialog_layout: false,
+            file_request: None,
+            size_edit: None,
+            find_what: String::new(),
+            context: ins::Context::None,
+            activate_context: false,
+            base_tabs: base_tabs().len(),
+            last_base_tab: 0,
+            metric: locale.starts_with("vi"),
+            fmt_painter: None,
+            bg_pane: crate::slide_bgpane::BgPane::default(),
+            media_controls: true,
+            use_presenter: false,
+            pending_timings: None,
+            pane: viewtab::Pane::Normal,
+            master_view: false,
+            gridlines: false,
+            guides: false,
+            outline_rows: Vec::new(),
         }
     }
 
@@ -491,7 +538,7 @@ impl SlideWindow {
             self.ribbon.bottom()
         };
         let sh = self.status_h();
-        let pane = if (self.comments.shown || self.anim_pane.shown)
+        let pane = if (self.comments.shown || self.anim_pane.shown || self.bg_pane.shown)
             && self.view.mode() != ViewMode::Reading
         {
             CommentsPane::width(self.scale)
@@ -505,6 +552,9 @@ impl SlideWindow {
             .layout([self.size.0 - pane, top, pane, area_h], self.scale);
         self.anim_pane
             .layout([self.size.0 - pane, top, pane, area_h], self.scale);
+        let colors = self.theme_colors();
+        self.bg_pane
+            .layout([self.size.0 - pane, top, pane, area_h], self.scale, &colors);
         self.view.set_window(self.size.0, self.size.1);
         if let Some(b) = self.backstage.as_mut() {
             b.layout(self.title.height(), self.size, self.scale);
@@ -572,7 +622,16 @@ impl SlideWindow {
     pub fn handle(&mut self, input: Input, text: &dyn TextMeasure) -> bool {
         let showing = self.view.showing();
         let mode = self.view.mode();
-        let redraw = self.route(input, text) | self.paint_effect();
+        let redraw = self.route(input, text)
+            | self.paint_effect()
+            | self.paste_format_painter()
+            | self.sync_context()
+            | self.after_rehearsal();
+        if std::mem::take(&mut self.dialog_layout) {
+            if let Some((d, _)) = self.dialog.as_mut() {
+                d.layout(text, self.size, self.scale);
+            }
+        }
         if mode != self.view.mode() {
             self.relayout_pending = true;
         }
@@ -617,6 +676,7 @@ impl SlideWindow {
                 .record(text, &effects, &labels, self.theme.text);
         }
         self.view.measure_notes(text, self.text_size);
+        self.layout_outline(self.text_size);
         redraw
     }
 
@@ -676,6 +736,15 @@ impl SlideWindow {
 
     /// Run interface command `id` (ribbon, title bar, menu, shortcut).
     fn action(&mut self, id: &str) -> bool {
+        if let Some(r) = self.insert_action(id) {
+            return r;
+        }
+        if let Some(r) = self.show_action(id) {
+            return r;
+        }
+        if let Some(r) = self.view_action(id) {
+            return r;
+        }
         match id {
             "file.save" => {
                 self.requests.push(Request::Save);
@@ -688,6 +757,7 @@ impl SlideWindow {
                 self.requests.push(Request::Paste);
                 true
             }
+            "draw.inkToShape" => self.view.ink_to_shapes(),
             id if sr::DRAW_TOOLS.contains(&id) => {
                 self.view.set_ink_tool(crate::slide_view::InkTool::of(id));
                 true
@@ -743,6 +813,7 @@ impl SlideWindow {
                 self.step_comment(id == "review.nextComment")
             }
             "anim.pane" => {
+                self.bg_pane.shown = false;
                 self.anim_pane.shown = !self.anim_pane.shown;
                 self.comments.shown = false;
                 self.relayout_pending = true;
@@ -767,6 +838,7 @@ impl SlideWindow {
             }
             "review.comments" => {
                 self.anim_pane.shown = false;
+                self.bg_pane.shown = false;
                 self.comments.shown = !self.comments.shown;
                 self.comments.draft = None;
                 self.relayout_pending = true;
@@ -774,6 +846,7 @@ impl SlideWindow {
             }
             "review.newComment" => {
                 self.anim_pane.shown = false;
+                self.bg_pane.shown = false;
                 self.comments.shown = true;
                 self.comments.draft = Some(String::new());
                 self.relayout_pending = true;
@@ -807,6 +880,10 @@ impl SlideWindow {
             id if sr::is_menu(id) => {
                 let (kind, anchor) = match id {
                     "design.colors" => (MenuKind::Colors, "design.colors"),
+                    "design.variants" => (MenuKind::Colors, "design.variants"),
+                    "design.effects" => (MenuKind::Effects, "design.effects"),
+                    "design.layout" => (MenuKind::Layout, "design.layout"),
+                    "design.more" => (MenuKind::Themes, "design.more"),
                     "design.fonts" => (MenuKind::Fonts, "design.fonts"),
                     "design.slideSize" => (MenuKind::SlideSize, "design.slideSize"),
                     "design.background" => (MenuKind::Background, "design.background"),
@@ -823,6 +900,7 @@ impl SlideWindow {
             "transition.applyAll" => self.set_transition(None, None, None, true),
             "transition.preview" => self.view.start_preview(false),
             "anim.preview" => self.view.start_preview(true),
+            sr::CURRENT_THEME => true,
             id => {
                 if let Some((_, theme)) = sr::THEMES.iter().find(|(c, _)| *c == id) {
                     return self.view.run_master(MasterCommand::ApplyTheme {
@@ -1102,19 +1180,23 @@ impl SlideWindow {
         };
         let (ox, oy) = self.view.slide_origin();
         let size = self.px(24.0);
+        let k = self.view.scale();
+        let mut corner = 0;
         st.comments
             .iter()
-            .enumerate()
-            .map(|(i, t)| {
-                (
-                    [
-                        ox + self.px(6.0) + i as f32 * (size + self.px(4.0)),
+            .map(|t| {
+                // At the comment's anchor point when the file has one (p188:pos), else
+                // along the slide's top-left corner.
+                let (x, y) = if let Some((px, py)) = t.pos {
+                    (ox + px as f32 * k, oy + py as f32 * k)
+                } else {
+                    corner += 1;
+                    (
+                        ox + self.px(6.0) + (corner - 1) as f32 * (size + self.px(4.0)),
                         oy + self.px(6.0),
-                        size,
-                        size,
-                    ],
-                    t.id.clone(),
-                )
+                    )
+                };
+                ([x.round(), y.round(), size, size], t.id.clone())
             })
             .collect()
     }
@@ -1188,16 +1270,6 @@ impl SlideWindow {
     fn copy(&mut self, cut: bool) -> bool {
         let slides = self.view.mode() == ViewMode::Sorter || self.view.focus() == Focus::Thumbs;
         let indices = Some(self.view.selected_slides());
-        // What another BlueSlide window needs to paste it: the deck as it was copied from.
-        let copied = if slides {
-            Copied::Slides(self.view.selected_slides())
-        } else {
-            Copied::Shapes {
-                slide: self.view.current(),
-                ids: self.view.selection().iter().map(|s| s.id).collect(),
-            }
-        };
-        let deck = self.view.engine().save_pptx().ok();
         let cmd = match (slides, cut) {
             (true, false) => SlideCommand::CopySlides { indices },
             (true, true) => SlideCommand::CutSlides { indices },
@@ -1222,8 +1294,12 @@ impl SlideWindow {
             self.clip_seq
         );
         self.clip_token = Some(token.clone());
-        let internal = match (deck, serde_json::to_string(&copied)) {
-            (Some(bytes), Ok(what)) => {
+        // What another BlueSlide window needs to paste it: a small deck holding only the
+        // copied slides or shapes (with their media, layouts and theme), not the whole deck.
+        let deck = self.view.engine().slide_clip_deck();
+        let internal = match deck.and_then(|(b, c)| serde_json::to_string(&c).ok().map(|w| (b, w)))
+        {
+            Some((bytes, what)) => {
                 use base64::Engine as _;
                 format!(
                     "{token}\n{what}\n{}",
@@ -1418,6 +1494,31 @@ impl SlideWindow {
                     dim: false,
                 })
                 .collect(),
+            MenuKind::Effects => vec![MenuItem {
+                // The built-in themes share one effect style (§20.1.4.1.12 fmtScheme).
+                label: self.t("slideNative.officeEffects", "Office"),
+                choice: Choice::Command("noop:".into()),
+                checked: true,
+                dim: false,
+            }],
+            MenuKind::Themes => std::iter::once((sr::CURRENT_THEME, String::new()))
+                .chain(sr::THEMES.iter().map(|(c, _)| {
+                    (
+                        *c,
+                        self.strings.get(&format!("commands.tip.{c}")).to_owned(),
+                    )
+                }))
+                .map(|(c, label)| MenuItem {
+                    label: if label.is_empty() {
+                        self.strings.get(&format!("commands.tip.{c}")).to_owned()
+                    } else {
+                        label
+                    },
+                    choice: Choice::Command(c.to_owned()),
+                    checked: false,
+                    dim: false,
+                })
+                .collect(),
             MenuKind::Colors => COLOR_SETS
                 .iter()
                 .map(|c| MenuItem {
@@ -1447,6 +1548,12 @@ impl SlideWindow {
                 checked: design.as_ref().is_some_and(|d| d.cx == *cx && d.cy == *cy),
                 dim: false,
             })
+            .chain(std::iter::once(MenuItem {
+                label: self.t("slideNative.customSize", "Custom Slide Size..."),
+                choice: Choice::Command("ins:slideSize".into()),
+                checked: false,
+                dim: false,
+            }))
             .collect(),
             MenuKind::Background => BACKGROUNDS
                 .iter()
@@ -1462,6 +1569,20 @@ impl SlideWindow {
                     checked: false,
                     dim: false,
                 })
+                .chain([
+                    MenuItem {
+                        label: self.t("slideNative.formatBackgroundMenu", "Format Background..."),
+                        choice: Choice::Command("ins:formatBg".into()),
+                        checked: false,
+                        dim: false,
+                    },
+                    MenuItem {
+                        label: self.t("slideNative.hideGraphics", "Hide Background Graphics"),
+                        choice: Choice::Command("ins:hideGraphics".into()),
+                        checked: self.bg_pane.hide_graphics,
+                        dim: false,
+                    },
+                ])
                 .collect(),
             MenuKind::TransitionEffect => {
                 let t = self.view.state().and_then(|s| s.transition.clone());
@@ -1563,10 +1684,13 @@ impl SlideWindow {
                     return r;
                 }
                 match c.strip_prefix("layout:").and_then(|i| i.parse().ok()) {
-                    // The Layout menu adds a slide with the chosen layout, as New Slide's
-                    // menu does.
+                    // The Layout menus (Home, Design) give the selected slides the chosen
+                    // layout, as the reference does.
                     Some(layout) if self.menu_kind == MenuKind::Layout => {
-                        self.view.new_slide(Some(layout))
+                        self.view.run_master(MasterCommand::ApplyLayout {
+                            layout,
+                            slides: Some(self.view.selected_slides()),
+                        })
                     }
                     _ => self.action(&c),
                 }
@@ -1644,7 +1768,9 @@ impl SlideWindow {
                 }
                 added
             }
-            _ => return None,
+            "cshow" => return self.choose_show(kind, v),
+            "zoom" => return self.choose_view(kind, v),
+            _ => return self.choose_insert(kind, v),
         })
     }
 
@@ -1783,10 +1909,23 @@ impl SlideWindow {
                 _ => {}
             }
         }
+        if self.dialog.is_some() {
+            if let Some(r) = self.dialog_input(&input, text) {
+                return r;
+            }
+        }
+        if self.picker.is_some() {
+            if let Some(r) = self.picker_input(&input) {
+                return r;
+            }
+        }
         if self.menu.is_some() {
             if let Some(r) = self.menu_input(&input) {
                 return r;
             }
+        }
+        if let Some(r) = self.size_key(&input) {
+            return r;
         }
         let tip_before = self.tooltip.is_some();
         if matches!(
@@ -1818,11 +1957,21 @@ impl SlideWindow {
             if let Some(r) = self.controls_press(x, y) {
                 return r;
             }
+            if let Some(r) = self.size_press(x, y) {
+                return r;
+            }
+            if let Some(r) = self.pane_press(x, y) {
+                self.area_press = false;
+                return r;
+            }
         }
         if let Some(r) = self.controls_key(&input, text) {
             return r;
         }
         if let Some(r) = self.anim_input(&input) {
+            return r || tip_before != self.tooltip.is_some();
+        }
+        if let Some(r) = self.bg_input(&input) {
             return r || tip_before != self.tooltip.is_some();
         }
         if let Some(r) = self.comments_input(&input) {
@@ -1970,7 +2119,8 @@ impl SlideWindow {
         }
         p.clear(self.theme.bg);
         self.view.paint(p, self.text_size);
-        let format = ribbon_format(&self.view);
+        self.paint_view_extras(p);
+        let format = ribbon_format(&self.view, self.anim_index().is_some());
         self.title.paint(
             p,
             &self.theme,
@@ -1994,10 +2144,14 @@ impl SlideWindow {
             self.paint_theme_tiles(p);
             self.paint_galleries(p, &on);
             self.paint_controls(p);
+            self.paint_insert(p);
+            self.paint_show_checks(p);
+            self.paint_view_checks(p);
         }
         self.paint_markers(p);
         self.comments.paint(p);
         self.anim_pane.paint(p);
+        self.paint_bg_pane(p);
         self.paint_status(p);
         if let Some(menu) = &self.menu {
             menu.paint(p, &self.theme, &self.icons);
@@ -2015,6 +2169,9 @@ impl SlideWindow {
                 self.view.modified(),
             );
         }
+        if let Some((d, _)) = &self.dialog {
+            d.paint(p, &self.theme, self.size, true);
+        }
     }
 
     /// Ribbon commands shown as on: notes, the current slide's transition, the selection's
@@ -2027,6 +2184,10 @@ impl SlideWindow {
         if self.painter.is_some() {
             on.push("anim.painter");
         }
+        if self.fmt_painter.is_some() {
+            on.push("sl.painter");
+        }
+        self.view_toggled(&mut on);
         // The Draw tool in use (Select when none).
         let tool = sr::DRAW_TOOLS
             .iter()
@@ -2214,7 +2375,7 @@ impl SlideWindow {
     fn paint_theme_tiles(&self, p: &mut dyn Painter) {
         let design = self.view.state().and_then(|s| s.design.as_ref());
         let rect = |id: &'static str| self.ribbon.rect_of(RibbonHit::Command(id));
-        let (Some(first), Some(last)) = (rect(sr::THEMES[0].0), rect(sr::THEMES[4].0)) else {
+        let (Some(first), Some(last)) = (rect(sr::CURRENT_THEME), rect(sr::THEMES[4].0)) else {
             return;
         };
         // One white gallery box with a light frame, as the transition gallery (y 106-197).
@@ -2239,6 +2400,43 @@ impl SlideWindow {
             px(73.6) - 2.0,
             grey(0xff),
         );
+        // First card: this presentation's theme (its colours and heading font).
+        if let Some(d) = design {
+            let colors: Vec<bo_render::Rgba> = self.theme_colors().into_iter().take(6).collect();
+            let heading = FONT_SETS
+                .iter()
+                .find(|f| f.name == d.fonts)
+                .map_or("Calibri Light", |f| f.major);
+            // The reference always marks this card as the current theme.
+            sr::paint_theme_tile(p, first, top, self.scale, heading, &colors, true);
+        }
+        // The gallery's "more" column (frame 128 on 243, as the transition gallery's).
+        if let Some(m) = rect("design.more") {
+            let mx = m[0] + 1.0;
+            let mw = px(28.8);
+            let h = px(73.6);
+            p.fill_rect(mx, top, mw, h, grey(0x80));
+            p.fill_rect(mx + 1.0, top + 1.0, mw - 2.0, h - 2.0, grey(0xf3));
+            let (cx, cy) = (mx + mw / 2.0, top + h / 2.0);
+            let k = px(3.2);
+            p.fill_rect(
+                (cx - k).round(),
+                (cy - k - px(2.4)).round(),
+                2.0 * k,
+                1.0,
+                self.theme.text,
+            );
+            p.path(
+                &[
+                    PathSeg::M(cx - k, cy - k / 2.0),
+                    PathSeg::L(cx + k, cy - k / 2.0),
+                    PathSeg::L(cx, cy + k / 2.0),
+                    PathSeg::Z,
+                ],
+                Some(self.theme.text),
+                None,
+            );
+        }
         for (id, theme) in sr::THEMES {
             let Some(r) = self.ribbon.rect_of(RibbonHit::Command(id)) else {
                 continue;
@@ -2263,8 +2461,7 @@ impl SlideWindow {
                 .iter()
                 .find(|f| f.id == def.fonts)
                 .map_or("Calibri Light", |f| f.major);
-            let current = design.is_some_and(|d| d.theme.as_deref() == Some(def.name));
-            sr::paint_theme_tile(p, r, top, self.scale, heading, &colors, current);
+            sr::paint_theme_tile(p, r, top, self.scale, heading, &colors, false);
         }
     }
 

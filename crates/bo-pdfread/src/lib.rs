@@ -28,6 +28,7 @@ mod edit;
 mod encoding;
 #[allow(clippy::unreadable_literal, clippy::large_const_arrays)]
 mod encoding_data;
+mod exchange;
 mod fallback;
 mod filters;
 mod font;
@@ -55,6 +56,7 @@ pub use annot_edit::CommentThread;
 pub use convert::{StyledBlock, StyledRun};
 pub use design::{NewField, NewFieldKind, PageMarks};
 pub use edit::{Permissions, SaveOptions};
+pub use exchange::SummaryLabels;
 pub use forms::{FieldKind, FormField};
 pub use image::Image;
 pub use markup::{Markup, MarkupKind};

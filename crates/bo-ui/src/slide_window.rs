@@ -1693,7 +1693,11 @@ impl SlideWindow {
         let counter = self
             .strings
             .get("slideEditor.slideOf")
-            .replace("{{n}}", &(self.view.current() + 1).to_string())
+            // Reading view counts the slide it shows.
+            .replace(
+                "{{n}}",
+                &(self.view.show_slide().unwrap_or(self.view.current()) + 1).to_string(),
+            )
             .replace("{{total}}", &self.view.slide_count().to_string());
         p.text(&counter, self.px(11.0), ty, style, ink);
         let [notes, minus, track, plus, pct, fit, normal, ..] = self.status;

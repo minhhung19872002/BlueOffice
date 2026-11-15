@@ -20,6 +20,7 @@ mod sheet_ribbon;
 mod sheet_view;
 mod sheet_window;
 mod shell;
+mod slide_anim_pane;
 mod slide_comments;
 mod slide_reveal;
 mod slide_ribbon;

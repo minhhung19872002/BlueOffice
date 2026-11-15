@@ -142,19 +142,56 @@ fn transitions_tab_sets_duration_and_applies_to_all() {
     assert!(w.view().previewing() && w.animating());
     w.set_clock(60_000.0);
     assert!(!w.view().previewing());
-    // Duration menu: pick 1 s.
-    click_command(&mut w, "transition.duration");
-    assert!(w.menu.is_some());
-    for _ in 0..3 {
-        w.handle(Input::Key(Key::Down, Mods::default()), &Fixed);
-    }
+    // Duration spin box: the up arrow adds a quarter second, typing sets it.
+    let dur = |w: &SlideWindow| {
+        w.view()
+            .state()
+            .and_then(|s| s.transition.as_ref())
+            .map(|t| t.dur_ms)
+    };
+    let before = dur(&w).unwrap_or(0);
+    let [x, y, bw, bh] = w.control_rect("transition.duration").expect("duration box");
+    click(&mut w, x + bw - 3.0, y + 3.0);
+    assert_eq!(dur(&w), Some(before + 250));
+    click(&mut w, x + 5.0, y + bh / 2.0);
+    w.handle(Input::Text("1.5".into()), &Fixed);
     w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
-    let dur = w
+    assert_eq!(dur(&w), Some(1500));
+    // After: tick it and type 3 s; the slide then advances on its own.
+    let [x, y, bw, bh] = w.control_rect("transition.after").expect("after box");
+    click(&mut w, x + 5.0, y + bh / 2.0);
+    w.handle(Input::Text("3".into()), &Fixed);
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    let after = w
         .view()
         .state()
         .and_then(|s| s.transition.as_ref())
-        .map(|t| t.dur_ms);
-    assert!(dur.is_some_and(|d| d != 0), "{dur:?}");
+        .and_then(|t| t.advance_after_ms);
+    assert_eq!(after, Some(3000));
+    assert!(bw > 0.0 && y > 0.0 && x > 0.0);
+    // On Mouse Click toggles.
+    let [x, y, _, bh] = w.control_rect("transition.onClick").expect("check");
+    click(&mut w, x + 3.0, y + bh / 2.0);
+    let on_click = w
+        .view()
+        .state()
+        .and_then(|s| s.transition.as_ref())
+        .map(|t| t.advance_on_click);
+    assert_eq!(on_click, Some(false));
+    // Sound: the drop-down offers stopping the previous sound.
+    let [x, y, bw, bh] = w.control_rect("transition.sound").expect("sound box");
+    click(&mut w, x + bw - 5.0, y + bh / 2.0);
+    assert!(w.menu.is_some());
+    w.handle(Input::Key(Key::Down, Mods::default()), &Fixed);
+    w.handle(Input::Key(Key::Down, Mods::default()), &Fixed);
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    let stop = w
+        .view()
+        .state()
+        .and_then(|s| s.transition.as_ref())
+        .and_then(|t| t.sound.as_ref())
+        .map(|s| s.stop);
+    assert_eq!(stop, Some(true));
     click_command(&mut w, "transition.applyAll");
     w.view_mut().go_to(1);
     assert_eq!(kind(&w).as_deref(), Some("fade"));
@@ -381,10 +418,109 @@ fn comments_pane_adds_resolves_and_deletes() {
             .map(|(r, _)| *r)
             .expect("link")
     };
+    // Reply in the thread: the reply box under the card.
+    let r = hit(&w, |h| matches!(h, PaneHit::Reply(..)));
+    click(&mut w, r[0] + 4.0, r[1] + 4.0);
+    w.handle(Input::Text("Agreed".into()), &Fixed);
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    let t = threads(&w);
+    assert_eq!(t.len(), 1);
+    assert_eq!(t[0].comments.len(), 2);
+    assert_eq!(t[0].comments[1].text, "Agreed");
+    // A marker on the slide opens the pane at its thread.
+    let markers = w.comment_markers();
+    assert_eq!(markers.len(), 1);
+    w.comments.shown = false;
+    w.comments.active = None;
+    let [mx, my, mw, mh] = markers[0].0;
+    click(&mut w, mx + mw / 2.0, my + mh / 2.0);
+    assert!(w.comments.shown);
+    assert_eq!(w.comments.active.as_deref(), Some(t[0].id.as_str()));
     let r = hit(&w, |h| matches!(h, PaneHit::Resolve(..)));
     click(&mut w, r[0] + 2.0, r[1] + 2.0);
     assert!(threads(&w)[0].done);
     let r = hit(&w, |h| matches!(h, PaneHit::Delete(..)));
     click(&mut w, r[0] + 2.0, r[1] + 2.0);
     assert_eq!(threads(&w).len(), 0);
+}
+
+#[test]
+fn animation_pane_lists_reorders_and_times_effects() {
+    use crate::slide_anim_pane::AnimHit;
+    let mut w = window();
+    w.view_mut().run(SlideCommand::SelectAll);
+    let n = w.view().selection().len();
+    assert!(n >= 2, "two shapes to order");
+    tab(&mut w, 4);
+    click_command(&mut w, "anim.fade");
+    click_command(&mut w, "anim.pane");
+    assert!(w.anim_pane.shown);
+    let names = |w: &SlideWindow| -> Vec<u32> {
+        w.view()
+            .state()
+            .map(|s| s.animations.iter().map(|a| a.shape_id).collect())
+            .unwrap_or_default()
+    };
+    let before = names(&w);
+    assert_eq!(before.len(), n);
+    let at = |w: &SlideWindow, want: AnimHit| {
+        w.anim_pane
+            .hits
+            .iter()
+            .find(|(_, h)| *h == want)
+            .map(|(r, _)| *r)
+            .expect("pane hit")
+    };
+    // Choose the second effect, move it earlier.
+    let r = at(&w, AnimHit::Select(1));
+    click(&mut w, r[0] + 30.0, r[1] + 4.0);
+    assert_eq!(w.anim_pane.selected, Some(1));
+    let r = at(&w, AnimHit::Earlier);
+    click(&mut w, r[0] + r[2] / 2.0, r[1] + r[3] / 2.0);
+    let after = names(&w);
+    assert_eq!((after[0], after[1]), (before[1], before[0]));
+    assert_eq!(w.anim_pane.selected, Some(0));
+    // Timing group: the chosen effect's duration steps up by a quarter second.
+    let dur = |w: &SlideWindow| w.view().state().map(|s| s.animations[0].dur_ms);
+    let d0 = dur(&w).unwrap_or(0);
+    let [x, y, bw, _] = w.control_rect("anim.duration").expect("duration box");
+    click(&mut w, x + bw - 3.0, y + 3.0);
+    assert_eq!(dur(&w), Some(d0 + 250));
+    // Start: With Previous from the drop-down.
+    let [x, y, bw, bh] = w.control_rect("anim.start").expect("start box");
+    click(&mut w, x + bw - 5.0, y + bh / 2.0);
+    assert!(w.menu.is_some());
+    // The menu opens on the effect's current start; pick After Previous, then With Previous.
+    w.handle(Input::Key(Key::Escape, Mods::default()), &Fixed);
+    assert!(w.choose(Choice::Command("trig:afterPrevious".into())));
+    let trigger = w.view().state().map(|s| s.animations[0].trigger);
+    assert_eq!(trigger, Some("afterPrevious"));
+    assert!(w.choose(Choice::Command("trig:withPrevious".into())));
+    let trigger = w.view().state().map(|s| s.animations[0].trigger);
+    assert_eq!(trigger, Some("withPrevious"));
+}
+
+#[test]
+fn shapes_paste_into_another_window() {
+    let mut a = window();
+    let mut b = window();
+    a.view_mut().run(SlideCommand::SelectAll);
+    a.take_requests();
+    assert!(a.run_action("edit.copy"));
+    let reqs = a.take_requests();
+    let Some(Request::SetClipboard { text, internal, .. }) = reqs.first().cloned() else {
+        panic!("{reqs:?}");
+    };
+    assert!(internal.starts_with("BlueSlide/"));
+    let shapes = |w: &SlideWindow| {
+        w.view().engine().presentation().unwrap().slides[0]
+            .data
+            .shapes
+            .len()
+    };
+    let n = shapes(&b);
+    let copied = a.view().selection().len();
+    // The other window gets the shapes themselves, not a text box.
+    assert!(b.paste(Some(internal), None, Some(text)));
+    assert_eq!(shapes(&b), n + copied);
 }

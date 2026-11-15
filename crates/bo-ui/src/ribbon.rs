@@ -184,6 +184,8 @@ pub struct Ribbon {
     band_extra: f32,
     /// Fixed width (logical px) of some large buttons (gallery-like tiles), by command id.
     large_w: fn(&str) -> Option<f32>,
+    /// Fixed width (logical px) of some labeled row buttons (BlueSlide's timing boxes).
+    row_w: fn(&str) -> Option<f32>,
     /// Whether a command can run now (BlueSheet / BlueSlide pass their own rule).
     enabled: fn(&str, &FormatState) -> bool,
 }
@@ -520,6 +522,7 @@ impl Ribbon {
             label_row: 0.0,
             band_extra: 0.0,
             large_w: |_| None,
+            row_w: |_| None,
             enabled: commands::enabled,
         }
     }
@@ -539,6 +542,13 @@ impl Ribbon {
     /// Give some large buttons a fixed width (logical px), as gallery tiles.
     pub(crate) fn with_large_widths(mut self, rule: fn(&str) -> Option<f32>) -> Self {
         self.large_w = rule;
+        self
+    }
+
+    /// Give some labeled row buttons a fixed width (logical px), for controls a window draws
+    /// over them (spin and drop-down boxes).
+    pub(crate) fn with_row_widths(mut self, rule: fn(&str) -> Option<f32>) -> Self {
+        self.row_w = rule;
         self
     }
 
@@ -755,9 +765,10 @@ impl Ribbon {
                             Item::FontBox => self.px(150.0),
                             Item::SizeBox => self.px(52.0),
                             Item::Button(id) if crate::catalog::is_menu(id) => self.px(36.0),
-                            Item::Labeled(id) => {
-                                btn + self.measure_label(text, strings, id) + self.px(8.0)
-                            }
+                            Item::Labeled(id) => match (self.row_w)(id) {
+                                Some(fixed) => self.px(fixed),
+                                None => btn + self.measure_label(text, strings, id) + self.px(8.0),
+                            },
                             _ => btn,
                         };
                         placed.push(Placed::Item(*item, Rect { x, y, w, h: row_h }));

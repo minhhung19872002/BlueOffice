@@ -25,11 +25,14 @@ mod sheet_ribbon;
 mod sheet_view;
 mod sheet_window;
 mod shell;
+mod slide_anim_pane;
 mod slide_comments;
+mod slide_reveal;
 mod slide_ribbon;
 mod slide_show;
 mod slide_view;
 mod slide_window;
+mod spin_box;
 mod strings;
 mod theme;
 mod titlebar;
@@ -160,5 +163,18 @@ pub trait Painter {
             self.page(index, (dest[0] - src[0]) as i32, (dest[1] - src[1]) as i32);
             self.pop_clip();
         }
+    }
+    /// Draw like [`Painter::page_part`], turned `degrees` clockwise about the centre of `dest`
+    /// (slide show spin, Morph). Backends without rotation draw it unturned.
+    fn page_part_rotated(
+        &mut self,
+        index: usize,
+        src: [f32; 4],
+        dest: [f32; 4],
+        opacity: f32,
+        degrees: f32,
+    ) {
+        let _ = degrees;
+        self.page_part(index, src, dest, opacity);
     }
 }

@@ -6,6 +6,7 @@ use crate::backstage::{Backstage, FileAction};
 use crate::icons::{IconColors, Icons};
 use crate::popup::{paint_tooltip, Choice, Menu, MenuItem};
 use crate::ribbon::{Group, Item, Ribbon, RibbonHit, Tab};
+use crate::slide_anim_pane::{AnimHit, AnimKey, AnimPane};
 use crate::slide_comments::{now_iso, CommentsPane, PaneEdit, PaneHit};
 use crate::slide_ribbon as sr;
 use crate::slide_view::{Focus, SlideView, ViewMode};
@@ -13,6 +14,7 @@ use crate::strings::Strings;
 use crate::theme::Theme;
 use crate::titlebar::{NcHit, TitleBar};
 use crate::{Input, Key, Mods, PageStore, Painter, Request, TextMeasure, TextStyle};
+use bo_engine::slide_edit::clip_xfer::Copied;
 use bo_engine::slide_edit::master::{MasterCommand, SizeMode, COLOR_SETS, FONT_SETS};
 use bo_engine::slide_edit::show::{AnimSpec, TransitionSpec};
 use bo_engine::slide_edit::text::{Align, TextFormat};
@@ -161,11 +163,21 @@ fn insert_tab() -> Tab {
             },
             Group {
                 label: "slideEditor.groupShapes",
-                large: vec![L("insert.textBox")],
+                large: vec![],
                 rows: vec![
                     vec![B("insert.rect"), B("insert.ellipse")],
                     vec![B("insert.triangle"), B("insert.arrow")],
                 ],
+            },
+            Group {
+                label: "ribbon.groups.comments",
+                large: vec![L("review.newComment")],
+                rows: vec![],
+            },
+            Group {
+                label: "slideNative.text",
+                large: vec![L("insert.textBox")],
+                rows: vec![],
             },
         ],
     }
@@ -175,11 +187,18 @@ fn show_tab() -> Tab {
     use Item::Large as L;
     Tab {
         label: "slideEditor.showTab",
-        groups: vec![Group {
-            label: "slideEditor.groupShow",
-            large: vec![L("show.fromStart"), L("show.fromCurrent")],
-            rows: vec![],
-        }],
+        groups: vec![
+            Group {
+                label: "slideEditor.groupShow",
+                large: vec![L("show.fromStart"), L("show.fromCurrent")],
+                rows: vec![],
+            },
+            Group {
+                label: "slideNative.setUp",
+                large: vec![L("show.hideSlide")],
+                rows: vec![],
+            },
+        ],
     }
 }
 
@@ -188,6 +207,11 @@ fn view_tab() -> Tab {
     Tab {
         label: "slideEditor.viewTab",
         groups: vec![
+            Group {
+                label: "slideNative.presentationViews",
+                large: vec![L("view.normal"), L("view.sorter"), L("view.reading")],
+                rows: vec![],
+            },
             Group {
                 label: "ribbon.groups.show",
                 large: vec![L("view.notes")],
@@ -240,6 +264,13 @@ pub struct SlideWindow {
     clip_seq: u32,
     /// Comments pane on the right of the editing area.
     comments: CommentsPane,
+    /// Animation Pane (same place; one of the two at a time).
+    anim_pane: AnimPane,
+    /// The last press was in the Animation Pane (its keys go to it).
+    anim_focus: bool,
+    /// Animation Painter: the effect to give the next shape chosen, and the shape it came
+    /// from.
+    painter: Option<(AnimSpec, u32)>,
     /// Measured widths of the gallery tiles' names.
     gallery_w: Vec<(&'static str, f32)>,
     ribbon: Ribbon,
@@ -262,7 +293,12 @@ pub struct SlideWindow {
     relayout_pending: bool,
     /// UI text size (device pixels) for slide numbers and the notes.
     text_size: f32,
+    /// Controls drawn over ribbon slots (timing boxes, Effect Options).
+    controls: controls::Controls,
 }
+
+#[path = "slide_controls.rs"]
+mod controls;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum MenuKind {
@@ -282,6 +318,8 @@ enum MenuKind {
     /// Every transition / effect of the galleries.
     TransitionMore,
     AnimMore,
+    /// Add Animation: every effect, added to the selection's effects.
+    AnimAdd,
 }
 
 /// Extra height of BlueSlide's command band (logical px): measured 2026-11-15 at 125 %, the
@@ -335,10 +373,14 @@ impl SlideWindow {
             clip_token: None,
             clip_seq: 0,
             comments: CommentsPane::default(),
+            anim_pane: AnimPane::default(),
+            anim_focus: false,
+            painter: None,
             gallery_w: Vec::new(),
             ribbon: Ribbon::with_tabs(vec![
                 home(),
                 insert_tab(),
+                sr::draw_tab(),
                 sr::design_tab(),
                 sr::transitions_tab(),
                 sr::animations_tab(),
@@ -348,6 +390,7 @@ impl SlideWindow {
             ])
             .with_band_extra(RIBBON_EXTRA)
             .with_large_widths(sr::large_width)
+            .with_row_widths(sr::row_width)
             .with_enabled(slide_enabled),
             theme: Theme::light("slide"),
             icons,
@@ -364,6 +407,7 @@ impl SlideWindow {
             area_press: false,
             relayout_pending: false,
             text_size: 12.0,
+            controls: controls::Controls::default(),
         }
     }
 
@@ -447,7 +491,9 @@ impl SlideWindow {
             self.ribbon.bottom()
         };
         let sh = self.status_h();
-        let pane = if self.comments.shown && self.view.mode() != ViewMode::Reading {
+        let pane = if (self.comments.shown || self.anim_pane.shown)
+            && self.view.mode() != ViewMode::Reading
+        {
             CommentsPane::width(self.scale)
         } else {
             0.0
@@ -456,6 +502,8 @@ impl SlideWindow {
         self.view
             .set_frame(0.0, top, (self.size.0 - pane).max(1.0), area_h);
         self.comments
+            .layout([self.size.0 - pane, top, pane, area_h], self.scale);
+        self.anim_pane
             .layout([self.size.0 - pane, top, pane, area_h], self.scale);
         self.view.set_window(self.size.0, self.size.1);
         if let Some(b) = self.backstage.as_mut() {
@@ -489,7 +537,7 @@ impl SlideWindow {
             notes, minus, track, plus, pct, fit, views[0], views[1], views[2], views[3],
         ];
         self.text_size = (12.0 * self.scale).round();
-        let style = self.status_style();
+        let style = self.control_style();
         self.gallery_w = sr::TRANSITIONS
             .iter()
             .map(|(c, _)| *c)
@@ -501,6 +549,16 @@ impl SlideWindow {
             })
             .collect();
         self.view.measure_notes(text, self.text_size);
+        self.measure_controls(text);
+    }
+
+    /// Text of the reference's ribbon controls (gallery names, timing boxes): measured at
+    /// 125 %, 8 % larger than group labels (cap height 13–14 px against 11).
+    fn control_style(&self) -> TextStyle {
+        TextStyle {
+            size: self.px(13.0),
+            bold: false,
+        }
     }
 
     fn status_style(&self) -> TextStyle {
@@ -514,7 +572,7 @@ impl SlideWindow {
     pub fn handle(&mut self, input: Input, text: &dyn TextMeasure) -> bool {
         let showing = self.view.showing();
         let mode = self.view.mode();
-        let redraw = self.route(input, text);
+        let redraw = self.route(input, text) | self.paint_effect();
         if mode != self.view.mode() {
             self.relayout_pending = true;
         }
@@ -539,9 +597,24 @@ impl SlideWindow {
                 self.t("slideEditor.comments.reopen", "Reopen"),
                 self.t("slideEditor.comments.delete", "Delete"),
                 self.t("slideEditor.comments.newPlaceholder", ""),
+                self.t("slideNative.reply", "Reply..."),
             ];
             self.comments
                 .record(text, &threads, &labels, self.theme.text);
+        }
+        if self.anim_pane.shown {
+            let effects = self
+                .view
+                .state()
+                .map(|s| s.animations.clone())
+                .unwrap_or_default();
+            let labels = [
+                self.t("slideNative.animationPane", "Animation Pane"),
+                self.t("slideNative.playFrom", "Play From"),
+                self.t("slideNative.playAll", "Play All"),
+            ];
+            self.anim_pane
+                .record(text, &effects, &labels, self.theme.text);
         }
         self.view.measure_notes(text, self.text_size);
         redraw
@@ -615,13 +688,92 @@ impl SlideWindow {
                 self.requests.push(Request::Paste);
                 true
             }
+            id if sr::DRAW_TOOLS.contains(&id) => {
+                self.view.set_ink_tool(crate::slide_view::InkTool::of(id));
+                true
+            }
+            "anim.painter" => {
+                if self.painter.take().is_some() {
+                    return true;
+                }
+                let Some(i) = self.anim_index() else {
+                    return false;
+                };
+                let Some(a) = self.view.state().and_then(|s| s.animations.get(i).cloned()) else {
+                    return false;
+                };
+                self.painter = Some((
+                    AnimSpec {
+                        effect: Some(a.effect.clone()),
+                        class: Some(a.class.to_owned()),
+                        direction: a.direction.clone(),
+                        trigger: Some(a.trigger.to_owned()),
+                        dur_ms: Some(a.dur_ms),
+                        delay_ms: Some(a.delay_ms),
+                        ..AnimSpec::default()
+                    },
+                    a.shape_id,
+                ));
+                true
+            }
+            "anim.trigger" => {
+                self.open_trigger_menu();
+                true
+            }
+            "show.hideSlide" => self.view.run(SlideCommand::HideSlides {
+                slides: Some(self.view.selected_slides()),
+                hidden: None,
+            }),
+            "review.deleteComment" => {
+                let id = self.comments.active.clone().or_else(|| {
+                    self.view
+                        .state()
+                        .and_then(|s| s.comments.first())
+                        .map(|t| t.id.clone())
+                });
+                match id {
+                    Some(id) => {
+                        self.comments.active = None;
+                        self.view.run(SlideCommand::DeleteComment { id })
+                    }
+                    None => false,
+                }
+            }
+            "review.prevComment" | "review.nextComment" => {
+                self.step_comment(id == "review.nextComment")
+            }
+            "anim.pane" => {
+                self.anim_pane.shown = !self.anim_pane.shown;
+                self.comments.shown = false;
+                self.relayout_pending = true;
+                true
+            }
+            "anim.earlier" | "anim.later" => {
+                let Some(i) = self.anim_index() else {
+                    return false;
+                };
+                let n = self.view.state().map_or(0, |s| s.animations.len());
+                let to = if id == "anim.earlier" {
+                    i.checked_sub(1)
+                } else {
+                    (i + 1 < n).then_some(i + 1)
+                };
+                let Some(to) = to else { return false };
+                let moved = self.view.run(SlideCommand::MoveAnimation { from: i, to });
+                if moved && self.anim_pane.selected.is_some() {
+                    self.anim_pane.selected = Some(to);
+                }
+                moved
+            }
             "review.comments" => {
+                self.anim_pane.shown = false;
                 self.comments.shown = !self.comments.shown;
                 self.comments.draft = None;
                 self.relayout_pending = true;
                 true
             }
             "review.newComment" => {
+                self.anim_pane.shown = false;
                 self.comments.shown = true;
                 self.comments.draft = Some(String::new());
                 self.relayout_pending = true;
@@ -662,6 +814,7 @@ impl SlideWindow {
                     "transition.duration" => (MenuKind::Duration, "transition.duration"),
                     "transition.more" => (MenuKind::TransitionMore, "transition.more"),
                     "anim.more" => (MenuKind::AnimMore, "anim.more"),
+                    "anim.add" => (MenuKind::AnimAdd, "anim.add"),
                     _ => (MenuKind::AnimEffect, "anim.effect"),
                 };
                 self.open_menu(kind, RibbonHit::Command(anchor));
@@ -698,6 +851,180 @@ impl SlideWindow {
         }
     }
 
+    /// The effect the Animations tab's timing applies to: the one chosen in the Animation
+    /// Pane, else the first effect of the selected shapes.
+    pub(super) fn anim_index(&self) -> Option<usize> {
+        if let Some(i) = self.anim_pane.selected.filter(|_| self.anim_pane.shown) {
+            return Some(i);
+        }
+        let st = self.view.state()?;
+        let ids: Vec<u32> = st.selection.iter().map(|s| s.id).collect();
+        st.animations
+            .iter()
+            .find(|a| ids.contains(&a.shape_id))
+            .map(|a| a.index)
+    }
+
+    /// Trigger: start the effect on a click of another shape of the slide, or with the
+    /// sequence.
+    fn open_trigger_menu(&mut self) {
+        let Some(i) = self.anim_index() else { return };
+        let Some(a) = self.view.state().and_then(|s| s.animations.get(i).cloned()) else {
+            return;
+        };
+        let slide = self.view.current();
+        let shapes: Vec<(u32, String)> = self
+            .view
+            .engine()
+            .presentation()
+            .and_then(|p| p.slides.get(slide))
+            .map(|s| {
+                s.data
+                    .shapes
+                    .iter()
+                    .filter_map(|n| n.nv().map(|nv| (nv.id, nv.name.clone())))
+                    .filter(|(id, _)| *id != a.shape_id)
+                    .collect()
+            })
+            .unwrap_or_default();
+        let on_click = self.t("slideNative.onClickOf", "On Click of {{name}}");
+        let mut items = vec![MenuItem {
+            label: self.t("slideNative.onSequence", "On Sequence"),
+            choice: Choice::Command("tshape:0".into()),
+            checked: a.trigger_shape.is_none(),
+            dim: false,
+        }];
+        items.extend(shapes.into_iter().map(|(id, name)| MenuItem {
+            label: on_click.replace("{{name}}", &name),
+            choice: Choice::Command(format!("tshape:{id}")),
+            checked: a.trigger_shape == Some(id),
+            dim: false,
+        }));
+        let anchor = self
+            .ribbon
+            .rect_of(RibbonHit::Command("anim.trigger"))
+            .unwrap_or([0.0, 0.0, 1.0, 1.0]);
+        self.menu_kind = MenuKind::Duration;
+        self.menu = Some(Menu::open(items, anchor, self.size, self.scale));
+    }
+
+    /// Previous / Next comment: the neighbouring thread on this slide, else the first (last)
+    /// thread of the next (previous) slide with comments; the pane opens on it.
+    fn step_comment(&mut self, forward: bool) -> bool {
+        let threads: Vec<String> = self
+            .view
+            .state()
+            .map(|s| s.comments.iter().map(|t| t.id.clone()).collect())
+            .unwrap_or_default();
+        let at = self
+            .comments
+            .active
+            .as_ref()
+            .and_then(|a| threads.iter().position(|t| t == a));
+        let next = match (at, forward) {
+            (Some(i), true) => threads.get(i + 1).cloned(),
+            (Some(i), false) => i.checked_sub(1).and_then(|j| threads.get(j).cloned()),
+            (None, _) => None,
+        };
+        if let Some(id) = next {
+            self.comments.shown = true;
+            self.comments.active = Some(id);
+            self.relayout_pending = true;
+            return true;
+        }
+        let cur = self.view.current();
+        let n = self.view.slide_count();
+        let has = |w: &Self, i: usize| {
+            w.view
+                .engine()
+                .presentation()
+                .map(|p| bo_engine::slide_edit::comments::comments_out(p, i))
+                .unwrap_or_default()
+        };
+        let order: Vec<usize> = if forward {
+            (cur + 1..n).collect()
+        } else {
+            (0..cur).rev().collect()
+        };
+        for i in order {
+            let list = has(self, i);
+            let pick = if forward { list.first() } else { list.last() };
+            if let Some(t) = pick {
+                let id = t.id.clone();
+                self.view.go_to(i);
+                self.comments.shown = true;
+                self.comments.active = Some(id);
+                self.relayout_pending = true;
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Give the shape just chosen the effect the Animation Painter holds.
+    fn paint_effect(&mut self) -> bool {
+        let Some((spec, from)) = self.painter.clone() else {
+            return false;
+        };
+        let ids: Vec<u32> = self.view.selection().iter().map(|s| s.id).collect();
+        if ids.is_empty() || ids == [from] {
+            return false;
+        }
+        self.painter = None;
+        self.view.run(SlideCommand::AddAnimation { spec })
+    }
+
+    /// Input for the Animation Pane (clicks in it; arrows and Delete after a click in it).
+    fn anim_input(&mut self, input: &Input) -> Option<bool> {
+        if !self.anim_pane.shown {
+            return None;
+        }
+        match input {
+            Input::Press { x, y, .. } if self.anim_pane.contains(*x, *y) => {
+                self.area_press = false;
+                self.anim_focus = true;
+                Some(match self.anim_pane.press(*x, *y) {
+                    Some(AnimHit::Close) => {
+                        self.anim_pane.shown = false;
+                        self.relayout_pending = true;
+                        true
+                    }
+                    Some(AnimHit::Play) => self.view.start_preview(true),
+                    Some(AnimHit::Earlier) => self.action("anim.earlier"),
+                    Some(AnimHit::Later) => self.action("anim.later"),
+                    Some(AnimHit::Select(i)) => self.choose_effect(i),
+                    None => false,
+                })
+            }
+            Input::Press { .. } => {
+                self.anim_focus = false;
+                None
+            }
+            Input::Key(k, m) if self.anim_focus && !m.ctrl => match self.anim_pane.key(*k)? {
+                AnimKey::Select(i) => Some(self.choose_effect(i)),
+                AnimKey::Remove(i) => {
+                    self.anim_pane.selected = None;
+                    Some(self.view.run(SlideCommand::RemoveAnimation { index: i }))
+                }
+            },
+            _ => None,
+        }
+    }
+
+    /// Choose effect `i` in the Animation Pane and select its shape on the slide.
+    fn choose_effect(&mut self, i: usize) -> bool {
+        self.anim_pane.selected = Some(i);
+        let id = self
+            .view
+            .state()
+            .and_then(|s| s.animations.get(i))
+            .map(|a| a.shape_id);
+        if let Some(id) = id {
+            self.view.run(SlideCommand::Select { ids: vec![id] });
+        }
+        true
+    }
+
     /// Input for the Comments pane (clicks in it, typing a new comment).
     fn comments_input(&mut self, input: &Input) -> Option<bool> {
         if !self.comments.shown {
@@ -710,7 +1037,21 @@ impl SlideWindow {
                 return Some(match hit {
                     Some(PaneHit::New) => {
                         self.comments.draft = Some(String::new());
+                        self.comments.reply = None;
                         true
+                    }
+                    Some(PaneHit::Reply(id)) => {
+                        self.comments.draft = None;
+                        if self.comments.reply.as_ref().map(|r| &r.0) != Some(&id) {
+                            self.comments.reply = Some((id.clone(), String::new()));
+                        }
+                        self.comments.active = Some(id);
+                        true
+                    }
+                    Some(PaneHit::Select(id)) => {
+                        let changed = self.comments.active.as_ref() != Some(&id);
+                        self.comments.active = Some(id);
+                        changed
                     }
                     Some(PaneHit::Close) => {
                         self.comments.shown = false;
@@ -730,20 +1071,115 @@ impl SlideWindow {
         }?;
         Some(match edit {
             PaneEdit::Changed | PaneEdit::Cancel => true,
-            PaneEdit::Post(text) => {
-                let author = std::env::var("USERNAME")
-                    .or_else(|_| std::env::var("USER"))
-                    .unwrap_or_else(|_| "BlueSlide".to_owned());
-                self.view.run(SlideCommand::AddComment {
-                    text,
-                    author,
-                    date: now_iso(),
-                    parent: None,
-                    mentions: Vec::new(),
-                    task: None,
-                })
-            }
+            PaneEdit::Post(text) => self.post_comment(text, None),
+            PaneEdit::PostReply(id, text) => self.post_comment(text, Some(id)),
         })
+    }
+
+    /// Add a comment (a reply to thread `parent`) by the signed-in user, dated now.
+    fn post_comment(&mut self, text: String, parent: Option<String>) -> bool {
+        let author = std::env::var("USERNAME")
+            .or_else(|_| std::env::var("USER"))
+            .unwrap_or_else(|_| "BlueSlide".to_owned());
+        self.view.run(SlideCommand::AddComment {
+            text,
+            author,
+            date: now_iso(),
+            parent,
+            mentions: Vec::new(),
+            task: None,
+        })
+    }
+
+    /// Comment markers on the slide (Normal view): one bubble per thread along the slide's
+    /// top-left corner, as the reference marks comments not tied to a shape.
+    fn comment_markers(&self) -> Vec<([f32; 4], String)> {
+        if self.view.mode() != ViewMode::Normal || self.view.showing() || self.view.previewing() {
+            return Vec::new();
+        }
+        let Some(st) = self.view.state() else {
+            return Vec::new();
+        };
+        let (ox, oy) = self.view.slide_origin();
+        let size = self.px(24.0);
+        st.comments
+            .iter()
+            .enumerate()
+            .map(|(i, t)| {
+                (
+                    [
+                        ox + self.px(6.0) + i as f32 * (size + self.px(4.0)),
+                        oy + self.px(6.0),
+                        size,
+                        size,
+                    ],
+                    t.id.clone(),
+                )
+            })
+            .collect()
+    }
+
+    /// A press on a comment marker opens the pane at its thread.
+    fn marker_press(&mut self, x: f32, y: f32) -> bool {
+        let Some((_, id)) = self
+            .comment_markers()
+            .into_iter()
+            .find(|(r, _)| crate::spin_box::inside(*r, x, y))
+        else {
+            return false;
+        };
+        self.comments.shown = true;
+        self.comments.active = Some(id);
+        self.relayout_pending = true;
+        true
+    }
+
+    /// Speech bubbles marking the slide's comment threads (own drawing).
+    fn paint_markers(&self, p: &mut dyn Painter) {
+        let markers = self.comment_markers();
+        if markers.is_empty() {
+            return;
+        }
+        let area = self.view.canvas_rect();
+        p.push_clip(area[0], area[1], area[2], area[3]);
+        for ([x, y, w, h], id) in markers {
+            let active =
+                self.comments.shown && self.comments.active.as_deref() == Some(id.as_str());
+            let (fill, ink) = if active {
+                (self.theme.accent, bo_render::Rgba(255, 255, 255, 255))
+            } else {
+                (bo_render::Rgba(255, 255, 255, 255), self.theme.accent)
+            };
+            let bh = h * 0.78;
+            let r = h * 0.18;
+            let segs = [
+                PathSeg::M(x + r, y),
+                PathSeg::L(x + w - r, y),
+                PathSeg::Q(x + w, y, x + w, y + r),
+                PathSeg::L(x + w, y + bh - r),
+                PathSeg::Q(x + w, y + bh, x + w - r, y + bh),
+                PathSeg::L(x + w * 0.45, y + bh),
+                PathSeg::L(x + w * 0.22, y + h),
+                PathSeg::L(x + w * 0.25, y + bh),
+                PathSeg::L(x + r, y + bh),
+                PathSeg::Q(x, y + bh, x, y + bh - r),
+                PathSeg::L(x, y + r),
+                PathSeg::Q(x, y, x + r, y),
+                PathSeg::Z,
+            ];
+            p.path(
+                &segs,
+                Some(fill),
+                Some((self.theme.accent, self.scale.max(1.0).round())),
+            );
+            // Three text lines inside.
+            for k in 0..3 {
+                let ly = (y + bh * (0.28 + 0.2 * k as f32)).round();
+                let lw = if k == 2 { w * 0.35 } else { w * 0.56 };
+                p.fill_rect((x + w * 0.22).round(), ly, lw.round(), 1.0, ink);
+            }
+        }
+        p.pop_clip();
     }
 
     /// Copy (or cut) the selected shapes, or the chosen slides in the sorter / thumbnails,
@@ -752,6 +1188,16 @@ impl SlideWindow {
     fn copy(&mut self, cut: bool) -> bool {
         let slides = self.view.mode() == ViewMode::Sorter || self.view.focus() == Focus::Thumbs;
         let indices = Some(self.view.selected_slides());
+        // What another BlueSlide window needs to paste it: the deck as it was copied from.
+        let copied = if slides {
+            Copied::Slides(self.view.selected_slides())
+        } else {
+            Copied::Shapes {
+                slide: self.view.current(),
+                ids: self.view.selection().iter().map(|s| s.id).collect(),
+            }
+        };
+        let deck = self.view.engine().save_pptx().ok();
         let cmd = match (slides, cut) {
             (true, false) => SlideCommand::CopySlides { indices },
             (true, true) => SlideCommand::CutSlides { indices },
@@ -769,28 +1215,65 @@ impl SlideWindow {
             .map(|png| format!(r#"<img src="data:image/png;base64,{png}">"#))
             .unwrap_or_default();
         self.clip_seq += 1;
-        let token = format!("BlueSlide/{:p}/{}", &raw const *self, self.clip_seq);
+        let token = format!(
+            "BlueSlide/{}/{:p}/{}",
+            std::process::id(),
+            &raw const *self,
+            self.clip_seq
+        );
         self.clip_token = Some(token.clone());
+        let internal = match (deck, serde_json::to_string(&copied)) {
+            (Some(bytes), Ok(what)) => {
+                use base64::Engine as _;
+                format!(
+                    "{token}\n{what}\n{}",
+                    base64::engine::general_purpose::STANDARD.encode(bytes)
+                )
+            }
+            _ => token,
+        };
         self.requests.push(Request::SetClipboard {
             text,
             html,
-            internal: token,
+            internal,
         });
         true
     }
 
     /// Paste what the system clipboard holds: this window's own copy from the engine's
     /// clipboard, else another program's text as a new text box (as the reference does).
+    #[allow(clippy::needless_pass_by_value)] // the host hands over what it read
     pub fn paste(
         &mut self,
         internal: Option<String>,
         _html: Option<String>,
         text: Option<String>,
     ) -> bool {
-        let ours = internal.is_some_and(|i| Some(&i) == self.clip_token.as_ref());
+        let token = internal
+            .as_deref()
+            .and_then(|i| i.lines().next())
+            .map(str::to_owned);
+        let ours = token.is_some() && token == self.clip_token;
         let text = text.unwrap_or_default();
-        if ours || text.trim().is_empty() {
+        if ours || (internal.is_none() && text.trim().is_empty()) {
             return self.view.run(SlideCommand::Paste { keep_source: false });
+        }
+        // Copied in another BlueSlide window: its deck travels with it.
+        if let Some(i) = internal.as_deref().filter(|i| i.starts_with("BlueSlide/")) {
+            let mut parts = i.splitn(3, '\n');
+            let (_, what, data) = (parts.next(), parts.next(), parts.next());
+            let what: Option<Copied> = what.and_then(|w| serde_json::from_str(w).ok());
+            let bytes = data.and_then(bo_engine::merge::base64_decode);
+            if let (Some(what), Some(bytes)) = (what, bytes) {
+                if self.view.engine_mut().copy_from_deck(&bytes, &what) {
+                    // Our own copy is no longer what the engine holds.
+                    self.clip_token = None;
+                    return self.view.run(SlideCommand::Paste { keep_source: false });
+                }
+            }
+        }
+        if text.trim().is_empty() {
+            return false;
         }
         self.view.run(SlideCommand::InsertTextBox {
             text: text.replace("\r\n", "\n"),
@@ -1016,7 +1499,7 @@ impl SlideWindow {
                 })
                 .unwrap_or_default()
             }
-            MenuKind::TransitionMore | MenuKind::AnimMore => Vec::new(),
+            MenuKind::TransitionMore | MenuKind::AnimMore | MenuKind::AnimAdd => Vec::new(),
             MenuKind::Duration => {
                 let cur = self
                     .view
@@ -1050,6 +1533,16 @@ impl SlideWindow {
         let items = match kind {
             MenuKind::TransitionMore => gallery(&mut sr::TRANSITIONS.iter().map(|(c, _)| *c)),
             MenuKind::AnimMore => gallery(&mut sr::EFFECTS.iter().map(|(c, _)| *c)),
+            MenuKind::AnimAdd => sr::EFFECTS
+                .iter()
+                .filter(|(_, e)| e.is_some())
+                .map(|(id, _)| MenuItem {
+                    label: self.strings.get(&format!("commands.{id}")).to_owned(),
+                    choice: Choice::Command(format!("add:{id}")),
+                    checked: false,
+                    dim: false,
+                })
+                .collect(),
             _ => items,
         };
         if items.is_empty() {
@@ -1118,6 +1611,39 @@ impl SlideWindow {
             "tdir" => self.set_transition(None, Some(v.to_owned()), None, false),
             "tdur" => self.set_transition(None, None, v.parse().ok(), false),
             "adir" => self.apply_effect(None, Some(v.to_owned())),
+            "snd" | "trig" => return self.choose_control(kind, v),
+            "tshape" => {
+                let Some(index) = self.anim_index() else {
+                    return Some(false);
+                };
+                self.view.run(SlideCommand::SetAnimation {
+                    index,
+                    spec: AnimSpec {
+                        trigger_shape: v.parse().ok(),
+                        ..AnimSpec::default()
+                    },
+                })
+            }
+            "add" => {
+                let Some((_, Some((e, class)))) = sr::EFFECTS.iter().find(|(c, _)| *c == v) else {
+                    return Some(false);
+                };
+                let ids: Vec<u32> = self.view.selection().iter().map(|s| s.id).collect();
+                if ids.is_empty() {
+                    return Some(false);
+                }
+                let added = self.view.run(SlideCommand::AddAnimation {
+                    spec: AnimSpec {
+                        effect: Some((*e).to_owned()),
+                        class: Some((*class).to_owned()),
+                        ..AnimSpec::default()
+                    },
+                });
+                if added {
+                    self.view.start_preview(true);
+                }
+                added
+            }
             _ => return None,
         })
     }
@@ -1288,6 +1814,17 @@ impl SlideWindow {
                 return self.action(id);
             }
         }
+        if let Input::Press { x, y, .. } = input {
+            if let Some(r) = self.controls_press(x, y) {
+                return r;
+            }
+        }
+        if let Some(r) = self.controls_key(&input, text) {
+            return r;
+        }
+        if let Some(r) = self.anim_input(&input) {
+            return r || tip_before != self.tooltip.is_some();
+        }
         if let Some(r) = self.comments_input(&input) {
             return r || tip_before != self.tooltip.is_some();
         }
@@ -1318,7 +1855,8 @@ impl SlideWindow {
             }
             Input::Move { x, y } => {
                 let a = self.title.hover(x, y);
-                self.ribbon.hover(x, y) || a
+                let b = self.controls_hover(x, y);
+                self.ribbon.hover(x, y) || a || b
             }
             Input::Zoom(steps) => {
                 if steps > 0.0 {
@@ -1356,6 +1894,10 @@ impl SlideWindow {
                     Some(9) => self.action("show.fromCurrent"),
                     _ => false,
                 }
+            }
+            Input::Press { x, y, .. } if self.marker_press(x, y) => {
+                self.area_press = false;
+                true
             }
             Input::Press { x, y, .. } => {
                 self.area_press = true;
@@ -1451,8 +1993,11 @@ impl SlideWindow {
             );
             self.paint_theme_tiles(p);
             self.paint_galleries(p, &on);
+            self.paint_controls(p);
         }
+        self.paint_markers(p);
         self.comments.paint(p);
+        self.anim_pane.paint(p);
         self.paint_status(p);
         if let Some(menu) = &self.menu {
             menu.paint(p, &self.theme, &self.icons);
@@ -1478,6 +2023,16 @@ impl SlideWindow {
         let mut on = Vec::new();
         if self.view.notes_shown() {
             on.push("view.notes");
+        }
+        if self.painter.is_some() {
+            on.push("anim.painter");
+        }
+        // The Draw tool in use (Select when none).
+        let tool = sr::DRAW_TOOLS
+            .iter()
+            .find(|id| crate::slide_view::InkTool::of(id).as_ref() == self.view.ink_tool());
+        if let Some(id) = tool {
+            on.push(id);
         }
         let Some(st) = self.view.state() else {
             return on;
@@ -1517,7 +2072,7 @@ impl SlideWindow {
             (
                 sr::EFFECTS
                     .iter()
-                    .take(sr::GALLERY_TILES)
+                    .take(sr::ANIM_TILES)
                     .map(|(c, _)| *c)
                     .collect(),
                 "anim.more",
@@ -1535,51 +2090,76 @@ impl SlideWindow {
             };
             let top = first[1] + px(1.6);
             let h = px(73.6);
-            let right = m[0] + px(27.2);
+            // Reference at 125 %: white box from x 104 (first slot 106) to the "more"
+            // column, which has its own darker frame (x 851-886).
+            let left = first[0] - 2.0;
+            let right = m[0] + 1.0;
+            let gap = px(2.0);
             // Cover what the ribbon drew for these buttons (toggled / hover fills).
+            p.fill_rect(left, first[1], m[0] + m[2] - left, first[3], rgb(0xf3));
+            p.fill_rect(left, top, right - left, h, rgb(0xd2));
             p.fill_rect(
-                first[0] - 1.0,
-                first[1],
-                right - first[0] + 2.0,
-                first[3],
-                rgb(0xf3),
-            );
-            p.fill_rect(first[0] - 1.0, top, right - first[0] + 1.0, h, rgb(0xd2));
-            p.fill_rect(
-                first[0],
+                left + 1.0,
                 top + 1.0,
-                right - first[0] - 1.0,
+                right - left - 1.0,
                 h - 2.0,
                 rgb(0xff),
             );
+            let transitions = more == "transition.more";
+            let enabled = transitions || !self.view.selection().is_empty();
             for id in &tiles {
                 let Some(r) = self.ribbon.rect_of(RibbonHit::Command(id)) else {
                     continue;
                 };
-                let (x, w) = (r[0], r[2]);
+                let (x, w) = (r[0], r[2] + gap);
+                // Current / hovered band: 4 px inside the box (reference y 110-193).
+                let inset = px(3.2);
                 if on.contains(id) {
-                    p.fill_rect(x, top + 1.0, w, h - 2.0, rgb(0x88));
-                    p.fill_rect(x + 1.0, top + 2.0, w - 2.0, h - 4.0, rgb(0xd2));
-                } else if hovered == Some(RibbonHit::Command(id)) {
-                    p.fill_rect(x, top + 1.0, w, h - 2.0, rgb(0xe6));
+                    p.fill_rect(x, top + inset, w, h - 2.0 * inset, rgb(0x88));
+                    p.fill_rect(
+                        x + 1.0,
+                        top + inset + 1.0,
+                        w - 2.0,
+                        h - 2.0 * inset - 2.0,
+                        rgb(0xd2),
+                    );
+                } else if hovered == Some(RibbonHit::Command(id)) && enabled {
+                    p.fill_rect(x, top + inset, w, h - 2.0 * inset, rgb(0xe6));
                 }
-                let size = px(38.4);
-                self.icons.draw(
-                    p,
-                    id,
-                    (x + (w - size) / 2.0).round(),
-                    top + px(4.0),
-                    size,
-                    IconColors {
-                        ink: self.theme.text,
-                        accent: self.theme.accent,
-                        on: self.theme.accent_on,
-                        tinted: true,
-                    },
-                );
+                if transitions {
+                    let kind = sr::TRANSITIONS
+                        .iter()
+                        .find(|(c, _)| c == id)
+                        .map_or("none", |(_, k)| *k);
+                    let tw = (40.0 * self.scale).round();
+                    sr::paint_transition_tile(
+                        p,
+                        kind,
+                        (x + (w - tw) / 2.0).round(),
+                        top + px(8.8),
+                        self.scale,
+                        true,
+                    );
+                } else {
+                    // Without a selection the reference greys every star.
+                    let size = px(38.4);
+                    self.icons.draw(
+                        p,
+                        if enabled { id } else { "anim.none" },
+                        (x + (w - size) / 2.0).round(),
+                        top + px(4.0),
+                        size,
+                        IconColors {
+                            ink: self.theme.text,
+                            accent: self.theme.accent,
+                            on: self.theme.accent_on,
+                            tinted: true,
+                        },
+                    );
+                }
                 let key = format!("commands.{id}");
                 let label = self.strings.get(&key);
-                let style = self.status_style();
+                let style = self.control_style();
                 let tw = self
                     .gallery_w
                     .iter()
@@ -1588,18 +2168,26 @@ impl SlideWindow {
                 p.text(
                     label,
                     (x + (w - tw) / 2.0).round(),
-                    top + px(46.4),
+                    top + px(45.6),
                     style,
-                    self.theme.text,
+                    if enabled { self.theme.text } else { rgb(0xa6) },
                 );
             }
-            // "More" column: its own frame with the arrow in the middle.
-            let mx = m[0];
-            let mw = right - mx;
-            p.fill_rect(mx, top, 1.0, h, rgb(0xd2));
-            if hovered == Some(RibbonHit::Command(more)) {
-                p.fill_rect(mx + 1.0, top + 1.0, mw - 2.0, h - 2.0, rgb(0xe6));
-            }
+            // "More" column: its own frame (grey 128 at 125 %) with the arrow in the middle.
+            let mx = m[0] + 1.0;
+            let mw = px(28.8);
+            p.fill_rect(mx, top, mw, h, rgb(0x80));
+            p.fill_rect(
+                mx + 1.0,
+                top + 1.0,
+                mw - 2.0,
+                h - 2.0,
+                if hovered == Some(RibbonHit::Command(more)) {
+                    rgb(0xe6)
+                } else {
+                    rgb(0xf3)
+                },
+            );
             let (cx, cy) = (mx + mw / 2.0, top + h / 2.0);
             let k = px(3.2);
             p.fill_rect(

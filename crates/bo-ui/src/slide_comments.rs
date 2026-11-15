@@ -26,6 +26,10 @@ pub enum PaneHit {
     Resolve(String, bool),
     /// Delete thread `id`.
     Delete(String),
+    /// Start a reply to thread `id`.
+    Reply(String),
+    /// Make thread `id` the current one.
+    Select(String),
 }
 
 /// What typing in the pane asks for.
@@ -35,6 +39,8 @@ pub enum PaneEdit {
     Changed,
     /// Post this comment.
     Post(String),
+    /// Post this reply to thread `id`.
+    PostReply(String, String),
     /// Typing was cancelled.
     Cancel,
 }
@@ -46,6 +52,10 @@ pub struct CommentsPane {
     pub shown: bool,
     /// The new comment being typed.
     pub draft: Option<String>,
+    /// A reply being typed: thread id and text.
+    pub reply: Option<(String, String)>,
+    /// The thread chosen on the slide or in the pane (drawn with an accent frame).
+    pub active: Option<String>,
     rect: [f32; 4],
     scale: f32,
     /// Click targets laid out by the last [`CommentsPane::record`].
@@ -112,19 +122,46 @@ impl CommentsPane {
         self.hits
             .borrow()
             .iter()
+            .rev()
             .find(|([hx, hy, hw, hh], _)| x >= *hx && x < hx + hw && y >= *hy && y < hy + hh)
             .map(|(_, h)| h.clone())
     }
 
-    /// Typing while a new comment is open.
+    /// Typing while a new comment or a reply is open.
     pub fn text(&mut self, s: &str) -> Option<PaneEdit> {
+        if let Some((_, r)) = self.reply.as_mut() {
+            r.push_str(s);
+            return Some(PaneEdit::Changed);
+        }
         let d = self.draft.as_mut()?;
         d.push_str(s);
         Some(PaneEdit::Changed)
     }
 
-    /// Keys while a new comment is open.
+    /// Keys while a new comment or a reply is open.
     pub fn key(&mut self, k: Key) -> Option<PaneEdit> {
+        if let Some((id, r)) = self.reply.as_mut() {
+            return Some(match k {
+                Key::Backspace => {
+                    r.pop();
+                    PaneEdit::Changed
+                }
+                Key::Enter => {
+                    let (id, t) = (id.clone(), r.clone());
+                    self.reply = None;
+                    if t.trim().is_empty() {
+                        PaneEdit::Cancel
+                    } else {
+                        PaneEdit::PostReply(id, t)
+                    }
+                }
+                Key::Escape => {
+                    self.reply = None;
+                    PaneEdit::Cancel
+                }
+                _ => return None,
+            });
+        }
         let d = self.draft.as_mut()?;
         Some(match k {
             Key::Backspace => {
@@ -169,7 +206,7 @@ impl CommentsPane {
         &mut self,
         text: &dyn TextMeasure,
         threads: &[ThreadOut],
-        labels: &[String; 7],
+        labels: &[String; 8],
         ink: Rgba,
     ) {
         let mut rec = Recorder(Vec::new());
@@ -183,7 +220,7 @@ impl CommentsPane {
         p: &mut dyn Painter,
         text: &dyn TextMeasure,
         threads: &[ThreadOut],
-        labels: &[String; 7],
+        labels: &[String; 8],
         ink: Rgba,
         caret: bool,
     ) {
@@ -274,7 +311,13 @@ impl CommentsPane {
                 let rows = wrap(&c.text, inner - indent, text, body).len() as f32;
                 card_h += (1.0 + rows) * line + self.px(4.0);
             }
+            // The links row and the reply box.
+            card_h += 2.0 * line + self.px(24.0);
             p.fill_rect(x + pad, top, w - 2.0 * pad, card_h, CARD);
+            hits.push((
+                [x + pad, top, w - 2.0 * pad, card_h],
+                PaneHit::Select(t.id.clone()),
+            ));
             let mut ty = cy + self.px(8.0);
             for (i, c) in t.comments.iter().enumerate() {
                 let indent = if i == 0 { 0.0 } else { self.px(16.0) };
@@ -303,12 +346,58 @@ impl CommentsPane {
                 PaneHit::Delete(t.id.clone()),
             ));
             ty += line + self.px(8.0);
-            // Card frame drawn around what was laid out.
+            // Reply box: "Reply..." until clicked, then the reply being typed.
+            let typing = self
+                .reply
+                .as_ref()
+                .filter(|(id, _)| *id == t.id)
+                .map(|(_, r)| r.as_str());
+            let rows = typing.map_or_else(Vec::new, |r| wrap(r, inner, text, body));
+            let bh = (rows.len().max(1) as f32) * line + self.px(8.0);
+            let bw = w - 2.0 * pad - self.px(16.0);
+            let frame = if typing.is_some() { LINK } else { EDGE };
+            p.fill_rect(tx, ty, bw, bh, frame);
+            p.fill_rect(
+                tx + 1.0,
+                ty + 1.0,
+                bw - 2.0,
+                bh - 2.0,
+                Rgba(255, 255, 255, 255),
+            );
+            let mut ry = ty + self.px(4.0);
+            match typing {
+                Some(r) if !r.is_empty() => {
+                    let mut end = tx + self.px(6.0);
+                    for row in &rows {
+                        p.text(row, tx + self.px(6.0), ry, body, ink);
+                        end = tx + self.px(6.0) + text.measure(row, body).0;
+                        ry += line;
+                    }
+                    if caret {
+                        p.fill_rect(end.round(), ry - line, 1.0, line, ink);
+                    }
+                }
+                Some(_) => {
+                    p.text(&labels[7], tx + self.px(6.0), ry, body, DIM);
+                    if caret {
+                        p.fill_rect(tx + self.px(6.0), ry, 1.0, line, ink);
+                    }
+                }
+                None => p.text(&labels[7], tx + self.px(6.0), ry, body, DIM),
+            }
+            hits.push(([tx, ty, bw, bh], PaneHit::Reply(t.id.clone())));
+            ty += bh + self.px(8.0);
+            // Card frame drawn around what was laid out (the current thread in the accent).
             let card_h = ty - top;
-            p.fill_rect(x + pad, top, w - 2.0 * pad, 1.0, EDGE);
-            p.fill_rect(x + pad, top + card_h, w - 2.0 * pad, 1.0, EDGE);
-            p.fill_rect(x + pad, top, 1.0, card_h, EDGE);
-            p.fill_rect(x + w - pad - 1.0, top, 1.0, card_h, EDGE);
+            let edge = if self.active.as_deref() == Some(t.id.as_str()) {
+                LINK
+            } else {
+                EDGE
+            };
+            p.fill_rect(x + pad, top, w - 2.0 * pad, 1.0, edge);
+            p.fill_rect(x + pad, top + card_h, w - 2.0 * pad, 1.0, edge);
+            p.fill_rect(x + pad, top, 1.0, card_h, edge);
+            p.fill_rect(x + w - pad - 1.0, top, 1.0, card_h, edge);
             cy = ty + pad;
         }
         *self.hits.borrow_mut() = hits;

@@ -193,6 +193,8 @@ pub struct Ribbon {
     two_line: bool,
     #[allow(clippy::type_complexity)]
     large_lines: std::cell::RefCell<std::collections::HashMap<&'static str, [(String, f32); 2]>>,
+    /// Fixed width (logical px) of some labeled row buttons (BlueSlide's timing boxes).
+    row_w: fn(&str) -> Option<f32>,
     /// Whether a command can run now (BlueSheet / BlueSlide pass their own rule).
     enabled: fn(&str, &FormatState) -> bool,
 }
@@ -533,6 +535,7 @@ impl Ribbon {
             trailing: |_| false,
             two_line: false,
             large_lines: std::cell::RefCell::new(std::collections::HashMap::new()),
+            row_w: |_| None,
             enabled: commands::enabled,
         }
     }
@@ -633,6 +636,13 @@ impl Ribbon {
     /// Give some large buttons a fixed width (logical px), as gallery tiles.
     pub(crate) fn with_large_widths(mut self, rule: fn(&str) -> Option<f32>) -> Self {
         self.large_w = rule;
+        self
+    }
+
+    /// Give some labeled row buttons a fixed width (logical px), for controls a window draws
+    /// over them (spin and drop-down boxes).
+    pub(crate) fn with_row_widths(mut self, rule: fn(&str) -> Option<f32>) -> Self {
+        self.row_w = rule;
         self
     }
 
@@ -850,7 +860,7 @@ impl Ribbon {
                             Item::FontBox => self.px(150.0),
                             Item::SizeBox => self.px(52.0),
                             Item::Button(id) if crate::catalog::is_menu(id) => self.px(36.0),
-                            Item::Labeled(id) => match (self.labeled_w)(id) {
+                            Item::Labeled(id) => match (self.labeled_w)(id).or_else(|| (self.row_w)(id)) {
                                 Some(fixed) => self.px(fixed),
                                 None => btn + self.measure_label(text, strings, id) + self.px(8.0),
                             },

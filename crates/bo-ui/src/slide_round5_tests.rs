@@ -221,3 +221,122 @@ fn alt_text_pane_types_and_marks_decorative() {
     click(&mut w, r[0] + 3.0, r[1] + 3.0);
     assert!(w.selected_alt().is_some_and(|(_, _, d)| d));
 }
+
+/// A window on the photo album sample with its first picture selected.
+fn picture_window() -> SlideWindow {
+    let mut engine = Engine::with_bundled_fonts();
+    let name = "slide-album-photos.pptx";
+    let path = format!(
+        "{}/../../tests/corpus/slide/{name}",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    engine
+        .open(&std::fs::read(path).expect("corpus deck"), name)
+        .expect("open");
+    let mut w = SlideWindow::new(SlideView::new(engine).expect("view"), "en-US", name);
+    w.handle(Input::Scale(1.25), &Fixed);
+    w.handle(
+        Input::Resize {
+            width: 1481.0,
+            height: 1080.0,
+        },
+        &Fixed,
+    );
+    let found = (0..w.view().slide_count()).find_map(|i| {
+        let s = &w.view().engine().presentation()?.slides[i];
+        s.data.shapes.iter().find_map(|n| match n {
+            bo_model::slide::ShapeNode::Picture(p) => Some((i, p.nv.id)),
+            _ => None,
+        })
+    });
+    let (slide, id) = found.expect("a picture in the album");
+    w.view.go_to(slide);
+    w.activate_context = true;
+    w.view.run(SlideCommand::Select { ids: vec![id] });
+    w.handle(Input::Tick, &Fixed);
+    w
+}
+
+#[test]
+fn picture_galleries_apply_adjustments() {
+    let mut w = picture_window();
+    assert_eq!(w.context, ins::Context::Picture);
+    click_command(&mut w, "sl.corrections");
+    let g = w.gallery.as_ref().expect("corrections gallery");
+    assert_eq!(g.cells.len(), 30);
+    assert!(g.cells.iter().all(|(r, _)| r[2] > 0.0));
+    // Brightness +40 %, contrast +40 % (first row of the grid, last column).
+    let r = g.cells[9].0;
+    click(&mut w, r[0] + 5.0, r[1] + 5.0);
+    assert!(w.gallery.is_none());
+    let info = w.picture_info().expect("picture");
+    assert_eq!((info.fx.bright, info.fx.contrast), (40_000, 40_000));
+    click_command(&mut w, "sl.transparency");
+    let r = w.gallery.as_ref().expect("transparency").cells[3].0;
+    click(&mut w, r[0] + 5.0, r[1] + 5.0);
+    let info = w.picture_info().expect("picture");
+    assert_eq!(info.fx.alpha, Some(50_000));
+    assert_eq!(info.fx.bright, 40_000, "transparency keeps the corrections");
+    click_command(&mut w, "sl.picColor");
+    let r = w.gallery.as_ref().expect("color").cells[8].0;
+    click(&mut w, r[0] + 5.0, r[1] + 5.0);
+    assert!(w.picture_info().expect("picture").fx.grayscale);
+    click_command(&mut w, "sl.resetPicture");
+    assert!(w.picture_info().expect("picture").fx.is_identity());
+}
+
+#[test]
+fn remove_background_marks_and_keeps_changes() {
+    let mut w = picture_window();
+    if !w.picture_info().expect("picture").removable {
+        return;
+    }
+    click_command(&mut w, "sl.removeBg");
+    assert!(w.bg_mode.is_some());
+    assert!(
+        w.command_rect("sl.bgKeep").is_some(),
+        "Background Removal tab"
+    );
+    assert!(w.bg_mode.as_ref().and_then(|m| m.preview.clone()).is_some());
+    click_command(&mut w, "sl.bgRemove");
+    // A stroke across the picture's corner marks an area to remove.
+    let f = w.bg_mode.as_ref().expect("mode").frame;
+    let (ox, oy) = w.view().slide_origin();
+    let k = w.view().scale();
+    let at = |u: f64, v: f64| {
+        (
+            ox + (f[0] + u * f[2]) as f32 * k,
+            oy + (f[1] + v * f[3]) as f32 * k,
+        )
+    };
+    let (x0, y0) = at(0.05, 0.05);
+    let (x1, y1) = at(0.2, 0.1);
+    press(&mut w, x0, y0, 1);
+    w.handle(Input::Drag { x: x1, y: y1 }, &Fixed);
+    w.handle(Input::Release { x: x1, y: y1 }, &Fixed);
+    let m = w.bg_mode.as_ref().expect("mode");
+    assert_eq!(m.spec.marks.len(), 1);
+    assert!(!m.spec.marks[0].keep);
+    click_command(&mut w, "sl.bgDone");
+    assert!(w.bg_mode.is_none());
+    assert!(w.picture_info().expect("picture").removal.is_some());
+    assert!(
+        w.command_rect("sl.removeBg").is_some(),
+        "Picture Format is back"
+    );
+}
+
+#[test]
+fn compress_dialog_reports() {
+    let mut w = picture_window();
+    w.run_action("sl.compress");
+    assert!(matches!(
+        w.dialog.as_ref().map(|(_, k)| *k),
+        Some(ins::SlideDialog::Compress)
+    ));
+    w.compress_button(
+        crate::dialog::DialogButton::Ok,
+        &["96".into(), "1".into(), "1".into()],
+    );
+    assert!(w.dialog.is_some(), "the result stays shown");
+}

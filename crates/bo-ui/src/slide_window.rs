@@ -250,6 +250,10 @@ pub struct SlideWindow {
     outline_rows: Vec<(f32, usize)>,
     /// Selection Pane / Alt Text pane (same place as the comments pane; one at a time).
     side: selpane::SidePane,
+    /// Picture Format gallery of previews (Corrections, Color, Transparency).
+    gallery: Option<pic::PicGallery>,
+    /// Remove Background mode.
+    bg_mode: Option<pic::BgMode>,
 }
 
 #[path = "slide_controls.rs"]
@@ -263,6 +267,9 @@ mod fmt;
 
 #[path = "slide_selpane.rs"]
 mod selpane;
+
+#[path = "slide_picture.rs"]
+mod pic;
 
 #[path = "slide_showtab.rs"]
 mod showtab;
@@ -377,6 +384,8 @@ fn slide_enabled(id: &str, f: &bo_edit::FormatState) -> bool {
         || showtab::COMMANDS.contains(&id)
         || viewtab::COMMANDS.contains(&id)
         || fmt::COMMANDS.contains(&id)
+        || pic::COMMANDS.contains(&id)
+        || pic::BG_COMMANDS.contains(&id)
 }
 
 impl SlideWindow {
@@ -388,12 +397,14 @@ impl SlideWindow {
         showtab::install_strings(&mut strings);
         viewtab::install_strings(&mut strings);
         fmt::install_strings(&mut strings);
+        pic::install_strings(&mut strings);
         let mut icons = Icons::load();
         sr::install_icons(&mut icons);
         ins::install_icons(&mut icons);
         showtab::install_icons(&mut icons);
         viewtab::install_icons(&mut icons);
         fmt::install_icons(&mut icons);
+        pic::install_icons(&mut icons);
         view.set_labels(
             strings.get("slideEditor.notesPlaceholder"),
             strings.get("slideEditor.end"),
@@ -469,6 +480,8 @@ impl SlideWindow {
             guides: false,
             outline_rows: Vec::new(),
             side: selpane::SidePane::default(),
+            gallery: None,
+            bg_mode: None,
         }
     }
 
@@ -513,7 +526,8 @@ impl SlideWindow {
 
     /// Update the images the next frame shows.
     pub fn prepare(&mut self, store: &mut dyn PageStore) -> Result<(), String> {
-        self.view.prepare(store)
+        self.view.prepare(store)?;
+        self.prepare_picture(store)
     }
 
     /// Draw one image ahead of need; `true` while more remains (call when idle).
@@ -758,6 +772,9 @@ impl SlideWindow {
 
     /// Run interface command `id` (ribbon, title bar, menu, shortcut).
     fn action(&mut self, id: &str) -> bool {
+        if let Some(r) = self.picture_action(id) {
+            return r;
+        }
         if let Some(r) = self.format_action(id) {
             return r;
         }
@@ -1943,6 +1960,11 @@ impl SlideWindow {
                 return r;
             }
         }
+        if self.gallery.is_some() {
+            if let Some(r) = self.gallery_input(&input) {
+                return r;
+            }
+        }
         if self.picker.is_some() {
             if let Some(r) = self.picker_input(&input) {
                 return r;
@@ -1995,6 +2017,9 @@ impl SlideWindow {
             }
         }
         if let Some(r) = self.controls_key(&input, text) {
+            return r;
+        }
+        if let Some(r) = self.removal_input(&input) {
             return r;
         }
         if let Some(r) = self.side_input(&input) {
@@ -2151,6 +2176,7 @@ impl SlideWindow {
         }
         p.clear(self.theme.bg);
         self.view.paint(p, self.text_size);
+        self.paint_removal(p);
         self.paint_view_extras(p);
         let format = ribbon_format(&self.view, self.anim_index().is_some());
         self.title.paint(
@@ -2187,6 +2213,7 @@ impl SlideWindow {
         self.paint_bg_pane(p);
         self.side.paint(p);
         self.paint_status(p);
+        self.paint_gallery(p);
         if let Some(menu) = &self.menu {
             menu.paint(p, &self.theme, &self.icons);
         } else if let Some((label, tw, anchor)) = &self.tooltip {
@@ -2222,6 +2249,7 @@ impl SlideWindow {
             on.push("sl.painter");
         }
         self.view_toggled(&mut on);
+        self.picture_toggled(&mut on);
         // The Draw tool in use (Select when none).
         let tool = sr::DRAW_TOOLS
             .iter()

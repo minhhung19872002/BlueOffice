@@ -29,6 +29,8 @@ pub enum InsertFile {
     Video,
     /// An audio clip.
     Audio,
+    /// A picture replacing the selected one (Change Picture).
+    ChangePicture,
 }
 
 /// Dialogs of these tabs.
@@ -42,6 +44,8 @@ pub(super) enum SlideDialog {
     Link,
     /// Slide Show tab dialogs.
     Show(super::showtab::ShowDialog),
+    /// Compress Pictures.
+    Compress,
 }
 
 /// Which contextual tabs the selection shows.
@@ -299,29 +303,6 @@ pub(super) fn size_group(crop: bool) -> Group {
     }
 }
 
-/// Picture Format (a picture selected).
-pub(super) fn picture_format_tab() -> Tab {
-    use Item::{Labeled as S, Large as L};
-    Tab {
-        label: "slideNative.pictureFormat",
-        groups: vec![
-            Group {
-                label: "slideNative.adjust",
-                large: vec![L("sl.resetPicture")],
-                rows: vec![],
-            },
-            Group {
-                label: "slideNative.pictureStyles",
-                large: vec![],
-                rows: vec![vec![S("sl.picBorder")], vec![S("sl.effects")]],
-            },
-            super::fmt::accessibility_group(),
-            super::fmt::arrange_group(),
-            size_group(true),
-        ],
-    }
-}
-
 /// Table Layout (a table selected).
 pub(super) fn table_layout_tab() -> Tab {
     use Item::{Labeled as S, Large as L};
@@ -351,7 +332,7 @@ pub(super) fn context_tabs(c: Context) -> Vec<Tab> {
     match c {
         Context::None => vec![],
         Context::Shape => vec![super::fmt::shape_format_tab()],
-        Context::Picture => vec![picture_format_tab()],
+        Context::Picture => vec![super::pic::picture_format_tab()],
         Context::Table => vec![super::fmt::table_design_tab(), table_layout_tab()],
     }
 }
@@ -554,6 +535,10 @@ impl SlideWindow {
     /// Show the selection's contextual tabs (after the fixed ones, as on the reference);
     /// `true` when the ribbon changed.
     pub(super) fn sync_context(&mut self) -> bool {
+        // The Background Removal tab stays until the mode ends.
+        if self.bg_mode.is_some() {
+            return false;
+        }
         let c = self.selection_context();
         if c == self.context {
             if std::mem::take(&mut self.activate_context) && c != Context::None {
@@ -1421,6 +1406,10 @@ impl SlideWindow {
                 self.open_show_dialog(k);
                 return;
             }
+            SlideDialog::Compress => {
+                self.open_compress();
+                return;
+            }
             SlideDialog::HeaderFooter => {
                 let info = {
                     self.view.run(SlideCommand::HeaderFooterInfo);
@@ -1568,6 +1557,7 @@ impl SlideWindow {
         let on = |i: usize| values.get(i).is_some_and(|v| v == "1");
         match kind {
             SlideDialog::Show(_) => {}
+            SlideDialog::Compress => self.compress_button(b, values),
             SlideDialog::Link => {
                 let url = values.first().cloned().unwrap_or_default();
                 if !url.trim().is_empty() {

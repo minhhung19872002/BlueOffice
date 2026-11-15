@@ -162,6 +162,10 @@ pub fn has_menu_mark(id: &str) -> bool {
             | "sl.textFill"
             | "sl.textOutline"
             | "sl.textEffects"
+            | "sl.corrections"
+            | "sl.picColor"
+            | "sl.transparency"
+            | "sl.changePicture"
     )
 }
 

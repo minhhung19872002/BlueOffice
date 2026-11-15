@@ -124,16 +124,16 @@ fn ribbon(tab: usize) -> Vec<(&'static str, Kind)> {
             ("org.combine", Big("combine", "pdfEditor.combine", false)),
             ("sep4", Sep),
             (
-                "org.headerFooter",
-                Big("headerFooter", "pdfEditor.headerFooter", false),
-            ),
-            (
                 "org.watermark",
-                Big("watermark", "pdfEditor.watermark", false),
+                Big("watermark", "pdfEditor.watermark", true),
             ),
             (
                 "org.background",
                 Big("background", "pdfEditor.background", true),
+            ),
+            (
+                "org.headerFooter",
+                Big("headerFooter", "pdfEditor.headerFooter", true),
             ),
             ("org.bates", Big("bates", "pdfEditor.bates", false)),
         ]),
@@ -259,7 +259,7 @@ const LOOK: Look = Look {
     title_h: 36.0,
     ribbon_bottom: 144.0,
     doc_tabs_h: 35.2,
-    status_h: 35.2,
+    status_h: 36.0,
     tab_h: 25.6,
     tab_gap_first: 24.0,
     tab_gap: 25.6,
@@ -288,6 +288,9 @@ const LOOK: Look = Look {
     box_edge: Rgba(224, 224, 224, 255),
     status_font: 17.0,
     body_gap: 4.0,
+    // Reference: status bar 45 px, boxes 28 px high 4 px below its edge (125 %).
+    status_box_h: 22.4,
+    status_box_top: Some(3.2),
 };
 
 /// Editor tool that takes the document area's pointer input.

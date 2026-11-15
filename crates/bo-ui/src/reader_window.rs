@@ -208,6 +208,10 @@ pub(crate) struct Look {
     pub status_font: f32,
     /// Space between the tab row and the ribbon buttons.
     pub body_gap: f32,
+    /// Status bar page and zoom box height.
+    pub status_box_h: f32,
+    /// Top of those boxes below the status bar's edge (`None`: centred).
+    pub status_box_top: Option<f32>,
 }
 
 impl Look {
@@ -245,6 +249,8 @@ impl Look {
         box_edge: Rgba(175, 175, 176, 255),
         status_font: 12.5,
         body_gap: 0.8,
+        status_box_h: 19.2,
+        status_box_top: None,
     };
 }
 
@@ -976,10 +982,14 @@ impl ReaderWindow {
                 r: [self.px(xd), cy, s, s],
             });
         }
-        let bh = self.px(19.2);
+        let bh = self.px(self.look.status_box_h);
         self.page_box = [
             self.px(72.8),
-            (sy + (sh - bh) / 2.0).round(),
+            self.look
+                .status_box_top
+                .map_or((sy + (sh - bh) / 2.0).round(), |t| {
+                    (sy + self.px(t)).round()
+                }),
             self.px(113.6),
             bh,
         ];

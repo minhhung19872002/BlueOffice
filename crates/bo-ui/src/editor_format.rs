@@ -125,7 +125,7 @@ pub(crate) struct FormatPane {
 }
 
 fn button_xy(k: usize) -> f32 {
-    33.0 + 48.0 * k as f32
+    42.0 + 48.0 * k as f32
 }
 
 impl EditorWindow {
@@ -574,13 +574,13 @@ impl EditorWindow {
         // Header: "Format" in the accent with a close box.
         p.text(
             &self.t("pdfEditor.format"),
-            x0 + px(14.0),
-            y0 + px(6.0),
+            x0 + px(22.0),
+            y0 + px(9.0),
             style(17.0),
             accent_text,
         );
-        let cx = x0 + px(76.0);
-        let cy = y0 + px(9.0);
+        let cx = x0 + px(84.0);
+        let cy = y0 + px(12.0);
         let c = px(8.0);
         p.path(
             &[
@@ -596,13 +596,13 @@ impl EditorWindow {
             [cx - px(4.0), cy - px(4.0), c + px(8.0), c + px(8.0)],
             "fmt.close",
         ));
-        p.fill_rect(x0 + 1.0, y0 + px(27.0), r[2] - 1.0, 1.0, LINE);
+        p.fill_rect(x0 + 1.0, y0 + px(31.0), r[2] - 1.0, 1.0, LINE);
         if self.comment.tool.is_some() && self.edit_tool() != Some(EditTool::Text) {
             self.paint_comment_props(p, x0, y0);
             return;
         }
         // "Text Style" section.
-        let ty = y0 + px(41.0);
+        let ty = y0 + px(46.0);
         p.path(
             &[
                 PathSeg::M(x0 + px(7.0), ty + px(4.0)),
@@ -615,7 +615,7 @@ impl EditorWindow {
         );
         p.text(
             &self.t("pdfEditor.textStyle"),
-            x0 + px(18.0),
+            x0 + px(27.0),
             ty,
             style(17.0),
             TEXT,
@@ -624,18 +624,18 @@ impl EditorWindow {
         let cur = self.edit.current_style();
         let ink = if typing { TEXT } else { MUTED };
         // Font and size boxes, colour swatch.
-        let by = y0 + px(68.0);
+        let by = y0 + px(73.0);
         let bh = px(24.0);
         let boxes = [
             (
                 "fmt.font",
-                20.0,
+                28.0,
                 156.0,
                 cur.as_ref().map(|(s, _)| s.family.clone()),
             ),
             (
                 "fmt.size",
-                164.0 + 20.0,
+                192.0,
                 68.0,
                 cur.as_ref()
                     .map(|(s, _)| format!("{}", (s.size * 10.0).round() / 10.0)),
@@ -661,7 +661,7 @@ impl EditorWindow {
             );
             self.pane.hits.push(([bx, by, bw, bh], cmd));
         }
-        let sw = [x0 + px(262.0), by + px(1.0), px(22.0), px(22.0)];
+        let sw = [x0 + px(268.0), by + px(1.0), px(22.0), px(22.0)];
         let col = cur.as_ref().map_or(Rgba(0, 0, 0, 255), |(s, _)| {
             Rgba(s.color[0], s.color[1], s.color[2], 255)
         });
@@ -686,7 +686,7 @@ impl EditorWindow {
             })
         };
         let _ = (accent, ink);
-        for (row, items) in [(128.0, &CHAR_ROW[..]), (172.0, &ALIGN_ROW[..])] {
+        for (row, items) in [(131.0, &CHAR_ROW[..]), (178.0, &ALIGN_ROW[..])] {
             for (i, (cmd, icon)) in items.iter().enumerate() {
                 let (cx, cy) = (x0 + px(button_xy(i)), y0 + px(row));
                 let s = px(28.0);
@@ -709,7 +709,7 @@ impl EditorWindow {
         {
             let (cx, cy) = (
                 x0 + px(button_xy(i) + 6.0 + 10.0 * i as f32),
-                y0 + px(214.0),
+                y0 + px(220.0),
             );
             icon_at(p, icon, cx, cy, px(20.0), color);
             if menu {
@@ -729,42 +729,42 @@ impl EditorWindow {
             (
                 "fmt.lineSp",
                 "lineSpacing",
-                33.0,
-                54.0,
-                263.0,
+                42.0,
+                61.0,
+                270.0,
                 pitch.map(|v| format!("{v:.2}")),
             ),
             (
                 "fmt.paraSp",
                 "paraSpacing",
-                164.0,
-                184.0,
-                263.0,
+                171.0,
+                199.0,
+                270.0,
                 Some("0.00".to_owned()),
             ),
             (
                 "fmt.scale",
                 "charScale",
-                33.0,
-                54.0,
-                301.0,
+                42.0,
+                61.0,
+                308.0,
                 cur.as_ref().map(|(s, _)| format!("{}%", s.scale().round())),
             ),
             (
                 "fmt.charSp",
                 "charSpacing",
-                164.0,
-                184.0,
-                301.0,
+                171.0,
+                199.0,
+                308.0,
                 cur.as_ref()
                     .map(|(s, _)| format!("{:.2}", s.char_spacing())),
             ),
             (
                 "fmt.wordSp",
                 "wordSpacing",
-                33.0,
-                54.0,
-                339.0,
+                42.0,
+                61.0,
+                346.0,
                 cur.as_ref()
                     .map(|(s, _)| format!("{:.2}", s.word_spacing())),
             ),

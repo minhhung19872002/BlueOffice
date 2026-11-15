@@ -152,6 +152,8 @@ pub struct PdfDocument {
     hidden: HashSet<ObjectId>,
     /// Objects added or changed since opening (written by an incremental save).
     changed: Vec<ObjectId>,
+    /// The document has `/PageLabels`.
+    labelled: bool,
 }
 
 fn resolve<'a>(doc: &'a Document, o: &'a Object) -> &'a Object {
@@ -397,6 +399,7 @@ impl PdfDocument {
             return Err("the document has no pages".into());
         }
         let labels = page_labels(&doc, ids.len());
+        let labelled = doc.catalog().is_ok_and(|c| c.has(b"PageLabels"));
         let pages = ids
             .iter()
             .enumerate()
@@ -452,7 +455,13 @@ impl PdfDocument {
             images: interp::ImageCache::default(),
             hidden,
             changed: Vec::new(),
+            labelled,
         })
+    }
+
+    /// Whether the document defines page labels (`/PageLabels`).
+    pub fn has_page_labels(&self) -> bool {
+        self.labelled
     }
 
     /// Number of pages.

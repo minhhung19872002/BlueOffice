@@ -404,6 +404,12 @@ impl ReaderView {
 
     /// Content y of the view top and the page it falls on, to keep the place on relayout.
     fn anchor(&self) -> (usize, f32) {
+        // At the very top: stay at the top (the margin above the first page shows).
+        if self.scroll.1 <= 0.5
+            && matches!(self.layout, Layout::Continuous | Layout::ContinuousFacing)
+        {
+            return (0, f32::NEG_INFINITY);
+        }
         let p = self.current_page();
         let r = self.rects.get(p).copied().unwrap_or([0.0; 4]);
         let frac = if r[3] > 0.0 {
@@ -415,6 +421,11 @@ impl ReaderView {
     }
 
     fn restore_anchor(&mut self, (p, frac): (usize, f32)) {
+        if frac == f32::NEG_INFINITY {
+            self.scroll.1 = 0.0;
+            self.clamp_scroll();
+            return;
+        }
         if let Some(r) = self.rects.get(p).copied() {
             self.scroll.1 = r[1] + frac * r[3];
             self.clamp_scroll();

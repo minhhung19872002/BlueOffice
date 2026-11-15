@@ -2306,7 +2306,7 @@ impl ReaderWindow {
                         row_h,
                         PanelRow::Outline(path, item.target.clone(), toggle),
                     ));
-                    y += row_h + self.px(4.0);
+                    y += row_h;
                 }
                 // Toggle rows only cover the box: keep them first but narrow by x in hit test.
             }
@@ -2621,7 +2621,7 @@ fn page_label(doc: &PdfDocument, i: usize, n: usize) -> String {
     let label = doc
         .page_info(i)
         .map_or_else(String::new, |p| p.label.clone());
-    if label == (i + 1).to_string() || label.is_empty() {
+    if !doc.has_page_labels() || label.is_empty() {
         format!("{} / {n}", i + 1)
     } else {
         format!("{label} ({} / {n})", i + 1)

@@ -308,4 +308,6 @@ fn page_is_centred_in_the_frame() {
         (left - right).abs() <= 2.0 && left >= 0.0,
         "frame {f:?} page {r:?}"
     );
+    // The view starts at the top: the 7.5 px margin above the first page shows.
+    assert!((r[1] - f[1] - 8.0).abs() < 1.0, "frame {f:?} page {r:?}");
 }

@@ -94,6 +94,10 @@ pub use sorter::ViewMode;
 mod ink;
 pub use ink::InkTool;
 
+#[path = "slide_present.rs"]
+mod present;
+pub use present::ShowPlan;
+
 /// The running slide show.
 #[derive(Debug, Clone, PartialEq)]
 struct Show {
@@ -284,6 +288,12 @@ pub struct SlideView {
     window: (f32, f32),
     /// Interface texts: empty notes hint, end of the slide show.
     labels: (String, String),
+    /// Presenter View texts: "Next Slide", "Slide {{n}} of {{total}}".
+    present_labels: (String, String),
+    /// How the running show plays (order, loop, timings, presenter, rehearsal).
+    presenting: Option<present::Presenting>,
+    /// Timings of the last rehearsal, until the window takes them.
+    rehearsed: Option<Vec<bo_engine::slide_edit::present::SlideTiming>>,
     /// Advance of the notes text before the caret on its line (device pixels).
     notes_caret_x: f32,
     /// Width of one digit of the thumbnail numbers (device pixels).
@@ -335,6 +345,9 @@ impl SlideView {
             notes_caret: 0,
             window: (800.0, 600.0),
             labels: ("Click to add notes".into(), "End of slide show".into()),
+            present_labels: ("Next Slide".into(), "Slide {{n}} of {{total}}".into()),
+            presenting: None,
+            rehearsed: None,
             notes_caret_x: 0.0,
             digit_w: 10.0,
             clock: 0.0,
@@ -604,6 +617,27 @@ impl SlideView {
         Some([x, y, self.origin.0 + self.size.0 - x, self.notes_h()])
     }
 
+    /// The thumbnails pane (Outline view draws the outline there).
+    pub fn thumbs_area(&self) -> R {
+        self.thumbs_rect()
+    }
+
+    /// Draw the current slide's image scaled into `dest` (Notes Page).
+    pub fn paint_slide_into(&self, p: &mut dyn Painter, dest: R) {
+        let Some(&id) = self.ids.get(self.current) else {
+            return;
+        };
+        if let Some((s, l)) = self.shown.get(&id) {
+            let src = [0.0, 0.0, (l.width * s).ceil(), (l.height * s).ceil()];
+            p.page_part(id, src, dest, 1.0);
+        }
+    }
+
+    /// Slide size in points.
+    pub fn slide_points(&self) -> (f32, f32) {
+        self.slide_size
+    }
+
     fn thumbs_rect(&self) -> R {
         [self.origin.0, self.origin.1, self.thumbs_w(), self.size.1]
     }
@@ -791,6 +825,28 @@ impl SlideView {
         }
     }
 
+    /// Run a picture command (crop, reset, insert SVG) on the selection.
+    pub fn run_picture(&mut self, cmd: bo_engine::picture_tools::PictureCommand) -> bool {
+        match self.engine.slide_picture_command(cmd) {
+            Ok(r) if r.error.is_none() => {
+                self.apply(r);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Insert a picture, video or audio file on the current slide.
+    pub fn insert_media(&mut self, bytes: Vec<u8>, name: &str) -> bool {
+        match self.engine.slide_insert_picture(bytes, name) {
+            Ok(r) if r.error.is_none() => {
+                self.apply(r);
+                true
+            }
+            _ => false,
+        }
+    }
+
     /// The engine's last answer for the current slide (selection, transition, effects, design).
     pub fn state(&self) -> Option<&SlideEditResult> {
         self.state.as_ref()
@@ -913,8 +969,15 @@ impl SlideView {
             "arrange.ungroup" => self.run(SlideCommand::Ungroup),
             "insert.textBox" | "insert.rect" | "insert.ellipse" | "insert.triangle"
             | "insert.arrow" => self.insert_shape(id),
-            "show.fromStart" => self.start_show(0),
-            "show.fromCurrent" => self.start_show(self.current),
+            "show.fromStart" => {
+                let plan = self.show_plan(None);
+                let first = plan.order.first().copied().unwrap_or(0);
+                self.start_show_with(first, plan)
+            }
+            "show.fromCurrent" => {
+                let plan = self.show_plan(None);
+                self.start_show_with(self.current, plan)
+            }
             _ => false,
         }
     }
@@ -1132,8 +1195,16 @@ impl SlideView {
             }
         }
         if let Key::F(5) = key {
-            let from = if m.shift { self.current } else { 0 };
-            return self.start_show(from);
+            // F5 from the first slide of the setup, Shift+F5 from the current one, Alt+F5
+            // in Presenter View.
+            let mut plan = self.show_plan(None);
+            plan.presenter = m.alt;
+            let from = if m.shift || m.alt {
+                self.current
+            } else {
+                plan.order.first().copied().unwrap_or(0)
+            };
+            return self.start_show_with(from, plan);
         }
         match self.focus {
             Focus::Notes => self.notes_key(key, m),
@@ -1604,8 +1675,16 @@ impl SlideView {
         true
     }
 
+    /// Presenter View texts: the next slide's heading and the slide counter pattern.
+    pub fn set_present_labels(&mut self, next: &str, counter: &str) {
+        self.present_labels = (next.to_owned(), counter.to_owned());
+    }
+
     /// Leave the slide show (the slide shown last becomes current).
     pub fn end_show(&mut self) -> bool {
+        if let Some(i) = self.show.as_ref().map(|s| s.index) {
+            self.finish_presenting(i);
+        }
         let Some(s) = self.show.take() else {
             return false;
         };
@@ -1712,12 +1791,17 @@ impl SlideView {
                 && s.step >= info.clicks
                 && after.is_some_and(|a| now - s.arrived >= f64::from(a))
         });
-        due && self.show_step(true)
+        let tick = self.timer_tick();
+        (due && self.timings_on() && self.show_step(true)) || tick
     }
 
     fn show_step(&mut self, forward: bool) -> bool {
-        let n = self.ids.len();
         let now = self.clock;
+        let (next, prev) = match self.show.as_ref() {
+            Some(s) => (self.next_in_show(s.index), self.prev_in_show(s.index)),
+            None => return false,
+        };
+        let leaving = self.show.as_ref().map(|s| s.index);
         let Some(s) = self.show.as_mut() else {
             return false;
         };
@@ -1748,9 +1832,12 @@ impl SlideView {
                 s.fx_start = Some(now);
                 return true;
             }
-            if s.index + 1 < n {
+            if let Some(next) = next {
                 let from = s.index;
-                s.index += 1;
+                s.index = next;
+                if let Some(i) = leaving {
+                    self.left_slide(i);
+                }
                 self.enter_slide(Some(from));
             } else {
                 s.ended = true;
@@ -1767,11 +1854,14 @@ impl SlideView {
             s.step -= 1;
             return true;
         }
-        if s.index == 0 {
+        let Some(prev) = prev else {
             return false;
-        }
+        };
         // Back to the previous slide, fully built.
-        s.index -= 1;
+        s.index = prev;
+        if let Some(i) = leaving {
+            self.left_slide(i);
+        }
         self.enter_slide(None);
         if let Some(s) = self.show.as_mut() {
             s.trans = None;
@@ -1804,8 +1894,20 @@ impl SlideView {
                 Key::Escape => self.end_show(),
                 Key::Right | Key::Down | Key::PageDown | Key::Enter => self.show_step(true),
                 Key::Left | Key::Up | Key::PageUp | Key::Backspace => self.show_step(false),
-                Key::Home => self.show_jump(0),
-                Key::End => self.show_jump(self.ids.len().saturating_sub(1)),
+                Key::Home => {
+                    let first = self
+                        .presenting
+                        .as_ref()
+                        .and_then(|p| p.plan.order.first().copied());
+                    self.show_jump(first.unwrap_or(0))
+                }
+                Key::End => {
+                    let last = self
+                        .presenting
+                        .as_ref()
+                        .and_then(|p| p.plan.order.last().copied());
+                    self.show_jump(last.unwrap_or(self.ids.len().saturating_sub(1)))
+                }
                 _ => false,
             },
             Input::Wheel(dy) => self.show_step(dy > 0.0),
@@ -1821,6 +1923,9 @@ impl SlideView {
 
     /// Where the show draws: the whole window, or the editing area in Reading view.
     fn show_area(&self) -> R {
+        if self.presenter() {
+            return self.presenter_slide_area();
+        }
         if self.previewing() {
             let (x, y) = self.slide_origin();
             let (w, h) = self.slide_px(self.scale());
@@ -1909,6 +2014,14 @@ impl SlideView {
                 let fk = SHOW_KEY + self.ids[j];
                 self.ensure(store, fk, j, scale)?;
                 self.touch(fk);
+            }
+            // Presenter View shows the next slide beside the current one.
+            if self.presenter() {
+                if let Some(j) = self.next_in_show(i) {
+                    let nk = SHOW_KEY + self.ids[j];
+                    self.ensure(store, nk, j, scale)?;
+                    self.touch(nk);
+                }
             }
             self.prepare_layers(store, i, scale)?;
             self.evict(store, SHOW_KEY, SHOW_CACHE);
@@ -2049,7 +2162,8 @@ impl SlideView {
     pub fn prefetch(&mut self, store: &mut dyn PageStore) -> Result<bool, String> {
         if let Some(i) = self.show_slide() {
             let scale = self.show_scale();
-            for j in [i + 1, i.wrapping_sub(1)] {
+            let near = [self.next_in_show(i), self.prev_in_show(i)];
+            for j in near.into_iter().flatten() {
                 if let Some(&id) = self.ids.get(j) {
                     let key = SHOW_KEY + id;
                     if self.needs(key, scale) {
@@ -2230,6 +2344,7 @@ impl SlideView {
     pub fn paint(&self, p: &mut dyn Painter, text_size: f32) {
         if self.show.is_some() && !self.previewing() {
             self.paint_show(p, text_size);
+            self.paint_rehearsal_bar(p, text_size);
             return;
         }
         let (ox, oy) = self.origin;
@@ -2547,6 +2662,9 @@ impl SlideView {
 
     fn paint_show(&self, p: &mut dyn Painter, text_size: f32) {
         use crate::slide_show::{paint_transition, SlideImage};
+        if self.presenter() {
+            self.paint_presenter(p, text_size);
+        }
         let [ax, ay, ww, wh] = self.show_area();
         p.fill_rect(ax, ay, ww, wh, BLACK);
         let Some(i) = self.show_slide() else {

@@ -73,7 +73,7 @@ pub const GALLERY_TILES: usize = 6;
 pub const ANIM_TILES: usize = 4;
 
 /// Other commands of these tabs.
-const OWN: [&str; 34] = [
+const OWN: [&str; 39] = [
     "show.hideSlide",
     "review.deleteComment",
     "review.prevComment",
@@ -108,6 +108,11 @@ const OWN: [&str; 34] = [
     "review.comments",
     "view.sorter",
     "view.reading",
+    CURRENT_THEME,
+    "design.more",
+    "design.variants",
+    "design.effects",
+    "design.layout",
 ];
 
 /// Whether `id` is one of the commands of these tabs.
@@ -120,12 +125,48 @@ pub fn is_command(id: &str) -> bool {
         || THEMES.iter().any(|(c, _)| *c == id)
 }
 
+/// BlueSlide-only buttons drawn with the drop-down mark (they open a menu or a picker).
+pub fn has_menu_mark(id: &str) -> bool {
+    matches!(
+        id,
+        "sl.table"
+            | "sl.shapes"
+            | "sl.arrange"
+            | "sl.quickStyles"
+            | "sl.fill"
+            | "sl.outline"
+            | "sl.effects"
+            | "sl.editing"
+            | "sl.symbols"
+            | "sl.media"
+            | "sl.align"
+            | "sl.group"
+            | "sl.rotate"
+            | "sl.crop"
+            | "sl.picBorder"
+            | "sl.shading"
+            | "sl.tblDelete"
+            | "design.variants"
+            | "design.colors"
+            | "design.fonts"
+            | "design.effects"
+            | "design.background"
+            | "design.layout"
+            | "design.slideSize"
+            | "show.custom"
+    )
+}
+
 /// Commands that open a menu (Slide Size, Effect Options, …).
 pub fn is_menu(id: &str) -> bool {
     matches!(
         id,
         "design.colors"
             | "design.fonts"
+            | "design.variants"
+            | "design.effects"
+            | "design.layout"
+            | "design.more"
             | "design.slideSize"
             | "design.background"
             | "transition.effect"
@@ -145,7 +186,8 @@ pub fn large_width(id: &str) -> Option<f32> {
     // reaching the next divider at 985.
     match id {
         "transition.preview" | "anim.preview" => return Some(48.8),
-        "transition.more" | "anim.more" => return Some(29.6),
+        "transition.more" | "anim.more" | "design.more" => return Some(29.6),
+        CURRENT_THEME => return Some(109.6),
         "transition.effect" | "anim.effect" => return Some(72.0),
         // Add Animation: reference x 745-850.
         "anim.add" => return Some(89.6),
@@ -190,6 +232,9 @@ pub const DRAW_TOOLS: [&str; 5] = [
     "draw.eraser",
 ];
 
+/// Design tab as the reference shows it at 1500 px: six theme cards (this presentation's
+/// theme first) and the gallery's "more" column; Customize (Variants, Colors, Fonts, Effects,
+/// Background Styles); Slides (Layout, Slide Size).
 pub(crate) fn design_tab() -> Tab {
     use Item::Large as L;
     Tab {
@@ -197,22 +242,34 @@ pub(crate) fn design_tab() -> Tab {
         groups: vec![
             Group {
                 label: "slideEditor.design.groupThemes",
-                large: THEMES.iter().map(|(c, _)| L(c)).collect(),
-                rows: vec![],
-            },
-            Group {
-                label: "slideEditor.design.groupVariants",
-                large: vec![L("design.colors"), L("design.fonts")],
+                large: std::iter::once(L(CURRENT_THEME))
+                    .chain(THEMES.iter().map(|(c, _)| L(c)))
+                    .chain([L("design.more")])
+                    .collect(),
                 rows: vec![],
             },
             Group {
                 label: "slideNative.customize",
-                large: vec![L("design.slideSize"), L("design.background")],
+                large: vec![
+                    L("design.variants"),
+                    L("design.colors"),
+                    L("design.fonts"),
+                    L("design.effects"),
+                    L("design.background"),
+                ],
+                rows: vec![],
+            },
+            Group {
+                label: "slideEditor.groupSlides",
+                large: vec![L("design.layout"), L("design.slideSize")],
                 rows: vec![],
             },
         ],
     }
 }
+
+/// The first theme card: this presentation's own theme.
+pub const CURRENT_THEME: &str = "design.theme.current";
 
 pub(crate) fn transitions_tab() -> Tab {
     use Item::{Labeled as S, Large as L};
@@ -343,6 +400,10 @@ pub(crate) fn install_strings(s: &mut Strings) {
             Some((e, _)) => copy(s, id, &format!("slideEditor.effect.{e}")),
         }
     }
+    s.set(&format!("commands.{CURRENT_THEME}"), "");
+    let this = s.get("slideNative.thisPresentation").to_owned();
+    s.set(&format!("commands.tip.{CURRENT_THEME}"), &this);
+    s.set("commands.design.more", "");
     for (id, theme) in THEMES {
         // Theme tiles show a preview, not a label; the name is the tooltip.
         copy(
@@ -357,10 +418,13 @@ pub(crate) fn install_strings(s: &mut Strings) {
         s.set(&format!("commands.{id}"), "");
     }
     for (id, key) in [
-        ("design.slideSize", "slideEditor.design.slideSize"),
-        ("design.background", "slideNative.formatBackground"),
+        ("design.slideSize", "slideNative.slideSize"),
+        ("design.background", "slideNative.backgroundStyles"),
         ("design.colors", "slideEditor.smartart.colors"),
         ("design.fonts", "slideNative.fonts"),
+        ("design.variants", "slideEditor.design.groupVariants"),
+        ("design.effects", "slideNative.themeEffects"),
+        ("design.layout", "slideNative.layout"),
         ("transition.preview", "slideEditor.preview"),
         ("anim.preview", "slideEditor.preview"),
         ("transition.effect", "slideNative.effectOptions"),
@@ -660,6 +724,37 @@ pub(crate) fn install_icons(icons: &mut Icons) {
         ],
     );
     icons.alias("design.fonts", "format.fontDialog");
+    // Variants: a card with a brush; Effects: a bevelled tile (own drawings).
+    icons.add_solid(
+        "design.variants",
+        &[
+            (
+                "M4 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-14a2 2 0 0 1-2-2v-12a2 2 0 0 1 2-2Z",
+                Some(Rgba(255, 255, 255, 255)),
+            ),
+            (
+                "M4 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-14a2 2 0 0 1-2-2v-12a2 2 0 0 1 2-2Z",
+                None,
+            ),
+            (
+                "M12 16l9-9l1.5 1.5l-9 9Z",
+                Some(Rgba(0x5b, 0x8f, 0xd0, 255)),
+            ),
+        ],
+    );
+    icons.add_solid(
+        "design.effects",
+        &[
+            (
+                "M5 6h12l3 3v10h-12l-3-3Z",
+                Some(Rgba(0x80, 0x80, 0x80, 255)),
+            ),
+            ("M5 6h12v10h-12Z", Some(Rgba(0xe6, 0xe6, 0xe6, 255))),
+            ("M5 6h12v10h-12Z", None),
+        ],
+    );
+    icons.alias("design.layout", "layout.pageSetup");
+    icons.alias("design.more", "transition.more");
     icons.alias("design.slideSize", "layout.size");
     icons.alias("design.background", "format.fillColor");
     icons.alias("review.comments", "review.pane");

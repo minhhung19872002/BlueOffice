@@ -13,6 +13,7 @@ bo-render.workspace = true
 bo-edit.workspace = true
 bo-model.workspace = true
 bo-pptx = { path = "../bo-pptx" }
+bo-drawingml = { path = "../bo-drawingml" }
 bo-sheet.workspace = true
 bo-pdfread = { path = "../bo-pdfread" }
 bo-text.workspace = true

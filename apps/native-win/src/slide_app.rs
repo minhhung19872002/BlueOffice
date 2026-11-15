@@ -6,7 +6,8 @@ use bo_engine::{Engine, SystemFontIndex};
 use bo_gpu_win::{Device, FontSpec, Frame, PageBitmap, TextRendering, WindowSurface};
 use bo_render::{PageList, PathSeg, Rgba};
 use bo_ui::{
-    Font, Input, NcHit, PageStore, Painter, Request, SlideView, SlideWindow, TextMeasure, TextStyle,
+    Font, Input, InsertFile, NcHit, PageStore, Painter, Request, SlideView, SlideWindow,
+    TextMeasure, TextStyle,
 };
 use std::collections::HashMap;
 use std::io::Write;
@@ -325,8 +326,48 @@ impl Shell {
         false
     }
 
+    /// Let the user pick a picture, video or audio file and insert it on the slide.
+    fn insert_file(&mut self, kind: InsertFile) -> bool {
+        let filters: &[(&str, &str)] = match kind {
+            InsertFile::Picture => &[
+                (
+                    "Pictures (*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.svg)",
+                    "*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.svg",
+                ),
+                ("All files", "*.*"),
+            ],
+            InsertFile::Video => &[
+                (
+                    "Video (*.mp4;*.m4v;*.mov;*.wmv;*.avi)",
+                    "*.mp4;*.m4v;*.mov;*.wmv;*.avi",
+                ),
+                ("All files", "*.*"),
+            ],
+            InsertFile::Audio => &[
+                ("Audio (*.mp3;*.m4a;*.wav;*.wma)", "*.mp3;*.m4a;*.wav;*.wma"),
+                ("All files", "*.*"),
+            ],
+        };
+        let Some(path) = win32::file_dialog(false, filters, "") else {
+            return false;
+        };
+        let name = path
+            .file_name()
+            .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+        match std::fs::read(&path) {
+            Ok(bytes) => self.view.insert_file(bytes, &name),
+            Err(e) => {
+                eprintln!("{}: {e}", path.display());
+                false
+            }
+        }
+    }
+
     fn handle_requests(&mut self) -> bool {
         let mut redraw = false;
+        if let Some(kind) = self.view.take_file_request() {
+            redraw |= self.insert_file(kind);
+        }
         for r in self.view.take_requests() {
             match r {
                 Request::Save => {

@@ -861,6 +861,7 @@ impl Ribbon {
                             Item::SizeBox => self.px(52.0),
                             Item::Button(id) if crate::catalog::is_menu(id) => self.px(36.0),
                             Item::Labeled(id) => match (self.labeled_w)(id).or_else(|| (self.row_w)(id)) {
+
                                 Some(fixed) => self.px(fixed),
                                 None => btn + self.measure_label(text, strings, id) + self.px(8.0),
                             },
@@ -1251,6 +1252,20 @@ impl Ribbon {
             _ => {}
         }
         (fired, was.is_some())
+    }
+
+    /// Index of the active tab.
+    pub(crate) fn active_tab(&self) -> usize {
+        self.active
+    }
+
+    /// Make tab `i` active (a contextual tab shown for a new selection); lay out again.
+    pub(crate) fn set_active_tab(&mut self, i: usize) {
+        if i < self.tabs.len() && i != self.active {
+            self.active = i;
+            self.scroll = 0.0;
+            self.placed.clear();
+        }
     }
 
     /// Whether the layout must be redone (tab change).

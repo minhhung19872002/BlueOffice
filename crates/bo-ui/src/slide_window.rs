@@ -754,6 +754,7 @@ impl SlideWindow {
                 self.requests.push(Request::Paste);
                 true
             }
+            "draw.inkToShape" => self.view.ink_to_shapes(),
             id if sr::DRAW_TOOLS.contains(&id) => {
                 self.view.set_ink_tool(crate::slide_view::InkTool::of(id));
                 true

@@ -2778,7 +2778,12 @@
     "readingView": "Chế độ đọc",
     "slideSorter": "Sắp xếp trang chiếu",
     "masterViews": "Chế độ bản cái",
-    "slideMasterTab": "Bản cái trang chiếu"
+    "slideMasterTab": "Bản cái trang chiếu",
+    "lasso": "Chọn bằng thòng lọng",
+    "bluePen": "Bút: Xanh dương",
+    "greenPen": "Bút: Xanh lá",
+    "inkToShape": "Mực thành hình",
+    "convert": "Chuyển đổi"
   },
   "slideEditor": {
     "open": "Mở",

@@ -120,6 +120,7 @@ pub fn is_command(id: &str) -> bool {
     OWN.contains(&id)
         || DRAW_TOOLS.contains(&id)
         || id == "view.normal"
+        || id == "draw.inkToShape"
         || TRANSITIONS.iter().any(|(c, _)| *c == id)
         || EFFECTS.iter().any(|(c, _)| *c == id)
         || THEMES.iter().any(|(c, _)| *c == id)
@@ -211,12 +212,23 @@ pub(crate) fn draw_tab() -> Tab {
         groups: vec![
             Group {
                 label: "slideNative.tools",
-                large: vec![L("draw.eraser"), L("draw.select")],
+                large: vec![L("draw.eraser"), L("draw.select"), L("draw.lasso")],
                 rows: vec![],
             },
             Group {
                 label: "slideNative.pens",
-                large: vec![L("draw.pen"), L("draw.red"), L("draw.highlight")],
+                large: vec![
+                    L("draw.pen"),
+                    L("draw.red"),
+                    L("draw.highlight"),
+                    L("draw.blue"),
+                    L("draw.green"),
+                ],
+                rows: vec![],
+            },
+            Group {
+                label: "slideNative.convert",
+                large: vec![L("draw.inkToShape")],
                 rows: vec![],
             },
         ],
@@ -224,12 +236,15 @@ pub(crate) fn draw_tab() -> Tab {
 }
 
 /// Commands of the Draw tab.
-pub const DRAW_TOOLS: [&str; 5] = [
+pub const DRAW_TOOLS: [&str; 8] = [
     "draw.select",
     "draw.pen",
     "draw.red",
     "draw.highlight",
     "draw.eraser",
+    "draw.lasso",
+    "draw.blue",
+    "draw.green",
 ];
 
 /// Design tab as the reference shows it at 1500 px: six theme cards (this presentation's
@@ -450,6 +465,10 @@ pub(crate) fn install_strings(s: &mut Strings) {
         ("draw.red", "slideNative.redPen"),
         ("draw.highlight", "slideNative.highlighter"),
         ("draw.eraser", "slideNative.eraser"),
+        ("draw.lasso", "slideNative.lasso"),
+        ("draw.blue", "slideNative.bluePen"),
+        ("draw.green", "slideNative.greenPen"),
+        ("draw.inkToShape", "slideNative.inkToShape"),
         ("review.newComment", "slideEditor.comments.new"),
         ("review.comments", "slideNative.showComments"),
         ("review.deleteComment", "slideEditor.comments.delete"),
@@ -654,6 +673,28 @@ pub(crate) fn install_icons(icons: &mut Icons) {
     pen(icons, "draw.pen", Rgba(0x20, 0x20, 0x20, 255), false);
     pen(icons, "draw.red", Rgba(0xe7, 0x12, 0x24, 255), false);
     pen(icons, "draw.highlight", Rgba(0xff, 0xe0, 0x00, 255), true);
+    pen(icons, "draw.blue", Rgba(0x0f, 0x5e, 0xaa, 255), false);
+    pen(icons, "draw.green", Rgba(0x1e, 0x8a, 0x3c, 255), false);
+    // Lasso: a dashed loop with a plus; Ink to Shape: a stroke turning into a square.
+    icons.add_solid(
+        "draw.lasso",
+        &[
+            ("M6 4c5-2 12 0 12 5s-6 7-11 6s-5-9-1-11Z", None),
+            (
+                "M17 15h2v3h3v2h-3v3h-2v-3h-3v-2h3Z",
+                Some(Rgba(0x44, 0x80, 0xc0, 255)),
+            ),
+        ],
+    );
+    icons.add_solid(
+        "draw.inkToShape",
+        &[
+            ("M3 10c2-4 4 4 6 0", None),
+            ("M11 9h10v12h-10Z", Some(Rgba(0xcf, 0xe0, 0xf3, 255))),
+            ("M11 9h10v12h-10Z", None),
+            ("M7 15l3 3l-3 3Z", Some(Rgba(0x44, 0x80, 0xc0, 255))),
+        ],
+    );
     icons.add_solid(
         "draw.eraser",
         &[

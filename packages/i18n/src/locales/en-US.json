@@ -2778,7 +2778,12 @@
     "readingView": "Reading View",
     "slideSorter": "Slide Sorter",
     "masterViews": "Master Views",
-    "slideMasterTab": "Slide Master"
+    "slideMasterTab": "Slide Master",
+    "lasso": "Lasso Select",
+    "bluePen": "Pen: Blue",
+    "greenPen": "Pen: Green",
+    "inkToShape": "Ink to Shape",
+    "convert": "Convert"
   },
   "slideEditor": {
     "open": "Open",

@@ -855,3 +855,41 @@ fn view_tab_outline_master_and_grid() {
     assert!(w.run_action("view.notesPage"));
     assert_eq!(w.pane, viewtab::Pane::NotesPage);
 }
+
+#[test]
+fn lasso_selects_the_shapes_it_surrounds() {
+    let mut w = window();
+    w.run_action("draw.lasso");
+    let c = w.view().canvas_rect();
+    // A loop round the whole canvas.
+    let pts = [
+        (c[0] + 2.0, c[1] + 2.0),
+        (c[0] + c[2] - 2.0, c[1] + 2.0),
+        (c[0] + c[2] - 2.0, c[1] + c[3] - 2.0),
+        (c[0] + 2.0, c[1] + c[3] - 2.0),
+        (c[0] + 2.0, c[1] + 4.0),
+    ];
+    w.handle(
+        Input::Press {
+            x: pts[0].0,
+            y: pts[0].1,
+            count: 1,
+            shift: false,
+        },
+        &Fixed,
+    );
+    for (x, y) in &pts[1..] {
+        w.handle(Input::Drag { x: *x, y: *y }, &Fixed);
+    }
+    w.handle(
+        Input::Release {
+            x: pts[4].0,
+            y: pts[4].1,
+        },
+        &Fixed,
+    );
+    let n = bo_engine::slide_edit::geom::place_slide(w.view().engine().presentation().unwrap(), 0)
+        .len();
+    assert!(n > 0);
+    assert_eq!(w.view().selection().len(), n);
+}

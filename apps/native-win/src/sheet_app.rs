@@ -4,8 +4,8 @@ use bo_engine::{SheetEngine, SystemFontIndex};
 use bo_gpu_win::{Device, FontSpec, Frame, PageBitmap, TextRendering, WindowSurface};
 use bo_render::{PageList, PathSeg, Rgba};
 use bo_ui::{
-    Font, GridMove, GridStore, Input, NcHit, Painter, Request, SheetView, SheetWindow, TextMeasure,
-    TextStyle,
+    Font, GridMove, GridStore, Input, NcHit, PaintHash, Painter, Request, SheetView, SheetWindow,
+    TextMeasure, TextStyle,
 };
 use std::io::Write;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -101,8 +101,11 @@ pub fn run() -> Result<(), String> {
             dirty: true,
             pending_input: None,
             last_frame: [std::time::Duration::ZERO; 3],
+            gpu_ms: 0.0,
+            gpu_grid_ms: 0.0,
             grid_time: std::time::Duration::ZERO,
             blit: std::env::var("BLUEOFFICE_SHEET_BLIT").as_deref() != Ok("0"),
+            layer: std::env::var("BLUEOFFICE_SHEET_LAYER").as_deref() != Ok("0"),
         }),
     )
 }
@@ -113,6 +116,8 @@ struct Gpu {
     grid: Option<PageBitmap>,
     /// Second grid bitmap: scrolling copies the kept part of grid into it, then swaps.
     spare: Option<PageBitmap>,
+    /// Image of the title bar and ribbon, and the hash of what it shows.
+    top: Option<(PageBitmap, u64)>,
 }
 
 struct Store<'a> {
@@ -262,11 +267,17 @@ struct Shell {
     pending_input: Option<PendingInput>,
     /// Last frame: grid image, interface paint, end of drawing + present.
     last_frame: [std::time::Duration; 3],
+    /// GPU time after the last logged frame's present (BLUEOFFICE_NATIVE_GPU=1 waits for it).
+    gpu_ms: f64,
+    /// GPU time of the grid image alone (same switch).
+    gpu_grid_ms: f64,
     /// Grid image drawing since the last logged frame (also by paints the system asks for).
     grid_time: std::time::Duration,
     /// Scrolling moves the grid image instead of redrawing it (BLUEOFFICE_SHEET_BLIT=0
     /// turns it off to compare).
     blit: bool,
+    /// The title bar and ribbon are cached as an image (BLUEOFFICE_SHEET_LAYER=0: off).
+    layer: bool,
 }
 
 struct PendingInput {
@@ -378,14 +389,52 @@ impl Shell {
             spare: &mut gpu.spare,
             blit: self.blit,
         })?;
+        if self.perf.is_some() && std::env::var_os("BLUEOFFICE_NATIVE_GPU").is_some() {
+            self.gpu_grid_ms = gpu.device.wait_gpu_ms();
+        }
         let t1 = Instant::now();
         self.grid_time += t1 - t0;
+        // The title bar and ribbon are drawn into an image only when they change (most frames
+        // only change the grid; BLUEOFFICE_SHEET_LAYER=0 draws them every frame).
+        let p0 = Instant::now();
+        let mut top = None;
+        if self.layer {
+            let (w, _) = gpu.surface.size();
+            let h = self.view.top_height().ceil().max(1.0) as u32;
+            let mut hash = PaintHash::default();
+            self.view.paint_top(&mut hash);
+            let key = hash.finish();
+            let fits = gpu
+                .top
+                .as_ref()
+                .is_some_and(|(b, _)| (b.width, b.height) == (w, h));
+            if !fits {
+                gpu.top = gpu.device.create_layer(w, h).ok().map(|b| (b, !key));
+            }
+            if let Some((bitmap, cached)) = gpu.top.as_mut() {
+                if *cached != key {
+                    let view = &self.view;
+                    gpu.device.draw_layer(bitmap, |frame| {
+                        view.paint_top(&mut WinPainter { frame, grid: None });
+                    })?;
+                    *cached = key;
+                }
+            }
+            top = gpu.top.as_ref().map(|(b, _)| b);
+        }
+        let mut painted = p0.elapsed();
         let (view, grid) = (&self.view, gpu.grid.as_ref());
-        let mut painted = std::time::Duration::ZERO;
         let r = gpu.surface.frame(&gpu.device, |frame| {
             let p0 = Instant::now();
-            view.paint(&mut WinPainter { frame, grid });
-            painted = p0.elapsed();
+            let mut wp = WinPainter { frame, grid };
+            if let Some(top) = top {
+                view.paint_base(&mut wp);
+                frame.draw_page(top, 0, 0);
+                view.paint_overlay(&mut wp);
+            } else {
+                view.paint(&mut wp);
+            }
+            painted += p0.elapsed();
         });
         self.last_frame = [t1 - t0, painted, t1.elapsed().saturating_sub(painted)];
         r
@@ -396,6 +445,9 @@ impl Handler for Shell {
     fn created(&mut self, hwnd: isize, width: u32, height: u32, scale: f32) -> Result<(), String> {
         refresh_text_scale();
         let device = Device::new()?;
+        if let Some(f) = self.perf.as_mut() {
+            let _ = writeln!(f, r#"{{"input":"driver","name":"{:?}"}}"#, device.driver());
+        }
         if let Err(e) = device.update_window_monitor(hwnd) {
             eprintln!("monitor text settings: {e}");
         }
@@ -406,12 +458,21 @@ impl Handler for Shell {
             Ok("light") => TextRendering::light_cleartype(),
             _ => TextRendering::System,
         });
-        let surface = WindowSurface::new(&device, hwnd, width, height)?;
+        let mut surface = WindowSurface::new(&device, hwnd, width, height)?;
+        // Frames go to the compositor as soon as they are drawn (BLUEOFFICE_SHEET_SYNC=1
+        // waits for the next vertical blank as BlueDoc does).
+        surface.set_sync_interval(
+            std::env::var("BLUEOFFICE_SHEET_SYNC")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(0),
+        );
         self.gpu = Some(Gpu {
             device,
             surface,
             grid: None,
             spare: None,
+            top: None,
         });
         let m = Measure(self.gpu.as_ref().map(|g| &g.device));
         self.view.handle(Input::Scale(scale), &m);
@@ -538,11 +599,14 @@ impl Handler for Shell {
         if let Err(e) = self.render() {
             eprintln!("render: {e}");
         }
+        if self.perf.is_some() && std::env::var_os("BLUEOFFICE_NATIVE_GPU").is_some() {
+            self.gpu_ms = self.gpu.as_ref().map_or(0.0, |g| g.device.wait_gpu_ms());
+        }
         if let (Some(file), Some(p)) = (self.perf.as_mut(), self.pending_input.take()) {
             let total = p.first.elapsed();
             let _ = writeln!(
                 file,
-                r#"{{"input":"{}","inputs":{},"age_ms":{},"handle_ms":{:.3},"grid_ms":{:.3},"prepare_ms":{:.3},"paint_ms":{:.3},"submit_ms":{:.3},"present_ms":{:.3},"total_ms":{:.3}}}"#,
+                r#"{{"input":"{}","inputs":{},"age_ms":{},"handle_ms":{:.3},"grid_ms":{:.3},"prepare_ms":{:.3},"paint_ms":{:.3},"submit_ms":{:.3},"present_ms":{:.3},"total_ms":{:.3},"gpu_ms":{:.3},"gpu_grid_ms":{:.3}}}"#,
                 p.kind,
                 p.count,
                 p.age_ms,
@@ -553,6 +617,8 @@ impl Handler for Shell {
                 self.last_frame[2].as_secs_f64() * 1e3,
                 total.saturating_sub(p.handle).as_secs_f64() * 1e3,
                 total.as_secs_f64() * 1e3 + f64::from(p.age_ms),
+                self.gpu_ms,
+                self.gpu_grid_ms,
             );
         }
     }

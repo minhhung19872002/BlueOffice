@@ -65,6 +65,57 @@ pub struct PageBitmap {
 }
 
 impl Device {
+    /// An opaque bitmap of `width` × `height` device pixels holding a cached part of a window
+    /// (drawn with [`Device::draw_layer`], shown with [`Frame::draw_page`]).
+    pub fn create_layer(&self, width: u32, height: u32) -> Result<PageBitmap, String> {
+        if width == 0 || height == 0 || width > 16_384 || height > 16_384 {
+            return Err("layer too large or empty".into());
+        }
+        let props = D2D1_BITMAP_PROPERTIES1 {
+            pixelFormat: D2D1_PIXEL_FORMAT {
+                format: DXGI_FORMAT_B8G8R8A8_UNORM,
+                alphaMode: D2D1_ALPHA_MODE_IGNORE,
+            },
+            dpiX: 96.0,
+            dpiY: 96.0,
+            bitmapOptions: D2D1_BITMAP_OPTIONS_TARGET,
+            ..Default::default()
+        };
+        // SAFETY: the context owns the returned bitmap; no pointers are passed.
+        let bitmap = unsafe {
+            self.context
+                .CreateBitmap(D2D_SIZE_U { width, height }, None, 0, &props)
+                .map_err(|e| e.to_string())?
+        };
+        Ok(PageBitmap {
+            bitmap,
+            width,
+            height,
+        })
+    }
+
+    /// Draw `paint` into `layer` in device pixels, with the interface text settings of a
+    /// window frame (outside a window frame).
+    pub fn draw_layer(
+        &self,
+        layer: &PageBitmap,
+        paint: impl FnOnce(&Frame<'_>),
+    ) -> Result<(), String> {
+        // SAFETY: the context targets the layer only between BeginDraw and EndDraw and is
+        // reset afterwards; the layer belongs to this device.
+        unsafe {
+            self.context.SetTarget(&layer.bitmap);
+            self.context.SetDpi(96.0, 96.0);
+            self.context.BeginDraw();
+            self.context.SetTransform(&IDENTITY);
+            self.apply_ui_text();
+            paint(&Frame { device: self });
+            let ended = self.context.EndDraw(None, None);
+            self.context.SetTarget(None::<&ID2D1Image>);
+            ended.map_err(|e| e.to_string())
+        }
+    }
+
     /// An opaque GPU bitmap for `page` at `pixels_per_point` (its pixels are undefined until drawn).
     pub fn create_page_bitmap(
         &self,
@@ -406,6 +457,10 @@ pub struct WindowSurface {
     target: Option<ID2D1Bitmap1>,
     width: u32,
     height: u32,
+    /// `Present` sync interval: 1 (default) shows a frame on the vertical blank after it is
+    /// presented; 0 hands it to the compositor at once (one refresh sooner on screen; the
+    /// frame-latency wait still paces drawing).
+    interval: u32,
 }
 
 const FLAGS: DXGI_SWAP_CHAIN_FLAG = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
@@ -448,10 +503,16 @@ impl WindowSurface {
                 target: None,
                 width,
                 height,
+                interval: 1,
             };
             surface.bind(device)?;
             Ok(surface)
         }
+    }
+
+    /// Present with sync interval `interval` (0 or 1; see the field).
+    pub fn set_sync_interval(&mut self, interval: u32) {
+        self.interval = interval.min(1);
     }
 
     /// Size of the back buffer in pixels.
@@ -522,7 +583,7 @@ impl WindowSurface {
             device.context.SetTarget(None::<&ID2D1Image>);
             ended.map_err(|e| e.to_string())?;
             self.swap
-                .Present(1, DXGI_PRESENT(0))
+                .Present(self.interval, DXGI_PRESENT(0))
                 .ok()
                 .map_err(|e| e.to_string())
         }

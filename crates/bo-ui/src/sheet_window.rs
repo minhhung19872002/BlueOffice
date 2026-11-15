@@ -1233,7 +1233,27 @@ impl SheetWindow {
     /// Paint the whole window.
     pub fn paint(&self, p: &mut dyn Painter) {
         p.clear(self.theme.bg);
+        self.paint_base(p);
+        self.paint_top(p);
+        self.paint_overlay(p);
+    }
+
+    /// Height of the top band (title bar and ribbon) that [`Self::paint_top`] draws; the
+    /// host may cache it as an image.
+    pub fn top_height(&self) -> f32 {
+        self.ribbon.bottom()
+    }
+
+    /// The grid with its headers (below the overlay). With [`Self::paint_top`] and
+    /// [`Self::paint_overlay`] it covers the whole window, so a host drawing the three
+    /// needs no clear (one pass less over the window's pixels).
+    pub fn paint_base(&self, p: &mut dyn Painter) {
         self.view.paint(p);
+    }
+
+    /// Title bar, ribbon and number format box: everything above the formula bar.
+    pub fn paint_top(&self, p: &mut dyn Painter) {
+        p.fill_rect(0.0, 0.0, self.size.0, self.top_height(), self.theme.bg);
         let fmt = self.format_state();
         self.title.paint(
             p,
@@ -1254,6 +1274,11 @@ impl SheetWindow {
             &self.on_ids(),
         );
         self.paint_number_box(p);
+    }
+
+    /// Formula bar, sheet tabs, scroll bars, status bar, then menus, tooltips and dialogs
+    /// (over the top band).
+    pub fn paint_overlay(&self, p: &mut dyn Painter) {
         if self.show_fbar {
             self.paint_formula_bar(p);
         }
@@ -1683,6 +1708,91 @@ impl SheetWindow {
                 },
             );
         }
+    }
+}
+
+/// A painter that only hashes what it is asked to draw: equal hashes mean an equal picture,
+/// so a cached image of that part can be reused.
+#[derive(Default)]
+pub struct PaintHash(std::collections::hash_map::DefaultHasher);
+
+impl PaintHash {
+    /// Hash of everything drawn so far.
+    pub fn finish(&self) -> u64 {
+        use std::hash::Hasher;
+        self.0.finish()
+    }
+
+    fn put(&mut self, tag: u8, v: &[f32]) {
+        use std::hash::Hasher;
+        self.0.write_u8(tag);
+        for x in v {
+            self.0.write_u32(x.to_bits());
+        }
+    }
+
+    fn color(&mut self, c: Rgba) {
+        use std::hash::Hasher;
+        self.0.write(&[c.0, c.1, c.2, c.3]);
+    }
+}
+
+impl Painter for PaintHash {
+    fn clear(&mut self, color: Rgba) {
+        self.put(0, &[]);
+        self.color(color);
+    }
+    fn fill_rect(&mut self, x: f32, y: f32, w: f32, h: f32, color: Rgba) {
+        self.put(1, &[x, y, w, h]);
+        self.color(color);
+    }
+    fn page(&mut self, index: usize, x: i32, y: i32) {
+        self.put(2, &[index as f32, x as f32, y as f32]);
+    }
+    fn text(&mut self, text: &str, x: f32, y: f32, style: TextStyle, color: Rgba) {
+        use std::hash::Hasher;
+        self.put(3, &[x, y, style.size, f32::from(u8::from(style.bold))]);
+        self.0.write(text.as_bytes());
+        self.color(color);
+    }
+    fn text_font(&mut self, text: &str, x: f32, y: f32, font: &Font<'_>, color: Rgba) {
+        use std::hash::Hasher;
+        self.put(4, &[x, y, font.size, f32::from(font.weight)]);
+        self.0.write(font.family.as_bytes());
+        self.0
+            .write(&[u8::from(font.italic), u8::from(font.underline)]);
+        self.0.write(text.as_bytes());
+        self.color(color);
+    }
+    fn path(&mut self, segs: &[PathSeg], fill: Option<Rgba>, stroke: Option<(Rgba, f32)>) {
+        self.put(5, &[]);
+        for s in segs {
+            match *s {
+                PathSeg::M(a, b) => self.put(6, &[a, b]),
+                PathSeg::L(a, b) => self.put(7, &[a, b]),
+                PathSeg::Q(a, b, c, d) => self.put(8, &[a, b, c, d]),
+                PathSeg::C(a, b, c, d, e, f) => self.put(9, &[a, b, c, d, e, f]),
+                PathSeg::Z => self.put(10, &[]),
+            }
+        }
+        if let Some(c) = fill {
+            self.color(c);
+        }
+        if let Some((c, w)) = stroke {
+            self.put(11, &[w]);
+            self.color(c);
+        }
+    }
+    fn push_clip(&mut self, x: f32, y: f32, w: f32, h: f32) {
+        self.put(12, &[x, y, w, h]);
+    }
+    fn pop_clip(&mut self) {
+        self.put(13, &[]);
+    }
+    fn page_part(&mut self, index: usize, src: [f32; 4], dest: [f32; 4], opacity: f32) {
+        self.put(14, &[index as f32, opacity]);
+        self.put(15, &src);
+        self.put(16, &dest);
     }
 }
 

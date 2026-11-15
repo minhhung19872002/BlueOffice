@@ -38,7 +38,7 @@ pub use popup::{Choice, Menu, MenuItem};
 pub use ribbon::{Ribbon, RibbonHit};
 pub use ruler::Ruler;
 pub use sheet_view::{CellFormat, GridMove, GridStore, SheetView, Stats};
-pub use sheet_window::SheetWindow;
+pub use sheet_window::{PaintHash, SheetWindow};
 pub use shell::{DocWindow, Request};
 pub use slide_view::{Focus, SlideView, ViewMode, SLIDE_CANVAS};
 pub use slide_window::SlideWindow;

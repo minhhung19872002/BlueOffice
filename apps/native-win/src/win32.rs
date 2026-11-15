@@ -799,6 +799,9 @@ pub fn run(title: &str, handler: Box<dyn Handler>) -> Result<(), String> {
             None,
         )
         .map_err(|e| e.to_string())?;
+        // BLUEOFFICE_SHOW_NOACTIVATE=1 (measurement scripts) shows the window without taking
+        // the focus from the user's window.
+        let quiet = std::env::var_os("BLUEOFFICE_SHOW_NOACTIVATE").is_some();
         // Recompute the frame now that WM_NCCALCSIZE removes the system caption.
         let _ = SetWindowPos(
             hwnd,
@@ -807,9 +810,22 @@ pub fn run(title: &str, handler: Box<dyn Handler>) -> Result<(), String> {
             0,
             0,
             0,
-            SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER,
+            SWP_FRAMECHANGED
+                | SWP_NOMOVE
+                | SWP_NOSIZE
+                | SWP_NOZORDER
+                | if quiet {
+                    SWP_NOACTIVATE
+                } else {
+                    windows::Win32::UI::WindowsAndMessaging::SET_WINDOW_POS_FLAGS(0)
+                },
         );
-        let _ = ShowWindow(hwnd, SW_SHOWMAXIMIZED);
+        let show = if quiet {
+            windows::Win32::UI::WindowsAndMessaging::SW_SHOWNOACTIVATE
+        } else {
+            SW_SHOWMAXIMIZED
+        };
+        let _ = ShowWindow(hwnd, show);
         let mut rect = RECT::default();
         let _ = GetClientRect(hwnd, &mut rect);
         let (w, h) = (

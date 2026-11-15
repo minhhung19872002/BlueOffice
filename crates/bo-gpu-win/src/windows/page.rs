@@ -46,10 +46,14 @@ use windows_numerics::{Matrix3x2, Vector2};
 /// antialiasing in both directions: matched to a black-box capture of a desktop word
 /// processor (same share of dark and half-covered pixels on body text, docs/ui/REPORT.md).
 const GRAY_PARAMS: (f32, f32, f32) = (1.5, 1.0, 0.0);
-/// Gamma and enhanced contrast of grayscale sans-serif text (Calibri, Arial, …): with the
-/// serif setting their horizontal strokes came out softer than the reference capture
-/// (hard edges 0.21 vs 0.26); this pair brings them to 0.25 (docs/ui/REPORT.md round 23).
+/// Gamma and enhanced contrast of small grayscale sans-serif text (Calibri, Arial, …,
+/// below [`SANS_SMALL_PX`]): with the serif setting their horizontal strokes came out
+/// softer than the reference capture at 100 % (hard edges 0.21 vs 0.26); this pair gives
+/// 0.25. Larger sizes already matched it with the serif setting (docs/ui/REPORT.md
+/// rounds 23–24).
 const SANS_GRAY_PARAMS: (f32, f32) = (1.8, 3.0);
+/// Em size in device pixels below which sans-serif text uses [`SANS_GRAY_PARAMS`].
+const SANS_SMALL_PX: f32 = 20.0;
 
 const IDENTITY: Matrix3x2 = Matrix3x2 {
     M11: 1.0,
@@ -941,6 +945,7 @@ impl Device {
                             x,
                             y,
                             face,
+                            size,
                             ..
                         } => {
                             let Some(run) = runs.get(&index) else {
@@ -948,7 +953,8 @@ impl Device {
                             };
                             // Serif and sans-serif faces each with their own setting.
                             if let Some((serif_p, sans_p)) = self.text_params.borrow().as_ref() {
-                                let want = fonts.info(FaceId(*face)).sans;
+                                let want = fonts.info(FaceId(*face)).sans
+                                    && *size * pixels_per_point < SANS_SMALL_PX;
                                 if sans_on != Some(want) {
                                     self.context.SetTextRenderingParams(if want {
                                         sans_p

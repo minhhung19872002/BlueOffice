@@ -11,6 +11,7 @@ use crate::ribbon::{Ribbon, RibbonHit};
 use crate::ruler::Ruler;
 use crate::spell_pane::{SpellAction, SpellPane};
 use crate::strings::Strings;
+use crate::table_grid::{GridPick, TableGrid};
 use crate::theme::Theme;
 use crate::titlebar::{NcHit, TitleBar};
 use crate::{commands, Key, Mods};
@@ -132,6 +133,8 @@ pub struct DocWindow {
     status_x: [f32; 3],
     /// Proofing pane (Review › Spelling & Grammar, F7), when shown.
     spell_pane: Option<SpellPane>,
+    /// Insert › Table size picker, when open.
+    table_grid: Option<TableGrid>,
 }
 
 /// Font sizes offered by the size box (points).
@@ -255,7 +258,54 @@ impl DocWindow {
             tag_w: [0.0; 2],
             status_x: [0.0; 3],
             spell_pane: None,
+            table_grid: None,
         }
+    }
+
+    /// Open the Insert › Table size picker under its button.
+    fn open_table_grid(&mut self) -> bool {
+        let anchor = self
+            .ribbon
+            .rect_of(RibbonHit::Command("insert.table"))
+            .unwrap_or([0.0, self.ribbon.bottom(), 1.0, 0.0]);
+        let commands = vec![self.t("commands.table.fromText", "Convert Text to Table")];
+        self.menu = None;
+        self.table_grid = Some(TableGrid::open(anchor, commands, self.scale));
+        true
+    }
+
+    /// Input while the table size picker is open; `None` lets it through.
+    fn table_grid_input(&mut self, input: &Input) -> Option<bool> {
+        let grid = self.table_grid.as_mut()?;
+        Some(match *input {
+            Input::Move { x, y } | Input::Drag { x, y } => grid.hover(x, y),
+            Input::Press { x, y, .. } => {
+                let pick = grid.press(x, y);
+                self.table_grid = None;
+                self.ribbon.clear_pointer();
+                match pick {
+                    Some(GridPick::Size(cols, rows)) => {
+                        self.activate_context = true;
+                        self.view.run_command(Command::InsertTable { rows, cols })
+                    }
+                    Some(GridPick::Command(_)) => {
+                        let cmd = catalog::from_json(json!({
+                            "cmd": "tableEdit",
+                            "edit": { "kind": "fromText", "separator": "\t" },
+                        }));
+                        self.activate_context = true;
+                        cmd.is_some_and(|c| self.view.run_command(c))
+                    }
+                    None => true,
+                }
+            }
+            Input::Key(Key::Escape, _) => {
+                self.table_grid = None;
+                true
+            }
+            Input::Text(_) | Input::Key(..) | Input::Wheel(_) | Input::Release { .. } => true,
+            _ => return None,
+        })
     }
 
     /// Right edge of the document area (the proofing pane takes the window's right side).
@@ -1178,6 +1228,7 @@ impl DocWindow {
             // Find searches from the navigation pane, as on the reference.
             "edit.find" => self.toggle_nav(true, true),
             "review.spellingDialog" => self.open_spelling(),
+            "insert.table" => self.open_table_grid(),
             "view.navigationPane" => {
                 let show = self.nav.is_none();
                 self.toggle_nav(show, false)
@@ -1579,6 +1630,9 @@ impl DocWindow {
                 }
                 _ => {}
             }
+        }
+        if let Some(redraw) = self.table_grid_input(&input) {
+            return redraw;
         }
         // Pointer and keyboard input goes to an open menu first.
         if self.menu.is_some() {
@@ -2307,6 +2361,20 @@ impl DocWindow {
             self.theme.text,
         );
         p.text(&zoom, pct[0] + (6.0 * self.scale).round(), ty, style, ink);
+        if let Some(grid) = &self.table_grid {
+            let label = |c: usize, r: usize| {
+                self.strings.fmt(
+                    "ribbon.docTools.tableSize",
+                    &[("cols", &c.to_string()), ("rows", &r.to_string())],
+                )
+            };
+            grid.paint(
+                p,
+                &self.theme,
+                &self.t("ribbon.docTools.insertTable", "Insert Table"),
+                &label,
+            );
+        }
         if let Some(menu) = &self.menu {
             menu.paint(p, &self.theme, &self.icons);
         } else if let Some((label, tw, anchor)) = &self.tooltip {

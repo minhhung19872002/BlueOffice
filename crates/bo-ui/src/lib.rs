@@ -34,6 +34,7 @@ mod slide_view;
 mod slide_window;
 mod spell_pane;
 mod strings;
+mod table_grid;
 mod theme;
 mod titlebar;
 

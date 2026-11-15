@@ -74,7 +74,9 @@
       "crop": "Cắt",
       "mergeCells": "Gộp ô",
       "splitCells": "Tách ô",
-      "spelling": "Chính tả & ngữ pháp"
+      "spelling": "Chính tả & ngữ pháp",
+      "insertTable": "Chèn bảng",
+      "tableSize": "Bảng {{cols}}x{{rows}}"
     },
     "groups": {
       "links": "Liên kết",

@@ -74,7 +74,9 @@
       "crop": "Crop",
       "mergeCells": "Merge Cells",
       "splitCells": "Split Cells",
-      "spelling": "Spelling & Grammar"
+      "spelling": "Spelling & Grammar",
+      "insertTable": "Insert Table",
+      "tableSize": "{{cols}}x{{rows}} Table"
     },
     "groups": {
       "links": "Links",

@@ -399,3 +399,49 @@ fn blend_modes_and_soft_masks_become_groups() {
         })
     ));
 }
+
+#[test]
+fn text_render_modes_stroke_and_clip() {
+    // Mode 1: outlines stroked, not filled; mode 7: invisible, clips what follows to the text.
+    let mut doc = open(simple_pdf(
+        "BT /F1 40 Tf 1 Tr 1 0 0 RG 10 50 Td (A) Tj ET \
+         q BT /F1 40 Tf 7 Tr 100 50 Td (B) Tj ET 0 0 1 rg 0 0 200 100 re f Q",
+        &[],
+    ));
+    let page = doc.render(0, RenderOptions::default()).expect("renders");
+    let c = &page.list.commands;
+    assert!(c.iter().any(|c| matches!(
+        c,
+        Command::Path {
+            fill: None,
+            stroke: Some(_),
+            ..
+        }
+    )));
+    let clip = c
+        .iter()
+        .position(|c| matches!(c, Command::PushClipPath { .. }))
+        .expect("text clip");
+    let fill = c
+        .iter()
+        .position(|c| {
+            matches!(
+                c,
+                Command::FillRect { .. } | Command::Path { fill: Some(_), .. }
+            )
+        })
+        .expect("fill");
+    assert!(clip < fill);
+    assert!(!c.iter().any(|c| matches!(c, Command::Glyphs { .. })));
+}
+
+#[test]
+fn aes_256_with_an_empty_user_password_opens() {
+    // Revision 6 (ISO 32000-2 §7.6.4.4) with only an owner password (made with MuPDF).
+    let bytes = include_bytes!("../testdata/aes256-empty-user.pdf").to_vec();
+    assert!(!PdfDocument::needs_password(&bytes));
+    let mut doc = open(bytes);
+    let page = doc.render(0, RenderOptions::default()).expect("renders");
+    let text: String = page.chars.iter().map(|c| c.text.as_str()).collect();
+    assert!(text.contains("AES-256"), "{text}");
+}

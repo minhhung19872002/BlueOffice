@@ -1256,6 +1256,7 @@ impl Device {
         mode: BlendMode,
         b: &Backdrop<'_>,
         ppp: f32,
+        in_clip: bool,
     ) -> Result<(), String> {
         // SAFETY: the scratch bitmap and effect are owned COM objects; the clip pushed here is
         // popped before returning; the world transform is identity during the call.
@@ -1352,7 +1353,13 @@ impl Device {
                 None,
                 None,
                 D2D1_INTERPOLATION_MODE_NEAREST_NEIGHBOR,
-                D2D1_COMPOSITE_MODE_SOURCE_COPY,
+                // Inside a clip layer the result (backdrop blended with the group) is drawn
+                // over the layer, which keeps it to the clip's shape.
+                if in_clip {
+                    D2D1_COMPOSITE_MODE_SOURCE_OVER
+                } else {
+                    D2D1_COMPOSITE_MODE_SOURCE_COPY
+                },
             );
             self.context.PopAxisAlignedClip();
         }
@@ -1428,14 +1435,17 @@ impl Device {
                             if let (Some(content), Some(mode)) = (&g.content, g.blend) {
                                 let end =
                                     group_end(commands, index - 1).ok_or("unbalanced group")?;
-                                let in_layer = state
-                                    .stack
-                                    .iter()
-                                    .any(|s| matches!(s, Saved::LayerClip | Saved::Group(true)));
+                                // The backdrop is read from the page target: inside a soft
+                                // mask layer it is not there yet; inside a clip layer it is
+                                // (ISO 32000-1 §11.4.7: the clip only limits the result).
+                                let in_mask =
+                                    state.stack.iter().any(|s| matches!(s, Saved::Group(true)));
+                                let in_clip =
+                                    state.stack.iter().any(|s| matches!(s, Saved::LayerClip));
                                 self.context.SetTransform(&IDENTITY);
                                 let done = match backdrop {
-                                    Some(b) if !in_layer => {
-                                        self.blend_onto(content, mode, b, pixels_per_point)
+                                    Some(b) if !in_mask => {
+                                        self.blend_onto(content, mode, b, pixels_per_point, in_clip)
                                     }
                                     // No backdrop to read: the group draws as Normal.
                                     _ => {

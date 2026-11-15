@@ -301,10 +301,14 @@ fn patches(l: &Layout, b: &mut Bits<'_>, tensor: bool) -> Vec<Tri> {
                 None => ok = false,
             }
         }
+        // Interior points p11 p12 p22 p21 of a tensor-product patch (§8.7.4.5.8).
+        let mut inner = [(0.0, 0.0); 4];
         if tensor {
-            // Interior points p11 p12 p22 p21: not used (Coons approximation).
-            for _ in 0..4 {
-                ok &= l.point(b).is_some();
+            for q in &mut inner {
+                match l.point(b) {
+                    Some(v) => *q = v,
+                    None => ok = false,
+                }
             }
         }
         for c in cols.iter_mut().skip(if flag == 0 { 0 } else { 2 }) {
@@ -330,7 +334,33 @@ fn patches(l: &Layout, b: &mut Bits<'_>, tensor: bool) -> Vec<Tri> {
         };
         let size = span(d1).max(span(c2)).max(span(d2)).max(span(c1));
         let n = ((size / 3.0).ceil() as usize).clamp(2, 32);
+        // Control grid p[i][j] (i along u from p00 to p30, j along v from p00 to p03).
+        let grid = [
+            [p[0], p[1], p[2], p[3]],
+            [p[11], inner[0], inner[1], p[4]],
+            [p[10], inner[3], inner[2], p[5]],
+            [p[9], p[8], p[7], p[6]],
+        ];
+        let tensor_point = |u: f32, v: f32| -> (f32, f32) {
+            // S(u, v) = Σ Bi(u) Bj(v) pij with cubic Bernstein polynomials.
+            let bern = |t: f32| {
+                let w = 1.0 - t;
+                [w * w * w, 3.0 * w * w * t, 3.0 * w * t * t, t * t * t]
+            };
+            let (bu, bv) = (bern(u), bern(v));
+            let mut out = (0.0, 0.0);
+            for (i, row) in grid.iter().enumerate() {
+                for (j, q) in row.iter().enumerate() {
+                    out.0 += bu[i] * bv[j] * q.0;
+                    out.1 += bu[i] * bv[j] * q.1;
+                }
+            }
+            out
+        };
         let s = |u: f32, v: f32| -> (f32, f32) {
+            if tensor {
+                return tensor_point(u, v);
+            }
             let (a, bb, c, d) = (bez(c1, u), bez(c2, u), bez(d1, v), bez(d2, v));
             let corner = |i: usize| p[i];
             let x = (1.0 - v) * a.0 + v * bb.0 + (1.0 - u) * c.0 + u * d.0
@@ -492,5 +522,30 @@ mod tests {
             (mean - (128.0 / 255.0) / 3.0 - 1.0 / 3.0).abs() < 0.02,
             "{mean}"
         );
+        // Tensor patch (type 7): the same square with its four interior points pulled to
+        // the corner p00 bends the grid towards it; the patch outline is unchanged.
+        let mut data7 = vec![0_u8];
+        for (x, y) in pts {
+            data7.extend([x, y]);
+        }
+        data7.extend([0, 0, 0, 0, 0, 0, 0, 0]);
+        data7.extend([0, 255, 255, 0]);
+        let t7 = mesh(7, &d, &data7, 1, false);
+        let t6 = mesh(6, &d, &data, 1, false);
+        assert_eq!(t7.len(), t6.len());
+        let centre = |t: &[Tri]| {
+            let n = t.len() as f32 * 3.0;
+            t.iter()
+                .flat_map(|t| t.pts)
+                .fold((0.0, 0.0), |a, p| (a.0 + p.0 / n, a.1 + p.1 / n))
+        };
+        let (c6, c7) = (centre(&t6), centre(&t7));
+        assert!(c7.0 < c6.0 - 5.0 && c7.1 < c6.1 - 5.0, "{c6:?} {c7:?}");
+        let max_x = t7
+            .iter()
+            .flat_map(|t| t.pts)
+            .map(|p| p.0)
+            .fold(0.0_f32, f32::max);
+        assert!((max_x - 100.0).abs() < 0.5);
     }
 }

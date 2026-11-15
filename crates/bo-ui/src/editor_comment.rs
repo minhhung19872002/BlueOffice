@@ -167,6 +167,7 @@ impl EditorWindow {
 
     fn choose_comment_tool(&mut self, t: CommentTool) {
         self.set_tool(None);
+        self.design.tool = None;
         self.r.set_tool(Tool::Hand);
         self.comment.tool = if self.comment.tool == Some(t) {
             None

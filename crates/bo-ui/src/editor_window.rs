@@ -122,6 +122,20 @@ fn ribbon(tab: usize) -> Vec<(&'static str, Kind)> {
             ("sep3", Sep),
             ("org.split", Big("splitPages", "pdfEditor.split", false)),
             ("org.combine", Big("combine", "pdfEditor.combine", false)),
+            ("sep4", Sep),
+            (
+                "org.headerFooter",
+                Big("headerFooter", "pdfEditor.headerFooter", false),
+            ),
+            (
+                "org.watermark",
+                Big("watermark", "pdfEditor.watermark", false),
+            ),
+            (
+                "org.background",
+                Big("background", "pdfEditor.background", true),
+            ),
+            ("org.bates", Big("bates", "pdfEditor.bates", false)),
         ]),
         4 => v.extend([
             ("sep1", Sep),
@@ -183,17 +197,7 @@ fn ribbon(tab: usize) -> Vec<(&'static str, Kind)> {
             ),
             ("panel.pages", Big("pages", "pdfReader.pages", false)),
         ]),
-        6 => v.extend([
-            ("sep1", Sep),
-            ("form.fill", Big("fillSign", "pdfEditor.fillSign", false)),
-            (
-                "form.highlight",
-                Big("formFields", "pdfEditor.highlightFields", false),
-            ),
-            ("sep2", Sep),
-            ("form.reset", Big("resetForm", "pdfEditor.resetForm", false)),
-            ("form.flatten", Big("flatten", "pdfEditor.flatten", false)),
-        ]),
+        6 => v.extend(crate::editor_design::form_tab_items()),
         7 => v.extend([
             ("sep1", Sep),
             (
@@ -327,6 +331,8 @@ pub struct EditorWindow {
     pub(crate) sig: crate::editor_sign::SignState,
     /// Comment tools and the properties of new comments.
     pub(crate) comment: crate::editor_comment::CommentState,
+    /// Form field tool.
+    pub(crate) design: crate::editor_design::DesignState,
     /// Caret shown (blink phase).
     caret_on: bool,
     /// Forms, comments, redaction and signing state.
@@ -363,6 +369,7 @@ impl EditorWindow {
             format_closed: false,
             sig: crate::editor_sign::SignState::default(),
             comment: crate::editor_comment::CommentState::default(),
+            design: crate::editor_design::DesignState::default(),
             caret_on: true,
             x: crate::editor_actions::Extras::default(),
             dialog2: None,
@@ -482,6 +489,7 @@ impl EditorWindow {
     pub fn run(&mut self, cmd: &str, m: &dyn TextMeasure) {
         if cmd.starts_with("tool.") {
             self.comment.tool = None;
+            self.design.tool = None;
         }
         self.r.run_command(cmd, m);
         self.drain(m);
@@ -589,6 +597,9 @@ impl EditorWindow {
             }
             if !used && self.comment.tool.is_some() && self.r.showing_doc() && !self.organize_on() {
                 used = self.comment_input(&input);
+            }
+            if !used && self.design.tool.is_some() && self.r.showing_doc() && !self.organize_on() {
+                used = self.design_input(&input);
             }
             if !used && self.sig.pending.is_some() && self.r.showing_doc() {
                 used = self.sign_input(&input);
@@ -730,6 +741,7 @@ impl EditorWindow {
             || self.sign_command(cmd)
             || self.comment_command(cmd)
             || self.edit_tab_command(cmd)
+            || self.design_command(cmd)
         {
             return;
         }
@@ -846,15 +858,32 @@ impl EditorWindow {
                 vec![(self.t("pdfEditor.pagesPerFile"), "1".into())],
                 m,
             ),
-            "prot.password" => self.ask(
-                Ask::Password,
-                "pdfEditor.secure",
-                vec![
-                    (self.t("pdfEditor.openPassword"), String::new()),
-                    (self.t("pdfEditor.permissionsPassword"), String::new()),
-                ],
-                m,
-            ),
+            "prot.password" => {
+                // Passwords, what is allowed without the permissions password, AES-256.
+                let mut d = Dialog::new(
+                    DialogKind::Comment,
+                    self.t("pdfEditor.secure"),
+                    vec![
+                        (self.t("pdfEditor.openPassword"), String::new()),
+                        (self.t("pdfEditor.permissionsPassword"), String::new()),
+                    ],
+                    vec![
+                        (self.t("pdfReader.ok"), DialogButton::Ok),
+                        (self.t("pdfReader.cancel"), DialogButton::Cancel),
+                    ],
+                    Vec::new(),
+                )
+                .with_checks(vec![
+                    (self.t("pdfEditor.allowPrint"), true),
+                    (self.t("pdfEditor.allowCopy"), true),
+                    (self.t("pdfEditor.allowModify"), false),
+                    (self.t("pdfEditor.allowComments"), true),
+                    (self.t("pdfEditor.allowAssemble"), false),
+                    (self.t("pdfEditor.aes256"), true),
+                ]);
+                d.layout(m, self.r.window_size(), self.r.ui_scale());
+                self.dialog = Some((d, Ask::Password));
+            }
             "prot.removeSecurity" => {
                 let Some(v) = self.r.view_mut() else { return };
                 let r = v.doc_mut().set_password("", "");
@@ -880,6 +909,7 @@ impl EditorWindow {
     fn toggle_tool(&mut self, t: EditTool) {
         self.edit.reset(self.r.view_mut());
         self.comment.tool = None;
+        self.design.tool = None;
         self.tool = if self.tool == Some(t) { None } else { Some(t) };
         if self.tool.is_some() {
             self.r.set_tool(Tool::Hand);
@@ -1023,8 +1053,17 @@ impl EditorWindow {
                 if owner.is_empty() {
                     return;
                 }
+                let on = |i: usize| values.get(i).is_none_or(|v| v == "1");
+                let allow = bo_pdfread::Permissions {
+                    print: on(2),
+                    copy: on(3),
+                    modify: on(4),
+                    annotate: on(5),
+                    assemble: on(6),
+                };
+                let aes256 = on(7);
                 let Some(v) = self.r.view_mut() else { return };
-                let r = v.doc_mut().set_password(&user, &owner);
+                let r = v.doc_mut().set_protection(&user, &owner, allow, aes256);
                 self.edit_result(r);
                 self.r.set_status(&self.t("pdfEditor.securityAdded"));
             }
@@ -1273,10 +1312,25 @@ impl EditorWindow {
         if let Some(t) = self.comment.tool {
             self.r.on.insert(crate::editor_comment::tool_command(t));
         }
-        for id in crate::editor_format::EDIT_TAB_LATER {
+        for id in crate::editor_format::EDIT_TAB_LATER
+            .iter()
+            .chain(&crate::editor_design::FORM_TAB_LATER)
+        {
             self.r.enabled_override.insert(id, false);
         }
-        self.r.tool_hidden = self.tool.is_some() || self.comment.tool.is_some();
+        if let Some(k) = self.design.tool {
+            use bo_pdfread::NewFieldKind as F;
+            self.r.on.insert(match k {
+                F::Text => "fd.text",
+                F::Check => "fd.check",
+                F::Radio => "fd.radio",
+                F::Combo => "fd.combo",
+                F::List => "fd.list",
+                F::Button => "fd.button",
+            });
+        }
+        self.r.tool_hidden =
+            self.tool.is_some() || self.comment.tool.is_some() || self.design.tool.is_some();
         let area = self.r.doc_area();
         let (w, _) = self.r.window_size();
         self.org.frame = [area[0], area[1], (w - 1.0 - area[0]).max(1.0), area[3]];
@@ -1392,6 +1446,7 @@ impl EditorWindow {
         self.paint_extras(p);
         self.paint_sign(p);
         self.paint_comment(p);
+        self.paint_design(p);
         self.paint_format(p);
         if let Some((d, _)) = &self.dialog {
             d.paint(p, self.r.theme(), self.r.window_size(), true);

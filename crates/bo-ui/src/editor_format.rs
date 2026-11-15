@@ -326,9 +326,9 @@ impl EditorWindow {
                 StyleChange::Underline(!style.as_ref().is_some_and(|(s, _)| s.underline))
             }
             "fmt.strike" => StyleChange::Strike(!style.as_ref().is_some_and(|(s, _)| s.strike)),
-            "fmt.super" => StyleChange::Script(i8::from(
-                style.as_ref().is_none_or(|(s, _)| s.script <= 0),
-            )),
+            "fmt.super" => {
+                StyleChange::Script(i8::from(style.as_ref().is_none_or(|(s, _)| s.script <= 0)))
+            }
             "fmt.sub" => {
                 StyleChange::Script(if style.as_ref().is_some_and(|(s, _)| s.script < 0) {
                     0

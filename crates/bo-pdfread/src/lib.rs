@@ -18,6 +18,7 @@ mod cmap;
 mod color;
 mod convert;
 mod crypt;
+mod design;
 mod edit;
 mod encoding;
 #[allow(clippy::unreadable_literal, clippy::large_const_arrays)]
@@ -41,7 +42,8 @@ mod write;
 
 pub use annot::{Annot, AnnotKind, NewAnnot};
 pub use convert::{StyledBlock, StyledRun};
-pub use edit::SaveOptions;
+pub use design::{NewField, NewFieldKind, PageMarks};
+pub use edit::{Permissions, SaveOptions};
 pub use forms::{FieldKind, FormField};
 pub use image::Image;
 pub use markup::{Markup, MarkupKind};

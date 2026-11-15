@@ -25,6 +25,14 @@ pub(crate) enum Ask2 {
     Callout(usize, [f32; 4], [f32; 2]),
     /// Search & Replace: find, replace with.
     Replace,
+    /// Header & Footer texts.
+    HeaderFooter,
+    /// Watermark text and look.
+    Watermark,
+    /// Bates numbering.
+    Bates,
+    /// Properties of a new form field: kind, page, box.
+    Field(bo_pdfread::NewFieldKind, usize, [f32; 4]),
 }
 
 /// A redaction mark being dragged: page, start and current point (page points).
@@ -391,6 +399,9 @@ impl EditorWindow {
             }
             Ask2::Info => {}
             Ask2::Typewriter(..) | Ask2::Callout(..) => self.comment_text(&what, &first),
+            Ask2::HeaderFooter | Ask2::Watermark | Ask2::Bates | Ask2::Field(..) => {
+                self.design_answer(&what, values);
+            }
             Ask2::Replace => {
                 let with = values.get(1).cloned().unwrap_or_default();
                 let n = self.replace_all(&first, &with);

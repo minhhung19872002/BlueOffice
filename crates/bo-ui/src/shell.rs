@@ -779,6 +779,34 @@ impl DocWindow {
                     vec![],
                 )
             }
+            DialogKind::PageSetup => {
+                let s = &self.view.format().section;
+                // Centimetres with two decimals at most, decimal comma.
+                let cm = |twips: i32| {
+                    format!("{:.2}", f64::from(twips) * 2.54 / 1440.0)
+                        .trim_end_matches('0')
+                        .trim_end_matches('.')
+                        .replace('.', ",")
+                };
+                let f = |key: &str, fallback: &str, twips: i32| {
+                    (format!("{} (cm)", self.t(key, fallback)), cm(twips))
+                };
+                (
+                    self.t("pageSetup.title", "Page Setup"),
+                    vec![
+                        f("pageSetup.top", "Top", s.margin_top),
+                        f("pageSetup.bottom", "Bottom", s.margin_bottom),
+                        f("pageSetup.left", "Left", s.margin_left),
+                        f("pageSetup.right", "Right", s.margin_right),
+                        f("pageSetup.width", "Width", s.width),
+                        f("pageSetup.height", "Height", s.height),
+                        f("pageSetup.header", "Header from edge", s.header),
+                        f("pageSetup.footer", "Footer from edge", s.footer),
+                    ],
+                    vec![(ok, DialogButton::Ok), (cancel, DialogButton::Cancel)],
+                    vec![],
+                )
+            }
             DialogKind::Paragraph => {
                 let f = self.view.format();
                 let lines = f64::from(f.line_spacing.value) / 240.0;
@@ -952,7 +980,31 @@ impl DocWindow {
                     }
                 }
             }
-            (DialogKind::Font | DialogKind::Paragraph, _) => self.dialog = None,
+            (DialogKind::PageSetup, DialogButton::Ok) => {
+                self.dialog = None;
+                let s = self.view.format().section;
+                let twips = |i: usize, old: i32| {
+                    parse_num(&v(i)).map_or(old, |cm| (cm * 1440.0 / 2.54).round() as i32)
+                };
+                // ECMA-376 Part 1, §17.6.11 pgMar, §17.6.13 pgSz.
+                let cmd = catalog::from_json(json!({
+                    "cmd": "setPageSetup",
+                    "setup": {
+                        "width": twips(4, s.width).max(1440), "height": twips(5, s.height).max(1440),
+                        "marginTop": twips(0, s.margin_top), "marginBottom": twips(1, s.margin_bottom),
+                        "marginLeft": twips(2, s.margin_left).max(0), "marginRight": twips(3, s.margin_right).max(0),
+                        "header": twips(6, s.header).max(0), "footer": twips(7, s.footer).max(0),
+                        "columns": s.columns.max(1), "columnSpace": s.column_space,
+                    },
+                    "scope": "document",
+                }));
+                if let Some(c) = cmd {
+                    self.view.run_command(c);
+                }
+            }
+            (DialogKind::Font | DialogKind::Paragraph | DialogKind::PageSetup, _) => {
+                self.dialog = None;
+            }
             (DialogKind::Comment, _) => {
                 self.dialog = None;
                 if let Some(c) = catalog::from_json(json!({ "cmd": "addComment", "text": v(0) })) {
@@ -1234,6 +1286,7 @@ impl DocWindow {
             // Find searches from the navigation pane, as on the reference.
             "edit.find" => self.toggle_nav(true, true),
             "review.spellingDialog" => self.open_spelling(),
+            "layout.pageSetup" => self.open_dialog(DialogKind::PageSetup),
             "view.printLayout" => self.action("view.layout.print"),
             "view.webLayout" => self.action("view.layout.web"),
             "view.draft" => self.action("view.layout.draft"),

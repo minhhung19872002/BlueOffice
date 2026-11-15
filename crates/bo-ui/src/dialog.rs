@@ -20,6 +20,8 @@ pub enum DialogKind {
     Font,
     /// Paragraph indents and spacing.
     Paragraph,
+    /// Page setup of the document: margins, paper size, header / footer distance (cm).
+    PageSetup,
 }
 
 /// A dialog button's action.

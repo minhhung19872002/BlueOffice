@@ -473,3 +473,19 @@ fn view_tab_layouts_and_page_fit_zooms() {
     assert_eq!(w.view_mode, "draft");
     assert!(w.on_ids().contains(&"view.draft"));
 }
+
+#[test]
+fn page_setup_dialog_sets_margins_and_paper_in_centimetres() {
+    let mut w = window();
+    act(&mut w, "layout.pageSetup");
+    let d = w.dialog.as_ref().expect("page setup dialog");
+    assert_eq!(d.kind, DialogKind::PageSetup);
+    // Replace the top margin (first field) by 3 cm and confirm.
+    for _ in 0..8 {
+        w.handle(Input::Key(Key::Backspace, Mods::default()), &Fixed);
+    }
+    w.handle(Input::Text("3".into()), &Fixed);
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert!(w.dialog.is_none());
+    assert_eq!(w.view.format().section.margin_top, 1701);
+}

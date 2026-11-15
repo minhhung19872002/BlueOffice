@@ -51,7 +51,7 @@ pub(crate) fn icon_of(id: &str) -> &str {
         "mailings.recipients" => "mailings.selectRecipients",
         "mailings.finish" => "mailings.mergeDocument",
         "insert.link" => "insert.link",
-        "format.fontSettings" | "format.paragraphSettings" => "launcher",
+        "format.fontSettings" | "format.paragraphSettings" | "layout.pageSetup" => "launcher",
         "insert.shapes" => "insert.rect",
         "insert.dateTime" => "format.date",
         "insert.dropCap" => "format.fontGrow",
@@ -867,6 +867,7 @@ impl Ribbon {
                 let launcher = match g.label {
                     "ribbon.groups.font" => Some("format.fontSettings"),
                     "ribbon.groups.paragraph" => Some("format.paragraphSettings"),
+                    "ribbon.groups.pageSetup" => Some("layout.pageSetup"),
                     _ => None,
                 };
                 if let Some(id) = launcher {
@@ -2398,7 +2399,11 @@ mod tests {
                     for placed in &ribbon.placed {
                         // Group settings buttons sit in the label row on purpose.
                         if let Placed::Item(
-                            Item::Button("format.fontSettings" | "format.paragraphSettings"),
+                            Item::Button(
+                                "format.fontSettings"
+                                | "format.paragraphSettings"
+                                | "layout.pageSetup",
+                            ),
                             _,
                         ) = placed
                         {

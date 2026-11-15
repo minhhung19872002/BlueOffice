@@ -910,6 +910,9 @@ impl EditorWindow {
                 return true;
             }
         }
+        if self.object_key(k, mods) {
+            return true;
+        }
         if k == Key::Delete && !self.edit.selected.is_empty() && self.tool.is_some() {
             self.command("ed.delete", m);
             return true;
@@ -1018,6 +1021,7 @@ impl EditorWindow {
             || self.design_command(cmd)
             || self.more_command(cmd)
             || self.more2_command(cmd)
+            || self.arrange_command(cmd)
         {
             return;
         }
@@ -1559,6 +1563,10 @@ impl EditorWindow {
                 Some(v) => self.edit.release(v),
                 None => false,
             },
+            Input::Context { x, y } if inside(area, x, y) && tool == EditTool::Object => {
+                self.object_menu(x, y);
+                true
+            }
             Input::Move { x, y } if inside(area, x, y) => {
                 if let Some(v) = self.r.view_mut() {
                     self.edit.hover(v, x, y, tool);

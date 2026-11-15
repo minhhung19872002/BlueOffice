@@ -17,6 +17,7 @@ mod annot;
 mod annot_draw;
 mod annot_edit;
 mod annot_image;
+mod arrange;
 mod cmap;
 mod cmyk;
 mod codecs;
@@ -61,6 +62,7 @@ pub use annot_draw::{
     measure_label, path_length, polygon_area, Shape, StampKind, Style as DrawStyle,
 };
 pub use annot_edit::CommentThread;
+pub use arrange::{flip_about, rotation_about};
 
 pub use convert::{StyledBlock, StyledRun};
 pub use design::{NewField, NewFieldKind, PageMarks};
@@ -1124,3 +1126,5 @@ mod objects_tests;
 mod paragraph_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod arrange_tests;

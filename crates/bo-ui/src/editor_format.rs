@@ -508,14 +508,17 @@ impl EditorWindow {
 
     /// Whether the Format pane is shown: Edit Text is on and it was not closed.
     fn format_shown(&self) -> bool {
-        (self.edit_tool() == Some(EditTool::Text) || self.comment.tool.is_some())
+        (matches!(self.edit_tool(), Some(EditTool::Text | EditTool::Object))
+            || self.comment.tool.is_some())
             && !self.format_closed
             && self.r.showing_doc()
     }
 
-    /// Show or hide the Format pane with the Edit Text tool.
+    /// Show or hide the Format pane with the Edit Text / Edit Object tools.
     pub(crate) fn sync_format(&mut self) {
-        if self.edit_tool() != Some(EditTool::Text) && self.comment.tool.is_none() {
+        if !matches!(self.edit_tool(), Some(EditTool::Text | EditTool::Object))
+            && self.comment.tool.is_none()
+        {
             self.format_closed = false;
         }
         let w = if self.format_shown() { PANE_W } else { 0.0 };
@@ -539,7 +542,9 @@ impl EditorWindow {
             .find(|h| inside(h.0, x, y))
             .map(|h| h.1);
         if let Some(cmd) = hit {
-            if typing || cmd == "fmt.close" || self.comment.tool.is_some() {
+            if cmd.starts_with("obj.") {
+                self.arrange_command(cmd);
+            } else if typing || cmd == "fmt.close" || self.comment.tool.is_some() {
                 self.format_command(cmd);
             }
         }
@@ -616,6 +621,10 @@ impl EditorWindow {
         ));
         if self.comment.tool.is_some() && self.edit_tool() != Some(EditTool::Text) {
             self.paint_comment_props(p, x0, y0);
+            return;
+        }
+        if self.edit_tool() == Some(EditTool::Object) {
+            self.paint_arrange(p, x0, y0);
             return;
         }
         // "Text Style" section.

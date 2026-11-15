@@ -1054,6 +1054,7 @@ dependencies = [
  "bo-edit",
  "bo-engine",
  "bo-model",
+ "bo-opc",
  "bo-pdfread",
  "bo-pptx",
  "bo-raster",

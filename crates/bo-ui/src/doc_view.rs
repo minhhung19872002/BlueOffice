@@ -431,6 +431,15 @@ impl DocView {
         &self.spell
     }
 
+    /// Word Count figures of the document and of the selection (when there is one).
+    pub fn word_counts(&mut self) -> Option<bo_engine::word_count::WordCountInfo> {
+        let cmd = bo_engine::word_count::WordCountCommand::WordCount { notes: false };
+        self.engine
+            .doc_word_count(&cmd)
+            .ok()
+            .and_then(|r| r.word_count)
+    }
+
     /// Spelling and grammar issues of the main text, in document order (proofing pane).
     pub fn proof_issues(&mut self) -> Vec<bo_engine::proof::ProofIssue> {
         self.engine

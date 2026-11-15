@@ -559,3 +559,20 @@ fn ctrl_g_goes_to_a_page() {
     assert!(scroll > 0.0, "scrolled to page 3");
     assert!(third.is_some(), "page 3 visible");
 }
+
+#[test]
+fn word_count_lists_characters_and_paragraphs() {
+    let mut w = window();
+    w.handle(Input::Text("ab cd".into()), &Fixed);
+    let lines = w.word_count_lines();
+    assert_eq!(
+        lines,
+        vec![
+            "Pages: 1",
+            "Words: 2",
+            "Characters (no spaces): 4",
+            "Characters (with spaces): 5",
+            "Paragraphs: 1",
+        ]
+    );
+}

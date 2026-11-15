@@ -649,6 +649,34 @@ impl DocWindow {
         done
     }
 
+    /// Lines of the Word Count dialog, as the reference lists them: pages, words,
+    /// characters without and with spaces, paragraphs (the selection's when one is made).
+    fn word_count_lines(&mut self) -> Vec<String> {
+        let pages = self.view.page_count();
+        let Some(info) = self.view.word_counts() else {
+            return vec![format!(
+                "{}: {}",
+                self.t("wordCount.words", "Words"),
+                self.view.word_count()
+            )];
+        };
+        let c = info.selection.unwrap_or(info.document);
+        [
+            ("wordCount.pages", "Pages", pages),
+            ("wordCount.words", "Words", c.words),
+            ("wordCount.chars", "Characters (no spaces)", c.chars),
+            (
+                "wordCount.charsWithSpaces",
+                "Characters (with spaces)",
+                c.chars_with_spaces,
+            ),
+            ("wordCount.paragraphs", "Paragraphs", c.paragraphs),
+        ]
+        .into_iter()
+        .map(|(k, f, n)| format!("{}: {n}", self.t(k, f)))
+        .collect()
+    }
+
     /// Header/footer options of the open header or footer: (different first page,
     /// different odd and even pages, linked to the previous section).
     fn story_options(&self) -> Option<(bool, bool, bool)> {
@@ -871,18 +899,7 @@ impl DocWindow {
                 self.t("commands.review.wordCount", "Word Count"),
                 vec![],
                 vec![(self.t("common.close", "Close"), DialogButton::Cancel)],
-                vec![
-                    format!(
-                        "{}: {}",
-                        self.t("wordCount.pages", "Pages"),
-                        self.view.page_count()
-                    ),
-                    format!(
-                        "{}: {}",
-                        self.t("wordCount.words", "Words"),
-                        self.view.word_count()
-                    ),
-                ],
+                self.word_count_lines(),
             ),
         };
         self.menu = None;

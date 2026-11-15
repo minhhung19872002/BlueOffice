@@ -84,7 +84,7 @@ audio/video, 3D, nhận dạng trường, barcode/ảnh/chữ ký trường, gi�
 
 ## Vòng 3 (2026-11-16)
 
-Ảnh so sánh (bản đối chiếu trên, BlueEditor dưới): `scratchpad/show/editor-08…17-*.png`.
+Ảnh so sánh (bản đối chiếu trên, BlueEditor dưới): `scratchpad/show/editor-08…20-*.png` (18–20: bản cuối).
 
 **Tab Edit vừa 1 536 px.** Số đo nút lớn đưa vào `Look` (`big_pad`, `big_pad_one`, `big_min`, `big_gap`,
 `sep_space`, `arrow_w`; giá trị BlueReader giữ nguyên): nhãn 16,2 (chữ “Hand” 23–56 × 133–144 như bản đối
@@ -94,7 +94,8 @@ ngăn, mũi tên thả xuống cộng 8 px vào nút hai dòng. Nút bị tắt 
 | Tab Edit (125 %, chữ 110 %) | Bản đối chiếu | Vòng 2 | Vòng 3 |
 | --- | --- | --- | --- |
 | Nút Hand | 14–65 | 13–70 | 13–64 |
-| Vạch ngăn nhóm | 123 / 470 / 677 / 748 / 843 / 1126 / 1437 | 153 / 542 / 757 / 843 / 957 / 1270 / tràn | 124 / 472 / 673 / 745 / 842 / 1127 / ≈1437 |
+| Vạch ngăn nhóm tab Edit | 123 / 470 / 677 / 748 / 843 / 1126 / 1437 | 153 / 542 / 757 / 843 / 957 / 1270 / tràn | 117 / 470 / 676 / 748 / 845 / 1131 / ≈1437 |
+| Vạch ngăn nhóm tab Home | 363 / 612 / 743 / 916 / 1043 / 1226 | — | 359 / 627 / 754 / 923 / 1051 / 1238 |
 
 **Mọi công cụ tab Edit hoạt động** (`editor_tools.rs`; lõi `bo-pdfread`: `links_edit`, `media_edit`,
 `field_detect`, `optimize`): Link & Join Text (bấm các khối chữ theo thứ tự, Enter nối vào khối đầu, một bước
@@ -109,10 +110,12 @@ Audio & Video (`Screen` + rendition nhúng tệp), 3D (U3D/PRC; tệp khác báo
 **Khác.** Giãn đoạn trong khung Format sửa được; chọn công cụ của Reader trên ribbon tắt mọi công cụ Editor
 (lỗi vòng 2); ô tìm lệnh bên trái Find (gõ → danh sách lệnh, Enter chạy); trang File như bản đối chiếu
 (Properties, Create, Open với tài liệu gần đây / Computer, Save — xám khi chưa sửa, Save As, PDF Optimizer,
-Export, Print, Close; cột trái 262 px `#EAEAEA`, mục cách 47 px, mục chọn hình viên thuốc màu nhấn, lệch ≤ 3 px);
+Export, Print, Revert — đọc lại từ bản đã lưu, Close, Preferences — tên tác giả ghi chú, thu phóng và hiển thị
+trang khi mở, đơn vị đo; cột trái 262 px `#EAEAEA`, mục cách 47 px, mục chọn hình viên thuốc màu nhấn, lệch ≤ 3 px);
 PDF Optimizer giảm ảnh trên ngưỡng ppi (JPEG của `bo-raster`, Flate cho ảnh phẳng), bỏ đối tượng thừa, object
 stream, báo kích thước trước/sau, hoàn tác được. Tab Home như bản đối chiếu (Clipboard ▾, Bookmark, Reflow,
-Edit Object ▾; SnapShot / From Scanner / Quick Recognition hiện xám giữ chỗ); tab View dùng bố cục của bản đối
+Edit Object ▾, SnapShot của BlueReader vòng 4 sau khi gộp `work/desktop-performance`; From Scanner / Quick
+Recognition hiện xám giữ chỗ); tab View dùng bố cục của bản đối
 chiếu; Protect › Whiteout; Organize › Crop Pages (lề mm, `/CropBox`); Comment › Summarize Comments.
 Mã vẽ ghi chú trùng giữa `markup` (Editor) và `annot_draw` (Reader) gộp một đường: các loại cả hai cùng vẽ đi
 qua `annot_draw`; `markup` chỉ còn đám mây, dấu, tệp đính kèm.
@@ -127,7 +130,7 @@ qua `annot_draw`; `markup` chỉ còn đám mây, dấu, tệp đính kèm.
 | Cuộn 1 202 trang, mỗi nấc WM_MOUSEWHEEL p50 / p95 | — | 1,5 / 1,7 ms |
 | Lưu tệp 100 trang 6,8 MB sau khi xoay trang (ghi lại toàn bộ) | — | 13,4 ms |
 
-Còn lại (so từng tab, ảnh 11–17): SnapShot (chờ bản của BlueReader vòng 4), From Scanner, Quick Recognition;
+Còn lại (so từng tab, ảnh 11–20): From Scanner, Quick Recognition;
 Convert: From Scanner/Clipboard/Web Page, Form, PDF Portfolio, From Template, Export All Images, To HTML/Other,
 OCR; Organize: Move/Duplicate/Replace/Swap/Interleaving, Resize Pages, Flatten, Format Page Numbers; Comment:
 Area/Search & Highlight, Measure, Accounting Calculator, Eraser, Import/Export; View: Text Viewer, Ruler, Page

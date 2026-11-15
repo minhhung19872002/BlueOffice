@@ -21,6 +21,12 @@ use std::collections::HashSet;
 // Print dialog, Read Mode, Full Screen and comment editing (BlueReader round 2).
 #[path = "reader_extra.rs"]
 mod extra;
+// Night Mode, Reflow, AutoScroll, cover page, rulers and grid (BlueReader round 3).
+#[path = "reader_viewx_win.rs"]
+mod viewx;
+// Drawing tools, resize handles and the properties panel (BlueReader round 3).
+#[path = "reader_draw_win.rs"]
+mod draw;
 
 /// Measured greys of the reference reader at 125 %.
 const CHROME: Rgba = Rgba(251, 251, 253, 255);
@@ -349,6 +355,10 @@ pub struct ReaderWindow {
     look: Look,
     /// Print dialog, Read Mode / Full Screen and the selected comment.
     extra: extra::Extra,
+    /// View tab additions.
+    viewx: viewx::ViewX,
+    /// Comment tab drawing tools.
+    draw: draw::Draw,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -415,6 +425,8 @@ impl ReaderWindow {
             doc_hidden: false,
             look: Look::READER,
             extra: extra::Extra::default(),
+            viewx: viewx::ViewX::default(),
+            draw: draw::Draw::default(),
         }
     }
 
@@ -725,13 +737,24 @@ impl ReaderWindow {
                 ("tool.strikeout", Small("strikeout")),
                 ("tool.squiggly", Small("squiggly")),
                 ("sep2", Sep),
+                // Order of the reference's Comment tab: note | typewriter, text box, callout |
+                // drawing, pencil | measure | stamp.
                 ("tool.note", Big("note", "pdfReader.note", false)),
-                ("tool.textbox", Big("textbox", "pdfReader.textbox", false)),
                 ("sep3", Sep),
                 (
-                    "tool.rectangle",
-                    Big("rectangle", "pdfReader.rectangle", false),
+                    "draw.typewriter",
+                    Big("typewriter", "pdfDraw.typewriter", false),
                 ),
+                ("tool.textbox", Big("textbox", "pdfReader.textbox", false)),
+                ("draw.callout", Big("callout", "pdfDraw.callout", false)),
+                ("sep5", Sep),
+                ("menu.drawing", Big("rectangle", "pdfDraw.drawing", true)),
+                ("draw.pencil", Big("pencil", "pdfDraw.pencil", false)),
+                ("sep6", Sep),
+                ("menu.measure", Big("measure", "pdfDraw.measure", true)),
+                ("sep7", Sep),
+                ("menu.stamp", Big("stamp", "pdfDraw.stamp", true)),
+                ("draw.props", Big("properties", "pdfDraw.properties", false)),
                 ("sep4", Sep),
                 (
                     "panel.comments",
@@ -741,29 +764,36 @@ impl ReaderWindow {
             2 => v.extend([
                 ("sep0", Sep),
                 // Read Mode first after the pointer tools, like the reference's View tab.
+                // Then Reflow and Night Mode, Rotate View, the page display grid and
+                // AutoScroll, in the reference's order.
                 ("view.readMode", Big("readMode", "pdfExtra.readMode", false)),
+                ("view.reflow", Big("reflow", "pdfView.reflow", false)),
+                ("view.reverse", Big("reverseView", "pdfView.reverse", false)),
+                ("view.night", Big("night", "pdfView.night", false)),
                 ("sep1", Sep),
-                ("view.single", Small("single")),
-                ("view.continuous", Small("continuous")),
-                ("view.facing", Small("facing")),
-                ("view.contFacing", Small("contFacing")),
-                ("sep2", Sep),
                 ("menu.rotate", Big("rotate", "pdfReader.rotateView", true)),
+                ("sep2", Sep),
+                // Page display as a 3 × 2 grid like the reference's.
+                ("view.single", Small("single")),
+                ("view.contFacing", Small("contFacing")),
+                ("view.continuous", Small("continuous")),
+                ("view.cover", Small("cover")),
+                ("view.facing", Small("facing")),
+                ("view.grid", Small("grid")),
+                ("sep5", Sep),
+                (
+                    "view.autoScroll",
+                    Big("autoScroll", "pdfView.autoScroll", false),
+                ),
                 ("sep3", Sep),
-                ("zoom.in", Big("zoom", "pdfReader.zoomIn", false)),
-                ("zoom.out", Big("zoomOut", "pdfReader.zoomOut", false)),
-                ("zoom.actual", Big("actual", "pdfReader.actualSize", false)),
-                ("zoom.page", Big("fit", "pdfReader.fitPage", false)),
-                ("zoom.width", Big("fitWidth", "pdfReader.fitWidth", false)),
+                (
+                    "view.wordCount",
+                    Big("wordCount", "pdfView.wordCount", false),
+                ),
                 ("sep4", Sep),
                 (
-                    "panel.bookmarks",
-                    Big("bookmark", "pdfReader.bookmarks", false),
-                ),
-                ("panel.pages", Big("pages", "pdfReader.pages", false)),
-                (
-                    "view.fullscreen",
-                    Big("fullscreen", "pdfReader.fullScreen", false),
+                    "menu.viewSetting",
+                    Big("viewSetting", "pdfView.viewSetting", true),
                 ),
             ]),
             _ => {
@@ -847,12 +877,14 @@ impl ReaderWindow {
         let bh = self.px(self.look.body_h);
         let label_style = self.style(self.look.label, false);
         let mut x = self.px(11.2);
-        let mut small_col = 0;
+        let mut small_col = 0_usize;
         for (id, kind) in self.ribbon_items() {
             match kind {
                 Kind::Big(_, label, _) => {
                     if small_col > 0 {
-                        x += self.px(32.0);
+                        // Past the columns of the small-button grid.
+                        let cols = small_col.div_ceil(2) as f32;
+                        x += cols * self.px(34.0) - self.px(2.0);
                         small_col = 0;
                     }
                     let text = self.t(label);
@@ -890,7 +922,10 @@ impl ReaderWindow {
                 }
                 Kind::Sep => {
                     if small_col > 0 {
-                        x += self.px(28.0 * 2.0 + 6.0 + 4.0);
+                        // Two-column grids keep their measured width; wider ones grow by
+                        // a column each.
+                        let cols = small_col.div_ceil(2).max(2) as f32;
+                        x += self.px(28.0 * cols + 6.0 * (cols - 1.0) + 4.0);
                         small_col = 0;
                     }
                     x += self.px(4.8);
@@ -1018,6 +1053,7 @@ impl ReaderWindow {
             (h - sh - top).max(1.0),
         ];
         self.mode_layout();
+        self.viewx_layout();
         let (rect, scale) = (self.doc_rect, self.scale);
         if let Some(t) = self.tabs.get_mut(self.active) {
             t.view.set_frame(rect, scale);
@@ -1053,6 +1089,13 @@ impl ReaderWindow {
     /// Handle an input event; true when the window needs a new frame.
     #[allow(clippy::too_many_lines)]
     pub fn handle(&mut self, input: Input, m: &dyn TextMeasure) -> bool {
+        let redraw = self.handle_input(input, m);
+        // Reflowed text follows the page and the window width.
+        self.reflow_layout(m);
+        redraw
+    }
+
+    fn handle_input(&mut self, input: Input, m: &dyn TextMeasure) -> bool {
         match input {
             Input::Scale(s) => {
                 self.scale = s;
@@ -1069,7 +1112,8 @@ impl ReaderWindow {
                 self.maximized = on;
                 true
             }
-            Input::Tick | Input::Blink => self.search_focus,
+            Input::Tick => self.tick_viewx(m) || self.search_focus,
+            Input::Blink => self.search_focus,
             Input::Leave => self.hover.take().is_some(),
             _ => {
                 if self.controls.is_empty() {
@@ -2863,7 +2907,11 @@ impl ReaderWindow {
 
     fn paint_doc(&self, p: &mut dyn Painter) {
         let d = self.doc_rect;
-        p.fill_rect(d[0], d[1], d[2], d[3], self.look.canvas);
+        p.fill_rect(d[0], d[1], d[2], d[3], self.doc_canvas());
+        if self.paint_reflow(p) {
+            self.paint_viewx_overlay(p);
+            return;
+        }
         let Some(t) = self.tabs.get(self.active) else {
             return;
         };
@@ -2873,7 +2921,7 @@ impl ReaderWindow {
         for i in v.visible_pages() {
             let Some(r) = v.page_rect(i) else { continue };
             p.fill_rect(r[0] - 1.0, r[1] - 1.0, r[2] + 2.0, r[3] + 2.0, PAGE_EDGE);
-            p.fill_rect(r[0], r[1], r[2], r[3], WHITE);
+            p.fill_rect(r[0], r[1], r[2], r[3], self.paper());
             if v.has_image(i) {
                 let (ox, oy) = v.image_offset(i);
                 p.page(t.key_base + i, (r[0] + ox) as i32, (r[1] + oy) as i32);
@@ -2900,6 +2948,7 @@ impl ReaderWindow {
             }
         }
         p.pop_clip();
+        self.paint_viewx_overlay(p);
     }
 
     fn paint_vbar(&self, p: &mut dyn Painter) {

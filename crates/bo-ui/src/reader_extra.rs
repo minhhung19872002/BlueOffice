@@ -63,7 +63,11 @@ impl ReaderWindow {
             return;
         };
         let n = t.view.page_count();
-        let mut d = PrintDialog::new(printers, default, n, t.view.current_page());
+        let current = t.view.current_page();
+        let mut d = PrintDialog::new(printers, default, n, current);
+        if let Some(r) = visible_part(&t.view, current) {
+            d.set_view(current, r);
+        }
         d.layout(m, self.size, self.scale);
         self.extra.print = Some(d);
         self.update_print_preview();
@@ -77,6 +81,11 @@ impl ReaderWindow {
     /// Interface text `key` with `{{name}}` placeholders filled (host messages).
     pub fn strings_fmt(&self, key: &str, args: &[(&str, &str)]) -> String {
         self.strings.fmt(key, args)
+    }
+
+    /// The open Print dialog.
+    pub fn print_dialog(&self) -> Option<&PrintDialog> {
+        self.extra.print.as_ref()
     }
 
     /// The Print dialog is open.
@@ -104,6 +113,7 @@ impl ReaderWindow {
 
     /// Before page images are brought up to date (the print preview wants its thumbnail).
     pub(crate) fn prepare_extra(&mut self) {
+        self.sync_viewx();
         if self.extra.print.is_some() {
             self.update_print_preview();
         }
@@ -230,6 +240,16 @@ impl ReaderWindow {
     /// Input for the additions first: `Some(redraw)` when handled.
     #[allow(clippy::too_many_lines)]
     pub(crate) fn route_extra(&mut self, input: &Input, m: &dyn TextMeasure) -> Option<bool> {
+        if self.extra.print.is_none() {
+            if let Some(r) = self.route_viewx(input, m) {
+                return Some(r);
+            }
+            if self.extra.text.is_none() {
+                if let Some(r) = self.route_draw(input, m) {
+                    return Some(r);
+                }
+            }
+        }
         // Print dialog.
         if let Some(d) = self.extra.print.as_mut() {
             let done = match input {
@@ -466,6 +486,9 @@ impl ReaderWindow {
 
     /// Commands of the additions; `true` when handled.
     pub(crate) fn command_extra(&mut self, cmd: &str, m: &dyn TextMeasure) -> bool {
+        if self.command_viewx(cmd, m) || self.command_draw(cmd, m) {
+            return true;
+        }
         match cmd {
             "view.fullscreen" => self.toggle_full_screen(m),
             "view.readMode" => self.toggle_read_mode(m),
@@ -630,6 +653,7 @@ impl ReaderWindow {
                 p.pop_clip();
             }
         }
+        self.paint_draw(p);
     }
 
     /// Dialogs of the additions, over everything else.
@@ -640,5 +664,31 @@ impl ReaderWindow {
         if let Some((d, _, _)) = &self.extra.text {
             d.paint(p, &self.theme, self.size, true);
         }
+        self.paint_draw_dialog(p);
     }
+}
+
+/// The part of page `i` inside the view (page points x y w h), for printing the current view;
+/// `None` when the page is not shown or the view is turned.
+fn visible_part(v: &crate::reader_view::ReaderView, i: usize) -> Option<[f32; 4]> {
+    if !v.rotation().is_multiple_of(360) {
+        return None;
+    }
+    let r = v.page_rect(i)?;
+    let f = v.frame();
+    let (x0, y0) = (r[0].max(f[0]), r[1].max(f[1]));
+    let (x1, y1) = (
+        (r[0] + r[2]).min(f[0] + f[2]),
+        (r[1] + r[3]).min(f[1] + f[3]),
+    );
+    let k = r[2] / v.page_size(i).0.max(1.0);
+    if x1 - x0 < 1.0 || y1 - y0 < 1.0 || k <= 0.0 {
+        return None;
+    }
+    Some([
+        (x0 - r[0]) / k,
+        (y0 - r[1]) / k,
+        (x1 - x0) / k,
+        (y1 - y0) / k,
+    ])
 }

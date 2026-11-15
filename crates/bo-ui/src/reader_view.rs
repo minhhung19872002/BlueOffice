@@ -125,6 +125,10 @@ pub struct ReaderView {
     gap: f32,
     /// Spreads start with a single first page (cover) in facing layouts.
     cover: bool,
+    /// Night Mode: pages drawn in the dark scheme (dark paper, grey text).
+    night: bool,
+    /// Reverse View: spreads read right to left.
+    reverse: bool,
     /// First page of the spread shown in single and facing layouts.
     single_page: usize,
     /// Pages too large to keep whole at this zoom: the part drawn (device pixels from the
@@ -174,6 +178,8 @@ impl ReaderView {
             stale: true,
             gap: 6.0,
             cover: true,
+            night: false,
+            reverse: false,
             single_page: 0,
             crops: HashMap::new(),
             preview_wanted: None,
@@ -286,7 +292,11 @@ impl ReaderView {
                 }
                 while i < n {
                     if i + 1 < n {
-                        rows.push(vec![i, i + 1]);
+                        rows.push(if self.reverse {
+                            vec![i + 1, i]
+                        } else {
+                            vec![i, i + 1]
+                        });
                     } else {
                         rows.push(vec![i]);
                     }
@@ -696,6 +706,11 @@ impl ReaderView {
             return false;
         };
         let list = rotate_list(page.list, self.rotation);
+        let list = if self.night {
+            crate::reader_viewx::night_list(list)
+        } else {
+            list
+        };
         let links = page
             .links
             .into_iter()
@@ -747,8 +762,19 @@ impl ReaderView {
         let Ok(page) = self.doc.render(i, opts) else {
             return false;
         };
+        let night = self.night;
         if let Some(r) = self.cache.get_mut(&i) {
             r.list = rotate_list(page.list, self.rotation);
+            if night {
+                r.list = crate::reader_viewx::night_list(std::mem::replace(
+                    &mut r.list,
+                    PageList {
+                        width: 0.0,
+                        height: 0.0,
+                        commands: Vec::new(),
+                    },
+                ));
+            }
             r.images = page.images;
             r.paths = true;
         }
@@ -1156,6 +1182,54 @@ impl ReaderView {
         self.update_sizes();
         self.relayout();
         self.clamp_scroll();
+    }
+
+    /// Night Mode: pages drawn with inverted lightness (every page is drawn again).
+    pub fn set_night(&mut self, on: bool) {
+        if self.night == on {
+            return;
+        }
+        self.night = on;
+        self.cache.clear();
+        self.lru.clear();
+        for g in &mut self.generation {
+            *g += 1;
+        }
+    }
+
+    /// Whether Night Mode is on.
+    pub fn night(&self) -> bool {
+        self.night
+    }
+
+    /// Facing layouts show the first page alone (a cover) or pair it with the second.
+    pub fn set_cover(&mut self, on: bool) {
+        if self.cover != on {
+            let anchor = self.anchor();
+            self.cover = on;
+            self.stale = true;
+            self.relayout();
+            self.restore_anchor(anchor);
+        }
+    }
+
+    /// Reverse View: the pages of a spread right to left.
+    pub fn set_reverse(&mut self, on: bool) {
+        if self.reverse != on {
+            self.reverse = on;
+            self.stale = true;
+            self.relayout();
+        }
+    }
+
+    /// Whether spreads read right to left.
+    pub fn reverse(&self) -> bool {
+        self.reverse
+    }
+
+    /// Whether facing layouts show the first page alone.
+    pub fn cover(&self) -> bool {
+        self.cover
     }
 
     /// Whether the document was changed.

@@ -267,6 +267,8 @@ pub(crate) struct Interp<'s, 'a> {
     cur: (f32, f32),
     start: (f32, f32),
     clip: Option<bool>,
+    /// Glyph outlines of text shown with a clipping render mode (4–7) since BT (§9.3.6).
+    text_clip: Option<Vec<PathSeg>>,
     tm: M,
     tlm: M,
     depth: u32,
@@ -305,6 +307,7 @@ impl<'s, 'a> Interp<'s, 'a> {
             cur: (0.0, 0.0),
             start: (0.0, 0.0),
             clip: None,
+            text_clip: None,
             tm: IDENTITY,
             tlm: IDENTITY,
             depth: 0,
@@ -797,8 +800,14 @@ impl<'s, 'a> Interp<'s, 'a> {
             b"BT" => {
                 self.tm = IDENTITY;
                 self.tlm = IDENTITY;
+                self.text_clip = None;
             }
-            b"ET" => {}
+            // Text shown with a clipping render mode adds its outlines to the clip at ET.
+            b"ET" => {
+                if let Some(segs) = self.text_clip.take() {
+                    self.push_clip(&segs);
+                }
+            }
             b"Tc" => self.gs.tc = n(0),
             b"Tw" => self.gs.tw = n(0),
             b"Tz" => self.gs.th = n(0) / 100.0,
@@ -1082,12 +1091,18 @@ impl<'s, 'a> Interp<'s, 'a> {
         let visible = !self.hidden() && !matches!(mode, 3 | 7) && fs != 0.0;
         let fill = !matches!(mode, 1 | 5);
         let stroke = matches!(mode, 1 | 2 | 5 | 6);
+        let clip_mode = mode >= 4;
         let color = if fill {
             self.fill_rgba()
         } else {
             rgba(&self.gs.stroke_cs, &self.gs.stroke, self.gs.stroke_alpha)
         };
-        let paths = self.sh.opts.text_as_paths || font.face.is_none() || font.is_type1_program();
+        // Outlines for stroked and clipping text too (glyph runs only fill).
+        let paths = self.sh.opts.text_as_paths
+            || font.face.is_none()
+            || font.is_type1_program()
+            || stroke
+            || clip_mode;
         let mut run: Vec<Glyph> = Vec::new();
         let mut run_text = String::new();
         let mut run_origin = (0.0, 0.0);
@@ -1142,8 +1157,8 @@ impl<'s, 'a> Interp<'s, 'a> {
                     });
                 }
             }
-            if visible {
-                if let Some(t3) = &font.type3 {
+            if visible || clip_mode && fs != 0.0 {
+                if let Some(t3) = font.type3.as_ref().filter(|_| visible) {
                     let name = font.glyph_name(code);
                     if let Some(proc_) = name.and_then(|n| t3.procs.get(n.as_bytes())).cloned() {
                         let m = mul(font.matrix, trm);
@@ -1220,7 +1235,12 @@ impl<'s, 'a> Interp<'s, 'a> {
             run_size,
             color,
         );
-        if !glyph_path.is_empty() {
+        if clip_mode {
+            self.text_clip
+                .get_or_insert_with(Vec::new)
+                .extend_from_slice(&glyph_path);
+        }
+        if !glyph_path.is_empty() && visible {
             let fill_paint = fill.then_some(Paint::Solid { color });
             let stroke_style = if stroke { self.stroke_style() } else { None };
             self.out.commands.push(Command::Path {
@@ -1374,7 +1394,8 @@ impl<'s, 'a> Interp<'s, 'a> {
                     })
                 });
                 if let Some(img) = img {
-                    self.place_image(key, img);
+                    let smooth = interpolate(doc, &s.dict);
+                    self.place_image(key, img, smooth);
                 }
             }
             Ok(b"Form") => {
@@ -1483,16 +1504,24 @@ impl<'s, 'a> Interp<'s, 'a> {
             fill,
         });
         if let Some(img) = img {
-            self.place_image(key, Arc::new(img));
+            let smooth = interpolate(self.doc(), d);
+            self.place_image(key, Arc::new(img), smooth);
         }
     }
 
     /// Draw a picture into the unit square of the current matrix.
-    fn place_image(&mut self, key: String, img: Arc<Image>) {
+    /// Without `/Interpolate true` (§8.9.5.3) the image id ends in [`PIXELATED`]: backends
+    /// enlarge it pixel by pixel, as other readers do.
+    fn place_image(&mut self, key: String, img: Arc<Image>, smooth: bool) {
         let t = mul([1.0, 0.0, 0.0, -1.0, 0.0, 1.0], self.gs.ctm);
         if !t.iter().all(|v| v.is_finite()) {
             return;
         }
+        let key = if smooth {
+            key
+        } else {
+            format!("{key}{PIXELATED}")
+        };
         self.out.images.insert(key.clone(), img);
         let alpha = self.gs.fill_alpha;
         if alpha < 0.999 {
@@ -1862,6 +1891,19 @@ impl<'s, 'a> Interp<'s, 'a> {
         self.out.commands.push(Command::PopClip);
         self.gs.clips = self.gs.clips.saturating_sub(1);
     }
+}
+
+/// Suffix of the id of an image that is enlarged without smoothing (no `/Interpolate true`).
+pub const PIXELATED: &str = "#px";
+
+/// `/Interpolate` (or `/I` inline) of an image dictionary.
+fn interpolate(doc: &Document, d: &Dictionary) -> bool {
+    d.get(b"Interpolate")
+        .or_else(|_| d.get(b"I"))
+        .ok()
+        .and_then(|o| doc.dereference(o).ok().map(|(_, o)| o))
+        .and_then(|o| o.as_bool().ok())
+        .unwrap_or(false)
 }
 
 #[cfg(test)]

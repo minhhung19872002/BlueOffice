@@ -14,6 +14,7 @@
 #![allow(clippy::items_after_statements, clippy::match_same_arms)]
 
 mod annot;
+mod annot_draw;
 mod annot_edit;
 mod cmap;
 mod codecs;
@@ -39,6 +40,9 @@ mod type1;
 mod write;
 
 pub use annot::{Annot, AnnotKind, NewAnnot};
+pub use annot_draw::{
+    measure_label, path_length, polygon_area, Shape, StampKind, Style as DrawStyle,
+};
 pub use annot_edit::CommentThread;
 pub use edit::SaveOptions;
 pub use forms::{FieldKind, FormField};
@@ -405,9 +409,12 @@ impl PdfDocument {
     /// Whether `bytes` are a PDF that needs a password to open.
     pub fn needs_password(bytes: &[u8]) -> bool {
         let start = bytes.windows(5).take(1024).position(|w| w == b"%PDF-");
-        start
-            .and_then(|s| Document::load_mem(&bytes[s..]).ok())
-            .is_some_and(|d| d.is_encrypted() && d.encryption_state.is_none())
+        start.is_some_and(|s| {
+            Document::load_mem(&bytes[s..]).is_ok_and(|d| {
+                d.is_encrypted() && d.encryption_state.is_none() || d.objects.is_empty()
+            }) && bytes.windows(8).any(|w| w == b"/Encrypt")
+                && crypt::load(&bytes[s..], "").is_err()
+        })
     }
 
     /// Open a PDF encrypted with a user or owner `password` (the standard security handler,
@@ -424,11 +431,18 @@ impl PdfDocument {
             .position(|w| w == b"%PDF-")
             .ok_or("not a PDF file")?;
         let mut doc = Document::load_mem(&bytes[start..]).map_err(|e| format!("PDF: {e}"))?;
-        if doc.is_encrypted() && doc.encryption_state.is_none() {
-            if password.is_empty() {
-                return Err("the document is protected by a password".into());
-            }
-            doc = crypt::load(&bytes[start..], password)?;
+        // lopdf gives up (no objects) on a direct /Encrypt dictionary it cannot decrypt.
+        let unread = doc.objects.is_empty() && bytes.windows(8).any(|w| w == b"/Encrypt");
+        if doc.is_encrypted() && doc.encryption_state.is_none() || unread {
+            // An empty user password lopdf did not take (AES-256, revision 6): try it through
+            // our own loader before asking for one.
+            doc = match crypt::load(&bytes[start..], password) {
+                Ok(d) => d,
+                Err(_) if password.is_empty() => {
+                    return Err("the document is protected by a password".into())
+                }
+                Err(e) => return Err(e),
+            };
         }
         let (pages, labelled) = scan_pages(&doc);
         if pages.is_empty() {

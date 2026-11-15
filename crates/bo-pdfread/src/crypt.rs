@@ -21,7 +21,7 @@ fn disguise(bytes: &[u8]) -> Vec<u8> {
     while i + ENCRYPT.len() < out.len() {
         if out[i..].starts_with(ENCRYPT) {
             let next = out[i + ENCRYPT.len()];
-            if next.is_ascii_whitespace() || next.is_ascii_digit() {
+            if next.is_ascii_whitespace() || next.is_ascii_digit() || next == b'<' {
                 out[i..i + ENCRYPT.len()].copy_from_slice(ENCRYPT_HIDDEN);
             }
             i += ENCRYPT.len();
@@ -45,8 +45,27 @@ pub(crate) fn load(bytes: &[u8], password: &str) -> Result<Document, String> {
         .trailer
         .remove(&hidden)
         .ok_or("the document is not encrypted")?;
-    doc.trailer.set("Encrypt", enc.clone());
-    let enc_id = enc.as_reference().map_err(|e| e.to_string())?;
+    // A direct dictionary becomes an object of its own (lopdf reads it by reference).
+    let enc_id = match enc {
+        Object::Reference(id) => id,
+        Object::Dictionary(d) => {
+            let id = (doc.objects.keys().map(|k| k.0).max().unwrap_or(0) + 1, 0);
+            doc.objects.insert(id, Object::Dictionary(d));
+            id
+        }
+        _ => return Err("bad /Encrypt".into()),
+    };
+    doc.trailer.set("Encrypt", Object::Reference(enc_id));
+    // AES-256 (revision 5 and 6) hashes are 48 bytes; some writers pad /O and /U to 127.
+    if let Some(Object::Dictionary(d)) = doc.objects.get_mut(&enc_id) {
+        if d.get(b"R").and_then(Object::as_i64).is_ok_and(|r| r >= 5) {
+            for k in [&b"O"[..], b"U"] {
+                if let Ok(Object::String(v, _)) = d.get_mut(k) {
+                    v.truncate(48);
+                }
+            }
+        }
+    }
     let algorithm = PasswordAlgorithm::try_from(&doc).map_err(|e| e.to_string())?;
     let pw = algorithm
         .sanitize_password(password)

@@ -350,6 +350,47 @@ describe('canvas renderer', () => {
     expect(strokes).toEqual(['blur(4px)', 8]);
   });
 
+  it('draws transparency groups with their blend mode and ignores soft masks', () => {
+    const { ctx, ops } = recorder();
+    const glyphs = new GlyphStore({ getGlyphOutlines: async () => [] }, (d) => `P(${d})`);
+    const c = ctx as typeof ctx & { globalCompositeOperation?: string };
+    const seen: (string | undefined)[] = [];
+    const fill = c.fill.bind(c);
+    c.fill = (p: unknown) => {
+      seen.push(c.globalCompositeOperation);
+      fill(p);
+    };
+    const path = {
+      op: 'path' as const,
+      segs: [{ M: [0, 0] as [number, number] }, 'Z' as const],
+      fill: { type: 'solid' as const, color: [1, 2, 3, 255] as [number, number, number, number] },
+      stroke: null,
+    };
+    renderPage(
+      c,
+      {
+        width: 10,
+        height: 10,
+        commands: [
+          { op: 'pushGroup', blend: 'colorDodge' },
+          path,
+          { op: 'popGroup' },
+          {
+            op: 'pushGroup',
+            mask: { luminosity: true, backdrop: [0, 0, 0, 255], commands: [path] },
+          },
+          path,
+          { op: 'popGroup' },
+        ],
+      },
+      glyphs,
+      1,
+    );
+    expect(seen[0]).toBe('color-dodge');
+    expect(seen.length).toBe(2);
+    expect(ops.filter((o) => o === 'save').length).toBe(ops.filter((o) => o === 'restore').length);
+  });
+
   it('formats colours', () => {
     expect(rgba([1, 2, 3, 255])).toBe('rgba(1,2,3,1.000)');
   });

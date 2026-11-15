@@ -388,7 +388,7 @@ mod tests {
 
     #[test]
     fn blend_modes_and_soft_masks() {
-        use bo_render::{BlendMode, Command, Rgba, SoftMask};
+        use bo_render::{BlendMode, Command, PathSeg, Rgba, SoftMask};
         let rect = |x: f32, w: f32, color: Rgba| Command::FillRect {
             x,
             y: 0.0,
@@ -429,6 +429,31 @@ mod tests {
         ]);
         assert_eq!(px(&image, 4, 4), [0, 0, 255, 255]);
         assert_eq!(px(&image, 24, 4), [255, 255, 255, 255]);
+        // Multiply inside a triangular clip (a layer): blended inside, untouched outside.
+        let image = render(vec![
+            rect(0.0, 32.0, Rgba(128, 128, 128, 255)),
+            Command::PushClipPath {
+                segs: vec![
+                    PathSeg::M(0.0, 0.0),
+                    PathSeg::L(32.0, 0.0),
+                    PathSeg::L(0.0, 32.0),
+                    PathSeg::Z,
+                ],
+            },
+            Command::PushGroup {
+                blend: Some(BlendMode::Multiply),
+                mask: None,
+            },
+            rect(0.0, 32.0, Rgba(255, 128, 0, 255)),
+            Command::PopGroup,
+            Command::PopClip,
+        ]);
+        let inside = px(&image, 4, 4);
+        assert!(
+            (inside[0] as i32 - 128).abs() <= 2 && (inside[1] as i32 - 64).abs() <= 2,
+            "{inside:?}"
+        );
+        assert_eq!(px(&image, 28, 28), [128, 128, 128, 255]);
     }
 
     #[test]

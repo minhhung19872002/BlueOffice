@@ -20,7 +20,7 @@ fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args
         .first()
-        .is_some_and(|a| a == "--render" || a == "--bench")
+        .is_some_and(|a| a == "--render" || a == "--bench" || a == "--print")
     {
         if let Err(e) = reader_app::tool(&args) {
             eprintln!("{e}");

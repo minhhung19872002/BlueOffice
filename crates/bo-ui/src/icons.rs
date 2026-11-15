@@ -153,6 +153,9 @@ const OVERRIDES: &[(&str, &[(&str, bool)])] = &[
 ];
 
 const WHITE: Rgba = Rgba(255, 255, 255, 255);
+/// Outline grey of enabled ribbon icons: a desktop word processor draws its icon lines
+/// in mid grey (measured 96–112), lighter than body text (docs/ui/REPORT.md round 28).
+const ICON_INK: Rgba = Rgba(0x66, 0x69, 0x6e, 255);
 /// Dark grey of solid icon parts (a magnifier handle).
 const INK_FILL: Rgba = Rgba(0x3b, 0x44, 0x52, 255);
 
@@ -543,6 +546,12 @@ impl Icons {
             return;
         };
         let k = size / self.grid;
+        // Enabled icons draw their outlines in icon grey, not the text colour.
+        let c = if c.tinted {
+            IconColors { ink: ICON_INK, ..c }
+        } else {
+            c
+        };
         // Keep about the 1.5 / 24 stroke proportion, rounded down to whole device pixels (one
         // pixel at 100–125 %, like toolbar icons drawn for those scales),
         // and hint outlines onto the pixel grid like hand-tuned toolbar icons: odd widths

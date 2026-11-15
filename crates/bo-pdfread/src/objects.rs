@@ -551,7 +551,7 @@ impl PdfDocument {
     }
 
     /// Base matrix of page `index` (user space to page points) and its inverse.
-    fn bases(&self, index: usize) -> Result<(M, M), String> {
+    pub(crate) fn bases(&self, index: usize) -> Result<(M, M), String> {
         let info = self.pages.get(index).ok_or("no such page")?;
         let base = page_matrix(info.crop, info.rotate);
         Ok((base, invert(base).ok_or("page matrix")?))
@@ -1147,7 +1147,7 @@ impl PdfDocument {
     }
 
     /// An image XObject (and soft mask) from JPEG or PNG bytes.
-    fn image_xobject(&mut self, image: NewImage<'_>) -> Result<ObjectId, String> {
+    pub(crate) fn image_xobject(&mut self, image: NewImage<'_>) -> Result<ObjectId, String> {
         let b = image.0;
         let mut d = Dictionary::new();
         d.set("Type", Object::Name(b"XObject".to_vec()));

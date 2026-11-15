@@ -79,21 +79,6 @@ fn bounds(pts: &[(f32, f32)]) -> [f32; 4] {
     )
 }
 
-/// Ellipse inscribed in `r` (user space) as four Bézier arcs.
-fn ellipse(r: [f32; 4]) -> String {
-    let (cx, cy) = (f32::midpoint(r[0], r[2]), f32::midpoint(r[1], r[3]));
-    let (rx, ry) = ((r[2] - r[0]) / 2.0, (r[3] - r[1]) / 2.0);
-    let (kx, ky) = (0.5523 * rx, 0.5523 * ry);
-    format!(
-        "{} {} m {} {} {} {} {} {} c {} {} {} {} {} {} c {} {} {} {} {} {} c {} {} {} {} {} {} c h ",
-        n(cx + rx), n(cy),
-        n(cx + rx), n(cy + ky), n(cx + kx), n(cy + ry), n(cx), n(cy + ry),
-        n(cx - kx), n(cy + ry), n(cx - rx), n(cy + ky), n(cx - rx), n(cy),
-        n(cx - rx), n(cy - ky), n(cx - kx), n(cy - ry), n(cx), n(cy - ry),
-        n(cx + kx), n(cy - ry), n(cx + rx), n(cy - ky), n(cx + rx), n(cy),
-    )
-}
-
 /// A cloudy outline through a closed polygon: a half-circle bulge on each step of about
 /// `step` points along every edge.
 fn cloud(pts: &[(f32, f32)], step: f32) -> String {
@@ -167,12 +152,68 @@ fn text_paths(text: &str, size: f32, x: f32, top: f32) -> (String, f32, f32) {
     (s, w, lines as f32 * size * 1.2)
 }
 
+/// The `annot_draw` shape of a comment both apps draw (`None`: cloud, stamp, file).
+fn drawing_shape(m: &Markup) -> Option<crate::annot_draw::Shape> {
+    use crate::annot_draw::Shape;
+    let r = m.rect;
+    let rect = [
+        r[0].min(r[2]),
+        r[1].min(r[3]),
+        r[0].max(r[2]),
+        r[1].max(r[3]),
+    ];
+    let two = || match m.points.as_slice() {
+        [a, b, ..] => Some((*a, *b)),
+        _ => None,
+    };
+    Some(match m.kind {
+        MarkupKind::Rectangle => Shape::Rect(rect),
+        MarkupKind::Ellipse => Shape::Oval(rect),
+        MarkupKind::Line | MarkupKind::Arrow => {
+            let (a, b) = two()?;
+            Shape::Line {
+                a,
+                b,
+                arrow: m.kind == MarkupKind::Arrow,
+            }
+        }
+        MarkupKind::Polygon if m.points.len() >= 3 => Shape::Polygon(m.points.clone()),
+        MarkupKind::Pencil if m.points.len() >= 2 => Shape::Ink(vec![m.points.clone()]),
+        MarkupKind::Callout => Shape::Callout {
+            rect,
+            tip: m
+                .points
+                .first()
+                .copied()
+                .unwrap_or([rect[0] - 40.0, rect[3] + 40.0]),
+        },
+        MarkupKind::Typewriter => {
+            // A box that fits the text (the click point is its top-left).
+            let size = m.font_size.max(4.0);
+            let (_, tw, th) = text_paths(&m.contents, size, 0.0, 0.0);
+            Shape::Typewriter([r[0], r[1], r[0] + tw + 6.0, r[1] + th.max(size * 1.2) + 4.0])
+        }
+        _ => return None,
+    })
+}
+
 impl PdfDocument {
     /// Add a comment of the kinds in [`MarkupKind`] (one undo step).
     #[allow(clippy::too_many_lines)]
     pub fn add_markup(&mut self, m: &Markup) -> Result<(), String> {
         if self.doc.is_encrypted() && self.doc.encryption_state.is_none() {
             return Err("comments cannot be added to an encrypted document".into());
+        }
+        // The kinds BlueReader draws too go through one path (`annot_draw`), so they can
+        // be resized and restyled the same way in both apps.
+        if let Some(shape) = drawing_shape(m) {
+            let style = crate::annot_draw::Style {
+                color: m.color,
+                opacity: m.opacity.clamp(0.05, 1.0),
+                width: m.width.max(0.25),
+                font_size: m.font_size.max(4.0),
+            };
+            return self.add_drawing(m.page, &shape, &style, &m.author, &m.contents);
         }
         let info = self.pages.get(m.page).ok_or("no such page")?.clone();
         let inv = invert(crate::page_matrix(info.crop, info.rotate)).ok_or("page matrix")?;
@@ -200,72 +241,14 @@ impl PdfDocument {
         );
         let mut d = Dictionary::new();
         let (subtype, body): (&str, String) = match &m.kind {
-            MarkupKind::Rectangle => (
-                "Square",
-                format!(
-                    "{stroke}{} {} {} {} re S ",
-                    n(rect[0] + w / 2.0),
-                    n(rect[1] + w / 2.0),
-                    n(rect[2] - rect[0] - w),
-                    n(rect[3] - rect[1] - w)
-                ),
-            ),
-            MarkupKind::Ellipse => (
-                "Circle",
-                format!(
-                    "{stroke}{}S ",
-                    ellipse([
-                        rect[0] + w / 2.0,
-                        rect[1] + w / 2.0,
-                        rect[2] - w / 2.0,
-                        rect[3] - w / 2.0
-                    ])
-                ),
-            ),
-            MarkupKind::Line | MarkupKind::Arrow => {
-                let (a, bp) = match pts.as_slice() {
-                    [a, b, ..] => (*a, *b),
-                    _ => return Err("a line needs two points".into()),
-                };
-                d.set("L", nums(&[a.0, a.1, bp.0, bp.1]));
-                let mut s = format!(
-                    "{stroke}{} {} m {} {} l S ",
-                    n(a.0),
-                    n(a.1),
-                    n(bp.0),
-                    n(bp.1)
-                );
-                if m.kind == MarkupKind::Arrow {
-                    d.set(
-                        "LE",
-                        vec![
-                            Object::Name(b"None".to_vec()),
-                            Object::Name(b"OpenArrow".to_vec()),
-                        ],
-                    );
-                    let len = ((bp.0 - a.0).powi(2) + (bp.1 - a.1).powi(2))
-                        .sqrt()
-                        .max(0.01);
-                    let (ux, uy) = ((bp.0 - a.0) / len, (bp.1 - a.1) / len);
-                    let h = (w * 4.0).max(6.0);
-                    let (lx, ly) = (bp.0 - ux * h - uy * h * 0.5, bp.1 - uy * h + ux * h * 0.5);
-                    let (rx, ry) = (bp.0 - ux * h + uy * h * 0.5, bp.1 - uy * h - ux * h * 0.5);
-                    let _ = write!(
-                        s,
-                        "{} {} m {} {} l {} {} l S ",
-                        n(lx),
-                        n(ly),
-                        n(bp.0),
-                        n(bp.1),
-                        n(rx),
-                        n(ry)
-                    );
-                }
-                let pad = (w * 4.0).max(6.0);
-                let bb = bounds(&[a, bp]);
-                rect = [bb[0] - pad, bb[1] - pad, bb[2] + pad, bb[3] + pad];
-                ("Line", s)
-            }
+            // Drawn by `annot_draw` (see `drawing_shape`) unless their points are missing.
+            MarkupKind::Rectangle
+            | MarkupKind::Ellipse
+            | MarkupKind::Line
+            | MarkupKind::Arrow
+            | MarkupKind::Pencil
+            | MarkupKind::Typewriter
+            | MarkupKind::Callout => return Err("the comment needs more points".into()),
             MarkupKind::Polygon | MarkupKind::Cloud => {
                 if pts.len() < 3 {
                     return Err("a polygon needs three points".into());
@@ -304,73 +287,6 @@ impl PdfDocument {
                 let bb = bounds(&pv);
                 rect = [bb[0] - pad, bb[1] - pad, bb[2] + pad, bb[3] + pad];
                 ("Polygon", s)
-            }
-            MarkupKind::Pencil => {
-                if pts.len() < 2 {
-                    return Err("a stroke needs two points".into());
-                }
-                let flat: Vec<f32> = pts.iter().flat_map(|p| [p.0, p.1]).collect();
-                d.set("InkList", vec![nums(&flat)]);
-                let mut s = stroke.clone();
-                for (i, p) in pts.iter().enumerate() {
-                    let _ = write!(
-                        s,
-                        "{} {} {} ",
-                        n(p.0),
-                        n(p.1),
-                        if i == 0 { "m" } else { "l" }
-                    );
-                }
-                s.push_str("S ");
-                let bb = bounds(&pts);
-                rect = [bb[0] - w, bb[1] - w, bb[2] + w, bb[3] + w];
-                ("Ink", s)
-            }
-            MarkupKind::Typewriter => {
-                let size = m.font_size.max(4.0);
-                let (paths, tw, th) = text_paths(&m.contents, size, rect[0] + 2.0, rect[3] - 2.0);
-                rect = [rect[0], rect[3] - th - 4.0, rect[0] + tw + 4.0, rect[3]];
-                d.set("IT", Object::Name(b"FreeTextTypeWriter".to_vec()));
-                d.set(
-                    "DA",
-                    text_obj(&format!(
-                        "{} {} {} rg /Helv {} Tf",
-                        n(r),
-                        n(g),
-                        n(b),
-                        n(size)
-                    )),
-                );
-                ("FreeText", format!("{} {} {} rg {paths}", n(r), n(g), n(b)))
-            }
-            MarkupKind::Callout => {
-                let size = m.font_size.max(4.0);
-                let (paths, _, _) = text_paths(&m.contents, size, rect[0] + 4.0, rect[3] - 4.0);
-                let target = pts
-                    .first()
-                    .copied()
-                    .unwrap_or((rect[0] - 40.0, rect[1] - 40.0));
-                // Leader from the target to the nearest side of the box.
-                let cy = f32::midpoint(rect[1], rect[3]);
-                let knee_x = if target.0 < rect[0] { rect[0] } else { rect[2] };
-                let mut s = format!(
-                    "{stroke}{} {} {} {} re S {} {} m {} {} l S 0 0 0 rg {paths}",
-                    n(rect[0] + w / 2.0),
-                    n(rect[1] + w / 2.0),
-                    n(rect[2] - rect[0] - w),
-                    n(rect[3] - rect[1] - w),
-                    n(target.0),
-                    n(target.1),
-                    n(knee_x),
-                    n(cy)
-                );
-                let _ = write!(s, "{} {} {} rg ", n(r), n(g), n(b));
-                d.set("IT", Object::Name(b"FreeTextCallout".to_vec()));
-                d.set("CL", nums(&[target.0, target.1, knee_x, cy]));
-                d.set("DA", text_obj(&format!("0 g /Helv {} Tf", n(size))));
-                let bb = bounds(&[target, (rect[0], rect[1]), (rect[2], rect[3])]);
-                rect = [bb[0] - w, bb[1] - w, bb[2] + w, bb[3] + w];
-                ("FreeText", s)
             }
             MarkupKind::Stamp => {
                 // Our own stamp: a rounded frame with the text in capitals.
@@ -571,7 +487,7 @@ mod tests {
         let saved = d.save().expect("saves");
         let text = String::from_utf8_lossy(&saved);
         assert!(text.contains("/IT /FreeTextTypeWriter") && text.contains("/IT /FreeTextCallout"));
-        assert!(text.contains("/BE <<") && text.contains("/LE [/None /OpenArrow]"));
+        assert!(text.contains("/BE <<") && text.contains("/LE [/None /ClosedArrow]"));
         assert!(text.contains("/Type /EmbeddedFile") && text.contains("/CA 0.5"));
         let mut again = PdfDocument::open(saved, standard_fonts()).expect("opens");
         let page = again.render(0, RenderOptions::default()).expect("renders");

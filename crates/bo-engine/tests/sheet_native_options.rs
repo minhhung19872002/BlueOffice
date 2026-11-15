@@ -47,3 +47,31 @@ fn typed_dates_follow_the_region_pattern() {
     assert_eq!(value, Some(CellValue::Number(45356.0)), "5 March 2024");
     assert_eq!(e.cell(0, 0, 0).expect("A1").display, "5/3/2024");
 }
+
+#[test]
+fn stored_column_widths_use_the_screen_digit_width() {
+    use bo_model::sheet::{ColInfo, Workbook, Worksheet};
+    let mut wb = Workbook::new();
+    wb.sheets.clear();
+    let mut ws = Worksheet::new("Sheet1");
+    ws.cols.push(ColInfo {
+        min: 0,
+        max: 0,
+        width: Some(16.0),
+        custom_width: true,
+        ..ColInfo::default()
+    });
+    wb.sheets.push(ws);
+    let mut e = engine();
+    e.load(wb, "Book1.xlsx").expect("load");
+    let at = |e: &mut SheetEngine, ppp: f64| {
+        e.set_display_scale(Some(ppp));
+        let vp = bo_sheet::viewport::Viewport::new(800.0, 600.0);
+        let (_, g) = e.view_layout(0, &vp).expect("layout");
+        (g.col_width(0) * ppp).round()
+    };
+    // 125 %: 9 px digits → 144 px (the reference), not 112 px × 1.25.
+    assert_eq!(at(&mut e, 1.25 * 4.0 / 3.0), 144.0);
+    // 100 %: 7 px digits → 112 px as before.
+    assert_eq!(at(&mut e, 4.0 / 3.0), 112.0);
+}

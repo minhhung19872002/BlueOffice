@@ -122,7 +122,8 @@ fn click_move_and_save_is_lossless_elsewhere() {
 #[test]
 fn smart_guides_snap_to_slide_centre() {
     let mut e = open("slide-shapes-presets.pptx");
-    let (_, b) = free_shapes(&e, 0)[0];
+    // The rectangle (shape 0 is a text box that fits its height to its text on resize).
+    let (_, b) = free_shapes(&e, 0)[1];
     run(
         &mut e,
         &format!(r#"{{"cmd":"click","x":{},"y":{}}}"#, b.cx, b.cy),

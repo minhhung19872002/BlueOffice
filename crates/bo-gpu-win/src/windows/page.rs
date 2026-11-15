@@ -250,6 +250,15 @@ fn key(c: &Command) -> usize {
     std::ptr::from_ref(c) as usize
 }
 
+/// A clip pushed while drawing a list, kept so it can be closed and opened again around a
+/// blended group (the backdrop copy cannot see through a layer).
+struct ClipItem {
+    rect: D2D_RECT_F,
+    /// The layer's geometry; `None` for an axis-aligned clip of `rect`.
+    geometry: Option<ID2D1Geometry>,
+    transform: Matrix3x2,
+}
+
 /// Index of the `PopGroup` matching the `PushGroup` at `start`.
 fn group_end(commands: &[Command], start: usize) -> Option<usize> {
     let mut depth = 0_usize;
@@ -1256,8 +1265,9 @@ impl Device {
         mode: BlendMode,
         b: &Backdrop<'_>,
         ppp: f32,
-        in_clip: bool,
+        clips: &[ClipItem],
     ) -> Result<(), String> {
+        let in_clip = !clips.is_empty();
         // SAFETY: the scratch bitmap and effect are owned COM objects; the clip pushed here is
         // popped before returning; the world transform is identity during the call.
         unsafe {
@@ -1339,6 +1349,10 @@ impl Device {
                 )
                 .map_err(|e| e.to_string())?;
             let output = effect.GetOutput().map_err(|e| e.to_string())?;
+            // The backdrop was read with the clips closed; they are opened again so the result
+            // lands inside them only.
+            self.push_clips(clips);
+            self.context.SetTransform(&IDENTITY);
             self.context.PushAxisAlignedClip(
                 &D2D_RECT_F {
                     left: x0 as f32 / ppp,
@@ -1383,6 +1397,7 @@ impl Device {
         // bitmaps and recorded images in `prep` outlive the draw.
         unsafe {
             let base = state.stack.len();
+            let mut clip_items: Vec<ClipItem> = Vec::new();
             let drawn = (|| -> Result<(), String> {
                 let mut index = 0;
                 while index < commands.len() {
@@ -1399,6 +1414,11 @@ impl Device {
                             if axis_aligned(&state.transform) {
                                 self.context
                                     .PushAxisAlignedClip(&rect, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+                                clip_items.push(ClipItem {
+                                    rect,
+                                    geometry: None,
+                                    transform: state.transform,
+                                });
                             } else {
                                 let geometry: ID2D1Geometry = self
                                     .factory
@@ -1406,18 +1426,31 @@ impl Device {
                                     .map_err(|e| e.to_string())?
                                     .cast()
                                     .map_err(|e| e.to_string())?;
-                                self.push_mask(geometry);
+                                self.push_mask(geometry.clone());
+                                clip_items.push(ClipItem {
+                                    rect,
+                                    geometry: Some(geometry),
+                                    transform: state.transform,
+                                });
                             }
                         }
                         Command::PushClipPath { segs } => {
                             let geometry: ID2D1Geometry =
                                 self.geometry(segs)?.cast().map_err(|e| e.to_string())?;
-                            self.push_mask(geometry);
+                            self.push_mask(geometry.clone());
+                            clip_items.push(ClipItem {
+                                rect: D2D_RECT_F::default(),
+                                geometry: Some(geometry),
+                                transform: state.transform,
+                            });
                         }
-                        Command::PopClip => match state.stack.last() {
-                            Some(Saved::AxisClip) => self.context.PopAxisAlignedClip(),
-                            _ => self.context.PopLayer(),
-                        },
+                        Command::PopClip => {
+                            clip_items.pop();
+                            match state.stack.last() {
+                                Some(Saved::AxisClip) => self.context.PopAxisAlignedClip(),
+                                _ => self.context.PopLayer(),
+                            }
+                        }
                         Command::PushGroup { .. } => {
                             state.apply(command)?;
                             let Some(g) = prep.groups.get(&key(command)) else {
@@ -1445,7 +1478,14 @@ impl Device {
                                 self.context.SetTransform(&IDENTITY);
                                 let done = match backdrop {
                                     Some(b) if !in_mask => {
-                                        self.blend_onto(content, mode, b, pixels_per_point, in_clip)
+                                        // A layer hides the target from the copy: close the
+                                        // clips (their content is composited), blend, open
+                                        // them again.
+                                        let clips: &[ClipItem] =
+                                            if in_clip { &clip_items } else { &[] };
+                                        self.pop_clips(clips);
+                                        self.context.SetTransform(&IDENTITY);
+                                        self.blend_onto(content, mode, b, pixels_per_point, clips)
                                     }
                                     // No backdrop to read: the group draws as Normal.
                                     _ => {
@@ -1843,6 +1883,36 @@ impl Device {
     }
 
     /// Push a layer clipped to `geometry` (in the current world space).
+    /// Close the clips of `items`, innermost first (their content is composited).
+    unsafe fn pop_clips(&self, items: &[ClipItem]) {
+        // SAFETY: each item was pushed by `draw_list` and is pushed again by `push_clips`.
+        unsafe {
+            for c in items.iter().rev() {
+                if c.geometry.is_some() {
+                    self.context.PopLayer();
+                } else {
+                    self.context.PopAxisAlignedClip();
+                }
+            }
+        }
+    }
+
+    /// Open the clips of `items` again, outermost first, each with its own transform.
+    unsafe fn push_clips(&self, items: &[ClipItem]) {
+        // SAFETY: as `pop_clips`; the caller sets the transform it needs afterwards.
+        unsafe {
+            for c in items {
+                self.context.SetTransform(&c.transform);
+                match &c.geometry {
+                    Some(g) => self.push_mask(g.clone()),
+                    None => self
+                        .context
+                        .PushAxisAlignedClip(&c.rect, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE),
+                }
+            }
+        }
+    }
+
     unsafe fn push_mask(&self, geometry: ID2D1Geometry) {
         let mut params = D2D1_LAYER_PARAMETERS1 {
             contentBounds: INFINITE,

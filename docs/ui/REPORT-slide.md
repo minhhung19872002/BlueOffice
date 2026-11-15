@@ -312,3 +312,6 @@ x 1160–1259; Reorder Animation, Move Earlier/Later). Đường chia nhóm: tha
 
 Đo lại Design (`b5-Design.png`): 6 thẻ chủ đề x 27 / 167 / … / 727 trùng tham chiếu, cột "thêm" x 863–897, đường chia Customize x 910 (tham chiếu 912), nhóm Slides hiện đủ (trước: tràn, có nút cuộn).
 
+
+Vòng 12b (`slide-07/08/09`): Insert thêm Photo Album, 3D Models, SmartArt, Links, Text Styles; dấu thả xuống của nút lớn một từ xuống dòng riêng như tham chiếu (hết chồng nhãn "Variants ▾ Colors" ở Design); ô phông 211 px (tham chiếu 213), ô cỡ 67 px.
+

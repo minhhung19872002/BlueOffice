@@ -102,3 +102,78 @@ các phép đo sau chỉ gửi thông điệp thẳng vào cửa sổ BlueSlide 
 - Ribbon dùng khung của BlueDoc (dải tab trắng), không phải dải tab màu của tham chiếu (giữ màu riêng).
 
 Vòng 6 (phiên chính): chữ gợi ý ở khung trống (`placeholder_kinds` mới trong kết quả lệnh slide, chuỗi i18n slideEditor.prompt*): tiêu đề trang tiêu đề 54 pt sát đáy khung, tiêu đề thường 44 pt giữa khung, tiêu đề phụ 24 pt sát đỉnh, nội dung 28 pt góc trên trái, màu đen như bản đối chiếu. Đo trên tệp do bản đối chiếu tạo (trang tiêu đề trống): tiêu đề hàng 556–606 so với 556–607, tiêu đề phụ 649–668 trùng, lệch ngang ≤ 9 px.
+
+## Vòng 7 — bố cục chữ (engine)
+
+Đo trên ứng dụng tham chiếu qua COM (hộp chữ 200 pt, Calibri 18 pt, `TextRange.Lines`):
+"Supercalifragilisticexpialidociousxyzabcdefghij end" → `Supercalifragilisticexpiali` /
+`dociousxyzabcdefghij ` / `end`: từ dài sang dòng riêng rồi ngắt giữa ký tự ở chỗ tràn, chữ sau nối
+tiếp phần cuối. `bo-pptx` (`split_to_fit`) làm y vậy (kiểm thử `slide_text_fit`: 3 dòng). Tự co
+(`spAutoFit` chiều cao, `normAutofit` tỉ lệ cỡ chữ) chạy lại cả sau khi đổi kích thước hình và đổi
+cỡ/phông, không chỉ khi gõ. Chữ gợi ý riêng của bố cục (`hasCustomPrompt`) thay chữ gợi ý mặc định
+(`placeholder_prompts` trong kết quả lệnh slide).
+
+## Vòng 8 — đo lại khung (1500 × 1102, 125 %, `pp-Home.png` / `b2-Home.png`)
+
+Vòng 1 ghi "ribbon tham chiếu cao hơn BlueDoc 8 px"; đo lại thì thân ribbon tham chiếu chạy y 99–235,
+chỉ cao hơn ribbon BlueDoc 1 px. Tuỳ chọn theo cửa sổ `Ribbon::with_band_extra` (BlueDoc không đổi)
+đặt +1 px cho BlueSlide; thanh trạng thái 33 px (trước 34), ngăn ghi chú 46 px (trước 45).
+
+| Mốc (y thiết bị) | Tham chiếu | BlueSlide vòng 1 | BlueSlide giờ |
+|---|---|---|---|
+| Đường dưới ribbon | 235 | 234 | 235 |
+| Canvas bắt đầu | 236 | 235 | 236 |
+| Viền trên / dưới ảnh trang chiếu | 285 / 961 | 284 / 960 | 285 / 961 |
+| Đường chia ghi chú | 1013 | 1013 | 1013 |
+| Đường trên thanh trạng thái | 1060 | 1059 | 1060 |
+| Ảnh trang chiếu x | 258–1457 | 258–1457 | 258–1457 |
+
+## Vòng 9 — Design / Transitions / Animations / Review
+
+Design: 5 chủ đề có sẵn của engine vẽ bằng phông tiêu đề và 6 màu nhấn của chủ đề, biến thể
+màu / phông, cỡ trang 4:3 / 16:9, màu nền. Transitions: 6 ô + cột "thêm" (menu mọi hiệu ứng),
+Effect Options theo `dirs` của engine, thời lượng, áp dụng cho mọi trang, Preview. Animations:
+6 ô vào / nhấn / ra (chọn ô thay hiệu ứng của hình đang chọn, như tham chiếu), Effect Options.
+Review: bình luận mới, ngăn bình luận. Chọn một chuyển trang / hoạt hình là chạy thử ngay trên
+canvas như tham chiếu.
+
+| Phần (thiết bị, 125 %) | Tham chiếu | BlueSlide |
+|---|---|---|
+| Hộp thư viện chuyển trang (khung 210, nền trắng) | y 106–197, x từ 104 | y 106–197, x từ 114 |
+| Ô thư viện | rộng 124, ô chọn khung 136 nền 210 | 124, khung 136 nền 210 |
+| Thư viện chủ đề: hộp / thẻ | hộp x 20, y 106–197; thẻ 130 × 74 khung 100, x 27 / 167, y 115–188 | trùng từng điểm ảnh |
+| Dải màu nhấn của thẻ | y 172–179 | y 172–179 |
+| Ngăn bình luận | rộng 342, nền 230, đường chia 191 | 342, 230, 191 |
+
+Khác còn lại: thư viện chuyển trang lệch 10 px ngang (nhóm Preview của ta hẹp hơn); hình minh
+hoạ ô là hình vẽ riêng phẳng; "Duration" là nút menu thay vì ô số; Effect Options không mờ khi
+chưa có hiệu ứng.
+
+## Vòng 10 — trình chiếu, chế độ xem, bảng tạm, bình luận
+
+- Trình chiếu phát chuyển trang (mờ, qua đen, đẩy, lau, tách, che, kéo, phóng; loại khác phát
+  như mờ) và hoạt hình chuỗi chính từ lớp + hành vi engine mô tả (hiện/ẩn, độ mờ, vị trí, kích
+  thước, đường chuyển động, bộ lọc lau). Lớp vẽ trên ảnh nền trong suốt (Direct2D premultiplied);
+  `Painter::page_part` vẽ một phần ảnh có dời / co / độ mờ. Bấm khi đang chạy thì xong bước đó; tự
+  sang trang theo `advTm`.
+- Nhịp khung (`BLUEOFFICE_NATIVE_PERF`, Reading view, `slide-anim-transitions.pptx`, màn hình
+  144 Hz): 403 khung, trung vị 6,95 ms, p95 7,56 ms, lớn nhất 15,5 ms, không khung nào > 25 ms —
+  bám nhịp màn hình (≥ 60 fps). Phím sang trang: xử lý 0,9 ms (trung vị).
+- Slide Sorter so với `pps-View.png` (tham chiếu, `slide-album-photos.pptx`): trùng từng số đo —
+  ảnh 400 × 225, x 48 / 494 / 940, viền trên y 260, bước dọc 296, khung chọn 3 px cách 1 px, mực
+  số "1" x 50–55 y 501–516, "4" x 48–58 y 797–812; thu phóng hiện 100 %.
+- Reading view: trình chiếu trong cửa sổ (không ribbon), thanh trạng thái đếm trang đang chiếu.
+- Kéo hình thu nhỏ đổi thứ tự (ngăn trái và sorter, một bước hoàn tác), Shift chọn dải, xoá nhiều
+  trang.
+- Bảng tạm hệ thống: chép hình / trang đưa chữ, ảnh (HTML img PNG) và mã cửa sổ lên bảng tạm; dán
+  chữ của chương trình khác thành hộp chữ.
+- Ngăn bình luận: thêm (Enter), giải quyết / mở lại, xoá; bình luận mới ghi giờ UTC.
+
+## Còn lại (sau vòng 10)
+
+- Hình minh hoạ thư viện chuyển trang / hoạt hình chưa có gradient như tham chiếu.
+- Xoay (spin), bộ lọc khác lau (blinds, dissolve, …) phát như mờ; hiệu ứng theo đoạn / theo chữ phát
+  cả lớp; morph chưa phát.
+- Dán trang chiếu sang cửa sổ BlueSlide khác (bảng tạm chỉ mang chữ + ảnh giữa hai tiến trình).
+- Bình luận: chưa có dấu bình luận trên trang, chưa trả lời theo luồng trong ngăn.
+- Animation Pane chỉ là lệnh; tab Draw chưa làm.

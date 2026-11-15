@@ -5,8 +5,6 @@ use crate::reader_viewx::{paragraphs, ruler_ticks, wrap};
 use crate::{Input, Key, Painter, TextMeasure, TextStyle};
 use bo_render::Rgba;
 
-/// Canvas around the pages in Night Mode.
-const NIGHT_CANVAS: Rgba = Rgba(38, 38, 38, 255);
 /// Ruler strip, its ticks and the grid lines.
 const RULER_BG: Rgba = Rgba(248, 248, 250, 255);
 const RULER_EDGE: Rgba = Rgba(199, 204, 217, 255);
@@ -264,19 +262,15 @@ impl ReaderWindow {
         self.viewx.reflow_page = None;
     }
 
-    /// Canvas colour of the document area.
+    /// Canvas colour of the document area (the reference keeps it in Night Mode).
     pub(crate) fn doc_canvas(&self) -> Rgba {
-        if self.viewx.night {
-            NIGHT_CANVAS
-        } else {
-            self.look.canvas
-        }
+        self.look.canvas
     }
 
     /// Paper colour under page images.
     pub(crate) fn paper(&self) -> Rgba {
         if self.viewx.night {
-            Rgba(0, 0, 0, 255)
+            crate::reader_viewx::NIGHT_PAPER
         } else {
             super::WHITE
         }
@@ -289,7 +283,10 @@ impl ReaderWindow {
         }
         let d = self.doc_rect;
         let (bg, ink) = if self.viewx.night {
-            (Rgba(0, 0, 0, 255), Rgba(235, 235, 235, 255))
+            (
+                crate::reader_viewx::NIGHT_PAPER,
+                crate::reader_viewx::NIGHT_TEXT,
+            )
         } else {
             (super::WHITE, TEXT)
         };

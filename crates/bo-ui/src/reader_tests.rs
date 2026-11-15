@@ -485,7 +485,7 @@ fn night_mode_reflow_autoscroll_cover_and_rulers() {
     assert!(matches!(
         store.0.get(&0),
         Some(Some(bo_render::Command::FillRect {
-            color: Rgba(0, 0, 0, 255),
+            color: Rgba(25, 25, 25, 255),
             ..
         }))
     ));

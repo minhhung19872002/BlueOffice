@@ -2,15 +2,24 @@
 //! colours of a page's display list, the Reflow layout of a page's text, and the ruler ticks.
 use bo_render::{Command, PageList, Paint, Rgba};
 
-/// Night Mode colour: lightness inverted with hue and saturation kept (HSL `L' = 1 − L`,
-/// which per channel is `c + 255 − max − min`), so black text turns white, white paper black
-/// and coloured highlights stay their hue.
+/// Night Mode paper and text, measured on the reference reader: the page turns (25, 25, 25)
+/// and its text (127, 127, 127); other colours stay as they are.
+pub(crate) const NIGHT_PAPER: Rgba = Rgba(25, 25, 25, 255);
+/// Night Mode text colour.
+pub(crate) const NIGHT_TEXT: Rgba = Rgba(127, 127, 127, 255);
+
+/// Night Mode colour of a drawn colour: near-white becomes the paper, near-black the text
+/// grey, anything else is kept.
 #[must_use]
 pub(crate) fn night_color(c: Rgba) -> Rgba {
-    let (r, g, b) = (i32::from(c.0), i32::from(c.1), i32::from(c.2));
-    let k = 255 - r.max(g).max(b) - r.min(g).min(b);
-    let f = |v: i32| (v + k).clamp(0, 255) as u8;
-    Rgba(f(r), f(g), f(b), c.3)
+    let (hi, lo) = (c.0.max(c.1).max(c.2), c.0.min(c.1).min(c.2));
+    if lo >= 245 {
+        Rgba(NIGHT_PAPER.0, NIGHT_PAPER.1, NIGHT_PAPER.2, c.3)
+    } else if hi <= 20 {
+        Rgba(NIGHT_TEXT.0, NIGHT_TEXT.1, NIGHT_TEXT.2, c.3)
+    } else {
+        c
+    }
 }
 
 fn night_paint(p: &mut Paint) {
@@ -24,8 +33,9 @@ fn night_paint(p: &mut Paint) {
     }
 }
 
-/// The page in Night Mode: a black sheet and every drawn colour lightness-inverted; pictures
-/// and soft masks are left as they are.
+/// The page in Night Mode: a dark sheet, text in grey whatever its colour, white and black
+/// graphics turned to the sheet and the text grey; pictures and soft masks are left as
+/// they are.
 #[must_use]
 pub(crate) fn night_list(list: PageList) -> PageList {
     let mut commands = Vec::with_capacity(list.commands.len() + 1);
@@ -34,13 +44,15 @@ pub(crate) fn night_list(list: PageList) -> PageList {
         y: 0.0,
         w: list.width,
         h: list.height,
-        color: Rgba(0, 0, 0, 255),
+        color: NIGHT_PAPER,
     });
     for mut c in list.commands {
         match &mut c {
+            Command::Glyphs { color, .. } => {
+                *color = Rgba(NIGHT_TEXT.0, NIGHT_TEXT.1, NIGHT_TEXT.2, color.3);
+            }
             Command::FillRect { color, .. }
             | Command::Line { color, .. }
-            | Command::Glyphs { color, .. }
             | Command::BlurPath { color, .. } => *color = night_color(*color),
             Command::Path { fill, stroke, .. } => {
                 if let Some(f) = fill {
@@ -190,35 +202,32 @@ mod tests {
     use super::*;
 
     #[test]
-    fn night_inverts_lightness_keeping_hue() {
-        assert_eq!(night_color(Rgba(0, 0, 0, 255)), Rgba(255, 255, 255, 255));
-        assert_eq!(night_color(Rgba(255, 255, 255, 9)), Rgba(0, 0, 0, 9));
-        // Pure red keeps its lightness (0.5) and hue.
-        assert_eq!(night_color(Rgba(255, 0, 0, 255)), Rgba(255, 0, 0, 255));
-        // Light yellow highlight → dark yellow.
-        let c = night_color(Rgba(255, 255, 128, 255));
-        assert!(c.0 == c.1 && c.2 < c.0 && c.0 < 160);
+    fn night_mode_dark_paper_grey_text() {
+        assert_eq!(night_color(Rgba(255, 255, 255, 9)), Rgba(25, 25, 25, 9));
+        assert_eq!(night_color(Rgba(0, 0, 0, 255)), NIGHT_TEXT);
+        assert_eq!(night_color(Rgba(255, 127, 0, 255)), Rgba(255, 127, 0, 255));
         let list = PageList {
             width: 10.0,
             height: 20.0,
-            commands: vec![Command::FillRect {
+            commands: vec![Command::Glyphs {
+                face: 0,
+                size: 10.0,
                 x: 0.0,
                 y: 0.0,
-                w: 1.0,
-                h: 1.0,
-                color: Rgba(10, 10, 10, 255),
+                color: Rgba(200, 0, 0, 255),
+                text: "a".into(),
+                glyphs: Vec::new(),
             }],
         };
         let n = night_list(list);
-        assert_eq!(n.commands.len(), 2);
         assert!(matches!(
             n.commands[0],
-            Command::FillRect { w, color: Rgba(0, 0, 0, 255), .. } if w == 10.0
+            Command::FillRect { w, color: NIGHT_PAPER, .. } if w == 10.0
         ));
         assert!(matches!(
             n.commands[1],
-            Command::FillRect {
-                color: Rgba(245, 245, 245, 255),
+            Command::Glyphs {
+                color: NIGHT_TEXT,
                 ..
             }
         ));

@@ -10,7 +10,9 @@ Kiến trúc: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) · Tiến độ: [`
 - Tên hiển thị: "BlueDoc – Soạn thảo văn bản", "BlueSheet – Bảng tính", "BlueSlide – Trình chiếu".
 - App id: `doc` / `sheet` / `slide`; route web `/doc` `/sheet` `/slide` (route cũ chuyển hướng); desktop `vn.bluestar.bluedoc|bluesheet|blueslide`; deep link `bluedoc://` `bluesheet://` `blueslide://`.
 - KHÔNG dùng tên, nhãn hiệu, icon hay màu nhận diện của Microsoft hoặc Google (Word, Excel, PowerPoint, Office, Google Docs/Sheets/Slides/Drive) làm tên sản phẩm, tính năng hay icon. Chỉ nhắc dạng mô tả tương thích: "Tương thích định dạng Microsoft Word (.docx)".
-- Icon và bảng màu từng app là thiết kế riêng của Bluestar, không mô phỏng icon Google/Microsoft.
+- Hình icon là thiết kế riêng của Bluestar: không sao chép, trích xuất hay đồ lại hình icon của Google/Microsoft.
+  Riêng giao diện native (bo-ui): bảng màu, kiểu vẽ (tô màu đặc), cỡ chữ, kích thước và bố cục ribbon được làm
+  giống bản desktop tương ứng bằng đo đạc black-box (quyết định chủ dự án 2026-11-15; `docs/ui/REPORT.md` vòng 7–28).
 
 ## Clean-room (bắt buộc)
 - Không decompile/disassemble/debug-attach Microsoft Office; không chép code, icon, font, template, chuỗi UI, tên thương hiệu.

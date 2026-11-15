@@ -7430,6 +7430,10 @@
     "changedAfter": "signature valid, the document was changed after signing",
     "invalid": "Signature cannot be verified"
   },
+  "pdfHome": {
+    "snapshot": "SnapShot",
+    "copied": "The selected area was copied to the clipboard"
+  },
   "pdfReader": {
     "tabs": {
       "file": "File",

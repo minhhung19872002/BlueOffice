@@ -19,6 +19,8 @@ pub(crate) enum Tool4 {
     AreaHighlight,
     /// Drag a box (or click): the picture as a stamp.
     ImageStamp(Vec<u8>),
+    /// Drag a box: that part of the page copied as a picture (SnapShot).
+    Snapshot,
 }
 
 /// Field highlight of the Form tab (the reference's light blue).
@@ -180,6 +182,7 @@ impl ReaderWindow {
     pub(crate) fn command_tabs4(&mut self, cmd: &str, m: &dyn TextMeasure) -> bool {
         match cmd {
             "comment.eraser" => self.toggle_tool4(Tool4::Eraser),
+            "home.snapshot" => self.toggle_tool4(Tool4::Snapshot),
             // Replace Text: strike the text out and say what replaces it (§12.5.6.10, a
             // strike-out with the replacement as its comment).
             "comment.replace" => {
@@ -301,6 +304,7 @@ impl ReaderWindow {
                 "comment.areaHighlight",
                 self.tabs4.tool == Some(Tool4::AreaHighlight),
             ),
+            ("home.snapshot", self.tabs4.tool == Some(Tool4::Snapshot)),
         ] {
             if on {
                 self.on.insert(id);
@@ -495,6 +499,18 @@ impl ReaderWindow {
                     };
                     match tool {
                         Tool4::Eraser => {}
+                        Tool4::Snapshot => {
+                            if let Some((page, rect)) = self.page_box((x0, y0), (*x, *y)) {
+                                if rect[2] - rect[0] > 2.0 && rect[3] - rect[1] > 2.0 {
+                                    let rect = self
+                                        .tabs
+                                        .get(self.active)
+                                        .map_or(rect, |t| t.view.unrotate_rect(page, rect));
+                                    self.requests.push(ReaderRequest::Snapshot { page, rect });
+                                    self.status = self.t("pdfHome.copied");
+                                }
+                            }
+                        }
                         Tool4::AreaHighlight => self.area_highlight((x0, y0), (*x, *y)),
                         Tool4::ImageStamp(bytes) => {
                             self.place_image_stamp((x0, y0), (*x, *y), &bytes);

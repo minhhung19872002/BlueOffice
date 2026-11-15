@@ -7430,6 +7430,10 @@
     "changedAfter": "chữ ký hợp lệ, tài liệu đã đổi sau khi ký",
     "invalid": "Không kiểm tra được chữ ký"
   },
+  "pdfHome": {
+    "snapshot": "Chụp vùng",
+    "copied": "Đã chép vùng chọn vào bộ nhớ tạm"
+  },
   "pdfReader": {
     "tabs": {
       "file": "Tệp",

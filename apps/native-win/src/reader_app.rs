@@ -351,6 +351,38 @@ impl Shell {
     }
 
     /// Render every page of the active document as PNG at `scale` pixels per point.
+    /// SnapShot: part of a page (page points) on the clipboard as a picture at twice the
+    /// screen's 100 % size.
+    fn snapshot(&mut self, page: usize, rect: [f32; 4]) -> Result<(), String> {
+        let gpu = self.gpu.as_ref().ok_or("no device")?;
+        let view = self.window.view_mut().ok_or("no document")?;
+        let doc = view.doc_mut();
+        let scale = 2.0 * 96.0 / 72.0;
+        let opts = RenderOptions {
+            min_line: 1.0 / scale,
+            ..RenderOptions::default()
+        };
+        let p = doc.render(page, opts)?;
+        let pics = pictures(&p.images);
+        let img = gpu.device.render_page(&p.list, doc.fonts(), scale, &pics)?;
+        let (w, h) = (img.width as usize, img.height as usize);
+        let px = |v: f32, max: usize| ((v * scale).round().max(0.0) as usize).min(max);
+        let (x0, y0, x1, y1) = (
+            px(rect[0], w),
+            px(rect[1], h),
+            px(rect[2], w),
+            px(rect[3], h),
+        );
+        if x1 <= x0 || y1 <= y0 {
+            return Err("empty picture".into());
+        }
+        let mut out = Vec::with_capacity((x1 - x0) * (y1 - y0) * 4);
+        for y in y0..y1 {
+            out.extend_from_slice(&img.pixels[(y * w + x0) * 4..(y * w + x1) * 4]);
+        }
+        clip::set_image((x1 - x0) as u32, (y1 - y0) as u32, &out)
+    }
+
     fn render_pngs(&mut self, scale: f32) -> Result<Vec<Vec<u8>>, String> {
         let gpu = self.gpu.as_ref().ok_or("no device")?;
         let view = self.window.view_mut().ok_or("no document")?;
@@ -482,6 +514,11 @@ impl Shell {
                     }
                 }
                 ReaderRequest::SpeechControl(what) => self.speech.control(what),
+                ReaderRequest::Snapshot { page, rect } => {
+                    if let Err(e) = self.snapshot(page, rect) {
+                        self.window.set_status(&e);
+                    }
+                }
                 ReaderRequest::PrinterProperties(name) => {
                     // The driver's own settings dialog, modal to our window.
                     let base = self.devmodes.get(&name).map(Vec::as_slice);
@@ -740,6 +777,11 @@ impl Handler for Shell {
         }
     }
 }
+
+// SnapShot pictures on the clipboard (Win32 calls confined to this child module).
+#[path = "reader_clip.rs"]
+#[allow(unsafe_code)]
+mod clip;
 
 // Read aloud through the Windows speech voice (Win32 calls confined to this child module).
 #[path = "reader_speech.rs"]

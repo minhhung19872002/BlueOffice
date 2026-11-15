@@ -149,6 +149,14 @@ pub enum ReaderRequest {
     },
     /// Reading aloud: 0 stop, 1 pause, 2 resume, 10 + rate: change the rate.
     SpeechControl(i32),
+    /// SnapShot: copy this part of a page (page points: left, top, right, bottom) to the
+    /// clipboard as a picture.
+    Snapshot {
+        /// Page index.
+        page: usize,
+        /// The part.
+        rect: [f32; 4],
+    },
 }
 
 /// What a window built on this one changes (BlueEditor): app name, ribbon tabs and items, File
@@ -738,10 +746,14 @@ impl ReaderWindow {
         let mut v: Vec<(&'static str, Kind)> = common.to_vec();
         match self.ribbon_tab {
             0 => v.extend([
+                // The reference's Home tab: SnapShot, Clipboard | Zoom, Page Fit, Reflow,
+                // Rotate View | Typewriter, Highlight | Fill & Sign.
+                ("home.snapshot", Big("snapshot", "pdfHome.snapshot", false)),
                 ("edit.copy", Big("clipboard", "pdfReader.copy", false)),
                 ("sep1", Sep),
                 ("menu.zoom", Big("zoom", "pdfReader.zoom", true)),
                 ("menu.fit", Big("fit", "pdfReader.pageFit", true)),
+                ("view.reflow", Big("reflow", "pdfView.reflow", false)),
                 ("menu.rotate", Big("rotate", "pdfReader.rotateView", true)),
                 ("sep2", Sep),
                 (
@@ -753,6 +765,11 @@ impl ReaderWindow {
                     Big("highlight", "pdfReader.highlight", false),
                 ),
                 ("sep3", Sep),
+                (
+                    "prot.fillSign",
+                    Big("fillSign", "pdfProtect.fillSign", false),
+                ),
+                ("sep4", Sep),
                 ("find", Big("search", "pdfReader.find", false)),
             ]),
             1 => v.extend([

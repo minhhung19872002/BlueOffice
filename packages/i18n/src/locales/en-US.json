@@ -9561,6 +9561,7 @@
     "mergeStyles": "Normal style for the selection",
     "light": "Light",
     "medium": "Medium",
-    "dark": "Dark"
+    "dark": "Dark",
+    "themed": "Themed Cell Styles"
   }
 }

@@ -48,8 +48,9 @@ pub(super) struct Gallery {
     pub hover: Option<(usize, usize)>,
 }
 
-const HEAD_H: f32 = 20.0;
-const GAP: f32 = 4.0;
+/// Section caption and gap between tiles (points; 30 px and 8 px at 125 %, measured).
+const HEAD_H: f32 = 24.0;
+const GAP: f32 = 6.4;
 const FOOT_H: f32 = 22.0;
 
 impl Gallery {
@@ -276,17 +277,67 @@ fn hex(s: &str) -> Option<Rgba> {
 }
 
 /// Gallery groups of the cell styles (the reference's sections, for the styles BlueSheet has).
-const CELL_SECTIONS: [(&str, &str, &[&str]); 3] = [
+const CELL_SECTIONS: [(&str, &str, &[&str]); 4] = [
     (
         "sheetGallery.goodBad",
         "Good, Bad and Neutral",
         &["Normal", "Bad", "Good", "Neutral"],
     ),
-    ("sheetGallery.dataModel", "Data and Model", &["Note"]),
+    (
+        "sheetGallery.dataModel",
+        "Data and Model",
+        &[
+            "Calculation",
+            "Check Cell",
+            "Explanatory Text",
+            "Input",
+            "Linked Cell",
+            "Note",
+            "Output",
+            "Warning Text",
+        ],
+    ),
     (
         "sheetGallery.titles",
         "Titles and Headings",
-        &["Heading 1", "Heading 2", "Title", "Total"],
+        &[
+            "Heading 1",
+            "Heading 2",
+            "Heading 3",
+            "Heading 4",
+            "Title",
+            "Total",
+        ],
+    ),
+    (
+        "sheetGallery.themed",
+        "Themed Cell Styles",
+        &[
+            "20% - Accent1",
+            "20% - Accent2",
+            "20% - Accent3",
+            "20% - Accent4",
+            "20% - Accent5",
+            "20% - Accent6",
+            "40% - Accent1",
+            "40% - Accent2",
+            "40% - Accent3",
+            "40% - Accent4",
+            "40% - Accent5",
+            "40% - Accent6",
+            "60% - Accent1",
+            "60% - Accent2",
+            "60% - Accent3",
+            "60% - Accent4",
+            "60% - Accent5",
+            "60% - Accent6",
+            "Accent1",
+            "Accent2",
+            "Accent3",
+            "Accent4",
+            "Accent5",
+            "Accent6",
+        ],
     ),
 ];
 
@@ -354,12 +405,10 @@ impl SheetWindow {
         }
         Gallery {
             sections,
-            footer: vec![(
-                self.t("sheetGallery.mergeStyles", "Normal style for the selection"),
-                "style.Normal".to_owned(),
-            )],
-            tile: (88.0, 22.0),
-            cols: 5,
+            footer: Vec::new(),
+            // 153 × 36 px tiles, six to a row, as the reference's gallery.
+            tile: (122.4, 28.8),
+            cols: 6,
             origin: (0.0, 0.0),
             k: 1.0,
             hover: None,

@@ -9561,6 +9561,7 @@
     "mergeStyles": "Kiểu Normal cho vùng chọn",
     "light": "Nhạt",
     "medium": "Trung bình",
-    "dark": "Đậm"
+    "dark": "Đậm",
+    "themed": "Kiểu ô theo chủ đề"
   }
 }

@@ -1661,7 +1661,7 @@ fn cell_style_and_table_galleries_apply_their_choice() {
     w.relayout(&Fixed);
     assert!(w.action("sheet.cellStyles", &Fixed));
     let g = w.gallery.as_ref().expect("gallery");
-    assert_eq!(g.sections.len(), 3);
+    assert_eq!(g.sections.len(), 4);
     assert_eq!(w.gallery_choice_at(0, 2).as_deref(), Some("style.Good"));
     // Clicking the Good tile styles the selection.
     let r = w.gallery.as_ref().expect("g").rect();

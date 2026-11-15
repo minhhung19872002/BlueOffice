@@ -122,6 +122,9 @@ pub(crate) const EDIT_TAB_LATER: [&str; 12] = [
 #[derive(Debug, Default, Clone)]
 pub(crate) struct FormatPane {
     pub hits: Vec<([f32; 4], &'static str)>,
+    /// Paragraph spacing of the paragraph at (page, top, bottom) (reading the page's
+    /// paragraphs is too slow for every frame).
+    para: Option<((usize, u32, u32), Option<f32>)>,
 }
 
 fn button_xy(k: usize) -> f32 {
@@ -833,6 +836,12 @@ impl EditorWindow {
         let t = self.edit.typing.as_ref()?;
         let b = t.block.as_ref()?;
         let (page, bottom, top0, gap) = (t.page, b.bbox[3], b.bbox[1], b.line_gap());
+        let key = (page, top0.to_bits(), bottom.to_bits());
+        if let Some((k, v)) = self.pane.para {
+            if k == key {
+                return v;
+            }
+        }
         let v = self.r.view_mut()?;
         let objs = v.doc_mut().page_objects(page).ok()?;
         let next = bo_pdfread::text_blocks(&objs)
@@ -840,7 +849,9 @@ impl EditorWindow {
             .filter(|o| o.bbox[1] > top0 + 1.0 && o.bbox[1] >= bottom - 2.0)
             .map(|o| o.bbox[1])
             .fold(f32::INFINITY, f32::min);
-        next.is_finite().then(|| (next - bottom - gap).max(0.0))
+        let r = next.is_finite().then(|| (next - bottom - gap).max(0.0));
+        self.pane.para = Some((key, r));
+        r
     }
 
     /// Bullets or numbers at the start of each paragraph of the block (`b0`…, `n0`…, `none`).

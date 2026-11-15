@@ -357,6 +357,24 @@ pub enum SheetCommand {
         /// Cell style name (one of the presets).
         name: String,
     },
+    /// Creates a named cell style from the format of a cell and gives the cell that style
+    /// ("New Cell Style…", ECMA-376 Part 1, §18.8.7 `cellStyle`, §18.8.9 `cellStyleXfs`).
+    NewCellStyle {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// The cell whose format the style takes.
+        row: u32,
+        /// Column of that cell.
+        col: u32,
+        /// Name of the new style.
+        name: String,
+    },
+    /// Copies the custom cell styles of another workbook (base64 `.xlsx` bytes) that this
+    /// workbook does not have yet ("Merge Styles…").
+    MergeStyles {
+        /// Base64 workbook bytes.
+        data: String,
+    },
     /// Resets a range to the default format (values are kept).
     ClearFormats {
         /// 0-based sheet index.
@@ -3714,6 +3732,27 @@ impl SheetEngine {
                     .then_some(json!({ "ok": true }))
                     .ok_or_else(|| bad(format!("unknown cell style '{name}'")))
             }),
+            C::NewCellStyle {
+                sheet,
+                row,
+                col,
+                name,
+            } => self.edit(sheet, Recalc::No, |wb, _| {
+                bo_sheet::style::new_cell_style(wb, sheet, row, col, &name)
+                    .then_some(json!({ "ok": true }))
+                    .ok_or_else(|| bad(format!("cannot create cell style '{name}'")))
+            }),
+            C::MergeStyles { data } => {
+                use base64::Engine as _;
+                let bytes = base64::engine::general_purpose::STANDARD
+                    .decode(data.trim())
+                    .map_err(|_| bad("not a workbook"))?;
+                let from = bo_xlsx::read_xlsx(&bytes).map_err(|_| bad("not a workbook"))?;
+                self.edit(0, Recalc::No, |wb, _| {
+                    let n = bo_sheet::style::merge_styles(wb, &from);
+                    Ok(json!({ "ok": true, "merged": n }))
+                })
+            }
             C::ClearFormats { sheet, range } => self.edit(sheet, Recalc::No, |wb, _| {
                 bo_sheet::style::clear_formats(wb, sheet, range.range());
                 Ok(json!({ "ok": true }))
@@ -4665,6 +4704,15 @@ impl SheetEngine {
                             .map_err(|_| bad("bad image data"))?,
                     ),
                     None => None,
+                };
+                // An SVG picture (Insert › Icons) is stored as its PNG drawing.
+                let picture = match picture {
+                    Some(b) if super::drawing_insert::image_ext(&b).is_none() => Some(
+                        crate::doc_picture::svg_fallback(&b)
+                            .map(|(png, _, _)| png)
+                            .ok_or_else(|| bad("unknown picture format"))?,
+                    ),
+                    other => other,
                 };
                 self.edit(sheet, Recalc::No, |wb, _| {
                     let (from, to) = (CellRef::new(from[0], from[1]), CellRef::new(to[0], to[1]));

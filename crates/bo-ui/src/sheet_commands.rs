@@ -729,7 +729,16 @@ impl SheetWindow {
     #[allow(clippy::too_many_lines)]
     pub(super) fn sheet_action(&mut self, id: &str, text: &dyn TextMeasure) -> Option<bool> {
         if matches!(id, "sheet.cellStyles" | "sheet.formatTable") {
-            return Some(self.open_gallery(id == "sheet.cellStyles"));
+            return Some(self.open_gallery(id == "sheet.cellStyles", text));
+        }
+        if let Some(r) = self.chart_action(id) {
+            return Some(r);
+        }
+        if let Some(r) = self.illus_action(id) {
+            return Some(r);
+        }
+        if let Some(r) = self.data_action(id, text) {
+            return Some(r);
         }
         if let Some(static_id) = sheet_ribbon::tab_ids().into_iter().find(|i| *i == id) {
             if self.open_sheet_menu(static_id) {
@@ -737,6 +746,9 @@ impl SheetWindow {
             }
         }
         if let Some(r) = self.audit_action(id, text) {
+            return Some(r);
+        }
+        if let Some(r) = self.gallery_action(id) {
             return Some(r);
         }
         if let Some(r) = self.insert_action(id) {
@@ -824,8 +836,14 @@ impl SheetWindow {
             }
             ("chart", kind) => {
                 let region = self.region();
-                self.view
-                    .run(json!({ "cmd": "insertChart", "range": region, "kind": kind }))
+                let made = self
+                    .view
+                    .run(json!({ "cmd": "insertChart", "range": region, "kind": kind }));
+                if made {
+                    // As the reference: the new chart is selected with Chart Design shown.
+                    self.select_new_chart();
+                }
+                made
             }
             ("freeze", which) => self.freeze(which),
             ("fn", name) => {

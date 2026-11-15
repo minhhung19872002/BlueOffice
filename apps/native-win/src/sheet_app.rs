@@ -443,6 +443,27 @@ impl Shell {
                         redraw |= self.view.insert_picture(&bytes, "");
                     }
                 }
+                Request::PickMergeData => {
+                    // A workbook (Merge Styles…) or a text file (Get Data from Text/CSV);
+                    // BLUEOFFICE_PICK (a path) skips the dialog, for scripted comparisons.
+                    let owned = self.view.pick_filters();
+                    let filters: Vec<(&str, &str)> = owned
+                        .iter()
+                        .map(|(d, p)| (d.as_str(), p.as_str()))
+                        .chain([("All files", "*.*")])
+                        .collect();
+                    let path = std::env::var_os("BLUEOFFICE_PICK")
+                        .map(std::path::PathBuf::from)
+                        .or_else(|| win32::file_dialog(false, &filters, ""));
+                    if let Some(p) = path {
+                        if let Ok(bytes) = std::fs::read(&p) {
+                            let name = p
+                                .file_name()
+                                .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+                            redraw |= self.view.picked_file(&bytes, &name);
+                        }
+                    }
+                }
                 other => self.pending.push(other),
             }
         }

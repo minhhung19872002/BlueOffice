@@ -131,7 +131,7 @@ fn value_axis_scale_units_and_formats() {
     let (_, l) = draw(&wb, &c);
     let t = texts(&l);
     assert!(
-        t.contains(&"0,05") && t.contains(&"0,10") && t.contains(&"×10^2"),
+        t.contains(&"0,02") && t.contains(&"0,10") && t.contains(&"×10^2"),
         "{t:?}"
     );
 
@@ -161,7 +161,7 @@ fn reversed_axes_minor_gridlines_and_ticks() {
     let c = chart(&wb, "column");
     let (out, l) = draw(&wb, &c);
     assert!(box_of(&l, "HN")[0] < box_of(&l, "DN")[0]);
-    assert!(box_of(&l, "0")[1] > box_of(&l, "15")[1]);
+    assert!(box_of(&l, "0")[1] > box_of(&l, "14")[1]);
     // Columns stand on a common base line.
     let base: Vec<f32> = bars(&out, 0).iter().map(|(_, y, _, h)| y + h).collect();
     assert!(base.iter().all(|b| (b - base[0]).abs() < 0.01), "{base:?}");
@@ -182,21 +182,22 @@ fn reversed_axes_minor_gridlines_and_ticks() {
     let mut r = c.clone();
     r.axes.val.reverse = true;
     let (out, l) = draw(&wb, &r);
-    assert!(box_of(&l, "0")[1] < box_of(&l, "15")[1]);
+    assert!(box_of(&l, "0")[1] < box_of(&l, "14")[1]);
     // Columns hang from the top; the category labels are above them.
     let top: Vec<f32> = bars(&out, 0).iter().map(|(_, y, _, _)| *y).collect();
     assert!(top.iter().all(|t| (t - top[0]).abs() < 0.01), "{top:?}");
     assert!(box_of(&l, "HN")[3] <= f64::from(top[0]) + 0.01);
 
-    // Scale 0..15 by 5: four minor lines per step (12), a minor tick on each, and four major ticks.
+    // Scale 0..14 by 2 (the reference's automatic scale for 4..12): four minor lines per step
+    // (28), a minor tick on each, and eight major ticks.
     let mut g = c.clone();
     g.axes.val.minor_grid = true;
     let (out, _) = draw(&wb, &g);
-    assert_eq!(lines(&out), plain + 12);
+    assert_eq!(lines(&out), plain + 28);
     g.axes.val.minor_tick = Some("out".into());
     g.axes.val.major_tick = Some("cross".into());
     let (out, _) = draw(&wb, &g);
-    assert_eq!(lines(&out), plain + 12 + 12 + 4);
+    assert_eq!(lines(&out), plain + 28 + 28 + 8);
     // Category axis: a minor gridline through each of the 3 categories, a tick at each of 4 edges.
     let mut g = c.clone();
     g.axes.cat.minor_grid = true;
@@ -270,7 +271,13 @@ fn data_labels_of_series_and_points() {
     assert!(t.contains(&"9") && !t.contains(&"7"), "{t:?}");
     // Inside the end: the label box lies within its column (HN 2025 = 12).
     let b = bars(&out, 1)[0];
-    let lb = box_of(&l, "12");
+    // The data label (the value axis also has a tick label 12, at the left edge).
+    let lb = l
+        .iter()
+        .filter(|(t, r)| t == "12" && r[0] > 40.0)
+        .map(|(_, r)| *r)
+        .next()
+        .expect("data label 12");
     assert!(
         lb[1] >= f64::from(b.1) && lb[3] <= f64::from(b.1 + b.3),
         "{lb:?} {b:?}"

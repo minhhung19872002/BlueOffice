@@ -194,3 +194,61 @@ Còn lại: mở ≤ 210 ms trên máy rảnh (cần nạp đối tượng lư�
 chiếu hiện tệp gần đây của chủ máy — không chụp), Advanced / Page Setting / Summarize Comments / Import / Export /
 đính kèm File, Insert Text thật (chú thích Caret), chia khung kéo được, đọc to theo từng câu có tô sáng, toán tử
 lạ trong hàm PostScript.
+
+## Vòng 5 (2026-11-16)
+
+Phần thêm ở mô-đun riêng: `reader_tabs5_win.rs` (Điền & Ký, ký số, dấu thời gian, trạng thái bật / tắt, tóm tắt /
+nhập / xuất chú thích, File), `reader_bookmarks5_win.rs` (cột bookmark), `reader_props5_win.rs` (Thuộc tính tài
+liệu), `reader_backstage5_win.rs` (trang File); lõi: `bo-pdfread/src/{exchange,viewer}.rs`. Ảnh so sánh:
+`scratchpad/show/reader-19…25-*.png` (bản đối chiếu trên / trái).
+
+**Trạng thái bật / tắt như bản đối chiếu** (`reader-19`). Home / Protect: Fill & Sign mở tab ngữ cảnh "Điền & Ký"
+(thêm chữ, dấu tích, dấu chéo, chấm, gạch, ảnh chữ ký — đều là chú thích, lưu nối thêm); Sign & Certify ký PAdES
+bằng tệp .p12 / .pfx qua `bo-sign` (khung kéo trên trang, chữ ký hiện, dấu thời gian tuỳ chọn; bản đã ký mở tab
+mới); Time Stamp Document thêm dấu thời gian tài liệu (`add_document_timestamp`). Validate mờ tới khi nhấp chọn một
+chữ ký trên trang; Reset Form mờ khi tệp không có biểu mẫu. Comment: cột ba hàng Summarize Comments / Import /
+Export (đo: hàng cách nhau 29 px ở 125 %, như bản đối chiếu) và cột ba biểu tượng nhỏ; Summarize tạo PDF tóm tắt
+(tiêu đề, theo trang: số, tác giả, chủ đề, ngày, nội dung; chữ là đường viền font đóng gói nên tiếng Việt đúng);
+Import nhận FDF / XFDF (FDF chép nguyên chú thích kèm appearance, XFDF dựng lại; tên `/NM` đã có thì bỏ qua);
+Export ra FDF hoặc XFDF; File đính kèm tệp tại chỗ nhấp. Home: Clipboard (Cut / Paste mờ, Copy mờ khi chưa chọn,
+Select All) và Page Fit Option như bản đối chiếu, bỏ nút Find. Lệnh mờ không chạy khi nhấp.
+
+**Biểu tượng đánh dấu chữ** (`reader-21`): hình là của ta (dòng chữ có dải tô, chữ "A" không chân với gạch chân /
+lượn sóng / gạch ngang, mũi tên cho Replace, dấu cộng cho Insert), chỉ giữ ý nghĩa màu vàng cam của bản đối chiếu
+(đo 249, 177, 10); các biểu tượng Summarize / Import / Export / danh sách / tuỳ chọn / ghim cũng vẽ lại theo bộ của
+ta (bản `reader-20` bị thay vì quá giống hình của bản đối chiếu).
+
+**Hành vi** (đưa sự kiện vào cửa sổ bản đối chiếu bằng PostMessage, cùng tệp thử `beh.pdf` tự sinh):
+
+| Thao tác (125 %) | Bản đối chiếu | BlueReader trước → sau |
+| --- | --- | --- |
+| Mũi tên xuống | 54 px | 50 → 54 px |
+| Một nấc bánh xe | 60 px | 75 → 60 px |
+| PgDn | 728 px (khung 803 px) | 0,9 khung (≈ như nhau) |
+| Phải / Trái / Home / End | trang sau / trước / đầu / đầu trang cuối | như nhau |
+| Danh sách zoom | 6400 … 1 %, Actual Size, Fit Page, Fit Width | như nhau (trước: 10 … 1600 %) |
+| Ctrl + bánh xe | (không đưa được Ctrl bằng PostMessage) | bước theo danh sách trên |
+| Cột bookmark | mở khi `/PageMode /UseOutlines`; mục `/Count > 0` mở sẵn | trước: luôn mở, mọi mục đóng → như nhau |
+| Link web | hộp cảnh báo bảo mật | trước: mở thẳng → hỏi Allow / Block |
+
+Cột bookmark (`reader-22`): hàng công cụ (mở / thu tất cả, tìm bookmark hiện tại, chữ to / nhỏ), ô tìm lọc
+bookmark, đường nối chấm, bookmark của trang hiện tại tô màu nhấn; hàng đầu tiên cùng toạ độ y với bản đối chiếu
+(lệch 1 px), thụt mỗi cấp 22 px. Bản đối chiếu bỏ qua chuột kéo, nhấp đúp / ba và Ctrl khi đưa bằng PostMessage
+(không chọn chữ được), nên chọn chữ, Ctrl+A, Ctrl+F chưa so được — không dùng thao tác thật.
+
+**File và Thuộc tính** (`reader-24`, `reader-25`): File mở trang File toàn cửa sổ cùng dạng với BlueEditor
+(Open: Recent Documents của chính BlueReader, Computer; Properties; Save mờ khi chưa sửa; Save As; Print; Revert;
+Close). Chỉ chụp cột trái trang File của bản đối chiếu (cột phải là tệp gần đây của chủ máy — không chụp). Hộp
+Thuộc tính tài liệu: Description (tệp, tiêu đề, tác giả, ngày, ứng dụng, phiên bản PDF, vị trí, cỡ tệp, khổ, số
+trang, có thẻ, fast web view), Security (phương thức, quyền in / sửa / chép / chú thích / điền / sắp trang), Fonts
+(tên, loại, bảng mã, nhúng hay không), Advanced (URL gốc, ngôn ngữ, trapped, đóng gáy, co giãn khi in, in hai mặt,
+số bản).
+
+**Mở tệp.** Sổ tay 1 202 trang, bản release, 5 lần (`--bench`): mở 351 / 384 / 407 / 510 / 689 ms, trang đầu
+376–752 ms — máy không lúc nào rảnh (10 tiến trình biên dịch của agent khác, CPU 63–100 % trong cả 25 phút chờ),
+nên số này không so được với mục tiêu 210 ms. Nạp đối tượng lười chưa làm: `lopdf` 0.38 không cho đọc một đối tượng
+theo offset từ ngoài (`Reader::read_object` riêng tư), cần thay bộ đọc đối tượng của chính ta.
+
+Còn lại: nạp lười để mở ≤ 210 ms (đo trên máy rảnh), so chọn chữ / tìm (Ctrl+F) với bản đối chiếu (cần thao tác
+thật), danh sách zoom và menu dùng chung cỡ chữ lớn hơn bản đối chiếu, Batch Print / Share / Preferences của trang
+File, Insert Text thật (Caret), chia khung kéo được, Advanced / Page Setting trong hộp In.

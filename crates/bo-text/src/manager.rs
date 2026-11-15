@@ -36,6 +36,9 @@ pub struct FaceInfo {
     pub weight: u16,
     /// `OS/2` width class (5 normal, 3 condensed).
     pub width: u16,
+    /// Sans-serif design: `OS/2` PANOSE serif style 11–15 (OpenType `OS/2.panose`,
+    /// bSerifStyle normal / obtuse / perpendicular sans, flared, rounded).
+    pub sans: bool,
 }
 
 struct Face {
@@ -147,6 +150,11 @@ impl FontManager {
                 strikeout_position: strike.map_or((face.units_per_em() / 4) as i16, |m| m.position),
                 weight: face.weight().to_number(),
                 width: face.width().to_number(),
+                sans: face
+                    .raw_face()
+                    .table(ttf_parser::Tag::from_bytes(b"OS/2"))
+                    .and_then(|t| t.get(33))
+                    .is_some_and(|s| (11..=15).contains(s)),
                 family,
             };
             let id = FaceId(self.faces.len() as u32);

@@ -34,8 +34,8 @@ use windows::Win32::Graphics::Direct2D::{
 use windows::Win32::Graphics::DirectWrite::{
     DWriteCreateFactory, IDWriteFactory2, IDWriteFactory3, IDWriteRenderingParams,
     DWRITE_FACTORY_TYPE_SHARED, DWRITE_GRID_FIT_MODE_DISABLED, DWRITE_GRID_FIT_MODE_ENABLED,
-    DWRITE_MEASURING_MODE_NATURAL, DWRITE_RENDERING_MODE1_NATURAL_SYMMETRIC,
-    DWRITE_RENDERING_MODE1_GDI_CLASSIC, DWRITE_RENDERING_MODE1_GDI_NATURAL,
+    DWRITE_MEASURING_MODE_NATURAL, DWRITE_RENDERING_MODE1_GDI_CLASSIC,
+    DWRITE_RENDERING_MODE1_GDI_NATURAL, DWRITE_RENDERING_MODE1_NATURAL_SYMMETRIC,
     DWRITE_RENDERING_MODE1_NATURAL_SYMMETRIC_DOWNSAMPLED, DWRITE_RENDERING_MODE1_OUTLINE,
     DWRITE_RENDERING_MODE_NATURAL, DWRITE_RENDERING_MODE_NATURAL_SYMMETRIC,
 };
@@ -46,6 +46,10 @@ use windows_numerics::{Matrix3x2, Vector2};
 /// antialiasing in both directions: matched to a black-box capture of a desktop word
 /// processor (same share of dark and half-covered pixels on body text, docs/ui/REPORT.md).
 const GRAY_PARAMS: (f32, f32, f32) = (1.5, 1.0, 0.0);
+/// Gamma and enhanced contrast of grayscale sans-serif text (Calibri, Arial, …): with the
+/// serif setting their horizontal strokes came out softer than the reference capture
+/// (hard edges 0.21 vs 0.26); this pair brings them to 0.25 (docs/ui/REPORT.md round 23).
+const SANS_GRAY_PARAMS: (f32, f32) = (1.8, 3.0);
 
 const IDENTITY: Matrix3x2 = Matrix3x2 {
     M11: 1.0,
@@ -818,6 +822,8 @@ impl Device {
             self.context
                 .Clear(Some(&color(Rgba(255, 255, 255, 255), 1.0)));
             let mut state = State::new();
+            // Which document text setting is current (serif / sans-serif faces).
+            let mut sans_on: Option<bool> = None;
             let drawn = (|| -> Result<(), String> {
                 for (index, command) in page.commands.iter().enumerate() {
                     match command {
@@ -930,10 +936,28 @@ impl Device {
                             }
                             self.context.DrawLine(a, b, &brush, stroke, &style);
                         }
-                        Command::Glyphs { color: c, x, y, .. } => {
+                        Command::Glyphs {
+                            color: c,
+                            x,
+                            y,
+                            face,
+                            ..
+                        } => {
                             let Some(run) = runs.get(&index) else {
                                 continue;
                             };
+                            // Serif and sans-serif faces each with their own setting.
+                            if let Some((serif_p, sans_p)) = self.text_params.borrow().as_ref() {
+                                let want = fonts.info(FaceId(*face)).sans;
+                                if sans_on != Some(want) {
+                                    self.context.SetTextRenderingParams(if want {
+                                        sans_p
+                                    } else {
+                                        serif_p
+                                    });
+                                    sans_on = Some(want);
+                                }
+                            }
                             let brush = self.solid(*c, alpha)?;
                             // Baseline on a device pixel row, so vertical hinting keeps
                             // horizontal strokes on single rows; x keeps the layout position.
@@ -1138,6 +1162,9 @@ impl Device {
             // Grayscale rendering mode (BO_GRAY_MODE compares: `legacy`, `sym nofit`, `down`
             // supersampled, `outline`, `sym1`).
             let mut mode1 = None;
+            // A separate setting for sans-serif faces (default grayscale only).
+            let mut sans = None;
+            self.text_params.replace(None);
             let (antialias, level) = match mode {
                 TextRendering::System => {
                     self.context
@@ -1158,7 +1185,11 @@ impl Device {
                     // drops to 4 levels (horizontal 3x oversampling) once the font's gasp
                     // table turns hinting off, about 140 % zoom and up (docs/ui/REPORT.md).
                     mode1 = Some(DWRITE_RENDERING_MODE1_NATURAL_SYMMETRIC);
+                    if tuned.is_none() {
+                        sans = Some(SANS_GRAY_PARAMS);
+                    }
                     if let Ok(v) = std::env::var("BO_GRAY_MODE") {
+                        sans = None;
                         mode1 = None;
                         symmetric = v.contains("sym") || v.contains("legacy");
                         grid_fit = !v.contains("nofit");
@@ -1208,23 +1239,33 @@ impl Device {
             };
             if let Some(m) = mode1 {
                 let f3: IDWriteFactory3 = factory.cast().map_err(|e| e.to_string())?;
-                let params = f3
-                    .CreateCustomRenderingParams(
+                let fit = if grid_fit {
+                    DWRITE_GRID_FIT_MODE_ENABLED
+                } else {
+                    DWRITE_GRID_FIT_MODE_DISABLED
+                };
+                let make = |gamma: f32, contrast: f32| {
+                    f3.CreateCustomRenderingParams(
                         gamma.clamp(1.0, 3.0),
                         contrast.clamp(0.0, 4.0),
                         contrast.clamp(0.0, 4.0),
                         level.clamp(0.0, 1.0),
                         geometry,
                         m,
-                        if grid_fit {
-                            DWRITE_GRID_FIT_MODE_ENABLED
-                        } else {
-                            DWRITE_GRID_FIT_MODE_DISABLED
-                        },
+                        fit,
                     )
-                    .map_err(|e| e.to_string())?;
+                    .map_err(|e| e.to_string())
+                };
+                let params = make(gamma, contrast)?;
                 self.context.SetTextAntialiasMode(antialias);
                 self.context.SetTextRenderingParams(&params);
+                if let Some((g, c)) = sans {
+                    let sans_params = make(g, c)?;
+                    self.text_params.replace(Some((
+                        params.cast().map_err(|e| e.to_string())?,
+                        sans_params.cast().map_err(|e| e.to_string())?,
+                    )));
+                }
                 return Ok(());
             }
             // NATURAL: antialiasing along the line only, outlines grid-fitted vertically

@@ -79,6 +79,14 @@ pub struct Device {
             windows::Win32::Graphics::DirectWrite::IDWriteTextFormat,
         >,
     >,
+    // Document text rendering parameters (serif, sans-serif faces), see
+    // `Device::apply_text_rendering`; `None` keeps one setting for every face.
+    text_params: RefCell<
+        Option<(
+            windows::Win32::Graphics::DirectWrite::IDWriteRenderingParams,
+            windows::Win32::Graphics::DirectWrite::IDWriteRenderingParams,
+        )>,
+    >,
     // Rendering parameters for interface text, see `Device::apply_ui_text`.
     ui_params: RefCell<Option<windows::Win32::Graphics::DirectWrite::IDWriteRenderingParams>>,
     // A single-threaded Direct2D factory and its resources must remain on their creating thread.
@@ -347,6 +355,7 @@ impl Device {
                 text: RefCell::new(TextRendering::System),
                 monitor: Cell::new(0),
                 pixel_geometry: Cell::new(None),
+                text_params: RefCell::new(None),
                 ui_formats: RefCell::new(std::collections::HashMap::new()),
                 ui_params: RefCell::new(None),
                 _thread_bound: PhantomData,

@@ -616,6 +616,7 @@ impl Engine {
             .collect();
         self.laid_out_preview = false;
         self.words.update(&doc, &all);
+        self.spell.tones.update(&doc, &all);
         self.name = name.to_owned();
         self.saved_doc = Some(doc.clone());
         self.unsaved = BlockChanges::default();
@@ -745,6 +746,7 @@ impl Engine {
         let doc = s.doc();
         self.unsaved.extend(&changes);
         self.words.update(doc, &changes);
+        self.spell.tones.update(doc, &changes);
         // Mail-merge preview: the record's values in the merge fields (§17.16.5.35).
         let preview = match (&self.merge, self.merge_preview) {
             (Some(m), Some(r)) => Some(bo_edit::merge::rules::preview_run(
@@ -1567,3 +1569,6 @@ pub fn bundled_dictionary() -> Option<(&'static [u8], &'static [u8])> {
         None
     }
 }
+
+#[cfg(test)]
+mod typing_perf_tests;

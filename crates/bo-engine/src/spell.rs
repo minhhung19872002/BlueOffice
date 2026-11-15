@@ -149,6 +149,115 @@ pub(crate) struct SpellState {
     /// Ignored grammar issues: (rule id, flagged text).
     ignored: HashSet<(String, String)>,
     cache: HashMap<String, Analysis>,
+    /// Old / new tone placements counted per body block, updated with the changed blocks
+    /// only (the document's style is their majority): a check of the pages in view does
+    /// not read the whole document.
+    pub(crate) tones: ToneCounts,
+}
+
+/// Blocks whose tone placements one spelling check counts at most (about 2 ms on a long
+/// Vietnamese document); the background sweep's checks count the rest.
+const TONE_BLOCKS_PER_CHECK: usize = 8;
+
+/// Old / new tone placements of each block of each section; `None` until counted (an
+/// edit only forgets the changed blocks, counted when spelling next needs the style).
+#[derive(Default)]
+pub(crate) struct ToneCounts {
+    blocks: Vec<Vec<Option<(u32, u32)>>>,
+}
+
+impl ToneCounts {
+    fn block(doc: &Document, b: &bo_model::Block, out: &mut (u32, u32)) {
+        match b {
+            bo_model::Block::Paragraph(p) => {
+                let text = bo_model::index::para_index(p).0;
+                // Tone marks are never ASCII.
+                if text.is_ascii() {
+                    return;
+                }
+                let styles = grammar::tone_styles(&text);
+                if styles.is_empty() {
+                    return;
+                }
+                let sp = spans(doc, p);
+                for (r, st) in styles {
+                    let skipped = sp.iter().any(|s| {
+                        s.skip && s.range.start < r.end.max(r.start + 1) && r.start < s.range.end
+                    });
+                    if skipped {
+                        continue;
+                    }
+                    match st {
+                        ToneStyle::Old => out.0 += 1,
+                        ToneStyle::New => out.1 += 1,
+                    }
+                }
+            }
+            bo_model::Block::Table(t) => {
+                for c in t.rows.iter().flat_map(|r| &r.cells) {
+                    for b in &c.blocks {
+                        Self::block(doc, b, out);
+                    }
+                }
+            }
+            bo_model::Block::Opaque(_) => {}
+        }
+    }
+
+    fn count(doc: &Document, b: &bo_model::Block) -> (u32, u32) {
+        let mut out = (0, 0);
+        Self::block(doc, b, &mut out);
+        out
+    }
+
+    /// Count the changed blocks again (everything when `changes` says so).
+    pub(crate) fn update(&mut self, doc: &Document, changes: &bo_model::change::BlockChanges) {
+        let consistent = self.blocks.len() == doc.sections.len()
+            && doc.sections.iter().enumerate().all(|(si, s)| {
+                let delta = changes.section(si).map_or(0, |c| c.delta);
+                self.blocks[si].len() as isize + delta == s.blocks.len() as isize
+            });
+        if changes.is_all() || !consistent {
+            self.blocks = doc
+                .sections
+                .iter()
+                .map(|s| vec![None; s.blocks.len()])
+                .collect();
+        } else {
+            for c in changes.sections() {
+                let new = std::iter::repeat_n(None, c.end.saturating_sub(c.start));
+                let v = &mut self.blocks[c.section];
+                let e = c.old_end().min(v.len());
+                v.splice(c.start.min(e)..e, new);
+            }
+        }
+    }
+
+    /// The placement most used in `doc` (`None` when no word shows one); blocks not
+    /// counted since they changed are counted now.
+    /// At most [`TONE_BLOCKS_PER_CHECK`] blocks are counted per call so a check never
+    /// stalls typing; until all are counted the majority is that of the blocks counted.
+    fn style(&mut self, doc: &Document) -> Option<ToneStyle> {
+        let (mut old, mut new) = (0u32, 0u32);
+        let mut budget = TONE_BLOCKS_PER_CHECK;
+        for (s, counts) in doc.sections.iter().zip(&mut self.blocks) {
+            for (b, c) in s.blocks.iter().zip(counts.iter_mut()) {
+                if c.is_none() && budget > 0 {
+                    budget -= 1;
+                    *c = Some(Self::count(doc, b));
+                }
+                if let Some((o, n)) = *c {
+                    old += o;
+                    new += n;
+                }
+            }
+        }
+        match (old, new) {
+            (0, 0) => None,
+            _ if old > new => Some(ToneStyle::Old),
+            _ => Some(ToneStyle::New),
+        }
+    }
 }
 
 impl Default for SpellState {
@@ -162,6 +271,7 @@ impl Default for SpellState {
             auto_language: false,
             ignored: HashSet::new(),
             cache: HashMap::new(),
+            tones: ToneCounts::default(),
         }
     }
 }
@@ -358,12 +468,33 @@ impl Engine {
             .collect()
     }
 
-    /// Marks of the misspelt words on `pages` (all pages when `None`).
+    /// Index text and language spans of the body paragraphs `ids` (by id).
+    fn body_texts_of(&self, ids: &BTreeSet<usize>) -> HashMap<usize, ProofText> {
+        let Some(doc) = self.document() else {
+            return HashMap::new();
+        };
+        let paths = bo_model::index::body_paragraphs(doc);
+        ids.iter()
+            .filter_map(|&id| {
+                let para = bo_model::index::para_at(doc, paths.get(id)?)?;
+                Some((id, (bo_model::index::para_index(para).0, spans(doc, para))))
+            })
+            .collect()
+    }
+
+    /// The document's tone style (majority of the counts kept per block).
+    fn document_tone_style(&mut self) -> Option<ToneStyle> {
+        let s = self.session.as_ref()?;
+        self.spell.tones.style(s.doc())
+    }
+
+    /// Marks of the misspelt words on `pages` (all pages when `None`). Only the paragraphs
+    /// on those pages are read, so checking the pages in view costs the same in a 300-page
+    /// document as in a short one.
     pub fn spelling_marks(&mut self, pages: Option<&[usize]>) -> Vec<SpellMark> {
         if !self.spell.enabled {
             return Vec::new();
         }
-        let texts = self.body_texts();
         let Some(layout) = self.layout() else {
             return Vec::new();
         };
@@ -379,8 +510,16 @@ impl Engine {
                     .map(move |l| (i, l.clone()))
             })
             .collect();
+        let ids: BTreeSet<usize> = lines
+            .iter()
+            .filter_map(|(_, l)| match l.source {
+                LineSource::Body(id) => Some(id as usize),
+                _ => None,
+            })
+            .collect();
+        let texts = self.body_texts_of(&ids);
         let style = if self.spell.grammar {
-            self.spell.document_style(&texts)
+            self.document_tone_style()
         } else {
             None
         };
@@ -389,7 +528,7 @@ impl Engine {
             let LineSource::Body(id) = l.source else {
                 continue;
             };
-            let Some((text, sp)) = texts.get(id as usize) else {
+            let Some((text, sp)) = texts.get(&(id as usize)) else {
                 continue;
             };
             let (ls, le) = (l.start as usize, l.end as usize);
@@ -451,7 +590,7 @@ impl Engine {
                 rule: None,
             });
         }
-        let style = self.spell.document_style(&texts);
+        let style = self.document_tone_style();
         let issue = self
             .spell
             .issues(&text, &sp, style)

@@ -382,7 +382,21 @@ impl DocWindow {
             ),
         };
         self.menu = None;
-        self.dialog = Some(Dialog::new(kind, title, fields, buttons, message));
+        let mut dialog = Dialog::new(kind, title, fields, buttons, message);
+        if kind == DialogKind::Font {
+            // Style check boxes and a preview, as in a desktop word processor's Font dialog.
+            let f = self.view.format();
+            let checks = vec![
+                (self.t("docStyles.dialog.bold", "Bold"), f.bold),
+                (self.t("docStyles.dialog.italic", "Italic"), f.italic),
+                (
+                    self.t("docStyles.dialog.underline", "Underline"),
+                    f.underline,
+                ),
+            ];
+            dialog = dialog.with_checks(checks);
+        }
+        self.dialog = Some(dialog);
         self.relayout_pending = true;
         true
     }
@@ -428,6 +442,16 @@ impl DocWindow {
                     self.view.run_command(Command::FormatText {
                         format: CharFormat::Color { hex },
                     });
+                }
+                // Bold, italic and underline toggle when their box changed.
+                for (i, on, format) in [
+                    (3, f.bold, CharFormat::Bold),
+                    (4, f.italic, CharFormat::Italic),
+                    (5, f.underline, CharFormat::Underline),
+                ] {
+                    if (v(i) == "1") != on {
+                        self.view.run_command(Command::FormatText { format });
+                    }
                 }
             }
             (DialogKind::Paragraph, DialogButton::Ok) => {
@@ -1850,8 +1874,13 @@ mod tests {
             w.handle(Input::Key(Key::Backspace, Mods::default()), &Fixed);
         }
         w.handle(Input::Text("7,5".into()), &Fixed);
+        // Bold check box (fourth field): Tab twice from the size, Space ticks it.
+        w.handle(Input::Key(Key::Tab, Mods::default()), &Fixed);
+        w.handle(Input::Key(Key::Tab, Mods::default()), &Fixed);
+        w.handle(Input::Text(" ".into()), &Fixed);
         w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
         assert_eq!(w.view.format().size_half_points, Some(15));
+        assert!(w.view.format().bold);
     }
 
     #[test]

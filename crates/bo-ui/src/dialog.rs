@@ -45,6 +45,8 @@ struct Field {
     caret_x: f32,
     /// First character shown (scrolled for long values).
     scroll_x: f32,
+    /// A check box instead of a text box (its state).
+    check: Option<bool>,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -99,6 +101,7 @@ impl Dialog {
                         value,
                         caret_x: 0.0,
                         scroll_x: 0.0,
+                        check: None,
                     }
                 })
                 .collect(),
@@ -115,12 +118,40 @@ impl Dialog {
         }
     }
 
-    /// Field values.
+    /// Add check boxes (label, checked) after the text fields.
+    #[must_use]
+    pub fn with_checks(mut self, checks: Vec<(String, bool)>) -> Self {
+        for (label, on) in checks {
+            self.fields.push(Field {
+                label,
+                value: Vec::new(),
+                caret: 0,
+                caret_x: 0.0,
+                scroll_x: 0.0,
+                check: Some(on),
+            });
+        }
+        self
+    }
+
+    /// Field values; check boxes give `1` or `0`.
     pub fn values(&self) -> Vec<String> {
         self.fields
             .iter()
-            .map(|f| f.value.iter().collect())
+            .map(|f| match f.check {
+                Some(on) => if on { "1" } else { "0" }.to_owned(),
+                None => f.value.iter().collect(),
+            })
             .collect()
+    }
+
+    /// Height of the font preview box (Font dialog).
+    fn preview_h(&self) -> f32 {
+        if self.kind == DialogKind::Font {
+            self.px(64.0)
+        } else {
+            0.0
+        }
     }
 
     /// Replace the status lines.
@@ -144,8 +175,21 @@ impl Dialog {
         self.scale = scale;
         let w = self.px(420.0);
         let field_h = self.px(28.0);
+        let check_h = self.px(26.0);
         let mut h = self.px(52.0);
-        h += self.fields.len() as f32 * (self.px(22.0) + field_h + self.px(8.0));
+        for f in &self.fields {
+            h += if f.check.is_some() {
+                check_h
+            } else {
+                self.px(22.0) + field_h + self.px(8.0)
+            };
+        }
+        h += self.preview_h()
+            + if self.preview_h() > 0.0 {
+                self.px(10.0)
+            } else {
+                0.0
+            };
         h += self.message.len() as f32 * self.px(20.0) + self.px(8.0);
         h += self.px(48.0);
         self.frame = R {
@@ -156,7 +200,18 @@ impl Dialog {
         };
         let mut y = self.frame.y + self.px(48.0);
         self.field_rects.clear();
-        for _ in &self.fields {
+        for f in &self.fields {
+            if f.check.is_some() {
+                // Check box row: the whole row toggles.
+                self.field_rects.push(R {
+                    x: self.frame.x + self.px(20.0),
+                    y,
+                    w: w - self.px(40.0),
+                    h: check_h - self.px(4.0),
+                });
+                y += check_h;
+                continue;
+            }
             y += self.px(22.0);
             self.field_rects.push(R {
                 x: self.frame.x + self.px(20.0),
@@ -199,6 +254,12 @@ impl Dialog {
     /// Typed text goes into the focused field.
     pub fn text(&mut self, s: &str) {
         if let Some(f) = self.fields.get_mut(self.focus) {
+            if let Some(on) = f.check.as_mut() {
+                if s == " " {
+                    *on = !*on;
+                }
+                return;
+            }
             for c in s.chars().filter(|c| !c.is_control()) {
                 f.value.insert(f.caret, c);
                 f.caret += 1;
@@ -209,7 +270,11 @@ impl Dialog {
     /// A key; returns a button action (Enter: the first button, Escape: Cancel).
     pub fn key(&mut self, key: Key, m: Mods) -> Option<DialogButton> {
         let n = self.fields.len();
-        if let Some(f) = self.fields.get_mut(self.focus) {
+        if let Some(f) = self
+            .fields
+            .get_mut(self.focus)
+            .filter(|f| f.check.is_none())
+        {
             match key {
                 Key::Left => f.caret = f.caret.saturating_sub(1),
                 Key::Right => f.caret = (f.caret + 1).min(f.value.len()),
@@ -258,6 +323,9 @@ impl Dialog {
             self.focus = i;
             if let Some(f) = self.fields.get_mut(i) {
                 f.caret = f.value.len();
+                if let Some(on) = f.check.as_mut() {
+                    *on = !*on;
+                }
             }
             return None;
         }
@@ -296,6 +364,39 @@ impl Dialog {
             t.text,
         );
         for (i, (field, r)) in self.fields.iter().zip(&self.field_rects).enumerate() {
+            if let Some(on) = field.check {
+                // Standard check box: white box with a grey frame (blue when focused) and a
+                // dark tick, the label to its right.
+                let b = self.px(14.0);
+                let (bx, by) = (r.x, (r.y + (r.h - b) / 2.0).round());
+                let edge = if i == self.focus {
+                    CTL_FOCUS
+                } else {
+                    EDIT_EDGE
+                };
+                p.fill_rect(bx, by, b, b, edge);
+                p.fill_rect(bx + 1.0, by + 1.0, b - 2.0, b - 2.0, t.surface);
+                if on {
+                    let k = b / 4.0;
+                    p.path(
+                        &[
+                            bo_render::PathSeg::M(bx + k, by + b / 2.0),
+                            bo_render::PathSeg::L(bx + b / 2.0 - k / 3.0, by + b - k * 1.2),
+                            bo_render::PathSeg::L(bx + b - k, by + k),
+                        ],
+                        None,
+                        Some((t.text, (1.6 * self.scale).max(1.5))),
+                    );
+                }
+                p.text(
+                    &field.label,
+                    bx + b + self.px(8.0),
+                    r.y + (r.h - line) / 2.0,
+                    style,
+                    t.text,
+                );
+                continue;
+            }
             p.text(&field.label, r.x, r.y - self.px(20.0), style, t.text);
             let focused = i == self.focus;
             // Standard Windows edit box: grey frame, blue when focused.
@@ -332,6 +433,49 @@ impl Dialog {
             .field_rects
             .last()
             .map_or(f.y + self.px(52.0), |r| r.y + r.h + self.px(10.0));
+        if self.preview_h() > 0.0 {
+            // Font preview: sample text in the chosen family, size and style, in a white box.
+            let v = self.values();
+            let get = |i: usize| v.get(i).cloned().unwrap_or_default();
+            let pt = get(1)
+                .trim()
+                .replace(',', ".")
+                .parse::<f32>()
+                .unwrap_or(11.0);
+            let family = get(0);
+            let font = crate::Font {
+                family: if family.trim().is_empty() {
+                    "Times New Roman"
+                } else {
+                    family.trim()
+                },
+                size: (pt * self.scale * 96.0 / 72.0).clamp(self.px(8.0), self.px(36.0)),
+                weight: if get(3) == "1" { 700 } else { 400 },
+                italic: get(4) == "1",
+                underline: get(5) == "1",
+            };
+            let b = R {
+                x: f.x + self.px(20.0),
+                y: my,
+                w: f.w - self.px(40.0),
+                h: self.preview_h(),
+            };
+            p.fill_rect(b.x, b.y, b.w, b.h, EDIT_EDGE);
+            p.fill_rect(b.x + 1.0, b.y + 1.0, b.w - 2.0, b.h - 2.0, t.surface);
+            p.push_clip(b.x + 1.0, b.y + 1.0, b.w - 2.0, b.h - 2.0);
+            let ink =
+                crate::theme::parse_color(&format!("#{}", get(2).trim().trim_start_matches('#')))
+                    .unwrap_or(t.text);
+            p.text_font(
+                "AaBbĐđ Ơơ Ưư 123",
+                b.x + self.px(10.0),
+                b.y + (b.h - font.size * 1.3) / 2.0,
+                &font,
+                ink,
+            );
+            p.pop_clip();
+            my += b.h + self.px(10.0);
+        }
         for m in &self.message {
             p.text(m, f.x + self.px(20.0), my, style, t.text);
             my += self.px(20.0);

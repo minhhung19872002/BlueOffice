@@ -2940,7 +2940,18 @@
     "notesMasterTab": "Mẫu ghi chú",
     "portrait": "Dọc",
     "landscape": "Ngang",
-    "perPageN": "{{n}} trang chiếu"
+    "perPageN": "{{n}} trang chiếu",
+    "resetSlide": "Đặt lại",
+    "section": "Phần",
+    "addSection": "Thêm phần",
+    "renameSection": "Đổi tên phần",
+    "removeSection": "Xoá phần",
+    "removeAllSections": "Xoá mọi phần",
+    "collapseAll": "Thu gọn tất cả",
+    "expandAll": "Mở rộng tất cả",
+    "untitledSection": "Phần chưa đặt tên",
+    "sectionName": "Tên phần:",
+    "defaultSection": "Phần mặc định"
   },
   "slideEditor": {
     "open": "Mở",

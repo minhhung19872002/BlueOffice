@@ -249,8 +249,13 @@ fn word_at(s: &str, u: usize) -> (usize, usize) {
 #[path = "slide_colormode.rs"]
 pub mod colormode;
 
+#[path = "slide_thumb_sections.rs"]
+mod thumb_sections;
+
 /// The editing area of one presentation.
 pub struct SlideView {
+    /// Ids of the sections collapsed in the thumbnails pane.
+    collapsed: Vec<String>,
     /// Colour, Grayscale or Black and White (View tab).
     color_mode: colormode::ColorMode,
     /// The selection's frame and handles are not drawn (Remove Background).
@@ -321,6 +326,7 @@ impl SlideView {
     /// A view of the presentation already open in `engine`.
     pub fn new(engine: Engine) -> Result<Self, String> {
         let mut view = Self {
+            collapsed: Vec::new(),
             color_mode: colormode::ColorMode::Color,
             hide_handles: false,
             prompts: [
@@ -754,12 +760,12 @@ impl SlideView {
     pub fn thumb_rect(&self, i: usize) -> R {
         let (w, h) = self.slide_px(self.thumb_scale());
         let x = self.origin.0 + self.px(39.0);
-        let y = self.origin.1 + self.px(20.0) + i as f32 * self.thumb_pitch() - self.thumb_scroll;
+        let y = self.origin.1 + self.thumb_y(i).0 - self.thumb_scroll;
         [x, y.round(), w, h]
     }
 
     fn thumbs_content_h(&self) -> f32 {
-        self.px(20.0) + self.ids.len() as f32 * self.thumb_pitch()
+        self.thumbs_height()
     }
 
     fn clamp_thumb_scroll(&mut self) {
@@ -768,11 +774,7 @@ impl SlideView {
     }
 
     fn visible_thumbs(&self) -> std::ops::Range<usize> {
-        let pitch = self.thumb_pitch().max(1.0);
-        let top = self.thumb_scroll - self.px(20.0);
-        let first = (top / pitch).floor().max(0.0) as usize;
-        let last = ((top + self.size.1) / pitch).ceil().max(0.0) as usize + 1;
-        first.min(self.ids.len())..last.min(self.ids.len())
+        self.thumbs_in_view()
     }
 
     /// Keep thumbnail `i` inside the pane.
@@ -1615,6 +1617,9 @@ impl SlideView {
             return None;
         }
         self.visible_thumbs().find(|&i| {
+            if self.thumb_hidden(i) {
+                return false;
+            }
             let [tx, ty, tw, th] = self.thumb_rect(i);
             let pad = self.px(8.0);
             inside(
@@ -2473,7 +2478,11 @@ impl SlideView {
         p.push_clip(r[0], r[1], r[2], r[3]);
         let one = self.display_scale.round().max(1.0);
         let frame = self.px(2.4).max(2.0);
+        self.paint_section_rows(p);
         for i in self.visible_thumbs() {
+            if self.thumb_hidden(i) {
+                continue;
+            }
             let [x, y, tw, th] = self.thumb_rect(i);
             let key = THUMB_KEY + self.ids[i];
             let selected = i == self.current;

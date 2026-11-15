@@ -2940,7 +2940,18 @@
     "notesMasterTab": "Notes Master",
     "portrait": "Portrait",
     "landscape": "Landscape",
-    "perPageN": "{{n}} Slides"
+    "perPageN": "{{n}} Slides",
+    "resetSlide": "Reset",
+    "section": "Section",
+    "addSection": "Add Section",
+    "renameSection": "Rename Section",
+    "removeSection": "Remove Section",
+    "removeAllSections": "Remove All Sections",
+    "collapseAll": "Collapse All",
+    "expandAll": "Expand All",
+    "untitledSection": "Untitled Section",
+    "sectionName": "Section name:",
+    "defaultSection": "Default Section"
   },
   "slideEditor": {
     "open": "Open",

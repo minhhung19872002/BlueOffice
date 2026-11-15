@@ -425,3 +425,30 @@ fn grayscale_ruler_and_page_masters() {
     click_command(&mut w, "view.closePageMaster");
     assert_eq!(w.view().slide_count(), n);
 }
+
+#[test]
+fn home_slides_group_and_sections() {
+    let mut w = window();
+    for id in ["slide.new", "slide.layout", "slide.reset", "slide.section"] {
+        assert!(w.command_rect(id).is_some(), "{id}");
+    }
+    assert!(w.view().slide_count() >= 2, "the sample has several slides");
+    w.view.go_to(1);
+    click_command(&mut w, "slide.section");
+    w.handle(Input::Key(Key::Down, Mods::default()), &Fixed);
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert!(w.dialog.is_some(), "section name dialog");
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    let s = w.view().sections().to_vec();
+    assert_eq!(s.len(), 2, "{s:?}");
+    assert_eq!(s[1].first, 1);
+    // Collapse the second section from its header: its slides leave the pane.
+    w.handle(Input::Tick, &Fixed);
+    let (_, r) = w.view().section_rows()[1];
+    click(&mut w, r[0] + 20.0, r[1] + r[3] / 2.0);
+    assert!(w.view().section_collapsed(1));
+    // Reset applies the slide's own layout again (one undo step).
+    click_command(&mut w, "slide.reset");
+    let mut p = Count::default();
+    w.paint(&mut p);
+}

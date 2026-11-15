@@ -68,7 +68,7 @@ const FONTS: [&str; 10] = [
 const TOOLTIP_TICKS: u32 = 5;
 
 fn home() -> Tab {
-    use Item::{Button as B, FontBox, Labeled as S, Large as L, SizeBox};
+    use Item::{Button as B, FontBox, Large as L, SizeBox};
     Tab {
         label: "ribbon.tabs.home",
         groups: vec![
@@ -81,15 +81,7 @@ fn home() -> Tab {
                     vec![B("sl.painter")],
                 ],
             },
-            Group {
-                label: "slideEditor.groupSlides",
-                large: vec![L("slide.new")],
-                rows: vec![
-                    vec![S("slide.layout")],
-                    vec![S("slide.duplicate")],
-                    vec![S("slide.delete")],
-                ],
-            },
+            sections::slides_group(),
             Group {
                 label: "ribbon.groups.font",
                 large: vec![],
@@ -281,6 +273,9 @@ mod pic;
 #[path = "slide_views5.rs"]
 mod views5;
 
+#[path = "slide_sections.rs"]
+mod sections;
+
 #[path = "slide_showtab.rs"]
 mod showtab;
 
@@ -400,6 +395,7 @@ fn slide_enabled(id: &str, f: &bo_edit::FormatState) -> bool {
         || pic::COMMANDS.contains(&id)
         || pic::BG_COMMANDS.contains(&id)
         || views5::COMMANDS.contains(&id)
+        || sections::COMMANDS.contains(&id)
 }
 
 impl SlideWindow {
@@ -413,6 +409,7 @@ impl SlideWindow {
         fmt::install_strings(&mut strings);
         pic::install_strings(&mut strings);
         views5::install_strings(&mut strings);
+        sections::install_strings(&mut strings);
         let mut icons = Icons::load();
         sr::install_icons(&mut icons);
         ins::install_icons(&mut icons);
@@ -421,6 +418,7 @@ impl SlideWindow {
         fmt::install_icons(&mut icons);
         pic::install_icons(&mut icons);
         views5::install_icons(&mut icons);
+        sections::install_icons(&mut icons);
         view.set_labels(
             strings.get("slideEditor.notesPlaceholder"),
             strings.get("slideEditor.end"),
@@ -792,6 +790,9 @@ impl SlideWindow {
 
     /// Run interface command `id` (ribbon, title bar, menu, shortcut).
     fn action(&mut self, id: &str) -> bool {
+        if let Some(r) = self.sections_action(id) {
+            return r;
+        }
         if let Some(r) = self.picture_action(id) {
             return r;
         }
@@ -1849,6 +1850,7 @@ impl SlideWindow {
                 added
             }
             "side" => self.choose_format(v),
+            "sect" => self.choose_section(v),
             "cshow" => return self.choose_show(kind, v),
             "zoom" | "pm" => return self.choose_view(kind, v),
             _ => return self.choose_insert(kind, v),
@@ -2045,6 +2047,12 @@ impl SlideWindow {
             }
             if let Some(r) = self.size_press(x, y) {
                 return r;
+            }
+            if let Input::Press { count, .. } = input {
+                if let Some(r) = self.section_press(x, y, count) {
+                    self.area_press = false;
+                    return r;
+                }
             }
             if let Some(r) = self.pane_press(x, y) {
                 self.area_press = false;

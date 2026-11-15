@@ -46,6 +46,8 @@ pub(super) enum SlideDialog {
     Show(super::showtab::ShowDialog),
     /// Compress Pictures.
     Compress,
+    /// Add Section (`None`) or Rename Section.
+    Section(Option<usize>),
 }
 
 /// Which contextual tabs the selection shows.
@@ -1412,6 +1414,10 @@ impl SlideWindow {
                 self.open_compress();
                 return;
             }
+            SlideDialog::Section(i) => {
+                self.open_section_dialog(i);
+                return;
+            }
             SlideDialog::HeaderFooter => {
                 let info = {
                     self.view.run(SlideCommand::HeaderFooterInfo);
@@ -1560,6 +1566,7 @@ impl SlideWindow {
         match kind {
             SlideDialog::Show(_) => {}
             SlideDialog::Compress => self.compress_button(b, values),
+            SlideDialog::Section(i) => self.section_button(i, b, values),
             SlideDialog::Link => {
                 let url = values.first().cloned().unwrap_or_default();
                 if !url.trim().is_empty() {

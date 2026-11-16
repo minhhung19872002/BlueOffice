@@ -8,7 +8,8 @@ use crate::ribbon::RibbonHit;
 use bo_engine::slide_edit::text::{ParaValues, TextFormat};
 
 /// Commands of this module (always enabled).
-pub const COMMANDS: [&str; 11] = [
+pub const COMMANDS: [&str; 12] = [
+    "sl.toSmartArt",
     "format.lineSpacing",
     "format.paragraphSettings",
     "sl.clearFmt",
@@ -24,7 +25,7 @@ pub const COMMANDS: [&str; 11] = [
 
 /// Row items of Home > Paragraph placed in a column on the right (reference).
 pub(super) fn late_row(id: &str) -> bool {
-    matches!(id, "sl.textDir" | "sl.alignText")
+    matches!(id, "sl.textDir" | "sl.alignText" | "sl.toSmartArt")
 }
 
 /// Text Highlight Color menu: key, label, colour (`None`: no colour).
@@ -73,6 +74,17 @@ const BODY_MENUS: [(&str, &str, &str, &str); 10] = [
     ("sl.columns", "cols:3", "threeColumns", "Three Columns"),
 ];
 
+/// Layouts offered by Convert to SmartArt.
+const SMART_LAYOUTS: [&str; 7] = [
+    "list",
+    "process",
+    "cycle",
+    "hierarchy",
+    "relationship",
+    "matrix",
+    "pyramid",
+];
+
 /// Multiples of the Line Spacing menu (reference).
 const MULTIPLES: [f64; 5] = [1.0, 1.5, 2.0, 2.5, 3.0];
 
@@ -98,6 +110,7 @@ pub(super) fn install_strings(s: &mut crate::strings::Strings) {
         ("sl.columns", "columns"),
         ("sl.textDir", "textDirection"),
         ("sl.alignText", "alignText"),
+        ("sl.toSmartArt", "toSmartArt"),
     ] {
         let v = s.get(&format!("slideNative.{key}")).to_owned();
         s.set(&format!("commands.{id}"), &v);
@@ -155,6 +168,16 @@ pub(super) fn install_icons(icons: &mut crate::icons::Icons) {
         "sl.textDir",
         &[("M4 4h10M9 4v12", None), ("M19 5v14M17 17l2 2l2-2", None)],
     );
+    // Convert to SmartArt: three linked boxes (green, as Insert > SmartArt).
+    icons.add_solid(
+        "sl.toSmartArt",
+        &[
+            ("M8 3h8v5H8Z", Some(Rgba(0x1e, 0x8e, 0x3e, 255))),
+            ("M2 16h8v5H2Z", Some(Rgba(0x1e, 0x8e, 0x3e, 255))),
+            ("M14 16h8v5h-8Z", Some(Rgba(0x1e, 0x8e, 0x3e, 255))),
+            ("M12 8v4M6 16v-4h12v4", None),
+        ],
+    );
     icons.add_solid(
         "sl.alignText",
         &[("M3 3h18v18h-18Z", None), ("M7 10h10M7 14h10", Some(ink))],
@@ -186,6 +209,10 @@ impl SlideWindow {
             }
             "sl.charSpacing" => {
                 self.open_spacing_menu();
+                true
+            }
+            "sl.toSmartArt" => {
+                self.open_smart_convert();
                 true
             }
             "sl.highlight" | "sl.fontColor" | "sl.columns" | "sl.textDir" | "sl.alignText" => {
@@ -293,6 +320,90 @@ impl SlideWindow {
             }
         };
         self.view.format_text(f)
+    }
+
+    /// Convert to SmartArt: the diagram layouts, as Insert > SmartArt lists them.
+    fn open_smart_convert(&mut self) {
+        let Some(r) = self.ribbon.rect_of(RibbonHit::Command("sl.toSmartArt")) else {
+            return;
+        };
+        let items = SMART_LAYOUTS
+            .iter()
+            .map(|k| MenuItem {
+                label: self.t(&format!("slideNative.smartart_{k}"), k),
+                choice: Choice::Command(format!("tosmart:{k}")),
+                checked: false,
+                dim: false,
+            })
+            .collect();
+        self.menu_kind = MenuKind::Duration;
+        self.menu = Some(Menu::open(items, r, self.size, self.scale));
+    }
+
+    /// Replace the selected text shape by a SmartArt diagram of `layout` holding one node
+    /// per paragraph (list level kept), in the shape's place — one undo step per command.
+    pub(super) fn convert_to_smartart(&mut self, layout: &str) -> bool {
+        use bo_engine::slide_edit::smartart::SmartItem;
+        let Some(st) = self.view.state() else {
+            return false;
+        };
+        let [sel] = &st.selection[..] else {
+            return false;
+        };
+        let id = sel.id;
+        let rect = st
+            .bounds
+            .as_ref()
+            .map(|b| bo_engine::slide_edit::geom::Rect {
+                x: b.cx - b.w / 2.0,
+                y: b.cy - b.h / 2.0,
+                w: b.w,
+                h: b.h,
+            });
+        let Some(tb) = self.view.engine().presentation().and_then(|p| {
+            p.slides
+                .get(self.view.current())?
+                .data
+                .shapes
+                .iter()
+                .find_map(|n| match n {
+                    bo_model::slide::ShapeNode::Shape(s) if s.nv.id == id => s.text.clone(),
+                    _ => None,
+                })
+        }) else {
+            return false;
+        };
+        let items: Vec<SmartItem> = tb
+            .paragraphs
+            .iter()
+            .map(|p| SmartItem {
+                text: bo_engine::slide_edit::text::para_text(p),
+                level: p
+                    .props
+                    .as_ref()
+                    .and_then(|pp| pp.lvl)
+                    .map_or(0, usize::from),
+                ..Default::default()
+            })
+            .filter(|i| !i.text.trim().is_empty())
+            .collect();
+        if items.is_empty() {
+            return false;
+        }
+        // Leave the text (if editing) so Delete removes the shape itself.
+        self.view.run(bo_engine::slide_edit::SlideCommand::TextExit);
+        self.view
+            .run(bo_engine::slide_edit::SlideCommand::Select { ids: vec![id] });
+        self.view.run(bo_engine::slide_edit::SlideCommand::Delete);
+        self.activate_context = true;
+        self.view
+            .run(bo_engine::slide_edit::SlideCommand::InsertSmartArt {
+                layout: layout.to_owned(),
+                items,
+                colors: None,
+                style: None,
+                rect,
+            })
     }
 
     /// A Character Spacing menu choice (`chsp:<points>`).

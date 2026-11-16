@@ -1933,6 +1933,8 @@ export type SlideTextFormat =
         lineExact: number | null;
       };
     }
+  /** Proofing language (BCP 47); `null` = do not check spelling. */
+  | { kind: 'lang'; lang: string | null }
   /** Text Shadow (outer shadow in the run's effects); toggles without `value`. */
   | { kind: 'shadow'; value?: boolean }
   /** Text box options: Align Text (`t` | `ctr` | `b`), Text Direction, Columns (1–16). */

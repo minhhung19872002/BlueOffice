@@ -6,7 +6,7 @@
 //! window side of the Selection Pane and the Alt Text pane (`slide_selpane`).
 use super::ins::{self, STYLE_TILES, TEXT_STYLES};
 use super::selpane::{SelRow, SideEdit, SideHit, SideKind};
-use super::SlideWindow;
+use super::{spelling, SlideWindow};
 use crate::ribbon::{Group, Item, RibbonHit, Tab};
 use crate::slide_pickers::{self as pk, PickKind};
 use crate::{Input, Painter, TextMeasure};
@@ -655,6 +655,9 @@ impl SlideWindow {
                         | SideHit::ChangeAll
                         | SideHit::Suggestion(_)),
                     ) => self.spelling_hit(&h),
+                    Some(h @ (SideHit::Goto(..) | SideHit::PaneMenu | SideHit::Speak)) => {
+                        self.review_side_hit(&h).unwrap_or(false)
+                    }
                     Some(SideHit::Decorative) => match self.selected_alt() {
                         Some((id, _, on)) => self.view.run_props(Props::SetShapeProps {
                             id,
@@ -711,15 +714,24 @@ impl SlideWindow {
                 self.side
                     .record_selection(text, &rows, &labels, self.theme.text);
             }
+            SideKind::Accessibility => {
+                let rows = self.a11y_rows();
+                let labels = [
+                    self.t("slideNative.accessibility", "Accessibility"),
+                    self.t("slideNative.a11yNone", "No accessibility issues found."),
+                    self.t("slideNative.a11yErrors", "Errors"),
+                ];
+                self.side.record_a11y(text, &rows, &labels, self.theme.text);
+            }
             SideKind::Spelling => {
                 let shown = self.spell_shown();
                 let labels = [
                     self.t("slideNative.spelling", "Spelling"),
-                    self.t("slideNative.ignoreOnce", "Ignore Once"),
-                    self.t("slideNative.ignoreAll", "Ignore All"),
-                    self.t("slideNative.addWord", "Add"),
-                    self.t("slideNative.changeWord", "Change"),
-                    self.t("slideNative.changeAll", "Change All"),
+                    spelling::access(&self.t("slideNative.ignoreOnce", "Ignore Once"), 'i'),
+                    spelling::access(&self.t("slideNative.ignoreAll", "Ignore All"), 'g'),
+                    spelling::access(&self.t("slideNative.addWord", "Add"), 'a'),
+                    spelling::access(&self.t("slideNative.changeWord", "Change"), 'c'),
+                    spelling::access(&self.t("slideNative.changeAll", "Change All"), 'l'),
                     self.t("slideNative.spellDone", "Spell check complete."),
                     self.strings.get("spell.noSuggestions").to_owned(),
                 ];

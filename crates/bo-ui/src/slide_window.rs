@@ -128,6 +128,8 @@ fn home() -> Tab {
                         B("sl.columns"),
                         B("sl.alignText"),
                     ],
+                    // Right-hand column, third button (reference).
+                    vec![B("sl.toSmartArt")],
                 ],
             },
             ins::drawing_group(),
@@ -289,6 +291,8 @@ pub struct SlideWindow {
     ctx_at: [f32; 4],
     /// The Spelling pane's walk through the deck.
     spelling: spelling::SpellRun,
+    /// Text the host should read aloud.
+    speak: Option<String>,
 }
 
 #[path = "slide_controls.rs"]
@@ -335,6 +339,9 @@ mod spelling;
 
 #[path = "slide_insert_icons.rs"]
 mod insert_icons;
+
+#[path = "slide_review.rs"]
+mod review;
 pub use ins::InsertFile;
 pub use views5::WindowRequest;
 
@@ -449,6 +456,7 @@ fn slide_enabled(id: &str, f: &bo_edit::FormatState) -> bool {
         "review.deleteComment" => return flags.contains("cmt "),
         // Screenshot needs other windows' pictures from the host: not available yet.
         "sl.screenshot" => return false,
+        id if review::GREYED.contains(&id) => return false,
         _ => {}
     }
     crate::commands::enabled(id, f)
@@ -463,6 +471,7 @@ fn slide_enabled(id: &str, f: &bo_edit::FormatState) -> bool {
         || sections::COMMANDS.contains(&id)
         || paragraph::COMMANDS.contains(&id)
         || chart::COMMANDS.contains(&id)
+        || review::COMMANDS.contains(&id)
 }
 
 impl SlideWindow {
@@ -478,6 +487,7 @@ impl SlideWindow {
         views5::install_strings(&mut strings);
         sections::install_strings(&mut strings);
         paragraph::install_strings(&mut strings);
+        review::install_strings(&mut strings);
         let mut icons = Icons::load();
         sr::install_icons(&mut icons);
         ins::install_icons(&mut icons);
@@ -490,6 +500,7 @@ impl SlideWindow {
         crate::sheet_window::add_chart_icons(&mut icons);
         paragraph::install_icons(&mut icons);
         insert_icons::install(&mut icons);
+        review::install_icons(&mut icons);
         view.set_labels(
             strings.get("slideEditor.notesPlaceholder"),
             strings.get("slideEditor.end"),
@@ -589,6 +600,7 @@ impl SlideWindow {
             menu_anchor: None,
             ctx_at: [0.0; 4],
             spelling: spelling::SpellRun::default(),
+            speak: None,
         }
     }
 
@@ -899,6 +911,9 @@ impl SlideWindow {
     /// Run interface command `id` (ribbon, title bar, menu, shortcut).
     fn action(&mut self, id: &str) -> bool {
         if let Some(r) = self.table_tool_action(id) {
+            return r;
+        }
+        if let Some(r) = self.review_action(id) {
             return r;
         }
         if let Some(r) = self.sections_action(id) {
@@ -1938,7 +1953,14 @@ impl SlideWindow {
             "lspc" => self.choose_line_spacing(v),
             "case" => self.change_case(v),
             "chsp" => self.choose_spacing(v),
+            "tosmart" => self.convert_to_smartart(v),
             "ctxsp" => self.choose_context(v),
+            "rv" if v == "closepane" => {
+                self.side.close();
+                self.relayout_pending = true;
+                true
+            }
+            "rv" => self.choose_review(v),
             "hl" | "fc" | "body" => self.choose_home(kind, v),
             "slchart" => self.chart_action(c).unwrap_or(false),
             "tdir" => self.set_transition(None, Some(v.to_owned()), None, false),
@@ -2158,6 +2180,9 @@ impl SlideWindow {
         if let Input::Key(Key::Letter('s'), Mods { ctrl: true, .. }) = input {
             return self.action("file.save");
         }
+        if let Some(r) = self.spelling_key(&input) {
+            return r;
+        }
         if let Input::Key(Key::F(7), m) = input {
             if !m.ctrl && !m.shift && !m.alt && !self.view.showing() {
                 return self.start_spelling();
@@ -2360,6 +2385,7 @@ impl SlideWindow {
         self.view.paint(p, self.text_size);
         self.paint_removal(p);
         self.paint_view_extras(p);
+        self.paint_review_extras(p);
         let format = ribbon_format(&self.view, self.anim_index().is_some());
         self.title.paint(
             p,

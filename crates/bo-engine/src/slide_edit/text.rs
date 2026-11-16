@@ -379,6 +379,13 @@ pub enum TextFormat {
         /// New state; toggles when absent.
         value: Option<bool>,
     },
+    /// Review > Language: the proofing language of the text (§21.1.2.3.9 rPr@lang, a BCP 47
+    /// tag); `None` marks it not to be checked (rPr@noProof).
+    Lang {
+        /// Language tag (`en-US`, `vi-VN`, …).
+        #[serde(default)]
+        lang: Option<String>,
+    },
     /// Reset the character formatting (Ctrl+Space): the runs take what the placeholder,
     /// layout and master give them (§21.1.2.3.9 rPr attributes and fill / font children
     /// removed; language and links stay).
@@ -673,6 +680,16 @@ pub(super) fn run_change(
             // §21.1.10.79 ST_TextStrikeType: `dblStrike` / `noStrike`.
             Some(Box::new(move |r: &mut RunProps| {
                 r.strike = Some(if v { "dblStrike" } else { "noStrike" }.to_owned());
+            }))
+        }
+        TextFormat::Lang { lang } => {
+            let lang = lang.clone().filter(|l| !l.trim().is_empty());
+            Some(Box::new(move |r: &mut RunProps| {
+                r.attrs.retain(|(k, _)| k != "noProof");
+                match &lang {
+                    Some(l) => r.lang = Some(l.clone()),
+                    None => r.attrs.push(("noProof".into(), "1".into())),
+                }
             }))
         }
         TextFormat::ClearChar => Some(Box::new(|r: &mut RunProps| {
@@ -1134,6 +1151,26 @@ mod tests {
         assert_eq!(tb.paragraphs[0].runs[0], run("ab", false));
         assert!(matches!(tb.paragraphs[0].runs[1], TextRun::Break { .. }));
         assert!(matches!(tb.paragraphs[0].runs[2], TextRun::Field { .. }));
+    }
+
+    #[test]
+    fn proofing_language_and_no_proof() {
+        let mut tb = body(vec![vec![run("x", false)]]);
+        let st = FormatState::default();
+        let lang = |l: Option<&str>| TextFormat::Lang {
+            lang: l.map(str::to_owned),
+        };
+        apply_format(&mut tb, &lang(None), &st, 18.0);
+        let TextRun::Run { props, .. } = &tb.paragraphs[0].runs[0] else {
+            panic!()
+        };
+        assert!(props.attrs.iter().any(|(k, v)| k == "noProof" && v == "1"));
+        apply_format(&mut tb, &lang(Some("en-US")), &st, 18.0);
+        let TextRun::Run { props, .. } = &tb.paragraphs[0].runs[0] else {
+            panic!()
+        };
+        assert_eq!(props.lang.as_deref(), Some("en-US"));
+        assert!(!props.attrs.iter().any(|(k, _)| k == "noProof"));
     }
 
     #[test]

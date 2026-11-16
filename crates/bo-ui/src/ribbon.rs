@@ -1012,8 +1012,14 @@ impl Ribbon {
                     }
                 }
                 group_w = group_w.max(lx - gap - gx + self.px(4.0));
-                // Three rows fill the band (shorter buttons, as on the reference ribbon).
-                let three = g.rows.len() >= 3;
+                // Three rows fill the band (shorter buttons, as on the reference ribbon); a row
+                // holding only late items (a right-hand column) does not count.
+                let three = g
+                    .rows
+                    .iter()
+                    .filter(|r| r.is_empty() || r.iter().any(|i| !late(i)))
+                    .count()
+                    >= 3;
                 let row_h = if three {
                     ((content_h - 2.0 * gap) / 3.0).floor()
                 } else {
@@ -1069,8 +1075,14 @@ impl Ribbon {
                     tx += w + gap;
                     group_w = group_w.max(tx - gap - gx + self.px(4.0));
                 }
-                // Late row items: one column after the trailing large buttons.
+                // Late row items: one column after the trailing large buttons (three rows
+                // of it fill the band even beside two ordinary rows, BlueSlide's Paragraph).
                 let three = g.rows.len() >= 3;
+                let row_h = if three {
+                    ((content_h - 2.0 * gap) / 3.0).floor()
+                } else {
+                    row_h
+                };
                 for (r, row) in g.rows.iter().enumerate() {
                     let y = if three {
                         content_top + r as f32 * (row_h + gap)

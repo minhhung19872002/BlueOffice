@@ -57,7 +57,45 @@ fn suggestions(issue: &Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// `label` with "&" before its access key `key` (the last occurrence for the
+/// reference's "Change A&ll"; none when the letter is missing in this language).
+pub(super) fn access(label: &str, key: char) -> String {
+    let lower = label.to_lowercase();
+    let at = if key == 'l' {
+        lower.rfind(key)
+    } else {
+        lower.find(key)
+    };
+    match at.filter(|i| label.is_char_boundary(*i)) {
+        Some(i) => format!("{}&{}", &label[..i], &label[i..]),
+        None => label.to_owned(),
+    }
+}
+
 impl SlideWindow {
+    /// Alt + the underlined letter presses a Spelling pane button.
+    pub(super) fn spelling_key(&mut self, input: &crate::Input) -> Option<bool> {
+        use crate::{Input, Key};
+        if self.side.kind != SideKind::Spelling {
+            return None;
+        }
+        let Input::Key(Key::Letter(c), m) = input else {
+            return None;
+        };
+        if !m.alt || m.ctrl {
+            return None;
+        }
+        let hit = match c.to_ascii_lowercase() {
+            'i' => SideHit::IgnoreOnce,
+            'g' => SideHit::IgnoreAll,
+            'a' => SideHit::AddWord,
+            'c' => SideHit::Change,
+            'l' => SideHit::ChangeAll,
+            _ => return None,
+        };
+        Some(self.spelling_hit(&hit))
+    }
+
     /// Review > Spelling / F7: open the Spelling pane at the first issue from the current
     /// slide on.
     pub(super) fn start_spelling(&mut self) -> bool {

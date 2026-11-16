@@ -91,6 +91,7 @@ pub fn run() -> Result<(), String> {
             view,
             gpu: None,
             perf,
+            speech: speech::Speech::default(),
             file,
             pending: Vec::new(),
             dirty: true,
@@ -280,6 +281,8 @@ struct Shell {
     view: SlideWindow,
     gpu: Option<Gpu>,
     perf: Option<std::fs::File>,
+    /// Windows speech voice (Spelling pane's speaker button), made on first use.
+    speech: speech::Speech,
     file: Option<std::path::PathBuf>,
     pending: Vec<Request>,
     dirty: bool,
@@ -383,6 +386,11 @@ impl Shell {
 
     fn handle_requests(&mut self) -> bool {
         let mut redraw = false;
+        if let Some(text) = self.view.take_speak() {
+            if let Err(e) = self.speech.speak(&text, 0) {
+                eprintln!("speech: {e}");
+            }
+        }
         if let Some(kind) = self.view.take_file_request() {
             redraw |= self.insert_file(kind);
         }
@@ -712,3 +720,8 @@ impl Handler for Shell {
         }
     }
 }
+
+// Read aloud through the Windows speech voice (Win32 calls confined to this child module).
+#[path = "reader_speech.rs"]
+#[allow(unsafe_code, dead_code)]
+mod speech;

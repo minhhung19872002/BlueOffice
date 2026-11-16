@@ -183,6 +183,10 @@ pub fn has_menu_mark(id: &str) -> bool {
             | "sl.columns"
             | "sl.textDir"
             | "sl.alignText"
+            | "sl.toSmartArt"
+            | "sl.checkA11y"
+            | "sl.language"
+            | "sl.hideInk"
     )
 }
 
@@ -422,7 +426,17 @@ pub(crate) fn review_tab() -> Tab {
             // Proofing: Spelling opens the Spelling pane (F7), as on the reference.
             Group {
                 label: "ribbon.groups.proofing",
-                large: vec![L("review.spellingDialog")],
+                large: vec![L("review.spellingDialog"), L("sl.thesaurus")],
+                rows: vec![],
+            },
+            Group {
+                label: "slideNative.accessibilityGroup",
+                large: vec![L("sl.checkA11y")],
+                rows: vec![],
+            },
+            Group {
+                label: "slideNative.languageGroup",
+                large: vec![L("sl.translate"), L("sl.language")],
                 rows: vec![],
             },
             Group {
@@ -434,6 +448,11 @@ pub(crate) fn review_tab() -> Tab {
                     L("review.nextComment"),
                     L("review.comments"),
                 ],
+                rows: vec![],
+            },
+            Group {
+                label: "slideNative.inkGroup",
+                large: vec![L("sl.hideInk")],
                 rows: vec![],
             },
         ],

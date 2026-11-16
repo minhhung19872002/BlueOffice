@@ -248,8 +248,11 @@ fn large_buttons_dim_only_where_the_reference_does() {
             "anim.preview",
             "review.deleteComment",
             "sl.altText",
+            "sl.hideInk",
             "sl.quickStyles",
             "sl.textQuick",
+            "sl.thesaurus",
+            "sl.translate",
             "transition.preview"
         ],
         "large buttons dimmed with nothing selected"
@@ -312,4 +315,63 @@ fn every_tab_paints() {
         w.handle(Input::Move { x: 700.0, y: 900.0 }, &Fixed);
         w.paint(&mut Nothing);
     }
+}
+
+#[test]
+fn review_groups_accessibility_language_and_smartart_column() {
+    let mut w = window();
+    // Paragraph: Text Direction, Align Text, Convert to SmartArt in one column of three.
+    let a = w.command_rect("sl.textDir").expect("Text Direction");
+    let b = w.command_rect("sl.alignText").expect("Align Text");
+    let c = w
+        .command_rect("sl.toSmartArt")
+        .expect("Convert to SmartArt");
+    assert!((a[0] - c[0]).abs() < 1.0 && (b[0] - c[0]).abs() < 1.0);
+    assert!(a[1] < b[1] && b[1] < c[1], "{a:?} {b:?} {c:?}");
+    // Convert to SmartArt: the text box becomes a diagram with one node per paragraph.
+    let id = text_box(&mut w, "One\nTwo\nThree");
+    assert!(w.choose(Choice::Command("tosmart:process".into())));
+    let p = w.view.engine().presentation().expect("deck");
+    let shapes = bo_engine::slide_edit::a11y::slide_shapes(p, w.view.current());
+    assert!(
+        !shapes
+            .iter()
+            .any(|s| s.kind == "shape" && s.text.as_deref().is_some_and(|t| t.contains("Two"))),
+        "text box {id} replaced"
+    );
+    assert!(shapes.iter().any(|s| s.kind == "smartart"));
+    // Accessibility: the new diagram lacks alternative text.
+    assert!(w.choose(Choice::Command("rv:check".into())));
+    assert_eq!(w.side.kind, selpane::SideKind::Accessibility);
+    let rows = w.a11y_rows();
+    assert!(
+        rows.iter().any(|r| r.kind == "Missing alternative text"),
+        "{rows:?}"
+    );
+    // Language: English, then unchecked.
+    let id = text_box(&mut w, "Hello");
+    assert!(w.choose(Choice::Command("rv:lang:en-US".into())));
+    let lang = |w: &SlideWindow| {
+        let p = w.view.engine().presentation().expect("deck");
+        p.slides[w.view.current()]
+            .data
+            .shapes
+            .iter()
+            .find_map(|n| match n {
+                bo_model::slide::ShapeNode::Shape(s) if s.nv.id == id => s.text.clone(),
+                _ => None,
+            })
+            .and_then(|t| match &t.paragraphs[0].runs[0] {
+                bo_model::slide::TextRun::Run { props, .. } => Some(props.clone()),
+                _ => None,
+            })
+            .expect("run")
+    };
+    assert_eq!(lang(&w).lang.as_deref(), Some("en-US"));
+    assert!(w.choose(Choice::Command("rv:noproof".into())));
+    assert!(lang(&w).attrs.iter().any(|(k, _)| k == "noProof"));
+    assert_eq!(
+        spelling::access("Change All", 'l'),
+        "Change A&ll".replace("A&ll", "Al&l")
+    );
 }

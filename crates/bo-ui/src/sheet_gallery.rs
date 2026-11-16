@@ -74,13 +74,8 @@ pub(super) enum Tile {
         family: String,
         edges: [Option<(Line, Rgba)>; 4],
     },
-    /// A table style: header fill, header text colour, band fill.
-    Table {
-        header: Option<Rgba>,
-        header_ink: Rgba,
-        stripe: Rgba,
-        edge: Rgba,
-    },
+    /// A table style (`TableStyleMedium2`), drawn as a small table in its look.
+    Table { name: String },
 }
 
 /// A cell edge as the gallery draws it (§18.18.3 ST_BorderStyle, grouped by weight).
@@ -352,48 +347,75 @@ impl Gallery {
                 );
                 p.pop_clip();
             }
-            Tile::Table {
-                header,
-                header_ink,
-                stripe,
-                edge,
-            } => {
-                p.fill_rect(r[0], r[1], r[2], r[3], *edge);
-                p.fill_rect(r[0] + 1.0, r[1] + 1.0, r[2] - 2.0, r[3] - 2.0, BG);
-                let rows = 5;
-                let rh = (r[3] - 2.0) / rows as f32;
-                for k in 0..rows {
-                    let ry = (r[1] + 1.0 + k as f32 * rh).round();
-                    let fill = match (k, header) {
-                        (0, Some(hf)) => Some(*hf),
-                        (k, _) if k % 2 == 1 => Some(*stripe),
-                        _ => None,
-                    };
-                    if let Some(f) = fill {
-                        p.fill_rect(r[0] + 1.0, ry, r[2] - 2.0, rh.ceil(), f);
-                    }
-                    // Cell text dashes.
-                    let ink = if k == 0 {
-                        *header_ink
-                    } else {
-                        Rgba(0x80, 0x80, 0x80, 255)
-                    };
-                    for c in 0..4 {
-                        let cx = r[0] + 3.0 + c as f32 * (r[2] - 6.0) / 4.0;
-                        p.fill_rect(
-                            cx.round(),
-                            (ry + rh / 2.0).round(),
-                            ((r[2] - 6.0) / 4.0 - 4.0).round(),
-                            1.0,
-                            ink,
-                        );
-                    }
-                }
-            }
+            Tile::Table { name } => paint_table_tile(p, r, name),
         }
     }
 }
 
+/// A style's preview as the reference draws it: a table of five rows (header and four
+/// banded rows) and five columns in the style's fills and lines, a dash in each cell in the
+/// style's text colour (77 × 56 px tiles at 125 %).
+fn paint_table_tile(p: &mut dyn Painter, r: [f32; 4], name: &str) {
+    use bo_model::sheet::{CellRange, CellRef, Table, TableStyleInfo};
+    let t = Table {
+        range: CellRange::new(CellRef::new(0, 0), CellRef::new(4, 4)),
+        header_row_count: None,
+        style: Some(TableStyleInfo {
+            name: Some(name.to_owned()),
+            show_row_stripes: true,
+            ..TableStyleInfo::default()
+        }),
+        ..Table::default()
+    };
+    let [x, y, w, h] = r;
+    p.fill_rect(x, y, w, h, BG);
+    let (cw, rh) = ((w - 1.0) / 5.0, (h - 1.0) / 5.0);
+    let col_x = |c: u32| (x + c as f32 * cw).round();
+    let row_y = |k: u32| (y + k as f32 * rh).round();
+    let looks: Vec<Vec<bo_sheet::table_style::Look>> = (0..5)
+        .map(|k| {
+            (0..5)
+                .map(|c| bo_sheet::table_style::look(&t, k, c).unwrap_or_default())
+                .collect()
+        })
+        .collect();
+    for (k, row) in looks.iter().enumerate() {
+        for (c, l) in row.iter().enumerate() {
+            let (x0, y0) = (col_x(c as u32), row_y(k as u32));
+            let (x1, y1) = (col_x(c as u32 + 1), row_y(k as u32 + 1));
+            if let Some(f) = l.fill.as_deref().and_then(hex) {
+                p.fill_rect(x0, y0, x1 - x0 + 1.0, y1 - y0 + 1.0, f);
+            }
+        }
+    }
+    for (k, row) in looks.iter().enumerate() {
+        for (c, l) in row.iter().enumerate() {
+            let (x0, y0) = (col_x(c as u32), row_y(k as u32));
+            let (x1, y1) = (col_x(c as u32 + 1), row_y(k as u32 + 1));
+            for (side, e) in l.borders.iter().enumerate() {
+                let Some(e) = e else { continue };
+                let Some(color) = hex(&e.color) else { continue };
+                let t = if e.width >= 2 || e.double { 2.0 } else { 1.0 };
+                match side {
+                    0 => p.fill_rect(x0, y0, x1 - x0 + 1.0, t, color),
+                    1 => p.fill_rect(x0, y1 - t + 1.0, x1 - x0 + 1.0, t, color),
+                    2 => p.fill_rect(x0, y0, t, y1 - y0 + 1.0, color),
+                    _ => p.fill_rect(x1 - t + 1.0, y0, t, y1 - y0 + 1.0, color),
+                }
+            }
+            // The cell's text as a dash in the middle.
+            let ink = l.font.as_deref().and_then(hex).unwrap_or(INK);
+            let dw = ((x1 - x0) * 0.45).round();
+            p.fill_rect(
+                (x0 + (x1 - x0 - dw) / 2.0).round(),
+                f32::midpoint(y0, y1).round(),
+                dw,
+                if l.bold { 2.0 } else { 1.0 },
+                ink,
+            );
+        }
+    }
+}
 fn hex(s: &str) -> Option<Rgba> {
     let s = s.trim_start_matches('#');
     let s = if s.len() == 8 { &s[2..] } else { s };
@@ -473,13 +495,40 @@ const CELL_SECTIONS: [(&str, &str, &[&str]); 5] = [
 
 impl SheetWindow {
     /// Open the Cell Styles gallery (`cells`) or the Format as Table gallery.
+    /// The Format as Table gallery under Table Design's Quick Styles.
+    pub(super) fn open_quick_styles(&mut self) -> bool {
+        let Some(anchor) = self
+            .ribbon
+            .rect_of(RibbonHit::Command("sheet.tblQuickStyles"))
+        else {
+            return false;
+        };
+        let mut g = self.table_gallery();
+        g.k = self.scale;
+        let w = (g.width() * g.k).round();
+        g.origin = (
+            anchor[0].min(self.size.0 - w - 2.0).max(0.0).round(),
+            (anchor[1] + anchor[3] + 2.0).round(),
+        );
+        self.gallery = Some(g);
+        true
+    }
+
     pub(super) fn open_gallery(&mut self, cells: bool, text: &dyn crate::TextMeasure) -> bool {
         let id = if cells {
             "sheet.cellStyles"
         } else {
             "sheet.formatTable"
         };
-        let Some(anchor) = self.ribbon.rect_of(RibbonHit::Command(id)) else {
+        // Table Design's Quick Styles opens the same gallery under its own button.
+        let Some(anchor) = self.ribbon.rect_of(RibbonHit::Command(id)).or_else(|| {
+            (!cells)
+                .then(|| {
+                    self.ribbon
+                        .rect_of(RibbonHit::Command("sheet.tblQuickStyles"))
+                })
+                .flatten()
+        }) else {
             return false;
         };
         let mut g = if cells {
@@ -641,18 +690,10 @@ impl SheetWindow {
                 .iter()
                 .filter(|e| e.family == family)
                 .map(|e| {
-                    let header = e.header.as_deref().and_then(hex);
                     (
                         format!("table.{}", e.name),
                         Tile::Table {
-                            header,
-                            header_ink: e
-                                .header_font
-                                .as_deref()
-                                .and_then(hex)
-                                .unwrap_or(if header.is_some() { BG } else { INK }),
-                            stripe: hex(&e.stripe).unwrap_or(BG),
-                            edge: header.unwrap_or(Rgba(0xa6, 0xa6, 0xa6, 255)),
+                            name: e.name.clone(),
                         },
                     )
                 })
@@ -661,14 +702,29 @@ impl SheetWindow {
         }
         Gallery {
             sections,
-            footer: Vec::new(),
-            tile: (49.0, 37.0),
+            // The reference's menu lines under the styles (new styles are not made yet: the
+            // status bar says so).
+            footer: vec![
+                (
+                    self.t("sheetGallery.newTableStyle", "New Table Style..."),
+                    "sheet.newTableStyle".into(),
+                    "new",
+                ),
+                (
+                    self.t("sheetGallery.newPivotStyle", "New PivotTable Style..."),
+                    "sheet.newPivotStyle".into(),
+                    "merge",
+                ),
+            ],
+            // Measured at 125 % (round 27): 77 × 56 px tiles, 86 × 66 px apart, 5 px from
+            // the edge, 34 px captions, 625 px wide.
+            tile: (61.6, 44.8),
             cols: 7,
-            pitch: (55.4, 43.4),
-            inset: (6.4, 6.4),
-            head: 24.0,
-            foot: 22.0,
-            width: 6.4 + 7.0 * 55.4,
+            pitch: (68.8, 52.8),
+            inset: (4.0, 3.2),
+            head: 27.2,
+            foot: 28.8,
+            width: 500.0,
             origin: (0.0, 0.0),
             k: 1.0,
             hover: None,
@@ -715,6 +771,13 @@ impl SheetWindow {
     pub(super) fn gallery_action(&mut self, id: &str) -> Option<bool> {
         Some(match id {
             "sheet.newCellStyle" => self.open_cell_style_form(),
+            "sheet.newTableStyle" | "sheet.newPivotStyle" => {
+                self.status = self.t(
+                    "sheetGallery.newStyleLater",
+                    "Custom table styles are not available yet.",
+                );
+                true
+            }
             "sheet.mergeStyles" => {
                 self.pick = Some("styles");
                 self.requests.push(crate::Request::PickMergeData);
@@ -728,6 +791,10 @@ impl SheetWindow {
     /// patterns).
     pub fn pick_filters(&self) -> Vec<(String, String)> {
         match self.pick {
+            Some("theme") => vec![(
+                self.t("sheetTheme.themeFiles", "Theme files (*.thmx)"),
+                "*.thmx".into(),
+            )],
             Some("text") => vec![(
                 self.t("sheetData.textFiles", "Text Files (*.prn;*.txt;*.csv)"),
                 "*.prn;*.txt;*.csv".into(),
@@ -744,6 +811,7 @@ impl SheetWindow {
         use base64::Engine as _;
         match self.pick.take() {
             Some("text") => self.import_text(bytes, name),
+            Some("theme") => self.picked_theme(bytes),
             Some("styles") => {
                 let data = base64::engine::general_purpose::STANDARD.encode(bytes);
                 let merged = self

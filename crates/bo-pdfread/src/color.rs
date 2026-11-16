@@ -3,7 +3,8 @@
 //! their tint transform), Pattern.
 use crate::filters;
 use crate::function::Function;
-use lopdf::{Document, Object};
+use crate::store::Document;
+use lopdf::Object;
 use std::sync::Arc;
 
 /// A colour space.
@@ -245,7 +246,7 @@ mod tests {
 
     #[test]
     fn device_and_indexed_spaces() {
-        let doc = Document::new();
+        let doc = Document::from(lopdf::Document::new());
         let none = |_: &[u8]| None;
         let cs = ColorSpace::parse(
             &doc,

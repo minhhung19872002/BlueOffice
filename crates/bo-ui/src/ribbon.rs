@@ -204,6 +204,9 @@ pub struct Ribbon {
     mark_line: bool,
     /// Font and size box widths (logical px) instead of BlueDoc's.
     box_w: Option<(f32, f32)>,
+    /// Large button minimum width and label padding (logical px); BlueDoc's 52 / 14 unless a
+    /// window measures its own (BlueSheet).
+    large_metrics: (f32, f32),
     /// Whether a command can run now (BlueSheet / BlueSlide pass their own rule).
     enabled: fn(&str, &FormatState) -> bool,
     /// Number of permanent tabs; tabs after them are contextual (table, header/footer,
@@ -572,8 +575,21 @@ impl Ribbon {
             row_w: |_| None,
             mark_line: false,
             box_w: None,
+            large_metrics: (52.0, 14.0),
             enabled: commands::enabled,
         }
+    }
+
+    /// Large buttons at least `min` logical px wide, `pad` wider than their label.
+    pub(crate) fn with_large_metrics(mut self, min: f32, pad: f32) -> Self {
+        self.large_metrics = (min, pad);
+        self
+    }
+
+    /// Width of a large button whose label is `lw` device px wide.
+    fn large_button_w(&self, lw: f32) -> f32 {
+        self.px(self.large_metrics.0)
+            .max(lw + self.px(self.large_metrics.1))
     }
 
     /// Give some labeled items a fixed width (logical px).
@@ -976,7 +992,7 @@ impl Ribbon {
                             let lw = self.measure_large_label(text, strings, id);
                             let w = match (self.large_w)(id) {
                                 Some(fixed) => self.px(fixed),
-                                None => self.px(52.0).max(lw + self.px(14.0)),
+                                None => self.large_button_w(lw),
                             };
                             placed.push(Placed::Item(
                                 *item,
@@ -1035,7 +1051,7 @@ impl Ribbon {
                     let lw = self.measure_large_label(text, strings, id);
                     let w = match (self.large_w)(id) {
                         Some(fixed) => self.px(fixed),
-                        None => self.px(52.0).max(lw + self.px(14.0)),
+                        None => self.large_button_w(lw),
                     };
                     placed.push(Placed::Item(
                         *item,

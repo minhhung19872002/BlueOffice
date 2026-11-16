@@ -2,7 +2,8 @@
 //! JBIG2Decode, §7.4.9 JPXDecode), decoded with the hayro decoders (MIT / Apache-2.0).
 //! Bi-level codecs return packed 1-bit rows in the PDF convention (0 = black unless
 //! `/BlackIs1`), so the caller treats them like any other 1-bit image.
-use lopdf::{Dictionary, Document, Object};
+use crate::store::Document;
+use lopdf::{Dictionary, Object};
 
 /// Largest decoded picture (pixels).
 const MAX_PIXELS: u64 = 24 * 1024 * 1024;

@@ -213,6 +213,8 @@ struct RingRaster {
     ring: crate::GridRing,
     size: (u32, u32),
     turns: usize,
+    /// Turns drawn from per-band display lists.
+    band_turns: usize,
     fulls: usize,
     moved: usize,
     band_px: u64,
@@ -305,6 +307,57 @@ impl GridStore for RingRaster {
         self.turns += 1;
         Ok(true)
     }
+
+    fn turn_bands(
+        &mut self,
+        e: &SheetEngine,
+        scale: f32,
+        shift: [i64; 2],
+        bands: &[crate::sheet_view::GridBand],
+        size: (u32, u32),
+    ) -> Result<bool, String> {
+        assert_eq!(size, self.size, "same image size when scrolling");
+        self.ring.turn(shift);
+        for b in bands {
+            let (img, (bw, bh)) = rasterise(&b.list, e, scale);
+            for (r, at) in self.ring.split(b.rect) {
+                for y in 0..r[3] {
+                    let sy = r[1] + y - b.origin[1];
+                    let dy = at[1] + y;
+                    for x in 0..r[2] {
+                        let sx = r[0] + x - b.origin[0];
+                        let dx = at[0] + x;
+                        if sx >= bw || sy >= bh {
+                            continue;
+                        }
+                        let s = ((sy * bw + sx) * 4) as usize;
+                        let d = ((dy * size.0 + dx) * 4) as usize;
+                        self.phys[d..d + 4].copy_from_slice(&img[s..s + 4]);
+                    }
+                }
+            }
+            self.band_px += u64::from(b.rect[2]) * u64::from(b.rect[3]);
+        }
+        self.band_turns += 1;
+        Ok(true)
+    }
+}
+
+impl RingRaster {
+    /// The image in display order (the ring's pieces put back).
+    fn shown(&self) -> Vec<u8> {
+        let mut out = vec![0_u8; self.phys.len()];
+        for (r, at) in self.ring.pieces() {
+            blit(
+                &mut out,
+                &self.phys,
+                self.size,
+                [at[0], at[1], r[2], r[3]],
+                [r[0], r[1]],
+            );
+        }
+        out
+    }
 }
 
 #[test]
@@ -363,7 +416,12 @@ fn scrolling_turns_a_ring_image_without_copying() {
     }
     assert!(w.view_mut().scroll_cols(-1));
     w.prepare(&mut store).expect("grid");
-    assert_eq!((store.fulls, store.moved, store.turns), (1, 0, 17));
+    assert_eq!(
+        (store.fulls, store.moved, store.turns + store.band_turns),
+        (1, 0, 17)
+    );
+    // Wheel notches lay out only the exposed rows (round 27).
+    assert_eq!(store.band_turns, 13);
     assert_ne!(store.ring.phase(), [0, 0]);
     assert!(
         store.off * 20_000 < store.pixels && store.worst <= 32,
@@ -1175,6 +1233,90 @@ fn wheel_step_timing() {
     eprintln!(
         "per wheel step (ms): scroll {:.2}, bars {:.2}, labels {:.2}, display list {:.2}; handle(wheel) {:.2}, list {:.2}",
         t[0], t[1], t[2], t[3], t[4], t[5]
+    );
+}
+
+/// Time of each step of `handle` for an arrow key and a wheel notch on a large sheet
+/// (BLUESHEET_BIG=<file.xlsx>; round 27 latency work).
+#[test]
+fn handle_step_timing() {
+    let Some(path) = std::env::var_os("BLUESHEET_BIG") else {
+        return;
+    };
+    let bytes = std::fs::read(path).expect("file");
+    let mut e = SheetEngine::with_bundled_fonts();
+    e.open(&bytes, "big.xlsx").expect("open");
+    let mut w = window_with(e);
+    for (name, make) in [
+        ("key", Input::Key(Key::Down, Mods::default())),
+        ("wheel", Input::Wheel(-75.0)),
+    ] {
+        let mut t = [0.0_f64; 9];
+        let n = 40;
+        for i in 0..n {
+            let input = match (&make, i % 2) {
+                (Input::Key(..), 0) => Input::Key(Key::Down, Mods::default()),
+                (Input::Key(..), _) => Input::Key(Key::Up, Mods::default()),
+                (_, 0) => Input::Wheel(-75.0),
+                _ => Input::Wheel(75.0),
+            };
+            let mut at = vec![std::time::Instant::now()];
+            w.route(input, &Fixed);
+            at.push(std::time::Instant::now());
+            w.refresh_chart_cache();
+            w.sync_table_tab();
+            at.push(std::time::Instant::now());
+            w.layout_cards(&Fixed);
+            at.push(std::time::Instant::now());
+            w.update_bars();
+            at.push(std::time::Instant::now());
+            w.view.measure_labels(&Fixed);
+            at.push(std::time::Instant::now());
+            w.layout_form(&Fixed);
+            w.measure_name(&Fixed);
+            at.push(std::time::Instant::now());
+            let _ = w.on_ids();
+            at.push(std::time::Instant::now());
+            let mut hash = PaintHash::default();
+            w.paint_top(&mut hash);
+            at.push(std::time::Instant::now());
+            let mut hash = PaintHash::default();
+            w.paint_overlay(&mut hash);
+            at.push(std::time::Instant::now());
+            for k in 0..at.len() - 1 {
+                t[k] += (at[k + 1] - at[k]).as_secs_f64() * 1e3 / f64::from(n);
+            }
+        }
+        eprintln!(
+            "{name} per step (ms): route {:.3}, chart+table {:.3}, cards {:.3}, bars {:.3}, labels {:.3}, form+name {:.3}, on_ids {:.3}, paint_top(hash) {:.3}, paint_overlay(hash) {:.3}",
+            t[0], t[1], t[2], t[3], t[4], t[5], t[6], t[7], t[8]
+        );
+    }
+    // Inside the view: the engine's layout of the viewport and the active cell's details.
+    let vp = w.view.viewport();
+    let sheet = w.view.sheet();
+    let (r, c) = w.view.active();
+    let n = 40;
+    let t0 = std::time::Instant::now();
+    for _ in 0..n {
+        let _ = w.view.engine_mut().view_layout(sheet, &vp);
+    }
+    let t1 = std::time::Instant::now();
+    for _ in 0..n {
+        let _ = w.view.engine().cell(sheet, r, c);
+    }
+    let t2 = std::time::Instant::now();
+    for _ in 0..n {
+        w.view.engine_mut().set_display_scale(Some(1.25));
+    }
+    let t3 = std::time::Instant::now();
+    let ms =
+        |a: std::time::Instant, b: std::time::Instant| (b - a).as_secs_f64() * 1e3 / f64::from(n);
+    eprintln!(
+        "view_layout {:.3} ms, cell details {:.3} ms, set_display_scale {:.3} ms",
+        ms(t0, t1),
+        ms(t1, t2),
+        ms(t2, t3)
     );
 }
 
@@ -2017,14 +2159,369 @@ fn cell_style_and_table_galleries_apply_their_choice() {
     assert!(w.pick_filters()[0].1.contains("xlsx"));
     assert!(w.picked_file(b"not a workbook", "x.xlsx"));
     assert!(w.status.contains("not a workbook"));
-    // Format as Table: 3 families × 7 styles.
+    // Format as Table: the reference's 60 styles (Light 21, Medium 28, Dark 11).
     assert!(w.action("sheet.formatTable", &Fixed));
     let g = w.gallery.as_ref().expect("gallery");
-    assert_eq!(g.sections.iter().map(|s| s.1.len()).sum::<usize>(), 21);
+    assert_eq!(g.sections.iter().map(|s| s.1.len()).sum::<usize>(), 60);
     let c = w.gallery_choice_at(1, 1).expect("medium 2");
     assert_eq!(c, "table.TableStyleMedium2");
     w.gallery = None;
     assert!(w.action(&c, &Fixed));
     let tables = w.view.query(json!({ "cmd": "tables" })).expect("tables");
     assert_eq!(tables["tables"].as_array().map(Vec::len), Some(1));
+}
+
+// ---------------------------------------------------------------- round 27
+
+#[test]
+fn insert_tab_fits_at_1500_px() {
+    let mut w = window();
+    w.handle(
+        Input::Resize {
+            width: 1500.0,
+            height: 900.0,
+        },
+        &Fixed,
+    );
+    assert!(w.ribbon.select_tab("ribbon.tabs.insert"));
+    w.relayout(&Fixed);
+    assert!(!w.ribbon.overflows(), "Insert fits without scroll arrows");
+    // Folded groups show no group label (the button carries the name).
+    let t = sheet_ribbon::tabs();
+    let ins = &t[1];
+    assert!(ins.groups.iter().any(|g| g.label.is_empty()
+        && g.large
+            .contains(&crate::ribbon::Item::Large("sheet.illustrations"))));
+}
+
+fn chart_window() -> SheetWindow {
+    let mut w = window();
+    put(
+        &mut w,
+        &[
+            (0, 1, "'2025"),
+            (0, 2, "'2026"),
+            (1, 0, "Q1"),
+            (1, 1, "5"),
+            (1, 2, "6"),
+            (2, 0, "Q2"),
+            (2, 1, "7"),
+            (2, 2, "8"),
+        ],
+    );
+    assert!(w.view_mut().run(serde_json::json!({
+        "cmd": "insertChart",
+        "range": { "r0": 0, "c0": 0, "r1": 2, "c1": 2 },
+        "kind": "column"
+    })));
+    w.set_chart_selection(Some(0), true);
+    w
+}
+
+#[test]
+fn chart_design_switch_select_data_and_move_chart() {
+    let mut w = chart_window();
+    let data = |w: &mut SheetWindow| {
+        w.view_mut()
+            .query(serde_json::json!({ "cmd": "chartData", "index": 0 }))
+            .expect("data")
+    };
+    assert_eq!(data(&mut w)["byRow"], false);
+    assert!(w.action("sheet.chartSwitch", &Fixed));
+    assert_eq!(data(&mut w)["byRow"], true);
+    // Select Data: the series list, remove one, OK replots.
+    assert!(w.action("sheet.chartSelectData", &Fixed));
+    assert_eq!(w.form_kind, form_impl::FormKind::ChartData);
+    let n = w.chart_data.as_ref().map_or(0, |s| s.series.len());
+    assert_eq!(n, 2);
+    w.chart_data_event(
+        form_impl::FormKind::ChartData,
+        &form_impl::Event::Clicked("remove"),
+    );
+    w.chart_data_event(form_impl::FormKind::ChartData, &form_impl::Event::Ok);
+    assert!(w.form.is_none());
+    assert_eq!(data(&mut w)["series"].as_array().map_or(0, Vec::len), 1);
+    // Move Chart to a new sheet: the sheet comes before, the chart is selected there.
+    assert!(w.action("sheet.chartMove", &Fixed));
+    assert_eq!(w.form_kind, form_impl::FormKind::MoveChart);
+    if let Some(f) = w.form.as_mut() {
+        f.set_on("newSheet", true);
+        f.set_on("objectIn", false);
+    }
+    w.chart_data_event(form_impl::FormKind::MoveChart, &form_impl::Event::Ok);
+    let names: Vec<String> = w.view().sheet_names().into_iter().flatten().collect();
+    assert_eq!(names, vec!["Chart1".to_owned(), "Sheet1".to_owned()]);
+    assert_eq!(w.view().sheet(), 0);
+    assert_eq!(w.chart_sel, Some(0));
+}
+
+#[test]
+fn table_design_tab_options_and_quick_styles() {
+    let mut w = window();
+    put(
+        &mut w,
+        &[
+            (0, 0, "Name"),
+            (0, 1, "Score"),
+            (1, 0, "a"),
+            (1, 1, "1"),
+            (2, 0, "b"),
+            (2, 1, "2"),
+        ],
+    );
+    w.view_mut().select((0, 0), (0, 0), (0, 0));
+    assert!(w.action("table.TableStyleMedium2", &Fixed));
+    w.handle(Input::Key(Key::Down, Mods::default()), &Fixed);
+    assert!(w.table_tab, "the Table Design tab shows in a table");
+    assert!(w
+        .ribbon
+        .contextual_labels()
+        .contains(&"sheetTable.tabDesign"));
+    let checks = |w: &SheetWindow| w.table_checks();
+    assert!(checks(&w).contains(&("sheet.tblBandedRows", true)));
+    assert!(w.action("sheet.tblTotalRow", &Fixed));
+    assert!(checks(&w).contains(&("sheet.tblTotalRow", true)));
+    assert!(w.action("sheet.tblBandedRows", &Fixed));
+    assert!(checks(&w).contains(&("sheet.tblBandedRows", false)));
+    // The gallery restyles the table the active cell is in (no second table).
+    assert!(w.action("table.TableStyleLight9", &Fixed));
+    let tables = w
+        .view_mut()
+        .query(serde_json::json!({ "cmd": "tables" }))
+        .expect("tables");
+    let list = tables["tables"].as_array().expect("list");
+    assert_eq!(list.len(), 1);
+    assert_eq!(list[0]["style"], "TableStyleLight9");
+    // Leaving the table hides the tab.
+    w.view_mut().select((10, 5), (10, 5), (10, 5));
+    w.handle(Input::Key(Key::Down, Mods::default()), &Fixed);
+    assert!(!w.table_tab);
+}
+
+#[test]
+fn table_style_gallery_has_60_reference_tiles() {
+    let mut w = window();
+    assert!(w.open_gallery(false, &Fixed));
+    let g = w.gallery.as_ref().expect("gallery");
+    let n: usize = g.sections.iter().map(|(_, t)| t.len()).sum();
+    assert_eq!(n, 60);
+    assert_eq!(g.sections[0].1.len(), 21);
+    assert_eq!(g.sections[1].1.len(), 28);
+    assert_eq!(g.sections[2].1.len(), 11);
+    // Tiles are 77 x 56 px at 125 %.
+    assert_eq!((g.tile.0 * 1.25).round(), 77.0);
+    assert_eq!((g.tile.1 * 1.25).round(), 56.0);
+}
+
+#[test]
+fn conditional_formatting_menu_rules_and_manager() {
+    let mut w = window();
+    put(&mut w, &[(0, 0, "1"), (1, 0, "5"), (2, 0, "9")]);
+    w.view_mut().select((0, 0), (2, 0), (0, 0));
+    assert!(w.action("sheet.conditional", &Fixed));
+    assert!(w.cf_menu.is_some(), "the cascading menu opens");
+    w.cf_menu = None;
+    // Greater Than… with the first preset.
+    w.open_cf_dialog("greaterThan");
+    assert_eq!(w.form_kind, form_impl::FormKind::CfRule);
+    if let Some(f) = w.form.as_mut() {
+        f.set_text("v1", "4");
+    }
+    w.cf_form_event(form_impl::FormKind::CfRule, &form_impl::Event::Ok);
+    assert!(w.form.is_none());
+    // A colour scale tile and a data bar tile.
+    w.cf_choose("cfs.0", &Fixed);
+    w.cf_choose("cfb.s.638EC6", &Fixed);
+    let rules = w
+        .view_mut()
+        .query(serde_json::json!({ "cmd": "listCf" }))
+        .expect("rules");
+    let kinds: Vec<&str> = rules["rules"]
+        .as_array()
+        .expect("list")
+        .iter()
+        .filter_map(|r| r["kind"].as_str())
+        .collect();
+    assert_eq!(kinds.len(), 3, "{kinds:?}");
+    assert!(kinds.contains(&"cellIs"));
+    // The manager lists them for the selection; Delete removes the chosen one.
+    w.open_cf_manager();
+    assert_eq!(w.cf_rules.len(), 3);
+    w.cf_form_event(
+        form_impl::FormKind::CfManager,
+        &form_impl::Event::Clicked("delete"),
+    );
+    assert_eq!(w.cf_rules.len(), 2);
+    w.cf_form_event(form_impl::FormKind::CfManager, &form_impl::Event::Ok);
+    assert!(w.form.is_none());
+}
+
+#[test]
+fn autocomplete_suggests_an_entry_of_the_column() {
+    let mut w = window();
+    put(&mut w, &[(0, 0, "Apple"), (1, 0, "Banana")]);
+    w.view_mut().select((2, 0), (2, 0), (2, 0));
+    type_in(&mut w, "a");
+    assert_eq!(w.view().formula_text(), "apple");
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert_eq!(input(&w, 2, 0), "Apple");
+    // Backspace drops the suggestion; a second match stops suggesting.
+    w.view_mut().select((3, 0), (3, 0), (3, 0));
+    type_in(&mut w, "b");
+    w.handle(Input::Key(Key::Backspace, Mods::default()), &Fixed);
+    assert_eq!(w.view().formula_text(), "b");
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert_eq!(input(&w, 3, 0), "b");
+}
+
+#[test]
+fn drag_moves_cells_and_double_click_fills_down() {
+    let mut w = window();
+    put(&mut w, &[(0, 0, "7"), (0, 2, "=A1*2")]);
+    w.view_mut().select((0, 0), (0, 0), (0, 0));
+    let [l, t, _, b] = w.view().sel_rect_for_test().expect("selection");
+    // Grab the left border, drop two rows lower.
+    let grab = (l, f32::midpoint(t, b));
+    press(&mut w, grab, 1);
+    let to = cell_xy(&w, 2, 0);
+    w.handle(Input::Drag { x: grab.0, y: to.1 }, &Fixed);
+    release(&mut w, (grab.0, to.1));
+    assert_eq!(input(&w, 2, 0), "7");
+    assert_eq!(input(&w, 0, 0), "");
+    assert_eq!(input(&w, 0, 2), "=A3*2", "references follow the moved cell");
+    // Double click on the fill handle: down as far as the column to the left has data.
+    put(
+        &mut w,
+        &[(0, 3, "1"), (1, 3, "1"), (2, 3, "1"), (0, 4, "x")],
+    );
+    w.view_mut().select((0, 4), (0, 4), (0, 4));
+    let [_, _, r, b] = w.view().sel_rect_for_test().expect("selection");
+    press(&mut w, (r, b), 2);
+    release(&mut w, (r, b));
+    assert_eq!(input(&w, 2, 4), "x");
+    assert_eq!(input(&w, 3, 4), "");
+}
+
+#[test]
+fn paste_special_values_and_transpose() {
+    let mut w = window();
+    put(&mut w, &[(0, 0, "2"), (0, 1, "=A1*3")]);
+    w.view_mut().select((0, 0), (0, 1), (0, 0));
+    assert!(w.action("edit.copy", &Fixed));
+    w.view_mut().select((2, 0), (2, 0), (2, 0));
+    assert!(w.action("sheet.pasteSpecial", &Fixed));
+    assert_eq!(w.form_kind, form_impl::FormKind::PasteSpecial);
+    w.paste_special_event(&form_impl::Event::Changed("pValues"));
+    if let Some(f) = w.form.as_mut() {
+        f.set_on("pValues", true);
+        f.set_on("transpose", true);
+    }
+    w.paste_special_event(&form_impl::Event::Ok);
+    assert!(w.form.is_none());
+    assert_eq!(input(&w, 2, 0), "2");
+    assert_eq!(input(&w, 3, 0), "6", "values, transposed");
+}
+
+#[test]
+fn page_layout_themes_apply_and_save() {
+    let mut w = window();
+    assert_eq!(
+        sheet_ribbon::menu("sheet.themes", &[]).len(),
+        5,
+        "4 themes and Browse"
+    );
+    assert!(w.action("theme.ocean", &Fixed));
+    let saved = w
+        .view_mut()
+        .query(serde_json::json!({ "cmd": "saveThemeFile" }))
+        .expect("theme");
+    let xml = bo_engine::theme_file::theme_xml_of_b64(saved["file"].as_str().expect("file"))
+        .expect("xml");
+    let text = String::from_utf8_lossy(&xml);
+    assert!(text.contains("BlueOffice Ocean"));
+    assert!(text.contains("1F6FB2"));
+    // Fonts only: the Bamboo font pair with Ocean's colours.
+    assert!(w.action("themeFonts.bamboo", &Fixed));
+    let saved = w
+        .view_mut()
+        .query(serde_json::json!({ "cmd": "saveThemeFile" }))
+        .expect("theme");
+    let xml = bo_engine::theme_file::theme_xml_of_b64(saved["file"].as_str().expect("file"))
+        .expect("xml");
+    let text = String::from_utf8_lossy(&xml);
+    assert!(text.contains("Times New Roman") && text.contains("1F6FB2"));
+    // Saved with the workbook.
+    let bytes = w.view_mut().engine_mut().save("xlsx", 0).expect("save");
+    let mut back = SheetEngine::with_bundled_fonts();
+    back.open(&bytes, "t.xlsx").expect("open");
+    let b64 = back.exec_json(r#"{"cmd":"saveThemeFile"}"#).expect("theme");
+    assert!(b64.contains("file"));
+}
+
+#[test]
+fn band_display_lists_give_the_same_image_as_a_full_layout() {
+    let mut e = SheetEngine::with_bundled_fonts();
+    e.new_workbook("Book1.xlsx").expect("workbook");
+    let cells: Vec<(u32, u32, String)> = (0..300)
+        .flat_map(|r| {
+            (0..10).map(move |c| {
+                let v = if c % 4 == 0 {
+                    format!("Row {r} text that overflows its cell")
+                } else {
+                    format!("{}", r * 7 + c)
+                };
+                (r, c, v)
+            })
+        })
+        .collect();
+    e.set_inputs(0, &cells).expect("cells");
+    let mut w = window_with(e);
+    // Borders and a fill on some rows: their edges must match too.
+    assert!(w.view_mut().run(
+        json!({ "cmd": "borders", "range": { "r0": 5, "c0": 0, "r1": 40, "c1": 3 },
+        "spec": { "preset": "all" } })
+    ));
+    let mut store = RingRaster::default();
+    w.prepare(&mut store).expect("grid");
+    for i in 0..15 {
+        w.handle(Input::Wheel(if i % 4 == 3 { -75.0 } else { 75.0 }), &Fixed);
+        w.prepare(&mut store).expect("grid");
+    }
+    assert!(store.band_turns >= 14, "{} band turns", store.band_turns);
+    let shown = store.shown();
+    let mut full = Raster::default();
+    w.view_mut().invalidate();
+    w.prepare(&mut full).expect("grid");
+    assert_eq!(full.size, store.size);
+    let (mut off, mut worst) = (0, 0_u8);
+    let (iw, ih) = full.size;
+    for (i, (a, b)) in shown.chunks(4).zip(full.img.chunks(4)).enumerate() {
+        // A border straddling an edge of the image is clipped in half by a fresh layout but
+        // kept as drawn before in a turned image: the image's edge pixels may differ.
+        let (x, y) = (i as u32 % iw, i as u32 / iw);
+        if y == 0 || y + 1 == ih || x == 0 || x + 1 == iw {
+            continue;
+        }
+        let d = a
+            .iter()
+            .zip(b)
+            .map(|(x, y)| x.abs_diff(*y))
+            .max()
+            .unwrap_or(0);
+        worst = worst.max(d);
+        if d > 4 {
+            if off < 12 {
+                eprintln!(
+                    "band diff at ({}, {}) by {d}: {a:?} vs {b:?}",
+                    i as u32 % full.size.0,
+                    i as u32 / full.size.0
+                );
+            }
+            off += 1;
+        }
+    }
+    assert!(
+        off * 20_000 < shown.len() / 4 && worst <= 32,
+        "band image: {off} pixels differ (by up to {worst})"
+    );
 }

@@ -5,7 +5,7 @@
 //! Sizes, greys and positions follow the reference desktop PDF reader by black-box measurement
 //! at 125 % (`docs/ui/REPORT-reader.md`); icons and the accent colour are our own.
 use crate::dialog::{Dialog, DialogButton, DialogKind};
-use crate::popup::{Choice, Menu, MenuItem};
+use crate::popup::{Choice, Menu, MenuItem, MenuLook};
 use crate::reader_icons::{self, Ink};
 use crate::reader_view::{
     Fit, Layout, PdfStore, ReaderView, Selection, HIT, HIT_CURRENT, SELECTION, THUMB_KEY,
@@ -49,6 +49,11 @@ mod props5;
 
 #[path = "reader_backstage5_win.rs"]
 mod bs5;
+// Preferences, Batch Print (BlueReader round 6).
+#[path = "reader_keys7_win.rs"]
+mod keys7;
+#[path = "reader_prefs6_win.rs"]
+mod prefs6;
 
 /// Measured greys of the reference reader at 125 %.
 const CHROME: Rgba = Rgba(251, 251, 253, 255);
@@ -65,6 +70,11 @@ const TRACK: Rgba = Rgba(240, 240, 240, 255);
 const THUMB: Rgba = Rgba(133, 133, 133, 255);
 const WHITE: Rgba = Rgba(255, 255, 255, 255);
 const CLOSE_BG: Rgba = Rgba(0xC4, 0x2B, 0x1C, 255);
+/// Page thumbnails measured on the reference at 125 %: pages 126 px wide in a 2 px frame,
+/// 200 px apart for Letter pages (163 px high).
+const THUMB_W: f32 = 100.8;
+const THUMB_GAP: f32 = 29.6;
+const THUMB_EDGE: Rgba = Rgba(207, 207, 208, 255);
 
 /// Pointer tools.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -128,6 +138,8 @@ pub enum ReaderRequest {
     OpenUrl(String),
     /// A window operation.
     Window(Request),
+    /// Store the preferences (`key=value` lines, File › Preferences).
+    SavePreferences(String),
     /// Print with these settings (from the Print dialog, [ReaderWindow::open_print]).
     PrintPages(crate::reader_print::PrintSettings),
     /// A command this window does not know (handled by a window built on it, BlueEditor).
@@ -381,6 +393,20 @@ enum Pending {
     TextBox { page: usize, rect: [f32; 4] },
 }
 
+/// BlueReader's menus at 100 % (see [`ReaderWindow::reader_menu`]).
+pub(crate) const READER_MENU: MenuLook = MenuLook {
+    item_h: 24.0,
+    text: 9.6,
+    text_x: (32.8, 32.8),
+    icon_x: 8.0,
+    icon: 16.0,
+    pad: 4.0,
+    min_w: 96.0,
+    char_w: 7.7,
+    fill: Some(Rgba(251, 251, 253, 255)),
+    frame: Some(Rgba(195, 195, 195, 255)),
+};
+
 /// Window contents of BlueReader.
 pub struct ReaderWindow {
     tabs: Vec<DocTab>,
@@ -464,6 +490,9 @@ pub struct ReaderWindow {
     tabs4: tabs4::Tabs4,
     /// Fill & Sign, signing, comment exchange of round 5.
     tabs5: tabs5::Tabs5,
+    prefs6: prefs6::Prefs6,
+    /// Keyboard access to the ribbon (key tips, focus ring).
+    keys7: keys7::KeyLevel,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -542,6 +571,8 @@ impl ReaderWindow {
             view4: view4::View4::default(),
             tabs4: tabs4::Tabs4::default(),
             tabs5: tabs5::Tabs5::default(),
+            prefs6: prefs6::Prefs6::default(),
+            keys7: keys7::KeyLevel::Off,
         }
     }
 
@@ -552,6 +583,18 @@ impl ReaderWindow {
         w.look = profile.look;
         w.profile = Some(profile);
         w
+    }
+
+    /// A drop-down or context menu. BlueReader's menus are measured on the reference reader at
+    /// 125 % (rows 30 px, label 13 px at 41 px from the frame, 20 px icons at 10 px, frame
+    /// 195 on 251, 251, 253); BlueEditor keeps the shared look.
+    pub(crate) fn reader_menu(&self, items: Vec<MenuItem>, anchor: [f32; 4]) -> Menu {
+        let look = if self.profile.is_none() {
+            READER_MENU
+        } else {
+            MenuLook::default()
+        };
+        Menu::open_with(items, anchor, self.size, self.scale, look)
     }
 
     fn app_name(&self) -> &'static str {
@@ -659,7 +702,7 @@ impl ReaderWindow {
 
     /// Open a menu of commands under `r`.
     pub(crate) fn menu_at(&mut self, items: Vec<MenuItem>, r: [f32; 4], id: &'static str) {
-        self.menu = Some((Menu::open(items, r, self.size, self.scale), id));
+        self.menu = Some((self.reader_menu(items, r), id));
     }
 
     /// Ribbon tab label boxes (File first), from the last layout.
@@ -709,6 +752,7 @@ impl ReaderWindow {
         self.next_key += 1 << 26;
         self.active = self.tabs.len() - 1;
         self.show_start = false;
+        self.apply_view_prefs();
         if let Some(p) = path {
             self.recent.retain(|r| r != &p);
             self.recent.insert(0, p);
@@ -1365,7 +1409,10 @@ impl ReaderWindow {
                 self.maximized = on;
                 true
             }
-            Input::Tick => self.tick_viewx(m) || self.search_focus,
+            Input::Tick => {
+                let searched = self.tick_search();
+                self.tick_viewx(m) || self.search_focus || searched
+            }
             Input::Blink => self.search_focus,
             Input::Leave => self.hover.take().is_some(),
             _ => {
@@ -1527,6 +1574,16 @@ impl ReaderWindow {
                     cursor = 6;
                 }
             }
+        }
+        // Split bars: left-right / up-down arrows (BlueReader round 6).
+        match self.split_bar_at(x, y) {
+            Some((true, false)) => cursor = 1,
+            Some((false, true)) => cursor = 2,
+            Some((true, true)) => cursor = 6,
+            _ => {}
+        }
+        if self.prefs6.caret && cursor != 5 && inside(self.doc_rect, x, y) {
+            cursor = 4;
         }
         let c = cursor != self.cursor;
         self.cursor = cursor;
@@ -2053,16 +2110,44 @@ impl ReaderWindow {
         if same && t.view.current_hit().is_some() && self.status.starts_with(&q) {
             t.view.next_hit(forward);
         } else {
-            let n = t.view.find(&q, false, false);
-            self.status = format!("{q}: {n}");
+            // The first hit after the current page shows at once; the rest of a long document
+            // is read on ticks (`tick_search`).
+            t.view.find_start(&q, false, false);
         }
+        self.search_status();
+    }
+
+    /// Status of the search box's query: hit k / n (with the pages read while searching).
+    fn search_status(&mut self) {
+        let q = self.search_text.clone();
+        let Some(t) = self.tabs.get(self.active) else {
+            return;
+        };
         let n = t.view.hits().len();
         let cur = t.view.current_hit().map_or(0, |c| c + 1);
-        self.status = if n == 0 {
+        let progress = t
+            .view
+            .search_progress()
+            .map(|(done, all)| format!(" ({done} / {all})"))
+            .unwrap_or_default();
+        self.status = if n == 0 && progress.is_empty() {
             format!("{q}: {}", self.strings.get("pdfReader.noMatches"))
         } else {
-            format!("{q}: {cur} / {n}")
+            format!("{q}: {cur} / {n}{progress}")
         };
+    }
+
+    /// Continue a running search for part of a tick; `true` when the window changed.
+    fn tick_search(&mut self) -> bool {
+        let Some(t) = self.tabs.get_mut(self.active) else {
+            return false;
+        };
+        if !t.view.searching() {
+            return false;
+        }
+        t.view.search_step(std::time::Duration::from_millis(60));
+        self.search_status();
+        true
     }
 
     fn click(&mut self, id: &'static str, r: [f32; 4], m: &dyn TextMeasure) {
@@ -2098,7 +2183,7 @@ impl ReaderWindow {
                 dim: false,
             })
             .collect();
-        self.menu = Some((Menu::open(items, r, self.size, self.scale), id));
+        self.menu = Some((self.reader_menu(items, r), id));
     }
 
     fn open_file_menu(&mut self, r: [f32; 4]) {
@@ -2115,7 +2200,7 @@ impl ReaderWindow {
                 })
                 .collect();
             items.retain(|i| !(open && i.dim));
-            self.menu = Some((Menu::open(items, r, self.size, self.scale), "file"));
+            self.menu = Some((self.reader_menu(items, r), "file"));
             return;
         }
         let mut items = vec![
@@ -2161,7 +2246,9 @@ impl ReaderWindow {
                 dim: false,
             }),
         );
-        self.menu = Some((Menu::open(items, r, self.size, self.scale), "zoom"));
+        // A rule before Actual Size, as the reference's list.
+        let menu = self.reader_menu(items, r).with_decor(Vec::new(), vec![18]);
+        self.menu = Some((menu, "zoom"));
     }
 
     fn open_page_menu(&mut self) {
@@ -2178,7 +2265,7 @@ impl ReaderWindow {
                 dim: false,
             })
             .collect();
-        let mut menu = Menu::open(items, self.page_box, self.size, self.scale);
+        let mut menu = self.reader_menu(items, self.page_box);
         // Keep the current page in view.
         for _ in 0..cur.min(2000) {
             menu.step(1);
@@ -2363,13 +2450,18 @@ impl ReaderWindow {
     pub fn wheel_at(&mut self, x: f32, y: f32, dy: f32) -> bool {
         if inside(self.panel_rect, x, y) {
             if let Some(t) = self.tabs.get_mut(self.active) {
-                t.panel_scroll = (t.panel_scroll + dy).max(0.0);
+                // 60 px per notch at 125 % like the document (measured on the reference's
+                // page thumbnails too).
+                t.panel_scroll = (t.panel_scroll + dy * 0.8).max(0.0);
                 return true;
             }
         }
         if let Some(t) = self.tabs.get_mut(self.active) {
             if !self.show_start {
                 // The reference scrolls 16 logical px per wheel line (the host sends 20).
+                if self.prefs6.prefs.smooth && self.profile.is_none() {
+                    return self.smooth_wheel(dy * 0.8);
+                }
                 t.view.scroll_by(0.0, dy * 0.8);
                 return true;
             }
@@ -2385,10 +2477,11 @@ impl ReaderWindow {
             return false;
         }
         self.prepare_extra();
-        let animating = self.view4_animating();
+        let animating = self.view4_animating() | self.step_smooth();
         let pages_panel = self.panel_open() == Some(Panel::Pages);
         let panel = self.panel_rect;
-        let thumb_w = self.px(120.0);
+        let thumb_w = self.px(THUMB_W);
+        let thumb_gap = self.px(THUMB_GAP);
         let Some(t) = self.tabs.get_mut(self.active) else {
             return false;
         };
@@ -2407,7 +2500,7 @@ impl ReaderWindow {
                 if y + h > panel[1] && y < panel[1] + panel[3] {
                     t.view.want_thumb(i, s);
                 }
-                y += h + 30.0 * (thumb_w / 120.0);
+                y += h + thumb_gap;
                 if y > panel[1] + panel[3] {
                     break;
                 }
@@ -3086,7 +3179,7 @@ impl ReaderWindow {
                 let n = t.view.page_count();
                 let cur = t.view.current_page();
                 let key_base = t.key_base;
-                let tw = self.px(120.0);
+                let tw = self.px(THUMB_W);
                 let mut rows = Vec::new();
                 for i in 0..n {
                     let (pw, ph) = t.view.page_size(i);
@@ -3101,7 +3194,9 @@ impl ReaderWindow {
                             p.fill_rect(x - 4.0, y - 4.0, tw + 8.0, hh + 8.0, self.theme.accent);
                             p.fill_rect(x - 2.0, y - 2.0, tw + 4.0, hh + 4.0, WHITE);
                         }
-                        p.fill_rect(x - 1.0, y - 1.0, tw + 2.0, hh + 2.0, PAGE_EDGE);
+                        // The reference: a 2 px light grey frame (207, 207, 208 at 125 %).
+                        let b = self.px(1.6).round().max(1.0);
+                        p.fill_rect(x - b, y - b, tw + 2.0 * b, hh + 2.0 * b, THUMB_EDGE);
                         p.fill_rect(x, y, tw, hh, WHITE);
                         if t.view.has_image(THUMB_KEY + i) {
                             p.page(key_base + THUMB_KEY + i, x as i32, y as i32);
@@ -3117,7 +3212,7 @@ impl ReaderWindow {
                         );
                     }
                     rows.push((y, hh + self.px(24.0), PanelRow::Page(i)));
-                    y += hh + self.px(30.0) * (tw / self.px(120.0));
+                    y += hh + self.px(THUMB_GAP);
                 }
                 self.panel_rows = rows;
             }
@@ -3596,4 +3691,24 @@ fn win_glyph(p: &mut dyn Painter, k: NcHit, b: [f32; 4], scale: f32, maximized: 
         ],
     };
     p.path(&segs, None, Some((c, w)));
+}
+
+/// Other open documents for BlueEditor's page grid (dragging pages onto another tab).
+impl ReaderWindow {
+    /// Document tab under a window point (from the last paint).
+    pub(crate) fn doc_tab_at(&self, x: f32, y: f32) -> Option<usize> {
+        self.doc_tab_rects
+            .iter()
+            .position(|(r, _)| x >= r[0] && x < r[0] + r[2] && y >= r[1] && y < r[1] + r[3])
+    }
+
+    /// Index of the active document tab.
+    pub(crate) fn active_tab(&self) -> usize {
+        self.active
+    }
+
+    /// The view of document tab `i`.
+    pub(crate) fn tab_view_mut(&mut self, i: usize) -> Option<&mut ReaderView> {
+        self.tabs.get_mut(i).map(|t| &mut t.view)
+    }
 }

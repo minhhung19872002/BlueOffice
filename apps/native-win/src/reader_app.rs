@@ -78,6 +78,17 @@ fn load_recent(app: &str) -> Vec<std::path::PathBuf> {
         .unwrap_or_default()
 }
 
+/// File › Preferences of BlueReader (`key=value` lines).
+fn prefs_file(app: &str) -> Option<std::path::PathBuf> {
+    let name = if app == "BlueEditor" {
+        "editor-prefs.txt"
+    } else {
+        "reader-prefs.txt"
+    };
+    std::env::var_os("LOCALAPPDATA")
+        .map(|d| std::path::PathBuf::from(d).join("BlueOffice").join(name))
+}
+
 fn save_recent(app: &str, list: &[std::path::PathBuf]) {
     if let Some(f) = recent_file(app) {
         if let Some(dir) = f.parent() {
@@ -101,6 +112,9 @@ pub fn run(editor: bool) -> Result<(), String> {
     };
     let app = window.app();
     window.set_recent(load_recent(app));
+    if let Some(text) = prefs_file(app).and_then(|f| std::fs::read_to_string(f).ok()) {
+        window.set_preferences(&text);
+    }
     for arg in std::env::args_os().skip(1) {
         let path = std::path::PathBuf::from(arg);
         let abs = std::fs::canonicalize(&path).unwrap_or(path.clone());
@@ -150,11 +164,15 @@ struct Gpu {
     device: Device,
     surface: WindowSurface,
     pages: HashMap<usize, PageBitmap>,
+    /// Page images dropped since the driver's memory was last trimmed, and when that was.
+    dropped: usize,
+    trimmed: Instant,
 }
 
 struct Store<'a> {
     device: &'a Device,
     pages: &'a mut HashMap<usize, PageBitmap>,
+    removed: &'a mut usize,
 }
 
 fn pictures(
@@ -221,7 +239,9 @@ impl PdfStore for Store<'_> {
     }
 
     fn remove(&mut self, key: usize) {
-        self.pages.remove(&key);
+        if self.pages.remove(&key).is_some() {
+            *self.removed += 1;
+        }
     }
 }
 
@@ -465,10 +485,38 @@ impl Shell {
             return;
         };
         let title = self.window.title();
+        let devmode = self.devmodes.get(&s.printer).map(Vec::as_slice);
+        // Batch Print: every ticked document with these settings, all of its pages.
+        let batch = self.window.take_batch();
+        if !batch.is_empty() {
+            let mut total = 0;
+            let mut failed = None;
+            for i in batch {
+                let Some(view) = self.window.view_at_mut(i) else {
+                    continue;
+                };
+                let all = bo_ui::PrintSettings {
+                    pages: (0..view.page_count()).collect(),
+                    view: None,
+                    ..s.clone()
+                };
+                match print_job(&gpu.device, view.doc_mut(), &title, &all, None, devmode) {
+                    Ok(n) => total += n,
+                    Err(e) => failed = Some(e),
+                }
+            }
+            let status = match failed {
+                None => self
+                    .window
+                    .text("pdfPrint.done", &[("n", &total.to_string())]),
+                Some(e) => self.window.text("pdfPrint.failed", &[("error", &e)]),
+            };
+            self.window.set_status(&status);
+            return;
+        }
         let Some(view) = self.window.view_mut() else {
             return;
         };
-        let devmode = self.devmodes.get(&s.printer).map(Vec::as_slice);
         let result = print_job(&gpu.device, view.doc_mut(), &title, s, None, devmode);
         let status = match result {
             Ok(n) => self.window.text("pdfPrint.done", &[("n", &n.to_string())]),
@@ -531,6 +579,16 @@ impl Shell {
                     }
                 }
                 ReaderRequest::PrintPages(settings) => self.print_pages(&settings),
+                ReaderRequest::SavePreferences(text) => {
+                    if let Some(f) = prefs_file(self.window.app()) {
+                        if let Some(dir) = f.parent() {
+                            let _ = std::fs::create_dir_all(dir);
+                        }
+                        if let Err(e) = std::fs::write(&f, text) {
+                            self.window.set_status(&format!("{}: {e}", f.display()));
+                        }
+                    }
+                }
                 ReaderRequest::Speak { text, rate } => {
                     if let Err(e) = self.speech.speak(&text, rate) {
                         self.window.set_status(&e);
@@ -658,6 +716,7 @@ impl Shell {
         self.more = self.window.prepare(&mut Store {
             device: &gpu.device,
             pages: &mut gpu.pages,
+            removed: &mut gpu.dropped,
         });
         let t1 = Instant::now();
         let (window, pages) = (&mut self.window, &gpu.pages);
@@ -668,6 +727,13 @@ impl Shell {
             painted = p0.elapsed();
         });
         self.last_frame = [t1 - t0, painted, t1.elapsed().saturating_sub(painted)];
+        // Page images left the view: give the driver's freed memory back (at most once a
+        // second, after the frame).
+        if gpu.dropped > 0 && gpu.trimmed.elapsed().as_millis() > 1000 {
+            gpu.device.trim();
+            gpu.dropped = 0;
+            gpu.trimmed = Instant::now();
+        }
         let title = self.window.title();
         if title != self.title && self.hwnd != 0 {
             win32::set_title(self.hwnd, &title);
@@ -691,6 +757,8 @@ impl Handler for Shell {
             device,
             surface,
             pages: HashMap::new(),
+            dropped: 0,
+            trimmed: Instant::now(),
         });
         let m = Measure(self.gpu.as_ref().map(|g| &g.device));
         self.window.handle(Input::Scale(scale), &m);
@@ -724,6 +792,9 @@ impl Handler for Shell {
             Input::Preedit(_) => "preedit",
         };
         let start = Instant::now();
+        if matches!(kind, "press" | "drag" | "release") {
+            self.window.set_pointer_mods(win32::mouse_mods());
+        }
         let m = Measure(self.gpu.as_ref().map(|g| &g.device));
         let mut redraw = self.window.handle(input, &m);
         redraw |= self.handle_requests();
@@ -861,7 +932,19 @@ fn print_job(
         copies: s.copies,
         collate: s.collate,
     };
-    let plan = |area: (f32, f32)| bo_ui::print_plan(&s.pages, &size_of, s.view, area, &plan_opts);
+    // Page Setting margins: the plan fills the area inside them, moved by the top / left.
+    let [mt, mb, ml, mr] = s.margins;
+    let plan = |area: (f32, f32)| {
+        let inner = ((area.0 - ml - mr).max(36.0), (area.1 - mt - mb).max(36.0));
+        let mut sheets = bo_ui::print_plan(&s.pages, &size_of, s.view, inner, &plan_opts);
+        for sheet in &mut sheets {
+            for item in &mut sheet.items {
+                item.dest[0] += ml;
+                item.dest[1] += mt;
+            }
+        }
+        sheets
+    };
     let mut render = |i: usize, scale: f32| -> Option<print::PrintPage> {
         let opts = RenderOptions {
             min_line: 1.0 / scale,
@@ -875,9 +958,12 @@ fn print_job(
         };
         let p = doc.render_extra(i, opts, extra).ok()?;
         let pics = pictures(&p.images);
-        let img = device
+        let mut img = device
             .render_page(&p.list, doc.fonts(), scale, &pics)
             .ok()?;
+        if s.color == bo_ui::PrintColor::BlackWhite {
+            bo_ui::black_white(&mut img.pixels);
+        }
         Some(print::PrintPage {
             width: img.width,
             height: img.height,
@@ -885,7 +971,7 @@ fn print_job(
         })
     };
     let options = print::Options {
-        grayscale: s.grayscale,
+        grayscale: s.grayscale || s.color == bo_ui::PrintColor::Gray,
         duplex: match s.duplex {
             bo_ui::Duplex::Off => 0,
             bo_ui::Duplex::LongEdge => 1,
@@ -900,12 +986,16 @@ fn print_job(
                 w > h
             }),
         },
-        max_dpi: if s.as_image { 150.0 } else { 300.0 },
+        max_dpi: if s.as_image {
+            s.image_dpi as f32
+        } else {
+            300.0
+        },
         devmode: devmode.map(<[u64]>::to_vec),
         paper: if s.paper_by_page {
             s.pages.first().map(|&i| size_of(i))
         } else {
-            None
+            s.paper
         },
     };
     print::print(&s.printer, title, &plan, &size_of, &options, &mut render)
@@ -939,6 +1029,10 @@ fn print_tool(args: &[String], doc: &mut PdfDocument, device: &Device) -> Result
         as_image: false,
         overprint: false,
         paper_by_page: false,
+        image_dpi: 150,
+        color: bo_ui::PrintColor::Color,
+        paper: None,
+        margins: [0.0; 4],
     };
     let mut order = bo_ui::PageOrder::Horizontal;
     let mut border = false;
@@ -1092,12 +1186,60 @@ fn page_text() -> TextRendering {
     }
 }
 
-/// Command-line tools: `--render in.pdf <page> out.png [zoom%]` and `--bench in.pdf [pages]`.
+/// `--text in.pdf`: what Select All + Copy puts on the clipboard, page by page (a form feed
+/// after each page), for comparing text extraction.
+fn text_tool(doc: &mut PdfDocument) -> Result<(), String> {
+    use std::io::Write as _;
+    let mut out = String::new();
+    for i in 0..doc.page_count() {
+        let p = doc.render(i, RenderOptions::default())?;
+        out.push_str(&bo_pdfread::TextLayer::new(p.chars).text());
+        out.push('\u{c}');
+    }
+    std::io::stdout()
+        .write_all(out.as_bytes())
+        .map_err(|e| e.to_string())
+}
+
+/// `--search in.pdf word`: read every page's text as the search does (from page 1), print the
+/// time to the first hit and in all, and the hit count.
+fn search_tool(doc: &mut PdfDocument, query: &str, open_ms: f64) -> Result<(), String> {
+    let t0 = Instant::now();
+    let mut first = None;
+    let mut hits = 0;
+    for i in 0..doc.page_count() {
+        let p = doc.render(i, RenderOptions::default())?;
+        let n = bo_pdfread::TextLayer::new(p.chars)
+            .find(query, false, false)
+            .len();
+        if n > 0 && first.is_none() {
+            first = Some((i + 1, t0.elapsed().as_secs_f64() * 1e3));
+        }
+        hits += n;
+    }
+    let (page, ms) = first.unwrap_or((0, 0.0));
+    println!(
+        r#"{{"open_ms":{open_ms:.1},"first_hit_page":{page},"first_hit_ms":{ms:.1},"total_ms":{:.1},"hits":{hits},"pages":{}}}"#,
+        t0.elapsed().as_secs_f64() * 1e3,
+        doc.page_count()
+    );
+    Ok(())
+}
+
+/// Command-line tools: `--render in.pdf <page> out.png [zoom%]`, `--bench in.pdf [pages]` and
+/// `--text in.pdf`.
+#[allow(clippy::too_many_lines)]
 pub fn tool(args: &[String]) -> Result<(), String> {
     let path = args.get(1).ok_or("missing PDF path")?;
     let t0 = Instant::now();
     let mut doc = open_pdf(std::path::Path::new(path))?;
     let open_ms = t0.elapsed().as_secs_f64() * 1e3;
+    if args[0] == "--text" {
+        return text_tool(&mut doc);
+    }
+    if args[0] == "--search" {
+        return search_tool(&mut doc, args.get(2).map_or("", String::as_str), open_ms);
+    }
     let device = Device::new()?;
     device.set_text_rendering(page_text());
     if args[0] == "--print" {
@@ -1105,9 +1247,39 @@ pub fn tool(args: &[String]) -> Result<(), String> {
     }
     // 125 % display scale at 100 % zoom unless a zoom is given.
     if args[0] == "--render" {
-        let page: usize = args.get(2).and_then(|v| v.parse().ok()).unwrap_or(1);
         let out = args.get(3).ok_or("missing output path")?;
         let zoom: f32 = args.get(4).and_then(|v| v.parse().ok()).unwrap_or(100.0);
+        // `all` (or `a-b`) with `%d` in the output path: many pages in one run.
+        let spec = args.get(2).map_or("1", String::as_str);
+        if spec == "all" || spec.contains('-') {
+            let pages = if spec == "all" {
+                (0..doc.page_count()).collect()
+            } else {
+                bo_ui::parse_pages(spec, doc.page_count())
+            };
+            for i in pages {
+                let one = out.replace("%d", &(i + 1).to_string());
+                if let Err(e) = render_one(&mut doc, &device, i + 1, &one, zoom) {
+                    println!("{one}: FAILED {e}");
+                }
+            }
+            return Ok(());
+        }
+        let page: usize = spec.parse().unwrap_or(1);
+        return render_one(&mut doc, &device, page, out, zoom);
+    }
+    bench_tool(args, &mut doc, &device, open_ms)
+}
+
+/// `--render`: one page to a PNG at `zoom` % (125 % display scale).
+fn render_one(
+    doc: &mut PdfDocument,
+    device: &Device,
+    page: usize,
+    out: &str,
+    zoom: f32,
+) -> Result<(), String> {
+    {
         let scale = zoom / 100.0 * 96.0 / 72.0 * 1.25;
         let opts = RenderOptions {
             min_line: 1.0 / scale,
@@ -1140,8 +1312,17 @@ pub fn tool(args: &[String]) -> Result<(), String> {
             img.height,
             p.list.commands.len()
         );
-        return Ok(());
+        Ok(())
     }
+}
+
+/// `--bench`: open time, first page, display list and GPU times per page.
+fn bench_tool(
+    args: &[String],
+    doc: &mut PdfDocument,
+    device: &Device,
+    open_ms: f64,
+) -> Result<(), String> {
     let n = doc.page_count();
     let limit: usize = args.get(2).and_then(|v| v.parse().ok()).unwrap_or(n).min(n);
     let scale = 96.0 / 72.0 * 1.25;

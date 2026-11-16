@@ -4,7 +4,8 @@
 //! patch is drawn as the Coons patch of its boundary).
 use crate::function::Function;
 use crate::interp::{apply, M};
-use lopdf::{Dictionary, Document};
+use crate::store::Document;
+use lopdf::Dictionary;
 
 /// A vertex: position and colour components.
 type Vertex = ((f32, f32), Vec<f32>);
@@ -409,6 +410,55 @@ fn patches(l: &Layout, b: &mut Bits<'_>, tensor: bool) -> Vec<Tri> {
     out
 }
 
+/// Triangles of a radial shading (type 3, §8.7.4.5.4) in shading space: rings between the
+/// circles (`x0 y0 r0 x1 y1 r1`), their colour input `t` from `domain`; with `extend` the
+/// start circle's inside takes `t0` and the area past the end circle `t1`, out to `reach`.
+/// Later circles paint over earlier ones, as the specification orders them.
+pub(crate) fn radial(
+    c: [f32; 6],
+    domain: (f32, f32),
+    extend: (bool, bool),
+    reach: f32,
+) -> Vec<Tri> {
+    const RINGS: usize = 64;
+    const SIDES: usize = 96;
+    let [x0, y0, r0, x1, y1, r1] = c;
+    let at = |s: f32| (x0 + s * (x1 - x0), y0 + s * (y1 - y0), r0 + s * (r1 - r0));
+    let point = |(cx, cy, r): (f32, f32, f32), k: usize| {
+        let a = k as f32 / SIDES as f32 * std::f32::consts::TAU;
+        (cx + r.max(0.0) * a.cos(), cy + r.max(0.0) * a.sin())
+    };
+    let t_of = |s: f32| vec![domain.0 + s * (domain.1 - domain.0)];
+    let mut out = Vec::with_capacity((RINGS + 2) * SIDES * 2);
+    let band = |out: &mut Vec<Tri>, a: (f32, f32, f32), b: (f32, f32, f32), t: Vec<f32>| {
+        for k in 0..SIDES {
+            let (p, q) = (point(a, k), point(a, k + 1));
+            let (u, v) = (point(b, k), point(b, k + 1));
+            out.push(Tri {
+                pts: [p, q, v],
+                color: t.clone(),
+            });
+            out.push(Tri {
+                pts: [p, v, u],
+                color: t.clone(),
+            });
+        }
+    };
+    if extend.0 && r0 > 0.0 {
+        band(&mut out, (x0, y0, 0.0), at(0.0), t_of(0.0));
+    }
+    for i in 0..RINGS {
+        let (s0, s1) = (i as f32 / RINGS as f32, (i + 1) as f32 / RINGS as f32);
+        band(&mut out, at(s0), at(s1), t_of(f32::midpoint(s0, s1)));
+    }
+    if extend.1 && r1 >= r0 {
+        let end = at(1.0);
+        let far = (x1, y1, reach.max(r1) * 1.05 + (x1 - x0).hypot(y1 - y0));
+        band(&mut out, end, far, t_of(1.0));
+    }
+    out
+}
+
 /// Triangles of a function-based shading (type 1) over its domain, mapped by `/Matrix`.
 pub(crate) fn function_based(doc: &Document, dict: &Dictionary, func: &Function) -> Vec<Tri> {
     let nums = |k: &[u8]| -> Vec<f32> {
@@ -458,6 +508,39 @@ pub(crate) fn function_based(doc: &Document, dict: &Dictionary, func: &Function)
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn radial_rings_cover_the_circle_and_the_extension() {
+        let tris = radial(
+            [0.5, 0.5, 0.0, 0.5, 0.5, 0.5],
+            (0.0, 1.0),
+            (true, true),
+            3.0,
+        );
+        assert!(!tris.is_empty());
+        // Every ring triangle stays within the end circle; the extension reaches 3.
+        let far = tris
+            .iter()
+            .flat_map(|t| t.pts)
+            .map(|(x, y)| (x - 0.5).hypot(y - 0.5))
+            .fold(0.0_f32, f32::max);
+        assert!(far >= 3.0, "{far}");
+        let inner = tris.iter().filter(|t| t.color[0] < 1.0).count();
+        assert_eq!(inner, 64 * 96 * 2);
+        // Colour input rises outwards.
+        assert!(tris[0].color[0] < tris[inner - 1].color[0]);
+        // Without Extend nothing lies past the end circle.
+        let tris = radial(
+            [0.0, 0.0, 0.0, 0.0, 0.0, 1.0],
+            (0.0, 1.0),
+            (false, false),
+            9.0,
+        );
+        assert!(tris
+            .iter()
+            .flat_map(|t| t.pts)
+            .all(|(x, y)| x.hypot(y) <= 1.0 + 1e-4));
+    }
 
     #[test]
     fn coons_patch_and_triangles() {

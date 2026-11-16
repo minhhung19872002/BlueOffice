@@ -4,7 +4,8 @@
 //! fax images (`codecs`); an image that fails to decode shows a light placeholder box.
 use crate::color::ColorSpace;
 use crate::filters::{self, Codec};
-use lopdf::{Dictionary, Document, Object};
+use crate::store::Document;
+use lopdf::{Dictionary, Object};
 
 /// Largest decoded image (pixels); bigger images are sampled down.
 const MAX_PIXELS: u64 = 24 * 1024 * 1024;
@@ -404,7 +405,7 @@ mod tests {
 
     #[test]
     fn gray_rgb_stencil_and_indexed_samples() {
-        let doc = Document::new();
+        let doc = Document::from(lopdf::Document::new());
         let mut d = Dictionary::new();
         d.set("Width", 2);
         d.set("Height", 1);

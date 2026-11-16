@@ -452,7 +452,12 @@ impl PdfDocument {
 
     /// The page label ranges (empty when the document has no `/PageLabels`).
     pub fn page_label_ranges(&self) -> Vec<LabelRange> {
-        fn walk(doc: &lopdf::Document, node: &Dictionary, out: &mut Vec<LabelRange>, depth: u32) {
+        fn walk(
+            doc: &crate::store::Document,
+            node: &Dictionary,
+            out: &mut Vec<LabelRange>,
+            depth: u32,
+        ) {
             if depth > 16 {
                 return;
             }

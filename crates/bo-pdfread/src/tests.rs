@@ -147,6 +147,48 @@ fn rotated_page_maps_user_space() {
 }
 
 #[test]
+fn reading_loads_objects_on_demand() {
+    let objs = [
+        "<< /Type /Catalog /Pages 2 0 R /Outlines 6 0 R /PageMode /UseOutlines >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Contents 4 0 R          /Resources << /Font << /F1 5 0 R >> >> /Annots [8 0 R 9 0 R] >>",
+        &stream("BT /F1 12 Tf 10 50 Td (Hello) Tj ET"),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+        "<< /Type /Outlines /First 7 0 R /Last 7 0 R /Count 1 >>",
+        "<< /Title (One) /Parent 6 0 R /Dest [3 0 R /Fit] >>",
+        "<< /Type /Annot /Subtype /Text /Rect [150 50 170 70] /Contents (Note) /T (Me) >>",
+        "<< /Type /Annot /Subtype /Link /Rect [10 40 60 60] /A << /S /URI /URI (https://example.com) >> >>",
+        "<< /Title (Doc) /Author (A) >>",
+    ];
+    let mut bytes = build_pdf(&objs);
+    let at = bytes
+        .windows(11)
+        .rposition(|w| w == b"/Root 1 0 R")
+        .expect("trailer");
+    bytes.splice(at..at, b"/Info 10 0 R ".iter().copied());
+    // The startxref offset is unchanged: the trailer comes after the table.
+    let mut doc = open(bytes);
+    let p = doc.render(0, RenderOptions::default()).expect("renders");
+    assert!(TextLayer::new(p.chars.clone()).text().contains("Hello"));
+    assert_eq!(p.links.len(), 1);
+    assert_eq!(doc.title().as_deref(), Some("Doc"));
+    assert_eq!(doc.info("Author").as_deref(), Some("A"));
+    assert_eq!(doc.outline().len(), 1);
+    assert_eq!(doc.annotations().len(), 1);
+    assert_eq!(doc.page_mode().as_deref(), Some("UseOutlines"));
+    let _ = doc.doc_info();
+    let _ = doc.font_list();
+    assert!(!doc.fully_loaded());
+    // An edit loads the whole document and saves as before.
+    let a = doc.annotations().remove(0);
+    doc.set_annotation_contents(&a, "Changed").expect("edits");
+    assert!(doc.fully_loaded());
+    let saved = doc.save().expect("saves");
+    let again = open(saved);
+    assert_eq!(again.annotations()[0].contents, "Changed");
+}
+
+#[test]
 fn images_clips_forms_and_annotation_appearance() {
     let content = "q 0 0 100 50 re W n q 40 0 0 20 10 10 cm /Im1 Do Q Q /Fm1 Do";
     let page = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Contents 4 0 R \
@@ -436,6 +478,78 @@ fn text_render_modes_stroke_and_clip() {
         .expect("fill");
     assert!(clip < fill);
     assert!(!c.iter().any(|c| matches!(c, Command::Glyphs { .. })));
+}
+
+#[test]
+fn embedded_truetype_without_widths_advances_by_its_own_metrics() {
+    // A symbolic simple TrueType font with no /Widths: the glyphs must not pile up.
+    let ttf = crate::bundled::FONTS[0];
+    let content = b"BT /F 20 Tf 72 700 Td (abc) Tj ET";
+    let objs: Vec<Vec<u8>> = vec![
+        b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R \
+          /Resources << /Font << /F 5 0 R >> >> >>"
+            .to_vec(),
+        [
+            format!("<< /Length {} >>\nstream\n", content.len()).as_bytes(),
+            content,
+            b"\nendstream",
+        ]
+        .concat(),
+        b"<< /Type /Font /Subtype /TrueType /BaseFont /Test /FontDescriptor 6 0 R >>".to_vec(),
+        b"<< /Type /FontDescriptor /FontName /Test /Flags 4 /FontFile2 7 0 R >>".to_vec(),
+        [
+            format!("<< /Length {} >>\nstream\n", ttf.len()).as_bytes(),
+            ttf,
+            b"\nendstream",
+        ]
+        .concat(),
+    ];
+    let mut pdf = b"%PDF-1.7\n".to_vec();
+    let mut offs = Vec::new();
+    for (i, o) in objs.iter().enumerate() {
+        offs.push(pdf.len());
+        pdf.extend_from_slice(format!("{} 0 obj\n", i + 1).as_bytes());
+        pdf.extend_from_slice(o);
+        pdf.extend_from_slice(b"\nendobj\n");
+    }
+    let x = pdf.len();
+    pdf.extend_from_slice(format!("xref\n0 {}\n0000000000 65535 f \n", objs.len() + 1).as_bytes());
+    for o in offs {
+        pdf.extend_from_slice(format!("{o:010} 00000 n \n").as_bytes());
+    }
+    pdf.extend_from_slice(
+        format!(
+            "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{x}\n%%EOF\n",
+            objs.len() + 1
+        )
+        .as_bytes(),
+    );
+    let mut doc = open(pdf);
+    let page = doc.render(0, RenderOptions::default()).expect("renders");
+    let xs: Vec<f32> = page.chars.iter().map(|c| c.origin[0]).collect();
+    assert_eq!(xs.len(), 3, "{xs:?}");
+    assert!(xs[1] - xs[0] > 5.0 && xs[2] - xs[1] > 5.0, "{xs:?}");
+}
+
+#[test]
+fn standard_symbol_fonts_use_their_built_in_encodings() {
+    // Symbol and ZapfDingbats not embedded (Annex D.5 / D.6): 'a' is alpha, 'H' a black star
+    // whatever face substitutes them.
+    let pdf = build_pdf(&[
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R \
+         /Resources << /Font << /S 5 0 R /Z 6 0 R >> >> >>",
+        "<< /Length 58 >>\nstream\nBT /S 12 Tf 72 700 Td (ab) Tj /Z 12 Tf 0 -20 Td (H4) Tj ET\nendstream",
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Symbol >>",
+        "<< /Type /Font /Subtype /Type1 /BaseFont /ZapfDingbats >>",
+    ]);
+    let mut doc = open(pdf);
+    let page = doc.render(0, RenderOptions::default()).expect("renders");
+    let text: String = page.chars.iter().map(|c| c.text.as_str()).collect();
+    assert_eq!(text, "\u{3b1}\u{3b2}\u{2605}\u{2714}");
 }
 
 #[test]

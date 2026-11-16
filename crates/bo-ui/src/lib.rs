@@ -17,6 +17,9 @@ mod doc_view;
 mod editor_actions;
 #[cfg(test)]
 mod editor_actions_tests;
+mod editor_arrange;
+#[cfg(test)]
+mod editor_arrange_tests;
 mod editor_backstage;
 mod editor_comment;
 #[cfg(test)]
@@ -26,6 +29,9 @@ mod editor_design;
 #[cfg(test)]
 mod editor_design_tests;
 mod editor_edit;
+mod editor_five;
+#[cfg(test)]
+mod editor_five_tests;
 mod editor_format;
 #[cfg(test)]
 mod editor_format_tests;
@@ -35,6 +41,10 @@ mod editor_more2;
 #[cfg(test)]
 mod editor_more_tests;
 mod editor_organize;
+#[cfg(test)]
+mod editor_organize5_tests;
+mod editor_pages5;
+mod editor_portfolio;
 mod editor_sign;
 #[cfg(test)]
 mod editor_tests;
@@ -84,18 +94,19 @@ pub use editor_window::{EditTool, EditorWindow};
 pub use icons::{parse_path, IconColors, Icons};
 pub use input::{Input, Key, Mods};
 pub use pdf_window::PdfWindow;
-pub use popup::{Choice, Menu, MenuItem};
+pub use popup::{Choice, Menu, MenuItem, MenuLook};
 pub use reader_impose::{
     plan as print_plan, BookletSides, Duplex, PageOrder, Placement, PlanOptions, PrintLayout, Sheet,
 };
 pub use reader_print::{
-    parse_pages, Orientation, Paper, PrintAction, PrintDialog, PrintScaling, PrintSettings,
+    black_white, parse_pages, Orientation, Paper, PrintAction, PrintColor, PrintDialog,
+    PrintScaling, PrintSettings,
 };
 pub use reader_view::{Fit, Layout, PdfStore, ReaderView, THUMB_KEY};
 pub use reader_window::{Panel, ReaderRequest, ReaderWindow, Tool};
 pub use ribbon::{Ribbon, RibbonHit};
 pub use ruler::Ruler;
-pub use sheet_view::{CellFormat, GridMove, GridRing, GridStore, SheetView, Stats};
+pub use sheet_view::{CellFormat, GridBand, GridMove, GridRing, GridStore, SheetView, Stats};
 pub use sheet_window::{PaintHash, SheetWindow};
 pub use shell::{DocWindow, Request};
 pub use slide_view::{Focus, SlideView, ViewMode, SLIDE_CANVAS};

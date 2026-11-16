@@ -145,11 +145,18 @@ impl Typing {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-enum Drag {
-    /// Moving the selection from a document point.
-    Move { from: (f32, f32), to: (f32, f32) },
+pub(crate) enum Drag {
+    /// Moving the selection from a document point (`to` after constraint and snapping);
+    /// `copy`: Ctrl held at the press, the originals stay.
+    Move {
+        from: (f32, f32),
+        to: (f32, f32),
+        copy: bool,
+    },
     /// Resizing the single selected item by a corner (0 top-left … 3 bottom-right).
     Resize { corner: usize, to: (f32, f32) },
+    /// Selecting the items a rectangle touches, from a document point.
+    Marquee { from: (f32, f32), to: (f32, f32) },
 }
 
 /// Editing state of the active document.
@@ -161,8 +168,12 @@ pub(crate) struct Editing {
     pub selected: Vec<usize>,
     pub hover: Option<usize>,
     pub typing: Option<Typing>,
-    drag: Option<Drag>,
+    pub(crate) drag: Option<Drag>,
     pub status: Option<String>,
+    /// Shift / Ctrl held with the last mouse message (Ctrl+drag copies, Shift constrains).
+    pub mods: Mods,
+    /// Snapping guides of the current move, page points (x0, y0, x1, y1).
+    pub guides: Vec<[f32; 4]>,
 }
 
 fn inside(r: [f32; 4], x: f32, y: f32) -> bool {
@@ -201,6 +212,7 @@ impl Editing {
         self.selected.clear();
         self.hover = None;
         self.drag = None;
+        self.guides.clear();
     }
 
     /// Items of page `i` (analysed again after every edit; kept while typing, the typed
@@ -357,7 +369,16 @@ impl Editing {
         }
         let hit = self.item_at(v, page, px, py, tool);
         let Some(k) = hit else {
-            self.selected.clear();
+            if !shift {
+                self.selected.clear();
+            }
+            // Edit Object: a rectangle dragged over empty space selects what it touches.
+            if tool == EditTool::Object {
+                self.drag = Some(Drag::Marquee {
+                    from: (px, py),
+                    to: (px, py),
+                });
+            }
             return;
         };
         let item = self.items(v, page).get(k).cloned();
@@ -404,10 +425,13 @@ impl Editing {
         } else if !self.selected.contains(&k) {
             self.selected = vec![k];
         }
-        self.drag = Some(Drag::Move {
-            from: (px, py),
-            to: (px, py),
-        });
+        if self.selected.contains(&k) {
+            self.drag = Some(Drag::Move {
+                from: (px, py),
+                to: (px, py),
+                copy: self.mods.ctrl,
+            });
+        }
     }
 
     /// Corner handle of the single selected item under a window point.
@@ -451,13 +475,104 @@ impl Editing {
         // Keep following the pointer outside the page.
         let (px, py) = ((x - pr[0]) / s, (y - pr[1]) / s);
         let r = v.unrotate_rect(page, [px, py, px, py]);
-        match self.drag.as_mut() {
-            Some(Drag::Move { to, .. } | Drag::Resize { to, .. }) => {
-                *to = (r[0], r[1]);
+        let pointer = (r[0], r[1]);
+        let tol = 6.0 / s.max(0.01);
+        let page_size = v
+            .doc()
+            .page_info(page)
+            .map_or_else(|| v.page_size(page), |p| (p.width, p.height));
+        match self.drag {
+            Some(Drag::Move { from, copy, .. }) => {
+                let mut d = (pointer.0 - from.0, pointer.1 - from.1);
+                // Shift keeps the move horizontal or vertical.
+                let across = d.0.abs() >= d.1.abs();
+                if self.mods.shift {
+                    if across {
+                        d.1 = 0.0;
+                    } else {
+                        d.0 = 0.0;
+                    }
+                }
+                let (boxes, others) = self.split_boxes();
+                let moved = crate::editor_arrange::union_box(&boxes)
+                    .map(|b| [b[0] + d.0, b[1] + d.1, b[2] + d.0, b[3] + d.1]);
+                let (mut sx, mut sy, mut guides) =
+                    crate::editor_arrange::snap_move(moved, &others, page_size, tol);
+                // Snapping does not undo the constraint: only the free axis snaps.
+                if self.mods.shift {
+                    if across {
+                        sy = 0.0;
+                        guides.retain(|g| (g[0] - g[2]).abs() < 1e-3);
+                    } else {
+                        sx = 0.0;
+                        guides.retain(|g| (g[1] - g[3]).abs() < 1e-3);
+                    }
+                }
+                d.0 += sx;
+                d.1 += sy;
+                self.guides = guides;
+                self.drag = Some(Drag::Move {
+                    from,
+                    to: (from.0 + d.0, from.1 + d.1),
+                    copy,
+                });
+                true
+            }
+            Some(Drag::Resize { corner, .. }) => {
+                self.drag = Some(Drag::Resize {
+                    corner,
+                    to: pointer,
+                });
+                true
+            }
+            Some(Drag::Marquee { from, .. }) => {
+                self.drag = Some(Drag::Marquee { from, to: pointer });
                 true
             }
             None => false,
         }
+    }
+
+    /// Items of the page from the last analysis (empty before one).
+    pub(crate) fn cached_items(&self) -> &[Item] {
+        self.cache.as_ref().map_or(&[][..], |c| c.2.as_slice())
+    }
+
+    /// Boxes of the selected items and of the other items of the page (from the cache).
+    fn split_boxes(&self) -> (Vec<[f32; 4]>, Vec<[f32; 4]>) {
+        let list = self.cache.as_ref().map_or(&[][..], |c| c.2.as_slice());
+        let mut sel = Vec::new();
+        let mut others = Vec::new();
+        for (k, it) in list.iter().enumerate() {
+            if self.selected.contains(&k) {
+                sel.push(it.bbox);
+            } else {
+                others.push(it.bbox);
+            }
+        }
+        (sel, others)
+    }
+
+    /// The resize box of the single selected item for a corner dragged to `to`; Shift keeps
+    /// its proportions.
+    fn resized(&self, b: [f32; 4], corner: usize, to: (f32, f32)) -> ([f32; 4], f32, f32) {
+        let (ax, ay) = match corner {
+            0 => (b[2], b[3]),
+            1 => (b[0], b[3]),
+            2 => (b[2], b[1]),
+            _ => (b[0], b[1]),
+        };
+        let (w0, h0) = ((b[2] - b[0]).max(0.01), (b[3] - b[1]).max(0.01));
+        let (mut sx, mut sy) = ((to.0 - ax).abs() / w0, (to.1 - ay).abs() / h0);
+        if self.mods.shift {
+            let k = sx.max(sy);
+            sx = k;
+            sy = k;
+        }
+        let (w1, h1) = (w0 * sx, h0 * sy);
+        let x0 = if to.0 < ax { ax - w1 } else { ax };
+        let y0 = if to.1 < ay { ay - h1 } else { ay };
+        ([x0, y0, x0 + w1, y0 + h1], sx, sy)
     }
 
     /// Button released: apply a move or resize.
@@ -466,18 +581,24 @@ impl Editing {
             t.selecting = false;
         }
         let Some(page) = self.page else { return false };
+        self.guides.clear();
         match self.drag.take() {
-            Some(Drag::Move { from, to }) => {
+            Some(Drag::Move { from, to, copy }) => {
                 let (dx, dy) = (to.0 - from.0, to.1 - from.1);
                 if dx.abs() < 0.5 && dy.abs() < 0.5 {
                     return false;
                 }
+                let m = [1.0, 0.0, 0.0, 1.0, dx, dy];
+                let expect = self.expected(v, page, m);
                 let ids = self.selected_ids(v, page);
-                let r = v
-                    .doc_mut()
-                    .transform_objects(page, &ids, [1.0, 0.0, 0.0, 1.0, dx, dy]);
+                let r = if copy {
+                    v.doc_mut().copy_objects(page, &ids, m)
+                } else {
+                    v.doc_mut().transform_objects(page, &ids, m)
+                };
                 self.after_edit(v, page, r.map(|()| ids.len()));
                 // The moved items are new objects: select them again by position.
+                self.reselect(v, page, &expect);
                 true
             }
             Some(Drag::Resize { corner, to }) => {
@@ -488,26 +609,94 @@ impl Editing {
                     return false;
                 };
                 let b = item.bbox;
-                // The opposite corner stays.
-                let (ax, ay) = match corner {
-                    0 => (b[2], b[3]),
-                    1 => (b[0], b[3]),
-                    2 => (b[2], b[1]),
-                    _ => (b[0], b[1]),
-                };
-                let (w0, h0) = (b[2] - b[0], b[3] - b[1]);
-                let (w1, h1) = ((to.0 - ax).abs(), (to.1 - ay).abs());
-                if w0 < 0.1 || h0 < 0.1 || w1 < 2.0 || h1 < 2.0 {
+                let (nb, sx, sy) = self.resized(b, corner, to);
+                if b[2] - b[0] < 0.1
+                    || b[3] - b[1] < 0.1
+                    || nb[2] - nb[0] < 2.0
+                    || nb[3] - nb[1] < 2.0
+                {
                     return false;
                 }
-                let (sx, sy) = (w1 / w0, h1 / h0);
-                let m = [sx, 0.0, 0.0, sy, ax - ax * sx, ay - ay * sy];
+                // The opposite corner stays.
+                let m = [sx, 0.0, 0.0, sy, nb[0] - b[0] * sx, nb[1] - b[1] * sy];
                 let r = v.doc_mut().transform_objects(page, &item.ids, m);
                 self.after_edit(v, page, r.map(|()| 1));
+                self.reselect(v, page, &[(nb, item.kind)]);
+                true
+            }
+            Some(Drag::Marquee { from, to }) => {
+                let r = [
+                    from.0.min(to.0),
+                    from.1.min(to.1),
+                    from.0.max(to.0),
+                    from.1.max(to.1),
+                ];
+                if r[2] - r[0] < 1.0 && r[3] - r[1] < 1.0 {
+                    return true;
+                }
+                let hits: Vec<usize> = self
+                    .items(v, page)
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, it)| {
+                        let b = it.bbox;
+                        b[0] <= r[2] && b[2] >= r[0] && b[1] <= r[3] && b[3] >= r[1]
+                    })
+                    .map(|(k, _)| k)
+                    .collect();
+                for k in hits {
+                    if !self.selected.contains(&k) {
+                        self.selected.push(k);
+                    }
+                }
                 true
             }
             None => false,
         }
+    }
+
+    /// Boxes and kinds of the selected items after transforming them by `m` (page points).
+    pub(crate) fn expected(
+        &mut self,
+        v: &mut ReaderView,
+        page: usize,
+        m: [f32; 6],
+    ) -> Vec<([f32; 4], ObjectKind)> {
+        let sel = self.selected.clone();
+        let list = self.items(v, page);
+        sel.iter()
+            .filter_map(|&k| list.get(k))
+            .map(|it| (crate::editor_arrange::transform_box(it.bbox, m), it.kind))
+            .collect()
+    }
+
+    /// Select the items of `page` closest to the boxes `expect` (after an edit gave the
+    /// objects new indices).
+    pub(crate) fn reselect(
+        &mut self,
+        v: &mut ReaderView,
+        page: usize,
+        expect: &[([f32; 4], ObjectKind)],
+    ) {
+        let list = self.items(v, page).to_vec();
+        let mut sel = Vec::new();
+        for (b, kind) in expect {
+            let best = list
+                .iter()
+                .enumerate()
+                .filter(|(k, it)| it.kind == *kind && !sel.contains(k))
+                .map(|(k, it)| {
+                    let d: f32 = (0..4).map(|i| (it.bbox[i] - b[i]).abs()).sum();
+                    (k, d)
+                })
+                .min_by(|a, b| a.1.total_cmp(&b.1));
+            if let Some((k, d)) = best {
+                if d < 4.0 + 0.05 * ((b[2] - b[0]) + (b[3] - b[1])) {
+                    sel.push(k);
+                }
+            }
+        }
+        self.selected = sel;
     }
 
     fn selected_ids(&mut self, v: &mut ReaderView, page: usize) -> Vec<usize> {
@@ -990,9 +1179,51 @@ impl Editing {
             }
         }
         let offset = match self.drag {
-            Some(Drag::Move { from, to }) => (to.0 - from.0, to.1 - from.1),
+            Some(Drag::Move { from, to, copy }) => {
+                // A copy: the originals keep a thin box where they are.
+                if copy {
+                    for &k in &self.selected {
+                        if let Some(r) = list
+                            .get(k)
+                            .and_then(|it| v.doc_rect_to_window(page, it.bbox))
+                        {
+                            outline(p, r, soft, 1.0);
+                        }
+                    }
+                }
+                (to.0 - from.0, to.1 - from.1)
+            }
             _ => (0.0, 0.0),
         };
+        // Snapping guides across the page.
+        for g in &self.guides {
+            if let Some(r) = v.doc_rect_to_window(page, *g) {
+                let c = Rgba(0xE0, 0x1E, 0x8C, 255);
+                if r[2] < 1.0 {
+                    p.fill_rect(r[0].round(), r[1], 1.0, r[3].max(1.0), c);
+                } else {
+                    p.fill_rect(r[0], r[1].round(), r[2].max(1.0), 1.0, c);
+                }
+            }
+        }
+        if let Some(Drag::Marquee { from, to }) = self.drag {
+            let b = [
+                from.0.min(to.0),
+                from.1.min(to.1),
+                from.0.max(to.0),
+                from.1.max(to.1),
+            ];
+            if let Some(r) = v.doc_rect_to_window(page, b) {
+                p.fill_rect(
+                    r[0],
+                    r[1],
+                    r[2],
+                    r[3],
+                    Rgba(accent.0, accent.1, accent.2, 30),
+                );
+                outline(p, r, accent, 1.0);
+            }
+        }
         for &k in self.selected.iter().filter(|_| !typing) {
             let Some(it) = list.get(k) else { continue };
             let b = it.bbox;
@@ -1025,14 +1256,7 @@ impl Editing {
         }
         if let Some(Drag::Resize { corner, to }) = self.drag {
             if let Some(it) = self.selected.first().and_then(|&k| list.get(k)) {
-                let b = it.bbox;
-                let (ax, ay) = match corner {
-                    0 => (b[2], b[3]),
-                    1 => (b[0], b[3]),
-                    2 => (b[2], b[1]),
-                    _ => (b[0], b[1]),
-                };
-                let r = [ax.min(to.0), ay.min(to.1), ax.max(to.0), ay.max(to.1)];
+                let (r, _, _) = self.resized(it.bbox, corner, to);
                 if let Some(w) = v.doc_rect_to_window(page, r) {
                     outline(p, w, accent, 1.0);
                 }

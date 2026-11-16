@@ -3,7 +3,7 @@
 //! per scroll position, Read aloud through the host's speech, and AutoScroll moved every
 //! frame at the reference's speeds.
 use super::{inside, ReaderRequest, ReaderWindow, TEXT};
-use crate::popup::{Choice, Menu, MenuItem};
+use crate::popup::{Choice, MenuItem};
 use crate::reader_viewx::{text_lines, AUTO_SPEEDS};
 use crate::{Input, Key, Painter, TextMeasure, TextStyle};
 use bo_render::Rgba;
@@ -39,6 +39,10 @@ pub(crate) struct View4 {
     scrolls: Vec<(f32, f32)>,
     area: [f32; 4],
     panes: Vec<[f32; 4]>,
+    /// Where the bars sit (fraction of the area's width / height; 0 is the middle, so the
+    /// default is an even split), and which bars a press is dragging (vertical, horizontal).
+    bar_at: (f32, f32),
+    bar_drag: Option<(bool, bool)>,
     /// AutoScroll: the last frame's time and the movement not yet applied (device pixels).
     auto_last: Option<Instant>,
     auto_rest: f32,
@@ -81,7 +85,7 @@ impl ReaderWindow {
                 })
                 .collect();
                 let r = self.control_rect("menu.split").unwrap_or([0.0; 4]);
-                self.menu = Some((Menu::open(items, r, self.size, self.scale), "menu.split"));
+                self.menu = Some((self.reader_menu(items, r), "menu.split"));
             }
             "split.vertical" | "split.horizontal" | "split.spreadsheet" => {
                 let kind = match cmd {
@@ -117,7 +121,7 @@ impl ReaderWindow {
                 })
                 .collect();
                 let r = self.control_rect("menu.read").unwrap_or([0.0; 4]);
-                self.menu = Some((Menu::open(items, r, self.size, self.scale), "menu.read"));
+                self.menu = Some((self.reader_menu(items, r), "menu.read"));
             }
             "read.page" | "read.from" => {
                 let Some(t) = self.tabs.get_mut(self.active) else {
@@ -254,6 +258,8 @@ impl ReaderWindow {
             .map_or((0.0, 0.0), |t| t.view.scroll_state().0);
         self.view4.split = split;
         self.view4.active = 0;
+        self.view4.bar_at = (0.0, 0.0);
+        self.view4.bar_drag = None;
         let n = match split {
             None => 0,
             Some(Split::Spreadsheet) => 4,
@@ -273,16 +279,21 @@ impl ReaderWindow {
         let d = self.doc_rect;
         self.view4.area = d;
         let bar = self.px(4.8).round();
-        let (hw, hh) = (((d[2] - bar) / 2.0).floor(), ((d[3] - bar) / 2.0).floor());
+        let (fx, fy) = self.view4.bar_at;
+        let (hw, hh) = (
+            ((d[2] - bar) * (0.5 + fx)).floor(),
+            ((d[3] - bar) * (0.5 + fy)).floor(),
+        );
+        let (rw, rh) = (d[2] - bar - hw, d[3] - bar - hh);
         let (x2, y2) = (d[0] + hw + bar, d[1] + hh + bar);
         self.view4.panes = match split {
-            Split::Vertical => vec![[d[0], d[1], hw, d[3]], [x2, d[1], hw, d[3]]],
-            Split::Horizontal => vec![[d[0], d[1], d[2], hh], [d[0], y2, d[2], hh]],
+            Split::Vertical => vec![[d[0], d[1], hw, d[3]], [x2, d[1], rw, d[3]]],
+            Split::Horizontal => vec![[d[0], d[1], d[2], hh], [d[0], y2, d[2], rh]],
             Split::Spreadsheet => vec![
                 [d[0], d[1], hw, hh],
-                [x2, d[1], hw, hh],
-                [d[0], y2, hw, hh],
-                [x2, y2, hw, hh],
+                [x2, d[1], rw, hh],
+                [d[0], y2, hw, rh],
+                [x2, y2, rw, rh],
             ],
         };
         let k = self.view4.active.min(self.view4.panes.len() - 1);
@@ -309,6 +320,9 @@ impl ReaderWindow {
 
     /// Input of the round 4 additions first: `Some(redraw)` when handled.
     pub(crate) fn route_view4(&mut self, input: &Input, m: &dyn TextMeasure) -> Option<bool> {
+        if let Some(r) = self.drag_split_bar(input, m) {
+            return Some(r);
+        }
         // A press or the wheel over another pane moves the view there first.
         if self.view4.split.is_some() && matches!(input, Input::Press { .. } | Input::Wheel(_)) {
             let (x, y) = match input {
@@ -344,6 +358,51 @@ impl ReaderWindow {
             return Some(true);
         }
         None
+    }
+
+    /// Which split bars are at (`x`, `y`): (the vertical one, the horizontal one).
+    pub(crate) fn split_bar_at(&self, x: f32, y: f32) -> Option<(bool, bool)> {
+        let split = self.view4.split?;
+        let a = self.view4.area;
+        if !inside(a, x, y) || self.view4.panes.iter().any(|r| inside(*r, x, y)) {
+            return None;
+        }
+        let p0 = self.view4.panes.first()?;
+        let near_v = (x - (p0[0] + p0[2])).abs() <= self.px(6.0);
+        let near_h = (y - (p0[1] + p0[3])).abs() <= self.px(6.0);
+        Some(match split {
+            Split::Vertical => (true, false),
+            Split::Horizontal => (false, true),
+            Split::Spreadsheet => (near_v, near_h),
+        })
+    }
+
+    /// Dragging a split bar moves it (the panes keep at least a tenth of the area).
+    fn drag_split_bar(&mut self, input: &Input, m: &dyn TextMeasure) -> Option<bool> {
+        match input {
+            Input::Press { x, y, .. } => {
+                let bars = self.split_bar_at(*x, *y)?;
+                self.view4.bar_drag = Some(bars);
+                Some(false)
+            }
+            Input::Drag { x, y } => {
+                let (v, h) = self.view4.bar_drag?;
+                let a = self.view4.area;
+                let bar = self.px(4.8).round();
+                if v {
+                    let f = (x - a[0] - bar / 2.0) / (a[2] - bar).max(1.0) - 0.5;
+                    self.view4.bar_at.0 = f.clamp(-0.4, 0.4);
+                }
+                if h {
+                    let f = (y - a[1] - bar / 2.0) / (a[3] - bar).max(1.0) - 0.5;
+                    self.view4.bar_at.1 = f.clamp(-0.4, 0.4);
+                }
+                self.relayout(m);
+                Some(true)
+            }
+            Input::Release { .. } => self.view4.bar_drag.take().map(|_| true),
+            _ => None,
+        }
     }
 
     /// Each frame before page images are prepared: the other panes' pages and AutoScroll.

@@ -33,7 +33,7 @@ pub(crate) struct Lexer<'a> {
     start: usize,
 }
 
-enum Tok {
+pub(crate) enum Tok {
     Obj(Object),
     ArrayStart,
     ArrayEnd,
@@ -51,12 +51,27 @@ impl<'a> Lexer<'a> {
         }
     }
 
+    /// A tokenizer over `s` starting at `pos` (the object reader of [`crate::store`]).
+    pub(crate) fn at(s: &'a [u8], pos: usize) -> Self {
+        Self { s, pos, start: pos }
+    }
+
+    /// Current byte position.
+    pub(crate) fn pos(&self) -> usize {
+        self.pos
+    }
+
+    /// Move to byte position `pos`.
+    pub(crate) fn seek(&mut self, pos: usize) {
+        self.pos = pos.min(self.s.len());
+    }
+
     /// Byte range of the last returned operator with its operands.
     pub(crate) fn span(&self) -> (usize, usize) {
         (self.start, self.pos)
     }
 
-    fn skip_white(&mut self) {
+    pub(crate) fn skip_white(&mut self) {
         while let Some(&c) = self.s.get(self.pos) {
             if is_white(c) {
                 self.pos += 1;
@@ -73,7 +88,7 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn token(&mut self) -> Option<Tok> {
+    pub(crate) fn token(&mut self) -> Option<Tok> {
         loop {
             self.skip_white();
             let c = *self.s.get(self.pos)?;

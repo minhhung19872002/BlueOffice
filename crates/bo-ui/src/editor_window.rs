@@ -520,6 +520,10 @@ pub struct EditorWindow {
     pub(crate) bs: crate::editor_backstage::Backstage,
     /// File › Preferences.
     pub(crate) prefs: Prefs,
+    /// Pages copied or cut in the page grid (a PDF of them), for Ctrl+V in any open document.
+    pub(crate) page_clip: Option<Vec<u8>>,
+    /// Batch Encrypt files and passwords (`editor_five`).
+    pub(crate) five: crate::editor_five::FiveState,
 }
 
 /// Preferences (File › Preferences): comment author, zoom and page display of opened
@@ -578,6 +582,8 @@ impl EditorWindow {
             tools: crate::editor_tools::ToolsState::default(),
             bs: crate::editor_backstage::Backstage::default(),
             prefs: Prefs::default(),
+            page_clip: None,
+            five: crate::editor_five::FiveState::default(),
         }
     }
 
@@ -586,6 +592,7 @@ impl EditorWindow {
         self.edit.reset(self.r.view_mut());
         self.x = crate::editor_actions::Extras::default();
         self.r.open(doc, name, path);
+        self.portfolio_opened();
         self.apply_view_prefs();
         self.org = Organize::default();
         self.sync();
@@ -794,6 +801,10 @@ impl EditorWindow {
                 return true;
             }
         }
+        if self.portfolio_input(&input) {
+            self.sync();
+            return true;
+        }
         let mut redraw = false;
         let mut used = false;
         let reader_tool = self.r.current_tool();
@@ -910,6 +921,9 @@ impl EditorWindow {
                 return true;
             }
         }
+        if self.object_key(k, mods) {
+            return true;
+        }
         if k == Key::Delete && !self.edit.selected.is_empty() && self.tool.is_some() {
             self.command("ed.delete", m);
             return true;
@@ -1018,6 +1032,8 @@ impl EditorWindow {
             || self.design_command(cmd)
             || self.more_command(cmd)
             || self.more2_command(cmd)
+            || self.arrange_command(cmd)
+            || self.five_command(cmd)
         {
             return;
         }
@@ -1290,6 +1306,8 @@ impl EditorWindow {
             if let Some((d, what)) = self.dialog2.take() {
                 if let crate::editor_actions::Ask2::Tools(t) = what {
                     self.tools_answer(t, b, &d.values());
+                } else if let crate::editor_actions::Ask2::Five(t) = what {
+                    self.five_answer(t, b, &d.values());
                 } else if b == DialogButton::Ok {
                     self.answer2(what, &d.values());
                 }
@@ -1420,7 +1438,10 @@ impl EditorWindow {
             self.certificate_picked(bytes);
             return;
         }
-        if self.more_file_picked(purpose, bytes) || self.more2_file_picked(purpose, &name, bytes) {
+        if self.five_file_picked(purpose, &name, bytes)
+            || self.more_file_picked(purpose, bytes)
+            || self.more2_file_picked(purpose, &name, bytes)
+        {
             return;
         }
         if self.tools_file_picked(purpose, &name, bytes) {
@@ -1559,6 +1580,10 @@ impl EditorWindow {
                 Some(v) => self.edit.release(v),
                 None => false,
             },
+            Input::Context { x, y } if inside(area, x, y) && tool == EditTool::Object => {
+                self.object_menu(x, y);
+                true
+            }
             Input::Move { x, y } if inside(area, x, y) => {
                 if let Some(v) = self.r.view_mut() {
                     self.edit.hover(v, x, y, tool);
@@ -1675,8 +1700,22 @@ impl EditorWindow {
         let sizes: Vec<(f32, f32)> = (0..n).map(|i| v.page_size(i)).collect();
         self.org.layout(&sizes);
         match *input {
+            Input::Press { x, y, .. } if self.org.slider_press(x, y) => true,
+            Input::Drag { x, .. } if self.org.sliding => {
+                self.org.slide_to(x);
+                true
+            }
+            Input::Release { .. } if self.org.sliding => {
+                self.org.sliding = false;
+                true
+            }
+            Input::Zoom(n) if inside(self.org.frame, self.pointer.0, self.pointer.1) => {
+                let z = self.org.zoom() * 1.1_f32.powf(n);
+                self.org.set_zoom(z);
+                true
+            }
             Input::Press { x, y, count, shift } if inside(self.org.frame, x, y) => {
-                if let Some(i) = self.org.press(x, y, shift) {
+                if let Some(i) = self.org.press(x, y, shift, self.edit.mods.ctrl) {
                     if count >= 2 {
                         // Open the page in the document view.
                         self.open_page(i, m);
@@ -1686,6 +1725,19 @@ impl EditorWindow {
             }
             Input::Drag { x, y } if self.org.dragging() => {
                 self.org.drag_to(x, y);
+                true
+            }
+            Input::Release { x, y }
+                if self.org.dragging() && self.org.drag_moved() && {
+                    let t = self.r.doc_tab_at(x, y);
+                    t.is_some() && t != Some(self.r.active_tab())
+                } =>
+            {
+                // Dropped on another document's tab: copy the pages to its end.
+                self.org.cancel_drag();
+                if let Some(t) = self.r.doc_tab_at(x, y) {
+                    self.copy_pages_to_tab(t);
+                }
                 true
             }
             Input::Release { x, y } if self.org.dragging() => {
@@ -1722,6 +1774,9 @@ impl EditorWindow {
         match (k, mods.ctrl) {
             (Key::Delete, _) => self.command("org.delete", m),
             (Key::Letter('a'), true) => self.org.select_range(0, n.saturating_sub(1)),
+            (Key::Letter('c'), true) => self.copy_pages(false),
+            (Key::Letter('x'), true) => self.copy_pages(true),
+            (Key::Letter('v'), true) => self.paste_pages(),
             (Key::Left | Key::Up | Key::Right | Key::Down | Key::Home | Key::End, false) => {
                 self.org.step(k, mods.shift, n);
             }
@@ -1753,6 +1808,7 @@ impl EditorWindow {
     /// Paint the window.
     pub fn paint(&mut self, p: &mut dyn Painter) {
         self.r.paint(p);
+        self.paint_portfolio(p);
         if self.organize_on() {
             if let (Some(v), Some(base)) = (self.r.view(), self.r.key_base()) {
                 let labels: Vec<String> = (0..v.page_count())

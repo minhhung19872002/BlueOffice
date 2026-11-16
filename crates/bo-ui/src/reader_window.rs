@@ -52,6 +52,8 @@ mod bs5;
 // Preferences, Batch Print (BlueReader round 6).
 #[path = "reader_keys7_win.rs"]
 mod keys7;
+#[path = "reader_panels8_win.rs"]
+mod panels8;
 #[path = "reader_prefs6_win.rs"]
 mod prefs6;
 
@@ -104,6 +106,10 @@ pub enum Panel {
     Comments,
     /// A panel of a window built on this one ([`ExtraPanel`], BlueEditor's signatures).
     Extra,
+    /// Optional content groups (BlueReader, shown when the document has layers).
+    Layers,
+    /// Files attached to the document and its pages (BlueReader).
+    Attachments,
 }
 
 /// A navigation panel supplied by a window built on this one: its column icon and rows.
@@ -167,6 +173,14 @@ pub enum ReaderRequest {
         purpose: String,
         /// Pixels per point.
         scale: f32,
+    },
+    /// Open an attachment (not a PDF) with the program Windows associates with its type; the
+    /// window has asked first and only passes documents and pictures.
+    OpenAttachment {
+        /// File name.
+        name: String,
+        /// File contents.
+        bytes: Vec<u8>,
     },
     /// Open a protected file with a password.
     OpenWithPassword {
@@ -493,6 +507,8 @@ pub struct ReaderWindow {
     prefs6: prefs6::Prefs6,
     /// Keyboard access to the ribbon (key tips, focus ring).
     keys7: keys7::KeyLevel,
+    /// Layers / Attachments panels and the comment list of round 8.
+    panels8: panels8::Panels8,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -573,6 +589,7 @@ impl ReaderWindow {
             tabs5: tabs5::Tabs5::default(),
             prefs6: prefs6::Prefs6::default(),
             keys7: keys7::KeyLevel::Off,
+            panels8: panels8::Panels8::default(),
         }
     }
 
@@ -1222,6 +1239,7 @@ impl ReaderWindow {
             ("nav.pages", Panel::Pages),
             ("nav.comments", Panel::Comments),
         ];
+        icons.extend(self.nav8());
         if let Some(e) = &self.extra_panel {
             icons.push((e.nav_id, Panel::Extra));
         }
@@ -2722,6 +2740,8 @@ impl ReaderWindow {
                         Kind::Nav(Panel::Pages) => "pages",
                         Kind::Nav(Panel::Comments) => "comments",
                         Kind::Nav(Panel::Extra) => self.extra_panel.as_ref().map_or("", |e| e.icon),
+                        Kind::Nav(Panel::Layers) => "layers",
+                        Kind::Nav(Panel::Attachments) => "attach",
                         Kind::Small(i) | Kind::Quick(i) => i,
                         _ => "",
                     };
@@ -2900,6 +2920,7 @@ impl ReaderWindow {
             d.paint(p, &self.theme, self.size, true);
         }
         self.paint_extra_dialogs(p);
+        self.paint_panels8_overlay(p);
     }
 
     fn tool_id(&self) -> &'static str {
@@ -2936,6 +2957,11 @@ impl ReaderWindow {
             ("nav.bookmarks" | "panel.bookmarks", Some(Panel::Bookmarks))
                 | ("nav.pages" | "panel.pages", Some(Panel::Pages))
                 | ("nav.comments" | "panel.comments", Some(Panel::Comments))
+                | ("nav.layers" | "panel.layers", Some(Panel::Layers))
+                | (
+                    "nav.attachments" | "panel.attachments",
+                    Some(Panel::Attachments)
+                )
         ) || (self.panel_open() == Some(Panel::Extra)
             && self.extra_panel.as_ref().is_some_and(|e| e.nav_id == id))
     }
@@ -3156,9 +3182,15 @@ impl ReaderWindow {
                 .extra_panel
                 .as_ref()
                 .map_or_else(String::new, |e| e.title.clone()),
+            Panel::Layers => self.t("pdfPanels.layers"),
+            Panel::Attachments => self.t("pdfPanels.attachments"),
         };
         let ts = self.style(16.0, false);
         p.text(&title, r[0] + self.px(8.8), r[1] + self.px(10.4), ts, TEXT);
+        if self.panel8(panel) {
+            self.paint_panel8(p, r, panel);
+            return;
+        }
         let list_top = r[1]
             + if panel == Panel::Bookmarks {
                 self.paint_bookmark_tools(p, r)
@@ -3304,6 +3336,7 @@ impl ReaderWindow {
                 }
                 self.panel_rows = rows;
             }
+            Panel::Layers | Panel::Attachments => {}
             Panel::Extra => {
                 let extra = self.extra_panel.clone().unwrap_or_default();
                 if extra.rows.is_empty() {

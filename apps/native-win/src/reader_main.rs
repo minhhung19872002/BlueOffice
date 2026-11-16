@@ -28,6 +28,8 @@ fn main() {
         }
         return;
     }
+    // Dates of the comment list ("today" shows the time).
+    bo_ui::ReaderWindow::set_local_offset(win32::utc_offset_minutes());
     // Alt / F10 show the ribbon's key tips.
     win32::enable_ribbon_keys();
     // Client area to the window edge, like the reference reader.

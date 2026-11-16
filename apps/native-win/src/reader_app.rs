@@ -655,6 +655,11 @@ impl Shell {
                 ReaderRequest::SaveBytes { name, bytes } => {
                     self.save_bytes(&name, &bytes);
                 }
+                ReaderRequest::OpenAttachment { name, bytes } => {
+                    if let Err(e) = open_attachment(&name, &bytes) {
+                        self.window.set_status(&e);
+                    }
+                }
                 ReaderRequest::SaveMany(files) => {
                     let Some((first, bytes)) = files.first() else {
                         continue;
@@ -1373,5 +1378,41 @@ fn bench_tool(
         r#"{{"pages":{n},"rendered":{limit},"open_ms":{open_ms:.1},"first_page_ms":{first_ms:.1},"list_p50":{l50:.2},"list_p95":{l95:.2},"list_max":{lmax:.1},"gpu_p50":{g50:.2},"gpu_p95":{g95:.2},"gpu_max":{gmax:.1},"path_fallbacks":{fallbacks},"faces":{}}}"#,
         doc.fonts().len()
     );
+    Ok(())
+}
+
+/// Write an attachment to a temporary folder and open it with its associated program. Only
+/// documents and pictures (the window asks first; programs and scripts are saved instead).
+fn open_attachment(name: &str, bytes: &[u8]) -> Result<(), String> {
+    const SAFE: [&str; 21] = [
+        "txt", "csv", "tsv", "log", "md", "json", "xml", "png", "jpg", "jpeg", "gif", "bmp", "tif",
+        "tiff", "docx", "xlsx", "pptx", "odt", "ods", "odp", "rtf",
+    ];
+    // The file name only (no folders), without characters Windows does not allow.
+    let base: String = name
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or("attachment")
+        .chars()
+        .map(|c| {
+            if "<>:\"|?*".contains(c) || c.is_control() {
+                '_'
+            } else {
+                c
+            }
+        })
+        .collect();
+    let ext = std::path::Path::new(&base)
+        .extension()
+        .map(|e| e.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+    if !SAFE.contains(&ext.as_str()) {
+        return Err(format!("{base}: not opened"));
+    }
+    let dir = std::env::temp_dir().join("BlueReader");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let path = dir.join(base.trim_start_matches('.'));
+    std::fs::write(&path, bytes).map_err(|e| format!("{}: {e}", path.display()))?;
+    win32::shell_open(&path, "open");
     Ok(())
 }

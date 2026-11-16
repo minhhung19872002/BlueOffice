@@ -106,6 +106,19 @@ fn shape(name: &str) -> &'static [Part] {
         "attach" => &[S(
             "M17 7.5l-7.5 7.5a2 2 0 0 0 2.8 2.8l8-8a4 4 0 0 0-5.6-5.6l-8 8a6 6 0 0 0 8.5 8.5l6.5-6.5",
         )],
+        // Round 8 panels (ours: stacked plates, clip with a plus, tree rows with a plus /
+        // minus box, framed arrows, bars by length, a funnel).
+        "layers" => &[S("M12 3.5l8.5 4.5-8.5 4.5-8.5-4.5z"), A("M3.5 12.5l8.5 4.5 8.5-4.5"), S("M3.5 16.5l8.5 4.5 8.5-4.5")],
+        "attachAdd" => &[
+            S("M13.5 7l-6 6a1.8 1.8 0 0 0 2.5 2.5l6.5-6.5a3.5 3.5 0 0 0-5-5L5 10.5a5.2 5.2 0 0 0 7.4 7.4"),
+            A("M18.5 14.5v7 M15 18h7"),
+        ],
+        "expandAll" => &[S("M3 4h8v8H3z M14 8h7 M3 16h18 M3 20.5h18"), A("M5 8h4 M7 6v4")],
+        "collapseAll" => &[S("M3 4h8v8H3z M14 8h7 M3 16h18 M3 20.5h18"), A("M5 8h4")],
+        "prevItem" => &[S("M4 4h16v16H4z"), A("M14 8l-4 4 4 4")],
+        "nextItem" => &[S("M4 4h16v16H4z"), A("M10 8l4 4-4 4")],
+        "sortAZ" => &[S("M3 6h11 M3 11h8 M3 16h5"), A("M18 4v16 M15 17l3 3 3-3")],
+        "funnel" => &[S("M3.5 4.5h17l-6.5 8v6.5l-4 2v-8.5z")],
         "first" => &[S("M12 6l-6 6 6 6 M18 6l-6 6 6 6")],
         "prev" => &[S("M15 5l-7 7 7 7")],
         "next" => &[S("M9 5l7 7-7 7")],

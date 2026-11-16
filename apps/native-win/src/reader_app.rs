@@ -27,6 +27,26 @@ fn refresh_text_scale() {
 }
 
 /// Interface text size grown by the Windows text size setting (as BlueDoc does).
+/// `BO_READER_MEMSTEPS=<file>`: append "<ms since 1970> <step>" and wait 2 s after each
+/// start-up step, so an outside sampler can attribute private bytes (round 8 measurements).
+fn mem_step(step: &str) {
+    let Ok(path) = std::env::var("BO_READER_MEMSTEPS") else {
+        return;
+    };
+    let ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis());
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+    {
+        use std::io::Write as _;
+        let _ = writeln!(f, "{ms} {step}");
+    }
+    std::thread::sleep(std::time::Duration::from_secs(2));
+}
+
 fn ui_size(size: f32) -> f32 {
     (size * f32::from_bits(TEXT_SCALE.load(Ordering::Relaxed)) - 0.01).round()
 }
@@ -167,6 +187,9 @@ struct Gpu {
     /// Page images dropped since the driver's memory was last trimmed, and when that was.
     dropped: usize,
     trimmed: Instant,
+    /// Frames drawn since the last trim and when the last one was (idle trim, round 8).
+    untrimmed: bool,
+    rendered: Instant,
 }
 
 struct Store<'a> {
@@ -267,6 +290,15 @@ impl Painter for WinPainter<'_, '_> {
             .text(text, x, y, ui_size(style.size), style.bold, color);
     }
     fn text_font(&mut self, text: &str, x: f32, y: f32, font: &Font<'_>, color: Rgba) {
+        // No family: the interface font grown like interface text (BlueReader's bold 700
+        // comment authors).
+        if font.family.is_empty() {
+            let mut f = spec(font);
+            f.family = "Segoe UI";
+            f.size = ui_size(font.size);
+            self.frame.text_font(text, x, y, &f, color);
+            return;
+        }
         self.frame.text_font(text, x, y, &spec(font), color);
     }
     fn path(&mut self, segs: &[PathSeg], fill: Option<Rgba>, stroke: Option<(Rgba, f32)>) {
@@ -639,6 +671,15 @@ impl Shell {
                         );
                     }
                 }
+                // Share › Show in Folder: Explorer with the file selected.
+                ReaderRequest::Command(c) if c.starts_with("host.reveal:") => {
+                    let path = &c["host.reveal:".len()..];
+                    if std::path::Path::new(path).is_file() {
+                        let _ = std::process::Command::new("explorer.exe")
+                            .arg(format!("/select,{path}"))
+                            .spawn();
+                    }
+                }
                 ReaderRequest::Command(_) => {}
                 ReaderRequest::PickFile { purpose, filters } => {
                     let f: Vec<(&str, &str)> = filters
@@ -654,6 +695,11 @@ impl Shell {
                 }
                 ReaderRequest::SaveBytes { name, bytes } => {
                     self.save_bytes(&name, &bytes);
+                }
+                ReaderRequest::OpenAttachment { name, bytes } => {
+                    if let Err(e) = open_attachment(&name, &bytes) {
+                        self.window.set_status(&e);
+                    }
                 }
                 ReaderRequest::SaveMany(files) => {
                     let Some((first, bytes)) = files.first() else {
@@ -727,6 +773,8 @@ impl Shell {
             painted = p0.elapsed();
         });
         self.last_frame = [t1 - t0, painted, t1.elapsed().saturating_sub(painted)];
+        gpu.untrimmed = true;
+        gpu.rendered = Instant::now();
         // Page images left the view: give the driver's freed memory back (at most once a
         // second, after the frame).
         if gpu.dropped > 0 && gpu.trimmed.elapsed().as_millis() > 1000 {
@@ -747,18 +795,23 @@ impl Handler for Shell {
     fn created(&mut self, hwnd: isize, width: u32, height: u32, scale: f32) -> Result<(), String> {
         refresh_text_scale();
         self.hwnd = hwnd;
+        mem_step("window");
         let device = Device::new()?;
+        mem_step("device");
         if let Err(e) = device.update_window_monitor(hwnd) {
             eprintln!("monitor text settings: {e}");
         }
         device.set_text_rendering(page_text());
         let surface = WindowSurface::new(&device, hwnd, width, height)?;
+        mem_step("swap chain");
         self.gpu = Some(Gpu {
             device,
             surface,
             pages: HashMap::new(),
             dropped: 0,
             trimmed: Instant::now(),
+            untrimmed: false,
+            rendered: Instant::now(),
         });
         let m = Measure(self.gpu.as_ref().map(|g| &g.device));
         self.window.handle(Input::Scale(scale), &m);
@@ -773,6 +826,20 @@ impl Handler for Shell {
     }
 
     fn input(&mut self, input: Input, age_ms: u32) {
+        // A second after the last frame, with nothing left to draw, the driver gives back the
+        // memory it kept while drawing (`BO_READER_IDLE_TRIM=0` turns it off for measuring).
+        if matches!(input, Input::Tick) && !self.more {
+            if let Some(gpu) = self.gpu.as_mut() {
+                if gpu.untrimmed
+                    && gpu.rendered.elapsed().as_millis() > 1000
+                    && std::env::var("BO_READER_IDLE_TRIM").as_deref() != Ok("0")
+                {
+                    gpu.device.trim();
+                    gpu.untrimmed = false;
+                    gpu.trimmed = Instant::now();
+                }
+            }
+        }
         let kind = match &input {
             Input::Text(_) => "text",
             Input::Key(..) => "key",
@@ -1373,5 +1440,41 @@ fn bench_tool(
         r#"{{"pages":{n},"rendered":{limit},"open_ms":{open_ms:.1},"first_page_ms":{first_ms:.1},"list_p50":{l50:.2},"list_p95":{l95:.2},"list_max":{lmax:.1},"gpu_p50":{g50:.2},"gpu_p95":{g95:.2},"gpu_max":{gmax:.1},"path_fallbacks":{fallbacks},"faces":{}}}"#,
         doc.fonts().len()
     );
+    Ok(())
+}
+
+/// Write an attachment to a temporary folder and open it with its associated program. Only
+/// documents and pictures (the window asks first; programs and scripts are saved instead).
+fn open_attachment(name: &str, bytes: &[u8]) -> Result<(), String> {
+    const SAFE: [&str; 21] = [
+        "txt", "csv", "tsv", "log", "md", "json", "xml", "png", "jpg", "jpeg", "gif", "bmp", "tif",
+        "tiff", "docx", "xlsx", "pptx", "odt", "ods", "odp", "rtf",
+    ];
+    // The file name only (no folders), without characters Windows does not allow.
+    let base: String = name
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or("attachment")
+        .chars()
+        .map(|c| {
+            if "<>:\"|?*".contains(c) || c.is_control() {
+                '_'
+            } else {
+                c
+            }
+        })
+        .collect();
+    let ext = std::path::Path::new(&base)
+        .extension()
+        .map(|e| e.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+    if !SAFE.contains(&ext.as_str()) {
+        return Err(format!("{base}: not opened"));
+    }
+    let dir = std::env::temp_dir().join("BlueReader");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let path = dir.join(base.trim_start_matches('.'));
+    std::fs::write(&path, bytes).map_err(|e| format!("{}: {e}", path.display()))?;
+    win32::shell_open(&path, "open");
     Ok(())
 }

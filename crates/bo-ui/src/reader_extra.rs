@@ -75,6 +75,11 @@ impl ReaderWindow {
     }
 
     /// Full Screen or a dialog of the additions takes the whole window.
+    pub(crate) fn full_screen8(&self) -> bool {
+        self.extra.mode == Mode::Full
+    }
+
+    /// Full Screen or a dialog of the additions takes the whole window.
     pub(crate) fn extra_modal(&self) -> bool {
         self.extra.mode == Mode::Full
             || self.extra.print.is_some()
@@ -258,6 +263,11 @@ impl ReaderWindow {
     /// Input for the additions first: `Some(redraw)` when handled.
     #[allow(clippy::too_many_lines)]
     pub(crate) fn route_extra(&mut self, input: &Input, m: &dyn TextMeasure) -> Option<bool> {
+        if self.extra.print.is_none() {
+            if let Some(r) = self.route_panels8(input, m) {
+                return Some(r);
+            }
+        }
         if let Some(r) = self.route_prefs6(input, m) {
             return Some(r);
         }
@@ -504,6 +514,11 @@ impl ReaderWindow {
                     ));
                 }
                 items.push(("comment.delete", self.t("pdfExtra.delete")));
+                if self.profile.is_none() {
+                    // Review status and checkmark (BlueReader round 8, reader_panels8_win.rs).
+                    items.push(("comment.setStatus", self.t("pdfPanels.setStatus")));
+                    items.push(("comment.mark", self.t("pdfPanels.mark")));
+                }
                 let items = items
                     .into_iter()
                     .map(|(cmd, label)| MenuItem {
@@ -523,6 +538,7 @@ impl ReaderWindow {
     /// Commands of the additions; `true` when handled.
     pub(crate) fn command_extra(&mut self, cmd: &str, m: &dyn TextMeasure) -> bool {
         if self.command_prefs6(cmd, m)
+            || self.command_panels8(cmd, m)
             || self.command_viewx(cmd, m)
             || self.command_view4(cmd, m)
             || self.command_tabs5(cmd, m)
@@ -609,7 +625,7 @@ impl ReaderWindow {
 
     /// Redraw after a comment changed; keep the selection on the comment that moved by
     /// `delta` from `rect` (page points).
-    fn after_comment_change(&mut self, rect: Option<[f32; 4]>, (dx, dy): (f32, f32)) {
+    pub(crate) fn after_comment_change(&mut self, rect: Option<[f32; 4]>, (dx, dy): (f32, f32)) {
         self.document_changed();
         self.extra.selected = rect.and_then(|r| {
             let t = self.tabs.get(self.active)?;
@@ -647,6 +663,7 @@ impl ReaderWindow {
         p.fill_rect(0.0, 1.0, 1.0, h - 1.0, self.look.edge);
         p.fill_rect(w - 1.0, 1.0, 1.0, h - 1.0, self.look.edge);
         p.fill_rect(0.0, h - 1.0, w, 1.0, self.look.edge);
+        self.paint_full_exit8(p);
         true
     }
 

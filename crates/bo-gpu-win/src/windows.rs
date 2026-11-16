@@ -19,7 +19,8 @@ use windows::Win32::Graphics::Direct3D::{
     D3D_DRIVER_TYPE, D3D_DRIVER_TYPE_HARDWARE, D3D_DRIVER_TYPE_WARP,
 };
 use windows::Win32::Graphics::Direct3D11::{
-    D3D11CreateDevice, ID3D11Device, D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_SDK_VERSION,
+    D3D11CreateDevice, ID3D11Device, D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+    D3D11_CREATE_DEVICE_SINGLETHREADED, D3D11_SDK_VERSION,
 };
 use windows::Win32::Graphics::DirectWrite::DWRITE_MEASURING_MODE_NATURAL;
 use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM;
@@ -126,6 +127,10 @@ pub struct Device {
 impl Device {
     /// Create a hardware device, falling back to WARP if the hardware driver is unavailable.
     pub fn new() -> Result<Self, String> {
+        // `BO_GPU_WARP=1`: the software rasterizer (memory measurements).
+        if std::env::var("BO_GPU_WARP").as_deref() == Ok("1") {
+            return Self::create(D3D_DRIVER_TYPE_WARP, Driver::Software);
+        }
         Self::create(D3D_DRIVER_TYPE_HARDWARE, Driver::Hardware)
             .or_else(|_| Self::create(D3D_DRIVER_TYPE_WARP, Driver::Software))
     }
@@ -397,7 +402,13 @@ impl Device {
                 None::<&IDXGIAdapter>,
                 kind,
                 HMODULE::default(),
-                D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+                // `BO_GPU_SINGLETHREADED=1`: a device without its own locking (memory
+                // measurements of BlueReader round 8; every caller draws on one thread).
+                if std::env::var("BO_GPU_SINGLETHREADED").as_deref() == Ok("1") {
+                    D3D11_CREATE_DEVICE_BGRA_SUPPORT | D3D11_CREATE_DEVICE_SINGLETHREADED
+                } else {
+                    D3D11_CREATE_DEVICE_BGRA_SUPPORT
+                },
                 None,
                 D3D11_SDK_VERSION,
                 Some(&mut d3d),
@@ -406,6 +417,7 @@ impl Device {
             )
             .map_err(|e| e.to_string())?;
             let d3d = d3d.ok_or("Direct3D returned no device")?;
+            mem_mark("d3d11");
             let dxgi: IDXGIDevice = d3d.cast().map_err(|e| e.to_string())?;
             let factory: ID2D1Factory1 = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, None)
                 .map_err(|e| e.to_string())?;
@@ -413,13 +425,16 @@ impl Device {
             let context = device
                 .CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE)
                 .map_err(|e| e.to_string())?;
+            mem_mark("d2d");
+            let faces = bo_dwrite::FaceCache::new()?;
+            mem_mark("dwrite");
             Ok(Self {
                 d3d,
                 factory,
                 _device: device,
                 context,
                 driver,
-                faces: RefCell::new(bo_dwrite::FaceCache::new()?),
+                faces: RefCell::new(faces),
                 text: RefCell::new(TextRendering::System),
                 monitor: Cell::new(0),
                 pixel_geometry: Cell::new(None),
@@ -436,4 +451,24 @@ impl Device {
             })
         }
     }
+}
+
+/// `BO_READER_MEMSTEPS=<file>`: log a device creation step ("<ms since 1970> <step>") and wait
+/// 2 s, so an outside sampler can attribute private bytes (BlueReader round 8).
+fn mem_mark(step: &str) {
+    let Ok(path) = std::env::var("BO_READER_MEMSTEPS") else {
+        return;
+    };
+    let ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis());
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+    {
+        use std::io::Write as _;
+        let _ = writeln!(f, "{ms} {step}");
+    }
+    std::thread::sleep(std::time::Duration::from_secs(2));
 }

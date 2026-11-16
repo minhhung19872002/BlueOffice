@@ -52,8 +52,12 @@ mod bs5;
 // Preferences, Batch Print (BlueReader round 6).
 #[path = "reader_keys7_win.rs"]
 mod keys7;
+#[path = "reader_panels8_win.rs"]
+mod panels8;
 #[path = "reader_prefs6_win.rs"]
 mod prefs6;
+#[path = "reader_skins8_win.rs"]
+mod skins8;
 
 /// Measured greys of the reference reader at 125 %.
 const CHROME: Rgba = Rgba(251, 251, 253, 255);
@@ -104,6 +108,10 @@ pub enum Panel {
     Comments,
     /// A panel of a window built on this one ([`ExtraPanel`], BlueEditor's signatures).
     Extra,
+    /// Optional content groups (BlueReader, shown when the document has layers).
+    Layers,
+    /// Files attached to the document and its pages (BlueReader).
+    Attachments,
 }
 
 /// A navigation panel supplied by a window built on this one: its column icon and rows.
@@ -167,6 +175,14 @@ pub enum ReaderRequest {
         purpose: String,
         /// Pixels per point.
         scale: f32,
+    },
+    /// Open an attachment (not a PDF) with the program Windows associates with its type; the
+    /// window has asked first and only passes documents and pictures.
+    OpenAttachment {
+        /// File name.
+        name: String,
+        /// File contents.
+        bytes: Vec<u8>,
     },
     /// Open a protected file with a password.
     OpenWithPassword {
@@ -493,6 +509,8 @@ pub struct ReaderWindow {
     prefs6: prefs6::Prefs6,
     /// Keyboard access to the ribbon (key tips, focus ring).
     keys7: keys7::KeyLevel,
+    /// Layers / Attachments panels and the comment list of round 8.
+    panels8: panels8::Panels8,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -573,6 +591,7 @@ impl ReaderWindow {
             tabs5: tabs5::Tabs5::default(),
             prefs6: prefs6::Prefs6::default(),
             keys7: keys7::KeyLevel::Off,
+            panels8: panels8::Panels8::default(),
         }
     }
 
@@ -736,6 +755,8 @@ impl ReaderWindow {
         // The reference shows bookmarks when the document asks (/PageMode /UseOutlines).
         let panel = (!outline.is_empty() && doc.page_mode().as_deref() == Some("UseOutlines"))
             .then_some(Panel::Bookmarks);
+        // ... and attachments when the document has embedded files (round 8, measured).
+        let panel = panel.or_else(|| self.first_panel8(&doc));
         let mut expanded = HashSet::new();
         tabs5::open_items(&outline, &mut Vec::new(), &mut expanded);
         let view = ReaderView::new(doc);
@@ -1222,6 +1243,7 @@ impl ReaderWindow {
             ("nav.pages", Panel::Pages),
             ("nav.comments", Panel::Comments),
         ];
+        icons.extend(self.nav8());
         if let Some(e) = &self.extra_panel {
             icons.push((e.nav_id, Panel::Extra));
         }
@@ -2103,6 +2125,7 @@ impl ReaderWindow {
 
     fn run_search(&mut self, forward: bool) {
         let q = self.search_text.clone();
+        let (case, word) = self.find_options8();
         let Some(t) = self.tabs.get_mut(self.active) else {
             return;
         };
@@ -2112,7 +2135,7 @@ impl ReaderWindow {
         } else {
             // The first hit after the current page shows at once; the rest of a long document
             // is read on ticks (`tick_search`).
-            t.view.find_start(&q, false, false);
+            t.view.find_start(&q, case, word);
         }
         self.search_status();
     }
@@ -2722,12 +2745,17 @@ impl ReaderWindow {
                         Kind::Nav(Panel::Pages) => "pages",
                         Kind::Nav(Panel::Comments) => "comments",
                         Kind::Nav(Panel::Extra) => self.extra_panel.as_ref().map_or("", |e| e.icon),
+                        Kind::Nav(Panel::Layers) => "layers",
+                        Kind::Nav(Panel::Attachments) => "attach",
                         Kind::Small(i) | Kind::Quick(i) => i,
                         _ => "",
                     };
                     let enabled = self.enabled(c.id);
                     let quick_band = band.is_some() && matches!(c.kind, Kind::Quick(_));
-                    if enabled && (on || down || hot) {
+                    let tab8 = on && matches!(c.kind, Kind::Nav(_)) && self.profile.is_none();
+                    if tab8 {
+                        self.paint_nav_tab8(p, r);
+                    } else if enabled && (on || down || hot) {
                         let fill = if quick_band {
                             title_hover
                         } else if on || down {
@@ -2776,6 +2804,9 @@ impl ReaderWindow {
                         ink2,
                         self.look.icon_stroke,
                     );
+                    if c.kind == Kind::Nav(Panel::Attachments) {
+                        self.paint_nav_badge8(p, r);
+                    }
                 }
                 Kind::Row(icon, label, dropdown) => {
                     let enabled = self.enabled(c.id);
@@ -2900,6 +2931,7 @@ impl ReaderWindow {
             d.paint(p, &self.theme, self.size, true);
         }
         self.paint_extra_dialogs(p);
+        self.paint_panels8_overlay(p);
     }
 
     fn tool_id(&self) -> &'static str {
@@ -2936,6 +2968,11 @@ impl ReaderWindow {
             ("nav.bookmarks" | "panel.bookmarks", Some(Panel::Bookmarks))
                 | ("nav.pages" | "panel.pages", Some(Panel::Pages))
                 | ("nav.comments" | "panel.comments", Some(Panel::Comments))
+                | ("nav.layers" | "panel.layers", Some(Panel::Layers))
+                | (
+                    "nav.attachments" | "panel.attachments",
+                    Some(Panel::Attachments)
+                )
         ) || (self.panel_open() == Some(Panel::Extra)
             && self.extra_panel.as_ref().is_some_and(|e| e.nav_id == id))
     }
@@ -3145,6 +3182,7 @@ impl ReaderWindow {
             return;
         }
         p.fill_rect(r[0], r[1], r[2], r[3], self.look.chrome);
+        self.paint_panel_edge8(p);
         let Some(panel) = self.panel_open() else {
             return;
         };
@@ -3156,7 +3194,16 @@ impl ReaderWindow {
                 .extra_panel
                 .as_ref()
                 .map_or_else(String::new, |e| e.title.clone()),
+            Panel::Layers => self.t("pdfPanels.layers"),
+            Panel::Attachments => self.t("pdfPanels.attachments"),
         };
+        if self.panel8(panel) {
+            // Measured at 125 %: title 3 px higher and larger than the shared one.
+            let ts = self.style(17.5, false);
+            p.text(&title, r[0] + self.px(8.8), r[1] + self.px(7.6), ts, TEXT);
+            self.paint_panel8(p, r, panel);
+            return;
+        }
         let ts = self.style(16.0, false);
         p.text(&title, r[0] + self.px(8.8), r[1] + self.px(10.4), ts, TEXT);
         let list_top = r[1]
@@ -3304,6 +3351,7 @@ impl ReaderWindow {
                 }
                 self.panel_rows = rows;
             }
+            Panel::Layers | Panel::Attachments => {}
             Panel::Extra => {
                 let extra = self.extra_panel.clone().unwrap_or_default();
                 if extra.rows.is_empty() {

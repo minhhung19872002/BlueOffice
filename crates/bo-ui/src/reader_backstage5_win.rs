@@ -22,8 +22,8 @@ const WHITE: Rgba = Rgba(255, 255, 255, 255);
 const GREY: Rgba = Rgba(0xC1, 0xC1, 0xC1, 255);
 
 /// Left column: command, label key; `None` is a rule. The reference reader's order; its Share
-/// and Skins are not ours.
-const ITEMS: [Option<(&str, &str)>; 12] = [
+/// and Skins are ours (round 8, `reader_skins8_win.rs`).
+const ITEMS: [Option<(&str, &str)>; 14] = [
     Some(("bs.open", "pdfReader.open")),
     None,
     Some(("bs.properties", "pdfProps.menu")),
@@ -31,11 +31,13 @@ const ITEMS: [Option<(&str, &str)>; 12] = [
     Some(("file.saveAs", "pdfReader.saveAs")),
     Some(("file.print", "pdfReader.print")),
     Some(("bs.batch", "pdfBatch.menu")),
+    Some(("bs.share", "pdfShare.title")),
     None,
     Some(("bs.revert", "pdfBackstage.revert")),
     Some(("file.close", "pdfReader.close")),
     None,
     Some(("bs.prefs", "pdfPrefs.menu")),
+    Some(("bs.skins", "pdfSkins.title")),
 ];
 
 /// The File page: chosen page and the hit boxes of the last paint.
@@ -122,14 +124,18 @@ impl ReaderWindow {
 
     fn backstage_command(&mut self, cmd: &str, m: &dyn crate::TextMeasure) {
         match cmd {
-            "bs.open" | "bs.properties" => {
+            "bs.open" | "bs.properties" | "bs.share" | "bs.skins" => {
                 if let Some(b) = self.tabs5.backstage.as_mut() {
-                    b.page = if cmd == "bs.open" {
-                        "bs.open"
-                    } else {
-                        "bs.properties"
+                    b.page = match cmd {
+                        "bs.open" => "bs.open",
+                        "bs.share" => "bs.share",
+                        "bs.skins" => "bs.skins",
+                        _ => "bs.properties",
                     };
                 }
+            }
+            c if c.starts_with("bs.skin.") || c.starts_with("bs.share") => {
+                self.backstage_command8(c);
             }
             "bs.revert" => {
                 self.close_reader_backstage();
@@ -302,6 +308,8 @@ impl ReaderWindow {
                 hits.push((r, format!("bs.recent.{}", path.to_string_lossy())));
                 y += r[3];
             }
+        } else if page == "bs.share" || page == "bs.skins" {
+            self.paint_backstage8(p, page, mx, top, &mut hits);
         } else {
             p.text(&self.t("pdfProps.menu"), mx - px(0.8), ty, title, MUTED);
             let rows = self.description_rows();

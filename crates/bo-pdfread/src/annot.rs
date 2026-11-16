@@ -336,7 +336,10 @@ impl PdfDocument {
                     rect: crate::device_rect(base, rect),
                     contents: s(b"Contents"),
                     author: s(b"T"),
-                    modified: s(b"M"),
+                    // The creation date when there is no modification date (round 8).
+                    modified: Some(s(b"M"))
+                        .filter(|m| !m.is_empty())
+                        .unwrap_or_else(|| s(b"CreationDate")),
                     color: color_of(doc, d),
                     id: a.as_reference().ok(),
                 });

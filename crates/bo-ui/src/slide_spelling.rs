@@ -1,4 +1,4 @@
-//! Review > Spelling (F7): the Spelling pane walks the deck's spelling and grammar issues
+//! Review > Spelling (F7): the Spelling pane walks the deck's misspelt words
 //! from the current slide on, as the reference presentation app does — the flagged word is
 //! selected on its slide, the pane offers Ignore Once / Ignore All / Add and the corrections
 //! with Change / Change All; at the end "Spell check complete". Checking and corrections are
@@ -70,12 +70,16 @@ impl SlideWindow {
         true
     }
 
-    /// Every issue of the deck in checking order.
+    /// Every misspelt word of the deck in checking order (the reference's Spelling pane
+    /// walks spelling only, no grammar or style issues).
     fn deck_issues(&mut self) -> Vec<Value> {
-        self.view
+        let mut all = self
+            .view
             .spell_command(&json!({ "cmd": "slideSpellCheck" }))
             .and_then(|v| v.get("issues").and_then(Value::as_array).cloned())
-            .unwrap_or_default()
+            .unwrap_or_default();
+        all.retain(|i| !i.get("grammar").and_then(Value::as_bool).unwrap_or(false));
+        all
     }
 
     /// Go to the next issue not skipped, from the current slide on (wrapping round).

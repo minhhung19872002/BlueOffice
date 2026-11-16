@@ -679,7 +679,12 @@ impl SlideWindow {
             || self.side.shown())
             && self.view.mode() != ViewMode::Reading
         {
-            CommentsPane::width(self.scale)
+            if self.side.kind == selpane::SideKind::Spelling {
+                // The reference's Spelling pane is wider: 437 device px at 125 %.
+                (349.6 * self.scale).round()
+            } else {
+                CommentsPane::width(self.scale)
+            }
         } else {
             0.0
         };

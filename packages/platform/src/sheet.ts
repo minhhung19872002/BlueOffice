@@ -387,6 +387,12 @@ export interface ValidationSpec {
   error?: string;
   errorStyle?: string;
   prompt?: string;
+  promptTitle?: string;
+  /** Show the input message / error alert (default true). */
+  showInput?: boolean;
+  showError?: boolean;
+  /** Lists: offer the in-cell drop-down (default true). */
+  inCellDropdown?: boolean;
 }
 
 export interface FilterSpec {
@@ -927,7 +933,14 @@ export type SheetCommand =
   | { cmd: 'editCf'; sheet: number; block: number; rule: number; op: CfOp }
   | { cmd: 'clearCf'; sheet: number; range: SheetRange }
   | { cmd: 'validation'; sheet: number; row: number; col: number }
-  | { cmd: 'setValidation'; sheet: number; range: SheetRange; spec: ValidationSpec }
+  | {
+      cmd: 'setValidation';
+      sheet: number;
+      range: SheetRange;
+      spec: ValidationSpec;
+      /** More ranges given the same rule in the same undo step. */
+      also?: SheetRange[];
+    }
   | { cmd: 'setInputs'; sheet: number; cells: [number, number, string][]; validate?: boolean }
   /** Links to other workbooks → `{ links: [{ index, source, target, sheets, formulas, workbook }] }`. */
   | { cmd: 'externalLinks' }

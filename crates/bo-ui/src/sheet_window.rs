@@ -53,8 +53,14 @@ mod options_impl;
 mod pagelayout_impl;
 #[path = "sheet_paste.rs"]
 mod paste_impl;
+#[path = "sheet_protect.rs"]
+mod protect_impl;
+#[path = "sheet_rangepick.rs"]
+mod rangepick_impl;
 #[path = "sheet_review.rs"]
 mod review_impl;
+#[path = "sheet_reviewtab.rs"]
+mod reviewtab_impl;
 #[path = "sheet_tabledesign.rs"]
 mod tabledesign_impl;
 #[path = "sheet_tabs.rs"]
@@ -63,6 +69,8 @@ mod tabs_impl;
 mod totals_impl;
 #[path = "sheet_tstyle.rs"]
 mod tstyle_impl;
+#[path = "sheet_ttc.rs"]
+mod ttc_impl;
 #[path = "sheet_viewmode.rs"]
 mod viewmode_impl;
 use crate::strings::Strings;
@@ -198,6 +206,9 @@ const COMMANDS: [&str; 34] = [
 ];
 
 fn sheet_enabled(id: &str, f: &FormatState) -> bool {
+    if reviewtab_impl::GREYED.contains(&id) {
+        return false;
+    }
     match id {
         "edit.undo" => f.can_undo,
         "edit.redo" => f.can_redo,
@@ -377,6 +388,23 @@ pub struct SheetWindow {
     form: Option<form_impl::Form>,
     form_kind: form_impl::FormKind,
     form_ptr: (f32, f32),
+    /// Click count of the last press on the form (double clicks in owner-drawn areas).
+    form_count: u8,
+    /// Ranges of the rule the open Data Validation dialog shows (Apply to all…).
+    dv_sqref: Vec<serde_json::Value>,
+    /// Cells circled by Circle Invalid Data.
+    invalid_circles: Vec<(u32, u32)>,
+    /// The Spelling dialog's walk, the speller (made when first needed) and the comments
+    /// kept on screen by Show/Hide Comment.
+    spell: Option<reviewtab_impl::SpellState>,
+    speller: Option<bo_spell::Speller>,
+    pinned_comments: Vec<(u32, u32)>,
+    /// The open protection dialog.
+    prot: protect_impl::ProtState,
+    /// The open Text to Columns wizard.
+    ttc: Option<ttc_impl::Ttc>,
+    /// A dialog collapsed while a range is picked on the sheet.
+    pick_state: Option<rangepick_impl::PickState>,
     /// Format Cells state beyond its controls (border edges, orientation, fill).
     fc: fcells_impl::FcState,
     /// Sort dialog: the range sorted and the number of levels shown.
@@ -522,6 +550,15 @@ impl SheetWindow {
             form: None,
             form_kind: form_impl::FormKind::default(),
             form_ptr: (0.0, 0.0),
+            form_count: 1,
+            ttc: None,
+            prot: protect_impl::ProtState::default(),
+            spell: None,
+            speller: None,
+            pinned_comments: Vec::new(),
+            dv_sqref: Vec::new(),
+            invalid_circles: Vec::new(),
+            pick_state: None,
             fc: fcells_impl::FcState::default(),
             sort_range: None,
             sort_levels: 1,
@@ -571,6 +608,8 @@ impl SheetWindow {
         tabledesign_impl::add_icons(&mut w.icons);
         pagelayout_impl::add_icons(&mut w.icons);
         data_impl::install_labels(&mut w.strings);
+        reviewtab_impl::install_labels(&mut w.strings);
+        reviewtab_impl::add_icons(&mut w.icons);
         w.load_functions();
         w.refresh_calc_state();
         w
@@ -595,7 +634,45 @@ impl SheetWindow {
     /// Run a menu / ribbon command by id (`goto.<ref>` selects a range), as a choice of a
     /// menu does.
     pub fn run_command(&mut self, id: &str, text: &dyn TextMeasure) -> bool {
+        // `form.click.<control>[@x,y]` (scripted captures): a click on a control of the open
+        // form, `x`, `y` reference pixels inside it (default 5, 5); `form.dclick.…` doubles.
+        let click = id
+            .strip_prefix("form.click.")
+            .map(|r| (r, 1u8))
+            .or_else(|| id.strip_prefix("form.dclick.").map(|r| (r, 2u8)));
+        if let Some((rest, count)) = click {
+            self.layout_form(text);
+            let (ctl, at) = rest.split_once('@').unwrap_or((rest, "5,5"));
+            let (dx, dy) = at.split_once(',').unwrap_or(("5", "5"));
+            let p = self.form.as_ref().and_then(|f| {
+                let r = f.get(ctl)?.rect;
+                let d = f.dev([
+                    r[0] + dx.parse::<f32>().unwrap_or(5.0),
+                    r[1] + dy.parse::<f32>().unwrap_or(5.0),
+                    0.0,
+                    0.0,
+                ]);
+                Some((d[0], d[1]))
+            });
+            let Some((x, y)) = p else {
+                return false;
+            };
+            let done = self.handle(
+                Input::Press {
+                    x,
+                    y,
+                    count,
+                    shift: false,
+                },
+                text,
+            );
+            self.handle(Input::Release { x, y }, text);
+            return done;
+        }
         let done = self.choose(Choice::Command(id.to_owned()), text);
+        if self.pick_state.is_some() {
+            self.range_pick_follow();
+        }
         self.layout_form(text);
         done
     }
@@ -1393,7 +1470,14 @@ impl SheetWindow {
             Input::Move { x, y } if self.form.is_none() && self.menu.is_none() => Some((x, y)),
             _ => None,
         };
+        let pointer = matches!(
+            input,
+            Input::Press { .. } | Input::Drag { .. } | Input::Release { .. }
+        );
         let mut redraw = self.route(input, text);
+        if pointer && self.pick_state.is_some() {
+            self.range_pick_follow();
+        }
         self.refresh_chart_cache();
         self.sync_table_tab();
         // Contextual tabs shown or hidden by the input (chart selection) need a layout.
@@ -1898,6 +1982,7 @@ impl SheetWindow {
     /// (over the top band).
     pub fn paint_overlay(&self, p: &mut dyn Painter) {
         self.paint_arrows(p);
+        self.paint_invalid_circles(p);
         self.paint_chart_selection(p);
         self.paint_cards(p);
         if self.show_fbar {
@@ -1954,6 +2039,20 @@ impl SheetWindow {
 
     /// Input for the open form: `Some(redraw)` when the form took it.
     fn form_input(&mut self, input: &Input, text: &dyn TextMeasure) -> Option<bool> {
+        if self.form_kind == form_impl::FormKind::RangePick {
+            match self.range_pick_input(input) {
+                Some(None) => return None,
+                Some(Some(r)) => return Some(r),
+                None => {}
+            }
+        }
+        if self.form_kind == form_impl::FormKind::TextToColumns {
+            match input {
+                Input::Drag { x, .. } => return Some(self.ttc_drag(*x)),
+                Input::Release { .. } => return Some(self.ttc_release()),
+                _ => {}
+            }
+        }
         let f = self.form.as_mut()?;
         let ev = match input {
             Input::Text(s) => f.type_text(s),
@@ -1964,11 +2063,17 @@ impl SheetWindow {
             }
             Input::Press { x, y, count, .. } => {
                 self.form_ptr = (*x, *y);
+                self.form_count = *count;
                 f.press(*x, *y, *count)
             }
             Input::Wheel(d) => {
                 let (x, y) = self.form_ptr;
-                return Some(f.wheel(x, y, *d));
+                let d = *d;
+                if self.form_kind == form_impl::FormKind::Protect {
+                    return Some(self.prot_wheel(d));
+                }
+                let f = self.form.as_mut()?;
+                return Some(f.wheel(x, y, d));
             }
             Input::Blink => return Some(true),
             Input::Drag { .. }
@@ -1977,6 +2082,12 @@ impl SheetWindow {
             | Input::Preedit(_) => return Some(false),
             _ => return None,
         };
+        // A range picker button collapses the dialog (round 45).
+        if let form_impl::Event::Canvas(id, ..) = ev {
+            if let Some((ctl, _)) = self.picker_target(id) {
+                return Some(self.start_range_pick(ctl));
+            }
+        }
         Some(match self.form_kind {
             form_impl::FormKind::FormatCells => self.fc_event(&ev),
             kind => self.form_event(kind, &ev, text),
@@ -2003,7 +2114,20 @@ impl SheetWindow {
             }
             _ => {}
         }
-        if self.form_kind == form_impl::FormKind::FormatCells {
+        if id.starts_with("pick") {
+            ttc_impl::paint_pick_button(p, r, f.scale_k());
+        } else if matches!(
+            self.form_kind,
+            form_impl::FormKind::TextToColumns | form_impl::FormKind::TtcAdvanced
+        ) {
+            self.paint_ttc(f, id, r, p);
+        } else if self.form_kind == form_impl::FormKind::Validation && id == "eicon" {
+            Self::paint_validation_icon(f, r, p);
+        } else if self.form_kind == form_impl::FormKind::Protect {
+            self.paint_protect(f, id, r, p);
+        } else if self.form_kind == form_impl::FormKind::RangePick {
+            Self::paint_range_pick(f, id, r, p);
+        } else if self.form_kind == form_impl::FormKind::FormatCells {
             self.fc_paint_canvas(f, id, r, p);
         } else if self.form_kind == form_impl::FormKind::Symbol {
             self.paint_symbol_grid(f, r, p);

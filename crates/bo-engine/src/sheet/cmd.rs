@@ -717,6 +717,10 @@ pub enum SheetCommand {
         range: Rng,
         /// The validation rule.
         spec: ValidationSpec,
+        /// More ranges given the same rule in the same undo step ("Apply these changes to
+        /// all other cells with the same settings").
+        #[serde(default)]
+        also: Vec<Rng>,
     },
     /// Enters a legacy array formula over a range (Ctrl+Shift+Enter): `{ "range": … }`.
     SetArrayFormula {
@@ -2157,6 +2161,23 @@ pub enum SheetCommand {
         /// Only return the split fields.
         #[serde(default)]
         preview: bool,
+        /// Decimal separator of numbers in the text (default: the locale's).
+        #[serde(default)]
+        decimal: Option<char>,
+        /// Thousands separator of numbers in the text (default: the locale's).
+        #[serde(default)]
+        thousands: Option<char>,
+        /// A minus sign after a number makes it negative (`12-` is −12).
+        #[serde(default)]
+        trailing_minus: bool,
+    },
+    /// What Text to Columns guesses for a one-column range (read only):
+    /// `{ mode: "delimited" | "fixed", delimiters, breaks }`.
+    TextToColumnsGuess {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// The cells to split (one column).
+        range: Rng,
     },
     /// Remove the rows of a list that repeat the values of an earlier row in `columns`.
     /// One undo step; `{ removed, remaining }`.
@@ -3656,6 +3677,9 @@ impl SheetEngine {
                 formats,
                 dest,
                 preview,
+                decimal,
+                thousands,
+                trailing_minus,
             } => self.text_to_columns(
                 sheet,
                 &super::datatools_cmd::TextToColumns {
@@ -3664,8 +3688,12 @@ impl SheetEngine {
                     formats,
                     dest,
                     preview,
+                    decimal,
+                    thousands,
+                    trailing_minus,
                 },
             ),
+            C::TextToColumnsGuess { sheet, range } => self.text_to_columns_guess(sheet, range),
             C::RemoveDuplicates {
                 sheet,
                 range,
@@ -4555,16 +4583,42 @@ impl SheetEngine {
                 };
                 let list = bo_sheet::validation::has_dropdown(dv)
                     .then(|| bo_sheet::validation::list_items(wb, sheet, dv, &locale));
+                let sqref: Vec<Value> = dv
+                    .sqref
+                    .iter()
+                    .map(|r| {
+                        json!({ "r0": r.first.row, "c0": r.first.col,
+                                "r1": r.last.row, "c1": r.last.col })
+                    })
+                    .collect();
                 Ok(json!({
                     "kind": dv.kind,
                     "list": list,
                     "prompt": dv.prompt,
                     "promptTitle": dv.prompt_title,
+                    "operator": dv.operator.clone().unwrap_or_else(|| "between".into()),
+                    "formula1": dv.formula1,
+                    "formula2": dv.formula2,
+                    "allowBlank": dv.allow_blank,
+                    "showInput": dv.show_input_message,
+                    "showError": dv.show_error_message,
+                    "inCellDropdown": !dv.show_drop_down,
+                    "errorStyle": dv.error_style.clone().unwrap_or_else(|| "stop".into()),
+                    "errorTitle": dv.error_title,
+                    "error": dv.error,
+                    "sqref": sqref,
                 }))
             }
-            C::SetValidation { sheet, range, spec } => self.edit(sheet, Recalc::No, |wb, _| {
-                bo_sheet::validation::set_rule(wb, sheet, range.range(), &spec)
-                    .then_some(json!({ "ok": true }))
+            C::SetValidation {
+                sheet,
+                range,
+                spec,
+                also,
+            } => self.edit(sheet, Recalc::No, |wb, _| {
+                let ok = std::iter::once(range)
+                    .chain(also)
+                    .all(|r| bo_sheet::validation::set_rule(wb, sheet, r.range(), &spec));
+                ok.then_some(json!({ "ok": true }))
                     .ok_or_else(|| bad("invalid validation rule"))
             }),
             C::SetArrayFormula {

@@ -422,6 +422,11 @@ pub(crate) fn menu(id: &str, functions: &[String]) -> Vec<Entry> {
             e("sheet.refreshAllNow", "commands.sheet.refreshAll"),
             e("sheet.refreshPivots", "sheetData.refreshPivots"),
         ],
+        "sheet.dataValidation" => vec![
+            e("sheet.dataValidationDlg", "sheetDv.menuDialog"),
+            e("sheet.circleInvalid", "sheetDv.circleInvalid"),
+            e("sheet.clearCircles", "sheetDv.clearCircles"),
+        ],
         "sheet.whatIf" => vec![
             e("sheet.scenarios", "sheetData.scenarios"),
             e("sheet.goalSeek", "commands.sheet.goalSeek"),
@@ -918,10 +923,31 @@ fn page_layout() -> Tab {
 }
 
 fn review() -> Tab {
-    use Item::Large as L;
+    use Item::{Labeled as S, Large as L};
+    // As the reference at 1500 px (round 47): Proofing, Accessibility, Language, Comments,
+    // Protect, Ink.
     Tab {
         label: "ribbon.tabs.review",
         groups: vec![
+            Group {
+                label: "sheetRev.groupProofing",
+                large: vec![
+                    L("sheet.spelling"),
+                    L("sheet.thesaurus"),
+                    L("sheet.workbookStats"),
+                ],
+                rows: vec![],
+            },
+            Group {
+                label: "sheetRev.groupAccessibility",
+                large: vec![L("sheet.checkAccessibility")],
+                rows: vec![],
+            },
+            Group {
+                label: "sheetRev.groupLanguage",
+                large: vec![L("sheet.translate")],
+                rows: vec![],
+            },
             Group {
                 label: "sheetMenu.groupComments",
                 large: vec![
@@ -929,13 +955,25 @@ fn review() -> Tab {
                     L("sheet.deleteComment"),
                     L("sheet.prevComment"),
                     L("sheet.nextComment"),
-                    L("sheet.showComments"),
+                ],
+                rows: vec![
+                    vec![S("sheet.showHideComment")],
+                    vec![S("sheet.showComments")],
+                ],
+            },
+            Group {
+                label: "sheetMenu.groupProtect",
+                large: vec![
+                    L("sheet.protectSheet"),
+                    L("sheet.protectWorkbook"),
+                    L("sheet.allowEditRanges"),
+                    L("sheet.unshareWorkbook"),
                 ],
                 rows: vec![],
             },
             Group {
-                label: "sheetMenu.groupProtect",
-                large: vec![L("sheet.protectSheet"), L("sheet.protectWorkbook")],
+                label: "sheetRev.groupInk",
+                large: vec![L("sheet.hideInk")],
                 rows: vec![],
             },
         ],

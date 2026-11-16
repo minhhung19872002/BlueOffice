@@ -2605,6 +2605,21 @@ fn page_break_preview_from_the_status_bar() {
     press(&mut w, (pbp[0] + 5.0, pbp[1] + 5.0), 1);
     assert_eq!(w.view_mode(), ViewMode::PageBreak);
     assert!((w.view().zoom() - 0.6).abs() < 1e-3);
+    // The breaks are those of the sheet at 100 % (the zoom does not move them).
+    let at_60 = w
+        .view_mut()
+        .query(serde_json::json!({ "cmd": "pageBreakPreview" }))
+        .expect("breaks");
+    assert!(w.view_mut().set_zoom(1.0));
+    let at_100 = w
+        .view_mut()
+        .query(serde_json::json!({ "cmd": "pageBreakPreview" }))
+        .expect("breaks");
+    assert_eq!(
+        at_60["areas"][0]["rowBreaks"],
+        at_100["areas"][0]["rowBreaks"]
+    );
+    assert!(w.view_mut().set_zoom(0.6));
     let state = w
         .view_mut()
         .query(serde_json::json!({ "cmd": "sheetViewState" }))

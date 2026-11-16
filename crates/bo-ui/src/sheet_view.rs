@@ -679,6 +679,9 @@ impl SheetView {
     pub fn set_scale(&mut self, scale: f32) {
         if scale > 0.0 && scale != self.scale {
             self.scale = scale;
+            // The pages' row heights follow the screen scale.
+            self.reload_breaks();
+            self.reload_layout();
             self.redraw_all();
             self.refresh();
         }
@@ -723,9 +726,7 @@ impl SheetView {
     fn refresh_with(&mut self, details: bool) {
         // Row heights in whole pixels at this scale, as the reference shows them.
         self.engine.set_display_scale(Some(f64::from(self.k())));
-        // Pages use the row heights at 100 % zoom whatever the view's zoom.
-        self.engine
-            .set_print_scale(Some(f64::from(self.scale * 4.0 / 3.0)));
+        self.sync_print_scale();
         let vp = self.viewport();
         let (gx, gy) = self.grid_origin();
         let k = self.k();

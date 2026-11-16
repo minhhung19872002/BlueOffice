@@ -368,6 +368,7 @@ impl SheetView {
 
     /// Read the print areas and breaks again (after an edit).
     pub(crate) fn reload_breaks(&mut self) {
+        self.sync_print_scale();
         if self.breaks.is_some() {
             let v = self
                 .engine
@@ -380,7 +381,15 @@ impl SheetView {
     }
 
     /// Read the pages again (after an edit or a page setup change).
+    /// Pages use the row heights at 100 % zoom whatever the view's zoom (set before the
+    /// first refresh too: a sheet saved in Page Break Preview opens at 60 %).
+    pub(crate) fn sync_print_scale(&mut self) {
+        self.engine
+            .set_print_scale(Some(f64::from(self.scale * 4.0 / 3.0)));
+    }
+
     pub(crate) fn reload_layout(&mut self) {
+        self.sync_print_scale();
         let Some(mut pl) = self.layout.take() else {
             return;
         };

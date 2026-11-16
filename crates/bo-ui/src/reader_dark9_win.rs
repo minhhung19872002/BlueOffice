@@ -223,6 +223,20 @@ pub(crate) struct Nine {
     tip_ticks: u32,
     /// Tooltip text and its measured width.
     tip: Option<(String, f32)>,
+    /// Colours made the default of a comment kind (Set Current Properties as Default).
+    defaults: Vec<(bo_pdfread::AnnotKind, [u8; 3])>,
+}
+
+impl Nine {
+    pub(crate) fn set_default_color(&mut self, kind: bo_pdfread::AnnotKind, color: [u8; 3]) {
+        self.defaults.retain(|d| d.0 != kind);
+        self.defaults.push((kind, color));
+    }
+
+    /// The default colour chosen for `kind`.
+    pub(crate) fn default_color(&self, kind: bo_pdfread::AnnotKind) -> Option<[u8; 3]> {
+        self.defaults.iter().find(|d| d.0 == kind).map(|d| d.1)
+    }
 }
 
 impl ReaderWindow {

@@ -351,7 +351,11 @@ impl PrintDialog {
             collate: true,
             gray: false,
             range: Range::All,
-            pages_text: format!("1 - {}", count.max(1)).chars().collect(),
+            // The reference fills Pages with the current page.
+            pages_text: (current.min(count.saturating_sub(1)) + 1)
+                .to_string()
+                .chars()
+                .collect(),
             subset: 0,
             reverse: false,
             scaling: PrintScaling::Fit,

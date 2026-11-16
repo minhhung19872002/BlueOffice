@@ -281,7 +281,7 @@ impl ReaderWindow {
             item(self.t("pdfBookmark.collapseAll"), "bm.collapseAll", false),
         ];
         let menu = self
-            .reader_menu(items, [x, y, 0.0, 0.0])
+            .context_menu9(items, [x, y, 0.0, 0.0])
             .with_decor(Vec::new(), vec![1, 3, 5]);
         let menu = self.keyed_menu9(menu, &["Ctrl+B", "F2", "Del", "", "", "", ""], m);
         self.menu = Some((menu, "bookmarks9"));
@@ -301,7 +301,7 @@ impl ReaderWindow {
             item(self.t("pdfMarks9.properties"), "file.properties"),
         ];
         let menu = self
-            .reader_menu(items, [x, y, 0.0, 0.0])
+            .context_menu9(items, [x, y, 0.0, 0.0])
             .with_decor(Vec::new(), vec![2]);
         let menu = self.keyed_menu9(menu, &[], m);
         self.menu = Some((menu, "thumbs9"));

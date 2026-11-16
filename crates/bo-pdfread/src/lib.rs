@@ -18,6 +18,7 @@ mod annot_caret;
 mod annot_draw;
 mod annot_edit;
 mod annot_image;
+mod annot_popup;
 mod arrange;
 mod cmap;
 mod cmyk;

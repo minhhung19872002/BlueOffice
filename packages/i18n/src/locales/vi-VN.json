@@ -11123,6 +11123,11 @@
     "darkNote": "Giao diện tối chưa có: các ngăn và hộp thoại vẫn vẽ chữ màu tối."
   },
   "pdfCtx": {
+    "lookUp": "Tra cứu \"{{word}}\"",
+    "resetPopup": "Đặt lại vị trí ghi chú bật lên",
+    "openPopups": "Mở mọi ghi chú bật lên",
+    "closePopups": "Đóng mọi ghi chú bật lên",
+    "setDefault": "Đặt thuộc tính hiện tại làm mặc định",
     "paste": "Dán",
     "pasteInPlace": "Dán tại chỗ",
     "readMode": "Chế độ đọc",

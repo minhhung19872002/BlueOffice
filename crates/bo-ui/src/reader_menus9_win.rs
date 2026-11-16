@@ -10,6 +10,8 @@ use crate::{Input, TextMeasure};
 /// px; the reference: 21 / 8 device px at 125 %).
 pub(crate) const KEY_RIGHT: f32 = 16.8;
 pub(crate) const SEP_GAP: f32 = 6.4;
+/// Context menu row height (logical px; 28 device px at 125 %).
+const CONTEXT_ROW: f32 = 22.4;
 /// Least space between a label and its shortcut (logical px; 40 device px at 125 %).
 const KEY_GAP: f32 = 32.0;
 
@@ -36,17 +38,23 @@ impl ReaderWindow {
             return None;
         }
         let (rows, seps) = if let Some(a) = self.comment_at(x, y) {
+            let popup = self.view().is_some_and(|v| v.doc().has_popup(&a));
             self.extra.selected = Some(a);
-            comment_rows()
+            comment_rows(popup)
         } else if self.over_selection9(x, y) {
             selection_rows()
         } else {
             self.view_rows9()
         };
+        let word = self.lookup_word9();
         let items: Vec<MenuItem> = rows
             .iter()
             .map(|&(cmd, key, _, _, dim)| MenuItem {
-                label: self.t(key),
+                label: if cmd == "ctx.lookup" {
+                    self.strings.fmt(key, &[("word", &word)])
+                } else {
+                    self.t(key)
+                },
                 choice: Choice::Command(cmd.to_owned()),
                 checked: false,
                 dim,
@@ -55,13 +63,38 @@ impl ReaderWindow {
         let icons: Vec<Option<&'static str>> = rows.iter().map(|r| r.3).collect();
         let keys: Vec<&str> = rows.iter().map(|r| r.2).collect();
         let menu = self
-            .reader_menu(items, [x, y, 0.0, 0.0])
+            .context_menu9(items, [x, y, 0.0, 0.0])
             .with_decor(icons, seps);
         let menu = self
             .keyed_menu9(menu, &keys, m)
             .with_icon_fn(crate::reader_icons::menu_icon);
         self.menu = Some((menu, "context9"));
         Some(true)
+    }
+
+    /// A context menu: the reference's rows are 28 px at 125 % (its drop-down menus 30 px).
+    pub(crate) fn context_menu9(
+        &self,
+        items: Vec<MenuItem>,
+        anchor: [f32; 4],
+    ) -> crate::popup::Menu {
+        let look = crate::popup::MenuLook {
+            item_h: CONTEXT_ROW,
+            ..super::READER_MENU
+        };
+        crate::popup::Menu::open_with(items, anchor, self.size, self.scale, look)
+    }
+
+    /// The first word of the selection (Look Up).
+    fn lookup_word9(&self) -> String {
+        self.view()
+            .and_then(super::ReaderView::selected_text)
+            .and_then(|s| {
+                s.split_whitespace()
+                    .next()
+                    .map(|w| w.trim_matches(|c: char| !c.is_alphanumeric()).to_owned())
+            })
+            .unwrap_or_default()
     }
 
     /// Add measured shortcuts (`keys` per item, "" for none) to a context menu.
@@ -198,6 +231,47 @@ impl ReaderWindow {
     pub(crate) fn command_menus9(&mut self, cmd: &str) -> bool {
         let kind = match cmd {
             "ctx.paste" | "ctx.pasteInPlace" => return true,
+            "ctx.lookup" => {
+                let w = self.lookup_word9();
+                if !w.is_empty() {
+                    let q: String = w
+                        .bytes()
+                        .map(|b| {
+                            if b.is_ascii_alphanumeric() {
+                                char::from(b).to_string()
+                            } else {
+                                format!("%{b:02X}")
+                            }
+                        })
+                        .collect();
+                    self.requests.push(super::ReaderRequest::OpenUrl(format!(
+                        "https://duckduckgo.com/?q={q}"
+                    )));
+                }
+                return true;
+            }
+            "ctx.openPopups" | "ctx.closePopups" | "ctx.resetPopup" => {
+                let sel = self.extra.selected.clone();
+                let r = self.tabs.get_mut(self.active).map(|t| {
+                    let d = t.view.doc_mut();
+                    match (cmd, &sel) {
+                        ("ctx.resetPopup", Some(a)) => d.reset_popup(a),
+                        ("ctx.resetPopup", None) => Ok(()),
+                        _ => d.set_popups_open(cmd == "ctx.openPopups").map(|_| ()),
+                    }
+                });
+                if let Some(Err(e)) = r {
+                    self.status = e;
+                }
+                self.document_changed();
+                return true;
+            }
+            "ctx.setDefault" => {
+                if let Some(a) = self.extra.selected.clone() {
+                    self.nine.set_default_color(a.kind, a.color);
+                }
+                return true;
+            }
             "ctx.hidePanels" => {
                 let open = self.panel_open().is_some();
                 self.set_panel(if open { None } else { Some(Panel::Bookmarks) });
@@ -213,6 +287,21 @@ impl ReaderWindow {
             self.markup_selection(kind, page);
         }
         true
+    }
+
+    /// Context menu open (tests): its greyed labels.
+    #[cfg(test)]
+    pub(crate) fn menu_dims9(&self) -> Vec<String> {
+        self.menu
+            .as_ref()
+            .map(|(m, _)| {
+                m.items()
+                    .iter()
+                    .filter(|i| i.dim)
+                    .map(|i| i.label.clone())
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     /// Context menu open (tests): its labels.
@@ -243,23 +332,35 @@ fn selection_rows() -> (Vec<Row>, Vec<usize>) {
                 false,
             ),
             ("view.wordCount", "pdfCtx.wordCount", "", None, false),
+            ("ctx.lookup", "pdfCtx.lookUp", "", None, false),
         ],
-        vec![1, 2, 7],
+        vec![1, 2, 7, 8],
     )
 }
 
 /// The menu of a comment.
-fn comment_rows() -> (Vec<Row>, Vec<usize>) {
+fn comment_rows(popup: bool) -> (Vec<Row>, Vec<usize>) {
     (
         vec![
             ("comment.reply", "pdfCtx.reply", "", None, false),
             ("comment.delete", "pdfCtx.delete", "", None, false),
-            ("comment.setStatus", "pdfCtx.setStatus", "", None, false),
+            // Opens the four review states beside it, like the reference's submenu.
+            (
+                "comment.setStatus",
+                "pdfCtx.setStatus",
+                "\u{25B8}",
+                None,
+                false,
+            ),
             ("comment.mark", "pdfCtx.mark", "", None, false),
             ("comment.edit", "pdfCtx.openPopup", "", None, false),
+            ("ctx.resetPopup", "pdfCtx.resetPopup", "", None, !popup),
+            ("ctx.openPopups", "pdfCtx.openPopups", "", None, false),
+            ("ctx.closePopups", "pdfCtx.closePopups", "", None, false),
             ("draw.props", "pdfCtx.properties", "", None, false),
+            ("ctx.setDefault", "pdfCtx.setDefault", "", None, false),
         ],
-        vec![1, 2, 4, 5],
+        vec![1, 2, 4, 8],
     )
 }
 
@@ -314,6 +415,12 @@ mod tests {
         let labels = w.menu_labels9();
         assert_eq!(labels.first().map(String::as_str), Some("Copy"));
         assert!(labels.iter().any(|l| l == "Squiggly Underline"));
+        assert_eq!(labels.last().map(String::as_str), Some("Look Up \"Page\""));
+        w.run_command("ctx.lookup", &Fixed);
+        assert!(w
+            .take_requests()
+            .iter()
+            .any(|r| matches!(r, crate::ReaderRequest::OpenUrl(u) if u.ends_with("?q=Page"))));
         // Highlight from the menu adds a comment on the selection.
         w.run_command("sel.highlight", &Fixed);
         let n = w.view().expect("view").doc().annotations().len();
@@ -324,5 +431,13 @@ mod tests {
         let labels = w.menu_labels9();
         assert_eq!(labels.first().map(String::as_str), Some("Reply"));
         assert!(labels.iter().any(|l| l == "Properties..."));
+        assert_eq!(
+            labels.last().map(String::as_str),
+            Some("Set Current Properties as Default")
+        );
+        // A highlight without a pop-up note: its reset is grey.
+        assert!(w
+            .menu_dims9()
+            .contains(&"Reset Popup Note Location".to_owned()));
     }
 }

@@ -11123,6 +11123,11 @@
     "darkNote": "Dark is not available yet: panels and dialogs still draw dark text."
   },
   "pdfCtx": {
+    "lookUp": "Look Up \"{{word}}\"",
+    "resetPopup": "Reset Popup Note Location",
+    "openPopups": "Open All Popups",
+    "closePopups": "Close All Popups",
+    "setDefault": "Set Current Properties as Default",
     "paste": "Paste",
     "pasteInPlace": "Paste in Place",
     "readMode": "Read Mode",

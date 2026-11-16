@@ -1922,11 +1922,14 @@ impl ReaderWindow {
             .map(|r| t.view.unrotate_rect(page, *r))
             .collect();
         let text = t.view.selected_text().unwrap_or_default();
-        let color = if kind == AnnotKind::Highlight {
-            COLOR_HIGHLIGHT
-        } else {
-            COLOR_MARK
-        };
+        let color = self
+            .nine
+            .default_color(kind)
+            .unwrap_or(if kind == AnnotKind::Highlight {
+                COLOR_HIGHLIGHT
+            } else {
+                COLOR_MARK
+            });
         self.add_annot(kind, page, rects, color, text);
         if let Some(t) = self.tabs.get_mut(self.active) {
             t.view.set_selection(None);

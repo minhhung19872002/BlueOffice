@@ -68,6 +68,17 @@ pub(crate) struct ImageCache {
 /// own cache).
 const IMAGE_CACHE_BYTES: usize = 64 * 1024 * 1024;
 
+/// The budget, or `BO_PDF_IMAGE_CACHE_MB` (BlueReader round 8 memory measurements).
+fn image_cache_bytes() -> usize {
+    static V: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *V.get_or_init(|| {
+        std::env::var("BO_PDF_IMAGE_CACHE_MB")
+            .ok()
+            .and_then(|v| v.trim().parse::<usize>().ok())
+            .map_or(IMAGE_CACHE_BYTES, |mb| mb << 20)
+    })
+}
+
 impl ImageCache {
     fn get_or(&mut self, key: &str, f: impl FnOnce() -> Option<Image>) -> Option<Arc<Image>> {
         if let Some(v) = self.map.get(key) {
@@ -75,7 +86,7 @@ impl ImageCache {
         }
         let v = f().map(Arc::new);
         let n = v.as_ref().map_or(0, |i| i.pixels.len());
-        if self.bytes + n > IMAGE_CACHE_BYTES {
+        if self.bytes + n > image_cache_bytes() {
             self.map.clear();
             self.bytes = 0;
         }

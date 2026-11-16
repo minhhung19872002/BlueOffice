@@ -476,6 +476,18 @@ có `SWP_SHOWWINDOW | SWP_FRAMECHANGED` và `RedrawWindow` — không thì `Prin
   bản vòng 15): mở 311 ms (vòng 15: 297), khung đầu 683 ms (686); cuộn ngăn hình thu nhỏ trung vị 3,2 ms /
   p95 4,1 ms mỗi nấc (3,2 / 4,0); gõ chữ tiêu đề trung vị 15,3 ms, chuẩn bị ảnh 10,3 ms (15,9 / 10,9) — không
   thụt lùi; hình thu nhỏ vẫn không chặn luồng giao diện nên chưa cần luồng riêng.
-- Còn lại: Screenshot cần host chụp các cửa sổ khác (đang mờ); menu chuột phải chưa có ảnh so với tham chiếu
-  (menu bật lên của tham chiếu là cửa sổ riêng, chưa chụp được bằng PrintWindow); nhóm Accessibility /
-  Language / Ink của Review; Draw: Undo, Ruler, Ink to Math, Ink Help.
+- Review như tham chiếu (`slide-34`): Proofing (Spelling — biểu tượng tô màu tự vẽ; Thesaurus mờ), Accessibility
+  (Check Accessibility▾: ngăn kiểm tra tự viết — trang thiếu tiêu đề, ảnh / biểu đồ / SmartArt / media / đối
+  tượng thiếu văn bản thay thế, nhấp hàng tới hình), Language (Translate mờ; Language▾ đặt `rPr@lang` hoặc
+  `noProof`, lệnh engine `TextFormat::Lang`), Comments có vạch ngăn trước Show Comments, Ink (Hide Ink mờ như
+  tham chiếu khi bản trình bày không có mực).
+- Ngăn Spelling (`slide-35`): nút ▾ cạnh ✕, chữ phím tắt gạch dưới (Alt+I / G / A / C / L), phần dưới: từ gợi ý
+  in đậm và nút loa đọc bằng giọng Windows (mô-đun `reader_speech.rs` của BlueReader). Chưa có: nghĩa từ,
+  hộp ngôn ngữ.
+- Home > Paragraph (`slide-36`): cột phải ba nút Text Direction / Align Text / Convert to SmartArt (mỗi đoạn một
+  nút sơ đồ, thay hộp chữ tại chỗ); cột "late" của ribbon được ba hàng cạnh hai hàng thường.
+- Còn lại: Screenshot cần host chụp các cửa sổ khác (đang mờ); Thesaurus / Translate chưa có engine; Hide Ink
+  chưa bật / tắt được (engine có `RenderOptions.hide_ink`, chưa nối vào trang hiển thị); menu chuột phải chưa
+  có ảnh so với tham chiếu (menu bật lên là cửa sổ riêng); Draw: Undo, Ruler, Ink to Math, Ink Help; cửa sổ
+  ta mở không kích hoạt đôi khi bị thu nhỏ / đóng giữa các lần chụp (không thấy sự kiện lỗi; có thể do kịch
+  bản khác) — kịch bản chụp đã chịu được.

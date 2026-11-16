@@ -64,8 +64,23 @@ fn duplicate_swap_move_and_page_numbers() {
     type_in(&mut w, &["1", "3"]);
     assert_eq!(texts(&mut w), ["Page 2", "Page 3", "Page 1"]);
     // Pages 1-2 numbered i, ii; page 3 keeps its number.
+    // Round 9: the reference's Page Numbers dialog (Pages From / To, Style i, ii, iii).
     w.run("org.pageNumbers", &Fixed);
-    type_in(&mut w, &["1", "2", "i", "", "1"]);
+    {
+        use crate::editor_form8::Val;
+        let f = &mut w.form8.last_mut().expect("Page Numbers").0;
+        f.set("pages", Val::Pick(2));
+        f.set("from", Val::Text("1".into()));
+        f.set("to", Val::Text("2".into()));
+        f.set("style", Val::Pick(1));
+    }
+    let t = {
+        let mut rec = crate::editor_tests::Rec::default();
+        w.paint(&mut rec);
+        rec.texts
+    };
+    assert!(t.iter().any(|s| s == "i,ii,iii,..."), "{t:?}");
+    w.handle(Input::Key(Key::Enter, crate::Mods::default()), &Fixed);
     let labels: Vec<String> = (0..3)
         .map(|i| {
             w.view()

@@ -12431,6 +12431,18 @@
     "units": "Đơn vị:",
     "ofShort": "trên",
     "pagesWord": "trang",
-    "croppedSize": "Cỡ trang sau khi cắt:"
+    "croppedSize": "Cỡ trang sau khi cắt:",
+    "pageNumbersTitle": "Số trang",
+    "pagesGroup": "Trang",
+    "selected": "Đã chọn",
+    "pagesFrom": "Trang từ",
+    "to": "Đến",
+    "numbering": "Đánh số",
+    "beginSection": "Bắt đầu phần mới",
+    "style": "Kiểu:",
+    "prefix": "Tiền tố:",
+    "start": "Bắt đầu:",
+    "extend": "Đánh số tiếp theo phần trước cho các trang đã chọn",
+    "sampleLabel": "Ví dụ:"
   }
 }

@@ -69,6 +69,7 @@ mod editor_org9;
 mod editor_organize;
 #[cfg(test)]
 mod editor_organize5_tests;
+mod editor_pagenum9;
 mod editor_pages5;
 mod editor_portfolio;
 mod editor_rot8;

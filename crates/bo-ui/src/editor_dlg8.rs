@@ -36,6 +36,8 @@ pub(crate) enum FormWhat {
     Combine9,
     /// Set Page Dimensions of Crop Pages (round 9, `editor_crop9`).
     Crop9,
+    /// Page Numbers (round 9, `editor_pagenum9`).
+    PageNum9,
 }
 
 /// Font sizes offered by the Size lists.
@@ -1660,6 +1662,7 @@ impl EditorWindow {
                     FormWhat::SavePreset(kind) => self.save_preset_ok(kind, &f),
                     FormWhat::Combine9 => self.combine9_ok(&f),
                     FormWhat::Crop9 => self.crop9_ok(&f),
+                    FormWhat::PageNum9 => self.pagenum9_ok(&f),
                 }
             }
             _ => self.dlg8b_button(id),
@@ -1717,6 +1720,23 @@ fn paint_preview(
     img: Option<(usize, f32, f32)>,
 ) {
     use bo_render::Rgba;
+    if matches!(what, FormWhat::PageNum9) {
+        // Round 9: the Sample line follows the choices.
+        let s = scale / 1.25;
+        let style = crate::TextStyle {
+            size: (12.0 * s).round(),
+            bold: false,
+        };
+        let th = (style.size * 1.33).round();
+        p.text(
+            &EditorWindow::pagenum9_sample(f),
+            f.frame[0] + (80.0 * s).round(),
+            (f.frame[1] + 408.0 * s - th / 2.0).round(),
+            style,
+            Rgba(0, 0, 0, 255),
+        );
+        return;
+    }
     if f.pick("preview") != 1 {
         return;
     }

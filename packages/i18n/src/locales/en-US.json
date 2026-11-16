@@ -12431,6 +12431,18 @@
     "units": "Units:",
     "ofShort": "of",
     "pagesWord": "pages",
-    "croppedSize": "Cropped page size:"
+    "croppedSize": "Cropped page size:",
+    "pageNumbersTitle": "Page Numbers",
+    "pagesGroup": "Pages",
+    "selected": "Selected",
+    "pagesFrom": "Pages From",
+    "to": "To",
+    "numbering": "Numbering",
+    "beginSection": "Begin new section",
+    "style": "Style:",
+    "prefix": "Prefix:",
+    "start": "Start:",
+    "extend": "Extend numbering used in preceding section to selected pages",
+    "sampleLabel": "Sample:"
   }
 }

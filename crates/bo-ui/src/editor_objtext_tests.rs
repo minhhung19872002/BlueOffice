@@ -59,6 +59,8 @@ fn press_cmd(w: &mut EditorWindow, cmd: &str) {
 #[test]
 fn text_object_shows_its_style_and_offers_the_reference_controls() {
     let mut w = window(1);
+    // Round 8: the Format pane starts collapsed; these tests use it opened.
+    w.format_open8 = true;
     w.run("ed.editObject", &Fixed);
     select_first(&mut w);
     assert!(w.object_text_active());
@@ -95,6 +97,8 @@ fn text_object_shows_its_style_and_offers_the_reference_controls() {
 #[test]
 fn bold_and_size_apply_to_the_whole_object_in_one_undo_step() {
     let mut w = window(1);
+    // Round 8: the Format pane starts collapsed; these tests use it opened.
+    w.format_open8 = true;
     w.run("ed.editObject", &Fixed);
     select_first(&mut w);
     pane_cmds(&mut w);
@@ -115,6 +119,8 @@ fn bold_and_size_apply_to_the_whole_object_in_one_undo_step() {
 #[test]
 fn graphics_show_effect_and_take_an_opacity() {
     let mut w = window(1);
+    // Round 8: the Format pane starts collapsed; these tests use it opened.
+    w.format_open8 = true;
     w.run("ed.editObject", &Fixed);
     select_first(&mut w);
     pane_cmds(&mut w);
@@ -144,6 +150,8 @@ fn graphics_show_effect_and_take_an_opacity() {
 #[test]
 fn convert_to_shapes_replaces_the_text() {
     let mut w = window(1);
+    // Round 8: the Format pane starts collapsed; these tests use it opened.
+    w.format_open8 = true;
     w.run("ed.editObject", &Fixed);
     select_first(&mut w);
     pane_cmds(&mut w);

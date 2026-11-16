@@ -521,6 +521,8 @@ pub struct EditorWindow {
     pub(crate) perm8: (bool, bool, bool, bool),
     /// The Format pane shows a comment tool's properties (asked for with `cmt8.props`).
     pub(crate) comment_pane8: bool,
+    /// The Format pane is open (else a collapsed strip, as the reference starts it).
+    pub(crate) format_open8: bool,
     /// Saved Settings of the page design dialogs: kind (`hf`, `wm`, `bg`) → named values.
     pub(crate) presets8:
         std::collections::BTreeMap<&'static str, Vec<(String, crate::editor_dlg8b::Vals)>>,
@@ -606,6 +608,7 @@ impl EditorWindow {
             form8: Vec::new(),
             perm8: (true, true, false, true),
             comment_pane8: false,
+            format_open8: false,
             presets8: std::collections::BTreeMap::new(),
             policy8: None,
             wm_image8: None,

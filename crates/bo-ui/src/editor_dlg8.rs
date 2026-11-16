@@ -126,8 +126,13 @@ impl EditorWindow {
             "org.extract" => self.open_extract(),
             "org.split" => self.open_split(),
             "obj8.extractImage" => self.extract_image8(),
+            "fmt8.expand" => {
+                self.format_open8 = true;
+                self.sync_format();
+            }
             "cmt8.props" => {
                 self.comment_pane8 = !self.comment_pane8;
+                self.format_open8 = true;
                 self.format_closed = false;
                 self.sync_format();
             }

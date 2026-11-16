@@ -2225,7 +2225,7 @@ fn data_formulas_and_view_tabs_round_6() {
     w.data_form_event(&form_impl::Event::Cancel, &Fixed);
     // Zoom: 75 %.
     assert!(w.action("sheet.zoomDialog", &Fixed));
-    w.form.as_mut().expect("zoom").set_sel("mag", Some(2));
+    click_form(&mut w, "z2", 5.0, 10.0);
     w.data_form_event(&form_impl::Event::Ok, &Fixed);
     assert!((w.view.zoom() - 0.75).abs() < 0.01);
     // Consolidate the list by name into D1.

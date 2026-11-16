@@ -265,6 +265,51 @@ impl DocView {
         })
     }
 
+    /// Paste with a Paste Special mode (keep source formatting, merge, text only).
+    pub fn paste_with(
+        &mut self,
+        internal: Option<String>,
+        html: Option<String>,
+        text: Option<String>,
+        mode: Option<bo_edit::PasteMode>,
+    ) -> bool {
+        self.edit(Command::Paste {
+            internal,
+            html,
+            text,
+            mode,
+        })
+    }
+
+    /// Every style of the document (Styles pane, New Style dialog).
+    pub fn all_styles(&mut self) -> Vec<bo_engine::gallery::StyleEntry> {
+        self.engine
+            .command(Command::StyleList)
+            .ok()
+            .and_then(|r| r.styles)
+            .unwrap_or_default()
+    }
+
+    /// Run a JSON command of any document family — citations, style management, picture
+    /// tools or an editing command (ADR-0008) — apply its result to the view and return the
+    /// result as JSON (`None` when the command is unknown or failed).
+    pub fn run_json(&mut self, v: &serde_json::Value) -> Option<serde_json::Value> {
+        let r = if let Some(c) = bo_engine::cite::CiteCommand::parse(v) {
+            self.engine.doc_cite_command(c).ok()?
+        } else if let Some(c) = bo_engine::doc_styles::StyleCommand::parse(v) {
+            self.engine.doc_style_command(c).ok()?
+        } else if let Some(c) = bo_engine::picture_tools::PictureCommand::parse(v) {
+            self.engine.doc_picture_command(c).ok()?
+        } else {
+            let cmd: Command = serde_json::from_value(v.clone()).ok()?;
+            self.engine.command(cmd).ok()?
+        };
+        self.apply(&r);
+        self.caret_on = true;
+        self.reveal_caret();
+        serde_json::to_value(&r).ok()
+    }
+
     /// Quick styles for the gallery, in gallery order.
     pub fn styles(&mut self) -> Vec<bo_engine::gallery::StyleEntry> {
         let list = self

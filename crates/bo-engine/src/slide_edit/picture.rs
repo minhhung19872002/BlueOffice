@@ -741,6 +741,14 @@ impl crate::Engine {
                         insert_svg(tx, sel, bytes, if name.is_empty() { "SVG" } else { &name })
                     });
                 }
+                // Text wrapping and page positions belong to BlueDoc's pictures; slides
+                // arrange and rotate through their own commands.
+                PictureCommand::PictureWrap { .. }
+                | PictureCommand::PicturePosition { .. }
+                | PictureCommand::PictureAlign { .. }
+                | PictureCommand::PictureRotate { .. } => {
+                    out.error = Some(EditError::Refused("noPicture").to_string());
+                }
             }
         }
         // New picture parts may reuse a name dropped by an undo: draw them afresh.

@@ -62,6 +62,113 @@ fn yes() -> bool {
     true
 }
 
+/// Theme effect sets of Design › Effects (BlueOffice's own): id, name and the three
+/// §20.1.4.1.11 effectStyle effect lists (subtle, moderate, intense).
+pub const EFFECT_SETS: &[(&str, &str, [&str; 3])] = &[
+    ("flat", "Flat", ["", "", ""]),
+    (
+        "soft",
+        "Soft Shadow",
+        [
+            "",
+            "",
+            r#"<a:outerShdw blurRad="38100" dist="19050" dir="5400000" algn="ctr" rotWithShape="0"><a:srgbClr val="000000"><a:alpha val="35000"/></a:srgbClr></a:outerShdw>"#,
+        ],
+    ),
+    (
+        "lifted",
+        "Lifted",
+        [
+            "",
+            r#"<a:outerShdw blurRad="40000" dist="23000" dir="5400000" rotWithShape="0"><a:srgbClr val="000000"><a:alpha val="35000"/></a:srgbClr></a:outerShdw>"#,
+            r#"<a:outerShdw blurRad="57150" dist="38100" dir="5400000" algn="ctr" rotWithShape="0"><a:srgbClr val="000000"><a:alpha val="45000"/></a:srgbClr></a:outerShdw>"#,
+        ],
+    ),
+    (
+        "glow",
+        "Glow Edge",
+        [
+            "",
+            r#"<a:glow rad="38100"><a:schemeClr val="phClr"><a:alpha val="40000"/></a:schemeClr></a:glow>"#,
+            r#"<a:glow rad="63500"><a:schemeClr val="phClr"><a:alpha val="40000"/></a:schemeClr></a:glow>"#,
+        ],
+    ),
+    (
+        "inset",
+        "Inset",
+        [
+            "",
+            r#"<a:innerShdw blurRad="38100" dist="25400" dir="13500000"><a:srgbClr val="000000"><a:alpha val="40000"/></a:srgbClr></a:innerShdw>"#,
+            r#"<a:innerShdw blurRad="63500" dist="38100" dir="13500000"><a:srgbClr val="000000"><a:alpha val="50000"/></a:srgbClr></a:innerShdw>"#,
+        ],
+    ),
+    (
+        "gloss",
+        "Gloss",
+        [
+            "",
+            r#"<a:reflection blurRad="6350" stA="50000" endA="300" endPos="38500" dist="0" dir="5400000" sy="-100000" algn="bl" rotWithShape="0"/>"#,
+            r#"<a:outerShdw blurRad="40000" dist="20000" dir="5400000" rotWithShape="0"><a:srgbClr val="000000"><a:alpha val="38000"/></a:srgbClr></a:outerShdw>"#,
+        ],
+    ),
+    ("outline", "Outline", ["", "", ""]),
+    (
+        "deep",
+        "Deep Shadow",
+        [
+            r#"<a:outerShdw blurRad="38100" dist="38100" dir="2700000" rotWithShape="0"><a:srgbClr val="000000"><a:alpha val="40000"/></a:srgbClr></a:outerShdw>"#,
+            r#"<a:outerShdw blurRad="63500" dist="63500" dir="2700000" rotWithShape="0"><a:srgbClr val="000000"><a:alpha val="50000"/></a:srgbClr></a:outerShdw>"#,
+            r#"<a:outerShdw blurRad="76200" dist="76200" dir="2700000" rotWithShape="0"><a:srgbClr val="000000"><a:alpha val="60000"/></a:srgbClr></a:outerShdw>"#,
+        ],
+    ),
+];
+
+/// The document's theme part with effect set `id` as its fmtScheme effect styles (the
+/// first BlueOffice theme when the document has none); `None` for an unknown set.
+fn effects_theme(doc: &bo_model::Document, id: &str) -> Option<String> {
+    let (_, name, lists) = EFFECT_SETS.iter().find(|(k, ..)| *k == id)?;
+    let theme = crate::doc_chart::doc_theme(doc).or_else(|| {
+        let xml = bo_edit::design::theme_xml(THEMES.first()?);
+        bo_drawingml::theme::parse_theme(xml.as_bytes(), "/word/theme/theme1.xml").ok()
+    })?;
+    let xml = String::from_utf8(bo_drawingml::theme::write_theme(&theme)).ok()?;
+    let start = xml.find("<a:effectStyleLst")?;
+    let end = xml
+        .find("</a:effectStyleLst>")
+        .map(|e| e + "</a:effectStyleLst>".len())
+        .or_else(|| {
+            // An empty list written as one element.
+            let e = xml[start..].find("/>")?;
+            Some(start + e + 2)
+        })?;
+    let mut list = String::from("<a:effectStyleLst>");
+    for l in lists {
+        list.push_str("<a:effectStyle><a:effectLst>");
+        list.push_str(l);
+        list.push_str("</a:effectLst></a:effectStyle>");
+    }
+    list.push_str("</a:effectStyleLst>");
+    let mut out = format!("{}{}{}", &xml[..start], list, &xml[end..]);
+    // §20.1.4.1.14 fmtScheme name: the effect set's.
+    if let Some(at) = out.find("<a:fmtScheme") {
+        let tag_end = at + out[at..].find('>')?;
+        let tag = &out[at..tag_end];
+        let new_tag = match tag.find(" name=\"") {
+            Some(n) => {
+                let v0 = at + n + 7;
+                let v1 = v0 + out[v0..].find('"')?;
+                format!("{}{}{}", &out[at..v0], name, &out[v1..tag_end])
+            }
+            None => format!(
+                "<a:fmtScheme name=\"{name}\"{}",
+                &tag["<a:fmtScheme".len()..]
+            ),
+        };
+        out = format!("{}{}{}", &out[..at], new_tag, &out[tag_end..]);
+    }
+    Some(out)
+}
+
 /// Page borders as shown in the dialog (first visible edge, sides drawn).
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -283,6 +390,7 @@ impl Engine {
                 | Command::SetWatermark { .. }
                 | Command::ApplyTheme { .. }
                 | Command::ApplyThemeFile { .. }
+                | Command::ApplyThemeEffects { .. }
                 | Command::ApplyStyleSet { .. }
                 | Command::ApplyDocumentStyleSet { .. }
         );
@@ -298,6 +406,12 @@ impl Engine {
                     Some((String::from_utf8(x).ok()?, fonts, colors))
                 })
             }
+            Command::ApplyThemeEffects { id } => self.document().and_then(|d| {
+                let x = effects_theme(d, id)?;
+                let fonts = crate::theme_file::theme_fonts(x.as_bytes())?;
+                let colors = crate::theme_file::theme_colors(x.as_bytes());
+                Some((x, fonts, colors))
+            }),
             _ => None,
         };
         let mut error = None;
@@ -336,7 +450,7 @@ impl Engine {
                     }
                 }
                 Command::ApplyTheme { id } => s.apply_theme(id),
-                Command::ApplyThemeFile { .. } => {
+                Command::ApplyThemeFile { .. } | Command::ApplyThemeEffects { .. } => {
                     if let Some((xml, fonts, colors)) = theme_in {
                         s.apply_theme_xml(&xml, fonts, colors)
                     } else {

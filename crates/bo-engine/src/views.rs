@@ -292,6 +292,42 @@ impl Engine {
         out
     }
 
+    /// List labels (`1.`, `1.1.`, bullets) of the numbered body paragraphs by paragraph id,
+    /// counted in document order (§17.9 numbering, style-linked lists included): the outline
+    /// view shows them before the text as the reference does.
+    ///
+    /// With each label: where the text starts after a tab suffix (§17.9.28 suff), in points
+    /// from the label's start — the level's hanging indent (§17.3.1.12 ind), as the tab
+    /// stop Print Layout uses; `0` for a space or no suffix.
+    pub fn list_labels(&self) -> std::collections::HashMap<usize, (String, f32)> {
+        let mut out = std::collections::HashMap::new();
+        let Some(doc) = self.document() else {
+            return out;
+        };
+        let mut counters = bo_layout::ListCounters::default();
+        for id in 0..body_paragraphs(doc).len() {
+            let Some(p) = bo_model::index::para_by_id(doc, id) else {
+                continue;
+            };
+            let props = bo_layout::para_props(doc, p);
+            if let Some(n) = props.num.filter(|n| n.num_id != 0) {
+                if let Some((label, _, suffix)) = counters.next(doc, n) {
+                    let hanging = props.indent_first_line.map_or(0, |t| (-t.0).max(0));
+                    let gap = if suffix == "space" || suffix == "nothing" {
+                        0.0
+                    } else if hanging > 0 {
+                        hanging as f32 / 20.0
+                    } else {
+                        // No hanging indent: the next default tab stop (§17.15.1.25, 0.5").
+                        36.0
+                    };
+                    out.insert(id, (label, gap));
+                }
+            }
+        }
+        out
+    }
+
     /// The outline with the page of each paragraph.
     pub fn outline_items(&self) -> Vec<OutlineItem> {
         let Some(s) = self.session.as_ref() else {
@@ -663,6 +699,22 @@ mod tests {
             .map(|m| m["kind"].as_str().unwrap())
             .collect();
         assert!(kinds.contains(&"cellEnd") && kinds.contains(&"rowEnd"));
+    }
+
+    #[test]
+    fn list_labels_number_style_linked_headings() {
+        let bytes = std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../tests/corpus/doc/lists-04-heading-linked.docx"
+        ))
+        .unwrap();
+        let mut e = Engine::with_bundled_fonts();
+        e.open(&bytes, "h.docx").unwrap();
+        let labels = e.list_labels();
+        let mut v: Vec<(usize, (String, f32))> = labels.into_iter().collect();
+        v.sort_by_key(|(id, _)| *id);
+        let texts: Vec<&str> = v.iter().map(|(_, l)| l.0.as_str()).collect();
+        assert_eq!(texts, ["1.", "1.1.", "1.2.", "2.", "2.1."], "{v:?}");
     }
 
     #[test]

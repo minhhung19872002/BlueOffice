@@ -334,7 +334,8 @@ pub(crate) fn vml_shape(pict: &XmlElement) -> Option<(Shape, Emu, Emu, Option<An
         // §19.3.2.3 w10:wrap type
         let wrap = child_local(el, "wrap").map_or(Wrap::None, |w| match w.attr("type") {
             Some("square") => Wrap::Square,
-            Some("tight" | "through") => Wrap::Tight,
+            Some("tight") => Wrap::Tight,
+            Some("through") => Wrap::Through,
             Some("topAndBottom") => Wrap::TopAndBottom,
             _ => Wrap::None,
         });

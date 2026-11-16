@@ -179,10 +179,14 @@ impl CommentsPane {
         ]
     }
 
-    fn author_style(&self) -> TextStyle {
-        TextStyle {
+    /// Author names: bold UI face, as the reference.
+    fn author_font(&self) -> Font<'static> {
+        Font {
+            family: "Segoe UI",
             size: self.px(11.5),
-            bold: true,
+            weight: 700,
+            italic: false,
+            underline: false,
         }
     }
 
@@ -247,9 +251,11 @@ impl CommentsPane {
         let bar_x = pad + self.px(58.0);
         let reply_x = bar_x + self.px(11.0);
         let right = pane_w - pad;
-        let author = self.author_style();
+        let author = self.author_font();
         let body = self.body_font();
-        let author_h = (author.size * 1.35).round();
+        // Measured on the reference at 125 %: author ink 5 px under the badge top, text
+        // 23 px under it, a reply's author 19 px above its text.
+        let author_h = (author.size * 1.5).round();
         let body_h = (body.size * 1.3).round();
         let gap = self.px(22.0);
         let mut y = self.px(10.0);
@@ -279,7 +285,7 @@ impl CommentsPane {
                 .push((pad + d / 2.0, y + d / 2.0, ini, badge(&top.author), ini_w));
             entry(&mut card, top, text_x, &mut y);
             for reply in comments.iter().filter(|c| c.parent == Some(top.id)) {
-                y += self.px(10.0);
+                y += self.px(5.0);
                 let from = y;
                 entry(&mut card, reply, reply_x, &mut y);
                 card.bars
@@ -487,7 +493,7 @@ impl CommentsPane {
             }
             for (s, lx, ly, bold, color) in &card.lines {
                 if *bold {
-                    p.text(s, ox + lx, oy + ly, self.author_style(), *color);
+                    p.text_font(s, ox + lx, oy + ly, &self.author_font(), *color);
                 } else {
                     p.text_font(s, ox + lx, oy + ly, &self.body_font(), *color);
                 }

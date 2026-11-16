@@ -3,7 +3,7 @@
 //! larger grid of the common symbol blocks (Latin-1, Vietnamese letters, punctuation,
 //! currency, arrows, mathematical operators) in the same drop-down.
 use crate::theme::Theme;
-use crate::{Painter, TextMeasure, TextStyle};
+use crate::{Font, Painter, TextMeasure, TextStyle};
 use bo_render::Rgba;
 
 const MENU_EDGE: Rgba = Rgba(198, 198, 198, 255);
@@ -202,13 +202,28 @@ impl SymbolGrid {
         }
     }
 
+    /// Monochrome symbol face for the miscellaneous symbols and dingbats (U+2600 to U+27BF),
+    /// so a face like U+263A matches the other cells' weight instead of a colour emoji.
+    fn symbol_font(&self, c: char) -> Option<Font<'static>> {
+        ('\u{2600}'..='\u{27bf}').contains(&c).then(|| Font {
+            family: "Segoe UI Symbol",
+            size: self.glyph_style().size,
+            weight: 400,
+            italic: false,
+            underline: false,
+        })
+    }
+
     /// Measure the glyphs to centre them in their cells.
     pub(crate) fn measure(&mut self, m: &dyn TextMeasure) {
         let st = self.glyph_style();
         self.glyphs = self
             .chars
             .iter()
-            .map(|c| m.measure(&c.to_string(), st))
+            .map(|c| match self.symbol_font(*c) {
+                Some(f) => m.measure_font(&c.to_string(), &f),
+                None => m.measure(&c.to_string(), st),
+            })
             .collect();
     }
 
@@ -249,13 +264,11 @@ impl SymbolGrid {
                 .get(i)
                 .copied()
                 .unwrap_or((glyph.size * 0.6, glyph.size * 1.33));
-            p.text(
-                &s,
-                x + (c - 1.0 - gw) / 2.0,
-                y + (c - 1.0 - gh) / 2.0,
-                glyph,
-                t.text,
-            );
+            let (tx, ty) = (x + (c - 1.0 - gw) / 2.0, y + (c - 1.0 - gh) / 2.0);
+            match self.symbol_font(*ch) {
+                Some(f) => p.text_font(&s, tx, ty, &f, t.text),
+                None => p.text(&s, tx, ty, glyph, t.text),
+            }
         }
         if !self.more {
             let top = self.item_top();

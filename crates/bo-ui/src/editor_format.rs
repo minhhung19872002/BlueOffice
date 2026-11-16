@@ -13,6 +13,10 @@ use bo_render::{PathSeg, Rgba};
 
 /// Pane width in logical pixels (reference: 437 px at 125 %).
 pub(crate) const PANE_W: f32 = 350.0;
+/// Width of the collapsed Format pane: the reference's 18 px strip at 125 % with a "◂"
+/// that opens it (round 8: Edit Text / Edit Object start with it collapsed, the page keeps
+/// its zoom).
+pub(crate) const STRIP_W: f32 = 14.4;
 
 /// Font sizes offered by the size menu (points).
 const SIZES: [f32; 15] = [
@@ -521,8 +525,10 @@ impl EditorWindow {
 
     /// Whether the Format pane is shown: Edit Text is on and it was not closed.
     fn format_shown(&self) -> bool {
+        // Round 8: a comment tool does not open the pane (nor shrink the page) by itself, as
+        // in the reference; its properties show when asked for (`cmt8.props`).
         (matches!(self.edit_tool(), Some(EditTool::Text | EditTool::Object))
-            || self.comment.tool.is_some())
+            || (self.comment.tool.is_some() && self.comment_pane8))
             && !self.format_closed
             && self.r.showing_doc()
     }
@@ -533,8 +539,15 @@ impl EditorWindow {
             && self.comment.tool.is_none()
         {
             self.format_closed = false;
+            self.comment_pane8 = false;
         }
-        let w = if self.format_shown() { PANE_W } else { 0.0 };
+        let w = if !self.format_shown() {
+            0.0
+        } else if self.format_open8 {
+            PANE_W
+        } else {
+            STRIP_W
+        };
         self.r.set_right_pane(w);
     }
 
@@ -555,6 +568,12 @@ impl EditorWindow {
             return false;
         };
         let pane = self.r.right_pane_rect();
+        if !self.format_open8 && pane[2] > 0.0 && inside(pane, x, y) {
+            // The collapsed strip: open the pane.
+            self.format_open8 = true;
+            self.sync_format();
+            return true;
+        }
         if pane[2] <= 0.0 || !inside(pane, x, y) {
             return false;
         }
@@ -598,6 +617,25 @@ impl EditorWindow {
         let r = self.r.right_pane_rect();
         self.pane.hits.clear();
         if r[2] <= 0.0 {
+            return;
+        }
+        if !self.format_open8 {
+            // Collapsed: grey strip (#E2E2E2, edge #E0E0E0) with a dark "◂" in the middle.
+            let k = self.r.ui_scale() / 1.25;
+            p.fill_rect(r[0], r[1], r[2], r[3], Rgba(0xE2, 0xE2, 0xE2, 255));
+            p.fill_rect(r[0], r[1], 1.0, r[3], Rgba(0xE0, 0xE0, 0xE0, 255));
+            let (cx, cy) = (r[0] + r[2] / 2.0, r[1] + r[3] / 2.0);
+            let (a, b) = ((2.5 * k).round(), (3.5 * k).round());
+            p.path(
+                &[
+                    bo_render::PathSeg::M(cx + a, cy - b),
+                    bo_render::PathSeg::L(cx - a, cy),
+                    bo_render::PathSeg::L(cx + a, cy + b),
+                    bo_render::PathSeg::Z,
+                ],
+                Some(Rgba(0x21, 0x21, 0x21, 255)),
+                None,
+            );
             return;
         }
         let k = self.r.ui_scale();

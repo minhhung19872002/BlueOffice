@@ -218,7 +218,7 @@ fn items(objs: &[PageObject]) -> Vec<Item> {
 
 impl Editing {
     /// What moves with a paragraph that gains or loses lines while typing.
-    fn push_mode(&self) -> bo_pdfread::PushMode {
+    pub(crate) fn push_mode(&self) -> bo_pdfread::PushMode {
         if self.reflow {
             bo_pdfread::PushMode::Below
         } else {
@@ -1056,6 +1056,13 @@ impl Editing {
                 }
                 true
             }
+            // Round 8: at a paragraph's start / end the neighbour in its box joins it.
+            (Key::Backspace, false) if sel.is_none() && t.caret == 0 => {
+                return self.join_paragraph(v, false);
+            }
+            (Key::Delete, false) if sel.is_none() && t.caret >= n => {
+                return self.join_paragraph(v, true);
+            }
             (Key::Backspace, _) if t.caret > 0 => {
                 t.caret -= 1;
                 if let Some(b) = t.block.as_mut() {
@@ -1153,7 +1160,7 @@ impl Editing {
     }
 
     /// Lay the paragraph out again and write it into the page.
-    fn write(&mut self, v: &mut ReaderView) -> bool {
+    pub(crate) fn write(&mut self, v: &mut ReaderView) -> bool {
         let Some(t) = self.typing.as_mut() else {
             return false;
         };

@@ -82,7 +82,7 @@ pub use arrange::{flip_about, rotation_about};
 
 pub use convert::{StyledBlock, StyledRun};
 pub use design::{NewField, NewFieldKind, PageMarks};
-pub use edit::{Permissions, SaveOptions};
+pub use edit::{Cipher, Permissions, SaveOptions};
 pub use exchange::SummaryLabels;
 pub use exchange_data::ImportReport;
 pub use extract::ExtractedImage;

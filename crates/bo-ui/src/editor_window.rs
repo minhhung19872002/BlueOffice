@@ -515,6 +515,25 @@ pub struct EditorWindow {
     pub(crate) close_box: Option<crate::editor_close::CloseBox>,
     /// The Page Transitions dialog (`editor_trans7`).
     pub(crate) trans: Option<crate::editor_trans7::TransDlg>,
+    /// Round 8 classic dialogs (`editor_dlg8`), the top one last.
+    pub(crate) form8: Vec<(crate::editor_form8::Form, crate::editor_dlg8::FormWhat)>,
+    /// Password Protection permissions: print, copy, change, comment.
+    pub(crate) perm8: (bool, bool, bool, bool),
+    /// The Format pane shows a comment tool's properties (asked for with `cmt8.props`).
+    pub(crate) comment_pane8: bool,
+    /// The Format pane is open (else a collapsed strip, as the reference starts it).
+    pub(crate) format_open8: bool,
+    /// Saved Settings of the page design dialogs: kind (`hf`, `wm`, `bg`) → named values.
+    pub(crate) presets8:
+        std::collections::BTreeMap<&'static str, Vec<(String, crate::editor_dlg8b::Vals)>>,
+    /// Password Protection choices kept with "Save the settings as a new policy".
+    pub(crate) policy8: Option<crate::editor_dlg8b::Vals>,
+    /// Picture picked as the watermark (File source).
+    pub(crate) wm_image8: Option<Vec<u8>>,
+    /// The presets file was read (`editor_dlg8b::presets_file`).
+    pub(crate) presets_loaded8: bool,
+    /// The Edit Object rotation handle being dragged (`editor_rot8`).
+    pub(crate) rot8: Option<crate::editor_rot8::RotDrag>,
     /// Form field tool.
     pub(crate) design: crate::editor_design::DesignState,
     /// Caret shown (blink phase).
@@ -590,6 +609,15 @@ impl EditorWindow {
             tw: None,
             close_after_save: None,
             trans: None,
+            form8: Vec::new(),
+            perm8: (true, true, true, true),
+            comment_pane8: false,
+            format_open8: false,
+            presets8: std::collections::BTreeMap::new(),
+            policy8: None,
+            wm_image8: None,
+            presets_loaded8: false,
+            rot8: None,
             close_box: None,
             design: crate::editor_design::DesignState::default(),
             caret_on: true,
@@ -648,7 +676,10 @@ impl EditorWindow {
 
     /// Whether one of the window's dialogs is open.
     pub(crate) fn dialog_open(&self) -> bool {
-        self.dialog.is_some() || self.dialog2.is_some() || self.trans.is_some()
+        self.dialog.is_some()
+            || self.dialog2.is_some()
+            || self.trans.is_some()
+            || !self.form8.is_empty()
     }
 
     /// Window title.
@@ -803,7 +834,7 @@ impl EditorWindow {
         self.r.menu_at(items, r, "field");
     }
 
-    fn doc_name(&self) -> String {
+    pub(crate) fn doc_name(&self) -> String {
         self.r.path().and_then(|p| p.file_stem()).map_or_else(
             || "document".to_owned(),
             |s| s.to_string_lossy().into_owned(),
@@ -818,7 +849,11 @@ impl EditorWindow {
         if self.dialog.is_some() || self.dialog2.is_some() {
             return self.dialog_input(&input, m);
         }
-        if self.close_box_input(&input) || self.trans_input(&input) {
+        if self.close_box_input(&input)
+            || self.trans_input(&input)
+            || self.form8_input(&input)
+            || self.rot8_input(&input)
+        {
             return true;
         }
         if self.tw_input(&input, m) {
@@ -991,7 +1026,7 @@ impl EditorWindow {
         }
     }
 
-    fn after_edit(&mut self) {
+    pub(crate) fn after_edit(&mut self) {
         self.r.document_changed();
         let n = self.r.view().map_or(0, ReaderView::page_count);
         self.org.clamp(n);
@@ -1023,11 +1058,11 @@ impl EditorWindow {
             .unwrap_or_default()
     }
 
-    fn insert_at(&self) -> usize {
+    pub(crate) fn insert_at(&self) -> usize {
         self.target_pages().last().map_or(0, |p| p + 1)
     }
 
-    fn edit_result(&mut self, r: Result<(), String>) {
+    pub(crate) fn edit_result(&mut self, r: Result<(), String>) {
         match r {
             Ok(()) => self.after_edit(),
             Err(e) => self.r.set_status(&e),
@@ -1051,7 +1086,8 @@ impl EditorWindow {
             }
             return;
         }
-        if self.action(cmd, m)
+        if self.dlg8_command(cmd)
+            || self.action(cmd, m)
             || self.search_command(cmd)
             || self.tools_command(cmd)
             || self.format_command(cmd)
@@ -1488,7 +1524,8 @@ impl EditorWindow {
             self.certificate_picked(bytes);
             return;
         }
-        if self.five_file_picked(purpose, &name, bytes)
+        if self.dlg8_file_picked(purpose, &name, bytes)
+            || self.five_file_picked(purpose, &name, bytes)
             || self.more_file_picked(purpose, bytes)
             || self.more2_file_picked(purpose, &name, bytes)
         {
@@ -1859,6 +1896,12 @@ impl EditorWindow {
                 }
             }
         }
+        // Round 8: the Watermark / Background preview shows the page itself.
+        if let Some((i, s)) = self.preview_want8() {
+            if let Some(v) = self.r.view_mut() {
+                v.want_preview(i, s);
+            }
+        }
         self.r.prepare(store) || closed
     }
 
@@ -1877,6 +1920,8 @@ impl EditorWindow {
                     .collect();
                 self.org.paint(p, v, base, &labels, self.r.theme());
             }
+            // Round 8: a ribbon menu stays over the page grid (it was cut at the tabs).
+            self.r.paint_open_menu(p);
         }
         if let Some(tool) = self.tool {
             if self.r.showing_doc() && !self.organize_on() {
@@ -1885,6 +1930,7 @@ impl EditorWindow {
                 if let Some(v) = self.r.view_mut() {
                     self.edit.paint(p, v, accent, tool, caret_on);
                 }
+                self.paint_rot8(p);
             }
         }
         self.paint_extras(p);
@@ -1917,6 +1963,7 @@ impl EditorWindow {
             d.paint(p, self.r.theme(), self.r.window_size(), true);
         }
         self.paint_trans(p);
+        self.paint_form8(p);
         self.paint_close_box(p);
     }
 }

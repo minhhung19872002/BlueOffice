@@ -44,6 +44,29 @@ pub struct PageMarks {
     pub bates: Option<(String, u32, usize, String)>,
     /// Date written for `<<date>>`.
     pub date: String,
+    /// Header / footer text colour (round 8).
+    pub color: [u8; 3],
+    /// Distance of left / right header and footer text from the page sides (points; 0: the
+    /// usual 36 pt or a sixth of the page).
+    pub side: f32,
+    /// Distance of the footer baseline from the bottom edge (points; 0: `margin`).
+    pub bottom: f32,
+    /// Watermark width as a part of the page width (0: use `watermark_size`).
+    pub watermark_fit: f32,
+    /// Watermark drawn behind the page content.
+    pub watermark_behind: bool,
+    /// Watermark centre moved right / up from the page centre (points).
+    pub watermark_offset: (f32, f32),
+    /// Background opacity 0–1 (0: opaque).
+    pub background_opacity: f32,
+    /// Header / footer text moved right / up (points; Appearance Options).
+    pub offset: (f32, f32),
+    /// Number `<<page>>` gives the first page (0: 1).
+    pub page_start: i32,
+    /// Header / footer text underlined.
+    pub underline: bool,
+    /// Watermark repeated over the page: row and column spacing (points).
+    pub watermark_tile: Option<(f32, f32)>,
 }
 
 fn face() -> Option<ttf_parser::Face<'static>> {
@@ -93,16 +116,23 @@ impl PdfDocument {
                 ul.1.max(lr.1),
             );
             let sub = |s: &str| {
-                s.replace("<<page>>", &(i + 1).to_string())
+                let first = if m.page_start == 0 { 1 } else { m.page_start };
+                s.replace("<<page>>", &(i as i32 + first).to_string())
                     .replace("<<pages>>", &total.to_string())
                     .replace("<<date>>", &m.date)
             };
             let mut front = String::new();
             let mut back = String::new();
             if let Some(c) = m.background {
+                let gs = if m.background_opacity > 0.0 && m.background_opacity < 1.0 {
+                    let name = self.watermark_gs(i, m.background_opacity.clamp(0.05, 1.0))?;
+                    format!("/{} gs ", String::from_utf8_lossy(&name))
+                } else {
+                    String::new()
+                };
                 let _ = writeln!(
                     back,
-                    "/Artifact <</Type /Pagination /Subtype /Background>> BDC q {}{} {} {} {} re f Q EMC",
+                    "/Artifact <</Type /Pagination /Subtype /Background>> BDC q {gs}{}{} {} {} {} re f Q EMC",
                     fill(c),
                     n(x0),
                     n(y0),
@@ -112,7 +142,12 @@ impl PdfDocument {
             }
             let size = m.size.max(4.0);
             let margin = m.margin.max(size);
-            let side = 36.0_f32.min((x1 - x0) / 6.0);
+            let side = if m.side > 0.0 {
+                m.side.min((x1 - x0) / 3.0)
+            } else {
+                36.0_f32.min((x1 - x0) / 6.0)
+            };
+            let ink = fill(m.color);
             let line = |texts: &[String; 3], y: f32, subtype: &str, out: &mut String| {
                 let mut s = String::new();
                 for (j, t) in texts.iter().enumerate() {
@@ -125,13 +160,24 @@ impl PdfDocument {
                         0 => x0 + side,
                         1 => f32::midpoint(x0, x1) - tw / 2.0,
                         _ => x1 - side - tw,
-                    };
+                    } + m.offset.0;
+                    let y = y + m.offset.1;
                     s.push_str(&outlined(&face, &t, size, x, y));
+                    if m.underline {
+                        let _ = write!(
+                            s,
+                            "{} {} {} {} re ",
+                            n(x),
+                            n(y - size * 0.15),
+                            n(tw),
+                            n((size * 0.06).max(0.3))
+                        );
+                    }
                 }
                 if !s.is_empty() {
                     let _ = writeln!(
                         out,
-                        "/Artifact <</Type /Pagination /Subtype /{subtype}>> BDC q 0 g {s}f Q EMC"
+                        "/Artifact <</Type /Pagination /Subtype /{subtype}>> BDC q {ink}{s}f Q EMC"
                     );
                 }
             };
@@ -141,27 +187,74 @@ impl PdfDocument {
                 let num = *first as usize + k;
                 footer[2] = format!("{prefix}{num:0digits$}{suffix}", digits = *digits);
             }
-            line(&footer, y0 + margin - size, "Footer", &mut front);
+            let bottom = if m.bottom > 0.0 {
+                m.bottom.max(size)
+            } else {
+                margin
+            };
+            line(&footer, y0 + bottom - size, "Footer", &mut front);
             if !m.watermark.is_empty() {
                 let t = sub(&m.watermark);
-                let size = m.watermark_size.max(6.0);
+                let mut size = m.watermark_size.max(6.0);
+                if m.watermark_fit > 0.0 {
+                    let unit = crate::sigappear::advance(&face, &t, 100.0).max(1.0);
+                    size = ((x1 - x0) * m.watermark_fit.min(4.0) * 100.0 / unit).max(2.0);
+                }
                 let tw = crate::sigappear::advance(&face, &t, size);
-                let (cx, cy) = (f32::midpoint(x0, x1), f32::midpoint(y0, y1));
+                let (cx, cy) = (
+                    f32::midpoint(x0, x1) + m.watermark_offset.0,
+                    f32::midpoint(y0, y1) + m.watermark_offset.1,
+                );
                 let a = m.watermark_angle.to_radians();
                 let (c, s) = (a.cos(), a.sin());
-                let path = outlined(&face, &t, size, -tw / 2.0, -size * 0.35);
+                let mut path = outlined(&face, &t, size, -tw / 2.0, -size * 0.35);
+                if m.underline {
+                    let _ = write!(
+                        path,
+                        "{} {} {} {} re ",
+                        n(-tw / 2.0),
+                        n(-size * 0.5),
+                        n(tw),
+                        n((size * 0.06).max(0.3))
+                    );
+                }
                 let op = m.watermark_opacity.clamp(0.05, 1.0);
                 let gs = String::from_utf8_lossy(&self.watermark_gs(i, op)?).into_owned();
+                // One centre, or a grid of them over the page (tiling).
+                let mut centres = vec![(cx, cy)];
+                if let Some((row, col)) = m.watermark_tile {
+                    centres.clear();
+                    let (sx, sy) = ((tw + col.max(0.0)).max(1.0), (size + row.max(0.0)).max(1.0));
+                    let (nx, ny) = (
+                        ((x1 - x0) / sx).ceil() as i32 + 1,
+                        ((y1 - y0) / sy).ceil() as i32 + 1,
+                    );
+                    for r in -ny..=ny {
+                        for k in -nx..=nx {
+                            let (px, py) = (cx + k as f32 * sx, cy + r as f32 * sy);
+                            if px > x0 - sx && px < x1 + sx && py > y0 - sy && py < y1 + sy {
+                                centres.push((px, py));
+                            }
+                        }
+                    }
+                }
+                let mut marks = String::new();
+                for (px, py) in centres {
+                    let _ = write!(
+                        marks,
+                        "q {} {} {} {} {} {} cm {path}f Q ",
+                        n(c),
+                        n(s),
+                        n(-s),
+                        n(c),
+                        n(px),
+                        n(py)
+                    );
+                }
                 let _ = writeln!(
-                    front,
-                    "/Artifact <</Type /Pagination /Subtype /Watermark>> BDC q /{gs} gs {}{} {} {} {} {} {} cm {path}f Q EMC",
-                    fill(m.watermark_color),
-                    n(c),
-                    n(s),
-                    n(-s),
-                    n(c),
-                    n(cx),
-                    n(cy)
+                    if m.watermark_behind { &mut back } else { &mut front },
+                    "/Artifact <</Type /Pagination /Subtype /Watermark>> BDC q /{gs} gs {}{marks}Q EMC",
+                    fill(m.watermark_color)
                 );
             }
             if front.is_empty() && back.is_empty() {
@@ -170,11 +263,44 @@ impl PdfDocument {
             let (sid, content) = self.page_stream(i)?;
             let mut out = back.into_bytes();
             out.extend_from_slice(&content);
+            if !front.is_empty() && content.last().is_some_and(|b| *b != 10) {
+                out.push(10);
+            }
             out.extend_from_slice(front.as_bytes());
             self.set_stream(sid, out);
         }
         self.commit();
         Ok(())
+    }
+
+    /// Remove the marks of `subtypes` (`Header`, `Footer`, `Watermark`, `Background`) that
+    /// [`PdfDocument::add_page_marks`] wrote (one marked-content line each, ISO 32000-1
+    /// §14.8.2.2 pagination artifacts) from every page, as one undo step; the number of pages
+    /// changed.
+    pub fn remove_page_marks(&mut self, subtypes: &[&str]) -> Result<usize, String> {
+        let heads: Vec<String> = subtypes
+            .iter()
+            .map(|s| format!("/Artifact <</Type /Pagination /Subtype /{s}>> BDC"))
+            .collect();
+        self.begin("remove page design");
+        let mut changed = 0;
+        for i in 0..self.pages.len() {
+            let (sid, content) = self.page_stream(i)?;
+            let ours = |l: &[u8]| heads.iter().any(|h| l.starts_with(h.as_bytes()));
+            if !content.split_inclusive(|b| *b == b'\n').any(ours) {
+                continue;
+            }
+            let kept: Vec<u8> = content
+                .split_inclusive(|b| *b == b'\n')
+                .filter(|l| !ours(l))
+                .flatten()
+                .copied()
+                .collect();
+            self.set_stream(sid, kept);
+            changed += 1;
+        }
+        self.commit();
+        Ok(changed)
     }
 
     /// An ExtGState with constant opacity `op` in page `i`'s resources; its name.
@@ -588,6 +714,7 @@ mod tests {
             background: Some([255, 250, 230]),
             bates: Some(("BO".into(), 7, 4, String::new())),
             date: "2026-11-15".into(),
+            ..PageMarks::default()
         };
         d.add_page_marks(&[], &m).expect("marks");
         let saved = d.save().expect("saves");
@@ -599,6 +726,47 @@ mod tests {
             assert!(p.list.commands.len() >= 4, "page {i}");
             assert_eq!(TextLayer::new(p.chars).text(), "");
         }
+        assert!(d.undo());
+    }
+
+    #[test]
+    fn round8_marks_options_and_remove_all() {
+        let mut d = doc(2);
+        let before = d.save().expect("saves").len();
+        let m = PageMarks {
+            footer: [String::new(), "<<page>>".into(), String::new()],
+            size: 9.0,
+            color: [0, 0, 255],
+            side: 72.0,
+            bottom: 36.0,
+            watermark: "DRAFT".into(),
+            watermark_fit: 0.5,
+            watermark_behind: true,
+            watermark_offset: (10.0, -20.0),
+            watermark_opacity: 0.5,
+            background: Some([240, 240, 255]),
+            background_opacity: 0.5,
+            ..PageMarks::default()
+        };
+        d.add_page_marks(&[], &m).expect("marks");
+        let (_, c) = d.page_stream(0).expect("stream");
+        let text = String::from_utf8_lossy(&c).into_owned();
+        // Footer in blue; watermark behind the content (before it, with the background).
+        assert!(text.contains("q 0 0 1 rg "), "{text}");
+        let wm = text.find("/Subtype /Watermark").expect("watermark");
+        let footer = text.find("/Subtype /Footer").expect("footer");
+        assert!(wm < footer);
+        assert_eq!(
+            d.remove_page_marks(&["Watermark", "Background"])
+                .expect("rm"),
+            2
+        );
+        let (_, c) = d.page_stream(1).expect("stream");
+        let text = String::from_utf8_lossy(&c).into_owned();
+        assert!(!text.contains("/Watermark") && !text.contains("/Background"));
+        assert!(text.contains("/Subtype /Footer"));
+        assert_eq!(d.remove_page_marks(&["Header", "Footer"]).expect("rm"), 2);
+        assert!(d.save().expect("saves").len() >= before);
         assert!(d.undo());
     }
 

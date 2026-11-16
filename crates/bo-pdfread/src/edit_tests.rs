@@ -429,3 +429,35 @@ fn aes256_protection_with_permissions() {
     let owner = PdfDocument::open_with_password(saved, standard_fonts(), "owner").expect("owner");
     assert_eq!(owner.page_count(), 1);
 }
+
+#[test]
+fn rc4_and_unencrypted_metadata_protection() {
+    let one = || {
+        PdfDocument::open(
+            crate::tests::build_pdf(&[
+                "<< /Type /Catalog /Pages 2 0 R >>",
+                "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << >> >>",
+            ]),
+            standard_fonts(),
+        )
+        .expect("opens")
+    };
+    let allow = crate::Permissions::default();
+    let mut doc = one();
+    doc.set_protection_with("u", "o", allow, crate::Cipher::Rc4, true)
+        .expect("rc4");
+    let saved = doc.save().expect("saves");
+    let text = String::from_utf8_lossy(&saved);
+    assert!(
+        text.contains("/V 2") && text.contains("/R 3"),
+        "rc4 handler"
+    );
+    let again = PdfDocument::open_with_password(saved, standard_fonts(), "u").expect("user");
+    assert_eq!(again.page_count(), 1);
+    let mut doc = one();
+    doc.set_protection_with("u", "o", allow, crate::Cipher::Aes128, false)
+        .expect("aes");
+    let saved = doc.save().expect("saves");
+    assert!(String::from_utf8_lossy(&saved).contains("/EncryptMetadata false"));
+}

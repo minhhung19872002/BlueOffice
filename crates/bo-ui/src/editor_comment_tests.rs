@@ -51,8 +51,13 @@ fn kinds(w: &EditorWindow) -> Vec<AnnotKind> {
 #[test]
 fn comment_tools_add_comments() {
     let mut w = window(1);
+    let zoom = w.view().map(crate::ReaderView::scale);
     w.run("cm.rect", &Fixed);
-    // The Format pane shows the comment properties.
+    // Round 8: picking the tool neither opens the Format pane nor changes the zoom (as in
+    // the reference); asked for, the pane shows the comment properties.
+    assert!(w.r.right_pane_rect()[2] <= 0.0);
+    assert_eq!(w.view().map(crate::ReaderView::scale), zoom);
+    w.run("cmt8.props", &Fixed);
     assert!(w.r.right_pane_rect()[2] > 0.0);
     w.run("fmt.cOpacity.50", &Fixed);
     w.run("fmt.cWidth.4", &Fixed);

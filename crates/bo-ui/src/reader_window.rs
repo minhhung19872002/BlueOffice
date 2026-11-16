@@ -3877,3 +3877,13 @@ impl ReaderWindow {
         }
     }
 }
+
+impl ReaderWindow {
+    /// Paint the open popup menu again, over what a host drew after [`ReaderWindow::paint`]
+    /// (BlueEditor's Organize page grid, round 8).
+    pub(crate) fn paint_open_menu(&self, p: &mut dyn Painter) {
+        if let Some((menu, _)) = &self.menu {
+            menu.paint(p, &self.theme, &self.icons);
+        }
+    }
+}

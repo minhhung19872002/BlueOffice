@@ -52,8 +52,7 @@ impl Session {
     /// The floating picture of the caret's paragraph (the selected one first).
     pub fn picture_state(&self) -> Option<PictureState> {
         let (a, b) = self.selection.ordered();
-        let paths = body_paragraphs(&self.doc);
-        let p = para_at(&self.doc, paths.get(a.para)?)?;
+        let p = bo_model::index::para_by_id(&self.doc, a.para)?;
         let atoms = para::flatten(p);
         let range = (a.para == b.para).then_some((a.offset, b.offset));
         let i = floating_at(&atoms, range)?;

@@ -6,7 +6,7 @@
 use super::{
     flatten_outline, inside, Ink, LinkTarget, Panel, PanelRow, ReaderWindow, MUTED, TEXT, WHITE,
 };
-use crate::popup::{Choice, Menu, MenuItem};
+use crate::popup::{Choice, MenuItem};
 use crate::reader_icons;
 use crate::{Input, Key, Painter, TextMeasure};
 use bo_pdfread::OutlineItem;
@@ -311,7 +311,7 @@ impl ReaderWindow {
                 })
                 .collect();
                 let r = self.tabs5.bm_tools.first().map_or([0.0; 4], |t| t.1);
-                self.menu = Some((Menu::open(items, r, self.size, self.scale), "bookmarks"));
+                self.menu = Some((self.reader_menu(items, r), "bookmarks"));
             }
             "bm.expandAll" | "bm.collapseAll" => {
                 if let Some(t) = self.tabs.get_mut(self.active) {

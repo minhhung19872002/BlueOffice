@@ -11,10 +11,14 @@ use commands_impl::SheetDialog;
 
 #[path = "sheet_audit.rs"]
 mod audit_impl;
+#[path = "sheet_cfmenu.rs"]
+mod cfmenu_impl;
 #[path = "sheet_chart.rs"]
 mod chart_impl;
 // BlueSlide's chart tabs reuse the menus and icons.
 pub(crate) use chart_impl::add_icons as add_chart_icons;
+#[path = "sheet_chartdata.rs"]
+mod chartdata_impl;
 #[path = "sheet_commands.rs"]
 mod commands_impl;
 #[path = "sheet_comments.rs"]
@@ -37,8 +41,14 @@ mod gallery_impl;
 mod illus_impl;
 #[path = "sheet_insert.rs"]
 mod insert_impl;
+#[path = "sheet_pagelayout.rs"]
+mod pagelayout_impl;
+#[path = "sheet_paste.rs"]
+mod paste_impl;
 #[path = "sheet_review.rs"]
 mod review_impl;
+#[path = "sheet_tabledesign.rs"]
+mod tabledesign_impl;
 use crate::strings::Strings;
 use crate::theme::Theme;
 use crate::titlebar::{NcHit, TitleBar};
@@ -198,9 +208,12 @@ fn sheet_enabled(id: &str, f: &FormatState) -> bool {
         | "sheet.unhideWindow"
         | "sheet.switchWindows"
         | "sheet.macros"
-        | "sheet.chartSwitch"
-        | "sheet.chartSelectData"
-        | "sheet.chartMove" => false,
+        | "sheet.themeEffects"
+        | "sheet.tblExport"
+        | "sheet.tblProperties"
+        | "sheet.tblBrowser"
+        | "sheet.tblUnlink"
+        | "sheet.tblRefresh" => false,
         _ => COMMANDS.contains(&id) || id.starts_with("sheet."),
     }
 }
@@ -370,6 +383,19 @@ pub struct SheetWindow {
     /// Selected chart, a chart drag in progress, the charts' anchors for painting.
     chart_sel: Option<usize>,
     chart_drag: Option<chart_impl::ChartDrag>,
+    /// Select Data Source state while its form is open.
+    chart_data: Option<chartdata_impl::ChartDataState>,
+    /// The Table Design tab is shown (the active cell is in a table).
+    table_tab: bool,
+    /// Open Conditional Formatting menu.
+    cf_menu: Option<cfmenu_impl::CfMenu>,
+    /// Rule of the open simple rule dialog (greaterThan, top, …).
+    cf_which: String,
+    /// Rule being edited by Edit Formatting Rule (block, rule).
+    cf_edit: Option<(usize, usize)>,
+    /// Rules shown by the rules manager and the chosen one.
+    cf_rules: Vec<serde_json::Value>,
+    cf_pick: Option<usize>,
     chart_cache: Vec<([u32; 2], [u32; 2])>,
 }
 
@@ -394,7 +420,12 @@ impl SheetWindow {
                 .with_late_rows(sheet_ribbon::late)
                 .with_large_widths(chart_impl::large_width)
                 .with_plain_contextual()
-                .with_two_line_labels(),
+                .with_two_line_labels()
+                // Measured on the reference's Insert tab at 125 % (round 27): large buttons
+                // 50 px or the label + 6 px; a one-word menu label puts ▾ on its own line.
+                .with_large_metrics(40.0, 5.0)
+                .with_row_widths(tabledesign_impl::row_width)
+                .with_mark_on_own_line(),
             wide_ribbon: true,
             theme: Theme::light("sheet"),
             icons: Icons::load(),
@@ -453,12 +484,21 @@ impl SheetWindow {
             picker: None,
             library: Vec::new(),
             chart_sel: None,
+            chart_data: None,
+            table_tab: false,
+            cf_menu: None,
+            cf_which: String::new(),
+            cf_edit: None,
+            cf_rules: Vec::new(),
+            cf_pick: None,
             chart_drag: None,
             chart_cache: Vec::new(),
         };
         insert_impl::add_icons(&mut w.icons);
         data_impl::add_icons(&mut w.icons);
         chart_impl::add_icons(&mut w.icons);
+        tabledesign_impl::add_icons(&mut w.icons);
+        pagelayout_impl::add_icons(&mut w.icons);
         data_impl::install_labels(&mut w.strings);
         w.load_functions();
         w.refresh_calc_state();
@@ -589,6 +629,9 @@ impl SheetWindow {
                 });
                 if self.chart_sel.is_some() {
                     self.ribbon.set_contextual(chart_impl::chart_tabs(), false);
+                } else if self.table_tab {
+                    self.ribbon
+                        .set_contextual(tabledesign_impl::table_tabs(), false);
                 }
                 // The same tab stays active (also a contextual one).
                 self.ribbon.set_active_tab(active);
@@ -1193,7 +1236,11 @@ impl SheetWindow {
             return false;
         };
         self.rest += 1;
-        if self.rest != 5 || self.menu.is_some() || self.gallery.is_some() || self.filter.is_some()
+        if self.rest != 5
+            || self.menu.is_some()
+            || self.gallery.is_some()
+            || self.cf_menu.is_some()
+            || self.filter.is_some()
         {
             return false;
         }
@@ -1223,6 +1270,7 @@ impl SheetWindow {
         };
         let mut redraw = self.route(input, text);
         self.refresh_chart_cache();
+        self.sync_table_tab();
         // Contextual tabs shown or hidden by the input (chart selection) need a layout.
         if self.ribbon.needs_layout() {
             self.relayout(text);
@@ -1296,6 +1344,11 @@ impl SheetWindow {
                 return r;
             }
         }
+        if self.cf_menu.is_some() {
+            if let Some(r) = self.cf_menu_input(&input, text) {
+                return r;
+            }
+        }
         if self.gallery.is_some() {
             if let Some(r) = self.gallery_input(&input, text) {
                 return r;
@@ -1343,6 +1396,14 @@ impl SheetWindow {
                 (Key::Letter('x'), Mods { ctrl: true, .. }) if !self.view.editing() => {
                     Some("edit.cut")
                 }
+                (
+                    Key::Letter('v'),
+                    Mods {
+                        ctrl: true,
+                        alt: true,
+                        ..
+                    },
+                ) if !self.view.editing() => Some("sheet.pasteSpecial"),
                 (Key::Letter('v'), Mods { ctrl: true, .. }) if !self.view.editing() => {
                     Some("edit.paste")
                 }
@@ -1682,6 +1743,7 @@ impl SheetWindow {
         self.paint_number_box(p);
         self.paint_check_items(p);
         self.paint_chart_style_tiles(p);
+        self.paint_table_checks(p);
     }
 
     /// Formula bar, sheet tabs, scroll bars, status bar, then menus, tooltips and dialogs
@@ -1698,6 +1760,7 @@ impl SheetWindow {
         self.paint_status(p);
         self.paint_filter(p);
         self.paint_gallery(p);
+        self.paint_cf_menu(p);
         self.paint_picker(p);
         if let Some(menu) = &self.menu {
             menu.paint(p, &self.theme, &self.icons);
@@ -1774,6 +1837,8 @@ impl SheetWindow {
             self.paint_symbol_grid(f, r, p);
         } else if self.form_kind == form_impl::FormKind::MoreColors {
             self.paint_more_colors(r, p);
+        } else if self.form_kind == form_impl::FormKind::CfManager {
+            self.paint_cf_rules(r, p, self.scale / 1.25);
         }
     }
 

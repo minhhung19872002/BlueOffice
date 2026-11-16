@@ -356,3 +356,103 @@ fn rows_in_place_keeps_the_longest_ordered_run() {
     assert_eq!(rows_in_place(&[3, 2, 1]).iter().filter(|k| **k).count(), 1);
     assert_eq!(rows_in_place(&[]), Vec::<bool>::new());
 }
+
+/// Cell alignment, quick looks with style options and selecting parts of the table.
+#[test]
+fn cell_align_looks_and_select() {
+    let mut s = Session::new(doc(&["a\tb\tc", "d\te\tf", "g\th\ti", "after"]));
+    let original = s.doc().clone();
+    select(&mut s, (0, 0), (3, 0));
+    s.edit_table(&TableEdit::FromText {
+        separator: "\t".into(),
+        cols: None,
+    })
+    .unwrap();
+    // Paragraph ids: row r, column c is 3 * r + c.
+    s.set_selection(Selection::caret(Pos::new(4, 0)));
+    s.edit_table(&TableEdit::CellAlign {
+        vertical: bo_model::CellVAlign::Center,
+        horizontal: Alignment::Right,
+    })
+    .unwrap();
+    let t = table(&s);
+    let mid = &t.rows[1].cells[1];
+    assert_eq!(mid.props.v_align, Some(bo_model::CellVAlign::Center));
+    assert!(
+        matches!(&mid.blocks[0], Block::Paragraph(p) if p.props.align == Some(Alignment::Right))
+    );
+    assert_eq!(
+        t.rows[0].cells[0].props.v_align, None,
+        "only the caret's cell"
+    );
+    let st = s.format_state().table.expect("in a table");
+    assert_eq!(st.v_align, Some(bo_model::CellVAlign::Center));
+    assert_eq!(st.cell_h_align, Alignment::Right);
+    // Top left goes back to the default (no vAlign written).
+    s.edit_table(&TableEdit::CellAlign {
+        vertical: bo_model::CellVAlign::Top,
+        horizontal: Alignment::Left,
+    })
+    .unwrap();
+    assert_eq!(table(&s).rows[1].cells[1].props.v_align, None);
+
+    // A look: header row and first column filled, body rows banded from the first body row.
+    s.edit_table(&TableEdit::Look {
+        preset: "gridBlue".into(),
+        options: crate::table_tools::LookOptions::default(),
+    })
+    .unwrap();
+    let t = table(&s);
+    let fill = |r: usize, c: usize| t.rows[r].cells[c].props.shading.map(Color::to_hex);
+    assert_eq!(fill(0, 1).as_deref(), Some("B9D2EE"), "header row");
+    assert_eq!(fill(1, 0).as_deref(), Some("B9D2EE"), "first column");
+    assert_eq!(fill(1, 1).as_deref(), Some("E8F0FA"), "first band");
+    assert_eq!(fill(2, 1), None, "second band");
+    assert!(t
+        .props
+        .borders
+        .as_ref()
+        .and_then(|b| b.inside_v.clone())
+        .is_some());
+    // Without banded rows and first column only the header stands out.
+    s.edit_table(&TableEdit::Look {
+        preset: "gridBlue".into(),
+        options: crate::table_tools::LookOptions {
+            first_column: false,
+            banded_rows: false,
+            ..Default::default()
+        },
+    })
+    .unwrap();
+    let t = table(&s);
+    assert_eq!(t.rows[1].cells[0].props.shading, None);
+    assert!(t.rows[0].cells[2].props.shading.is_some());
+    assert!(s
+        .edit_table(&TableEdit::Look {
+            preset: "nope".into(),
+            options: crate::table_tools::LookOptions::default(),
+        })
+        .is_err());
+
+    // Select: column 1 runs from the top cell to the end of the bottom cell.
+    s.set_selection(Selection::caret(Pos::new(4, 0)));
+    let sel = s
+        .edit_table(&TableEdit::Select {
+            part: "column".into(),
+        })
+        .unwrap();
+    assert_eq!((sel.anchor, sel.focus), (Pos::new(1, 0), Pos::new(7, 1)));
+    s.set_selection(Selection::caret(Pos::new(4, 0)));
+    let sel = s
+        .edit_table(&TableEdit::Select { part: "row".into() })
+        .unwrap();
+    assert_eq!((sel.anchor, sel.focus), (Pos::new(3, 0), Pos::new(5, 1)));
+    let sel = s
+        .edit_table(&TableEdit::Select {
+            part: "table".into(),
+        })
+        .unwrap();
+    assert_eq!((sel.anchor, sel.focus), (Pos::new(0, 0), Pos::new(8, 1)));
+    assert!(s.format_state().table.is_some_and(|t| t.multi_cell));
+    round_trip(&mut s, &original);
+}

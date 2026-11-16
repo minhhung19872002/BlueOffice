@@ -191,6 +191,18 @@ impl Painter for WinPainter<'_, '_> {
     fn pop_clip(&mut self) {
         self.frame.pop_clip();
     }
+    fn layer_begin(&mut self, id: usize, rect: [f32; 4], key: u64) -> bool {
+        let (x, y) = (rect[0].round(), rect[1].round());
+        let (r, b) = ((rect[0] + rect[2]).round(), (rect[1] + rect[3]).round());
+        self.frame.layer_begin(
+            id,
+            [x as i32, y as i32, (r - x) as i32, (b - y) as i32],
+            key,
+        )
+    }
+    fn layer_end(&mut self, id: usize) {
+        self.frame.layer_end(id);
+    }
 }
 
 /// Interface text measured by DirectWrite (before a device exists: an estimate).

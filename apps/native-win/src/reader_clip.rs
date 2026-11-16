@@ -1,11 +1,14 @@
 //! A picture on the clipboard (BlueReader's SnapShot): a device-independent bitmap
 //! (`CF_DIB`), Win32 calls confined to this child module like win32.rs.
 use windows::Win32::Foundation::HANDLE;
+use windows::Win32::Foundation::HGLOBAL;
 use windows::Win32::Graphics::Gdi::{BITMAPINFOHEADER, BI_RGB};
 use windows::Win32::System::DataExchange::{
-    CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData,
+    CloseClipboard, EmptyClipboard, GetClipboardData, OpenClipboard, SetClipboardData,
 };
-use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
+use windows::Win32::System::Memory::{
+    GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock, GMEM_MOVEABLE,
+};
 
 /// Standard clipboard format of a DIB.
 const CF_DIB: u32 = 8;
@@ -66,5 +69,29 @@ pub fn set_image(width: u32, height: u32, rgba: &[u8]) -> Result<(), String> {
         })();
         let _ = CloseClipboard();
         result
+    }
+}
+
+/// The bitmap on the clipboard as a packed DIB (`CF_DIB`: header, colour table, bits), or
+/// `None` when there is no picture (BlueEditor's Convert › From Clipboard).
+pub fn get_dib() -> Option<Vec<u8>> {
+    // SAFETY: the clipboard is opened for this thread and closed on every path; the data
+    // handle stays owned by the clipboard and is only read while locked.
+    unsafe {
+        OpenClipboard(None).ok()?;
+        let out = (|| {
+            let h = GetClipboardData(CF_DIB).ok()?;
+            let mem = HGLOBAL(h.0);
+            let n = GlobalSize(mem);
+            let p = GlobalLock(mem).cast::<u8>();
+            if p.is_null() || n == 0 {
+                return None;
+            }
+            let v = std::slice::from_raw_parts(p, n).to_vec();
+            let _ = GlobalUnlock(mem);
+            Some(v)
+        })();
+        let _ = CloseClipboard();
+        out
     }
 }

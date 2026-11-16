@@ -42,14 +42,41 @@ pub(crate) fn form_tab_items() -> Vec<(&'static str, Kind)> {
         ("fd.image", Small("fieldImage")),
         ("fd.signature", Small("fieldSignature")),
         ("sep3", Sep),
-        ("form.fill", Big("fillSign", "pdfEditor.fillSign", false)),
         (
-            "form.highlight",
-            Big("formFields", "pdfEditor.highlightFields", false),
+            "form.pageTemplates",
+            Big("template", "pdfEditor.pageTemplates", false),
+        ),
+        ("form.xfa", Big("formPdf", "pdfEditor.editXfa", false)),
+        (
+            "form.calcOrder",
+            Big("calcOrder", "pdfEditor.calcOrder", false),
+        ),
+        (
+            "form.tooltip",
+            Big("tooltip", "pdfEditor.addTooltip", false),
         ),
         ("sep4", Sep),
         ("form.reset", Big("resetForm", "pdfEditor.resetForm", false)),
-        ("form.flatten", Big("flatten", "pdfEditor.flatten", false)),
+        (
+            "form.toSheetMenu",
+            Big("formToSheet", "pdfEditor.formToSheet", true),
+        ),
+        (
+            "form.importData",
+            Big("import", "pdfEditor.importData", false),
+        ),
+        (
+            "form.exportMenu",
+            Big("export", "pdfEditor.exportData", true),
+        ),
+        ("sep5", Sep),
+        ("form.actions", Big("javascript", "pdfEditor.actions", true)),
+        ("sep6", Sep),
+        (
+            "form.settings",
+            Big("viewSetting", "pdfEditor.toolSettings", true),
+        ),
+        ("sep7", Sep),
     ]
 }
 

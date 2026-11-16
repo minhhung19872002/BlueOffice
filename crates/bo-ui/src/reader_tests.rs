@@ -7,7 +7,7 @@ use bo_render::{PageList, PathSeg, Rgba};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-struct Fixed;
+pub(crate) struct Fixed;
 
 impl TextMeasure for Fixed {
     fn measure(&self, text: &str, style: TextStyle) -> (f32, f32) {
@@ -63,7 +63,7 @@ impl Painter for Rec {
 }
 
 /// A PDF with `pages` Letter pages, each showing "Page N hello world".
-fn pdf(pages: usize) -> Vec<u8> {
+pub(crate) fn pdf(pages: usize) -> Vec<u8> {
     let mut objs: Vec<String> = vec![
         "<< /Type /Catalog /Pages 2 0 R >>".into(),
         String::new(),
@@ -191,6 +191,41 @@ fn page_navigation_layouts_and_zoom() {
         }
         assert_eq!(v.current_page(), 4);
     }
+}
+
+#[test]
+fn search_shows_the_first_hit_then_reads_the_rest_on_ticks() {
+    let mut w = window(30);
+    if let Some(v) = w.view_mut() {
+        v.go_to(20, None);
+    }
+    let v = w.view_mut().expect("view");
+    let start = v.current_page();
+    assert!(start >= 19, "{start}");
+    // Page 21 has "Page 21 hello world": the first hit is on the current page, shown before
+    // pages 1–20 are read.
+    v.find_start("hello", false, false);
+    assert_eq!(v.current_hit(), Some(0));
+    assert_eq!(v.hits()[0].page, start);
+    assert!(v.searching());
+    // Ticks read the rest; hits stay in page order and the current hit keeps its page.
+    let mut ticks = 0;
+    while v.search_step(std::time::Duration::ZERO) {
+        ticks += 1;
+    }
+    assert!(ticks > 0);
+    assert!(!v.searching());
+    assert_eq!(v.hits().len(), 30);
+    assert!(v.hits().windows(2).all(|h| h[0].page < h[1].page));
+    let cur = v.current_hit().expect("current");
+    assert_eq!(v.hits()[cur].page, start);
+    // The window's status shows k / n.
+    w.handle(Input::Tick, &Fixed);
+    // "Page 3 hello" only once; a query without hits.
+    let v = w.view_mut().expect("view");
+    assert_eq!(v.find("Page 3 hello", false, false), 1);
+    assert_eq!(v.find("nothing", false, false), 0);
+    assert!(v.current_hit().is_none());
 }
 
 #[test]

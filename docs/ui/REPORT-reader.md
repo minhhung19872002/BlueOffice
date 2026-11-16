@@ -252,3 +252,123 @@ theo offset từ ngoài (`Reader::read_object` riêng tư), cần thay bộ đ�
 Còn lại: nạp lười để mở ≤ 210 ms (đo trên máy rảnh), so chọn chữ / tìm (Ctrl+F) với bản đối chiếu (cần thao tác
 thật), danh sách zoom và menu dùng chung cỡ chữ lớn hơn bản đối chiếu, Batch Print / Share / Preferences của trang
 File, Insert Text thật (Caret), chia khung kéo được, Advanced / Page Setting trong hộp In.
+
+## Vòng 6 (2026-11-16)
+
+Phần thêm ở mô-đun riêng: `bo-pdfread/src/{store,annot_caret}.rs`, `reader_prefs6_win.rs` (Tùy chọn, In hàng loạt,
+Chèn chữ, cuộn mượt), `reader_print6.rs` (Nâng cao / Thiết lập trang của hộp In). Ảnh so sánh:
+`scratchpad/show/reader-26…34-*.png` (bản đối chiếu trên / trái).
+
+**Bộ đọc đối tượng của chính ta** (`store.rs`, `reader-26`). Mở tệp chỉ đọc bảng xref / xref stream (`/Prev`,
+`/XRefStm`) và trailer; đối tượng được phân tích khi dùng lần đầu (bộ phân tích riêng trên lexer nội dung, `/Length`
+gián tiếp, object stream giải nén một lần rồi giữ, offset sai thì tìm theo đầu `n g obj`). Sửa, lưu và các hàm của
+lopdf đi qua `Deref` / `DerefMut`, nạp `lopdf::Document` đầy đủ một lần như trước — đường ghi của BlueEditor không
+đổi (test xanh). Tệp mã hoá hoặc xref hỏng nạp đầy đủ khi mở. Mở sổ tay 1 202 trang trong cửa sổ không nạp toàn bộ
+(kiểm bằng `BO_PDF_LOAD_TRACE`).
+
+| Sổ tay 1 202 trang, `--bench`, bản release | Vòng 5 | Vòng 6 |
+| --- | --- | --- |
+| Mở (máy bận: 7 tiến trình biên dịch, CPU 26–43 %) | 351–689 ms | 33–49 ms |
+| Trang đầu (cùng điều kiện) | 376–752 ms | 43–59 ms |
+| Bản cuối, 5 lần sau 25 phút chờ máy rảnh (không lúc nào rảnh: 10 trình biên dịch, CPU 43–60 %) | — | mở 36–74 ms, trang đầu 47–86 ms (nhỏ nhất 47,1 ms; mục tiêu ≤ 210 ms) |
+
+**Menu** (`reader-27`, `reader-28`). Đo menu của bản đối chiếu ở 125 %: hàng 30 px, chữ 13 px (chữ số cao 9 px),
+nhãn cách khung 41 px, biểu tượng 20 px cách 10 px, khung 195 trên nền 251, 251, 253, đường kẻ trước Actual Size.
+`popup::MenuLook` mới (mặc định như cũ cho BlueDoc / BlueSheet / BlueSlide / BlueEditor); menu của BlueReader:
+hàng 30 px (trước 33), chữ số 9 px (trước 13), nhãn cách khung 42 px, menu Clipboard 131 × 129 px (bản đối chiếu
+131 × 131).
+
+**Trang File** (`reader-29`, `reader-30`). Đo lại cột trái ở cùng 125 % / cùng cỡ cửa sổ: cỡ chữ vốn đã bằng nhau
+("Properties" rộng 74 px cả hai — ảnh vòng 5 bị thu nhỏ); sửa màu cột 245, 246, 250 + viền 199, 204, 217, hàng
+cách 46 px từ 14 px dưới tab, đường kẻ 230, 233, 240 thêm 7 px, ô lệnh đang chọn góc 4 px; nhãn lệch ≤ 2 px. Thêm
+Batch Print (bản đối chiếu hiện bật): chọn các tài liệu đang mở rồi một hộp In, host in từng tài liệu (mọi trang)
+với cùng thiết lập. Preferences: thu phóng mặc định, bố cục trang, tác giả chú thích, đơn vị đo (in / mm / cm / pt
+/ pica, cho công cụ đo), cuộn mượt; host lưu `reader-prefs.txt`. Share, Skins không làm. Hộp Preferences và các
+hộp con của hộp In bản đối chiếu không mở được nếu không thao tác thật (UIA Invoke bị bỏ qua) nên bố cục là của ta.
+
+**Chèn chữ, chia khung, hộp In** (`reader-31`, `reader-32`). Insert Text đặt chú thích Caret thật (§12.5.6.11,
+`/Sy /None`, nội dung là chữ cần chèn) ở mép ký tự gần nhất. Thanh chia khung kéo được (con trỏ mũi tên hai đầu;
+mỗi khung giữ ít nhất 1/10). Hộp In: Advanced (in thành ảnh 72 / 150 / 300 / 600 dpi; màu, thang xám, đen trắng)
+và Page Setting (giấy của máy in hoặc Letter / Legal / A3 / A4 / A5; lề mm, vùng in co lại theo lề).
+
+**Chữ sao chép** (`reader-33`). `bluereader-native --text` in ra đúng chữ Select All + Copy; so với MuPDF 1.27
+(chữ của bản đối chiếu không đọc được: mẫu Text của UIA chỉ có khi tài liệu nhận focus thật):
+
+| Tệp | Kết quả |
+| --- | --- |
+| Sổ tay 1 202 trang | 585 524 từ, 100,00 % cùng thứ tự và khoảng trắng |
+| Hai cột viết xen dòng (tự sinh) | trước: L0 R0 L1 R1… như MuPDF; nay đọc hết cột trái rồi cột phải |
+| Tiếng Việt, Arial nhúng, từng từ đặt riêng | giống MuPDF trừ 4 khoảng trắng MuPDF bỏ sót sau ủ / ự / ở / ợ / ả |
+
+Thứ tự đọc: cắt XY các dòng; chỉ cắt cột khi rãnh ≥ 1 em và mỗi bên có ≥ 4 dòng chữ rộng ≥ 15 em, phần lớn dài
+≥ 60 % cột — bảng (trang 26, 32 của sổ tay) và trang một cột giữ thứ tự nội dung.
+
+Toàn cửa sổ (`reader-34`): cùng tệp, bố cục ribbon / tab / cột bookmark / trang / thanh trạng thái như vòng 5.
+
+Còn lại: xem trước của hộp In chưa theo giấy / lề của Page Setting; hình học caret và màu xanh chưa đo được trên
+bản đối chiếu; menu Clipboard chưa có biểu tượng; Share / Skins; so chọn chữ bằng chuột với bản đối chiếu (cần thao
+tác thật).
+
+## Vòng 7 (2026-11-16)
+
+Phần thêm ở mô-đun riêng: `reader_keys7_win.rs` (phím tắt ribbon), `reader_print7.rs` (thứ tự Tab của hộp In);
+lõi: `bo-pdfread` (`MeasureUnit`, `mesh::radial`, bảng mã Symbol / ZapfDingbats); host: `--search`, `--render a-b`,
+`win32::enable_ribbon_keys` / `enable_full_client` (chỉ BlueReader bật), `Device::trim` (bo-gpu-win, thêm mới).
+Ảnh so sánh: `scratchpad/show/reader-35…41-*.png`.
+
+**Phần còn của vòng 6.** Xem trước của hộp In theo giấy và lề của Page Setting (giấy chọn giữ mép không in được
+của máy in, trang vừa vùng trong lề, lệch theo lề trên / trái như khi in thật, `reader-38`). Menu Clipboard có biểu
+tượng riêng (cắt, chép, dán, chọn tất cả — hình của ta, `Menu::with_icon_fn` thêm mới, các app khác không đổi,
+`reader-39`). Đơn vị đo của Tùy chọn nay dùng cho cả chú thích đo đã lưu: nhãn, `/Contents` và `/Measure` (§12.9
+Table 261 / 263: `/U`, `/C` = 1 / số point mỗi đơn vị, `/R` "1 mm = 1 mm"); sửa / đổi cỡ giữ đơn vị riêng của chú
+thích (đọc lại từ `/Measure`).
+
+**Vẽ trang: tập 58 PDF** (17 tệp khó tự sinh của các vòng trước, 2 tài liệu cài sẵn, 5 tệp font mới: chuẩn 14 không
+nhúng, CFF / CID nhúng (Nimbus, Droid CJK), OpenType CFF, TrueType symbolic, Identity-V; 31 tệp `bo-cli convert` từ
+corpus docx / pptx / xlsx), mọi trang (tối đa 30 mỗi tệp) so với MuPDF 1.27 ở 100 % / 125 %, chênh trung bình mỗi
+kênh. 52 tệp ≤ 3 (khác cách khử răng cưa chữ ClearType); ba lỗi thật, đã sửa (`reader-36`):
+
+| Tệp | Trước | Sau | Nguyên nhân |
+| --- | --- | --- | --- |
+| fox.pdf (nền gradient) | 4,80 / 11,95 % điểm lệch > 48 | 0,57 / 0,00 % | shading tròn (type 3) qua ma trận không đồng dạng (ellipse) vẽ như hình tròn → nay thành vòng tam giác, có Extend |
+| TrueType symbolic không có `/Widths` | 2,49 (chữ chồng một chỗ) | 0,78 | dùng hmtx của font nhúng |
+| Symbol / ZapfDingbats chuẩn 14 không nhúng | 9,21 (Latin / trống) | đúng hình (chênh còn ~9 do Nimbus ≠ Arial / Times) | bảng mã dựng sẵn Annex D.5 / D.6; Symbol thay bằng mặt chữ Unicode có chân |
+
+CFF CID, OpenType CFF, Type 3: 0,94 / 0,12; Identity-V (dọc): 0,42. `sep.pdf` 15,3 là cố ý (theo bản đối chiếu, vòng 4).
+
+**Tài liệu lớn** (sổ tay 1 202 trang, bản release, máy có 9–13 tiến trình biên dịch của agent khác):
+
+| Đo | BlueReader | Bản đối chiếu |
+| --- | --- | --- |
+| Bánh xe 80 nấc (đầu vào → khung hình) | p50 1,6 ms, p95 2,2–7,1 ms | — (không đo được độ trễ) |
+| PageDown 40 lần | p50 2,0 ms, p95 15–23 ms | — |
+| Cột ảnh trang: 550 nấc | p50 1,2 ms, p95 5,6 ms; ảnh trang chỉ vẽ hàng đang thấy | 60 px / nấc |
+| Ảnh trang trong cột | trước 150 px, viền 1 px → 126 px, viền 2 px (207, 207, 208), cách 200 px, 60 px / nấc | 126 px, 2 px, 200 px, 60 px |
+| Tìm "snapshot" (354 kết quả) | kết quả đầu 15–41 ms, cả tài liệu 1,44 s (đọc theo nhịp, cửa sổ không đứng) | — |
+| Bộ nhớ riêng sau mở / sau End | 112 / 107 MB (trước: 157 / 198 MB) | 48 / 71 MB |
+
+Bộ nhớ: cửa sổ trống đã 51 MB (D3D / Direct2D); trước đây bộ đệm ảnh đã giải mã tới 384 MB (tìm hết tài liệu giải
+mã mọi ảnh), trang lân cận ±2, bộ đệm trang 48 trang, bộ nhớ driver không trả lại. Nay: ảnh 64 MB, bộ đệm trang
+~32 MB, lân cận ±1, `IDXGIDevice3::Trim` sau khi bỏ ảnh trang. Tìm kiếm: kết quả đầu sau trang hiện tại hiện ngay,
+phần còn lại đọc theo nhịp 60 ms (thanh trạng thái "k / n (trang đã đọc / tổng)"), không đẩy trang đang thấy ra khỏi
+bộ đệm.
+
+**Khung cửa sổ và zoom vừa trang** (`reader-37`). Bản đối chiếu không có viền đổi cỡ ẩn: cùng cửa sổ 1518 × 1036,
+vùng client của nó rộng 1518, của ta 1500 → zoom vừa rộng 110,29 % so với 108,55 %. BlueReader nay để client phủ cả
+cửa sổ khi không phóng to (mép đổi cỡ 5 px bên trong, góc 20 px), phóng to như cũ: 110,37 %. Tệp mẫu: 99,57 % / 99,63 %
+(`reader-41`). Lưu ý đo: exe mở ở trạng thái phóng to; các vòng trước đổi cỡ cửa sổ phóng to bằng SetWindowPos —
+nay chụp với `BLUEOFFICE_SHOW_NOACTIVATE=1` (cửa sổ thường).
+
+**Bàn phím, độ tương phản** (`reader-40`). Alt (nhấn rồi thả) hoặc F10: chữ gợi ý trên các tab ribbon; gõ chữ mở tab
+và hiện gợi ý trên mọi lệnh của tab; ←/→ chuyển tab, ↓ / Enter vào lệnh, Tab / Shift+Tab / mũi tên chuyển vòng
+focus, Enter chạy, Esc lùi một bậc; nhấp chuột thoát. Bản đối chiếu bỏ qua Alt đưa bằng PostMessage nên chữ gợi ý
+của nó không chụp được (không dùng thao tác thật). Hộp In: Tab / Shift+Tab qua mọi điều khiển theo thứ tự đọc (cột
+trái, cột giữa, xem trước, Page Setting / OK / Cancel), bỏ qua điều khiển mờ, ô chữ nhận gõ, Space bấm. Test tương
+phản WCAG 2.2: chữ ≥ 4,5 : 1 trên mọi nền (kể cả hover / pressed), vòng focus, chữ gợi ý, viền trang ≥ 3 : 1.
+
+**Mở tệp trên máy rảnh.** Chờ 60 phút một khoảng 2 phút không có cargo / rustc / link (`idle7.ps1`): máy không
+lúc nào rảnh (khoảng yên lặng dài nhất 0 s; 9–13 tiến trình biên dịch của các agent khác). 5 lần đo ngay sau
+đó (CPU 40–54 %): mở 38–48 ms, trang đầu 50–63 ms (vòng 6: 36–74 / 47–86 ms; mục tiêu ≤ 210 ms).
+
+Còn lại: chữ gợi ý và thứ tự Tab của bản đối chiếu (cần thao tác thật), bộ nhớ còn ~1,5 × bản đối chiếu (nền D3D),
+mở 1 202 trang đo trên máy rảnh, Share / Skins.

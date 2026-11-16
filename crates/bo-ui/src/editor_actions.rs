@@ -35,6 +35,12 @@ pub(crate) enum Ask2 {
     Field(bo_pdfread::NewFieldKind, usize, [f32; 4]),
     /// A dialog of `editor_tools`.
     Tools(crate::editor_tools::ToolAsk),
+    /// A dialog of `editor_more` (round 4).
+    More(crate::editor_more::MoreAsk),
+    /// A dialog of `editor_more2` (round 4).
+    More2(crate::editor_more2::More2Ask),
+    /// A dialog of `editor_five` (round 5).
+    Five(crate::editor_five::FiveAsk),
 }
 
 /// A redaction mark being dragged: page, start and current point (page points).
@@ -267,6 +273,9 @@ impl EditorWindow {
             .find(|f| f.page == page && in_box(f.rect, px, py));
         if let Some(f) = field {
             self.x.selected_comment = None;
+            if self.run_button_action(&f) {
+                return true;
+            }
             self.fill_field(f, m);
             return true;
         }
@@ -405,6 +414,9 @@ impl EditorWindow {
                 self.design_answer(&what, values);
             }
             Ask2::Tools(t) => self.tools_answer(t, DialogButton::Ok, values),
+            Ask2::More(a) => self.more_answer(a, values),
+            Ask2::More2(a) => self.more2_answer(&a, values),
+            Ask2::Five(a) => self.five_answer(a, DialogButton::Ok, values),
             Ask2::Replace => {
                 let with = values.get(1).cloned().unwrap_or_default();
                 let n = self.replace_all(&first, &with);

@@ -4,7 +4,7 @@
 //! panel (colour, opacity, thickness, font size).
 use super::{inside, ReaderWindow, TEXT};
 use crate::dialog::{Dialog, DialogButton, DialogKind};
-use crate::popup::{Choice, Menu, MenuItem};
+use crate::popup::{Choice, MenuItem};
 use crate::{Input, Key, Painter, TextMeasure, TextStyle};
 use bo_pdfread::{Annot, DrawStyle, Shape, StampKind};
 use bo_render::{PathSeg, Rgba};
@@ -216,7 +216,7 @@ impl ReaderWindow {
 
     fn open_draw_menu(&mut self, items: Vec<MenuItem>, id: &'static str) {
         let r = self.control_rect(id).unwrap_or([0.0; 4]);
-        self.menu = Some((Menu::open(items, r, self.size, self.scale), id));
+        self.menu = Some((self.reader_menu(items, r), id));
     }
 
     fn set_draw_tool(&mut self, tool: Option<DrawTool>) {
@@ -549,20 +549,21 @@ impl ReaderWindow {
         }
     }
 
-    fn add_shape(&mut self, page: usize, shape: &Shape, text: &str) {
+    pub(crate) fn add_shape(&mut self, page: usize, shape: &Shape, text: &str) {
         let mut style = self.draw.style();
         if let Shape::Stamp(_, k) = shape {
             style.color = k.color();
             style.width = 2.0;
         }
         let author = self.author.clone();
+        let unit = self.measure_unit();
         let Some(t) = self.tabs.get_mut(self.active) else {
             return;
         };
         match t
             .view
             .doc_mut()
-            .add_drawing(page, shape, &style, &author, text)
+            .add_drawing_in(page, shape, &style, &author, text, &unit)
         {
             Ok(()) => self.document_changed(),
             Err(e) => self.status = e,
@@ -688,7 +689,7 @@ impl ReaderWindow {
                 }
             };
             p.path(&segs, None, Some((c, w)));
-            if let Some(label) = bo_pdfread::measure_label(&shape) {
+            if let Some(label) = self.unit_label(&shape) {
                 if let Some(q) = self.draw.cursor.and_then(|q| self.win_point(page, q)) {
                     let st = TextStyle {
                         size: self.px(9.0),

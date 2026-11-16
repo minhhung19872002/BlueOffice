@@ -274,6 +274,10 @@ pub(crate) fn menu(id: &str, functions: &[String]) -> Vec<Entry> {
             e("find.replace", "sheetMenu.find.replace"),
             e("find.goto", "sheetMenu.find.goto"),
         ],
+        // Table Design: Quick Styles opens the gallery; Export / Refresh are not available.
+        "sheet.tblQuickStyles" => vec![e("sheet.tblQuickStyles", "commands.sheet.tblQuickStyles")],
+        "sheet.tblExport" => vec![e("sheet.tblExport", "commands.sheet.tblExport")],
+        "sheet.tblRefresh" => vec![e("sheet.tblRefresh", "commands.sheet.tblRefresh")],
         "sheet.conditional" => vec![
             e("cf.greater", "sheetMenu.cf.greater"),
             e("cf.less", "sheetMenu.cf.less"),
@@ -290,6 +294,30 @@ pub(crate) fn menu(id: &str, functions: &[String]) -> Vec<Entry> {
             e("cf.clearSel", "sheetMenu.cf.clearSel"),
             e("cf.clearSheet", "sheetMenu.cf.clearSheet"),
         ],
+        // Page Layout › Themes: the BlueOffice theme set (own names, palettes, font pairs).
+        "sheet.themes" => bo_edit::design::THEMES
+            .iter()
+            .map(|t| (format!("theme.{}", t.id), t.name.to_owned()))
+            .chain([("theme.browse".to_owned(), "sheetTheme.browse".to_owned())])
+            .collect(),
+        "sheet.themeColors" => bo_edit::design::THEMES
+            .iter()
+            .map(|t| {
+                (
+                    format!("themeColors.{}", t.id),
+                    t.name.trim_start_matches("BlueOffice ").to_owned(),
+                )
+            })
+            .collect(),
+        "sheet.themeFonts" => bo_edit::design::THEMES
+            .iter()
+            .map(|t| {
+                (
+                    format!("themeFonts.{}", t.id),
+                    format!("{} / {}", t.major, t.minor),
+                )
+            })
+            .collect(),
         "sheet.formatTable" => vec![
             e("table.TableStyleLight9", "sheetMenu.table.light"),
             e("table.TableStyleMedium2", "sheetMenu.table.medium"),
@@ -677,6 +705,7 @@ pub(crate) fn trailing(id: &str) -> bool {
             | "sheet.findSelect"
             | "sheet.chartMap"
             | "sheet.pivotChart"
+            | "sheet.tblSlicer"
             | "sheet.sortDialog"
             | "sheet.filter"
             | "sheet.watchWindow"
@@ -773,10 +802,14 @@ fn insert_compact() -> Tab {
     let mut t = insert();
     for g in &mut t.groups {
         match g.label {
+            // A group folded into one menu button shows no group label (the button carries
+            // the name), as the reference does.
             "sheetInsert.groupIllustrations" => {
                 g.large = vec![L("sheet.illustrations")];
                 g.rows = Vec::new();
+                g.label = "";
             }
+            "sheetInsert.groupText" => g.label = "",
             "sheetInsert.groupFilters" => {
                 g.large = Vec::new();
                 g.rows = vec![vec![S("sheet.slicer")], vec![S("sheet.timeline")]];
@@ -784,6 +817,7 @@ fn insert_compact() -> Tab {
             "sheetInsert.groupSymbols" => {
                 g.large = vec![L("sheet.symbols")];
                 g.rows = Vec::new();
+                g.label = "";
             }
             _ => {}
         }
@@ -840,6 +874,16 @@ fn page_layout() -> Tab {
     Tab {
         label: "sheetMenu.tabPageLayout",
         groups: vec![
+            // Themes as the reference: a large Themes menu, then Colors / Fonts / Effects.
+            Group {
+                label: "sheetTheme.groupThemes",
+                large: vec![L("sheet.themes")],
+                rows: vec![
+                    vec![S("sheet.themeColors")],
+                    vec![S("sheet.themeFonts")],
+                    vec![S("sheet.themeEffects")],
+                ],
+            },
             Group {
                 label: "sheetMenu.groupPageSetup",
                 large: vec![

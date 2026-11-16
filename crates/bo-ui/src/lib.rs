@@ -10,11 +10,16 @@ mod backstage;
 mod catalog;
 mod commands;
 mod dialog;
+mod doc_table;
+mod doc_tips;
 mod doc_tools;
 mod doc_view;
 mod editor_actions;
 #[cfg(test)]
 mod editor_actions_tests;
+mod editor_arrange;
+#[cfg(test)]
+mod editor_arrange_tests;
 mod editor_backstage;
 mod editor_comment;
 #[cfg(test)]
@@ -24,11 +29,22 @@ mod editor_design;
 #[cfg(test)]
 mod editor_design_tests;
 mod editor_edit;
+mod editor_five;
+#[cfg(test)]
+mod editor_five_tests;
 mod editor_format;
 #[cfg(test)]
 mod editor_format_tests;
 mod editor_icons;
+mod editor_more;
+mod editor_more2;
+#[cfg(test)]
+mod editor_more_tests;
 mod editor_organize;
+#[cfg(test)]
+mod editor_organize5_tests;
+mod editor_pages5;
+mod editor_portfolio;
 mod editor_sign;
 #[cfg(test)]
 mod editor_tests;
@@ -78,18 +94,19 @@ pub use editor_window::{EditTool, EditorWindow};
 pub use icons::{parse_path, IconColors, Icons};
 pub use input::{Input, Key, Mods};
 pub use pdf_window::PdfWindow;
-pub use popup::{Choice, Menu, MenuItem};
+pub use popup::{Choice, Menu, MenuItem, MenuLook};
 pub use reader_impose::{
     plan as print_plan, BookletSides, Duplex, PageOrder, Placement, PlanOptions, PrintLayout, Sheet,
 };
 pub use reader_print::{
-    parse_pages, Orientation, Paper, PrintAction, PrintDialog, PrintScaling, PrintSettings,
+    black_white, parse_pages, Orientation, Paper, PrintAction, PrintColor, PrintDialog,
+    PrintScaling, PrintSettings,
 };
 pub use reader_view::{Fit, Layout, PdfStore, ReaderView, THUMB_KEY};
 pub use reader_window::{Panel, ReaderRequest, ReaderWindow, Tool};
 pub use ribbon::{Ribbon, RibbonHit};
 pub use ruler::Ruler;
-pub use sheet_view::{CellFormat, GridMove, GridRing, GridStore, SheetView, Stats};
+pub use sheet_view::{CellFormat, GridBand, GridMove, GridRing, GridStore, SheetView, Stats};
 pub use sheet_window::{PaintHash, SheetWindow};
 pub use shell::{DocWindow, Request};
 pub use slide_view::{Focus, SlideView, ViewMode, SLIDE_CANVAS};
@@ -218,5 +235,17 @@ pub trait Painter {
     ) {
         let _ = degrees;
         self.page_part(index, src, dest, opacity);
+    }
+    /// Start cached layer `id` over `rect` (x, y, width, height) showing content `key`.
+    /// `true`: the backend's image of the layer still shows `key` and was drawn, so the
+    /// caller skips painting; `false`: paint the layer, then call [`Painter::layer_end`].
+    /// Backends without layers paint directly (the default).
+    fn layer_begin(&mut self, id: usize, rect: [f32; 4], key: u64) -> bool {
+        let _ = (id, rect, key);
+        false
+    }
+    /// End the layer started by [`Painter::layer_begin`] (its image goes on the frame).
+    fn layer_end(&mut self, id: usize) {
+        let _ = id;
     }
 }

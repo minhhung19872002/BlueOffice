@@ -347,9 +347,7 @@ impl Session {
     /// Page setup of the section holding the caret.
     pub fn section_state(&self) -> SectionState {
         let at = self.selection.ordered().0;
-        let paths = body_paragraphs(&self.doc);
-        let si = paths
-            .get(at.para)
+        let si = bo_model::index::para_path(&self.doc, at.para)
             .and_then(|p| p.first().copied())
             .unwrap_or(0);
         let Some(s) = self.doc.sections.get(si) else {

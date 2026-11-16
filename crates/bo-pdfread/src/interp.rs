@@ -7,10 +7,11 @@ use crate::font::{Font, FontCache, GlyphRef};
 use crate::function::Function;
 use crate::image::{self, Image};
 use crate::lexer::{Lexer, Op};
+use crate::store::Document;
 use crate::{RenderOptions, TextChar};
 use bo_render::{BlendMode, Command, Glyph, GradientStop, Paint, PathSeg, Rgba, SoftMask, Stroke};
 use bo_text::FontManager;
-use lopdf::{Dictionary, Document, Object, ObjectId};
+use lopdf::{Dictionary, Object, ObjectId};
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
@@ -62,7 +63,10 @@ pub(crate) struct ImageCache {
     bytes: usize,
 }
 
-const IMAGE_CACHE_BYTES: usize = 384 * 1024 * 1024;
+/// Decoded images kept for pages drawn again (a 1 202-page manual read to the end or searched
+/// decoded every image into 384 MB before; the reader keeps the pages around the view in its
+/// own cache).
+const IMAGE_CACHE_BYTES: usize = 64 * 1024 * 1024;
 
 impl ImageCache {
     fn get_or(&mut self, key: &str, f: impl FnOnce() -> Option<Image>) -> Option<Arc<Image>> {
@@ -1684,7 +1688,7 @@ impl<'s, 'a> Interp<'s, 'a> {
             .ok()
             .and_then(|v| v.as_i64().ok())
             .unwrap_or(0);
-        if !matches!(kind, 1 | 4..=7) {
+        if !matches!(kind, 1 | 3..=7) {
             return false;
         }
         let Some(cs) = dict
@@ -1700,6 +1704,46 @@ impl<'s, 'a> Interp<'s, 'a> {
             .and_then(|o| Function::parse(doc, o, 0));
         let tris = match (kind, &func, &data) {
             (1, Some(f), _) => crate::mesh::function_based(doc, dict, f),
+            (3, _, _) => {
+                let coords = shading_coords(doc, dict);
+                let Ok(c) = <[f32; 6]>::try_from(coords.as_slice()) else {
+                    return false;
+                };
+                let nums = |k: &[u8]| -> Vec<f32> {
+                    dict.get(k)
+                        .ok()
+                        .and_then(|o| o.as_array().ok())
+                        .map(|a| a.iter().map(f).collect())
+                        .unwrap_or_default()
+                };
+                let domain = nums(b"Domain");
+                let t = (
+                    domain.first().copied().unwrap_or(0.0),
+                    domain.get(1).copied().unwrap_or(1.0),
+                );
+                let ext: Vec<bool> = dict
+                    .get(b"Extend")
+                    .ok()
+                    .and_then(|o| o.as_array().ok())
+                    .map(|a| a.iter().map(|b| b.as_bool().unwrap_or(false)).collect())
+                    .unwrap_or_default();
+                let extend = (
+                    ext.first().copied().unwrap_or(false),
+                    ext.get(1).copied().unwrap_or(false),
+                );
+                // How far the extension must reach: the page corners in shading space.
+                let reach = invert(m).map_or(1e4, |inv| {
+                    let page = self.page_rect();
+                    page.iter()
+                        .filter_map(|s| match s {
+                            PathSeg::M(x, y) | PathSeg::L(x, y) => Some(apply(inv, *x, *y)),
+                            _ => None,
+                        })
+                        .map(|(x, y)| ((x - c[0]).hypot(y - c[1])).max((x - c[3]).hypot(y - c[4])))
+                        .fold(0.0_f32, f32::max)
+                });
+                crate::mesh::radial(c, t, extend, reach)
+            }
             (4..=7, _, Some(d)) => {
                 crate::mesh::mesh(kind, dict, d, cs.components(), func.is_some())
             }
@@ -1795,7 +1839,7 @@ impl<'s, 'a> Interp<'s, 'a> {
                     stops: stops(&|u| u),
                 })
             }
-            3 if coords.len() >= 6 => {
+            3 if coords.len() >= 6 && !radial_needs_mesh(&coords, m) => {
                 let (r0, r1) = (coords[2], coords[5]);
                 let (cx, cy) = apply(m, coords[3], coords[4]);
                 let r = r1.max(r0).max(0.01) * scale_of(m);
@@ -1828,7 +1872,7 @@ impl<'s, 'a> Interp<'s, 'a> {
     }
 
     /// The shading and pattern matrix of a shading pattern whose shading is a mesh or
-    /// function-based one.
+    /// function-based one (or a radial one a circular gradient cannot draw).
     fn mesh_pattern(&self, name: &[u8]) -> Option<(Object, M)> {
         let doc = self.doc();
         let o = self.pattern_object(name)?;
@@ -1843,7 +1887,16 @@ impl<'s, 'a> Interp<'s, 'a> {
             Object::Stream(s) => s.dict.get(b"ShadingType").ok()?.as_i64().ok()?,
             _ => return None,
         };
-        matches!(kind, 1 | 4..=7).then(|| (sh.clone(), self.pattern_matrix(d)))
+        let m = self.pattern_matrix(d);
+        let radial_mesh = kind == 3 && {
+            let coords = match doc.dereference(sh).ok()?.1 {
+                Object::Dictionary(s) => shading_coords(doc, s),
+                Object::Stream(s) => shading_coords(doc, &s.dict),
+                _ => Vec::new(),
+            };
+            radial_needs_mesh(&coords, m)
+        };
+        (matches!(kind, 1 | 4..=7) || radial_mesh).then(|| (sh.clone(), m))
     }
 
     fn pattern_object(&self, name: &[u8]) -> Option<Object> {
@@ -1985,6 +2038,31 @@ fn interpolate(doc: &Document, d: &Dictionary) -> bool {
         .and_then(|o| doc.dereference(o).ok().map(|(_, o)| o))
         .and_then(|o| o.as_bool().ok())
         .unwrap_or(false)
+}
+
+/// `/Coords` of a shading dictionary.
+fn shading_coords(doc: &Document, d: &Dictionary) -> Vec<f32> {
+    d.get(b"Coords")
+        .ok()
+        .map(|o| doc.dereference(o).map_or(o, |(_, o)| o))
+        .and_then(|o| o.as_array().ok())
+        .map(|a| a.iter().filter_map(|o| o.as_float().ok()).collect())
+        .unwrap_or_default()
+}
+
+/// Whether a radial shading (§8.7.4.5.4) needs triangles: its circles have different centres,
+/// or the matrix to the page is not a uniform scale with rotation (circles become ellipses).
+/// A device radial gradient draws concentric circles only.
+fn radial_needs_mesh(coords: &[f32], m: M) -> bool {
+    let Ok([x0, y0, _, x1, y1, _]) = <[f32; 6]>::try_from(coords) else {
+        return false;
+    };
+    let [a, b, c, d, _, _] = m;
+    let scale = a.hypot(b).max(c.hypot(d)).max(1e-6);
+    let similar = ((a - d).abs() < 1e-3 * scale && (b + c).abs() < 1e-3 * scale)
+        || ((a + d).abs() < 1e-3 * scale && (b - c).abs() < 1e-3 * scale);
+    let r = coords[2].abs().max(coords[5].abs()).max(1e-6);
+    !similar || (x0 - x1).hypot(y0 - y1) > 1e-3 * r
 }
 
 #[cfg(test)]

@@ -234,5 +234,5 @@ fn resize_and_convert_to_range() {
     e.undo().unwrap();
     assert_eq!(input(&e, 0, 3), "=SUM(Bảng1[Giá])");
     let styles = run(&mut e, json!({ "cmd": "tableStyles" }));
-    assert_eq!(styles.as_array().map(Vec::len), Some(21));
+    assert_eq!(styles.as_array().map(Vec::len), Some(60));
 }

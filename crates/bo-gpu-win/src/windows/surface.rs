@@ -15,8 +15,8 @@ use windows::Win32::Graphics::Direct2D::{
     D2D1_INTERPOLATION_MODE_NEAREST_NEIGHBOR,
 };
 use windows::Win32::Graphics::Direct2D::{
-    ID2D1Brush, D2D1_CAP_STYLE_ROUND, D2D1_DRAW_TEXT_OPTIONS_NONE, D2D1_LINE_JOIN_ROUND,
-    D2D1_TEXT_ANTIALIAS_MODE_DEFAULT,
+    ID2D1Brush, ID2D1SolidColorBrush, ID2D1StrokeStyle, D2D1_CAP_STYLE_ROUND,
+    D2D1_DRAW_TEXT_OPTIONS_NONE, D2D1_LINE_JOIN_ROUND, D2D1_TEXT_ANTIALIAS_MODE_DEFAULT,
 };
 use windows::Win32::Graphics::DirectWrite::{
     DWriteCreateFactory, IDWriteFactory, IDWriteTextFormat, IDWriteTextLayout,
@@ -325,6 +325,34 @@ impl Device {
         Ok(format)
     }
 
+    /// The interface brush set to `c` (one brush reused by every interface draw).
+    fn ui_solid(&self, c: Rgba) -> Option<ID2D1SolidColorBrush> {
+        let mut slot = self.ui_brush.borrow_mut();
+        // SAFETY: the brush belongs to this device's context; colours are plain values.
+        unsafe {
+            if let Some(b) = slot.as_ref() {
+                b.SetColor(&color(c));
+                return Some(b.clone());
+            }
+            let b = self.context.CreateSolidColorBrush(&color(c), None).ok()?;
+            *slot = Some(b.clone());
+            Some(b)
+        }
+    }
+
+    /// Round caps and joins for interface paths, created once.
+    fn ui_stroke_style(&self) -> Option<ID2D1StrokeStyle> {
+        let mut slot = self.ui_stroke.borrow_mut();
+        if let Some(s) = slot.as_ref() {
+            return Some(s.clone());
+        }
+        let s = self
+            .stroke_style(1.0, &[], D2D1_CAP_STYLE_ROUND, D2D1_LINE_JOIN_ROUND)
+            .ok()?;
+        *slot = Some(s.clone());
+        Some(s)
+    }
+
     fn ui_layout(&self, text: &str, f: &FontSpec<'_>) -> Result<IDWriteTextLayout, String> {
         // Interface labels repeat every frame: reuse their layouts (bounded cache).
         let key = (
@@ -625,7 +653,7 @@ impl Frame<'_> {
     pub fn fill_rect(&self, x: f32, y: f32, w: f32, h: f32, c: Rgba) {
         // SAFETY: the brush is owned; drawing happens inside the frame's BeginDraw/EndDraw.
         unsafe {
-            if let Ok(brush) = self.device.context.CreateSolidColorBrush(&color(c), None) {
+            if let Some(brush) = self.device.ui_solid(c) {
                 self.device.context.FillRectangle(
                     &D2D_RECT_F {
                         left: x,
@@ -673,7 +701,7 @@ impl Frame<'_> {
         };
         // SAFETY: the layout and brush are owned; drawing happens inside the frame.
         unsafe {
-            if let Ok(brush) = self.device.context.CreateSolidColorBrush(&color(c), None) {
+            if let Some(brush) = self.device.ui_solid(c) {
                 self.device.context.DrawTextLayout(
                     windows_numerics::Vector2 {
                         X: x.round(),
@@ -695,28 +723,105 @@ impl Frame<'_> {
         // SAFETY: geometry, brushes and stroke style are owned; drawing happens in the frame.
         unsafe {
             if let Some(c) = fill {
-                if let Ok(brush) = self.device.solid(c, 1.0) {
+                if let Some(brush) = self.device.ui_solid(c) {
                     self.device
                         .context
                         .FillGeometry(&geometry, &brush, None::<&ID2D1Brush>);
                 }
             }
             if let Some((c, width)) = stroke {
-                if let (Ok(brush), Ok(style)) = (
-                    self.device.solid(c, 1.0),
-                    self.device.stroke_style(
-                        width,
-                        &[],
-                        D2D1_CAP_STYLE_ROUND,
-                        D2D1_LINE_JOIN_ROUND,
-                    ),
-                ) {
+                if let (Some(brush), Some(style)) =
+                    (self.device.ui_solid(c), self.device.ui_stroke_style())
+                {
                     self.device
                         .context
                         .DrawGeometry(&geometry, &brush, width, &style);
                 }
             }
         }
+    }
+
+    /// Start interface layer `id` covering `rect` (x, y, width, height in device pixels) with
+    /// content `key` (a hash of what it shows). `true`: the cached image already shows `key`
+    /// and was drawn, skip painting. `false`: later drawing goes into the layer, in window
+    /// coordinates, until [`Frame::layer_end`] puts it on the frame. Keystrokes redraw only
+    /// the document this way, not the unchanged ribbon (most of an interface frame's time).
+    pub fn layer_begin(&self, id: usize, rect: [i32; 4], key: u64) -> bool {
+        let [x, y, w, h] = rect;
+        if w <= 0 || h <= 0 || w > 16_384 || h > 16_384 {
+            return false;
+        }
+        let mut layers = self.device.ui_layers.borrow_mut();
+        if let Some((k, r, bitmap)) = layers.get(&id) {
+            if *k == key && *r == rect {
+                draw_bitmap_at(self.device, bitmap, x, y, w, h);
+                return true;
+            }
+        }
+        let reuse = layers
+            .get(&id)
+            .filter(|(_, r, _)| r[2] == w && r[3] == h)
+            .map(|(_, _, b)| b.clone());
+        let bitmap = match reuse {
+            Some(b) => b,
+            None => {
+                let props = D2D1_BITMAP_PROPERTIES1 {
+                    pixelFormat: D2D1_PIXEL_FORMAT {
+                        format: DXGI_FORMAT_B8G8R8A8_UNORM,
+                        alphaMode: D2D1_ALPHA_MODE_IGNORE,
+                    },
+                    dpiX: 96.0,
+                    dpiY: 96.0,
+                    bitmapOptions: D2D1_BITMAP_OPTIONS_TARGET,
+                    ..Default::default()
+                };
+                // SAFETY: the context owns the returned bitmap; no pointers are passed.
+                let created = unsafe {
+                    self.device.context.CreateBitmap(
+                        D2D_SIZE_U {
+                            width: w as u32,
+                            height: h as u32,
+                        },
+                        None,
+                        0,
+                        &props,
+                    )
+                };
+                match created {
+                    Ok(b) => b,
+                    Err(_) => return false,
+                }
+            }
+        };
+        // SAFETY: inside the frame's BeginDraw/EndDraw a device context may change its target;
+        // the previous target is kept and restored by `layer_end`.
+        unsafe {
+            *self.device.ui_layer_target.borrow_mut() = self.device.context.GetTarget().ok();
+            self.device.context.SetTarget(&bitmap);
+            self.device
+                .context
+                .SetTransform(&Matrix3x2::translation(-x as f32, -y as f32));
+        }
+        layers.insert(id, (key, rect, bitmap));
+        false
+    }
+
+    /// Finish the layer started by [`Frame::layer_begin`] and draw it on the frame.
+    pub fn layer_end(&self, id: usize) {
+        let prev = self.device.ui_layer_target.borrow_mut().take();
+        // SAFETY: restores the frame's own target taken in `layer_begin`.
+        unsafe {
+            self.device.context.SetTarget(prev.as_ref());
+            self.device.context.SetTransform(&IDENTITY);
+        }
+        if let Some((_, [x, y, w, h], bitmap)) = self.device.ui_layers.borrow().get(&id) {
+            draw_bitmap_at(self.device, bitmap, *x, *y, *w, *h);
+        }
+    }
+
+    /// Forget interface layer `id` (drawn again next time).
+    pub fn layer_forget(&self, id: usize) {
+        self.device.ui_layers.borrow_mut().remove(&id);
     }
 
     /// Draw the `src` part (device pixels of the bitmap) of a page bitmap into `dest` (device
@@ -858,6 +963,27 @@ impl Frame<'_> {
                 None,
             );
         }
+    }
+}
+
+/// Draw `bitmap` 1:1 at (`x`, `y`) with size `w` × `h` device pixels.
+fn draw_bitmap_at(device: &Device, bitmap: &ID2D1Bitmap1, x: i32, y: i32, w: i32, h: i32) {
+    let dest = D2D_RECT_F {
+        left: x as f32,
+        top: y as f32,
+        right: (x + w) as f32,
+        bottom: (y + h) as f32,
+    };
+    // SAFETY: the bitmap belongs to the same device; drawing happens inside the frame.
+    unsafe {
+        device.context.DrawBitmap(
+            bitmap,
+            Some(&dest),
+            1.0,
+            D2D1_INTERPOLATION_MODE_NEAREST_NEIGHBOR,
+            None,
+            None,
+        );
     }
 }
 

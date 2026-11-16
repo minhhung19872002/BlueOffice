@@ -29,6 +29,49 @@ pub struct MenuItem {
     pub dim: bool,
 }
 
+/// Sizes and colours of a menu at 100 % (multiplied by the display scale), so an app can match
+/// its reference's menus without changing the others.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MenuLook {
+    /// Row height.
+    pub item_h: f32,
+    /// Label text size.
+    pub text: f32,
+    /// Label left edge from the menu's outer edge (without / with an icon column).
+    pub text_x: (f32, f32),
+    /// Icon left edge.
+    pub icon_x: f32,
+    /// Icon size.
+    pub icon: f32,
+    /// Space above the first and below the last row.
+    pub pad: f32,
+    /// Narrowest menu.
+    pub min_w: f32,
+    /// Width estimate per label character at 13 px text.
+    pub char_w: f32,
+    /// Background (`None`: the theme's surface).
+    pub fill: Option<Rgba>,
+    /// Frame (`None`: the theme's border).
+    pub frame: Option<Rgba>,
+}
+
+impl Default for MenuLook {
+    fn default() -> Self {
+        Self {
+            item_h: 26.0,
+            text: 13.0,
+            text_x: (24.0, 34.0),
+            icon_x: 6.0,
+            icon: 16.0,
+            pad: 4.0,
+            min_w: 200.0,
+            char_w: 7.5 * 1.15,
+            fill: None,
+            frame: None,
+        }
+    }
+}
+
 /// An open drop-down list anchored under a control.
 pub struct Menu {
     items: Vec<MenuItem>,
@@ -45,15 +88,32 @@ pub struct Menu {
     icons: Vec<Option<&'static str>>,
     /// Items preceded by a separator line.
     separators: Vec<usize>,
+    look: MenuLook,
+    /// An app's own icon drawing (`painter, name, x, y, size, dim`) in place of the shared set.
+    icon_fn: Option<IconFn>,
 }
+
+/// Draws icon `name` into a `size`-pixel square at (`x`, `y`), greyed when `dim`.
+pub type IconFn = fn(&mut dyn Painter, &str, f32, f32, f32, bool);
 
 impl Menu {
     /// Open near the control at (`x`, `y`, `w`, `h`), within the window's viewport.
     pub fn open(items: Vec<MenuItem>, anchor: [f32; 4], viewport: (f32, f32), scale: f32) -> Self {
+        Self::open_with(items, anchor, viewport, scale, MenuLook::default())
+    }
+
+    /// [`Menu::open`] with an app's own sizes and colours.
+    pub fn open_with(
+        items: Vec<MenuItem>,
+        anchor: [f32; 4],
+        viewport: (f32, f32),
+        scale: f32,
+        look: MenuLook,
+    ) -> Self {
         let [x, y, w, h] = anchor;
-        let item_h = (26.0 * scale).round();
+        let item_h = (look.item_h * scale).round();
         let gap = (2.0 * scale).round();
-        let margin = (4.0 * scale)
+        let margin = (look.pad * scale)
             .round()
             .min(viewport.0.max(0.0) / 2.0)
             .min(viewport.1.max(0.0) / 2.0);
@@ -64,9 +124,9 @@ impl Menu {
             .map(|i| i.label.chars().count())
             .max()
             .unwrap_or(0) as f32;
-        let label_w = (longest * 7.5 * 1.15 + 40.0) * scale;
+        let label_w = (longest * look.char_w * look.text / 13.0 + look.text_x.0 + 16.0) * scale;
         let menu_width = w
-            .max((200.0 * scale).round())
+            .max((look.min_w * scale).round())
             .max(label_w.round())
             .min((viewport.0 - 2.0 * margin).max(0.0));
         let left = x.clamp(margin, (viewport.0 - margin - menu_width).max(margin));
@@ -74,7 +134,7 @@ impl Menu {
         let above_bottom = (y - gap).clamp(margin, (viewport.1 - margin).max(margin));
         let below = (viewport.1 - margin - below_top).max(0.0);
         let above = (above_bottom - margin).max(0.0);
-        let full = items.len() as f32 * item_h + (8.0 * scale).round();
+        let full = items.len() as f32 * item_h + (2.0 * look.pad * scale).round();
         let use_above = below < full && above > below;
         let height = full.min(if use_above { above } else { below });
         let top = if use_above {
@@ -96,6 +156,8 @@ impl Menu {
             scale,
             icons: Vec::new(),
             separators: Vec::new(),
+            look,
+            icon_fn: None,
         };
         // Show the current value in the middle of the list.
         if let Some(i) = current {
@@ -120,8 +182,15 @@ impl Menu {
         self
     }
 
+    /// Draw the icons of [`Menu::with_decor`] with an app's own icon set.
+    #[must_use]
+    pub fn with_icon_fn(mut self, f: IconFn) -> Self {
+        self.icon_fn = Some(f);
+        self
+    }
+
     fn pad(&self) -> f32 {
-        (4.0 * self.scale).round()
+        (self.look.pad * self.scale).round()
     }
 
     fn clamp(&mut self) {
@@ -208,17 +277,24 @@ impl Menu {
                 Rgba(0, 0, 0, a),
             );
         }
-        p.fill_rect(self.x, self.y, self.w, self.h, t.border);
+        let look = &self.look;
+        p.fill_rect(
+            self.x,
+            self.y,
+            self.w,
+            self.h,
+            look.frame.unwrap_or(t.border),
+        );
         p.fill_rect(
             self.x + 1.0,
             self.y + 1.0,
             self.w - 2.0,
             self.h - 2.0,
-            t.surface,
+            look.fill.unwrap_or(t.surface),
         );
         p.push_clip(self.x + 1.0, self.y + 1.0, self.w - 2.0, self.h - 2.0);
         let style = TextStyle {
-            size: (13.0 * s).round(),
+            size: (look.text * s).round(),
             bold: false,
         };
         let line = style.size * 1.33;
@@ -271,29 +347,37 @@ impl Menu {
                 );
             }
             if let Some(Some(name)) = self.icons.get(i) {
-                let size = (16.0 * s).round();
-                icons.draw(
-                    p,
-                    name,
-                    self.x + (6.0 * s).round(),
+                let size = (look.icon * s).round();
+                let (ix, iy) = (
+                    self.x + (look.icon_x * s).round(),
                     (y + (self.item_h - size) / 2.0).round(),
-                    size,
-                    crate::icons::IconColors {
-                        ink: t.text,
-                        accent: t.accent,
-                        on: t.accent_on,
-                        tinted: !item.dim,
-                    },
                 );
+                if let Some(f) = self.icon_fn {
+                    f(p, name, ix, iy, size, item.dim);
+                } else {
+                    icons.draw(
+                        p,
+                        name,
+                        ix,
+                        iy,
+                        size,
+                        crate::icons::IconColors {
+                            ink: t.text,
+                            accent: t.accent,
+                            on: t.accent_on,
+                            tinted: !item.dim,
+                        },
+                    );
+                }
             }
             let color = if item.dim { t.text_muted } else { t.text };
             p.text(
                 &item.label,
                 self.x
                     + if self.icons.is_empty() {
-                        (24.0 * s).round()
+                        (look.text_x.0 * s).round()
                     } else {
-                        (34.0 * s).round()
+                        (look.text_x.1 * s).round()
                     },
                 y + (self.item_h - line) / 2.0,
                 style,

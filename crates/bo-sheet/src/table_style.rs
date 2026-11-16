@@ -22,7 +22,18 @@ use crate::pivot::style::palette;
 use crate::style::{apply_patch, StylePatch};
 use crate::table::{has_header, has_totals};
 
-/// The look of one table cell: fill and font colours `RRGGBB`, bold.
+/// A border line of a table style: colour `RRGGBB`, width (1 thin, 2 medium, 3 thick), double.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Edge {
+    /// Colour `RRGGBB`.
+    pub color: String,
+    /// 1 thin, 2 medium, 3 thick.
+    pub width: u8,
+    /// Two thin lines (§18.18.3 `double`).
+    pub double: bool,
+}
+
+/// The look of one table cell: fill and font colours `RRGGBB`, bold, borders.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Look {
     /// Fill; `None` = none.
@@ -31,6 +42,174 @@ pub struct Look {
     pub font: Option<String>,
     /// Bold text.
     pub bold: bool,
+    /// Top, bottom, left, right borders.
+    pub borders: [Option<Edge>; 4],
+}
+
+/// Measured looks of the built-in styles (`table_styles.txt`): (style, sample) → look.
+fn measured() -> &'static HashMap<(String, String), Look> {
+    static DATA: std::sync::OnceLock<HashMap<(String, String), Look>> = std::sync::OnceLock::new();
+    DATA.get_or_init(|| {
+        let mut out = HashMap::new();
+        for line in include_str!("table_styles.txt").lines() {
+            if line.starts_with('#') {
+                continue;
+            }
+            let f: Vec<&str> = line.split_whitespace().collect();
+            if f.len() != 9 {
+                continue;
+            }
+            let hex = |s: &str| (s != "-").then(|| s.to_owned());
+            let edge = |s: &str| -> Option<Edge> {
+                let mut it = s.split('/');
+                let color = it.next().filter(|c| *c != "-")?.to_owned();
+                let width = it.next().and_then(|w| w.parse().ok()).unwrap_or(1);
+                let double = it.next() == Some("d");
+                Some(Edge {
+                    color,
+                    width,
+                    double,
+                })
+            };
+            out.insert(
+                (f[0].to_owned(), f[1].to_owned()),
+                Look {
+                    fill: hex(f[2]),
+                    font: hex(f[3]),
+                    bold: f[4] == "1",
+                    borders: [edge(f[5]), edge(f[6]), edge(f[7]), edge(f[8])],
+                },
+            );
+        }
+        out
+    })
+}
+
+/// Whether `name` is one of the built-in styles drawn as the reference does.
+#[must_use]
+pub fn is_builtin(name: &str) -> bool {
+    measured().contains_key(&(builtin_key(name).to_owned(), "B2".to_owned()))
+}
+
+fn builtin_key(name: &str) -> &str {
+    name.strip_prefix("TableStyle").unwrap_or(name)
+}
+
+/// Look of a built-in style at (`row`, `col`) of `t`, from the measured samples: the row's kind
+/// (header, totals, last data row, first / second band) and the column's place (first, inner,
+/// last), with the first / last column and column band options.
+fn builtin_look(t: &Table, name: &str, row: u32, col: u32) -> Option<Look> {
+    let data = measured();
+    let key = builtin_key(name);
+    let get = |s: &str| data.get(&(key.to_owned(), s.to_owned()));
+    get("B2")?;
+    let info = t.style.as_ref()?;
+    let header = has_header(t) && row == t.range.first.row;
+    let totals = has_totals(t) && row == t.range.last.row;
+    let first = col == t.range.first.col;
+    let last = col == t.range.last.col && !first;
+    let last_data = has_totals(t)
+        && !header
+        && !totals
+        && row + 1 == t.range.last.row
+        && row > t.range.first.row + u32::from(has_header(t));
+    let i = row.saturating_sub(t.range.first.row + u32::from(has_header(t)));
+    let band2 = info.show_row_stripes && !i.is_multiple_of(2);
+    // Row sample (inner column) and its first / last column samples.
+    let (mid, a, d) = if header {
+        ("B1", "A1", "D1")
+    } else if totals {
+        ("B6", "A6", "D6")
+    } else if last_data && band2 {
+        ("B5", "A2", "D2")
+    } else if band2 || !info.show_row_stripes {
+        ("B3", "A2", "D2")
+    } else {
+        ("B2", "A2", "D2")
+    };
+    let mut l = get(mid)?.clone();
+    if !header && !totals {
+        // Lines between data rows: the samples next to the header (B2) and to the totals
+        // (B5) carry those rows' lines; inside the body the line between a first and a
+        // second band is B2's bottom, between a second and a first band B3's bottom.
+        let b2 = get("B2").map(|s| s.borders.clone()).unwrap_or_default();
+        let b3 = get("B3").map(|s| s.borders.clone()).unwrap_or_default();
+        let first_row = i == 0;
+        l.borders[0] = if first_row {
+            b2[0].clone()
+        } else if !i.is_multiple_of(2) {
+            b2[1].clone()
+        } else {
+            b3[1].clone()
+        };
+        if !last_data {
+            l.borders[1] = if i.is_multiple_of(2) {
+                b2[1].clone()
+            } else {
+                b3[1].clone()
+            };
+        }
+        // The last row of a table without totals closes it with the header's top line.
+        if row == t.range.last.row {
+            l.borders[1] = get("B1")
+                .and_then(|h| h.borders[0].clone())
+                .or(l.borders[1].clone());
+        }
+    }
+    if !info.show_row_stripes && !header && !totals {
+        // No row bands: the second band's look (no band fill) for every data row.
+        l.fill = get("B3").and_then(|b| b.fill.clone());
+    }
+    if info.show_column_stripes && !header && !totals {
+        let k = col - t.range.first.col;
+        let s = if k.is_multiple_of(2) {
+            "bc_C2"
+        } else {
+            "bc_B2"
+        };
+        if let Some(b) = get(s) {
+            // Row bands win over column bands.
+            if !info.show_row_stripes || band2 || l.fill.is_none() {
+                l.fill = b.fill.clone().or(l.fill);
+            }
+        }
+    }
+    // Outer edges come from the first / last column samples.
+    let side = |s: &str, k: usize| get(s).and_then(|x| x.borders[k].clone());
+    if first {
+        l.borders[2] = side(a, 2);
+    }
+    if last || (first && t.range.first.col == t.range.last.col) {
+        l.borders[3] = side(d, 3);
+    }
+    let edge_opt = (first && info.show_first_column) || (last && info.show_last_column);
+    if edge_opt {
+        let s = match (header, totals, first, band2 || !info.show_row_stripes) {
+            (true, _, true, _) => "fl_A1",
+            (true, _, false, _) => "fl_D1",
+            (_, true, true, _) => "fl_A6",
+            (_, true, false, _) => "fl_D6",
+            (_, _, true, false) => "fl_A2",
+            (_, _, true, true) => "fl_A3",
+            (_, _, false, false) => "fl_D2",
+            (_, _, false, true) => "fl_D3",
+        };
+        if let Some(e) = get(s) {
+            l.fill = e.fill.clone();
+            l.font = e.font.clone();
+            l.bold = e.bold;
+            for (mine, theirs) in l.borders.iter_mut().zip(&e.borders) {
+                if theirs.is_some() {
+                    mine.clone_from(theirs);
+                }
+            }
+        }
+    }
+    // The font colour shown is the automatic one when it is black on a light fill.
+    if l.font.as_deref() == Some("000000") {
+        l.font = None;
+    }
+    Some(l)
 }
 
 /// The look of (`row`, `col`) inside table `t`; `None` outside or without style.
@@ -40,7 +219,11 @@ pub fn look(t: &Table, row: u32, col: u32) -> Option<Look> {
         return None;
     }
     let info = t.style.as_ref()?;
-    let p = palette(info.name.as_deref()?);
+    let name = info.name.as_deref()?;
+    if let Some(l) = builtin_look(t, name, row, col) {
+        return (l != Look::default()).then_some(l);
+    }
+    let p = palette(name);
     let header = has_header(t) && row == t.range.first.row;
     let totals = has_totals(t) && row == t.range.last.row;
     let k = col - t.range.first.col;
@@ -51,12 +234,14 @@ pub fn look(t: &Table, row: u32, col: u32) -> Option<Look> {
             fill: p.header_fill,
             font: p.header_font,
             bold: true,
+            ..Look::default()
         }
     } else if totals {
         Look {
             fill: p.grand_fill,
             font: p.grand_font,
             bold: true,
+            ..Look::default()
         }
     } else {
         let i = row - t.range.first.row - u32::from(has_header(t));
@@ -66,6 +251,7 @@ pub fn look(t: &Table, row: u32, col: u32) -> Option<Look> {
             fill: striped.then_some(p.stripe_fill),
             font: None,
             bold: edge_bold,
+            ..Look::default()
         }
     };
     (l != Look::default()).then_some(l)
@@ -190,23 +376,63 @@ pub struct GalleryEntry {
     pub totals: Option<String>,
 }
 
-/// The styles offered by the table gallery: three families × seven accents.
+/// The styles offered by the table gallery, as the reference's: Light 1–21, Medium 1–28,
+/// Dark 1–11 (the accent number cycles through none / Accent 1–6).
 #[must_use]
 pub fn gallery() -> Vec<GalleryEntry> {
     let mut out = Vec::new();
-    for (family, key) in [("Light", "light"), ("Medium", "medium"), ("Dark", "dark")] {
-        for n in 1..=7 {
+    for (family, key, count) in [
+        ("Light", "light", 21),
+        ("Medium", "medium", 28),
+        ("Dark", "dark", 11),
+    ] {
+        for n in 1..=count {
             let name = format!("TableStyle{family}{n}");
-            let p = palette(&name);
+            let get = |s: &str| measured().get(&(format!("{family}{n}"), s.to_owned()));
+            let fill = |s: &str| get(s).and_then(|l| l.fill.clone());
             out.push(GalleryEntry {
-                name,
                 family: key,
-                accent: n,
-                header: p.header_fill,
-                header_font: p.header_font,
-                stripe: p.stripe_fill,
-                totals: p.grand_fill,
+                accent: (n - 1) % 7 + 1,
+                header: fill("B1"),
+                header_font: get("B1").and_then(|l| l.font.clone()),
+                stripe: fill("B2").unwrap_or_default(),
+                totals: fill("B6"),
+                name,
             });
+        }
+    }
+    out
+}
+
+/// Borders of the table cells of `sheet` in `rows` × `cols`: (row, col, top / bottom / left /
+/// right) for cells whose table style draws any.
+#[must_use]
+pub fn borders(
+    wb: &Workbook,
+    sheet: usize,
+    rows: Range<u32>,
+    cols: Range<u32>,
+) -> Vec<(u32, u32, [Option<Edge>; 4])> {
+    let mut out = Vec::new();
+    let Some(ws) = wb.sheets.get(sheet) else {
+        return out;
+    };
+    for t in &ws.tables {
+        let r0 = t.range.first.row.max(rows.start);
+        let r1 = t.range.last.row.min(rows.end.saturating_sub(1));
+        let c0 = t.range.first.col.max(cols.start);
+        let c1 = t.range.last.col.min(cols.end.saturating_sub(1));
+        if r0 > r1 || c0 > c1 || rows.is_empty() || cols.is_empty() {
+            continue;
+        }
+        for r in r0..=r1 {
+            for c in c0..=c1 {
+                if let Some(l) = look(t, r, c) {
+                    if l.borders.iter().any(Option::is_some) {
+                        out.push((r, c, l.borders));
+                    }
+                }
+            }
         }
     }
     out
@@ -240,37 +466,47 @@ mod tests {
 
     #[test]
     fn header_stripes_totals_and_last_column() {
+        // Measured on the reference (round 27): Medium 2 = accent 1 header with white bold
+        // text, first band D9E1F2, lines 8EA9DB, totals with a double accent line on top.
         let t = table("TableStyleMedium2");
-        let p = palette("TableStyleMedium2");
-        // Header B2: accent fill, white bold text.
         let h = look(&t, 1, 1).unwrap();
-        assert_eq!(h.fill, p.header_fill);
+        assert_eq!(h.fill.as_deref(), Some("4472C4"));
         assert_eq!(h.font.as_deref(), Some("FFFFFF"));
         assert!(h.bold);
-        // Data rows 3..5: the first (row 3) and third (row 5) are striped, row 4 is not.
-        assert_eq!(look(&t, 2, 1).unwrap().fill, Some(p.stripe_fill.clone()));
-        assert_eq!(look(&t, 3, 1), None);
-        assert_eq!(look(&t, 4, 1).unwrap().fill, Some(p.stripe_fill));
-        // Last column bold on an unstriped row.
+        // Data rows 3..5: the first (row 3) and third (row 5) are banded, row 4 is not.
+        assert_eq!(look(&t, 2, 1).unwrap().fill.as_deref(), Some("D9E1F2"));
+        assert_eq!(look(&t, 3, 2).unwrap().fill, None);
+        assert_eq!(look(&t, 4, 1).unwrap().fill.as_deref(), Some("D9E1F2"));
+        let line = look(&t, 3, 2).unwrap().borders[0].clone().unwrap();
+        assert_eq!((line.color.as_str(), line.width), ("8EA9DB", 1));
+        // Last column bold on an unbanded row.
         assert!(look(&t, 3, 3).unwrap().bold);
-        // Totals row D6 (row 5): grand fill, bold.
+        // Totals row (row 5): bold, a double line on top.
         let tot = look(&t, 5, 2).unwrap();
-        assert_eq!(tot.fill, p.grand_fill);
         assert!(tot.bold);
+        assert!(tot.borders[0].as_ref().unwrap().double);
         // Outside the table.
         assert_eq!(look(&t, 0, 0), None);
     }
 
     #[test]
-    fn medium2_uses_the_blue_accent_and_gallery_has_21_styles() {
-        // Number 2 → second accent (blue 2F6FB3); medium header = accent itself.
+    fn gallery_has_the_60_reference_styles() {
+        let g = gallery();
+        assert_eq!(g.len(), 60);
+        assert_eq!(g[0].name, "TableStyleLight1");
+        assert_eq!(g[21 + 1].name, "TableStyleMedium2");
+        assert_eq!(g[21 + 1].header.as_deref(), Some("4472C4"));
+        assert_eq!(g[59].name, "TableStyleDark11");
+        assert!(g.iter().all(|e| is_builtin(&e.name)));
+        // Dark 2: black header, dark accent bands.
+        assert_eq!(g[49 + 1].header.as_deref(), Some("000000"));
+        assert_eq!(g[49 + 1].stripe, "305496");
+        // Custom names keep BlueSheet's own palette.
+        assert!(!is_builtin("MyStyle"));
         assert_eq!(
             palette("TableStyleMedium2").header_fill.as_deref(),
             Some("2F6FB3")
         );
-        let g = gallery();
-        assert_eq!(g.len(), 21);
-        assert_eq!(g[8].name, "TableStyleMedium2");
     }
 
     #[test]
@@ -300,9 +536,8 @@ mod tests {
         assert_eq!(cf.get(&(2, 1)).and_then(|f| f.fill), None);
         // B5: conditional fill kept.
         assert_eq!(cf[&(4, 1)].fill, Some(Rgba(1, 2, 3, 255)));
-        // C3 (empty, striped row): stripe fill.
-        let s = rgba(&palette("TableStyleMedium2").stripe_fill);
-        assert_eq!(cf[&(2, 2)].fill, s);
+        // C3 (empty, banded row): band fill.
+        assert_eq!(cf[&(2, 2)].fill, rgba("D9E1F2"));
         // Header text white and bold.
         assert_eq!(cf[&(1, 1)].font_color, Some(Rgba(255, 255, 255, 255)));
         assert_eq!(cf[&(1, 1)].bold, Some(true));

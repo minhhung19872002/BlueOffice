@@ -92,10 +92,7 @@ impl ReaderWindow {
                 })
                 .collect();
                 let r = self.control_rect("menu.viewSetting").unwrap_or([0.0; 4]);
-                self.menu = Some((
-                    crate::popup::Menu::open(items, r, self.size, self.scale),
-                    "menu.viewSetting",
-                ));
+                self.menu = Some((self.reader_menu(items, r), "menu.viewSetting"));
             }
             _ => return false,
         }

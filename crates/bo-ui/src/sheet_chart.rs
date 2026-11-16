@@ -336,6 +336,8 @@ impl SheetWindow {
             return;
         }
         self.chart_sel = index;
+        // The chart tabs replace the Table Design tab (shown again by the next input).
+        self.table_tab = false;
         self.view.set_object_selected(index.is_some());
         self.ribbon.set_contextual(
             if index.is_some() {
@@ -709,6 +711,9 @@ impl SheetWindow {
                     .unwrap_or(bo_sheet::chart_style::STYLES[0]);
                 design(json!({ "style": s }))?
             }
+            "sheet.chartSwitch" => json!({ "cmd": "switchRowColumn", "index": index }),
+            "sheet.chartSelectData" => return Some(self.open_select_data()),
+            "sheet.chartMove" => return Some(self.open_move_chart()),
             "sheet.chartDelete" => {
                 self.set_chart_selection(None, false);
                 json!({ "cmd": "deleteChart", "index": index })

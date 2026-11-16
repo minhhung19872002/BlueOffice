@@ -137,3 +137,115 @@ Area/Search & Highlight, Measure, Accounting Calculator, Eraser, Import/Export; 
 Transitions, Read, Compare; Form: Page Templates, XFA, Calculation Order, Tooltip, Form to sheet, Import/Export,
 JavaScript; Protect: Hidden Data, Restrict Access, Batch Encrypt, Sensitivity, Time Stamp, Validate; File: Action
 Wizard, Batch Print, Index, Share, Revert, Preferences, Skins; nút “⋮” và nút kiểu tìm cạnh Find.
+
+## Vòng 4 (2026-11-16)
+
+Ảnh so sánh (bản đối chiếu trên, BlueEditor dưới): `scratchpad/show/editor-21…34-*.png (28–34: bản cuối)`.
+
+**Ribbon.** Nút hàng (`Kind::Row`, `editor_rows_win.rs`): icon nhỏ, nhãn bên phải, ba nút một cột như
+Move / Duplicate / Replace của bản đối chiếu (hàng cách 29 px, icon 20 px cách mép cột 5 px, nhãn cách 32 px,
+cột hết 8 px sau nhãn dài nhất). Mũi tên thả xuống của nhãn hai dòng chỉ nới nút khi dòng có mũi tên là dòng
+dài hơn (lỗi làm nhóm Zoom … Rotate View rộng thêm 16 px). Mỗi tab kết thúc bằng một vạch ngăn như bản đối
+chiếu. Lệnh chưa có (From Web Page, OCR, Form, PDF Portfolio, Preflight, Page Transitions, Page Templates, XFA,
+Accounting Calculator, Rearrange) vẽ xám, rê chuột hiện chú giải. Icon trang (Background, Header & Footer,
+Bates, Format Page Numbers) chuyển sang nét viền + một chi tiết màu nhấn, không tô khối.
+
+| Vạch ngăn (125 %) | Bản đối chiếu | Vòng 3 | Vòng 4 |
+| --- | --- | --- | --- |
+| Home | 363 / 612 / 743 / 916 / 1043 / 1226 | 360 / 628 / 755 / 924 / 1052 / 1239 | 360 / 614 / 741 / 910 / 1033 / 1220 |
+| Organize | 123 / 669 / 852 / 921 / 1396 | — | 118 / 665 / 853 / 920 / 1402 |
+| Convert | 123 / 764 / 853 / 1108 / 1367 / 1448 | — | 118 / 769 / 859 / 1120 / 1388 / 1467 |
+| Edit | 123 / 470 / 677 / 748 / 843 / 1126 | 117 / 470 / 676 / 748 / 845 / 1131 | 118 / 471 / 677 / 749 / 846 / 1132 |
+
+**Organize** (`bo-pdfread::pages_edit`): Move (trang, trước trang N), Duplicate (bản sao đứng sau trang gốc,
+ghi chú chép theo), Replace (trang chọn thay bằng trang của tệp khác), Swap, Interleaving (xen kẽ với tệp khác,
+tuỳ chọn lấy ngược), Resize Pages (khổ mm, co giãn nội dung bằng `cm`, ghi chú dời theo), Flatten (vẽ ghi chú và
+trường vào nội dung trang), Format Page Numbers (`/PageLabels`: 1, i, I, a, A, tiền tố, số đầu; trang sau giữ
+nhãn). Mỗi lệnh một bước hoàn tác.
+
+**Convert** (`extract`): Export All Images (JPEG giữ nguyên luồng, ảnh khác giải mã ra PNG, mỗi ảnh một lần),
+To HTML (một tệp, mỗi trang một khung đúng khổ, dòng chữ và ảnh đặt đúng chỗ, ảnh `data:`), From Clipboard (host
+đọc `CF_DIB` → trang PDF đúng cỡ ảnh ở 96 dpi), From Template (trang trắng A4/A3/A5/Letter/Legal/Tabloid), menu To
+Office / To Image (PNG, JPEG) / To Other.
+
+**Comment** (`exchange`): Import XFDF/FDF (ghi chú → chú thích mới, giá trị trường), Export XFDF hoặc đoạn được
+tô sáng (.txt); Eraser, Area / Search & Highlight, Measure, Create (dấu từ ảnh) dùng công cụ của BlueReader —
+chọn chúng tắt công cụ của Editor.
+
+**View**: Text Viewer, Toggle Ruler, lưới hiển thị trang, Read (giọng Windows), Compare (chọn tệp thứ hai →
+khác biệt chữ từng trang theo LCS, hai cột trái/phải đỏ/xanh, mở thành PDF mới qua BlueDoc).
+
+**Protect** (`sanitize`): Hidden Data (hộp chọn có số lượng: siêu dữ liệu, tệp đính kèm, ghi chú, trường biểu
+mẫu, lớp ẩn — nội dung `/OC … BDC … EMC` của nhóm OFF bị cắt, dấu trang, liên kết, JavaScript/hành động), menu
+Secure, Restrict Access (chỉ mật khẩu quyền), Time Stamp Document (`/DocTimeStamp` RFC 3161 từ TSA), Validate.
+
+**Form**: Calculation Order (`/CO`), Add Tooltip (`/TU`), Form to sheet (CSV / .xlsx qua BlueSheet), Import /
+Export (XFDF, FDF, CSV), Actions (nút: đặt lại biểu mẫu, hiện/ẩn trường — chạy khi bấm nút lúc điền).
+
+**Hành vi Edit Text** (so với quy ước của bản đối chiếu; bàn phím gửi bằng PostMessage không mang trạng thái
+Ctrl nên phần này đối chiếu theo quy ước Windows): Ctrl+←/→ theo từ (Shift mở rộng chọn), Ctrl+Backspace/Delete
+xoá theo từ, Ctrl+C / Ctrl+X / Ctrl+V (chữ thuần từ host, tab thành dấu cách, xuống dòng thành ngắt dòng),
+Ctrl+Z / Ctrl+Y trong phiên lùi/tiến từng cụm gõ (ngắt ở dấu cách, xoá, Enter, dán), hết cụm thì hoàn tác của
+tài liệu lấy lại cả phiên.
+
+Còn lại: Page Transitions, OCR, From Web Page, PDF Portfolio, Preflight, Accounting Calculator, XFA, Page
+Templates (xám); lưới nút nhỏ tab Comment hẹp hơn bản đối chiếu ~23 px; nhãn "Text Box" hai dòng (bản đối chiếu
+"Textbox"); undo trong phiên của bản đối chiếu chưa đo được bằng input gửi qua PostMessage.
+
+## Vòng 5 (2026-11-16)
+
+Gộp BlueReader vòng 6 (bộ đọc đối tượng lười `store::Document`): mọi đường ghi của BlueEditor (sửa chữ / đối
+tượng, lưu toàn bộ / nối thêm, mã hoá, tối ưu, sắp trang, mẫu trang) đi qua `DerefMut` như trước — 113 test
+`bo-pdfread` và các test editor của `bo-ui` xanh sau khi gộp.
+
+**Edit Object** (`editor_arrange.rs`, lõi `bo-pdfread::arrange`): kéo bám vào mép / giữa trang và mép / giữa đối
+tượng khác trong 6 px màn hình, vẽ đường dẫn hồng; Shift giữ hướng ngang / dọc (chỉ trục tự do còn bám), Shift ở
+góc giữ tỉ lệ; ←↑→↓ dời 1 pt, Shift 10 pt, đối tượng vẫn được chọn; Ctrl+kéo chép (bản gốc giữ nguyên, bản chép được
+chọn: ảnh / path / form chép ngay sau bản gốc trong cùng trạng thái đồ hoạ, chữ chép với đủ trạng thái chữ); kéo
+khung trên chỗ trống chọn mọi đối tượng chạm khung (Shift thêm vào); Ctrl+A chọn cả trang; khung Format khi Edit
+Object hiện mục **Arrange** như bản đối chiếu: Page Center (dọc, ngang, cả hai), Alignment (trái, giữa, phải,
+trên, giữa, dưới — cần ≥ 2 đối tượng), Distribute (ngang, dọc — cần ≥ 3), thêm Rotate & Flip (xoay ±90°, lật
+ngang / dọc quanh tâm vùng chọn); chuột phải mở menu cùng các lệnh. Mỗi lần kéo / dời / sắp xếp là một bước hoàn
+tác (`transform_each` ghi mọi đối tượng một lượt).
+
+**Organize**: Ctrl+bấm thêm / bớt một trang; thanh trượt cỡ hình thu nhỏ ở góc dưới phải lưới (50–250 %) và
+Ctrl+lăn chuột; Ctrl+C / Ctrl+X / Ctrl+V chép, cắt, dán trang (dán sau trang chọn, sang được tài liệu khác đang
+mở); kéo trang thả lên tab của tài liệu khác chép trang sang cuối tài liệu đó. Kéo đổi thứ tự với vạch chèn, mũi
+tên / Shift / Home / End / Delete đã có từ vòng 1.
+
+**Lệnh xám đã làm**: Form › Page Templates (đặt tên trang hiện tại làm mẫu `/Names /Pages`, tạo trang từ mẫu ngay
+sau trang hiện tại — một bước hoàn tác, xoá mẫu; mẫu giữ qua lưu), Convert › PDF Portfolio (danh sách tệp nhúng
+`/EmbeddedFiles` có cỡ và mô tả, chỉ đọc: Open mở PDF thành tab, tệp khác lưu ra; Extract lưu các tệp chọn),
+Protect › Secure › Batch Encrypt (chọn các tài liệu đang mở và thêm tệp, một mật khẩu mở / quyền, AES-256 hoặc
+128, lưu bản `-protected.pdf` cạnh nhau; tệp đã có mật khẩu bị bỏ qua và báo tên). Accounting Calculator,
+Preflight, Sensitivity không làm (theo yêu cầu); OCR vẫn xám.
+
+**Tốc độ sau bộ đọc lười** (bản release, máy đang chạy song song build của các agent khác):
+
+| Đo | Vòng 3–4 | Vòng 5 |
+| --- | --- | --- |
+| Mở sổ tay 1 202 trang / trang đầu (`--bench`, 3 lần) | 221 / 231 ms | 37–58 / 48–70 ms |
+| Cuộn 1 202 trang, mỗi nấc p50 / p95 (60 nấc) | 1,5 / 1,7 ms | 1,6 / 2,6 ms |
+| Gõ trong đoạn, tổng mỗi phím p50 / p95 (25 ký tự) | 6,6 / 8,9 ms | 8,0 / 18,0 ms (xử lý phím p50 1,7 ms) |
+| Xoá một trang rồi Lưu (ghi lại toàn bộ): 100 trang 6,8 MB / 1 202 trang 10 MB | 13,4 ms (100 trang) | 15,7 / 63,4 ms |
+| Bộ nhớ sau khi mở sổ tay (working set / private) | 126 / 148 MB | 90 / 129 MB |
+
+Lưu lần đầu sau khi sửa nạp `lopdf::Document` đầy đủ một lần (`DerefMut`), nằm trong 63 ms của tệp 1 202 trang.
+
+**Khung Format theo loại đối tượng** (`editor-35`, `editor-38`): chọn khối chữ bằng Edit Object hiện Text Style,
+Split (bốn nút, xám — chưa có tính năng), Arrange theo thứ tự và khoảng cách của bản đối chiếu (125 %: Split +467,
+Arrange +566 px từ đỉnh khung; tiêu đề mục x 27 có đường kẻ tới mép); khung cuộn bằng lăn chuột; ảnh / path chỉ hiện
+Arrange. Hàng Arrange: Page Center bước 90 px, Alignment / Distribute bước 60 px, tiêu đề phụ +26 / +119 / +201 px
+(lệch ≤ 1 px).
+
+**Portfolio** (`editor-39`): mở PDF portfolio hiện danh sách chi tiết như bản đối chiếu (đường dẫn “Home ▸”, hàng
+tiêu đề màu nhấn của ta, cột Name / Description / Modified / Size đo từ mép phải −358 / −210 / −85 px, hàng 46 px);
+nhấp đúp mở PDF thành tab hoặc lưu tệp khác; Convert › PDF Portfolio đổi sang trang bìa.
+
+**So từng tab** (`editor-40…47`, bản đối chiếu trên): cột nút hàng Organize Move / Split lệch ≤ 5 px (icon 457 / 558
+so với 459 / 558, nhãn 471 / 574 so với 476 / 576) nên giữ bố cục cột chung của BlueReader; Page Templates mở hộp
+Name / Add / Spawn / Delete / Go to / Close (bản đối chiếu: Add, Replace, Rename, Delete, Goto).
+
+Còn lại: Text Style trong khung Edit Object chưa hiện phông / cỡ của khối được chọn (bản đối chiếu hiện); mục ảnh
+của khung khi chọn ảnh; Split chưa làm; Rename / Replace mẫu trang; nút thả xuống của Select; Page Transitions,
+OCR, From Web Page, XFA, Accounting Calculator, Preflight vẫn xám.

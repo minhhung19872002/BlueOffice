@@ -622,3 +622,86 @@ Tab / Enter trong vùng chọn đã có từ vòng trước (test `keyboard_shor
 - Format as Table 60 kiểu (engine mới 21) và Table Design; Conditional Formatting menu con + Manage Rules; Page Layout
   Themes; Page Break Preview / Page Layout view; Split, New Window, Watch Window, Macros (mờ).
 - Merge Styles chọn tệp thay vì danh sách sổ đang mở (mỗi sổ một tiến trình).
+
+## Vòng 7 — bánh xe, Insert, dữ liệu biểu đồ, 60 kiểu bảng, định dạng có điều kiện, chủ đề
+
+Nhánh `worktree-agent-a3fb58a5e47493e6c` (từ `work/desktop-performance` ab0666af). Ảnh so sánh trong
+`show/sheet-13…19` của thư mục scratch phiên.
+
+### Vòng 27 — bánh xe
+
+Đo bước trong `handle` (test `handle_step_timing`, `big10k.xlsx`): 1,23 ms của mỗi nấc nằm trong
+`SheetEngine::cell` (đọc chi tiết ô hiện hành: `legacy_array_at` duyệt mọi ô của trang tính). Cuộn không đổi ô hiện
+hành nên không đọc lại (`refresh_with(false)`): `handle` 1,52 → 0,03 ms. Thêm `GridStore::turn_bands`: khi vòng ảnh
+xoay, chỉ dựng display list cho các hàng mới lộ ra (`BLUEOFFICE_SHEET_BANDS=0` để so; trên máy đang tải không thấy
+khác biệt đo được, giữ vì ít việc hơn). (b) waitable + MaxFrameLatency 1 đã có; (c)/(d) đã đúng: input xử lý ngay
+trong vòng message, `frame()` vẽ và present ngay sau, không qua InvalidateRect → WM_PAINT.
+
+`thumb.ps1`, 900 × 700, 30 nấc, 144 Hz (máy chạy build của các phiên khác nên dao động mạnh):
+
+| | trung vị / p95 | số nấc hiện sau 1 khung |
+|---|---|---|
+| Đối chứng | 7,7 / 14,0 ms | 26/30 |
+| BlueSheet trước (vòng 6) | 14,4–14,7 / 15,0–15,6 ms | 0/30 |
+| BlueSheet vòng 7 (6 lần) | 7,8–14,6 / 14,6–16,1 ms | 4–22/30 |
+| `BLUEOFFICE_SHEET_SYNC=0` | 14,3 / 15,8 ms | 9/30 |
+
+Nội bộ: input → present 3,8 → 2,0–2,6 ms (lưới 1,2–1,8, vẽ 0,3, gửi 0,5). Phím mũi tên (`nav`): 13,5 ms, 15/30 nấc một
+khung — vẫn tốn 1,3–1,8 ms ở `SheetEngine::cell` (`legacy_array_at`), cần chỉ mục công thức mảng trong engine.
+
+### Vòng 28 — Insert ở 1500 px
+
+Đo trên đối chứng: nút lớn rộng 50 px hoặc nhãn + 6 px (BlueSheet trước: 65 px / nhãn + 17,5 px), nhãn một từ có ▾
+đặt dấu ▾ xuống dòng riêng; nhóm gập thành một nút (Illustrations, Text, Symbols) không có nhãn nhóm.
+`Ribbon::with_large_metrics(40, 5)` + `with_mark_on_own_line()` (chỉ BlueSheet). Insert vừa 1500 px, không còn mũi
+tên cuộn (test `insert_tab_fits_at_1500_px`; `sheet-13`).
+
+### Vòng 29 — dữ liệu biểu đồ
+
+Engine: `chartData`, `setChartData` (vùng theo hàng/cột hoặc danh sách chuỗi, giữ định dạng chuỗi theo vị trí),
+`switchRowColumn`, `moveChartTo` (sang trang khác hoặc trang mới đặt trước, ẩn lưới) — mỗi lệnh một bước hoàn tác, có
+test lưu/mở lại. Giao diện: Switch Row/Column, Select Data Source (vùng dữ liệu, Add / Edit / Remove / ▲▼, Edit Series,
+Axis Labels, Cancel hoàn tác các đổi đã áp), Move Chart (`sheet-19`). Hộp thoại của đối chứng không mở được bằng
+`Dialogs(541/527)` qua COM nên chỉ có ảnh BlueSheet.
+
+### Vòng 30 — 60 kiểu bảng, Table Design
+
+Đo đen trên đối chứng qua `DisplayFormat` của một bảng 4 × 6 có hàng tổng (`xtstyles.ps1`): màu nền, màu chữ, đậm, viền
+(màu, độ dày, nét đôi) của các ô mẫu với từng tuỳ chọn (cột đầu/cuối, dải cột) cho Light 1–21, Medium 1–28, Dark
+1–11 → `crates/bo-sheet/src/table_styles.txt`. Bộ vẽ trang tính vẽ viền kiểu bảng (dưới viền riêng của ô). Thư viện:
+ô 77 × 56 px, cách 86 × 66 px, rộng 625 px như đối chứng, mỗi ô vẽ bảng nhỏ 5 × 5 bằng chính kiểu đó (`sheet-16`);
+dòng New Table Style… / New PivotTable Style… (chưa tạo được kiểu riêng: thanh trạng thái báo). Thẻ Table Design hiện khi
+ô hiện hành nằm trong bảng (`sheet-14`): Table Name (ô tên, đổi tên), Resize Table, Summarize with PivotTable, Remove
+Duplicates, Convert to Range, Insert Slicer, External Table Data (mờ), 7 ô đánh dấu tuỳ chọn xếp cột như đối chứng,
+Quick Styles. Chọn kiểu khi đang ở trong bảng thì đổi kiểu bảng đó (không tạo bảng thứ hai).
+
+Hạn chế: màu đo theo chủ đề mặc định; đổi chủ đề không đổi màu kiểu bảng.
+
+### Vòng 31 — định dạng có điều kiện
+
+Menu đo trên đối chứng (`xcf-1.png`): 274 × 401 px, năm mục lớn 57 px chữ đậm, ba mục nhỏ 35 px (`sheet-15`). Menu con
+của đối chứng không mở được bằng input gửi (nhấp gửi vào `Net UI Tool Window` không mở và làm đổi cửa sổ trước; đã
+dừng thử) nên dựng theo bố cục đã biết: Highlight Cells Rules / Top-Bottom Rules (danh sách có hình), Data Bars
+(Gradient / Solid 6 + 6), Color Scales (12), Icon Sets (Directional, Shapes, Indicators, Ratings; hình tự vẽ),
+Clear Rules (`sheet-17`). Hộp quy tắc (Greater Than… với 5 định dạng có sẵn, Between, Equal, Text, A Date Occurring,
+Duplicate/Unique, Top/Bottom 10 / %, Above/Below Average), New / Edit Formatting Rule (6 loại quy tắc), Conditional
+Formatting Rules Manager (vùng chọn / cả trang, New / Edit / Delete, ▲▼, Stop If True).
+
+### Vòng 32 — chủ đề, dán đặc biệt, hành vi
+
+- Page Layout › Themes / Colors / Fonts (bộ chủ đề riêng của BlueOffice, như BlueDoc), Browse for Themes (`.thmx`);
+  phần theme lưu cùng sổ (test lưu/mở lại; `sheet-18`). Effects mờ.
+- Paste Special (Ctrl+Alt+V, menu chuột phải): All / Formulas / Values / Formats / All except borders, Skip blanks,
+  Transpose; phép toán cộng/trừ… mờ (engine chưa có).
+- AutoComplete trong cột (gợi ý phần còn lại được tô chọn; Backspace bỏ gợi ý; Enter nhận theo chữ hoa/thường của
+  mục có sẵn), kéo thả vùng chọn bằng viền (con trỏ bốn chiều, khung xám, tham chiếu đi theo), nhấp đúp tay nắm điền
+  xuống tới hết dữ liệu cột bên cạnh. Kéo tay nắm với Ctrl chưa làm (input chuột chưa mang trạng thái Ctrl).
+
+## Còn lại (sau vòng 7)
+
+- Bánh xe: chưa ổn định một khung (CPU + GPU ~3,5 ms so với hạn ~2,5 ms); phím mũi tên tốn 1,3 ms ở
+  `legacy_array_at` (cần chỉ mục công thức mảng trong engine); DirectComposition chưa thử.
+- Page Break Preview và Page Layout view (engine có `printPreview` dạng trang, chưa có khung nhìn).
+- Kiểu bảng theo chủ đề; tạo kiểu bảng riêng; hàm hàng tổng chọn từ ô (engine có `tableTotal`).
+- Paste Special phép toán; Ctrl khi kéo tay nắm; hộp thoại của đối chứng cho Select Data / Move Chart / Paste Special
+  chưa chụp được để so.

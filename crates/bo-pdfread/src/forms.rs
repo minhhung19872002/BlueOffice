@@ -54,12 +54,12 @@ pub struct FormField {
     pub(crate) on_state: Option<Vec<u8>>,
 }
 
-fn get<'a>(doc: &'a lopdf::Document, d: &'a Dictionary, k: &[u8]) -> Option<&'a Object> {
+fn get<'a>(doc: &'a crate::store::Document, d: &'a Dictionary, k: &[u8]) -> Option<&'a Object> {
     d.get(k).ok().map(|o| resolve(doc, o))
 }
 
 /// An attribute of a field, inherited from its parents (§12.7.3.1).
-fn field_attr(doc: &lopdf::Document, id: ObjectId, key: &[u8]) -> Option<Object> {
+fn field_attr(doc: &crate::store::Document, id: ObjectId, key: &[u8]) -> Option<Object> {
     let mut cur = id;
     for _ in 0..32 {
         let d = doc.get_dictionary(cur).ok()?;
@@ -71,7 +71,7 @@ fn field_attr(doc: &lopdf::Document, id: ObjectId, key: &[u8]) -> Option<Object>
     None
 }
 
-fn on_state(doc: &lopdf::Document, w: &Dictionary) -> Option<Vec<u8>> {
+fn on_state(doc: &crate::store::Document, w: &Dictionary) -> Option<Vec<u8>> {
     let ap = get(doc, w, b"AP")?.as_dict().ok()?;
     let n = get(doc, ap, b"N")?.as_dict().ok()?;
     n.iter()
@@ -97,7 +97,7 @@ fn obj_text(o: &Object) -> String {
     }
 }
 
-fn rect_of(doc: &lopdf::Document, d: &Dictionary) -> Option<[f32; 4]> {
+fn rect_of(doc: &crate::store::Document, d: &Dictionary) -> Option<[f32; 4]> {
     let a = get(doc, d, b"Rect")?.as_array().ok()?;
     let v: Vec<f32> = a
         .iter()

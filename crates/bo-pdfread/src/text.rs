@@ -19,9 +19,151 @@ fn baseline_frame(c: &TextChar) -> ([f32; 2], f32) {
     }
 }
 
+/// A run of characters in content order on one baseline without a wide gap.
+struct Seg {
+    first: usize,
+    last: usize,
+    /// Left, top, right, bottom.
+    rect: [f32; 4],
+    size: f32,
+}
+
+/// Reading order of a page whose text sits in columns: the characters' indices, or `None` when
+/// the content order already reads right (no columns, or text that is not horizontal).
+///
+/// Runs of characters on one baseline are cut recursively (XY-cut): a vertical gutter at
+/// least one em wide with full text lines on both sides splits columns (left first); otherwise
+/// the widest horizontal gap splits top from bottom. Inside a part that cannot be cut the
+/// content order is kept. A page without a column gutter keeps its content order entirely,
+/// so headers, footers and tables read as the file writes them.
+fn reading_order(chars: &[TextChar]) -> Option<Vec<usize>> {
+    if chars.len() < 8 || chars.iter().any(|c| baseline_frame(c).0[0] < 0.95) {
+        return None;
+    }
+    let mut segs: Vec<Seg> = Vec::new();
+    for (i, c) in chars.iter().enumerate() {
+        if !c.rect.iter().all(|v| v.is_finite()) {
+            return None;
+        }
+        if let (Some(s), Some(p)) = (segs.last_mut(), i.checked_sub(1).map(|k| &chars[k])) {
+            let size = p.size.max(c.size).max(1.0);
+            let dy = (c.origin[1] - p.origin[1]).abs();
+            let gap = c.rect[0] - p.rect[2];
+            if dy <= 0.5 * size && gap > -0.5 * size && gap < 1.5 * size {
+                s.last = i;
+                s.rect = [
+                    s.rect[0].min(c.rect[0]),
+                    s.rect[1].min(c.rect[1]),
+                    s.rect[2].max(c.rect[2]),
+                    s.rect[3].max(c.rect[3]),
+                ];
+                s.size = s.size.max(c.size);
+                continue;
+            }
+        }
+        segs.push(Seg {
+            first: i,
+            last: i,
+            rect: c.rect,
+            size: c.size.max(1.0),
+        });
+    }
+    if segs.len() < 4 {
+        return None;
+    }
+    let mut order = Vec::with_capacity(segs.len());
+    let all: Vec<usize> = (0..segs.len()).collect();
+    if !xy_cut(&segs, all, &mut order, 0) {
+        return None;
+    }
+    let out: Vec<usize> = order
+        .iter()
+        .flat_map(|&k| segs[k].first..=segs[k].last)
+        .collect();
+    (out.len() == chars.len() && out.windows(2).any(|w| w[1] < w[0])).then_some(out)
+}
+
+/// Order segments `idx` into `out`; `true` when a column gutter was cut somewhere.
+fn xy_cut(segs: &[Seg], mut idx: Vec<usize>, out: &mut Vec<usize>, depth: u32) -> bool {
+    if idx.len() <= 1 || depth > 64 {
+        idx.sort_unstable();
+        out.extend(idx);
+        return false;
+    }
+    let mut sizes: Vec<f32> = idx.iter().map(|&k| segs[k].size).collect();
+    sizes.sort_by(f32::total_cmp);
+    let em = sizes[sizes.len() / 2];
+    // Widest gap in a projection: (gap, cut position).
+    let widest = |lo: &dyn Fn(&Seg) -> f32, hi: &dyn Fn(&Seg) -> f32| -> Option<(f32, f32)> {
+        let mut iv: Vec<(f32, f32)> = idx.iter().map(|&k| (lo(&segs[k]), hi(&segs[k]))).collect();
+        iv.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let mut end = iv.first()?.1;
+        let mut best: Option<(f32, f32)> = None;
+        for &(a, b) in &iv[1..] {
+            if a > end && best.is_none_or(|g| a - end > g.0) {
+                best = Some((a - end, f32::midpoint(a, end)));
+            }
+            end = end.max(b);
+        }
+        best
+    };
+    if let Some((gap, x)) = widest(&|s| s.rect[0], &|s| s.rect[2]) {
+        let (left, right): (Vec<usize>, Vec<usize>) =
+            idx.iter().partition(|&&k| segs[k].rect[2] <= x);
+        // Columns of text, not a table: on each side at least four lines in a block at least
+        // 15 em wide, most of them filling 60 % of it (table cells vary much more).
+        let texty = |side: &[usize]| {
+            let l = side
+                .iter()
+                .map(|&k| segs[k].rect[0])
+                .fold(f32::MAX, f32::min);
+            let r = side
+                .iter()
+                .map(|&k| segs[k].rect[2])
+                .fold(f32::MIN, f32::max);
+            let ext = r - l;
+            let full = side
+                .iter()
+                .filter(|&&k| segs[k].rect[2] - segs[k].rect[0] >= 0.6 * ext)
+                .count();
+            side.len() >= 4 && ext >= 15.0 * em && full * 10 >= side.len() * 6
+        };
+        if gap >= em && texty(&left) && texty(&right) {
+            xy_cut(segs, left, out, depth + 1);
+            xy_cut(segs, right, out, depth + 1);
+            return true;
+        }
+    }
+    if let Some((gap, y)) = widest(&|s| s.rect[1], &|s| s.rect[3]) {
+        if gap > 0.05 * em {
+            let (top, bottom): (Vec<usize>, Vec<usize>) =
+                idx.iter().partition(|&&k| segs[k].rect[3] <= y);
+            if !top.is_empty() && !bottom.is_empty() {
+                let a = xy_cut(segs, top, out, depth + 1);
+                let b = xy_cut(segs, bottom, out, depth + 1);
+                return a || b;
+            }
+        }
+    }
+    idx.sort_unstable();
+    out.extend(idx);
+    false
+}
+
 impl TextLayer {
-    /// Build the layer from a page's characters.
+    /// Build the layer from a page's characters (put in reading order when the page has
+    /// columns written across, see [`reading_order`]).
     pub fn new(chars: Vec<TextChar>) -> Self {
+        let chars = match reading_order(&chars) {
+            Some(order) => {
+                let mut slots: Vec<Option<TextChar>> = chars.into_iter().map(Some).collect();
+                order
+                    .into_iter()
+                    .filter_map(|i| slots.get_mut(i).and_then(Option::take))
+                    .collect()
+            }
+            None => chars,
+        };
         let mut seq = Vec::with_capacity(chars.len() * 2);
         for (i, c) in chars.iter().enumerate() {
             if i > 0 {
@@ -247,6 +389,64 @@ mod tests {
             dir: [10.0, 0.0],
             size: 10.0,
         }
+    }
+
+    /// Words of `text` from x = `x` on baseline `y`, one character box per letter.
+    fn line(out: &mut Vec<TextChar>, text: &str, x: f32, y: f32) {
+        let mut x = x;
+        for c in text.chars() {
+            if c != ' ' {
+                out.push(ch(&c.to_string(), x, y));
+            }
+            x += 5.0;
+        }
+    }
+
+    #[test]
+    fn columns_written_across_read_column_by_column() {
+        let mut c = Vec::new();
+        line(&mut c, "Title of the two column page here", 0.0, 10.0);
+        for row in 0..5 {
+            let y = 40.0 + row as f32 * 14.0;
+            line(
+                &mut c,
+                &format!("left {row} words in a line of the first column"),
+                0.0,
+                y,
+            );
+            line(
+                &mut c,
+                &format!("right {row} words in a line of the next column"),
+                260.0,
+                y,
+            );
+        }
+        let t = TextLayer::new(c).text();
+        let lines: Vec<&str> = t.lines().collect();
+        assert_eq!(lines[0], "Title of the two column page here");
+        assert_eq!(lines[1], "left 0 words in a line of the first column");
+        assert_eq!(lines[4], "left 3 words in a line of the first column");
+        assert_eq!(lines[5], "left 4 words in a line of the first column");
+        assert_eq!(lines[6], "right 0 words in a line of the next column");
+        assert_eq!(lines.len(), 11);
+        // A table of contents (short numbers at the right) keeps its rows.
+        let mut toc = Vec::new();
+        for row in 0..5 {
+            line(
+                &mut toc,
+                &format!("Chapter {row} about things"),
+                0.0,
+                20.0 + row as f32 * 14.0,
+            );
+            line(
+                &mut toc,
+                &format!("{}", row + 3),
+                300.0,
+                20.0 + row as f32 * 14.0,
+            );
+        }
+        let t = TextLayer::new(toc).text();
+        assert_eq!(t.lines().next(), Some("Chapter 0 about things 3"));
     }
 
     #[test]

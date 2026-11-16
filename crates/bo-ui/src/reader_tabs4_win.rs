@@ -5,7 +5,7 @@
 //! list's sort and filter.
 use super::{inside, ReaderRequest, ReaderWindow};
 use crate::dialog::{Dialog, DialogButton, DialogKind};
-use crate::popup::{Choice, Menu, MenuItem};
+use crate::popup::{Choice, MenuItem};
 use crate::{Input, Painter, TextMeasure};
 use bo_pdfread::{AnnotKind, CommentThread, FieldKind, FormField, NewAnnot};
 use bo_render::Rgba;
@@ -206,10 +206,7 @@ impl ReaderWindow {
                     dim: false,
                 }];
                 let r = self.control_rect("menu.customStamp").unwrap_or([0.0; 4]);
-                self.menu = Some((
-                    Menu::open(items, r, self.size, self.scale),
-                    "menu.customStamp",
-                ));
+                self.menu = Some((self.reader_menu(items, r), "menu.customStamp"));
             }
             "stamp.image" => self.requests.push(ReaderRequest::PickFile {
                 purpose: "stamp".into(),
@@ -232,10 +229,7 @@ impl ReaderWindow {
                     dim: false,
                 }];
                 let r = self.control_rect("menu.formSettings").unwrap_or([0.0; 4]);
-                self.menu = Some((
-                    Menu::open(items, r, self.size, self.scale),
-                    "menu.formSettings",
-                ));
+                self.menu = Some((self.reader_menu(items, r), "menu.formSettings"));
             }
             "form.highlight" => self.tabs4.highlight_fields = !self.tabs4.highlight_fields,
             "prot.validate" => self.validate_signatures(),
@@ -256,7 +250,7 @@ impl ReaderWindow {
                 })
                 .collect();
                 let r = self.tabs4.header[0];
-                self.menu = Some((Menu::open(items, r, self.size, self.scale), "comments"));
+                self.menu = Some((self.reader_menu(items, r), "comments"));
             }
             "menu.commentFilter" => {
                 let mut items = vec![MenuItem {
@@ -274,7 +268,7 @@ impl ReaderWindow {
                     });
                 }
                 let r = self.tabs4.header[1];
-                self.menu = Some((Menu::open(items, r, self.size, self.scale), "comments"));
+                self.menu = Some((self.reader_menu(items, r), "comments"));
             }
             "comments.filterAll" => self.tabs4.filter = None,
             c if c.starts_with("comments.sort") => {
@@ -585,7 +579,7 @@ impl ReaderWindow {
                     .get(self.active)
                     .and_then(|t| t.view.doc_rect_to_window(f.page, f.rect))
                     .unwrap_or([0.0; 4]);
-                self.menu = Some((Menu::open(items, r, self.size, self.scale), "field"));
+                self.menu = Some((self.reader_menu(items, r), "field"));
                 self.tabs4.choice_field = Some(f);
             }
             FieldKind::Button | FieldKind::Signature => {}

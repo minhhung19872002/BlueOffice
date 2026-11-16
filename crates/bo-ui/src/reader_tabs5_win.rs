@@ -7,7 +7,7 @@
 //! File (a file attached on the page); Reset Form greyed when the document has no form.
 use super::{inside, ReaderRequest, ReaderWindow};
 use crate::dialog::{Dialog, DialogButton, DialogKind};
-use crate::popup::{Choice, Menu, MenuItem};
+use crate::popup::{Choice, MenuItem};
 use crate::{Input, Painter, TextMeasure};
 use bo_pdfread::{FieldKind, Markup, MarkupKind, SummaryLabels};
 use bo_render::{PathSeg, Rgba};
@@ -272,10 +272,14 @@ impl ReaderWindow {
                 })
                 .collect();
                 let r = self.control_rect("menu.clipboard").unwrap_or([0.0; 4]);
-                self.menu = Some((
-                    Menu::open(items, r, self.size, self.scale),
-                    "menu.clipboard",
-                ));
+                let menu = self
+                    .reader_menu(items, r)
+                    .with_decor(
+                        vec![Some("cut"), Some("copy"), Some("paste"), Some("selectAll")],
+                        Vec::new(),
+                    )
+                    .with_icon_fn(crate::reader_icons::menu_icon);
+                self.menu = Some((menu, "menu.clipboard"));
             }
             "edit.selectAll" => {
                 let ctrl = crate::Mods {
@@ -356,7 +360,7 @@ impl ReaderWindow {
             })
             .collect();
         let r = self.control_rect(id).unwrap_or([0.0; 4]);
-        self.menu = Some((Menu::open(items, r, self.size, self.scale), id));
+        self.menu = Some((self.reader_menu(items, r), id));
     }
 
     fn stem(&self) -> String {

@@ -382,8 +382,7 @@ impl Session {
     /// box / drop-down list.
     #[must_use]
     pub fn form_at(&self, pos: Pos) -> Option<FormSpan> {
-        let path = body_paragraphs(&self.doc).get(pos.para)?.clone();
-        let p = para_at(&self.doc, &path)?;
+        let p = bo_model::index::para_by_id(&self.doc, pos.para)?;
         let all = spans(p, pos.para);
         // The innermost text field, else an object field touching the caret.
         all.iter()
@@ -400,8 +399,7 @@ impl Session {
     #[must_use]
     pub fn form_field_info(&self) -> Option<FormFieldInfo> {
         let s = self.form_at(self.selection.focus)?;
-        let path = body_paragraphs(&self.doc).get(s.para)?.clone();
-        let atoms = para::flatten(para_at(&self.doc, &path)?);
+        let atoms = para::flatten(bo_model::index::para_by_id(&self.doc, s.para)?);
         Some(FormFieldInfo {
             value: value_of(&atoms, &s),
             fillable: fillable(&s.field),

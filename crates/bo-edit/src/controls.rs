@@ -79,15 +79,55 @@ fn lock_value(delete: bool, content: bool) -> Option<String> {
     }
 }
 
+/// A block-level control starts or ends in paragraph `p` (§17.5.2 sdt around blocks).
+fn para_has_block_marks(p: &bo_model::Paragraph) -> bool {
+    p.runs.iter().flat_map(|r| &r.content).any(|c| {
+        matches!(c, RunContent::ControlStart(cc) if cc.block)
+            || matches!(c, RunContent::ControlEnd(true))
+    })
+}
+
+/// Some paragraph of `blocks` (table cells included) holds a block-level control mark.
+fn has_block_marks(blocks: &[Block]) -> bool {
+    blocks.iter().any(|b| match b {
+        Block::Paragraph(p) => para_has_block_marks(p),
+        Block::Table(t) => t
+            .rows
+            .iter()
+            .flat_map(|r| &r.cells)
+            .any(|c| has_block_marks(&c.blocks)),
+        Block::Opaque(_) => false,
+    })
+}
+
 impl Session {
     /// Every block-level control of the main text, in the order they end.
     pub(crate) fn block_spans(&self) -> Vec<BlockSpan> {
+        if let Some((v, spans)) = self.block_spans_at.borrow().as_ref() {
+            if *v == self.version {
+                return spans.clone();
+            }
+        }
+        let out = self.list_block_spans();
+        *self.block_spans_at.borrow_mut() = Some((self.version, out.clone()));
+        out
+    }
+
+    fn list_block_spans(&self) -> Vec<BlockSpan> {
         let mut out = Vec::new();
+        // Most documents have none: a scan of the runs (no copies) answers that, so
+        // typing does not flatten every paragraph after each key.
+        if !self.doc.sections.iter().any(|s| has_block_marks(&s.blocks)) {
+            return out;
+        }
         let mut open: Vec<(ContentControl, usize, usize)> = Vec::new();
         for (pid, path) in body_paragraphs(&self.doc).iter().enumerate() {
             let Some(p) = para_at(&self.doc, path) else {
                 continue;
             };
+            if !para_has_block_marks(p) {
+                continue;
+            }
             for (i, (_, c)) in para::flatten(p).iter().enumerate() {
                 match c {
                     RunContent::ControlStart(cc) if cc.block => {
@@ -150,8 +190,7 @@ impl Session {
     /// caret.
     pub fn inline_control_range(&self) -> Option<(ContentControl, usize, usize, usize)> {
         let caret = self.selection.focus;
-        let path = body_paragraphs(&self.doc).get(caret.para)?.clone();
-        let atoms = para::flatten(para_at(&self.doc, &path)?);
+        let atoms = para::flatten(bo_model::index::para_by_id(&self.doc, caret.para)?);
         let mut pos = 0;
         let mut open: Vec<(usize, usize)> = Vec::new();
         for (i, (_, c)) in atoms.iter().enumerate() {

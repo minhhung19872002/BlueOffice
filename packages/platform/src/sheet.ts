@@ -999,6 +999,22 @@ export type SheetCommand =
       from: [number, number];
       to: [number, number];
     }
+  /** The data a chart plots (answer: `{ range, byRow, series, categories }`). */
+  | { cmd: 'chartData'; sheet: number; index: number }
+  /** Replots a chart: a whole `range` (series by row / column) or the `series` list. */
+  | {
+      cmd: 'setChartData';
+      sheet: number;
+      index: number;
+      range?: string;
+      byRow?: boolean;
+      series?: { name?: string; nameRef?: string; valRef?: string; catRef?: string }[];
+      categories?: string;
+    }
+  /** Switch Row/Column: series become categories and back. */
+  | { cmd: 'switchRowColumn'; sheet: number; index: number }
+  /** Move Chart onto sheet `to` or a new sheet `newSheet` (answer: `{ sheet, index }`). */
+  | { cmd: 'moveChartTo'; sheet: number; index: number; to?: number; newSheet?: string }
   | {
       cmd: 'find';
       query: string;

@@ -1644,7 +1644,6 @@ impl SheetWindow {
             FormKind::CreateTable
             | FormKind::CreatePivot
             | FormKind::Sparklines
-            | FormKind::Link
             | FormKind::HeaderFooter
             | FormKind::Symbol => self.insert_form_event(ev, text),
             FormKind::MoreColors => self.more_colors_event(ev),
@@ -1688,6 +1687,7 @@ impl SheetWindow {
             FormKind::RangePick => self.range_pick_event(ev),
             FormKind::Protect => self.protect_event(ev),
             FormKind::Spelling => self.spelling_event(ev),
+            FormKind::Link | FormKind::LinkTip => self.link_event(ev),
             FormKind::FormatCells => {}
         }
         true

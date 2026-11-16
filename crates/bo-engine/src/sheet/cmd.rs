@@ -722,6 +722,40 @@ pub enum SheetCommand {
         #[serde(default)]
         also: Vec<Rng>,
     },
+    /// The hyperlink on a cell (read only): `{ target, location, display, tooltip }` or
+    /// `null` (§18.3.1.47 `hyperlink`).
+    Hyperlink {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// 0-based row.
+        row: u32,
+        /// 0-based column.
+        col: u32,
+    },
+    /// Sets the hyperlink of a cell (§18.3.1.47): an external `target` (URL, file,
+    /// `mailto:`) or a `location` in the workbook (`Sheet2!A1`, a name); neither removes it.
+    /// The cell shows `display` (default: the target or location) when given or empty.
+    /// One undo step.
+    SetHyperlink {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// 0-based row.
+        row: u32,
+        /// 0-based column.
+        col: u32,
+        /// External address.
+        #[serde(default)]
+        target: Option<String>,
+        /// Place in this workbook.
+        #[serde(default)]
+        location: Option<String>,
+        /// Text shown in the cell.
+        #[serde(default)]
+        display: Option<String>,
+        /// ScreenTip.
+        #[serde(default)]
+        tooltip: Option<String>,
+    },
     /// Enters a legacy array formula over a range (Ctrl+Shift+Enter): `{ "range": … }`.
     SetArrayFormula {
         /// 0-based sheet index.
@@ -2799,6 +2833,7 @@ impl SheetEngine {
             | C::EditCf { sheet, .. }
             | C::ClearCf { sheet, .. }
             | C::SetValidation { sheet, .. } => check(ws(*sheet)?, A::FormatCells),
+            C::SetHyperlink { sheet, .. } => check(ws(*sheet)?, A::InsertHyperlinks),
             C::Resize { sheet, rows, .. }
             | C::Autofit { sheet, rows, .. }
             | C::Hide { sheet, rows, .. } => check(ws(*sheet)?, rows_or_cols(*rows)),
@@ -4621,6 +4656,61 @@ impl SheetEngine {
                 ok.then_some(json!({ "ok": true }))
                     .ok_or_else(|| bad("invalid validation rule"))
             }),
+            C::Hyperlink { sheet, row, col } => {
+                let ws = self.sheet(sheet)?;
+                let at = CellRef::new(row, col);
+                Ok(ws
+                    .hyperlinks
+                    .iter()
+                    .rev()
+                    .find(|h| h.range.contains(at))
+                    .map_or(Value::Null, |h| {
+                        json!({ "target": h.target, "location": h.location,
+                                "display": h.display, "tooltip": h.tooltip })
+                    }))
+            }
+            C::SetHyperlink {
+                sheet,
+                row,
+                col,
+                target,
+                location,
+                display,
+                tooltip,
+            } => {
+                let clean = |s: Option<String>| s.map(|t| t.trim().to_owned()).filter(|t| !t.is_empty());
+                let (target, location) = (clean(target), clean(location));
+                let display = display.filter(|d| !d.is_empty());
+                self.edit(sheet, Recalc::All, |wb, _| {
+                    let ws = &mut wb.sheets[sheet];
+                    let at = CellRef::new(row, col);
+                    ws.hyperlinks.retain(|h| !h.range.contains(at));
+                    let Some(shown) = display
+                        .clone()
+                        .or_else(|| target.clone())
+                        .or_else(|| location.clone())
+                    else {
+                        return Ok(json!({ "ok": true }));
+                    };
+                    let empty = ws
+                        .cell(row, col)
+                        .is_none_or(|c| matches!(c.value, CellValue::Empty) && c.formula.is_none());
+                    if empty || display.is_some() {
+                        let mut cell = ws.cell(row, col).cloned().unwrap_or_default();
+                        cell.formula = None;
+                        cell.value = CellValue::Text(shown.clone());
+                        ws.set_cell(row, col, cell);
+                    }
+                    ws.hyperlinks.push(bo_model::sheet::Hyperlink {
+                        range: CellRange::single(at),
+                        target,
+                        location,
+                        display: Some(shown),
+                        tooltip: tooltip.filter(|t| !t.is_empty()),
+                    });
+                    Ok(json!({ "ok": true }))
+                })
+            }
             C::SetArrayFormula {
                 sheet,
                 range,

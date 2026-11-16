@@ -45,6 +45,8 @@ mod gallery_impl;
 mod illus_impl;
 #[path = "sheet_insert.rs"]
 mod insert_impl;
+#[path = "sheet_link.rs"]
+mod link_impl;
 #[path = "sheet_names.rs"]
 mod names_impl;
 #[path = "sheet_options.rs"]
@@ -399,6 +401,8 @@ pub struct SheetWindow {
     spell: Option<reviewtab_impl::SpellState>,
     speller: Option<bo_spell::Speller>,
     pinned_comments: Vec<(u32, u32)>,
+    /// ScreenTip of the open Insert Hyperlink dialog.
+    link_tip: String,
     /// The open protection dialog.
     prot: protect_impl::ProtState,
     /// The open Text to Columns wizard.
@@ -554,6 +558,7 @@ impl SheetWindow {
             ttc: None,
             prot: protect_impl::ProtState::default(),
             spell: None,
+            link_tip: String::new(),
             speller: None,
             pinned_comments: Vec::new(),
             dv_sqref: Vec::new(),
@@ -1639,6 +1644,12 @@ impl SheetWindow {
                 (Key::Letter('1'), Mods { ctrl: true, .. }) if !self.view.editing() => {
                     Some("sheet.formatCellsDialog")
                 }
+                (Key::Letter('k'), Mods { ctrl: true, .. }) if !self.view.editing() => {
+                    Some("sheet.link")
+                }
+                (Key::F(7), Mods { ctrl: false, .. }) if !self.view.editing() => {
+                    Some("sheet.spelling")
+                }
                 (Key::Letter('='), Mods { alt: true, .. }) if !self.view.editing() => {
                     Some("autosum.sum")
                 }
@@ -2028,6 +2039,7 @@ impl SheetWindow {
             (true, form_impl::FormKind::FormatCells) => self.fc_strings(),
             (true, form_impl::FormKind::Evaluate) => self.eval_strings(),
             (true, form_impl::FormKind::Names) => self.names_strings(),
+            (true, form_impl::FormKind::Link) => self.link_strings(),
             (true, _) => Vec::new(),
             _ => return,
         };
@@ -2125,6 +2137,8 @@ impl SheetWindow {
             Self::paint_validation_icon(f, r, p);
         } else if self.form_kind == form_impl::FormKind::Protect {
             self.paint_protect(f, id, r, p);
+        } else if self.form_kind == form_impl::FormKind::Link {
+            self.paint_link(f, id, r, p);
         } else if self.form_kind == form_impl::FormKind::RangePick {
             Self::paint_range_pick(f, id, r, p);
         } else if self.form_kind == form_impl::FormKind::FormatCells {

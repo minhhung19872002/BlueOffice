@@ -122,6 +122,8 @@ pub(super) enum FormKind {
     Protect,
     /// Review: Spelling.
     Spelling,
+    /// ScreenTip… of Insert Hyperlink (over the stashed dialog).
+    LinkTip,
 }
 
 /// The value of a colour drop-down that has no colour (drawn as an empty swatch; `""` is

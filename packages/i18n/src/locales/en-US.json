@@ -10986,6 +10986,22 @@
     "additional": "Additional Information",
     "accNote": "Select an issue to see why it matters and how to fix it."
   },
+  "sheetLink": {
+    "existing": "Existing File or Web Page",
+    "place": "Place in This Document",
+    "newDoc": "Create New Document",
+    "email": "E-mail Address",
+    "editTitle": "Edit Hyperlink",
+    "linkTo": "Link to:",
+    "screenTip": "ScreenTip...",
+    "recent": "Addresses used in this workbook:",
+    "cellRef": "Type the cell reference:",
+    "selectPlace": "Or select a place in this document:",
+    "mail": "E-mail address:",
+    "subject": "Subject:",
+    "tipTitle": "Set Hyperlink ScreenTip",
+    "tipText": "ScreenTip text:"
+  },
   "sheetNative": {
     "nmClear": "Clear Filter",
     "nmFilter": "Filter",

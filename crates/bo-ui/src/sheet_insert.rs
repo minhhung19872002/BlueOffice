@@ -364,7 +364,7 @@ impl SheetWindow {
             "sheet.sparkLine" => self.open_sparklines("line"),
             "sheet.sparkColumn" => self.open_sparklines("column"),
             "sheet.sparkWinLoss" => self.open_sparklines("stacked"),
-            "sheet.link" => self.open_link(),
+            "sheet.link" => self.open_hyperlink(),
             "sheet.headerFooter" => self.open_header_footer(),
             "sheet.symbol" => self.open_symbol(),
             "sheet.pictures" => {
@@ -628,33 +628,38 @@ impl SheetWindow {
     fn open_sparklines(&mut self, kind: &str) -> bool {
         let range = self.view.rng();
         let t = |k: &str, d: &str| self.t(k, d);
+        // The reference's Create Sparklines (476 × 279 px at 125 %, round 49): larger text,
+        // a range picker at the end of each box.
         let mut f = Form::new(
             &t("sheetInsert.createSparklines", "Create Sparklines"),
-            (440.0, 250.0),
+            (476.0, 279.0),
             vec![],
         );
+        f.set_font_scale(1.15);
         f.add(
             "dataGroup",
             None,
-            [20.0, 54.0, 400.0, 0.0],
+            [17.0, 48.0, 442.0, 22.0],
             Kind::Group(t("sheetInsert.sparkData", "Choose the data that you want")),
         );
         f.add(
             "dataLabel",
             None,
-            [40.0, 82.0, 0.0, 0.0],
+            [32.0, 82.0, 95.0, 22.0],
             Kind::Label(t("sheetInsert.dataRange", "Data Range:")),
         );
+        f.set_access("dataLabel", 0);
         f.add(
             "data",
             None,
-            [160.0, 78.0, 260.0, 25.0],
+            [126.0, 79.0, 288.0, 28.0],
             edit(&a1(&range).replace('$', "")),
         );
+        f.add("pickData", None, [413.0, 79.0, 26.0, 28.0], Kind::Canvas);
         f.add(
             "locGroup",
             None,
-            [20.0, 118.0, 400.0, 0.0],
+            [17.0, 136.0, 442.0, 22.0],
             Kind::Group(t(
                 "sheetInsert.sparkWhere",
                 "Choose where you want the sparklines to be placed",
@@ -663,50 +668,23 @@ impl SheetWindow {
         f.add(
             "locLabel",
             None,
-            [40.0, 146.0, 0.0, 0.0],
+            [32.0, 170.0, 120.0, 22.0],
             Kind::Label(t("sheetInsert.locationRange", "Location Range:")),
         );
-        f.add("loc", None, [160.0, 142.0, 260.0, 25.0], edit(""));
+        f.set_access("locLabel", 0);
+        f.add("loc", None, [152.0, 166.0, 262.0, 28.0], edit(""));
+        f.add("pickLoc", None, [413.0, 166.0, 26.0, 28.0], Kind::Canvas);
         f.ok_cancel(&t("common.ok", "OK"), &t("common.cancel", "Cancel"));
+        if let Some(c) = f.get_mut("ok") {
+            c.rect = [231.0, 226.0, 105.0, 32.0];
+        }
+        if let Some(c) = f.get_mut("cancel") {
+            c.rect = [352.0, 226.0, 105.0, 32.0];
+        }
         f.focus("loc");
         self.form = Some(f);
         self.form_kind = FormKind::Sparklines;
         self.spark_kind = kind.to_owned();
-        true
-    }
-
-    fn open_link(&mut self) -> bool {
-        let (r, c) = self.view.active();
-        let shown = self
-            .view
-            .engine()
-            .cell(self.view.sheet(), r, c)
-            .map(|d| d.display)
-            .unwrap_or_default();
-        let t = |k: &str, d: &str| self.t(k, d);
-        let mut f = Form::new(
-            &t("sheetInsert.linkTitle", "Insert Hyperlink"),
-            (560.0, 210.0),
-            vec![],
-        );
-        f.add(
-            "textLabel",
-            None,
-            [20.0, 60.0, 0.0, 0.0],
-            Kind::Label(t("sheetInsert.linkText", "Text to display:")),
-        );
-        f.add("text", None, [140.0, 56.0, 400.0, 25.0], edit(&shown));
-        f.add(
-            "addrLabel",
-            None,
-            [20.0, 100.0, 0.0, 0.0],
-            Kind::Label(t("sheetInsert.linkAddress", "Address:")),
-        );
-        f.add("addr", None, [140.0, 96.0, 400.0, 25.0], edit(""));
-        f.ok_cancel(&t("common.ok", "OK"), &t("common.cancel", "Cancel"));
-        f.focus("addr");
-        self.form = Some(f);
-        self.form_kind = FormKind::Link;
         true
     }
 

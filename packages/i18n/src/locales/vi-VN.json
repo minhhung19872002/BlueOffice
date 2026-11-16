@@ -10986,6 +10986,22 @@
     "additional": "Thông tin thêm",
     "accNote": "Chọn một vấn đề để xem vì sao cần sửa và cách sửa."
   },
+  "sheetLink": {
+    "existing": "Tệp hoặc trang web có sẵn",
+    "place": "Vị trí trong tài liệu này",
+    "newDoc": "Tạo tài liệu mới",
+    "email": "Địa chỉ e-mail",
+    "editTitle": "Sửa siêu liên kết",
+    "linkTo": "Liên kết tới:",
+    "screenTip": "Mẹo màn hình...",
+    "recent": "Địa chỉ đã dùng trong sổ làm việc:",
+    "cellRef": "Nhập tham chiếu ô:",
+    "selectPlace": "Hoặc chọn một vị trí trong tài liệu:",
+    "mail": "Địa chỉ e-mail:",
+    "subject": "Chủ đề:",
+    "tipTitle": "Đặt mẹo màn hình cho siêu liên kết",
+    "tipText": "Văn bản mẹo màn hình:"
+  },
   "sheetNative": {
     "nmClear": "Bỏ lọc",
     "nmFilter": "Lọc",

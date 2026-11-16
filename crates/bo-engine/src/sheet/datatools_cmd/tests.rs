@@ -450,3 +450,39 @@ fn invalid_cells_listed() {
         json!({ "cells": [[1, 0], [2, 0], [4, 0]], "truncated": false })
     );
 }
+
+#[test]
+fn hyperlinks_are_set_read_and_removed() {
+    let mut e = engine();
+    run(
+        &mut e,
+        json!({ "cmd": "setHyperlink", "sheet": 0, "row": 0, "col": 0,
+                "target": "https://example.com", "display": "Site", "tooltip": "Open" }),
+    );
+    assert_eq!(val(&e, 0, 0, 0), t("Site"));
+    let h = run(
+        &mut e,
+        json!({ "cmd": "hyperlink", "sheet": 0, "row": 0, "col": 0 }),
+    );
+    assert_eq!(h["target"], "https://example.com");
+    assert_eq!(h["tooltip"], "Open");
+    // A place in the workbook on a cell with text keeps the text.
+    e.set_input(0, 1, 0, "Go").unwrap();
+    run(
+        &mut e,
+        json!({ "cmd": "setHyperlink", "sheet": 0, "row": 1, "col": 0, "location": "Sheet1!C5" }),
+    );
+    assert_eq!(val(&e, 0, 1, 0), t("Go"));
+    assert_eq!(e.workbook().unwrap().sheets[0].hyperlinks.len(), 2);
+    run(
+        &mut e,
+        json!({ "cmd": "setHyperlink", "sheet": 0, "row": 0, "col": 0 }),
+    );
+    let h = run(
+        &mut e,
+        json!({ "cmd": "hyperlink", "sheet": 0, "row": 0, "col": 0 }),
+    );
+    assert!(h.is_null());
+    assert!(e.undo().unwrap());
+    assert_eq!(e.workbook().unwrap().sheets[0].hyperlinks.len(), 2);
+}

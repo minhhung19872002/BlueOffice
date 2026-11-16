@@ -1767,11 +1767,13 @@ fn insert_tab_forms_create_tables_pivots_sparklines_links_and_headers() {
         f.set_text("addr", "https://example.com");
     }
     w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
-    assert_eq!(
-        input(&w, 5, 0),
-        "=HYPERLINK(\"https://example.com\",\"Site\")"
-    );
-    assert_eq!(shown(&w, 5, 0), "Site");
+    // A cell hyperlink (§18.3.1.47) showing the text.
+    assert_eq!(input(&w, 5, 0), "Site");
+    let link = w
+        .view
+        .query(json!({ "cmd": "hyperlink", "sheet": 0, "row": 5, "col": 0 }))
+        .expect("link");
+    assert_eq!(link["target"], "https://example.com");
     // Header & Footer sections.
     assert!(w.action("sheet.headerFooter", &Fixed));
     w.form.as_mut().expect("hf").set_text("hc", "Report");

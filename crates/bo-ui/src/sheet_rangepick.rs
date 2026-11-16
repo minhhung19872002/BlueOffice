@@ -33,7 +33,7 @@ pub(super) struct PickState {
 }
 
 /// Picker buttons: (form kind, button id, the box it fills, reference style).
-const PICKERS: [(FormKind, &str, &str, RefStyle); 10] = [
+const PICKERS: [(FormKind, &str, &str, RefStyle); 11] = [
     (FormKind::Names, "refPick", "ref", RefStyle::Formula),
     (FormKind::NewName, "refPick", "ref", RefStyle::Formula),
     (FormKind::TextToColumns, "pickDest", "dest", RefStyle::Plain),
@@ -59,6 +59,7 @@ const PICKERS: [(FormKind, &str, &str, RefStyle); 10] = [
     (FormKind::Validation, "pick2", "f2", RefStyle::Eq),
     (FormKind::CreatePivot, "pickTable", "table", RefStyle::Sheet),
     (FormKind::Sparklines, "pickData", "data", RefStyle::Plain),
+    (FormKind::Sparklines, "pickLoc", "loc", RefStyle::Plain),
 ];
 
 fn col_letters(mut c: u32) -> String {

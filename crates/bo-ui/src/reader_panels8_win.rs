@@ -130,6 +130,8 @@ type Section = (&'static str, Vec<(String, String, bool)>);
 #[derive(Default)]
 pub(crate) struct Panels8 {
     tools: Vec<(&'static str, [f32; 4], bool)>,
+    /// The pointer is over Full Screen's exit button.
+    exit_hover: bool,
     /// Reply being typed in the selected card's Add Reply box (focused when `Some`).
     reply: Option<String>,
     /// Search box options (the reference's Whole words only / Case-Sensitive).
@@ -520,9 +522,12 @@ impl ReaderWindow {
             return;
         }
         let b = self.full_exit8();
-        p.fill_rect(b[0], b[1], b[2], b[3], Rgba(20, 20, 20, 255));
-        let s = self.q(18.0);
-        let grey = Rgba(150, 150, 152, 255);
+        // Measured: no box at rest, the glyph 19 px in grey 180 on the black.
+        if self.panels8.exit_hover {
+            p.fill_rect(b[0], b[1], b[2], b[3], Rgba(40, 40, 40, 255));
+        }
+        let s = self.q(19.0);
+        let grey = Rgba(180, 180, 180, 255);
         reader_icons::draw_weight(
             p,
             "exitFull",
@@ -1159,6 +1164,15 @@ impl ReaderWindow {
 
     /// Input of the round 8 panels (tools, rows, search box, filter dialog).
     pub(crate) fn route_panels8(&mut self, input: &Input, m: &dyn TextMeasure) -> Option<bool> {
+        if let Input::Move { x, y } = input {
+            let over = self.full_screen8() && inside(self.full_exit8(), *x, *y);
+            if over != self.panels8.exit_hover {
+                self.panels8.exit_hover = over;
+                if self.full_screen8() {
+                    return Some(true);
+                }
+            }
+        }
         if let Input::Press { x, y, .. } = input {
             if self.profile.is_none() && self.full_screen8() && inside(self.full_exit8(), *x, *y) {
                 self.toggle_full_screen(m);

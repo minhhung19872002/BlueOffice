@@ -2,6 +2,7 @@
 use crate::backstage::{Backstage, FileAction};
 use crate::catalog;
 use crate::dialog::{Dialog, DialogButton, DialogKind};
+use crate::doc_comments::{CommentAction, CommentsPane};
 use crate::doc_tools::{self, Context, Tool};
 use crate::doc_view::DocView;
 use crate::icons::Icons;
@@ -11,6 +12,7 @@ use crate::ribbon::{Ribbon, RibbonHit};
 use crate::ruler::Ruler;
 use crate::spell_pane::{SpellAction, SpellPane};
 use crate::strings::Strings;
+use crate::symbol_grid::{SymbolGrid, SymbolPick};
 use crate::table_grid::{GridPick, TableGrid};
 use crate::theme::Theme;
 use crate::titlebar::{NcHit, TitleBar};
@@ -157,8 +159,16 @@ pub struct DocWindow {
     row_measure_due: bool,
     /// Proofing pane (Review › Spelling & Grammar, F7), when shown.
     spell_pane: Option<SpellPane>,
+    /// Comments pane (Review › Show Comments), when shown.
+    comments_pane: Option<CommentsPane>,
+    /// Thread the reply dialog answers.
+    reply_to: Option<i32>,
     /// Insert › Table size picker, when open.
     table_grid: Option<TableGrid>,
+    /// Insert › Symbol gallery, when open.
+    symbol_grid: Option<SymbolGrid>,
+    /// Symbols inserted from the gallery, most recent first.
+    recent_symbols: Vec<char>,
     /// The format painter stays on after applying (double click), until Escape.
     painter_lock: bool,
 }
@@ -307,7 +317,11 @@ impl DocWindow {
             row_measured: None,
             row_measure_due: true,
             spell_pane: None,
+            comments_pane: None,
+            reply_to: None,
             table_grid: None,
+            symbol_grid: None,
+            recent_symbols: crate::symbol_grid::DEFAULT_RECENT.to_vec(),
             painter_lock: false,
         }
     }
@@ -322,6 +336,51 @@ impl DocWindow {
         self.menu = None;
         self.table_grid = Some(TableGrid::open(anchor, commands, self.scale));
         true
+    }
+
+    fn open_symbol_grid(&mut self) -> bool {
+        let anchor = self
+            .ribbon
+            .rect_of(RibbonHit::Command("insert.symbol"))
+            .unwrap_or([0.0, self.ribbon.bottom(), 1.0, 0.0]);
+        let more = self.t("docTable.moreSymbols", "More Symbols…");
+        self.menu = None;
+        let grid = SymbolGrid::open(anchor, &self.recent_symbols, more, self.scale);
+        self.symbol_grid = Some(grid);
+        true
+    }
+
+    /// Input while the symbol gallery is open; `None` lets it through.
+    fn symbol_grid_input(&mut self, input: &Input) -> Option<bool> {
+        let grid = self.symbol_grid.as_mut()?;
+        Some(match *input {
+            Input::Move { x, y } | Input::Drag { x, y } => grid.hover(x, y),
+            Input::Press { x, y, .. } => match grid.press(x, y) {
+                Some(SymbolPick::More) => {
+                    grid.show_more(self.size.0);
+                    true
+                }
+                Some(SymbolPick::Char(c)) => {
+                    self.symbol_grid = None;
+                    self.ribbon.clear_pointer();
+                    self.recent_symbols.retain(|x| *x != c);
+                    self.recent_symbols.insert(0, c);
+                    self.recent_symbols.truncate(20);
+                    self.view.handle(Input::Text(c.to_string()))
+                }
+                None => {
+                    self.symbol_grid = None;
+                    self.ribbon.clear_pointer();
+                    true
+                }
+            },
+            Input::Key(Key::Escape, _) => {
+                self.symbol_grid = None;
+                true
+            }
+            Input::Text(_) | Input::Key(..) | Input::Wheel(_) | Input::Release { .. } => true,
+            _ => return None,
+        })
     }
 
     /// Input while the table size picker is open; `None` lets it through.
@@ -363,13 +422,51 @@ impl DocWindow {
         self.size.0
             - if self.spell_pane.is_some() {
                 SpellPane::width(self.scale)
+            } else if self.comments_pane.is_some() {
+                CommentsPane::width(self.scale)
             } else {
                 0.0
             }
     }
 
+    /// Show or hide the comments pane (it shares the window's right side with the proofing
+    /// pane, one at a time).
+    fn toggle_comments(&mut self) -> bool {
+        if self.comments_pane.take().is_none() {
+            self.spell_pane = None;
+            self.comments_pane = Some(CommentsPane::new());
+        }
+        self.relayout_pending = true;
+        true
+    }
+
+    fn comments_action(&mut self, a: CommentAction) -> bool {
+        let cmd = match a {
+            CommentAction::Close => {
+                self.comments_pane = None;
+                self.relayout_pending = true;
+                return true;
+            }
+            CommentAction::Redraw => return true,
+            CommentAction::Reply(id) => {
+                self.reply_to = Some(id);
+                return self.open_dialog(DialogKind::CommentReply);
+            }
+            CommentAction::Select(id) => json!({ "cmd": "selectComment", "id": id }),
+            CommentAction::Resolve(id, done) => {
+                json!({ "cmd": "resolveComment", "id": id, "done": done })
+            }
+            CommentAction::Delete(id) => json!({ "cmd": "deleteComment", "id": id }),
+        };
+        if let Some(c) = catalog::from_json(cmd) {
+            self.view.run_command(c);
+        }
+        true
+    }
+
     /// Open the proofing pane on the first issue at or after the caret.
     fn open_spelling(&mut self) -> bool {
+        self.comments_pane = None;
         let issues = self.view.proof_issues();
         let caret = self.view.caret_para().unwrap_or(0);
         let index = issues.iter().position(|i| i.para >= caret).unwrap_or(0);
@@ -701,6 +798,13 @@ impl DocWindow {
         if let Some(sp) = self.spell_pane.as_mut() {
             sp.measure(text);
         }
+        if let Some(g) = self.symbol_grid.as_mut() {
+            g.measure(text);
+        }
+        if let Some(cp) = self.comments_pane.as_mut() {
+            let caret = self.view.comment_at_caret();
+            cp.measure(self.view.comments(), caret, &self.strings, text);
+        }
         pending
     }
 
@@ -1021,6 +1125,12 @@ impl DocWindow {
                 vec![(ok, DialogButton::Ok), (cancel, DialogButton::Cancel)],
                 vec![],
             ),
+            DialogKind::CommentReply => (
+                self.t("comments.reply", "Reply"),
+                vec![(self.t("comments.replyPlaceholder", "Reply…"), String::new())],
+                vec![(ok, DialogButton::Ok), (cancel, DialogButton::Cancel)],
+                vec![],
+            ),
             DialogKind::WordCount => (
                 self.t("commands.review.wordCount", "Word Count"),
                 vec![],
@@ -1223,6 +1333,17 @@ impl DocWindow {
                 _,
             ) => {
                 self.dialog = None;
+            }
+            (DialogKind::CommentReply, _) => {
+                self.dialog = None;
+                let text = v(0);
+                if let Some(id) = self.reply_to.take().filter(|_| !text.trim().is_empty()) {
+                    if let Some(c) =
+                        catalog::from_json(json!({ "cmd": "replyComment", "id": id, "text": text }))
+                    {
+                        self.view.run_command(c);
+                    }
+                }
             }
             (DialogKind::Comment, _) => {
                 self.dialog = None;
@@ -1532,6 +1653,7 @@ impl DocWindow {
                 self.view.set_zoom(z)
             }
             "insert.table" => self.open_table_grid(),
+            "insert.symbol" => self.open_symbol_grid(),
             "view.navigationPane" => {
                 let show = self.nav.is_none();
                 self.toggle_nav(show, false)
@@ -1551,6 +1673,7 @@ impl DocWindow {
             "format.paragraphSettings" => self.open_dialog(DialogKind::Paragraph),
             "review.newComment" => self.open_dialog(DialogKind::Comment),
             "review.wordCount" => self.open_dialog(DialogKind::WordCount),
+            "review.showComments" => self.toggle_comments(),
             "review.deleteComment" => match self.view.comment_at_caret() {
                 Some(id) => catalog::from_json(json!({ "cmd": "deleteComment", "id": id }))
                     .is_some_and(|c| self.view.run_command(c)),
@@ -1925,6 +2048,9 @@ impl DocWindow {
         if let Some(sp) = self.spell_pane.as_mut() {
             sp.layout(sp_right, sp_top, sp_bottom, scale);
         }
+        if let Some(cp) = self.comments_pane.as_mut() {
+            cp.layout(sp_right, sp_top, sp_bottom, scale);
+        }
         let (nav_top, nav_bottom) = (self.chrome_bottom(), self.size.1 - self.status_h());
         if let Some(nav) = self.nav.as_mut() {
             nav.layout(nav_top, nav_bottom, self.scale);
@@ -2043,6 +2169,13 @@ impl DocWindow {
         self.layout_status(text);
         if let Some(sp) = self.spell_pane.as_mut() {
             sp.measure(text);
+        }
+        if let Some(g) = self.symbol_grid.as_mut() {
+            g.measure(text);
+        }
+        if let Some(cp) = self.comments_pane.as_mut() {
+            let caret = self.view.comment_at_caret();
+            cp.measure(self.view.comments(), caret, &self.strings, text);
         }
         // The Pages tab of the navigation pane shows thumbnails of the pages in view there.
         let thumbs = match &self.nav {
@@ -2188,6 +2321,9 @@ impl DocWindow {
         if let Some(redraw) = self.table_grid_input(&input) {
             return redraw;
         }
+        if let Some(redraw) = self.symbol_grid_input(&input) {
+            return redraw;
+        }
         // Pointer and keyboard input goes to an open menu first.
         if self.menu.is_some() {
             if let Some(redraw) = self.menu_input(&input) {
@@ -2251,6 +2387,23 @@ impl DocWindow {
                 Input::Press { x, y, .. } if sp.contains(x, y) => {
                     let a = sp.press(x, y);
                     return self.spell_pane_action(a);
+                }
+                _ => {}
+            }
+        }
+        if let Some(cp) = self.comments_pane.as_mut() {
+            match input {
+                Input::Move { x, y } if cp.contains(x, y) => return cp.hover(x, y),
+                Input::Move { .. } => {
+                    cp.hover(-1.0, -1.0);
+                }
+                Input::Press { x, y, .. } if cp.contains(x, y) => {
+                    let a = cp.press(x, y);
+                    return self.comments_action(a);
+                }
+                Input::Press { .. } => cp.selected = None,
+                Input::Wheel(dy) if cp.contains(self.pointer.0, self.pointer.1) => {
+                    return cp.wheel(-dy * self.scale);
                 }
                 _ => {}
             }
@@ -2858,6 +3011,9 @@ impl DocWindow {
         if let Some(sp) = &self.spell_pane {
             sp.paint(p, &self.theme, &self.strings);
         }
+        if let Some(cp) = &self.comments_pane {
+            cp.paint(p, &self.theme, &self.strings, self.view.comment_at_caret());
+        }
         // Status bar.
         let (w, h) = self.size;
         let sh = self.status_h();
@@ -2909,6 +3065,9 @@ impl DocWindow {
             );
         }
         Self::layered(p, 1, [0.0, y, w, sh], &mut |p| self.paint_status(p));
+        if let Some(grid) = &self.symbol_grid {
+            grid.paint(p, &self.theme);
+        }
         if let Some(grid) = &self.table_grid {
             let label = |c: usize, r: usize| {
                 self.strings.fmt(
@@ -3643,8 +3802,14 @@ mod tests {
 }
 
 #[cfg(test)]
+#[path = "doc_comments_tests.rs"]
+mod doc_comments_tests;
+#[cfg(test)]
 #[path = "doc_perf_tests.rs"]
 mod doc_perf_tests;
+#[cfg(test)]
+#[path = "doc_symbol_tests.rs"]
+mod doc_symbol_tests;
 #[cfg(test)]
 #[path = "doc_window_tests.rs"]
 mod doc_window_tests;

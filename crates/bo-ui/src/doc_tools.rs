@@ -477,8 +477,12 @@ pub(crate) fn enabled(id: &str, f: &FormatState) -> Option<bool> {
         _ if id.starts_with("table.") => in_table,
         _ if id.starts_with("picture.") => f.picture.is_some() || f.picture_tools,
         _ if id.starts_with("hf.") || id.starts_with("review.markup") => true,
-        "review.showMarkup" | "review.acceptMenu" | "review.rejectMenu" | "review.accept"
-        | "review.reject" => true,
+        "review.showMarkup"
+        | "review.acceptMenu"
+        | "review.rejectMenu"
+        | "review.accept"
+        | "review.reject"
+        | "review.showComments" => true,
         _ => return None,
     })
 }
@@ -534,6 +538,7 @@ pub(crate) fn install_strings(s: &mut Strings) {
         ("picture.fill", "pictureTools.fill"),
         ("picture.fit", "pictureTools.fit"),
         ("view.readMode", "docTable.readMode"),
+        ("review.showComments", "slideNative.showComments"),
     ] {
         copy(s, id, key);
     }
@@ -568,6 +573,7 @@ pub(crate) fn install_icons(icons: &mut Icons) {
         ("view.webLayout", "view.normal"),
         ("view.draft", "format.justify"),
         ("review.showMarkup", "review.comments"),
+        ("review.showComments", "review.comments"),
         ("picture.crop", "picture.position"),
         ("picture.fill", "view.fitWidth"),
         ("picture.fit", "view.fitWidth"),

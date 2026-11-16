@@ -10801,6 +10801,7 @@
     "chartSheetPrefix": "Biểu đồ"
   },
   "docTable": {
+    "moreSymbols": "Ký hiệu khác…",
     "screen": "Màn hình {{current}} / {{total}}",
     "properties": "Thuộc tính",
     "splitTable": "Tách bảng",

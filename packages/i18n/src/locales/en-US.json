@@ -10801,6 +10801,7 @@
     "chartSheetPrefix": "Chart"
   },
   "docTable": {
+    "moreSymbols": "More Symbols…",
     "screen": "Screen {{current}} of {{total}}",
     "properties": "Properties",
     "splitTable": "Split Table",

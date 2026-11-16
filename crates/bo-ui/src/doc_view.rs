@@ -294,6 +294,11 @@ impl DocView {
         self.modified = false;
     }
 
+    /// Comments of the document (threads and replies, in document order).
+    pub fn comments(&self) -> &[bo_edit::comments::CommentInfo] {
+        &self.comments
+    }
+
     /// Id of the comment whose anchor holds the caret.
     pub fn comment_at_caret(&self) -> Option<i32> {
         let caret = self.selection?.focus;

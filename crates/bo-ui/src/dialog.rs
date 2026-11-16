@@ -28,6 +28,8 @@ pub enum DialogKind {
     TableProperties,
     /// Default cell margins of a table (cm).
     CellMargins,
+    /// Reply to a comment thread (comments pane).
+    CommentReply,
 }
 
 /// A dialog button's action.

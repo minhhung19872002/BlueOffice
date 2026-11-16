@@ -456,7 +456,7 @@ fn review_tab() -> Tab {
             },
             Group {
                 label: "ribbon.groups.comments",
-                large: vec![L("review.newComment")],
+                large: vec![L("review.newComment"), L("review.showComments")],
                 rows: vec![
                     vec![S("review.deleteComment")],
                     vec![S("review.previousComment")],

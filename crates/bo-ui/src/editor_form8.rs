@@ -426,9 +426,16 @@ impl Form {
                 FormOut::Changed
             }
             Hit::Item(i, k) => {
-                if let Some(Ctl::Combo { id, .. }) = self.ctls.get(i) {
-                    let id = *id;
-                    self.set(id, Val::Pick(k));
+                match self.ctls.get(i) {
+                    Some(Ctl::Combo { id, .. }) => {
+                        let id = *id;
+                        self.set(id, Val::Pick(k));
+                    }
+                    Some(Ctl::Table { .. }) => {
+                        self.set("row", Val::Pick(k));
+                        return FormOut::Button("row");
+                    }
+                    _ => {}
                 }
                 FormOut::Changed
             }
@@ -1092,6 +1099,26 @@ impl Form {
                     p.fill_rect(b[0] + 1.0, b[1] + 1.0, b[2] - 2.0, b[3] - 2.0, WHITE);
                     let hh = q(28.0);
                     let rh = q(24.0);
+                    // Round 9: a form with a `row` value has selectable rows (Combine Files).
+                    if self.vals.contains_key("row") {
+                        let sel = self.pick("row");
+                        for j in 0..rows.len() {
+                            let rr = [b[0] + 1.0, b[1] + hh + rh * j as f32, b[2] - 2.0, rh];
+                            if rr[1] + rh > b[1] + b[3] {
+                                break;
+                            }
+                            if j == sel {
+                                p.fill_rect(
+                                    rr[0],
+                                    rr[1],
+                                    rr[2],
+                                    rr[3],
+                                    Rgba(0xCC, 0xE8, 0xFF, 255),
+                                );
+                            }
+                            hits.push((rr, Hit::Item(i, j)));
+                        }
+                    }
                     let mut cx = b[0] + 1.0;
                     for (k, (label, cw)) in cols.iter().enumerate() {
                         let cw = q(*cw);

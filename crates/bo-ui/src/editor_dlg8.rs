@@ -32,6 +32,8 @@ pub(crate) enum FormWhat {
     Sub,
     /// Name of a preset to save from the dialog under it (preset kind).
     SavePreset(&'static str),
+    /// Combine Files (round 9, `editor_combine9`).
+    Combine9,
 }
 
 /// Font sizes offered by the Size lists.
@@ -1574,6 +1576,12 @@ impl EditorWindow {
     }
 
     fn form8_button(&mut self, id: &'static str) {
+        if self.combine9_button(id) {
+            return;
+        }
+        if id == "cancel" && matches!(self.form8.last(), Some((_, FormWhat::Combine9))) {
+            self.combine9_cancel();
+        }
         let Some((f, what)) = self.form8.last_mut() else {
             return;
         };
@@ -1648,6 +1656,7 @@ impl EditorWindow {
                     FormWhat::Split => self.split_ok(&f),
                     FormWhat::Sub => self.sub_ok(&f),
                     FormWhat::SavePreset(kind) => self.save_preset_ok(kind, &f),
+                    FormWhat::Combine9 => self.combine9_ok(&f),
                 }
             }
             _ => self.dlg8b_button(id),

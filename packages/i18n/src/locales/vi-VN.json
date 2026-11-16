@@ -12382,6 +12382,22 @@
     "update": "Cập nhật",
     "removeAll": "Xoá hết",
     "noOtherFiles": "Không có tài liệu nào khác đang mở.",
-    "pagesInserted": "Đã chèn {{n}} trang."
+    "pagesInserted": "Đã chèn {{n}} trang.",
+    "allPages": "Mọi trang",
+    "addFiles": "Thêm tệp...",
+    "addOpenFiles": "Thêm tệp đang mở",
+    "remove": "Gỡ bỏ",
+    "moveUp": "Lên trên",
+    "moveDown": "Xuống dưới",
+    "colName": "Tên",
+    "colRange": "Khoảng trang",
+    "colPages": "Số trang",
+    "colSize": "Kích thước",
+    "pageRange": "Khoảng trang:",
+    "apply": "Áp dụng",
+    "combine": "Kết hợp",
+    "combineTitle": "Kết hợp tệp",
+    "combinedName": "Kết hợp",
+    "notPdf": "Tệp không phải tài liệu PDF."
   }
 }

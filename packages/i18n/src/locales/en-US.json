@@ -12382,6 +12382,22 @@
     "update": "Update",
     "removeAll": "Remove All",
     "noOtherFiles": "No other document is open.",
-    "pagesInserted": "{{n}} pages inserted."
+    "pagesInserted": "{{n}} pages inserted.",
+    "allPages": "All Pages",
+    "addFiles": "Add Files...",
+    "addOpenFiles": "Add Open Files",
+    "remove": "Remove",
+    "moveUp": "Move Up",
+    "moveDown": "Move Down",
+    "colName": "Name",
+    "colRange": "Page Range",
+    "colPages": "Pages",
+    "colSize": "Size",
+    "pageRange": "Page Range:",
+    "apply": "Apply",
+    "combine": "Combine",
+    "combineTitle": "Combine Files",
+    "combinedName": "Combined",
+    "notPdf": "The file is not a PDF document."
   }
 }

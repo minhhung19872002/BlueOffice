@@ -286,3 +286,58 @@ fn update_replaces_the_watermark_with_the_last_values() {
     w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
     assert_eq!(marks(&mut w), one, "replaced, not added");
 }
+
+#[test]
+fn combine_files_lists_ranges_reorders_and_makes_a_new_document() {
+    use crate::editor_form8::Val;
+    use crate::reader_window::ReaderRequest;
+    let mut w = window(3);
+    w.run("conv.combine", &Fixed);
+    assert_eq!(w.combine9.len(), 1, "the open document comes first");
+    let t = paint(&mut w).texts;
+    for l in [
+        "Combine Files",
+        "Add Files...",
+        "Move Up",
+        "Page Range",
+        "All Pages",
+    ] {
+        assert!(t.iter().any(|x| x == l), "{l}: {t:?}");
+    }
+    // Add a 2-page file; it is selected.
+    w.file_picked(
+        "combine9",
+        std::path::Path::new("two.pdf"),
+        &crate::editor_tests::pdf(2),
+    );
+    assert_eq!(w.combine9.len(), 2);
+    assert_eq!(w.form8.last().expect("dialog").0.pick("row"), 1);
+    // Its range: page 2 only; then it moves up to the top.
+    w.form8
+        .last_mut()
+        .expect("dialog")
+        .0
+        .set("c9range", Val::Text("2".into()));
+    w.combine9_button("c9set");
+    assert_eq!(w.combine9[1].range, "2");
+    w.combine9_button("c9up");
+    assert_eq!(w.combine9[0].name, "two.pdf");
+    assert_eq!(w.form8.last().expect("dialog").0.pick("row"), 0);
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    let req = w.take_requests();
+    let Some(ReaderRequest::OpenDocument { bytes, .. }) = req.into_iter().next() else {
+        panic!("no new document");
+    };
+    let mut doc = bo_pdfread::PdfDocument::open(bytes, bo_pdfread::standard_fonts()).expect("pdf");
+    assert_eq!(doc.page_count(), 4);
+    let first = doc
+        .render(0, bo_pdfread::RenderOptions::default())
+        .expect("renders")
+        .list;
+    assert!(first
+        .commands
+        .iter()
+        .any(|c| matches!(c, bo_render::Command::Glyphs { text, .. } if text.contains("Page 2"))));
+    assert!(w.combine9.is_empty());
+    assert!(w.form8.is_empty());
+}

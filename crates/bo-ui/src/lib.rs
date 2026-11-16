@@ -34,6 +34,7 @@ mod editor_backstage;
 mod editor_close;
 #[cfg(test)]
 mod editor_close_tests;
+mod editor_combine9;
 mod editor_comment;
 #[cfg(test)]
 mod editor_comment_tests;

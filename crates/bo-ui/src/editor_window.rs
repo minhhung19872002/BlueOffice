@@ -540,6 +540,8 @@ pub struct EditorWindow {
     pub(crate) org9_update: Option<&'static str>,
     /// The clipboard picture asked for is for Insert › From Clipboard.
     pub(crate) clip_insert9: bool,
+    /// Files of Combine Files (`editor_combine9`).
+    pub(crate) combine9: Vec<crate::editor_combine9::CombineItem>,
     /// Form field tool.
     pub(crate) design: crate::editor_design::DesignState,
     /// Caret shown (blink phase).
@@ -627,6 +629,7 @@ impl EditorWindow {
             org9_last: std::collections::BTreeMap::new(),
             org9_update: None,
             clip_insert9: false,
+            combine9: Vec::new(),
             close_box: None,
             design: crate::editor_design::DesignState::default(),
             caret_on: true,
@@ -1519,7 +1522,8 @@ impl EditorWindow {
             self.picture_picked(purpose, bytes);
             return;
         }
-        if self.org9_file_picked(purpose, bytes) {
+        if self.org9_file_picked(purpose, bytes) || self.combine9_file_picked(purpose, &name, bytes)
+        {
             return;
         }
         if purpose == "batchPrintAdd" {

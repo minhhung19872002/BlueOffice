@@ -18,7 +18,7 @@ pub(crate) const HEADER_FOOTER: &str = "ribbon.tabs.headerFooter";
 pub(crate) const PICTURE_FORMAT: &str = "ribbon.tabs.pictureFormat";
 
 /// Menu buttons of the contextual tabs.
-const MENUS: [&str; 11] = [
+const MENUS: [&str; 15] = [
     "table.select",
     "table.data",
     "review.markupMode",
@@ -30,6 +30,10 @@ const MENUS: [&str; 11] = [
     "table.delete",
     "table.autoFit",
     "picture.crop",
+    "design.themes",
+    "design.colors",
+    "design.fonts",
+    "design.paragraphSpacing",
 ];
 
 /// What the selection needs: header/footer editing, a table, a picture.
@@ -482,7 +486,11 @@ pub(crate) fn enabled(id: &str, f: &FormatState) -> Option<bool> {
         | "review.rejectMenu"
         | "review.accept"
         | "review.reject"
-        | "review.showComments" => true,
+        | "review.showComments"
+        | "design.themes"
+        | "design.colors"
+        | "design.fonts"
+        | "design.paragraphSpacing" => true,
         _ => return None,
     })
 }
@@ -539,6 +547,9 @@ pub(crate) fn install_strings(s: &mut Strings) {
         ("picture.fit", "pictureTools.fit"),
         ("view.readMode", "docTable.readMode"),
         ("review.showComments", "slideNative.showComments"),
+        ("design.colors", "docTable.designColors"),
+        ("design.fonts", "docTable.designFonts"),
+        ("design.paragraphSpacing", "docTable.paragraphSpacing"),
     ] {
         copy(s, id, key);
     }
@@ -574,6 +585,10 @@ pub(crate) fn install_icons(icons: &mut Icons) {
         ("view.draft", "format.justify"),
         ("review.showMarkup", "review.comments"),
         ("review.showComments", "review.comments"),
+        ("design.themes", "view.toggleTheme"),
+        ("design.colors", "format.color"),
+        ("design.fonts", "format.fontDialog"),
+        ("design.paragraphSpacing", "format.lineSpacing"),
         ("picture.crop", "picture.position"),
         ("picture.fill", "view.fitWidth"),
         ("picture.fit", "view.fitWidth"),

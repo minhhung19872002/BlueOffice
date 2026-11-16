@@ -10801,6 +10801,16 @@
     "chartSheetPrefix": "Chart"
   },
   "docTable": {
+    "designColors": "Colors",
+    "designFonts": "Fonts",
+    "paragraphSpacing": "Paragraph Spacing",
+    "builtIn": "Built-In",
+    "spacingCompact": "Compact",
+    "spacingBalanced": "Balanced",
+    "spacingOpen": "Open",
+    "spacingDouble": "Double",
+    "findReplace": "Find and Replace",
+    "goToTab": "Go To",
     "moreSymbols": "More Symbols…",
     "screen": "Screen {{current}} of {{total}}",
     "properties": "Properties",

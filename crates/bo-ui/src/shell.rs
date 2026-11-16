@@ -1,6 +1,7 @@
 //! The BlueDoc window: ribbon, document view and status bar, with input routing.
 use crate::backstage::{Backstage, FileAction};
 use crate::catalog;
+use crate::design_gallery::{DesignGallery, DesignMenu};
 use crate::dialog::{Dialog, DialogButton, DialogKind};
 use crate::doc_comments::{CommentAction, CommentsPane};
 use crate::doc_tools::{self, Context, Tool};
@@ -163,10 +164,16 @@ pub struct DocWindow {
     comments_pane: Option<CommentsPane>,
     /// Thread the reply dialog answers.
     reply_to: Option<i32>,
+    /// Text typed in Find what, carried to the next tab of Find and Replace.
+    find_draft: Option<String>,
     /// Insert › Table size picker, when open.
     table_grid: Option<TableGrid>,
     /// Insert › Symbol gallery, when open.
     symbol_grid: Option<SymbolGrid>,
+    /// Design › Themes / Colors / Fonts / Paragraph Spacing drop-down, when open.
+    design_gallery: Option<DesignGallery>,
+    /// Theme applied from the Design tab (framed in its gallery).
+    design_theme: Option<String>,
     /// Symbols inserted from the gallery, most recent first.
     recent_symbols: Vec<char>,
     /// The format painter stays on after applying (double click), until Escape.
@@ -196,6 +203,16 @@ fn parse_num(s: &str) -> Option<f64> {
         return None;
     }
     t.parse::<f64>().ok().filter(|v| v.is_finite())
+}
+
+/// Tab of the Find and Replace dialog a dialog kind is (Find, Replace, Go To).
+fn find_page(kind: DialogKind) -> Option<usize> {
+    match kind {
+        DialogKind::Find => Some(0),
+        DialogKind::Replace => Some(1),
+        DialogKind::GoTo => Some(2),
+        _ => None,
+    }
 }
 
 /// Read Mode zoom (the reference reads at 140 %).
@@ -319,8 +336,11 @@ impl DocWindow {
             spell_pane: None,
             comments_pane: None,
             reply_to: None,
+            find_draft: None,
             table_grid: None,
             symbol_grid: None,
+            design_gallery: None,
+            design_theme: None,
             recent_symbols: crate::symbol_grid::DEFAULT_RECENT.to_vec(),
             painter_lock: false,
         }
@@ -348,6 +368,63 @@ impl DocWindow {
         let grid = SymbolGrid::open(anchor, &self.recent_symbols, more, self.scale);
         self.symbol_grid = Some(grid);
         true
+    }
+
+    fn open_design_gallery(&mut self, id: &'static str, menu: DesignMenu) -> bool {
+        let anchor = self.ribbon.rect_of(RibbonHit::Command(id)).unwrap_or([
+            0.0,
+            self.ribbon.bottom(),
+            1.0,
+            0.0,
+        ]);
+        let spacing = ["Compact", "Balanced", "Open", "Double"]
+            .iter()
+            .zip([
+                "spacingCompact",
+                "spacingBalanced",
+                "spacingOpen",
+                "spacingDouble",
+            ])
+            .map(|(fallback, key)| self.t(&format!("docTable.{key}"), fallback))
+            .collect();
+        let title = if menu == DesignMenu::Spacing {
+            self.t("docTable.builtIn", "Built-In")
+        } else {
+            "BlueOffice".to_owned()
+        };
+        self.menu = None;
+        let mut g = DesignGallery::open(menu, anchor, title, spacing, self.scale);
+        g.current.clone_from(&self.design_theme);
+        self.design_gallery = Some(g);
+        true
+    }
+
+    /// Input while a Design drop-down is open; `None` lets it through.
+    fn design_gallery_input(&mut self, input: &Input) -> Option<bool> {
+        let g = self.design_gallery.as_mut()?;
+        Some(match *input {
+            Input::Move { x, y } | Input::Drag { x, y } => g.hover(x, y),
+            Input::Press { x, y, .. } => {
+                let pick = g.press(x, y);
+                self.design_gallery = None;
+                self.ribbon.clear_pointer();
+                if let Some(v) = pick {
+                    if v["cmd"] == "applyTheme" {
+                        self.design_theme = v["id"].as_str().map(str::to_owned);
+                    }
+                    if let Some(c) = catalog::from_json(v) {
+                        self.view.run_command(c);
+                    }
+                }
+                true
+            }
+            Input::Key(Key::Escape, _) => {
+                self.design_gallery = None;
+                true
+            }
+            Input::Text(_) | Input::Key(..) | Input::Wheel(_) | Input::Release { .. } => true,
+            _ => return None,
+        })
     }
 
     /// Input while the symbol gallery is open; `None` lets it through.
@@ -801,6 +878,9 @@ impl DocWindow {
         if let Some(g) = self.symbol_grid.as_mut() {
             g.measure(text);
         }
+        if let Some(g) = self.design_gallery.as_mut() {
+            g.measure(text);
+        }
         if let Some(cp) = self.comments_pane.as_mut() {
             let caret = self.view.comment_at_caret();
             cp.measure(self.view.comments(), caret, &self.strings, text);
@@ -927,7 +1007,11 @@ impl DocWindow {
     }
 
     fn open_dialog(&mut self, kind: DialogKind) -> bool {
-        let sel = self.find.as_ref().map(|f| f.0.clone()).unwrap_or_default();
+        let sel = self
+            .find_draft
+            .take()
+            .or_else(|| self.find.as_ref().map(|f| f.0.clone()))
+            .unwrap_or_default();
         let ok = self.t("common.ok", "OK");
         let cancel = self.t("common.cancel", "Cancel");
         let (title, fields, buttons, message) = match kind {
@@ -1139,7 +1223,25 @@ impl DocWindow {
             ),
         };
         self.menu = None;
+        // Find, Replace and Go To are the three tabs of one "Find and Replace" dialog, as on
+        // the reference.
+        let page = find_page(kind);
+        let title = if page.is_some() {
+            self.t("docTable.findReplace", "Find and Replace")
+        } else {
+            title
+        };
+        let n = fields.len();
         let mut dialog = Dialog::new(kind, title, fields, buttons, message);
+        if let Some(page) = page {
+            let labels = vec![
+                self.t("commands.edit.find", "Find"),
+                self.t("commands.edit.replace", "Replace"),
+                self.t("docTable.goToTab", "Go To"),
+            ];
+            dialog = dialog.with_tabs(labels, &vec![page; n.max(1)]);
+            dialog.set_page(page);
+        }
         if kind == DialogKind::Font {
             // Style check boxes and a preview, as in a desktop word processor's Font dialog.
             let f = self.view.format();
@@ -1156,6 +1258,29 @@ impl DocWindow {
         self.dialog = Some(dialog);
         self.relayout_pending = true;
         true
+    }
+
+    /// The Find and Replace dialog shows another tab: open that tab's kind in its place,
+    /// keeping the text typed in Find what.
+    fn sync_find_tabs(&mut self) {
+        let Some(d) = self.dialog.as_ref() else {
+            return;
+        };
+        let Some(cur) = find_page(d.kind) else {
+            return;
+        };
+        let page = d.page();
+        if page == cur {
+            return;
+        }
+        if cur != 2 {
+            self.find_draft = d.values().first().cloned();
+        }
+        let kind = [DialogKind::Find, DialogKind::Replace, DialogKind::GoTo][page.min(2)];
+        if kind == DialogKind::GoTo {
+            self.find_draft = None;
+        }
+        self.open_dialog(kind);
     }
 
     fn dialog_button(&mut self, b: DialogButton) {
@@ -1654,6 +1779,12 @@ impl DocWindow {
             }
             "insert.table" => self.open_table_grid(),
             "insert.symbol" => self.open_symbol_grid(),
+            "design.themes" => self.open_design_gallery("design.themes", DesignMenu::Themes),
+            "design.colors" => self.open_design_gallery("design.colors", DesignMenu::Colors),
+            "design.fonts" => self.open_design_gallery("design.fonts", DesignMenu::Fonts),
+            "design.paragraphSpacing" => {
+                self.open_design_gallery("design.paragraphSpacing", DesignMenu::Spacing)
+            }
             "view.navigationPane" => {
                 let show = self.nav.is_none();
                 self.toggle_nav(show, false)
@@ -2173,6 +2304,9 @@ impl DocWindow {
         if let Some(g) = self.symbol_grid.as_mut() {
             g.measure(text);
         }
+        if let Some(g) = self.design_gallery.as_mut() {
+            g.measure(text);
+        }
         if let Some(cp) = self.comments_pane.as_mut() {
             let caret = self.view.comment_at_caret();
             cp.measure(self.view.comments(), caret, &self.strings, text);
@@ -2299,6 +2433,7 @@ impl DocWindow {
                     if let Some(b) = d.key(k, m) {
                         self.dialog_button(b);
                     }
+                    self.sync_find_tabs();
                     return true;
                 }
                 Input::Move { x, y } => return d.hover(x, y),
@@ -2306,6 +2441,7 @@ impl DocWindow {
                     if let Some(b) = d.press(x, y) {
                         self.dialog_button(b);
                     }
+                    self.sync_find_tabs();
                     return true;
                 }
                 Input::Blink => return true,
@@ -2322,6 +2458,9 @@ impl DocWindow {
             return redraw;
         }
         if let Some(redraw) = self.symbol_grid_input(&input) {
+            return redraw;
+        }
+        if let Some(redraw) = self.design_gallery_input(&input) {
             return redraw;
         }
         // Pointer and keyboard input goes to an open menu first.
@@ -2402,6 +2541,11 @@ impl DocWindow {
                     return self.comments_action(a);
                 }
                 Input::Press { .. } => cp.selected = None,
+                // The release and drags of a press in the pane stay in the pane (the
+                // document must not take them as the end of a selection).
+                Input::Release { x, y } | Input::Drag { x, y } if cp.contains(x, y) => {
+                    return false;
+                }
                 Input::Wheel(dy) if cp.contains(self.pointer.0, self.pointer.1) => {
                     return cp.wheel(-dy * self.scale);
                 }
@@ -3067,6 +3211,9 @@ impl DocWindow {
         Self::layered(p, 1, [0.0, y, w, sh], &mut |p| self.paint_status(p));
         if let Some(grid) = &self.symbol_grid {
             grid.paint(p, &self.theme);
+        }
+        if let Some(g) = &self.design_gallery {
+            g.paint(p, &self.theme);
         }
         if let Some(grid) = &self.table_grid {
             let label = |c: usize, r: usize| {
@@ -3804,6 +3951,9 @@ mod tests {
 #[cfg(test)]
 #[path = "doc_comments_tests.rs"]
 mod doc_comments_tests;
+#[cfg(test)]
+#[path = "doc_design_tests.rs"]
+mod doc_design_tests;
 #[cfg(test)]
 #[path = "doc_perf_tests.rs"]
 mod doc_perf_tests;

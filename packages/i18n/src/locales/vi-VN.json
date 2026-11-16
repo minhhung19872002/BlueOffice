@@ -10801,6 +10801,16 @@
     "chartSheetPrefix": "Biểu đồ"
   },
   "docTable": {
+    "designColors": "Màu",
+    "designFonts": "Phông chữ",
+    "paragraphSpacing": "Giãn cách đoạn",
+    "builtIn": "Có sẵn",
+    "spacingCompact": "Gọn",
+    "spacingBalanced": "Cân đối",
+    "spacingOpen": "Thoáng",
+    "spacingDouble": "Gấp đôi",
+    "findReplace": "Tìm và thay thế",
+    "goToTab": "Đi tới",
     "moreSymbols": "Ký hiệu khác…",
     "screen": "Màn hình {{current}} / {{total}}",
     "properties": "Thuộc tính",

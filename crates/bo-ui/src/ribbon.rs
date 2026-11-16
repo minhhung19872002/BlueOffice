@@ -360,11 +360,20 @@ fn design_tab() -> Tab {
     use Item::{Labeled as S, Large as L};
     Tab {
         label: "ribbon.tabs.design",
-        groups: vec![Group {
-            label: "ribbon.groups.pageBackground",
-            large: vec![L("design.watermark"), L("design.pageColor")],
-            rows: vec![],
-        }],
+        groups: vec![
+            // Document Formatting: themes, colours, fonts, paragraph spacing, as the
+            // reference's Design tab.
+            Group {
+                label: "ribbon.groups.documentFormatting",
+                large: vec![L("design.themes"), L("design.colors"), L("design.fonts")],
+                rows: vec![vec![S("design.paragraphSpacing")]],
+            },
+            Group {
+                label: "ribbon.groups.pageBackground",
+                large: vec![L("design.watermark"), L("design.pageColor")],
+                rows: vec![],
+            },
+        ],
     }
 }
 

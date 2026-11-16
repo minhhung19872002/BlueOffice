@@ -9,6 +9,7 @@
 mod backstage;
 mod catalog;
 mod commands;
+mod design_gallery;
 mod dialog;
 mod doc_comments;
 mod doc_table;

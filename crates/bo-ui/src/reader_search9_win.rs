@@ -116,18 +116,27 @@ fn page_hits(layer: &TextLayer, page: usize, q: &str, case: bool, whole: bool) -
         .find(q, case, whole)
         .into_iter()
         .map(|(a, b)| {
-            let before = if a == 0 {
+            // Word breaks at the hit's edges (the slices drop white space at their ends).
+            let spaced = |x: usize, y: usize| layer.slice(x, y).chars().any(char::is_whitespace);
+            let mut before = if a == 0 {
                 String::new()
             } else {
                 flat(layer.slice(a.saturating_sub(CONTEXT), a - 1))
             };
+            if !before.is_empty() && spaced(a.saturating_sub(2), a) {
+                before.push(' ');
+            }
+            let mut after = flat(layer.slice(b + 1, b + CONTEXT));
+            if !after.is_empty() && spaced(b, b + 2) {
+                after.insert(0, ' ');
+            }
             Found {
                 page,
                 range: Some((a, b)),
                 source: Source::Text,
                 before,
                 hit: flat(layer.slice(a, b)),
-                after: flat(layer.slice(b + 1, b + CONTEXT)),
+                after,
                 widths: (0.0, 0.0),
             }
         })
@@ -885,8 +894,8 @@ mod tests {
         let f = &r[0].found[2];
         assert_eq!(f.page, 2);
         assert_eq!(f.hit, "hello");
-        assert_eq!(f.before, "Page 3");
-        assert_eq!(f.after, "world");
+        assert_eq!(f.before, "Page 3 ");
+        assert_eq!(f.after, " world");
         // Whole words: "hell" finds nothing; case: "Hello" finds nothing.
         w.search9.query = "hell".into();
         w.search9.whole = true;

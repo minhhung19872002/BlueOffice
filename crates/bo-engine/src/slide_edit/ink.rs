@@ -665,7 +665,46 @@ pub(super) fn put_doc(tx: &mut Tx<'_>, slide: usize, o: &Obj, doc: &InkDoc) -> R
     Ok(false)
 }
 
+/// Whether a shape tree holds ink (a content part, also inside groups).
+fn tree_has_ink(nodes: &[ShapeNode]) -> bool {
+    nodes.iter().any(|n| match n {
+        ShapeNode::Group(g) => tree_has_ink(&g.children),
+        n => bo_pptx::ink::node_content_part(n).is_some(),
+    })
+}
+
 impl crate::Engine {
+    /// Whether any slide of the open presentation has ink (Review > Hide Ink is enabled
+    /// only then, as on the reference).
+    #[must_use]
+    pub fn slide_has_ink(&self) -> bool {
+        self.pres
+            .as_ref()
+            .is_some_and(|p| p.slides.iter().any(|s| tree_has_ink(&s.data.shapes)))
+    }
+
+    /// Review > Hide Ink: whether ink is left out of the slides, thumbnails and the show.
+    #[must_use]
+    pub fn slide_hide_ink(&self) -> bool {
+        self.slides.hide_ink
+    }
+
+    /// Turn Review > Hide Ink on or off (a view setting, not saved) and re-render every
+    /// slide.
+    ///
+    /// # Errors
+    /// Without a presentation.
+    pub fn set_slide_hide_ink(&mut self, hide: bool) -> Result<()> {
+        if self.pres.is_none() {
+            return Err(EngineError::NoDocument);
+        }
+        if self.slides.hide_ink != hide {
+            self.slides.hide_ink = hide;
+            self.rerender_slides()?;
+        }
+        Ok(())
+    }
+
     /// Run an ink command.
     pub fn slide_ink_command(&mut self, cmd: InkCommand) -> Result<SlideEditResult> {
         let _salt = build::salt_names(

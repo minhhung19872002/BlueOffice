@@ -307,3 +307,32 @@ fn ink_from_a_file_is_drawn_edited_and_kept() {
     assert!(part.contains(r##"<inkml:trace xml:id="t1" contextRef="#ctx0" brushRef="#pen">"##));
     assert!(!part.contains(r#"xml:id="t2""#));
 }
+
+/// Review > Hide Ink: the deck reports ink once a stroke is drawn, and while ink is hidden
+/// the slide's display list is the one without the stroke (shown again when turned off).
+#[test]
+fn hide_ink_leaves_ink_out_of_the_slide() {
+    let mut e = open_bytes(&deck("slide-edit-text.pptx"));
+    run(&mut e, r#"{"cmd":"goTo","slide":0}"#);
+    let plain = e.slide(0).unwrap().commands.len();
+    assert!(!e.slide_has_ink());
+    run(
+        &mut e,
+        r#"{"cmd":"addInk","stroke":{"points":[[100,100],[200,120],[300,100]],"color":"ff0000","width":3}}"#,
+    );
+    assert!(e.slide_has_ink());
+    let inked = e.slide(0).unwrap().commands.len();
+    assert!(inked > plain);
+    e.set_slide_hide_ink(true).unwrap();
+    assert!(e.slide_hide_ink());
+    assert_eq!(e.slide(0).unwrap().commands.len(), plain);
+    // Still hidden after another edit re-renders the slide.
+    run(&mut e, r#"{"cmd":"goTo","slide":0}"#);
+    assert_eq!(e.slide(0).unwrap().commands.len(), plain);
+    e.set_slide_hide_ink(false).unwrap();
+    assert_eq!(e.slide(0).unwrap().commands.len(), inked);
+    // Not saved: the ink is still in the file.
+    let bytes = save(&e, "hide-ink.pptx");
+    let e2 = open_bytes(&bytes);
+    assert!(e2.slide_has_ink() && !e2.slide_hide_ink());
+}

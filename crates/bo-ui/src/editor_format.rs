@@ -117,6 +117,10 @@ pub(crate) struct FormatPane {
     para: Option<((usize, u32, u32), Option<f32>)>,
     /// Scroll of the Edit Object pane (window pixels).
     pub scroll: f32,
+    /// Style of the text object selected with Edit Object.
+    pub obj_style: crate::editor_objtext::ObjStyleCache,
+    /// Whether the selected text runs have kerning: (page, runs, edit count) and the answer.
+    pub kerning: crate::editor_objtext::KerningCache,
 }
 
 fn button_xy(k: usize) -> f32 {
@@ -225,7 +229,10 @@ impl EditorWindow {
         if !cmd.starts_with("fmt.") {
             return false;
         }
-        let style = self.edit.current_style();
+        let style = self
+            .edit
+            .current_style()
+            .or_else(|| self.object_text_style());
         let change = match cmd {
             "fmt.font" => {
                 let serif = style
@@ -443,7 +450,9 @@ impl EditorWindow {
                     num("fmt.tw.").map(StyleChange::WordSpacing)
                 };
                 if let Some(change) = change {
-                    if let Some(v) = self.r.view_mut() {
+                    if self.object_text_active() {
+                        self.object_text_change(&change);
+                    } else if let Some(v) = self.r.view_mut() {
                         self.edit.style(v, &change);
                     }
                     return true;
@@ -486,13 +495,15 @@ impl EditorWindow {
                 }
             }
         };
-        if let Some(v) = self.r.view_mut() {
+        if self.object_text_active() {
+            self.object_text_change(&change);
+        } else if let Some(v) = self.r.view_mut() {
             self.edit.style(v, &change);
         }
         true
     }
 
-    fn pane_menu(&mut self, items: Vec<(String, String, bool)>, cmd: &str) {
+    pub(crate) fn pane_menu(&mut self, items: Vec<(String, String, bool)>, cmd: &str) {
         let Some(r) = self.pane.hits.iter().find(|h| h.1 == cmd).map(|h| h.0) else {
             return;
         };
@@ -556,8 +567,15 @@ impl EditorWindow {
             .map(|h| h.1);
         if let Some(cmd) = hit {
             if cmd.starts_with("obj.") {
-                self.arrange_command(cmd);
-            } else if typing || cmd == "fmt.close" || self.comment.tool.is_some() {
+                if !self.split_command(cmd) && !self.image_command(cmd) {
+                    self.arrange_command(cmd);
+                }
+            } else if typing
+                || cmd == "fmt.close"
+                || self.comment.tool.is_some()
+                || (self.object_text_active()
+                    && crate::editor_objtext::OBJECT_TEXT_CMDS.contains(&cmd))
+            {
                 self.format_command(cmd);
             }
         }
@@ -645,8 +663,24 @@ impl EditorWindow {
                 .selected_kinds()
                 .contains(&bo_pdfread::ObjectKind::Text);
         if object && !text_object {
-            self.pane.scroll = 0.0;
-            self.paint_arrange(p, x0, y0 + px(46.0));
+            // Arrange, then Effect for images and other graphics (the pane scrolls).
+            let graphics = self
+                .edit
+                .selected_kinds()
+                .iter()
+                .any(|k| *k != bo_pdfread::ObjectKind::Text);
+            p.push_clip(r[0], y0 + px(36.0), r[2], r[3] - px(36.0));
+            let y = y0 - self.pane.scroll;
+            self.paint_arrange(p, x0, y + px(46.0));
+            // The reference shows Effect (grey) with nothing selected too.
+            if graphics || self.edit.selected.is_empty() {
+                self.paint_effect(p, x0, y + px(370.0));
+            }
+            p.pop_clip();
+            let top = r[1] + px(36.0);
+            self.pane
+                .hits
+                .retain(|h| h.1 == "fmt.close" || h.0[1] >= top);
             return;
         }
         let y0 = if object {
@@ -680,8 +714,19 @@ impl EditorWindow {
             );
         }
         let typing = self.edit.typing.as_ref().is_some_and(|t| t.block.is_some());
-        let cur = self.edit.current_style();
-        let ink = if typing { TEXT } else { MUTED };
+        let cur = if object {
+            self.object_text_style()
+        } else {
+            self.edit.current_style()
+        };
+        // Edit Object offers only some controls on a text object, as the reference.
+        let live = |cmd: &str| !object || crate::editor_objtext::OBJECT_TEXT_CMDS.contains(&cmd);
+        let grey = crate::editor_objtext::OFF;
+        let ink = if typing || (object && cur.is_some()) {
+            Rgba(0, 0, 0, 255)
+        } else {
+            MUTED
+        };
         // Font and size boxes, colour swatch.
         let by = y0 + px(73.0);
         let bh = px(24.0);
@@ -751,10 +796,29 @@ impl EditorWindow {
                 let s = px(28.0);
                 let b = [cx - s / 2.0, cy - s / 2.0, s, s];
                 if on(cmd) {
-                    p.fill_rect(b[0], b[1], b[2], b[3], PRESSED);
+                    p.fill_rect(
+                        b[0],
+                        b[1],
+                        b[2],
+                        b[3],
+                        if live(cmd) {
+                            PRESSED
+                        } else {
+                            Rgba(244, 244, 244, 255)
+                        },
+                    );
                 }
-                icon_at(p, icon, cx, cy, px(20.0), TEXT);
-                self.pane.hits.push((b, cmd));
+                icon_at(
+                    p,
+                    icon,
+                    cx,
+                    cy,
+                    px(20.0),
+                    if live(cmd) { TEXT } else { grey },
+                );
+                if live(cmd) {
+                    self.pane.hits.push((b, cmd));
+                }
             }
         }
         // Bullets, numbering (menus) and baseline (not offered: grey, as the reference).
@@ -766,6 +830,7 @@ impl EditorWindow {
         .into_iter()
         .enumerate()
         {
+            let color = if object { grey } else { color };
             let (cx, cy) = (
                 x0 + px(button_xy(i) + 6.0 + 10.0 * i as f32),
                 y0 + px(220.0),
@@ -783,8 +848,9 @@ impl EditorWindow {
         }
         // Spacing: line and paragraph spacing, character scale, character and word spacing.
         let blk = self.edit.block();
-        let pitch = blk.map(|b| format!("{:.2}", b.line_gap()));
-        let para = self.para_spacing().map(|v| format!("{v:.2}"));
+        let zero = (object && cur.is_some()).then(|| "0.00".to_owned());
+        let pitch = blk.map(|b| format!("{:.2}", b.line_gap())).or(zero.clone());
+        let para = self.para_spacing().map(|v| format!("{v:.2}")).or(zero);
         let fields = [
             ("fmt.lineSp", "lineSpacing", 42.0, 61.0, 270.0, pitch),
             ("fmt.paraSp", "paraSpacing", 171.0, 199.0, 270.0, para),
@@ -817,22 +883,36 @@ impl EditorWindow {
         ];
         for (cmd, icon, ix, bx, y, value) in fields {
             let cy = y0 + px(y);
-            icon_at(p, icon, x0 + px(ix), cy, px(20.0), TEXT);
+            let live = live(cmd);
+            icon_at(
+                p,
+                icon,
+                x0 + px(ix),
+                cy,
+                px(20.0),
+                if live { TEXT } else { grey },
+            );
             let r = [x0 + px(bx), cy - px(12.0), px(76.0), px(24.0)];
             frame(p, r, EDGE);
-            let live = true;
-            let col = ink;
+            // Values of controls not offered show grey (reference: #6D6D6D, arrow #B1B1B1).
+            let col = if live { ink } else { Rgba(109, 109, 109, 255) };
             if let Some(v) = value {
                 p.text(&v, r[0] + px(6.0), r[1] + px(4.0), style(16.0), col);
             }
-            arrow(p, r[0] + r[2] - px(14.0), r[1] + px(10.0), px(7.0), col);
+            arrow(
+                p,
+                r[0] + r[2] - px(14.0),
+                r[1] + px(10.0),
+                px(7.0),
+                if live { col } else { grey },
+            );
             if live {
                 self.pane.hits.push((r, cmd));
             }
         }
         if object {
             // 125 %: Split at +467, Arrange at +566 from the pane top.
-            self.paint_split(p, x0, y0 + px(374.0));
+            self.paint_split_live(p, x0, y0 + px(374.0));
             self.paint_arrange(p, x0, y0 + px(453.0));
             p.pop_clip();
             // Hit boxes scrolled under the header are not pressable.

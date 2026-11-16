@@ -210,6 +210,39 @@ impl PdfDocument {
         r
     }
 
+    /// Rename template `from` to `to` (its page stays; a template already named `to` is
+    /// replaced); one undo step.
+    pub fn rename_page_template(&mut self, from: &str, to: &str) -> Result<(), String> {
+        let to = to.trim();
+        if to.is_empty() {
+            return Err("a template needs a name".into());
+        }
+        let all = self.name_tree(b"Pages");
+        let v = all
+            .iter()
+            .find(|(n, _)| n == from)
+            .map(|e| e.1.clone())
+            .ok_or("no such template")?;
+        let mut entries: Vec<(String, Object)> = all
+            .into_iter()
+            .filter(|(n, _)| n != from && n != to)
+            .collect();
+        entries.push((to.to_owned(), v));
+        self.begin("page template");
+        let r = self.set_name_tree("Pages", entries);
+        self.commit();
+        r
+    }
+
+    /// Make template `name` name page `page` instead of its page (the reference's Replace);
+    /// one undo step.
+    pub fn replace_page_template(&mut self, name: &str, page: usize) -> Result<(), String> {
+        if !self.page_templates().iter().any(|(n, _)| n == name) {
+            return Err("no such template".into());
+        }
+        self.add_page_template(name, page)
+    }
+
     /// Spawn template `name`: a copy of its page put at index `at`; one undo step. Returns the
     /// new page's index.
     pub fn spawn_page_template(&mut self, name: &str, at: usize) -> Result<usize, String> {

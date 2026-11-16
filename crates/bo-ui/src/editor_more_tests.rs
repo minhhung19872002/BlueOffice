@@ -233,7 +233,7 @@ fn dump_home_layout() {
     let w = window(1);
     for id in [
         "tool.hand",
-        "tool.select",
+        "ed.selectMenu",
         "home.snapshot",
         "ed.clipboard",
         "ed.bookmark",

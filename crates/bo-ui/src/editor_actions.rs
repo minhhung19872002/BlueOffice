@@ -19,8 +19,6 @@ pub(crate) enum Ask2 {
     Sign,
     /// A message with only OK.
     Info,
-    /// Text of a typewriter comment at a page point.
-    Typewriter(usize, [f32; 2]),
     /// Text of a callout: page, box, the point it shows.
     Callout(usize, [f32; 4], [f32; 2]),
     /// Search & Replace: find, replace with.
@@ -409,7 +407,7 @@ impl EditorWindow {
                 self.sign_answer(&cert, values);
             }
             Ask2::Info => {}
-            Ask2::Typewriter(..) | Ask2::Callout(..) => self.comment_text(&what, &first),
+            Ask2::Callout(..) => self.comment_text(&what, &first),
             Ask2::HeaderFooter | Ask2::Watermark | Ask2::Bates | Ask2::Field(..) => {
                 self.design_answer(&what, values);
             }

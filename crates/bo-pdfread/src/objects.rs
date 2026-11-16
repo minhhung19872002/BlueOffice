@@ -49,6 +49,8 @@ pub(crate) struct Recorded {
     pub op: Vec<u8>,
     pub args: Vec<Object>,
     pub text: Option<TextState>,
+    /// Number of the innermost `/BOLine` marked-content sequence around it (split text).
+    pub mark: Option<i64>,
 }
 
 /// A page object with its box in page points (origin top-left, y down).
@@ -288,7 +290,7 @@ pub(crate) fn hex(bytes: &[u8]) -> String {
     s
 }
 
-fn obj_bytes(o: &Object) -> Vec<u8> {
+pub(crate) fn obj_bytes(o: &Object) -> Vec<u8> {
     let mut out = Vec::new();
     crate::write::object(&mut out, o);
     out
@@ -400,6 +402,21 @@ impl PdfDocument {
         index: usize,
         content: Option<&[u8]>,
     ) -> Result<Vec<PageObject>, String> {
+        Ok(self
+            .objects_drawn(index, content, false)?
+            .into_iter()
+            .map(|o| o.0)
+            .collect())
+    }
+
+    /// Page objects with the drawing commands each produced when `text_as_paths` (glyph
+    /// outlines as paths in page points; no commands are kept otherwise).
+    pub(crate) fn objects_drawn(
+        &mut self,
+        index: usize,
+        content: Option<&[u8]>,
+        text_as_paths: bool,
+    ) -> Result<Vec<(PageObject, Vec<bo_render::Command>)>, String> {
         let info = self.pages.get(index).ok_or("no such page")?.clone();
         let base = page_matrix(info.crop, info.rotate);
         let doc = &self.doc;
@@ -421,6 +438,7 @@ impl PdfDocument {
             hidden: &self.hidden,
             opts: RenderOptions {
                 annotations: false,
+                text_as_paths,
                 ..RenderOptions::default()
             },
         };
@@ -460,15 +478,23 @@ impl PdfDocument {
                 }
                 None => (0.0, [0, 0, 0]),
             };
-            list.push(PageObject {
-                kind: rec.kind,
-                bbox,
-                text: chars.iter().map(|c| c.text.as_str()).collect(),
-                char_boxes: chars.iter().map(|c| c.rect).collect(),
-                font_size,
-                color,
-                rec,
-            });
+            let drawn = if text_as_paths {
+                cmds.to_vec()
+            } else {
+                Vec::new()
+            };
+            list.push((
+                PageObject {
+                    kind: rec.kind,
+                    bbox,
+                    text: chars.iter().map(|c| c.text.as_str()).collect(),
+                    char_boxes: chars.iter().map(|c| c.rect).collect(),
+                    font_size,
+                    color,
+                    rec,
+                },
+                drawn,
+            ));
         }
         Ok(list)
     }

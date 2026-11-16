@@ -439,6 +439,8 @@ pub struct ReaderWindow {
     controls: Vec<Control>,
     tab_rects: Vec<[f32; 4]>,
     doc_tab_rects: Vec<([f32; 4], [f32; 4])>,
+    /// Closing a tab asks the owner first (a `Command("ed.closeTab.N")` request).
+    pub(crate) close_guard: bool,
     start_tab: [f32; 4],
     search: [f32; 4],
     search_text: String,
@@ -545,6 +547,7 @@ impl ReaderWindow {
             controls: Vec::new(),
             tab_rects: Vec::new(),
             doc_tab_rects: Vec::new(),
+            close_guard: false,
             start_tab: [0.0; 4],
             search: [0.0; 4],
             search_text: String::new(),
@@ -1977,6 +1980,17 @@ impl ReaderWindow {
     }
 
     fn close_tab(&mut self, i: usize) {
+        // BlueEditor asks to save changes first (`editor_close`).
+        if self.close_guard {
+            self.requests
+                .push(ReaderRequest::Command(format!("ed.closeTab.{i}")));
+            return;
+        }
+        self.close_tab_now(i);
+    }
+
+    /// Close document tab `i` without asking.
+    pub(crate) fn close_tab_now(&mut self, i: usize) {
         if i < self.tabs.len() {
             self.tabs.remove(i);
             if self.active >= self.tabs.len() {
@@ -3758,5 +3772,24 @@ impl ReaderWindow {
     /// The view of document tab `i`.
     pub(crate) fn tab_view_mut(&mut self, i: usize) -> Option<&mut ReaderView> {
         self.tabs.get_mut(i).map(|t| &mut t.view)
+    }
+
+    /// Number of document tabs and the name shown on tab `i`.
+    pub(crate) fn tab_count(&self) -> usize {
+        self.tabs.len()
+    }
+
+    /// Name shown on document tab `i`.
+    pub(crate) fn doc_tab_name(&self, i: usize) -> Option<&str> {
+        self.tabs.get(i).map(|t| t.name.as_str())
+    }
+
+    /// Show document tab `i`.
+    pub(crate) fn select_tab(&mut self, i: usize) {
+        if i < self.tabs.len() {
+            self.active = i;
+            self.show_start = false;
+            self.layout_doc();
+        }
     }
 }

@@ -122,11 +122,16 @@ pub(crate) fn shape(name: &str) -> &'static [Part] {
         "objRotateLeft" => &[S("M10 10h9v10h-9z M15 4.5a7 7 0 0 0-9.5 4 M5 5v4h4")],
         "objFlipAcross" => &[S("M12 2v20 M9.5 6L3 18h6.5z M14.5 6L21 18h-6.5z")],
         "objFlipDown" => &[S("M2 12h20 M6 9.5L18 3v6.5z M6 14.5L18 21v-6.5z")],
-        // Format pane Split section (own drawings; not offered, drawn grey).
-        "splitBlock" => &[S("M3 4h18v6H3z M3 14h18v6H3z M8 12h8")],
-        "splitLines" => &[S("M4 5h16 M4 9h16 M12 12v8 M9 17l3 3 3-3 M4 21h4 M16 21h4")],
-        "joinBlocks" => &[S("M3 3h8v8H3z M13 13h8v8h-8z M11 7h6v6")],
-        "textArea" => &[S("M3 3h18v18H3z M8 8h8 M12 8v9")],
+        // Format pane Split section (own drawings): merge text (two lines into one box), split
+        // text (a box cut by a dashed line), remove kerning (letters pushed apart), convert to
+        // shapes (a letter with path nodes).
+        "splitBlock" => &[S("M3 3h18v18H3z M7 8h4 M13 8h4 M7 14h10 M9 11l3 2 3-2")],
+        "splitLines" => &[S("M3 3h18v7H3z M3 14h18v7H3z M6 12h2 M11 12h2 M16 12h2")],
+        "joinBlocks" => &[S("M4 5l3 10 3-10 M14 5l3 10 3-10 M2 19h6 M16 19h6 M4 17l-2 2 2 2 M20 17l2 2-2 2")],
+        "textArea" => &[S("M7 6h10 M12 6v13 M5 4h4v4H5z M15 4h4v4h-4z M10 17h4v4h-4z")],
+        // Format pane Effect section.
+        "objShear" => &[S("M8 5h12l-4 14H4z")],
+        "imgReplace" => &[S("M3 5h12v10H3z M5 13l3-4 3 3 2-2 2 3"), S("M17 9h4v10H9v-2 M19 7l2 2-2 2")],
         // File page.
         "clock" => &[S("M12 3a9 9 0 1 0 .01 0z"), A("M12 7v5l3.5 2")],
         "computer" => &[S("M3 4h18v12H3z M9 20h6 M12 16v4")],

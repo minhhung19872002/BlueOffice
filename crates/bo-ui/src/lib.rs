@@ -21,6 +21,9 @@ mod editor_arrange;
 #[cfg(test)]
 mod editor_arrange_tests;
 mod editor_backstage;
+mod editor_close;
+#[cfg(test)]
+mod editor_close_tests;
 mod editor_comment;
 #[cfg(test)]
 mod editor_comment_tests;
@@ -40,6 +43,9 @@ mod editor_more;
 mod editor_more2;
 #[cfg(test)]
 mod editor_more_tests;
+mod editor_objtext;
+#[cfg(test)]
+mod editor_objtext_tests;
 mod editor_organize;
 #[cfg(test)]
 mod editor_organize5_tests;
@@ -51,6 +57,7 @@ mod editor_tests;
 mod editor_tools;
 #[cfg(test)]
 mod editor_tools_tests;
+mod editor_typewriter;
 mod editor_window;
 mod icons;
 mod input;

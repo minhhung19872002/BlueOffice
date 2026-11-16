@@ -47,7 +47,9 @@ fn ribbon(tab: usize) -> Vec<(&'static str, Kind)> {
     use Kind::{Big, Row, Sep, Small};
     let common = [
         ("tool.hand", Big("hand", "pdfReader.hand", false)),
-        ("tool.select", Big("select", "pdfReader.select", false)),
+        // The reference's Select has a menu: text and images, or comments (the editor's own
+        // command: the reader's `tool.select` has none).
+        ("ed.selectMenu", Big("select", "pdfReader.select", true)),
     ];
     let mut v: Vec<(&'static str, Kind)> = common.to_vec();
     match tab {
@@ -75,8 +77,9 @@ fn ribbon(tab: usize) -> Vec<(&'static str, Kind)> {
                 Big("editObject", "pdfEditor.editObject", true),
             ),
             ("sep3", Sep),
+            // The same Typewriter as the Comment tab's: typed in place (`editor_typewriter`).
             (
-                "tool.textbox",
+                "cm.typewriter",
                 Big("typewriter", "pdfReader.typewriter", false),
             ),
             (
@@ -490,7 +493,7 @@ pub struct EditorWindow {
     pub(crate) org: Organize,
     tool: Option<EditTool>,
     dialog: Option<(Dialog, Ask)>,
-    requests: Vec<ReaderRequest>,
+    pub(crate) requests: Vec<ReaderRequest>,
     /// Panel shown before the page grid hid it.
     panel_before: Option<Panel>,
     /// Pointer position (window pixels).
@@ -504,10 +507,16 @@ pub struct EditorWindow {
     pub(crate) sig: crate::editor_sign::SignState,
     /// Comment tools and the properties of new comments.
     pub(crate) comment: crate::editor_comment::CommentState,
+    /// Typewriter text being typed on the page.
+    pub(crate) tw: Option<crate::editor_typewriter::TwDraft>,
+    /// Tab to close once the host saved it (Yes in the close question).
+    pub(crate) close_after_save: Option<usize>,
+    /// The save-changes question being shown.
+    pub(crate) close_box: Option<crate::editor_close::CloseBox>,
     /// Form field tool.
     pub(crate) design: crate::editor_design::DesignState,
     /// Caret shown (blink phase).
-    caret_on: bool,
+    pub(crate) caret_on: bool,
     /// Forms, comments, redaction and signing state.
     pub(crate) x: crate::editor_actions::Extras,
     /// Dialog of `editor_actions`.
@@ -561,6 +570,8 @@ impl EditorWindow {
         let mut r = ReaderWindow::with_profile(locale, profile());
         r.set_theme(editor_theme());
         r.file_backstage = true;
+        // Closing a changed document asks first (`editor_close`).
+        r.close_guard = true;
         Self {
             r,
             org: Organize::default(),
@@ -574,6 +585,9 @@ impl EditorWindow {
             format_closed: false,
             sig: crate::editor_sign::SignState::default(),
             comment: crate::editor_comment::CommentState::default(),
+            tw: None,
+            close_after_save: None,
+            close_box: None,
             design: crate::editor_design::DesignState::default(),
             caret_on: true,
             x: crate::editor_actions::Extras::default(),
@@ -627,6 +641,11 @@ impl EditorWindow {
 
     fn over_doc(&self) -> bool {
         self.r.showing_doc() && inside(self.r.doc_area(), self.pointer.0, self.pointer.1)
+    }
+
+    /// Whether one of the window's dialogs is open.
+    pub(crate) fn dialog_open(&self) -> bool {
+        self.dialog.is_some() || self.dialog2.is_some()
     }
 
     /// Window title.
@@ -794,6 +813,12 @@ impl EditorWindow {
         }
         if self.dialog.is_some() || self.dialog2.is_some() {
             return self.dialog_input(&input, m);
+        }
+        if self.close_box_input(&input) {
+            return true;
+        }
+        if self.tw_input(&input, m) {
+            return true;
         }
         if let Input::Blink = input {
             if self.edit.typing.is_some() {
@@ -1032,8 +1057,11 @@ impl EditorWindow {
             || self.design_command(cmd)
             || self.more_command(cmd)
             || self.more2_command(cmd)
+            || self.split_command(cmd)
+            || self.image_command(cmd)
             || self.arrange_command(cmd)
             || self.five_command(cmd)
+            || self.close_tab_command(cmd)
         {
             return;
         }
@@ -1065,13 +1093,24 @@ impl EditorWindow {
             "ed.editObject" => self.toggle_tool(EditTool::Object),
             "ed.addText" => self.toggle_tool(EditTool::AddText),
             "prot.redact" => self.toggle_tool(EditTool::Redact),
-            "tool.hand" | "tool.select" => {
+            "tool.hand" | "tool.select" | "ed.selectMenu" => {
                 self.edit.reset(self.r.view_mut());
                 self.tool = None;
                 self.comment.tool = None;
                 self.design.tool = None;
                 self.tools.tool = None;
+                if cmd == "ed.selectMenu" {
+                    self.r.set_tool(Tool::Select);
+                    let items = [
+                        ("ed.selTextImage", "pdfEditor.selTextImage"),
+                        ("ed.selAnnot", "pdfEditor.selAnnot"),
+                    ];
+                    self.menu(&items, "ed.selectMenu");
+                }
             }
+            "ed.selTextImage" => self.r.set_tool(Tool::Select),
+            // Comments are picked, moved and resized with the hand.
+            "ed.selAnnot" => self.r.set_tool(Tool::Hand),
             "org.insertMenu" => {
                 let items = [
                     ("org.insertBlank", "pdfEditor.blankPage"),
@@ -1635,6 +1674,12 @@ impl EditorWindow {
         if let Some(t) = self.comment.tool {
             self.r.on.insert(crate::editor_comment::tool_command(t));
         }
+        if self.tool.is_none()
+            && self.comment.tool.is_none()
+            && self.r.current_tool() == Tool::Select
+        {
+            self.r.on.insert("ed.selectMenu");
+        }
         for id in ["ed.scanner", "ed.ocr"] {
             self.r.enabled_override.insert(id, false);
         }
@@ -1792,6 +1837,7 @@ impl EditorWindow {
 
     /// Bring page images up to date; true when more work remains.
     pub fn prepare(&mut self, store: &mut dyn PdfStore) -> bool {
+        let closed = self.close_pending();
         if self.organize_on() {
             if let Some(v) = self.r.view_mut() {
                 let n = v.page_count();
@@ -1802,7 +1848,7 @@ impl EditorWindow {
                 }
             }
         }
-        self.r.prepare(store)
+        self.r.prepare(store) || closed
     }
 
     /// Paint the window.
@@ -1833,6 +1879,7 @@ impl EditorWindow {
         self.paint_extras(p);
         self.paint_sign(p);
         self.paint_comment(p);
+        self.paint_tw(p);
         self.paint_design(p);
         self.paint_tools(p, &Estimate);
         self.paint_format(p);
@@ -1844,10 +1891,11 @@ impl EditorWindow {
         if let Some((d, _)) = &self.dialog2 {
             d.paint(p, self.r.theme(), self.r.window_size(), true);
         }
+        self.paint_close_box(p);
     }
 }
 
-fn image_filters() -> Vec<(String, String)> {
+pub(crate) fn image_filters() -> Vec<(String, String)> {
     vec![("Images (*.png; *.jpg)".into(), "*.png;*.jpg;*.jpeg".into())]
 }
 

@@ -936,6 +936,15 @@ impl Handler for Shell {
         self.dirty || self.more
     }
 
+    fn close_requested(&mut self) -> bool {
+        let ok = self.window.close_requested();
+        if !ok {
+            // BlueEditor shows its question.
+            self.dirty = true;
+        }
+        ok
+    }
+
     fn frame(&mut self) {
         self.dirty = false;
         if let Err(e) = self.render() {

@@ -229,7 +229,8 @@ impl EditorWindow {
                             label,
                         );
                     }
-                    CommentTool::Typewriter => self.ask_text(Ask2::Typewriter(page, p)),
+                    // Typed in place (`editor_typewriter`).
+                    CommentTool::Typewriter => self.tw_start(page, p),
                     CommentTool::File => {
                         self.comment.file_at = Some((page, p));
                         self.push(ReaderRequest::PickFile {
@@ -338,29 +339,19 @@ impl EditorWindow {
         self.dialog2 = Some((d, what));
     }
 
-    /// Text typed for a typewriter or callout comment.
+    /// Text typed for a callout comment.
     pub(crate) fn comment_text(&mut self, what: &Ask2, text: &str) {
         if text.trim().is_empty() {
             return;
         }
-        match *what {
-            Ask2::Typewriter(page, p) => self.add_comment(
-                MarkupKind::Typewriter,
+        if let Ask2::Callout(page, rect, target) = *what {
+            self.add_comment(
+                MarkupKind::Callout,
                 page,
-                [p[0], p[1], p[0] + 10.0, p[1] + 10.0],
-                Vec::new(),
+                rect,
+                vec![target],
                 text.to_owned(),
-            ),
-            Ask2::Callout(page, rect, target) => {
-                self.add_comment(
-                    MarkupKind::Callout,
-                    page,
-                    rect,
-                    vec![target],
-                    text.to_owned(),
-                );
-            }
-            _ => {}
+            );
         }
     }
 
@@ -378,7 +369,7 @@ impl EditorWindow {
         );
     }
 
-    fn add_comment(
+    pub(crate) fn add_comment(
         &mut self,
         kind: MarkupKind,
         page: usize,
@@ -387,17 +378,27 @@ impl EditorWindow {
         contents: String,
     ) {
         let c = &self.comment;
+        // Typewriter text has the reference's own defaults (`editor_typewriter`).
+        let typewriter = kind == MarkupKind::Typewriter;
         let m = Markup {
             kind,
             page,
             rect,
             points,
-            color: c.color,
+            color: if typewriter {
+                crate::editor_typewriter::TW_COLOR
+            } else {
+                c.color
+            },
             opacity: c.opacity,
             width: c.width,
             author: self.prefs.author.clone(),
             contents,
-            font_size: 12.0,
+            font_size: if typewriter {
+                crate::editor_typewriter::TW_SIZE
+            } else {
+                12.0
+            },
         };
         match self.doc_edit(|d| d.add_markup(&m)) {
             Ok(()) => {

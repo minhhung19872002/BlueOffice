@@ -497,33 +497,6 @@ impl EditorWindow {
         p.text(&text, x0 + px(27.0), ty, style, TEXT);
     }
 
-    /// The Split section shown for a text object (its commands are not offered: grey).
-    pub(crate) fn paint_split(&mut self, p: &mut dyn Painter, x0: f32, ty: f32) {
-        let k = self.ui_scale();
-        let px = |v: f32| (v * k).round();
-        self.section_heading(p, x0, ty, "pdfEditor.split");
-        // 125 %: icons 50 px under the heading, 63 px apart.
-        for (j, icon) in ["splitBlock", "splitLines", "joinBlocks", "textArea"]
-            .iter()
-            .enumerate()
-        {
-            let cx = x0 + px(42.0 + 50.0 * j as f32);
-            let cy = ty + px(40.0);
-            reader_icons::draw_weight(
-                p,
-                icon,
-                cx - px(10.0),
-                cy - px(10.0),
-                px(20.0),
-                Ink {
-                    ink: MUTED,
-                    accent: MUTED,
-                },
-                0.9,
-            );
-        }
-    }
-
     /// The Arrange section of the Format pane with Edit Object, its heading at `ty`.
     pub(crate) fn paint_arrange(&mut self, p: &mut dyn Painter, x0: f32, ty: f32) {
         let k = self.ui_scale();

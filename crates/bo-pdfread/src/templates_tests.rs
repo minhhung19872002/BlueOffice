@@ -81,6 +81,21 @@ fn templates_are_named_spawned_saved_and_removed() {
 }
 
 #[test]
+fn templates_are_renamed_and_replaced() {
+    let mut doc = PdfDocument::open(pdf(3, false), standard_fonts()).expect("opens");
+    doc.add_page_template("Invoice", 1).expect("adds");
+    doc.rename_page_template("Invoice", "Bill")
+        .expect("renames");
+    assert_eq!(doc.page_templates(), [("Bill".to_owned(), 1)]);
+    doc.replace_page_template("Bill", 2).expect("replaces");
+    assert_eq!(doc.page_templates(), [("Bill".to_owned(), 2)]);
+    assert!(doc.replace_page_template("Nope", 0).is_err());
+    assert!(doc.rename_page_template("Bill", " ").is_err());
+    assert!(doc.undo());
+    assert_eq!(doc.page_templates(), [("Bill".to_owned(), 1)]);
+}
+
+#[test]
 fn portfolio_files_are_listed_and_read() {
     let doc = PdfDocument::open(pdf(1, true), standard_fonts()).expect("opens");
     assert!(doc.is_portfolio());

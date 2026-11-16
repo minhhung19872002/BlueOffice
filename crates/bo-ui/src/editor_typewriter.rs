@@ -1,0 +1,145 @@
+//! Typewriter typed in place, as the reference editor: a click with the Typewriter tool puts a
+//! caret on the page and the text is typed there (Enter starts a new line, Backspace removes
+//! the last character); a click elsewhere, Escape or another command ends it and the text
+//! becomes a typewriter comment (one undo step). Nothing typed: no comment.
+use crate::editor_window::EditorWindow;
+use crate::{Font, Input, Key, Painter, TextMeasure};
+use bo_pdfread::MarkupKind;
+use bo_render::Rgba;
+
+/// Typewriter text as the reference editor writes it (its saved `/FreeText`: `/DA (/Helvetica
+/// 9 Tf)`, text colour `#0000FF`): size in points and colour.
+pub(crate) const TW_SIZE: f32 = 9.0;
+pub(crate) const TW_COLOR: [u8; 3] = [0, 0, 255];
+/// Frame of the text being typed (the reference: 1 px #759DB8, text inset 3 px).
+const FRAME: Rgba = Rgba(117, 157, 184, 255);
+/// Text inset from the frame (points): ink 3 px in at 99.6 % like the reference.
+const INSET: f32 = 1.5;
+
+/// A typewriter comment being typed.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct TwDraft {
+    pub page: usize,
+    /// Top-left corner (page points).
+    pub at: [f32; 2],
+    pub text: String,
+    /// Width of each line (points).
+    pub widths: Vec<f32>,
+}
+
+fn font(size: f32) -> Font<'static> {
+    Font {
+        family: "Arial",
+        size,
+        weight: 400,
+        italic: false,
+        underline: false,
+    }
+}
+
+impl EditorWindow {
+    /// Start typing a typewriter comment at `at` of `page` (ends any other first).
+    pub(crate) fn tw_start(&mut self, page: usize, at: [f32; 2]) {
+        self.tw_commit();
+        self.tw = Some(TwDraft {
+            page,
+            at,
+            ..TwDraft::default()
+        });
+        self.caret_on = true;
+    }
+
+    /// End typing: the text becomes a comment.
+    pub(crate) fn tw_commit(&mut self) {
+        let Some(d) = self.tw.take() else { return };
+        if d.text.trim().is_empty() {
+            return;
+        }
+        let [x, y] = d.at;
+        self.add_comment(
+            MarkupKind::Typewriter,
+            d.page,
+            [x, y, x + 10.0, y + 10.0],
+            Vec::new(),
+            d.text,
+        );
+    }
+
+    /// Keys, text and clicks while a typewriter comment is typed; true when used.
+    pub(crate) fn tw_input(&mut self, input: &Input, m: &dyn TextMeasure) -> bool {
+        let Some(d) = self.tw.as_mut() else {
+            return false;
+        };
+        match input {
+            Input::Text(s) => d.text.extend(s.chars().filter(|c| !c.is_control())),
+            Input::Key(Key::Backspace, _) => {
+                d.text.pop();
+            }
+            Input::Key(Key::Enter, _) => d.text.push('\n'),
+            Input::Key(Key::Escape, _) => {
+                self.tw_commit();
+                return true;
+            }
+            // The keyboard belongs to the text: no page or document shortcuts.
+            Input::Key(..) => return true,
+            Input::Blink => {
+                self.caret_on = !self.caret_on;
+                return true;
+            }
+            // A click ends the text and goes on (a new one with the tool still on).
+            Input::Press { .. } | Input::Context { .. } => {
+                self.tw_commit();
+                return false;
+            }
+            _ => return false,
+        }
+        d.widths = d
+            .text
+            .split('\n')
+            // Measured large and scaled: small sizes round each advance to whole pixels.
+            .map(|l| m.measure_font(l, &font(100.0)).0 * TW_SIZE / 100.0)
+            .collect();
+        self.caret_on = true;
+        true
+    }
+
+    /// The text being typed, its frame and the caret.
+    pub(crate) fn paint_tw(&self, p: &mut dyn Painter) {
+        let Some(d) = &self.tw else { return };
+        let Some(v) = self.view() else { return };
+        let lines: Vec<&str> = d.text.split('\n').collect();
+        // The reference's frame hugs the text (99.6 %: 103 x 19 px for one 9 pt line, ink 3 px
+        // in): lines 1.15 em apart.
+        let lh = TW_SIZE * 1.15;
+        let h = lh * lines.len() as f32 + TW_SIZE * 0.12;
+        let width = d.widths.iter().copied().fold(0.0, f32::max);
+        let r = [d.at[0], d.at[1], d.at[0] + width + 2.0 * INSET, d.at[1] + h];
+        let Some(w) = v.doc_rect_to_window(d.page, r) else {
+            return;
+        };
+        let s = w[2] / (r[2] - r[0]).max(1e-3);
+        let c = TW_COLOR;
+        let ink = Rgba(c[0], c[1], c[2], 255);
+        let f = font(TW_SIZE * s);
+        for (i, l) in lines.iter().enumerate() {
+            p.text_font(l, w[0] + INSET * s, w[1] + lh * i as f32 * s, &f, ink);
+        }
+        // Frame: 1 px lines around the box.
+        p.fill_rect(w[0], w[1], w[2], 1.0, FRAME);
+        p.fill_rect(w[0], w[1] + w[3] - 1.0, w[2], 1.0, FRAME);
+        p.fill_rect(w[0], w[1], 1.0, w[3], FRAME);
+        p.fill_rect(w[0] + w[2] - 1.0, w[1], 1.0, w[3], FRAME);
+        if self.caret_on {
+            // After the last character.
+            let cx = d.widths.last().copied().unwrap_or(0.0);
+            let y = w[1] + lh * (lines.len() - 1) as f32 * s + 1.0;
+            p.fill_rect(
+                (w[0] + (INSET + cx) * s).round(),
+                y,
+                1.0,
+                (lh * s).round(),
+                Rgba(0, 0, 0, 255),
+            );
+        }
+    }
+}

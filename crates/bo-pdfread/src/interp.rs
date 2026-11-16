@@ -296,6 +296,8 @@ pub(crate) struct Interp<'s, 'a> {
     started: Instant,
     /// Marked content nesting: whether each level hides its content.
     marked: Vec<bool>,
+    /// `/BOLine <</N n>> BDC` sequences open (BlueEditor's split text objects), innermost last.
+    bo_marks: Vec<Option<i64>>,
     hidden_depth: u32,
     /// Form XObjects being run (cycle guard).
     forms: Vec<ObjectId>,
@@ -338,6 +340,7 @@ impl<'s, 'a> Interp<'s, 'a> {
             ops: 0,
             started: Instant::now(),
             marked: Vec::new(),
+            bo_marks: Vec::new(),
             hidden_depth: 0,
             forms: Vec::new(),
             inline_count: 0,
@@ -486,6 +489,7 @@ impl<'s, 'a> Interp<'s, 'a> {
             op: op.name.clone(),
             args: op.args.clone(),
             text: text_state,
+            mark: self.bo_marks.iter().rev().find_map(|m| *m),
         };
         if let Some(list) = self.out.objects.as_mut() {
             list.push(rec);
@@ -493,6 +497,17 @@ impl<'s, 'a> Interp<'s, 'a> {
     }
 
     /// Close every clip and state still open.
+    /// Whether the run left the graphics state as it started from `base`: nothing saved,
+    /// clipped or marked is still open (BlueEditor's kept page drawing, `typing_fast`).
+    pub(crate) fn at_rest(&self, base: M) -> bool {
+        self.stack.is_empty()
+            && self.gs.clips == 0
+            && self.gs.ctm == base
+            && self.marked.is_empty()
+            && self.bo_marks.is_empty()
+            && self.hidden_depth == 0
+    }
+
     pub(crate) fn finish(&mut self) {
         while !self.stack.is_empty() {
             self.restore();
@@ -965,9 +980,22 @@ impl<'s, 'a> Interp<'s, 'a> {
                 if hide {
                     self.hidden_depth += 1;
                 }
+                // BlueEditor's split text objects: `/BOLine <</N n>> BDC … EMC`.
+                let line = match (op.name.as_slice(), a.first(), a.get(1)) {
+                    (b"BDC", Some(Object::Name(t)), Some(Object::Dictionary(d)))
+                        if t == b"BOLine" =>
+                    {
+                        d.get(b"N").ok().and_then(|n| n.as_i64().ok())
+                    }
+                    _ => None,
+                };
+                self.bo_marks.push(line);
             }
-            b"EMC" if self.marked.pop() == Some(true) => {
-                self.hidden_depth = self.hidden_depth.saturating_sub(1);
+            b"EMC" => {
+                self.bo_marks.pop();
+                if self.marked.pop() == Some(true) {
+                    self.hidden_depth = self.hidden_depth.saturating_sub(1);
+                }
             }
             _ => {}
         }

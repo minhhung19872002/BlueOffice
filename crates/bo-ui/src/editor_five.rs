@@ -106,6 +106,8 @@ impl EditorWindow {
         let names = list.into_iter().map(|(n, _)| n).collect();
         let buttons = vec![
             (self.t("pdfEditor.templateAdd"), DialogButton::Ok),
+            (self.t("pdfEditor.templateReplace"), DialogButton::Extra(1)),
+            (self.t("pdfEditor.templateRename"), DialogButton::Extra(2)),
             (self.t("pdfEditor.templateSpawn"), DialogButton::FindNext),
             (self.t("pdfEditor.templateDelete"), DialogButton::Replace),
             (self.t("pdfEditor.templateGoto"), DialogButton::ReplaceAll),
@@ -242,6 +244,16 @@ impl EditorWindow {
                             d.remove_page_template(n)?;
                         }
                         Ok(())
+                    }),
+                    // Replace: the ticked template names the current page instead.
+                    DialogButton::Extra(1) => self.doc_edit(|d| {
+                        let n = picked.first().ok_or("tick a template")?;
+                        d.replace_page_template(n, page)
+                    }),
+                    // Rename: the ticked template takes the typed name.
+                    DialogButton::Extra(2) => self.doc_edit(|d| {
+                        let n = picked.first().ok_or("tick a template")?;
+                        d.rename_page_template(n, &name)
                     }),
                     _ => return,
                 };

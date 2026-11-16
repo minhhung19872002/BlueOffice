@@ -82,6 +82,8 @@ struct VLine {
     size: f32,
     upright: bool,
     color: [u8; 3],
+    /// Split text mark of its first run (lines of different marks never join).
+    mark: Option<i64>,
 }
 
 impl VLine {
@@ -97,11 +99,13 @@ fn visual_lines(objs: &[PageObject]) -> Vec<VLine> {
             continue;
         };
         let up = upright(full);
+        let mark = l.ids.first().and_then(|&i| objs[i].rec.mark);
         if let Some(v) = out.last_mut() {
             let em = v.size.max(l.font_size).max(1.0);
             let gap = l.bbox[0] - v.bbox[2];
             if up
                 && v.upright
+                && v.mark == mark
                 && (origin.1 - v.baseline).abs() < 0.2 * em
                 && gap > -0.3 * em
                 && gap < 1.5 * em
@@ -137,6 +141,7 @@ fn visual_lines(objs: &[PageObject]) -> Vec<VLine> {
             size: l.font_size,
             upright: up,
             color: l.color,
+            mark,
         });
     }
     out
@@ -147,7 +152,7 @@ fn continues(lines: &[VLine], n: &VLine) -> bool {
     let (Some(first), Some(last)) = (lines.first(), lines.last()) else {
         return false;
     };
-    if !first.upright || !n.upright {
+    if !first.upright || !n.upright || n.mark != first.mark {
         return false;
     }
     let size = first.size.max(1.0);
@@ -1260,6 +1265,7 @@ impl PdfDocument {
         content.extend_from_slice(&e.prefix);
         content.extend_from_slice(&tail);
         self.set_stream_raw(sid, content);
+        self.typing.note(e.page, &e.prefix);
         e.dirty = true;
         Ok(())
     }
@@ -1369,6 +1375,7 @@ impl PdfDocument {
 
     /// Finish editing: compress the page stream and close the undo group.
     pub fn end_block_edit(&mut self, e: &BlockEdit) {
+        self.typing.clear();
         if let Some(sid) = e.sid {
             let bytes = match self.doc.get_object(sid) {
                 Ok(Object::Stream(s)) if s.dict.get(b"Filter").is_err() => Some(s.content.clone()),

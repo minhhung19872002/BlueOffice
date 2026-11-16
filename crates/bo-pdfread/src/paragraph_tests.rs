@@ -232,3 +232,74 @@ fn sample_paragraphs_are_found() {
     );
     doc.end_block_edit(&e);
 }
+
+/// While a paragraph is typed, the page drawing reuses the kept drawing of the rest of the
+/// page: the result is the same display list and text layer as a full interpretation.
+#[test]
+fn typing_reuses_the_page_drawing() {
+    let mut doc = open(para_pdf());
+    let b = blocks(&mut doc);
+    let para = b.iter().find(|x| x.lines == 3).expect("paragraph");
+    let mut e = doc.begin_block_edit(0, para).expect("starts");
+    for (k, c) in "xyz".chars().enumerate() {
+        e.text.insert(3 + k, c);
+        e.style_of.insert(3 + k, e.style_of[3]);
+        doc.block_edit_update(&mut e).expect("updates");
+        let fast = doc.render(0, RenderOptions::default()).expect("renders");
+        assert!(doc.typing.drawn.is_some(), "the rest of the page is kept");
+        doc.typing.clear();
+        let full = doc.render(0, RenderOptions::default()).expect("renders");
+        assert_eq!(fast.list.commands, full.list.commands);
+        assert_eq!(fast.chars, full.chars);
+    }
+    doc.end_block_edit(&e);
+    assert!(doc.typing.drawn.is_none());
+    assert!(
+        page_text(&mut doc).contains("Thexyz"),
+        "{}",
+        page_text(&mut doc)
+    );
+}
+
+/// Typing cost per keystroke in a sample paragraph: reflow + write, then the page render
+/// the view does next (`cargo test --release -p bo-pdfread typing_cost -- --ignored --nocapture`).
+#[test]
+#[ignore = "timing"]
+fn typing_cost() {
+    let mut engine = bo_engine::Engine::with_bundled_fonts();
+    let docx = std::fs::read(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/corpus/doc/phase1-sample.docx"
+    ))
+    .expect("corpus");
+    engine
+        .open(&docx, "phase1-sample.docx")
+        .expect("opens docx");
+    let mut doc = open(engine.export_pdf().expect("exports"));
+    let _ = doc.render(0, RenderOptions::default());
+    let b = blocks(&mut doc);
+    let art = b
+        .iter()
+        .find(|x| x.text.starts_with("Điều 1."))
+        .expect("article 1");
+    let mut e = doc.begin_block_edit(0, art).expect("starts");
+    let (mut up, mut re) = (Vec::new(), Vec::new());
+    for k in 0..40 {
+        e.text.insert(8 + k, 'x');
+        e.style_of.insert(8 + k, e.style_of[8]);
+        let t = std::time::Instant::now();
+        doc.block_edit_update(&mut e).expect("updates");
+        up.push(t.elapsed().as_secs_f64() * 1e3);
+        let t = std::time::Instant::now();
+        let _ = doc.render(0, RenderOptions::default()).expect("renders");
+        re.push(t.elapsed().as_secs_f64() * 1e3);
+    }
+    doc.end_block_edit(&e);
+    for v in [&mut up, &mut re] {
+        v.sort_by(f64::total_cmp);
+    }
+    eprintln!(
+        "update p50 {:.2} p95 {:.2} · render p50 {:.2} p95 {:.2} ms",
+        up[20], up[38], re[20], re[38]
+    );
+}

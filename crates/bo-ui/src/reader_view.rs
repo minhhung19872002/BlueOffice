@@ -40,7 +40,8 @@ pub trait PdfStore {
 const CACHE_BYTES: usize = 32 * 1024 * 1024;
 
 /// Memory settings for measuring (round 8): `BO_READER_CACHE_MB` (page cache budget) and
-/// `BO_READER_NEIGHBOURS` (0: none, 1: the next page only, 2: one each way, the default).
+/// `BO_READER_NEIGHBOURS` (0: none, 1: the next page only, 2: one each way; default 3: the
+/// page ahead in the direction of the last scroll).
 fn mem_setting(name: &str, default: usize) -> usize {
     std::env::var(name)
         .ok()
@@ -55,7 +56,7 @@ fn cache_budget() -> usize {
 
 fn neighbours() -> usize {
     static V: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
-    *V.get_or_init(|| mem_setting("BO_READER_NEIGHBOURS", 2))
+    *V.get_or_init(|| mem_setting("BO_READER_NEIGHBOURS", 3))
 }
 
 /// Key of page `i`'s thumbnail image in the store.
@@ -180,6 +181,10 @@ pub struct ReaderView {
     cover: bool,
     /// Night Mode: pages drawn in the dark scheme (dark paper, grey text).
     night: bool,
+    /// Scroll position of the last `prepare` and the direction scrolled (up: true), for the
+    /// page drawn ahead.
+    prepared_y: f32,
+    scrolled_up: bool,
     /// Reverse View: spreads read right to left.
     reverse: bool,
     /// First page of the spread shown in single and facing layouts.
@@ -239,6 +244,8 @@ impl ReaderView {
             gap: 6.0,
             cover: true,
             night: false,
+            prepared_y: 0.0,
+            scrolled_up: false,
             reverse: false,
             single_page: 0,
             crops: HashMap::new(),
@@ -924,11 +931,24 @@ impl ReaderView {
         let mut wanted: Vec<usize> = visible.clone();
         // Neighbours for smooth scrolling (one each way keeps memory near the reference's).
         if let (Some(&lo), Some(&hi)) = (visible.iter().min(), visible.iter().max()) {
+            // One page ahead in the scroll direction keeps scrolling smooth with one page
+            // image less than one each way (8 MB at 107 % on Letter; round 8).
             let n = neighbours();
-            if n >= 1 && hi + 1 < self.sizes.len() {
+            let y = self.scroll.1;
+            if (y - self.prepared_y).abs() > 0.5 {
+                self.scrolled_up = y < self.prepared_y;
+                self.prepared_y = y;
+            }
+            let (next, prev) = match n {
+                0 => (false, false),
+                1 => (true, false),
+                2 => (true, true),
+                _ => (!self.scrolled_up, self.scrolled_up),
+            };
+            if next && hi + 1 < self.sizes.len() {
                 wanted.push(hi + 1);
             }
-            if n >= 2 && lo >= 1 {
+            if prev && lo >= 1 {
                 wanted.push(lo - 1);
             }
         }

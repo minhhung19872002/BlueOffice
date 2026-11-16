@@ -11100,7 +11100,8 @@
     "save": "Save",
     "add": "Add Attachment",
     "wholeWords": "Whole words only",
-    "matchCase": "Case-Sensitive"
+    "matchCase": "Case-Sensitive",
+    "addReply": "Add Reply"
   },
   "pdfShare": {
     "title": "Share",

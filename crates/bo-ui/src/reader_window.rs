@@ -3197,12 +3197,15 @@ impl ReaderWindow {
             Panel::Layers => self.t("pdfPanels.layers"),
             Panel::Attachments => self.t("pdfPanels.attachments"),
         };
-        let ts = self.style(16.0, false);
-        p.text(&title, r[0] + self.px(8.8), r[1] + self.px(10.4), ts, TEXT);
         if self.panel8(panel) {
+            // Measured at 125 %: title 3 px higher and larger than the shared one.
+            let ts = self.style(17.5, false);
+            p.text(&title, r[0] + self.px(8.8), r[1] + self.px(7.6), ts, TEXT);
             self.paint_panel8(p, r, panel);
             return;
         }
+        let ts = self.style(16.0, false);
+        p.text(&title, r[0] + self.px(8.8), r[1] + self.px(10.4), ts, TEXT);
         let list_top = r[1]
             + if panel == Panel::Bookmarks {
                 self.paint_bookmark_tools(p, r)

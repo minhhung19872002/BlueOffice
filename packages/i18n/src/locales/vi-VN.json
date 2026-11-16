@@ -11100,7 +11100,8 @@
     "save": "Lưu",
     "add": "Thêm tệp đính kèm",
     "wholeWords": "Chỉ nguyên từ",
-    "matchCase": "Phân biệt hoa thường"
+    "matchCase": "Phân biệt hoa thường",
+    "addReply": "Thêm trả lời"
   },
   "pdfShare": {
     "title": "Chia sẻ",

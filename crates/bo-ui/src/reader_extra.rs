@@ -620,7 +620,7 @@ impl ReaderWindow {
 
     /// Redraw after a comment changed; keep the selection on the comment that moved by
     /// `delta` from `rect` (page points).
-    fn after_comment_change(&mut self, rect: Option<[f32; 4]>, (dx, dy): (f32, f32)) {
+    pub(crate) fn after_comment_change(&mut self, rect: Option<[f32; 4]>, (dx, dy): (f32, f32)) {
         self.document_changed();
         self.extra.selected = rect.and_then(|r| {
             let t = self.tabs.get(self.active)?;

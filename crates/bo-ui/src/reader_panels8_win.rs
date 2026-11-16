@@ -111,6 +111,10 @@ struct FilterDialog {
 
 #[derive(Debug, Clone, PartialEq)]
 enum Hit {
+    /// The menu button of the selected card.
+    More,
+    /// The Add Reply box of the selected card.
+    ReplyBox,
     Layer(usize),
     Attachment(usize),
     Group(String),
@@ -126,6 +130,8 @@ type Section = (&'static str, Vec<(String, String, bool)>);
 #[derive(Default)]
 pub(crate) struct Panels8 {
     tools: Vec<(&'static str, [f32; 4], bool)>,
+    /// Reply being typed in the selected card's Add Reply box (focused when `Some`).
+    reply: Option<String>,
     /// Search box options (the reference's Whole words only / Case-Sensitive).
     find_case: bool,
     find_word: bool,
@@ -862,6 +868,13 @@ impl ReaderWindow {
                     cur += if first { self.q(27.0) } else { self.q(22.5) };
                     items8.push((cur, date_x, d, 2));
                 }
+                // The selected card's header area (measured: to 18 px under the date) is grey.
+                let head_end = cur + self.q(18.5);
+                let is_sel = self
+                    .extra
+                    .selected
+                    .as_ref()
+                    .is_some_and(|s| s.page == a.page && s.rect == a.rect);
                 let replies: Vec<Annot> = th.replies.clone();
                 for rp in &replies {
                     let rx = cx0 + self.q(37.0);
@@ -882,15 +895,17 @@ impl ReaderWindow {
                         items8.push((cur, date_x, d, 2));
                     }
                 }
-                let h = cur + self.q(21.0);
+                // Selected: an Add Reply box (30 px, 28 px under the last line, 6 px in).
+                let reply_box = is_sel.then(|| {
+                    let top = cur + self.q(28.0);
+                    [cx0 + self.q(6.0), y + top, cw - self.q(12.0), self.q(30.0)]
+                });
+                let h = match reply_box {
+                    Some(b) => b[1] - y + b[3] + self.q(13.0),
+                    None => cur + self.q(21.0),
+                };
                 let card = [cx0, y, cw, h];
                 if y < bottom && y + h > list_top {
-                    let is_sel = self
-                        .extra
-                        .selected
-                        .as_ref()
-                        .is_some_and(|s| s.page == a.page && s.rect == a.rect);
-                    let edge = if is_sel { self.theme.accent } else { FRAME };
                     p.path(
                         &rounded(
                             card[0] + 0.5,
@@ -900,8 +915,60 @@ impl ReaderWindow {
                             3.0,
                         ),
                         Some(super::CHROME),
-                        Some((edge, if is_sel { 2.0 } else { 1.0 })),
+                        Some((FRAME, 1.0)),
                     );
+                    if is_sel {
+                        p.path(
+                            &rounded(
+                                card[0] + 1.0,
+                                card[1] + 1.0,
+                                card[2] - 2.0,
+                                head_end - 1.0,
+                                2.5,
+                            ),
+                            Some(BAND),
+                            None,
+                        );
+                        // Menu button (three dots) at the right of the header.
+                        let mx = cx0 + cw - self.q(20.0);
+                        let my = y + self.q(23.5);
+                        for k in -1..=1 {
+                            p.path(
+                                &circle(mx, my + self.q(5.5) * k as f32, self.q(1.6)),
+                                Some(Rgba(51, 51, 51, 255)),
+                                None,
+                            );
+                        }
+                        self.panels8.rows.push((
+                            [
+                                mx - self.q(9.0),
+                                my - self.q(12.0),
+                                self.q(18.0),
+                                self.q(24.0),
+                            ],
+                            Hit::More,
+                        ));
+                    }
+                    if let Some(b) = reply_box {
+                        let focus = self.panels8.reply.is_some();
+                        let edge = if focus { self.theme.accent } else { FRAME };
+                        p.fill_rect(b[0], b[1], b[2], b[3], edge);
+                        p.fill_rect(b[0] + 1.0, b[1] + 1.0, b[2] - 2.0, b[3] - 2.0, WHITE);
+                        let st = self.style(13.5, false);
+                        let typed = self.panels8.reply.clone().unwrap_or_default();
+                        let tx = b[0] + self.q(7.0);
+                        if typed.is_empty() {
+                            let hint = self.t("pdfPanels.addReply");
+                            self.line8(p, &hint, tx, b[1] + b[3] / 2.0, st, DIM);
+                        } else {
+                            self.line8(p, &typed, tx, b[1] + b[3] / 2.0, st, INK);
+                        }
+                        if focus {
+                            let w = self.width_of(&typed, st);
+                            p.fill_rect((tx + w).round(), b[1] + 6.0, 1.0, b[3] - 12.0, INK);
+                        }
+                        self.panels8.rows.push((b, Hit::ReplyBox));
+                    }
                     let ic = self.q(20.0);
                     let row1 = y + self.q(23.5);
                     let c = Rgba(a.color[0], a.color[1], a.color[2], 255);
@@ -956,16 +1023,30 @@ impl ReaderWindow {
                     if !replies.is_empty() {
                         // Reply count in a bubble at the right (our own bubble shape).
                         let bs = self.q(20.0);
-                        let bx = cx0 + cw - self.q(14.0) - bs;
+                        let shift = if is_sel { self.q(24.0) } else { 0.0 };
+                        let bx = cx0 + cw - self.q(14.0) - bs - shift;
                         let by = (row1 - bs / 2.0).round();
+                        // Our own bubble: a rounded box with a short tail, neutral grey.
+                        let (r0, r1) = (bs / 2.0 - 1.0, bs * 0.42);
+                        let (ccx, ccy) = (bx + bs / 2.0, by + bs / 2.0 - 1.0);
+                        let grey = Rgba(110, 110, 112, 255);
                         p.path(
-                            &circle(bx + bs / 2.0, by + bs / 2.0, bs / 2.0 - 1.0),
-                            None,
-                            Some((SOFT, 1.0)),
+                            &rounded(ccx - r0, ccy - r1, 2.0 * r0, 2.0 * r1, r1 * 0.9),
+                            Some(WHITE),
+                            Some((grey, 1.0)),
+                        );
+                        p.path(
+                            &[
+                                PathSeg::M(ccx - r0 * 0.45, ccy + r1 - 0.5),
+                                PathSeg::L(ccx - r0 * 0.6, ccy + r1 + bs * 0.18),
+                                PathSeg::L(ccx - r0 * 0.05, ccy + r1 - 0.5),
+                            ],
+                            Some(WHITE),
+                            Some((grey, 1.0)),
                         );
                         let n = replies.len().to_string();
                         let nw = self.width_of(&n, date);
-                        self.line8(p, &n, bx + (bs - nw) / 2.0, row1, date, RED);
+                        self.line8(p, &n, bx + (bs - nw) / 2.0, row1 - 1.0, date, RED);
                     }
                     for (cy, x, text, kind) in &items8 {
                         let (st, x) = match kind {
@@ -1149,7 +1230,20 @@ impl ReaderWindow {
                             self.panels8.toggled.insert(k);
                         }
                     }
-                    Some(Hit::Card(page, rect)) => self.select_comment8(page, rect),
+                    Some(Hit::Card(page, rect)) => {
+                        self.panels8.reply = None;
+                        self.select_comment8(page, rect);
+                    }
+                    Some(Hit::More) => {
+                        let items = self.comment_menu8();
+                        self.menu_at(items, [x, y, 0.0, 0.0], "comment");
+                    }
+                    Some(Hit::ReplyBox) => {
+                        if self.panels8.reply.is_none() {
+                            self.panels8.reply = Some(String::new());
+                        }
+                        self.search_focus = false;
+                    }
                     None => {}
                 }
                 Some(true)
@@ -1168,6 +1262,31 @@ impl ReaderWindow {
                     return Some(true);
                 }
                 None
+            }
+            Input::Text(s) if self.panels8.reply.is_some() => {
+                if let Some(r) = self.panels8.reply.as_mut() {
+                    r.push_str(s);
+                }
+                let (q, st) = (
+                    self.panels8.reply.clone().unwrap_or_default(),
+                    self.style(13.5, false),
+                );
+                self.measure(m, &q, st);
+                Some(true)
+            }
+            Input::Key(Key::Backspace, _) if self.panels8.reply.is_some() => {
+                if let Some(r) = self.panels8.reply.as_mut() {
+                    r.pop();
+                }
+                Some(true)
+            }
+            Input::Key(Key::Escape, _) if self.panels8.reply.is_some() => {
+                self.panels8.reply = None;
+                Some(true)
+            }
+            Input::Key(Key::Enter, _) if self.panels8.reply.is_some() => {
+                self.add_reply8();
+                Some(true)
             }
             Input::Text(s) if self.panels8.search_focus => {
                 self.panels8.search.push_str(s);
@@ -1189,6 +1308,29 @@ impl ReaderWindow {
             }
             _ => None,
         }
+    }
+
+    /// Add the reply typed in the selected card's box (one undo step, saved like any edit).
+    fn add_reply8(&mut self) {
+        let text = self.panels8.reply.take().unwrap_or_default();
+        let Some(a) = self.extra.selected.clone() else {
+            return;
+        };
+        if text.trim().is_empty() {
+            return;
+        }
+        let author = self.author.clone();
+        let Some(t) = self.tabs.get_mut(self.active) else {
+            return;
+        };
+        if let Err(e) = t
+            .view
+            .doc_mut()
+            .reply_to_annotation(&a, &author, text.trim())
+        {
+            self.status = e;
+        }
+        self.after_comment_change(Some(a.rect), (0.0, 0.0));
     }
 
     fn select_comment8(&mut self, page: usize, rect: [f32; 4]) {
@@ -1983,6 +2125,53 @@ mod tests {
         // Search narrows the list.
         w.panels8.search = "second".into();
         assert_eq!(w.comments8().len(), 1);
+    }
+
+    #[test]
+    fn selected_card_takes_a_reply() {
+        let mut w = window();
+        let n = NewAnnot {
+            kind: AnnotKind::Note,
+            page: 0,
+            rects: vec![[100.0, 100.0, 120.0, 120.0]],
+            color: [255, 214, 0],
+            author: "Alice".into(),
+            contents: "First note".into(),
+        };
+        w.tabs[0].view.doc_mut().add_annotation(&n).expect("note");
+        w.run_command("nav.comments", &Fixed);
+        paint(&mut w);
+        let a = w
+            .comments8()
+            .into_iter()
+            .find(|(t, _)| t.comment.author == "Alice")
+            .expect("alice")
+            .0
+            .comment;
+        w.select_comment8(a.page, a.rect);
+        let texts = paint(&mut w);
+        assert!(texts.iter().any(|t| t == "Add Reply"), "{texts:?}");
+        let b = w
+            .panels8
+            .rows
+            .iter()
+            .find(|r| r.1 == Hit::ReplyBox)
+            .expect("reply box")
+            .0;
+        press(&mut w, b);
+        w.handle(Input::Text("Thanks".into()), &Fixed);
+        w.handle(Input::Key(Key::Enter, crate::Mods::default()), &Fixed);
+        let replies: Vec<String> = w
+            .comments8()
+            .into_iter()
+            .find(|(t, _)| t.comment.author == "Alice")
+            .expect("alice")
+            .0
+            .replies
+            .into_iter()
+            .map(|r| r.contents)
+            .collect();
+        assert_eq!(replies, vec!["Thanks".to_owned()]);
     }
 
     #[test]

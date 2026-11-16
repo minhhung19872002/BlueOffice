@@ -338,9 +338,28 @@ dưới `#BABABA`, nút mặc định viền `#0078D4`. Mọi hộp thoại củ
 Footer / Watermark / Bates / Batch… — đều dựng bằng `Dialog`) nay vẽ kiểu này; trường danh sách (`with_choices`:
 bấm hoặc ↑↓ để chọn, có mũi tên thả) cho các hộp cần chọn.
 
-**Lệnh xám đã làm**: View › Page Transitions (hộp như bản đối chiếu: Transition — No Transition và 12 kiểu PDF
+**Lệnh xám đã làm**: View › Page Transitions (hộp theo bố cục cổ điển của bản đối chiếu, 530 × 470 px ở 125 %: nhóm
+“Page Transition” — nhãn canh phải bên trái danh sách 302 × 27 px mặt `#E2E2E2`, xám `#CCCCCC` khi tắt, viền `#999999`; Direction / Speed
+tắt khi No Transition —, nhóm “Page Range” — nút chọn Selected Pages (chỉ khi có trang chọn ở Organize) / All Pages /
+Pages From [ô số] To [ô số] of N —, OK / Cancel 91 × 28 px góc dưới phải; Transition — No Transition và 12 kiểu PDF
 Split / Blinds / Box / Wipe / Dissolve / Glitter / Push / Cover / Uncover / Fade / Replace / Fly —, Direction theo
 kiểu, Speed Slow / Medium / Fast = 2 / 1 / 0,5 s, trang: tất cả hoặc khoảng; ghi `/Trans` từng trang, ISO 32000-1
 §12.4.4, một bước hoàn tác). Form › XFA: biểu mẫu XFA tĩnh (có trường AcroForm) bỏ gói XFA thành biểu mẫu thường,
 giữ trường và giá trị; XFA động thì báo không làm được. From Web Page, Preflight bỏ qua (theo yêu cầu).
 
+**Lỗi gõ dừng hiển thị sau ~46 phím** (có từ trước, thấy rõ ở `typed.png` vòng 6): mỗi phím làm mới trang 0 và
+`ReaderView::ensure` đẩy trang vào danh sách dùng gần đây mà không bỏ bản cũ; quá 48 mục thì vòng dọn bộ nhớ đệm bỏ
+đúng trang vừa vẽ (“not rendered”), cửa sổ giữ hình trang lúc ~46 ký tự dù chữ vẫn được gõ và lưu đủ. Sửa: làm mới
+trang thì bỏ khỏi danh sách, mỗi trang một mục. Test gõ 200 ký tự kiểm tra mỗi phím đều vẽ và tệp lưu đủ (bỏ sửa thì
+hỏng ở phím 47). `BLUEOFFICE_DRAW_LOG=<tệp>` ghi lỗi dựng / vẽ trang để chẩn đoán.
+BlueReader dùng chung bộ nhớ đệm này (gõ Typewriter, kéo ghi chú, điền trường): test
+`reader_window_draws_a_page_changed_sixty_times` giữ cho đường đó (ghi cả ở `REPORT-reader.md`).
+
+**Lỗi khởi động**: khung đầu tiên vẽ khi cửa sổ còn rất nhỏ làm `thumb()` của thanh cuộn gọi `clamp(px(20), track)` với
+track âm (panic `min > max`, thấy ngẫu nhiên khi chạy bản release); nay track tối thiểu 20 px, test `a_tiny_window_paints`.
+
+**Text Box cùng mức thu phóng** (`editor-57b`): bản đối chiếu 141 % / BlueEditor 142,8 %: khung 392–630 × 286–312 so với
+391–632 × 286–313 px, chữ cao 292–306 px ở cả hai — cỡ 9 pt đúng (ảnh `editor-57` lệch vì khung Format thu nhỏ trang về 98,6 %).
+
+Còn lại: OCR, From Web Page, Preflight, Accounting Calculator, Action Wizard, Index vẫn xám; Format pane mở khi chọn công cụ
+ghi chú (bản đối chiếu không mở) làm trang thu nhỏ theo bề rộng.

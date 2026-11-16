@@ -2016,6 +2016,8 @@ impl ReaderWindow {
         let track = self.vbar[3] - self.px(16.0);
         let view_h = t.view.frame()[3];
         let total = (hi - lo) + view_h;
+        // A window not laid out yet (or very short) has no track: no panic on min > max.
+        let track = track.max(self.px(20.0));
         let th = (track * view_h / total.max(1.0)).clamp(self.px(20.0), track);
         let frac = if hi > lo { (sy - lo) / (hi - lo) } else { 0.0 };
         let _ = ch;

@@ -229,6 +229,48 @@ impl crate::PdfStore for TextStore {
     fn remove(&mut self, _: usize) {}
 }
 
+/// BlueReader shares the page cache: a page changed 60 times in a row (typewriter typing,
+/// dragging a comment, filling a field — each invalidates the page) is drawn every time.
+#[test]
+fn reader_window_draws_a_page_changed_sixty_times() {
+    let doc =
+        PdfDocument::open(crate::reader_tests::pdf(2), bo_pdfread::standard_fonts()).expect("pdf");
+    let mut w = crate::reader_window::ReaderWindow::new("en-US");
+    w.handle(Input::Scale(1.25), &Fixed);
+    w.handle(
+        Input::Resize {
+            width: 1500.0,
+            height: 1100.0,
+        },
+        &Fixed,
+    );
+    w.open(doc, "test.pdf", None);
+    let mut store = TextStore::default();
+    while w.prepare(&mut store) {}
+    for k in 0..60 {
+        let before = store.draws;
+        w.view_mut().expect("view").invalidate_page(0);
+        while w.prepare(&mut store) {}
+        assert!(store.draws > before, "change {k} not drawn");
+    }
+}
+
+/// A window still tiny when its first frame is drawn (seen at start-up) paints without the
+/// scroll bar's thumb panicking on an empty track.
+#[test]
+fn a_tiny_window_paints() {
+    let doc =
+        PdfDocument::open(crate::reader_tests::pdf(3), bo_pdfread::standard_fonts()).expect("pdf");
+    let mut w = EditorWindow::new("en-US");
+    w.handle(Input::Scale(1.25), &Fixed);
+    w.open(doc, "test.pdf", None);
+    for (width, height) in [(1500.0, 1100.0), (300.0, 120.0), (40.0, 30.0)] {
+        w.handle(Input::Resize { width, height }, &Fixed);
+        let mut p = crate::editor_tests::Rec::default();
+        w.paint(&mut p);
+    }
+}
+
 /// Every keystroke of a long Edit Text session is drawn: the page cache used to list the
 /// page once per keystroke, and after 48 the page was dropped as soon as it was rendered, so
 /// the window kept showing the page as it was ~46 characters in (the text was still typed).
@@ -255,15 +297,14 @@ fn two_hundred_typed_characters_are_all_drawn_and_saved() {
     // The last drawn page shows the end of what was typed.
     let tail: String = typed.trim_end().chars().rev().take(5).collect::<String>();
     let tail: String = tail.chars().rev().collect();
-    assert!(store.text.contains(&tail), "{tail:?} not in {:?}", store.text);
+    assert!(
+        store.text.contains(&tail),
+        "{tail:?} not in {:?}",
+        store.text
+    );
     // And the saved document has all of it.
     w.handle(Input::Key(Key::Escape, Mods::default()), &Fixed);
-    let saved = w
-        .view_mut()
-        .expect("view")
-        .doc_mut()
-        .save()
-        .expect("saves");
+    let saved = w.view_mut().expect("view").doc_mut().save().expect("saves");
     let mut doc = PdfDocument::open(saved, bo_pdfread::standard_fonts()).expect("opens");
     let objs = doc.page_objects(0).expect("objects");
     let first = bo_pdfread::text_blocks(&objs)
@@ -271,10 +312,14 @@ fn two_hundred_typed_characters_are_all_drawn_and_saved() {
         .find(|b| b.text.starts_with("The first"))
         .expect("paragraph");
     let squash = |s: &str| s.split_whitespace().collect::<String>();
-    assert!(squash(&first.text).ends_with(&squash(&typed)), "{}", first.text);
+    assert!(
+        squash(&first.text).ends_with(&squash(&typed)),
+        "{}",
+        first.text
+    );
 }
 
-const MORE: &str =" Now a good many more words are typed here so that it wraps twice.";
+const MORE: &str = " Now a good many more words are typed here so that it wraps twice.";
 
 #[test]
 fn growing_paragraph_pushes_its_box_and_overlaps_the_rest_with_reflow_off() {

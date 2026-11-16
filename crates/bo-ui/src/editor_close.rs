@@ -129,7 +129,7 @@ impl EditorWindow {
     /// The question as the reference's message box: caption with the app name and a close
     /// mark, white body, information mark, the text, and Yes / No / Cancel pill buttons at the
     /// bottom right. Measured at 125 % (pixels / 1.25 here): 634 x 154, caption 25.6, mark 25.6
-    /// at (28, 50), text from x 70.4, buttons 80 x 28 radius 14, 10.4 apart and from the edges.
+    /// at (28, 50), text 13.4 from x 70.4, buttons 80 x 28 radius 14, 10.4 apart and from the edges.
     pub(crate) fn paint_close_box(&mut self, p: &mut dyn Painter) {
         // Display scale; the host scales UI text by the Windows text size on top.
         let k = self.r.ui_scale();
@@ -181,7 +181,7 @@ impl EditorWindow {
         p.fill_rect(mx + (d - sw) / 2.0, my + px(6.0), sw, sw, white);
         p.fill_rect(mx + (d - sw) / 2.0, my + px(10.5), sw, px(9.0), white);
         let body = TextStyle {
-            size: px(12.3),
+            size: px(13.4),
             bold: false,
         };
         p.text(

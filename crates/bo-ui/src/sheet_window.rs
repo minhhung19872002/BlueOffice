@@ -2143,6 +2143,8 @@ impl SheetWindow {
             Self::paint_range_pick(f, id, r, p);
         } else if self.form_kind == form_impl::FormKind::FormatCells {
             self.fc_paint_canvas(f, id, r, p);
+        } else if self.form_kind == form_impl::FormKind::Symbol && id == "recent" {
+            Self::paint_symbol_recent(f, r, p);
         } else if self.form_kind == form_impl::FormKind::Symbol {
             self.paint_symbol_grid(f, r, p);
         } else if self.form_kind == form_impl::FormKind::MoreColors {

@@ -46,8 +46,31 @@ fn png_size(b: &[u8]) -> Option<(u32, u32)> {
 
 /// Symbol grid: columns and cell size (reference pixels).
 const SYM_COLS: usize = 16;
-const SYM_CELL: f32 = 30.0;
-const SYM_ROWS: usize = 8;
+/// Grid cell of the Symbol dialog (reference pixels: a 594 × 203 grid of 16 × 5 cells,
+/// round 49).
+const SYM_CELL: f32 = 37.125;
+const SYM_CELL_H: f32 = 40.6;
+const SYM_ROWS: usize = 5;
+/// The Recently used symbols row: the reference's starting set.
+pub(super) const SYM_RECENT: [char; 16] = [
+    '\u{20AC}', '\u{A3}', '\u{A5}', '\u{A9}', '\u{AE}', '\u{2122}', '\u{B1}', '\u{2260}',
+    '\u{2264}', '\u{2265}', '\u{F7}', '\u{D7}', '\u{221E}', '\u{B5}', '\u{3B1}', '\u{3B2}',
+];
+/// Special Characters page: (character, name key, fallback).
+const SPECIALS: [(char, &str, &str); 12] = [
+    ('\u{2014}', "sheetInsert.emDash", "Em Dash"),
+    ('\u{2013}', "sheetInsert.enDash", "En Dash"),
+    ('\u{A9}', "sheetInsert.copyright", "Copyright"),
+    ('\u{AE}', "sheetInsert.registered", "Registered"),
+    ('\u{2122}', "sheetInsert.trademark", "Trademark"),
+    ('\u{A7}', "sheetInsert.section", "Section"),
+    ('\u{B6}', "sheetInsert.paragraph", "Paragraph"),
+    ('\u{2026}', "sheetInsert.ellipsis", "Ellipsis"),
+    ('\u{2018}', "sheetInsert.lsquo", "Single Opening Quote"),
+    ('\u{2019}', "sheetInsert.rsquo", "Single Closing Quote"),
+    ('\u{201C}', "sheetInsert.ldquo", "Double Opening Quote"),
+    ('\u{201D}', "sheetInsert.rdquo", "Double Closing Quote"),
+];
 
 /// Own drawings for the Insert tab's buttons (24-unit grid).
 pub(crate) fn add_icons(icons: &mut Icons) {
@@ -753,25 +776,51 @@ impl SheetWindow {
 
     fn open_symbol(&mut self) -> bool {
         let t = |k: &str, d: &str| self.t(k, d);
-        let w = 20.0 * 2.0 + SYM_CELL * SYM_COLS as f32;
-        let h = 120.0 + SYM_CELL * SYM_ROWS as f32 + 60.0;
-        let mut f = Form::new(&t("sheetInsert.symbolTitle", "Symbol"), (w, h), vec![]);
-        // Pages of the grid by their first and last character (the reference's Subset box).
+        // The reference's Symbol dialog (681 × 521 px at 125 %, round 49): Symbols / Special
+        // Characters pages, Font and Subset boxes, a 16 × 5 grid, the recently used row,
+        // the character code.
+        let tabs = vec![
+            t("sheetInsert.symbols", "Symbols"),
+            t("sheetInsert.specialChars", "Special Characters"),
+        ];
+        let mut f = Form::new(
+            &t("sheetInsert.symbolTitle", "Symbol"),
+            (681.0, 521.0),
+            tabs,
+        );
         let all = symbols();
         let pages: Vec<String> = all
             .chunks(SYM_COLS * SYM_ROWS)
             .map(|p| format!("U+{:04X} – U+{:04X}", p[0] as u32, p[p.len() - 1] as u32))
             .collect();
+        let p0 = Some(0);
         f.add(
-            "subsetLabel",
-            None,
-            [20.0, 56.0, 0.0, 0.0],
-            Kind::Label(t("sheetInsert.subset", "Subset:")),
+            "fontLabel",
+            p0,
+            [32.0, 91.0, 40.0, 22.0],
+            Kind::Label(t("sheetInsert.font", "Font:")),
+        );
+        f.set_access("fontLabel", 0);
+        f.add(
+            "font",
+            p0,
+            [66.0, 88.0, 240.0, 26.0],
+            Kind::Combo {
+                items: vec![t("sheetInsert.normalText", "(normal text)")],
+                sel: 0,
+            },
         );
         f.add(
+            "subsetLabel",
+            p0,
+            [330.0, 91.0, 60.0, 22.0],
+            Kind::Label(t("sheetInsert.subset", "Subset:")),
+        );
+        f.set_access("subsetLabel", 1);
+        f.add(
             "subset",
-            None,
-            [90.0, 52.0, 260.0, 25.0],
+            p0,
+            [390.0, 88.0, 254.0, 26.0],
             Kind::Combo {
                 items: pages,
                 sel: 0,
@@ -779,35 +828,95 @@ impl SheetWindow {
         );
         f.add(
             "grid",
-            None,
+            p0,
             [
-                20.0,
-                90.0,
+                32.0,
+                118.0,
                 SYM_CELL * SYM_COLS as f32,
-                SYM_CELL * SYM_ROWS as f32,
+                SYM_CELL_H * SYM_ROWS as f32,
             ],
             Kind::Canvas,
         );
         f.add(
+            "recentLabel",
+            p0,
+            [32.0, 330.0, 300.0, 22.0],
+            Kind::Label(t("sheetInsert.recent", "Recently used symbols:")),
+        );
+        f.set_access("recentLabel", 0);
+        f.add("recent", p0, [32.0, 350.0, 596.0, 42.0], Kind::Canvas);
+        f.add(
+            "nameLabel",
+            p0,
+            [32.0, 405.0, 200.0, 22.0],
+            Kind::Label(t("sheetInsert.unicodeName", "Unicode name:")),
+        );
+        f.add(
             "code",
-            None,
-            [20.0, 100.0 + SYM_CELL * SYM_ROWS as f32, 0.0, 0.0],
+            p0,
+            [32.0, 430.0, 250.0, 22.0],
             Kind::Label(String::new()),
         );
-        let (w0, h0) = f.size;
+        f.add(
+            "codeLabel",
+            p0,
+            [296.0, 419.0, 95.0, 22.0],
+            Kind::Label(t("sheetInsert.charCode", "Character code:")),
+        );
+        f.set_access("codeLabel", 1);
+        f.add(
+            "hex",
+            p0,
+            [392.0, 414.0, 62.0, 26.0],
+            Kind::Edit {
+                value: Vec::new(),
+                caret: 0,
+            },
+        );
+        f.add(
+            "fromLabel",
+            p0,
+            [469.0, 419.0, 36.0, 22.0],
+            Kind::Label(t("sheetInsert.from", "from:")),
+        );
+        f.set_access("fromLabel", 2);
+        f.add(
+            "from",
+            p0,
+            [505.0, 414.0, 143.0, 27.0],
+            Kind::Combo {
+                items: vec![t("sheetInsert.unicodeHex", "Unicode (hex)")],
+                sel: 0,
+            },
+        );
+        let p1 = Some(1);
+        f.add(
+            "specials",
+            p1,
+            [32.0, 90.0, 616.0, 330.0],
+            Kind::List {
+                items: SPECIALS
+                    .iter()
+                    .map(|(c, k, d)| format!("{c}      {}", t(k, d)))
+                    .collect(),
+                sel: Some(0),
+                top: 0,
+            },
+        );
         f.add(
             "insert",
             None,
-            [w0 - 258.0, h0 - 48.0, 112.0, 28.0],
+            [423.0, 473.0, 113.0, 30.0],
             Kind::Button {
                 label: t("sheetInsert.insert", "Insert"),
                 default: true,
             },
         );
+        f.set_access("insert", 0);
         f.add(
             "cancel",
             None,
-            [w0 - 131.0, h0 - 48.0, 112.0, 28.0],
+            [550.0, 473.0, 113.0, 30.0],
             Kind::Button {
                 label: t("common.cancel", "Cancel"),
                 default: false,
@@ -823,13 +932,15 @@ impl SheetWindow {
     fn symbol_code(&mut self) {
         let all = symbols();
         let i = self.symbol.0 * SYM_COLS + self.symbol.1;
-        let label = all.get(i).map_or_else(String::new, |c| {
-            format!(
-                "{} U+{:04X}",
-                self.t("sheetInsert.charCode", "Character code:"),
-                *c as u32
-            )
-        });
+        let label = all
+            .get(i)
+            .map_or_else(String::new, |c| format!("U+{:04X}", *c as u32));
+        let hex = all
+            .get(i)
+            .map_or_else(String::new, |c| format!("{:04X}", *c as u32));
+        if let Some(f) = self.form.as_mut() {
+            f.set_text("hex", &hex);
+        }
         if let Some(Kind::Label(s)) = self
             .form
             .as_mut()
@@ -844,7 +955,7 @@ impl SheetWindow {
     pub(super) fn paint_symbol_grid(&self, f: &Form, r: [f32; 4], p: &mut dyn Painter) {
         let all = symbols();
         let k = r[2] / (SYM_CELL * SYM_COLS as f32);
-        let cell = SYM_CELL * k;
+        let (cell, cell_h) = (SYM_CELL * k, SYM_CELL_H * k);
         let first = (self.symbol.0 / SYM_ROWS) * SYM_ROWS;
         let line = Rgba(0xa0, 0xa0, 0xa0, 255);
         p.fill_rect(r[0], r[1], r[2], r[3], Rgba(255, 255, 255, 255));
@@ -856,17 +967,17 @@ impl SheetWindow {
         for row in 0..SYM_ROWS {
             for col in 0..SYM_COLS {
                 let i = (first + row) * SYM_COLS + col;
-                let (x, y) = (r[0] + col as f32 * cell, r[1] + row as f32 * cell);
+                let (x, y) = (r[0] + col as f32 * cell, r[1] + row as f32 * cell_h);
                 let sel = self.symbol == (first + row, col);
                 if sel {
-                    p.fill_rect(x, y, cell, cell, Rgba(0x00, 0x78, 0xd7, 255));
+                    p.fill_rect(x, y, cell, cell_h, Rgba(0x00, 0x78, 0xd7, 255));
                 }
                 if let Some(c) = all.get(i) {
                     let s = c.to_string();
                     p.text(
                         &s,
                         (x + cell * 0.3).round(),
-                        (y + (cell - style.size * 1.33) / 2.0).round(),
+                        (y + (cell_h - style.size * 1.33) / 2.0).round(),
                         style,
                         if sel {
                             Rgba(255, 255, 255, 255)
@@ -881,8 +992,34 @@ impl SheetWindow {
             p.fill_rect((r[0] + i as f32 * cell).round(), r[1], 1.0, r[3], line);
         }
         for i in 0..=SYM_ROWS {
-            p.fill_rect(r[0], (r[1] + i as f32 * cell).round(), r[2], 1.0, line);
+            p.fill_rect(r[0], (r[1] + i as f32 * cell_h).round(), r[2], 1.0, line);
         }
+    }
+
+    /// The Recently used symbols row.
+    pub(super) fn paint_symbol_recent(f: &Form, r: [f32; 4], p: &mut dyn Painter) {
+        let line = Rgba(0xa0, 0xa0, 0xa0, 255);
+        p.fill_rect(r[0], r[1], r[2], r[3], Rgba(255, 255, 255, 255));
+        let cell = r[2] / SYM_RECENT.len() as f32;
+        let font = f.font();
+        let style = TextStyle {
+            size: (font.size * 1.4).round(),
+            bold: false,
+        };
+        for (i, c) in SYM_RECENT.iter().enumerate() {
+            let x = r[0] + i as f32 * cell;
+            p.text(
+                &c.to_string(),
+                (x + cell * 0.28).round(),
+                (r[1] + (r[3] - style.size * 1.33) / 2.0).round(),
+                style,
+                Rgba(0, 0, 0, 255),
+            );
+            p.fill_rect(x.round(), r[1], 1.0, r[3], line);
+        }
+        p.fill_rect(r[0] + r[2] - 1.0, r[1], 1.0, r[3], line);
+        p.fill_rect(r[0], r[1], r[2], 1.0, line);
+        p.fill_rect(r[0], r[1] + r[3] - 1.0, r[2], 1.0, line);
     }
 
     /// Events of the Insert tab's forms.
@@ -911,15 +1048,29 @@ impl SheetWindow {
                 self.symbol_code();
             }
             (FormKind::Symbol, Event::Canvas("grid", x, y)) => {
-                let row = ((y / SYM_CELL).floor() as usize).min(SYM_ROWS - 1);
+                let row = ((y / SYM_CELL_H).floor() as usize).min(SYM_ROWS - 1);
                 let col = ((x / SYM_CELL).floor() as usize).min(SYM_COLS - 1);
                 let first = (self.symbol.0 / SYM_ROWS) * SYM_ROWS;
                 self.symbol = (first + row, col);
                 self.symbol_code();
             }
-            (FormKind::Symbol, Event::Ok | Event::Clicked("insert")) => {
+            (FormKind::Symbol, Event::Canvas("recent", x, _)) => {
+                let at = ((x / (596.0 / SYM_RECENT.len() as f32)).floor() as usize)
+                    .min(SYM_RECENT.len() - 1);
+                if let Some(i) = symbols().iter().position(|c| *c == SYM_RECENT[at]) {
+                    self.symbol = (i / SYM_COLS, i % SYM_COLS);
+                    if let Some(f) = self.form.as_mut() {
+                        f.set_sel("subset", Some(i / (SYM_COLS * SYM_ROWS)));
+                    }
+                    self.symbol_code();
+                }
+            }
+            (FormKind::Symbol, Event::Ok | Event::Clicked("insert" | "specials")) => {
                 let i = self.symbol.0 * SYM_COLS + self.symbol.1;
-                if let Some(c) = symbols().get(i) {
+                let special = (f.tab == 1)
+                    .then(|| f.sel("specials").and_then(|k| SPECIALS.get(k)).map(|s| s.0))
+                    .flatten();
+                if let Some(c) = special.or_else(|| symbols().get(i).copied()) {
                     let s = c.to_string();
                     if self.view.editing() {
                         self.view.edit_insert(&s, text);

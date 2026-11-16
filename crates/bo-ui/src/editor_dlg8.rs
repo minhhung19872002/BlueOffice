@@ -34,6 +34,8 @@ pub(crate) enum FormWhat {
     SavePreset(&'static str),
     /// Combine Files (round 9, `editor_combine9`).
     Combine9,
+    /// Set Page Dimensions of Crop Pages (round 9, `editor_crop9`).
+    Crop9,
 }
 
 /// Font sizes offered by the Size lists.
@@ -1576,7 +1578,7 @@ impl EditorWindow {
     }
 
     fn form8_button(&mut self, id: &'static str) {
-        if self.combine9_button(id) {
+        if self.combine9_button(id) || self.crop9_button(id) {
             return;
         }
         if id == "cancel" && matches!(self.form8.last(), Some((_, FormWhat::Combine9))) {
@@ -1657,6 +1659,7 @@ impl EditorWindow {
                     FormWhat::Sub => self.sub_ok(&f),
                     FormWhat::SavePreset(kind) => self.save_preset_ok(kind, &f),
                     FormWhat::Combine9 => self.combine9_ok(&f),
+                    FormWhat::Crop9 => self.crop9_ok(&f),
                 }
             }
             _ => self.dlg8b_button(id),
@@ -1792,6 +1795,7 @@ fn paint_preview(
                 }
             }
         }
+        FormWhat::Crop9 => crate::editor_crop9::paint_crop_preview(p, f, b, img, s),
         FormWhat::Watermark | FormWhat::Background => {
             // The page itself when its image is ready (else a page of its proportions),
             // centred in the box.

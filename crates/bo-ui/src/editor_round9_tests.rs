@@ -300,7 +300,7 @@ fn combine_files_lists_ranges_reorders_and_makes_a_new_document() {
         "Add Files...",
         "Move Up",
         "Page Range",
-        "All Pages",
+        "ALL",
     ] {
         assert!(t.iter().any(|x| x == l), "{l}: {t:?}");
     }
@@ -340,4 +340,45 @@ fn combine_files_lists_ranges_reorders_and_makes_a_new_document() {
         .any(|c| matches!(c, bo_render::Command::Glyphs { text, .. } if text.contains("Page 2"))));
     assert!(w.combine9.is_empty());
     assert!(w.form8.is_empty());
+}
+
+#[test]
+fn set_page_dimensions_has_the_reference_layout_and_removes_white_margins() {
+    use crate::editor_form8::Val;
+    let mut w = organize(2);
+    w.run("org.crop", &Fixed);
+    let t = paint(&mut w).texts;
+    for l in [
+        "Set Page Dimensions",
+        "Margin Controls",
+        "Constrain Proportions",
+        "Remove White Margins",
+        "Set To Zero",
+        "Change Page Size",
+        "Page Range",
+        "Show All Boxes",
+        "Units:",
+    ] {
+        assert!(t.iter().any(|x| x == l), "{l}: {t:?}");
+    }
+    assert!(
+        t.iter()
+            .any(|x| x.starts_with("Cropped page size: 8.50 × 11.00")),
+        "{t:?}"
+    );
+    let f = &w.form8.last().expect("dialog").0;
+    assert!((f.frame[2] - 843.0).abs() < 1.0 && (f.frame[3] - 673.0).abs() < 1.0);
+    // Remove White Margins on page 1: the page shrinks to its text.
+    w.form8
+        .last_mut()
+        .expect("dialog")
+        .0
+        .set("white", Val::Pick(1));
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    let d = w.view().expect("view").doc();
+    let (a, b) = (
+        d.page_info(0).expect("p").width,
+        d.page_info(1).expect("p").width,
+    );
+    assert!(a < 200.0 && (b - 612.0).abs() < 0.1, "{a} {b}");
 }

@@ -438,8 +438,19 @@ fn whiteout_crop_and_comment_summary() {
         .page_objects(0)
         .expect("o");
     assert!(objs.iter().any(|o| o.kind == bo_pdfread::ObjectKind::Path));
+    // Round 9: Set Page Dimensions as the reference's (margins in the chosen unit, range).
     w.run("org.crop", &Fixed);
-    answer(&mut w, &["10", "10", "10", "10", "2"]);
+    {
+        use crate::editor_form8::Val;
+        let f = &mut w.form8.last_mut().expect("Set Page Dimensions").0;
+        for s in ["left", "top", "right", "bottom"] {
+            f.set(s, Val::Text("10".into()));
+        }
+        f.set("units", Val::Pick(2));
+        f.set("range", Val::Pick(1));
+        f.set("pages", Val::Text("2".into()));
+    }
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
     let (a, b) = {
         let d = w.view().expect("v").doc();
         (

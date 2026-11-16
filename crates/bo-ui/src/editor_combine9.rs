@@ -66,7 +66,7 @@ impl EditorWindow {
                         c.range.clone()
                     },
                     c.pages.to_string(),
-                    format!("{:.1} KB", c.bytes.len() as f32 / 1024.0),
+                    format!("{:.2} KB", c.bytes.len() as f32 / 1024.0),
                 ]
             })
             .collect();

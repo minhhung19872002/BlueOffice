@@ -480,11 +480,12 @@ impl EditorWindow {
     /// The page and scale (device pixels per point) of the open Watermark / Background
     /// preview.
     pub(crate) fn preview_want8(&self) -> Option<(usize, f32)> {
-        let (f, what) = self
-            .form8
-            .iter()
-            .rev()
-            .find(|(_, w)| matches!(w, FormWhat::Watermark | FormWhat::Background))?;
+        let (f, what) = self.form8.iter().rev().find(|(_, w)| {
+            matches!(
+                w,
+                FormWhat::Watermark | FormWhat::Background | FormWhat::Crop9
+            )
+        })?;
         let _ = what;
         if f.pick("preview") != 1 {
             return None;

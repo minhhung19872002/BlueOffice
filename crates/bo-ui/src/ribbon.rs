@@ -374,7 +374,6 @@ fn design_tab() -> Tab {
                     L("design.styleSet.harbor"),
                     L("design.styleSet.quiet"),
                     L("design.styleSet.bold"),
-                    L("design.styleSetMore"),
                     L("design.colors"),
                     L("design.fonts"),
                 ],

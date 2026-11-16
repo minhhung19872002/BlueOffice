@@ -2699,6 +2699,14 @@ impl DocWindow {
             return redraw;
         }
         // Pointer and keyboard input goes to an open menu first.
+        // The ▾ column of the Design tab's style set gallery lists the sets.
+        if let Input::Press { x, y, .. } = input {
+            let more = crate::doc_design::more_rect(&self.ribbon, self.scale)
+                .filter(|_| self.menu.is_none() && self.design_gallery.is_none());
+            if more.is_some_and(|r| x >= r[0] && x < r[0] + r[2] && y >= r[1] && y < r[1] + r[3]) {
+                return self.open_design_gallery("design.styleSet.bold", DesignMenu::StyleSets);
+            }
+        }
         if self.menu.is_some() {
             if let Some(redraw) = self.menu_input(&input) {
                 return redraw;
@@ -3368,11 +3376,7 @@ impl DocWindow {
                 );
             }
             // Design › Document Formatting: the style set gallery in the theme's faces.
-            if self
-                .ribbon
-                .rect_of(RibbonHit::Command(crate::doc_design::MORE))
-                .is_some()
-            {
+            if crate::doc_design::more_rect(&self.ribbon, self.scale).is_some() {
                 let (major, minor) = self
                     .view
                     .engine()

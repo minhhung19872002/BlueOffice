@@ -92,9 +92,9 @@ fn style_set_gallery_and_page_borders() {
     };
     let themes = x_of(&w, "design.themes");
     let first = x_of(&w, crate::doc_design::STYLE_TILES[0].0);
-    let more = x_of(&w, crate::doc_design::MORE);
+    let last = x_of(&w, crate::doc_design::STYLE_TILES[6].0);
     let colors = x_of(&w, "design.colors");
-    assert!(themes < first && first < more && more < colors);
+    assert!(themes < first && first < last && last < colors);
     for id in ["design.effects", "design.setDefault", "design.pageBorders"] {
         assert!(w.ribbon.rect_of(RibbonHit::Command(id)).is_some(), "{id}");
     }
@@ -108,8 +108,9 @@ fn style_set_gallery_and_page_borders() {
     assert_eq!(w.design_style_set.as_deref(), Some("capital"));
     assert!(w.view.format().can_undo);
     // The ▾ lists the sets.
-    w.action("design.styleSetMore");
-    assert!(w.design_gallery.is_some());
+    let more = crate::doc_design::more_rect(&w.ribbon, 1.0).expect("▾ column");
+    press(&mut w, (more[0] + more[2] / 2.0, more[1] + more[3] / 2.0));
+    assert!(w.design_gallery.is_some(), "▾ lists the sets");
     w.handle(Input::Key(Key::Escape, Mods::default()), &Fixed);
     // Page Borders: Box, Double, OK puts borders on the pages.
     w.action("design.pageBorders");

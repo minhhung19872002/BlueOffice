@@ -20,8 +20,8 @@ pub(crate) const STYLE_TILES: [(&str, &str); 7] = [
     ("design.styleSet.quiet", "quiet"),
     ("design.styleSet.bold", "bold"),
 ];
-/// The gallery's ▾ column (opens the sets as a list).
-pub(crate) const MORE: &str = "design.styleSetMore";
+/// The gallery's ▾ column (opens the sets as a list): the right 18 px of the last tile.
+const MORE_W: f32 = 18.0;
 
 /// Commands shown greyed: not carried out by BlueDoc yet (theme effects, saving the
 /// formatting as the default for new documents).
@@ -30,13 +30,20 @@ pub(crate) const UNAVAILABLE: [&str; 2] = ["design.effects", "design.setDefault"
 /// Fixed widths (logical px) of the gallery placeholders: tiles 80 (100 px at 125 %), the
 /// ▾ column 18.
 pub(crate) fn large_w(id: &str) -> Option<f32> {
-    if STYLE_TILES.iter().any(|(t, _)| *t == id) {
+    if id == STYLE_TILES[STYLE_TILES.len() - 1].0 {
+        Some(80.0 + MORE_W)
+    } else if STYLE_TILES.iter().any(|(t, _)| *t == id) {
         Some(80.0)
-    } else if id == MORE {
-        Some(18.0)
     } else {
         None
     }
+}
+
+/// The ▾ column of the gallery (device px), when the Design tab shows it.
+pub(crate) fn more_rect(ribbon: &Ribbon, scale: f32) -> Option<[f32; 4]> {
+    let last = ribbon.rect_of(RibbonHit::Command(STYLE_TILES[STYLE_TILES.len() - 1].0))?;
+    let w = (MORE_W * scale).round();
+    Some([last[0] + last[2] - w, last[1], w, last[3]])
 }
 
 /// The style set a tile command applies.
@@ -107,7 +114,7 @@ pub(crate) fn paint(
     scale: f32,
 ) {
     let rect = |id: &'static str| ribbon.rect_of(RibbonHit::Command(id));
-    let (Some(first), Some(more)) = (rect(STYLE_TILES[0].0), rect(MORE)) else {
+    let (Some(first), Some(more)) = (rect(STYLE_TILES[0].0), more_rect(ribbon, scale)) else {
         return;
     };
     let px = |v: f32| (v * scale).round();
@@ -153,7 +160,13 @@ pub(crate) fn paint(
         let Some(set) = DOC_STYLE_SETS.iter().find(|s| s.id == set_id) else {
             continue;
         };
-        let (tx, ty, tw, th) = (r[0] + px(2.0), top + px(3.0), r[2] - px(4.0), h - px(6.0));
+        // The last tile leaves its right edge to the ▾ column.
+        let rw = if id == STYLE_TILES[STYLE_TILES.len() - 1].0 {
+            r[2] - more[2]
+        } else {
+            r[2]
+        };
+        let (tx, ty, tw, th) = (r[0] + px(2.0), top + px(3.0), rw - px(4.0), h - px(6.0));
         if current == Some(set_id) {
             p.fill_rect(tx, ty, tw, th, grey(136));
             p.fill_rect(tx + 1.0, ty + 1.0, tw - 2.0, th - 2.0, grey(255));
@@ -175,9 +188,6 @@ pub(crate) fn paint(
     // ▾ column: up / down / more marks, as the reference's gallery scroller.
     let col = [more[0], top + 1.0, more[2] - 1.0, h - 2.0];
     p.fill_rect(col[0], col[1], 1.0, col[3], grey(225));
-    if hovered == Some(RibbonHit::Command(MORE)) {
-        p.fill_rect(col[0] + 1.0, col[1], col[2] - 1.0, col[3], t.hover);
-    }
     let cx = col[0] + col[2] / 2.0;
     let k = px(3.5);
     let ink = grey(96);

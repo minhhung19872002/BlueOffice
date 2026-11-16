@@ -235,4 +235,27 @@ impl Dialog {
             Some((ink, self.scale.max(1.0))),
         );
     }
+
+    /// Width of a captioned dialog: wide enough for its longest message line, check box or
+    /// field label (nothing runs past the edge), within the window.
+    pub(super) fn caption_width(&self, m: &dyn TextMeasure, size: (f32, f32)) -> f32 {
+        let style = self.style();
+        let widest = self
+            .message
+            .iter()
+            .map(|l| m.measure(l, style).0)
+            .chain(self.fields.iter().map(|f| {
+                m.measure(&f.label, style).0
+                    + if f.check.is_some() {
+                        self.px(22.0)
+                    } else {
+                        0.0
+                    }
+            }))
+            .fold(0.0_f32, f32::max);
+        (widest + self.px(48.0))
+            .max(self.px(420.0))
+            .min((size.0 - self.px(40.0)).max(self.px(420.0)))
+            .round()
+    }
 }

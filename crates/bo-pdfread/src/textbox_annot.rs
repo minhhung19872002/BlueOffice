@@ -175,17 +175,16 @@ impl PdfDocument {
                 hex(look.border)
             )),
         );
-        let body: String = lines
-            .iter()
-            .map(|l| {
-                format!(
-                    "<p dir=\"ltr\"><span style=\"font-size:{}pt;color:{};font-family:Helvetica\">{}</span></p>",
-                    look.size,
-                    hex(look.text),
-                    xml(l)
-                )
-            })
-            .collect();
+        let mut body = String::new();
+        for l in lines {
+            let _ = write!(
+                body,
+                "<p dir=\"ltr\"><span style=\"font-size:{}pt;color:{};font-family:Helvetica\">{}</span></p>",
+                look.size,
+                hex(look.text),
+                xml(l)
+            );
+        }
         d.set(
             "RC",
             text_obj(&format!(
@@ -267,6 +266,6 @@ mod tests {
         assert!(s.contains("color:#0000FF"));
         // Shown on the page with its own appearance (one undo step).
         assert!(doc.undo());
-        assert!(doc.annotations().is_empty());
+        assert_eq!(doc.annotations().len(), 0);
     }
 }

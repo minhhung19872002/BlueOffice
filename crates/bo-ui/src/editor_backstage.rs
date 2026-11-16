@@ -184,9 +184,10 @@ impl EditorWindow {
         let mut tips = Vec::new();
         for it in ITEMS {
             let Some((cmd, key)) = it else {
-                y += px(2.4);
+                // The reference (125 %): rule 26 px below Close's label centre, Preferences 54.
+                y -= px(1.2);
                 p.fill_rect(px(20.0), y, cw - px(40.0), 1.0, Rgba(0xD4, 0xD4, 0xD4, 255));
-                y += px(3.2);
+                y += px(6.8);
                 continue;
             };
             let tip = BS_NOT_OFFERED.iter().find(|t| t.0 == cmd).map(|t| t.1);

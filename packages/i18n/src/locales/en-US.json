@@ -11144,12 +11144,6 @@
     "tipActionWizard": "Action Wizard (recorded command sequences) is not offered.",
     "tipIndex": "Full-text indexes of folders are not offered; use Search in the open documents.",
     "transitionsTitle": "Page Transitions",
-    "transition": "Transition",
-    "direction": "Direction",
-    "speed": "Speed",
-    "pages": "Pages",
-    "pagesHint": "Pages: All, or a range such as 1-3, 5. Click a list or use Up / Down to choose.",
-    "noPages": "No such pages.",
     "speedSlow": "Slow",
     "speedMedium": "Medium",
     "speedFast": "Fast",
@@ -11166,7 +11160,6 @@
     "trFade": "Fade",
     "trReplace": "Replace",
     "trFly": "Fly",
-    "dirNone": "—",
     "dirHorizontalIn": "Horizontal In",
     "dirHorizontalOut": "Horizontal Out",
     "dirVerticalIn": "Vertical In",
@@ -11182,6 +11175,16 @@
     "dirTopLeft": "Top-Left to Bottom-Right",
     "xfaNone": "This document has no XFA form.",
     "xfaDynamic": "This is a dynamic XFA form: it has no ordinary form fields to keep, so it is left as it is.",
-    "xfaDone": "The XFA form is now an ordinary form; its fields and their values are kept."
+    "xfaDone": "The XFA form is now an ordinary form; its fields and their values are kept.",
+    "groupTransition": "Page Transition",
+    "groupRange": "Page Range",
+    "transitionColon": "Transition:",
+    "directionColon": "Direction:",
+    "speedColon": "Speed:",
+    "selectedPages": "Selected Pages",
+    "allPages": "All Pages",
+    "pagesFrom": "Pages From",
+    "to": "To",
+    "of": "of"
   }
 }

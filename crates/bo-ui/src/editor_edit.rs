@@ -1125,15 +1125,22 @@ impl Editing {
             return false;
         };
         let before = b.bbox;
+        let shift = b.follower_shift();
         match v.doc_mut().block_edit_update(b) {
             Ok(()) => {
-                // Only the paragraph's lines change: draw that band of the page again.
-                let (w, _) = v.page_size(page);
+                // Only the paragraph's lines change: draw that band of the page again;
+                // down to the page's foot when what follows it moved.
+                let (w, h) = v.page_size(page);
+                let moved = (b.follower_shift() - shift).abs() > 1e-3;
                 let r = [
                     0.0,
                     before[1].min(b.bbox[1]) - 4.0,
                     w,
-                    before[3].max(b.bbox[3]) + 4.0,
+                    if moved {
+                        h
+                    } else {
+                        before[3].max(b.bbox[3]) + 4.0
+                    },
                 ];
                 v.invalidate_band(page, r);
             }

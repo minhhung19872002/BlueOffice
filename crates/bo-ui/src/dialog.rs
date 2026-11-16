@@ -233,7 +233,11 @@ impl Dialog {
     /// Lay out centred in a window of `size`, and measure caret positions.
     pub fn layout(&mut self, m: &dyn TextMeasure, size: (f32, f32), scale: f32) {
         self.scale = scale;
-        let w = self.px(420.0);
+        let w = if self.caption {
+            self.caption_width(m, size)
+        } else {
+            self.px(420.0)
+        };
         let field_h = self.px(28.0);
         let check_h = self.px(26.0);
         let mut h = self.px(52.0);

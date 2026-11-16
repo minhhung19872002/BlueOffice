@@ -27,7 +27,7 @@ pub enum PushMode {
 
 /// One object that moves with the paragraph.
 #[derive(Debug, Clone)]
-struct Follower {
+pub(crate) struct Follower {
     span: (usize, usize),
     /// Its CTM relative to default user space and the inverse.
     ctm_u: M,
@@ -40,7 +40,7 @@ struct Follower {
 #[derive(Debug, Clone)]
 pub(crate) struct Push {
     original: Vec<u8>,
-    followers: Vec<Follower>,
+    pub(crate) followers: Vec<Follower>,
     base: M,
     inv_base: M,
     /// Lines of the paragraph when the edit began.
@@ -62,19 +62,16 @@ impl Push {
         let mut edits: Vec<((usize, usize), Vec<u8>)> = Vec::new();
         let mut tail = Vec::new();
         for f in &self.followers {
-            match &f.text {
-                Some((ts, gone, show)) => {
-                    edits.push((f.span, gone.clone()));
-                    let tm = mul(mul(mul(ts.tm, f.ctm_u), m_user), f.inv_ctm);
-                    tail.extend(text_object(ts, &ts.font, f.ctm_u, tm, show));
-                }
-                None => {
-                    let x = mul(mul(f.ctm_u, m_user), f.inv_ctm);
-                    let mut with = format!("q {} cm\n", matrix(x)).into_bytes();
-                    with.extend_from_slice(self.original.get(f.span.0..f.span.1).unwrap_or(&[]));
-                    with.extend_from_slice(b"\nQ");
-                    edits.push((f.span, with));
-                }
+            if let Some((ts, gone, show)) = &f.text {
+                edits.push((f.span, gone.clone()));
+                let tm = mul(mul(mul(ts.tm, f.ctm_u), m_user), f.inv_ctm);
+                tail.extend(text_object(ts, &ts.font, f.ctm_u, tm, show));
+            } else {
+                let x = mul(mul(f.ctm_u, m_user), f.inv_ctm);
+                let mut with = format!("q {} cm\n", matrix(x)).into_bytes();
+                with.extend_from_slice(self.original.get(f.span.0..f.span.1).unwrap_or(&[]));
+                with.extend_from_slice(b"\nQ");
+                edits.push((f.span, with));
             }
         }
         let mut out = self.original.clone();
@@ -120,6 +117,14 @@ fn followers_of(objs: &[PageObject], bbox: [f32; 4], size: f32, mode: PushMode) 
             }
             out
         }
+    }
+}
+
+impl BlockEdit {
+    /// Shift now applied to what follows the paragraph (page points; 0 without followers).
+    #[must_use]
+    pub fn follower_shift(&self) -> f32 {
+        self.push.as_ref().map_or(0.0, |p| p.applied)
     }
 }
 

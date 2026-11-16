@@ -138,3 +138,33 @@ fn deleting_lines_pulls_the_box_back_up() {
     );
     doc.end_block_edit(&e);
 }
+
+/// `BO_PARAS=<file.pdf>`: blocks of page 1 and what follows the first one (diagnostics).
+#[test]
+fn debug_file() {
+    let Ok(p) = std::env::var("BO_PARAS") else {
+        return;
+    };
+    let mut doc = open(std::fs::read(p).expect("file"));
+    let objs = doc.page_objects(0).expect("objects");
+    for b in text_blocks(&objs) {
+        eprintln!("block {:?} lines {} {:?}", b.bbox, b.lines, b.text);
+    }
+    let b = text_blocks(&objs).remove(0);
+    let mut e = doc.begin_block_edit(0, &b).expect("starts");
+    doc.block_edit_push(&mut e, PushMode::Box).expect("push");
+    eprintln!(
+        "followers {}",
+        e.push.as_ref().map_or(0, |p| p.followers.len())
+    );
+    for c in " and then a good many more words to make it wrap twice over and over".chars() {
+        e.text.push(c);
+        e.style_of.push(0);
+        doc.block_edit_update(&mut e).expect("updates");
+    }
+    eprintln!("lines {}", e.lines);
+    let objs = doc.page_objects(0).expect("objects");
+    for b in text_blocks(&objs) {
+        eprintln!("after {:?} {:?}", b.bbox, b.text);
+    }
+}

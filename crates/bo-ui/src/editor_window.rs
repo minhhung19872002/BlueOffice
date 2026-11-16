@@ -513,6 +513,8 @@ pub struct EditorWindow {
     pub(crate) close_after_save: Option<usize>,
     /// The save-changes question being shown.
     pub(crate) close_box: Option<crate::editor_close::CloseBox>,
+    /// The Page Transitions dialog (`editor_trans7`).
+    pub(crate) trans: Option<crate::editor_trans7::TransDlg>,
     /// Form field tool.
     pub(crate) design: crate::editor_design::DesignState,
     /// Caret shown (blink phase).
@@ -587,6 +589,7 @@ impl EditorWindow {
             comment: crate::editor_comment::CommentState::default(),
             tw: None,
             close_after_save: None,
+            trans: None,
             close_box: None,
             design: crate::editor_design::DesignState::default(),
             caret_on: true,
@@ -645,7 +648,7 @@ impl EditorWindow {
 
     /// Whether one of the window's dialogs is open.
     pub(crate) fn dialog_open(&self) -> bool {
-        self.dialog.is_some() || self.dialog2.is_some()
+        self.dialog.is_some() || self.dialog2.is_some() || self.trans.is_some()
     }
 
     /// Window title.
@@ -815,7 +818,7 @@ impl EditorWindow {
         if self.dialog.is_some() || self.dialog2.is_some() {
             return self.dialog_input(&input, m);
         }
-        if self.close_box_input(&input) {
+        if self.close_box_input(&input) || self.trans_input(&input) {
             return true;
         }
         if self.tw_input(&input, m) {
@@ -1341,7 +1344,6 @@ impl EditorWindow {
             }
             _ => None,
         };
-        self.transitions_changed();
         let Some((d, _)) = self.dialog2.as_mut() else {
             return true;
         };
@@ -1914,6 +1916,7 @@ impl EditorWindow {
         if let Some((d, _)) = &self.dialog2 {
             d.paint(p, self.r.theme(), self.r.window_size(), true);
         }
+        self.paint_trans(p);
         self.paint_close_box(p);
     }
 }

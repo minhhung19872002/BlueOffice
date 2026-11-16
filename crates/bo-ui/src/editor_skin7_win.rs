@@ -14,6 +14,7 @@ impl ReaderWindow {
     }
 
     /// Skin chosen on the File page.
+    #[cfg(test)]
     pub(crate) fn skin_index(&self) -> usize {
         self.prefs6.prefs.skin
     }

@@ -122,7 +122,159 @@ fn type_at_end(w: &mut EditorWindow, s: &str) {
     }
 }
 
-const MORE: &str = " Now a good many more words are typed here so that it wraps twice.";
+/// `BO_PARAS=<file.pdf>`: type a long sentence at the end of its first paragraph and print the
+/// blocks (diagnostics).
+#[test]
+fn debug_typing_in_file() {
+    let Ok(p) = std::env::var("BO_PARAS") else {
+        return;
+    };
+    let mut w = window_with(std::fs::read(p).expect("file"));
+    let mut store = crate::editor_tests::Store::default();
+    while w.prepare(&mut store) {}
+    w.run("ed.editText", &Fixed);
+    while w.prepare(&mut store) {}
+    let (x, y) = {
+        let v = w.view_mut().expect("view");
+        let objs = v.doc_mut().page_objects(0).expect("objects");
+        let b = bo_pdfread::text_blocks(&objs).remove(0);
+        let last = b.char_boxes.last().copied().expect("chars");
+        let r = v
+            .doc_rect_to_window(0, [last[2], last[1], last[2], last[3]])
+            .expect("on screen");
+        (r[0] + 1.0, r[1] + 3.0)
+    };
+    press_at(&mut w, (x, y));
+    for c in " 1234567890 abcdefghij klmnopqrst uvwxyzABCD EFGHIJKLMN OPQRSTUVWX YZ".chars() {
+        w.handle(Input::Text(c.to_string()), &Fixed);
+        w.handle(Input::Blink, &Fixed);
+        w.handle(Input::Tick, &Fixed);
+        let mut n = 0;
+        while w.prepare(&mut store) {
+            n += 1;
+        }
+        let shift = w
+            .edit
+            .typing
+            .as_ref()
+            .and_then(|t| t.block.as_ref())
+            .map(bo_pdfread::BlockEdit::follower_shift);
+        let v = w.view_mut().expect("view");
+        let p = v
+            .doc_mut()
+            .render(0, bo_pdfread::RenderOptions::default())
+            .expect("renders");
+        let text = bo_pdfread::TextLayer::new(p.chars).text();
+        eprintln!(
+            "{c:?} prepares {n} shift {shift:?} has-second {}",
+            text.contains("The second")
+        );
+    }
+    let v = w.view_mut().expect("view");
+    let objs = v.doc_mut().page_objects(0).expect("objects");
+    for b in bo_pdfread::text_blocks(&objs) {
+        eprintln!("{:?} {:?}", b.bbox, b.text);
+    }
+    eprintln!("status {:?}", w.edit.status);
+}
+
+/// A store that keeps the text of the last page drawn (whole or band).
+#[derive(Default)]
+struct TextStore {
+    text: String,
+    draws: usize,
+}
+
+impl TextStore {
+    fn note(&mut self, list: &bo_render::PageList) {
+        self.draws += 1;
+        self.text = list
+            .commands
+            .iter()
+            .filter_map(|c| match c {
+                bo_render::Command::Glyphs { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+    }
+}
+
+impl crate::PdfStore for TextStore {
+    fn update(
+        &mut self,
+        _: usize,
+        list: &bo_render::PageList,
+        _: &bo_text::FontManager,
+        _: &std::collections::HashMap<String, std::sync::Arc<bo_pdfread::Image>>,
+        _: f32,
+    ) -> Result<(), String> {
+        self.note(list);
+        Ok(())
+    }
+
+    fn update_band(
+        &mut self,
+        _: usize,
+        list: &bo_render::PageList,
+        _: &bo_text::FontManager,
+        _: &std::collections::HashMap<String, std::sync::Arc<bo_pdfread::Image>>,
+        _: f32,
+        _: [u32; 4],
+    ) -> Result<(), String> {
+        self.note(list);
+        Ok(())
+    }
+
+    fn remove(&mut self, _: usize) {}
+}
+
+/// Every keystroke of a long Edit Text session is drawn: the page cache used to list the
+/// page once per keystroke, and after 48 the page was dropped as soon as it was rendered, so
+/// the window kept showing the page as it was ~46 characters in (the text was still typed).
+#[test]
+fn two_hundred_typed_characters_are_all_drawn_and_saved() {
+    let mut w = window_with(paragraphs_pdf());
+    let mut store = TextStore::default();
+    while w.prepare(&mut store) {}
+    type_at_end(&mut w, "");
+    while w.prepare(&mut store) {}
+    let mut typed = String::new();
+    for k in 0..200 {
+        let c = if k % 7 == 6 {
+            ' '
+        } else {
+            char::from(b'a' + (k % 26) as u8)
+        };
+        typed.push(c);
+        let before = store.draws;
+        w.handle(Input::Text(c.to_string()), &Fixed);
+        while w.prepare(&mut store) {}
+        assert!(store.draws > before, "keystroke {k} not drawn");
+    }
+    // The last drawn page shows the end of what was typed.
+    let tail: String = typed.trim_end().chars().rev().take(5).collect::<String>();
+    let tail: String = tail.chars().rev().collect();
+    assert!(store.text.contains(&tail), "{tail:?} not in {:?}", store.text);
+    // And the saved document has all of it.
+    w.handle(Input::Key(Key::Escape, Mods::default()), &Fixed);
+    let saved = w
+        .view_mut()
+        .expect("view")
+        .doc_mut()
+        .save()
+        .expect("saves");
+    let mut doc = PdfDocument::open(saved, bo_pdfread::standard_fonts()).expect("opens");
+    let objs = doc.page_objects(0).expect("objects");
+    let first = bo_pdfread::text_blocks(&objs)
+        .into_iter()
+        .find(|b| b.text.starts_with("The first"))
+        .expect("paragraph");
+    let squash = |s: &str| s.split_whitespace().collect::<String>();
+    assert!(squash(&first.text).ends_with(&squash(&typed)), "{}", first.text);
+}
+
+const MORE: &str =" Now a good many more words are typed here so that it wraps twice.";
 
 #[test]
 fn growing_paragraph_pushes_its_box_and_overlaps_the_rest_with_reflow_off() {
@@ -217,27 +369,67 @@ fn text_box_is_typed_in_place_with_the_reference_look() {
 }
 
 #[test]
-fn page_transitions_are_chosen_from_lists_and_written() {
-    use crate::dialog::DialogButton;
+fn page_transitions_dialog_works_like_the_reference() {
+    use crate::editor_trans7::TransHit;
     let mut w = crate::editor_tests::window(3);
     w.run("view.transitions", &Fixed);
-    let values = |w: &EditorWindow| w.dialog2.as_ref().map(|d| d.0.values()).unwrap_or_default();
-    assert_eq!(values(&w)[0], "No Transition");
-    // Down on the focused list picks the next style (Split); its directions follow.
-    w.handle(Input::Key(Key::Down, Mods::default()), &Fixed);
-    assert_eq!(values(&w)[0], "Split");
-    assert_eq!(values(&w)[1], "Horizontal In");
-    for _ in 0..3 {
-        w.handle(Input::Key(Key::Down, Mods::default()), &Fixed);
-    }
-    assert_eq!(values(&w)[0], "Wipe");
-    assert_eq!(values(&w)[1], "Left to Right");
-    let mut v = values(&w);
-    let Some((_, crate::editor_actions::Ask2::Five(what))) = w.dialog2.take() else {
-        panic!("transitions dialog");
+    let paint = |w: &mut EditorWindow| {
+        let mut p = crate::editor_tests::Rec::default();
+        w.paint(&mut p);
+        p
     };
-    v[3] = "2-3".into();
-    w.five_answer(what, DialogButton::Ok, &v);
+    let p = paint(&mut w);
+    for label in [
+        "Page Transition",
+        "Page Range",
+        "Transition:",
+        "All Pages",
+        "No Transition",
+    ] {
+        assert!(p.texts.iter().any(|t| t == label), "{label}: {:?}", p.texts);
+    }
+    // Reference size at 125 %: 530 x 470.
+    let d = w.trans.as_ref().expect("dialog");
+    assert!(
+        (d.frame[2] - 530.0).abs() < 1.0 && (d.frame[3] - 470.0).abs() < 1.0,
+        "{:?}",
+        d.frame
+    );
+    let click = |w: &mut EditorWindow, h: TransHit| {
+        let r = w
+            .trans
+            .as_ref()
+            .and_then(|d| d.hits.iter().find(|x| x.1 == h).map(|x| x.0))
+            .unwrap_or_else(|| panic!("no {h:?}"));
+        w.handle(
+            Input::Press {
+                x: r[0] + 2.0,
+                y: r[1] + 2.0,
+                count: 1,
+                shift: false,
+            },
+            &Fixed,
+        );
+        paint(w);
+    };
+    // Direction and Speed are off while No Transition is chosen; Selected Pages too (none).
+    click(&mut w, TransHit::Combo(1));
+    assert_eq!(w.trans.as_ref().and_then(|d| d.list), None);
+    assert!(!w
+        .trans
+        .as_ref()
+        .is_some_and(|d| d.hits.iter().any(|h| h.1 == TransHit::Range(0))));
+    // Open the Transition list and pick Wipe (the fourth style).
+    click(&mut w, TransHit::Combo(0));
+    click(&mut w, TransHit::Item(0, 4));
+    assert_eq!(w.trans.as_ref().map(|d| d.kind), Some(4));
+    // Pages From 2 To 3.
+    click(&mut w, TransHit::Range(2));
+    click(&mut w, TransHit::Spin(0, true));
+    click(&mut w, TransHit::Spin(1, true));
+    click(&mut w, TransHit::Spin(1, true));
+    click(&mut w, TransHit::Ok);
+    assert!(w.trans.is_none());
     let doc = w.view().expect("view").doc();
     assert_eq!(doc.page_transition(0), None);
     let t = doc.page_transition(2).expect("transition");

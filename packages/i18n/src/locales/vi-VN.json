@@ -11144,12 +11144,6 @@
     "tipActionWizard": "Chưa hỗ trợ trình hướng dẫn thao tác (chuỗi lệnh ghi sẵn).",
     "tipIndex": "Chưa hỗ trợ chỉ mục toàn văn của thư mục; dùng Tìm kiếm trong các tài liệu đang mở.",
     "transitionsTitle": "Hiệu ứng chuyển trang",
-    "transition": "Hiệu ứng",
-    "direction": "Hướng",
-    "speed": "Tốc độ",
-    "pages": "Trang",
-    "pagesHint": "Trang: Tất cả, hoặc khoảng như 1-3, 5. Bấm vào danh sách hoặc dùng mũi tên lên / xuống để chọn.",
-    "noPages": "Không có các trang này.",
     "speedSlow": "Chậm",
     "speedMedium": "Vừa",
     "speedFast": "Nhanh",
@@ -11166,7 +11160,6 @@
     "trFade": "Mờ dần",
     "trReplace": "Thay thế",
     "trFly": "Bay",
-    "dirNone": "—",
     "dirHorizontalIn": "Ngang vào trong",
     "dirHorizontalOut": "Ngang ra ngoài",
     "dirVerticalIn": "Dọc vào trong",
@@ -11182,6 +11175,16 @@
     "dirTopLeft": "Góc trên trái xuống góc dưới phải",
     "xfaNone": "Tài liệu không có biểu mẫu XFA.",
     "xfaDynamic": "Đây là biểu mẫu XFA động: không có trường biểu mẫu thường để giữ lại nên để nguyên.",
-    "xfaDone": "Biểu mẫu XFA đã thành biểu mẫu thường; các trường và giá trị được giữ."
+    "xfaDone": "Biểu mẫu XFA đã thành biểu mẫu thường; các trường và giá trị được giữ.",
+    "groupTransition": "Hiệu ứng chuyển trang",
+    "groupRange": "Phạm vi trang",
+    "transitionColon": "Hiệu ứng:",
+    "directionColon": "Hướng:",
+    "speedColon": "Tốc độ:",
+    "selectedPages": "Các trang đã chọn",
+    "allPages": "Tất cả trang",
+    "pagesFrom": "Trang từ",
+    "to": "Đến",
+    "of": "trên"
   }
 }

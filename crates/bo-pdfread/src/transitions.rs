@@ -144,7 +144,7 @@ fn name(s: &str) -> Object {
     Object::Name(s.as_bytes().to_vec())
 }
 
-fn dict_of(t: &Transition) -> Dictionary {
+fn dict_of(t: Transition) -> Dictionary {
     use TransitionDirection as D;
     let mut d = Dictionary::new();
     d.set("Type", name("Trans"));
@@ -191,7 +191,7 @@ impl PdfDocument {
             self.touch(id);
             let page = self.doc.get_dictionary_mut(id).map_err(|e| e.to_string())?;
             match t {
-                Some(t) => page.set("Trans", dict_of(t)),
+                Some(t) => page.set("Trans", dict_of(*t)),
                 None => {
                     page.remove(b"Trans");
                 }

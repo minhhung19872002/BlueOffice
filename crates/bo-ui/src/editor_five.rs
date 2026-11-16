@@ -20,8 +20,6 @@ pub(crate) enum FiveAsk {
     Batch(Vec<usize>),
     /// Batch Print (`editor_file7`): number of open documents listed.
     BatchPrint(usize),
-    /// Page Transitions (`editor_trans7`).
-    Transitions,
 }
 
 /// Files picked for Batch Encrypt (name, bytes) and the passwords typed so far.
@@ -223,7 +221,6 @@ impl EditorWindow {
         };
         match what {
             FiveAsk::BatchPrint(n) => self.batch_print_answer(n, b, v),
-            FiveAsk::Transitions => self.transitions_answer(b, v),
             FiveAsk::Templates(names) => {
                 let name = v.first().cloned().unwrap_or_default();
                 let picked: Vec<String> = ticked(1, names.len())

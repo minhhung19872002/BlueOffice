@@ -6,10 +6,10 @@ use super::{AnnotKind, Fit, Panel, ReaderView, ReaderWindow};
 use crate::popup::{Choice, MenuItem};
 use crate::{Input, TextMeasure};
 
-/// Shortcut column from the menu's left edge and the space a separator adds (logical px,
-/// the reference: 168 / 8 device px at 125 %).
-const KEY_X: f32 = 134.4;
-const SEP_GAP: f32 = 6.4;
+/// Shortcuts end this far from the menu's right edge, and the space a separator adds (logical
+/// px; the reference: 21 / 8 device px at 125 %).
+pub(crate) const KEY_RIGHT: f32 = 16.8;
+pub(crate) const SEP_GAP: f32 = 6.4;
 
 /// One row: command, label key, shortcut, icon, dimmed.
 type Row = (
@@ -22,7 +22,7 @@ type Row = (
 
 impl ReaderWindow {
     /// Right click in the document area (BlueReader); `Some(redraw)` when it opened a menu.
-    pub(crate) fn route_menus9(&mut self, input: &Input, _m: &dyn TextMeasure) -> Option<bool> {
+    pub(crate) fn route_menus9(&mut self, input: &Input, m: &dyn TextMeasure) -> Option<bool> {
         let Input::Context { x, y } = *input else {
             return None;
         };
@@ -51,14 +51,47 @@ impl ReaderWindow {
             })
             .collect();
         let icons: Vec<Option<&'static str>> = rows.iter().map(|r| r.3).collect();
-        let keys: Vec<String> = rows.iter().map(|r| r.2.to_owned()).collect();
+        let keys: Vec<&str> = rows.iter().map(|r| r.2).collect();
         let menu = self
             .reader_menu(items, [x, y, 0.0, 0.0])
-            .with_decor(icons, seps)
-            .with_icon_fn(crate::reader_icons::menu_icon)
-            .with_keys(keys, KEY_X, SEP_GAP, self.size);
+            .with_decor(icons, seps);
+        let menu = self
+            .keyed_menu9(menu, &keys, m)
+            .with_icon_fn(crate::reader_icons::menu_icon);
         self.menu = Some((menu, "context9"));
         Some(true)
+    }
+
+    /// Add measured shortcuts (`keys` per item, "" for none) to a context menu.
+    pub(crate) fn keyed_menu9(
+        &self,
+        menu: crate::popup::Menu,
+        keys: &[&str],
+        m: &dyn TextMeasure,
+    ) -> crate::popup::Menu {
+        let st = crate::TextStyle {
+            size: (super::READER_MENU.text * self.scale).round(),
+            bold: false,
+        };
+        let label_w = menu
+            .items()
+            .iter()
+            .map(|i| m.measure(&i.label, st).0)
+            .fold(0.0_f32, f32::max);
+        let keys = keys
+            .iter()
+            .map(|k| {
+                (
+                    (*k).to_owned(),
+                    if k.is_empty() {
+                        0.0
+                    } else {
+                        m.measure(k, st).0
+                    },
+                )
+            })
+            .collect();
+        menu.with_keys(keys, label_w, KEY_RIGHT, SEP_GAP, self.size)
     }
 
     /// The point is over the current text selection.

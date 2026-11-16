@@ -263,7 +263,7 @@ impl ReaderWindow {
         })
     }
 
-    fn bookmark_menu9(&mut self, x: f32, y: f32) {
+    fn bookmark_menu9(&mut self, x: f32, y: f32, m: &dyn TextMeasure) {
         let has = self.selected_outline.is_some();
         let item = |label: String, cmd: &str, dim: bool| MenuItem {
             label,
@@ -280,23 +280,14 @@ impl ReaderWindow {
             item(self.t("pdfBookmark.expandAll"), "bm.expandAll", false),
             item(self.t("pdfBookmark.collapseAll"), "bm.collapseAll", false),
         ];
-        let keys = vec![
-            "Ctrl+B".to_owned(),
-            "F2".to_owned(),
-            "Del".to_owned(),
-            String::new(),
-            String::new(),
-            String::new(),
-            String::new(),
-        ];
         let menu = self
             .reader_menu(items, [x, y, 0.0, 0.0])
-            .with_decor(Vec::new(), vec![1, 3, 5])
-            .with_keys(keys, 134.4, 6.4, self.size);
+            .with_decor(Vec::new(), vec![1, 3, 5]);
+        let menu = self.keyed_menu9(menu, &["Ctrl+B", "F2", "Del", "", "", "", ""], m);
         self.menu = Some((menu, "bookmarks9"));
     }
 
-    fn thumb_menu9(&mut self, x: f32, y: f32) {
+    fn thumb_menu9(&mut self, x: f32, y: f32, m: &dyn TextMeasure) {
         let item = |label: String, cmd: &str| MenuItem {
             label,
             choice: Choice::Command(cmd.to_owned()),
@@ -311,8 +302,8 @@ impl ReaderWindow {
         ];
         let menu = self
             .reader_menu(items, [x, y, 0.0, 0.0])
-            .with_decor(Vec::new(), vec![2])
-            .with_keys(Vec::new(), 0.0, 6.4, self.size);
+            .with_decor(Vec::new(), vec![2]);
+        let menu = self.keyed_menu9(menu, &[], m);
         self.menu = Some((menu, "thumbs9"));
     }
 
@@ -390,13 +381,13 @@ impl ReaderWindow {
                 if let Some(p) = self.outline_row_at9(*x, *y) {
                     self.selected_outline = Some(p);
                 }
-                self.bookmark_menu9(*x, *y);
+                self.bookmark_menu9(*x, *y, m);
                 Some(true)
             }
             Input::Context { x, y }
                 if panel == Some(Panel::Pages) && inside(self.panel_rect, *x, *y) =>
             {
-                self.thumb_menu9(*x, *y);
+                self.thumb_menu9(*x, *y, m);
                 Some(true)
             }
             Input::Press { x, y, .. } => {

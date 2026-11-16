@@ -1191,7 +1191,8 @@ impl ReaderWindow {
                     let text = self.t(label);
                     let words: Vec<&str> = text.split(' ').collect();
                     // Two-line labels wrap at the last space.
-                    let two = words.len() > 1 && (text.len() > 9 || self.look.wrap_words);
+                    let two = words.len() > 1
+                        && (text.len() > self.wrap_after9() || self.look.wrap_words);
                     // The drop-down arrow follows the second line: it widens the button only
                     // when that line with the arrow is the longer one.
                     let arrow = if dropdown && two {
@@ -2742,13 +2743,14 @@ impl ReaderWindow {
                         self.look.icon_stroke,
                     );
                     let text = self.t(label);
-                    let lines: Vec<String> =
-                        if text.contains(' ') && (text.len() > 9 || self.look.wrap_words) {
-                            let (a, b) = text.rsplit_once(' ').unwrap_or((&text, ""));
-                            vec![a.to_owned(), b.to_owned()]
-                        } else {
-                            vec![text]
-                        };
+                    let lines: Vec<String> = if text.contains(' ')
+                        && (text.len() > self.wrap_after9() || self.look.wrap_words)
+                    {
+                        let (a, b) = text.rsplit_once(' ').unwrap_or((&text, ""));
+                        vec![a.to_owned(), b.to_owned()]
+                    } else {
+                        vec![text]
+                    };
                     let lh = (label_style.size * 1.33 * 0.93).round();
                     let mut ly = r[1] + self.px(self.look.label_y);
                     let n = lines.len();

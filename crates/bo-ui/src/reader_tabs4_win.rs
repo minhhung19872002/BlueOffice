@@ -74,7 +74,8 @@ impl ReaderWindow {
                 ("form.reset", Big("resetForm", "pdfForm.reset", false)),
                 ("form.toSheet", Big("formToSheet", "pdfForm.toSheet", false)),
                 ("form.import", Big("import", "pdfForm.import", false)),
-                ("form.export", Big("export", "pdfForm.export", false)),
+                // The reference's Export carries a drop-down arrow (greyed in a reader).
+                ("form.export", Big("export", "pdfForm.export", true)),
                 ("sep2", Sep),
                 (
                     "menu.formSettings",

@@ -182,6 +182,10 @@ impl ReaderWindow {
     }
 
     /// The document has form fields (worked out once per document state).
+    pub(crate) fn has_form9(&self) -> bool {
+        self.has_form()
+    }
+
     fn has_form(&self) -> bool {
         let Some(t) = self.tabs.get(self.active) else {
             return false;

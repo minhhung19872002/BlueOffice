@@ -77,12 +77,24 @@ impl ReaderWindow {
         true
     }
 
+    /// Ribbon labels longer than this many bytes take two lines; BlueReader wraps "Read Mode"
+    /// like the reference (round 9), windows built on it keep 9.
+    pub(crate) fn wrap_after9(&self) -> usize {
+        if self.profile.is_none() {
+            8
+        } else {
+            9
+        }
+    }
+
     /// Share commands need a saved document.
     pub(crate) fn tabs9_enabled(&self, id: &str) -> Option<bool> {
         let has_path = self.tabs.get(self.active).is_some_and(|t| t.path.is_some());
         match id {
             "share.mail" => Some(self.view().is_some()),
             "share.copy" | "share.folder" => Some(has_path),
+            // The reference greys Tool Settings when the document has no form fields.
+            "menu.formSettings" => Some(self.has_form9()),
             _ => None,
         }
     }

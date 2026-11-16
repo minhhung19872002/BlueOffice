@@ -91,10 +91,10 @@ pub struct Menu {
     look: MenuLook,
     /// An app's own icon drawing (`painter, name, x, y, size, dim`) in place of the shared set.
     icon_fn: Option<IconFn>,
-    /// Shortcut of each item, drawn left-aligned in a column `key_x` device pixels from the
-    /// menu's left edge (context menus of BlueReader); empty: none.
-    keys: Vec<String>,
-    key_x: f32,
+    /// Shortcut of each item and its measured width, drawn right-aligned `key_right` device
+    /// pixels from the menu's right edge (context menus of BlueReader); empty: none.
+    keys: Vec<(String, f32)>,
+    key_right: f32,
     /// Extra device pixels a separator adds above its item (0: the line sits on the row).
     sep_gap: f32,
 }
@@ -165,7 +165,7 @@ impl Menu {
             look,
             icon_fn: None,
             keys: Vec::new(),
-            key_x: 0.0,
+            key_right: 0.0,
             sep_gap: 0.0,
         };
         // Show the current value in the middle of the list.
@@ -176,8 +176,7 @@ impl Menu {
         m
     }
 
-    /// The entries (tests).
-    #[cfg(test)]
+    /// The entries.
     pub(crate) fn items(&self) -> &[MenuItem] {
         &self.items
     }
@@ -198,27 +197,31 @@ impl Menu {
         self
     }
 
-    /// Shortcuts in a column at `key_x` logical pixels and separators `sep_gap` logical pixels
-    /// tall (as a desktop PDF reader's context menus); the menu grows to fit and stays inside
-    /// `viewport`.
+    /// Shortcuts (text, measured width in device pixels) right-aligned `right` logical pixels
+    /// from the menu's right edge, and separators `sep_gap` logical pixels tall (as a desktop
+    /// PDF reader's context menus). `label_w` is the widest label (device pixels); the menu
+    /// grows to fit labels, a gap and the shortcuts, and stays inside `viewport`.
     #[must_use]
     pub fn with_keys(
         mut self,
-        keys: Vec<String>,
-        key_x: f32,
+        keys: Vec<(String, f32)>,
+        label_w: f32,
+        right: f32,
         sep_gap: f32,
         viewport: (f32, f32),
     ) -> Self {
         let s = self.scale;
-        self.key_x = (key_x * s).round();
+        let text_x = if self.icons.is_empty() {
+            self.look.text_x.0
+        } else {
+            self.look.text_x.1
+        };
+        self.key_right = (right * s).round();
         self.sep_gap = (sep_gap * s).round();
-        let longest = keys.iter().map(|k| k.chars().count()).max().unwrap_or(0) as f32;
-        if longest > 0.0 {
-            let need = self.key_x
-                + (longest * self.look.char_w * self.look.text / 13.0 * s).round()
-                + (16.0 * s).round();
-            self.w = self.w.max(need).min(viewport.0.max(0.0));
-        }
+        let key_w = keys.iter().map(|k| k.1).fold(0.0_f32, f32::max);
+        let gap = if key_w > 0.0 { 32.0 * s } else { 0.0 };
+        let need = (text_x * s + label_w + gap + key_w + self.key_right).round();
+        self.w = self.w.max(need).min(viewport.0.max(0.0));
         self.keys = keys;
         let gaps = self
             .separators
@@ -409,10 +412,10 @@ impl Menu {
                     Rgba(0xe1, 0xe1, 0xe1, 255),
                 );
             }
-            if let Some(k) = self.keys.get(i).filter(|k| !k.is_empty()) {
+            if let Some((k, kw)) = self.keys.get(i).filter(|k| !k.0.is_empty()) {
                 p.text(
                     k,
-                    self.x + self.key_x,
+                    (self.x + self.w - self.key_right - kw).round(),
                     y + (self.item_h - line) / 2.0,
                     style,
                     if item.dim { t.text_muted } else { t.text },

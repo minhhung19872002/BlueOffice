@@ -11155,12 +11155,12 @@
   },
   "pdfTabs9": {
     "email": "Email",
-    "copyPath": "Copy File\nPath",
-    "showFolder": "Show in\nFolder",
-    "commandLine": "Command\nLine Help",
+    "copyPath": "Copy File Path",
+    "showFolder": "Show in Folder",
+    "commandLine": "Command Line Help",
     "commandLineIntro": "BlueReader runs from a command prompt:",
-    "setDefault": "Set to Default\nPDF Reader",
-    "about": "About\nBlueReader"
+    "setDefault": "Set to Default PDF Reader",
+    "about": "About BlueReader"
   },
   "pdfSearch9": {
     "menu": "Advanced Search...",

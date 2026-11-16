@@ -97,7 +97,11 @@ pub(crate) const OUTLINE: [&str; 15] = [
 ];
 
 /// Drop-down boxes drawn over their ribbon placeholders (current value and ▾).
-pub(crate) const BOXES: [&str; 3] = ["outline.level", "outline.showLevel", "references.citationStyle"];
+pub(crate) const BOXES: [&str; 3] = [
+    "outline.level",
+    "outline.showLevel",
+    "references.citationStyle",
+];
 
 /// Widths (logical px) of the round-3 placeholders measured on the reference at 125 %.
 pub(crate) fn labeled_w(id: &str) -> Option<f32> {
@@ -328,9 +332,8 @@ pub(crate) fn separator(id: &str) -> bool {
     )
 }
 
-fn green_add() -> Option<Rgba> {
-    Some(Rgba(0x2e, 0x8b, 0x57, 255))
-}
+/// Green of the "add" marks.
+const GREEN_ADD: Option<Rgba> = Some(Rgba(0x2e, 0x8b, 0x57, 255));
 
 /// Ribbon labels of the round-3 buttons in the reference's casing (`docR3.cmd.*` copied to
 /// `commands.<id>`, so the shared interface keeps its own wording).
@@ -615,22 +618,37 @@ pub(crate) fn install_icons(icons: &mut Icons) {
     doc(
         icons,
         "references.addText",
-        &[("M7 7h10v1.5h-10ZM7 11h7v1.5h-7Z", grey), ("M14 14h1.5v2.5h2.5v1.5h-2.5v2.5h-1.5v-2.5h-2.5v-1.5h2.5Z", green_add())],
+        &[
+            ("M7 7h10v1.5h-10ZM7 11h7v1.5h-7Z", grey),
+            (
+                "M14 14h1.5v2.5h2.5v1.5h-2.5v2.5h-1.5v-2.5h-2.5v-1.5h2.5Z",
+                GREEN_ADD,
+            ),
+        ],
     );
     doc(
         icons,
         "references.nextFootnote",
-        &[("M7 7h10v1.5h-10Z", grey), ("M8 12h6v-2l3.5 3.5l-3.5 3.5v-2h-6Z", blue)],
+        &[
+            ("M7 7h10v1.5h-10Z", grey),
+            ("M8 12h6v-2l3.5 3.5l-3.5 3.5v-2h-6Z", blue),
+        ],
     );
     doc(
         icons,
         "references.showNotes",
-        &[("M7 7h10v1.5h-10ZM7 10h10v1.5h-10Z", grey), ("M7 16h10v1h-10ZM7 18.5h6v1h-6Z", blue)],
+        &[
+            ("M7 7h10v1.5h-10ZM7 10h10v1.5h-10Z", grey),
+            ("M7 16h10v1h-10ZM7 18.5h6v1h-6Z", blue),
+        ],
     );
     doc(
         icons,
         "references.updateFigures",
-        &[("M7 7h10v1.5h-10Z", grey), ("M11 11h2v5h-2ZM11 17.5h2v2h-2Z", rgb(0xc0, 0x39, 0x2b))],
+        &[
+            ("M7 7h10v1.5h-10Z", grey),
+            ("M11 11h2v5h-2ZM11 17.5h2v2h-2Z", rgb(0xc0, 0x39, 0x2b)),
+        ],
     );
     doc(
         icons,
@@ -671,31 +689,87 @@ pub(crate) fn install_icons(icons: &mut Icons) {
     doc(
         icons,
         "mailings.startMerge",
-        &[("M7 7h10v1.5h-10ZM7 10h10v1.5h-10Z", grey), ("M7 14h4v5h-4ZM13 14h4v5h-4Z", blue)],
+        &[
+            ("M7 7h10v1.5h-10ZM7 10h10v1.5h-10Z", grey),
+            ("M7 14h4v5h-4ZM13 14h4v5h-4Z", blue),
+        ],
     );
     doc(
         icons,
         "mailings.editRecipients",
-        &[("M7 7h10v1.5h-10ZM7 10.5h10v1.5h-10ZM7 14h10v1.5h-10Z", grey), ("M13 19l5-5l1.5 1.5l-5 5h-1.5Z", blue)],
+        &[
+            ("M7 7h10v1.5h-10ZM7 10.5h10v1.5h-10ZM7 14h10v1.5h-10Z", grey),
+            ("M13 19l5-5l1.5 1.5l-5 5h-1.5Z", blue),
+        ],
     );
     doc(
         icons,
         "mailings.highlightFields",
-        &[("M6 9h12v4h-12Z", rgb(0xf5, 0xe6, 0x7a)), ("M7 10.3h10v1.4h-10Z", grey), ("M7 16h10v1.5h-10Z", grey)],
+        &[
+            ("M6 9h12v4h-12Z", rgb(0xf5, 0xe6, 0x7a)),
+            ("M7 10.3h10v1.4h-10Z", grey),
+            ("M7 16h10v1.5h-10Z", grey),
+        ],
     );
-    doc(icons, "mailings.addressBlock", &[("M7 8h10v1.5h-10ZM7 11h8v1.5h-8ZM7 14h9v1.5h-9Z", blue)]);
-    doc(icons, "mailings.greetingLine", &[("M7 9h3v1.5h-3Z", blue), ("M11 9h6v1.5h-6ZM7 13h10v1.5h-10Z", grey)]);
-    doc(icons, "mailings.insertField", &[("M7 10h10v4h-10Z", blue), ("M8 11.3h8v1.4h-8Z", pale)]);
-    doc(icons, "mailings.rules", &[("M8 8h3v3h-3ZM8 13h3v3h-3Z", blue), ("M12.5 9h5v1h-5ZM12.5 14h5v1h-5Z", grey)]);
-    doc(icons, "mailings.matchFields", &[("M7 8h4v3h-4ZM13 13h4v3h-4Z", blue), ("M11 9.5h2l1 3.5h-1.5l-0.5-2h-1Z", grey)]);
-    doc(icons, "mailings.updateLabels", &[("M7 7h4v4h-4ZM13 7h4v4h-4ZM7 13h4v4h-4Z", blue), ("M13 15a2 2 0 1 1 4 0h-1.2a0.8 0.8 0 1 0-1.6 0Z", grey)]);
-    icons.add_solid("mailings.firstRecord", &[("M6 6h2v12h-2ZM18 6v12l-9-6Z", grey)]);
-    icons.add_solid("mailings.lastRecord", &[("M16 6h2v12h-2ZM6 6v12l9-6Z", grey)]);
+    doc(
+        icons,
+        "mailings.addressBlock",
+        &[("M7 8h10v1.5h-10ZM7 11h8v1.5h-8ZM7 14h9v1.5h-9Z", blue)],
+    );
+    doc(
+        icons,
+        "mailings.greetingLine",
+        &[
+            ("M7 9h3v1.5h-3Z", blue),
+            ("M11 9h6v1.5h-6ZM7 13h10v1.5h-10Z", grey),
+        ],
+    );
+    doc(
+        icons,
+        "mailings.insertField",
+        &[("M7 10h10v4h-10Z", blue), ("M8 11.3h8v1.4h-8Z", pale)],
+    );
+    doc(
+        icons,
+        "mailings.rules",
+        &[
+            ("M8 8h3v3h-3ZM8 13h3v3h-3Z", blue),
+            ("M12.5 9h5v1h-5ZM12.5 14h5v1h-5Z", grey),
+        ],
+    );
+    doc(
+        icons,
+        "mailings.matchFields",
+        &[
+            ("M7 8h4v3h-4ZM13 13h4v3h-4Z", blue),
+            ("M11 9.5h2l1 3.5h-1.5l-0.5-2h-1Z", grey),
+        ],
+    );
+    doc(
+        icons,
+        "mailings.updateLabels",
+        &[
+            ("M7 7h4v4h-4ZM13 7h4v4h-4ZM7 13h4v4h-4Z", blue),
+            ("M13 15a2 2 0 1 1 4 0h-1.2a0.8 0.8 0 1 0-1.6 0Z", grey),
+        ],
+    );
+    icons.add_solid(
+        "mailings.firstRecord",
+        &[("M6 6h2v12h-2ZM18 6v12l-9-6Z", grey)],
+    );
+    icons.add_solid(
+        "mailings.lastRecord",
+        &[("M16 6h2v12h-2ZM6 6v12l9-6Z", grey)],
+    );
     icons.add_solid("mailings.recordPrevious", &[("M16 6v12l-9-6Z", grey)]);
     icons.add_solid("mailings.recordNext", &[("M8 6v12l9-6Z", grey)]);
     icons.add_solid("mailings.recordBox", &[("M3 7h18v10h-18Z", white)]);
     doc(icons, "mailings.findRecipient", &[("M10 9a3 3 0 1 1 0 6a3 3 0 1 1 0-6ZM10 10.3a1.7 1.7 0 1 0 0 3.4a1.7 1.7 0 1 0 0-3.4ZM12 14.5l1-1l3 3l-1 1Z", grey)]);
-    doc(icons, "mailings.checkErrors", &[("M7 13l2-2l2 2l4-5l2 2l-6 7Z", rgb(0x2e, 0x8b, 0x57))]);
+    doc(
+        icons,
+        "mailings.checkErrors",
+        &[("M7 13l2-2l2 2l4-5l2 2l-6 7Z", rgb(0x2e, 0x8b, 0x57))],
+    );
     icons.add_solid(
         "mailings.labels",
         &[
@@ -765,7 +839,10 @@ pub(crate) fn install_icons(icons: &mut Icons) {
     );
     icons.add_solid("outline.moveUp", &[("M12 7l6 8h-12Z", grey)]);
     icons.add_solid("outline.moveDown", &[("M12 17l6-8h-12Z", grey)]);
-    icons.add_solid("outline.expand", &[("M10.5 5h3v5.5h5.5v3h-5.5v5.5h-3v-5.5h-5.5v-3h5.5Z", blue)]);
+    icons.add_solid(
+        "outline.expand",
+        &[("M10.5 5h3v5.5h5.5v3h-5.5v5.5h-3v-5.5h-5.5v-3h5.5Z", blue)],
+    );
     icons.add_solid("outline.collapse", &[("M5 10.5h14v3h-14Z", blue)]);
     icons.add_solid(
         "outline.close",
@@ -784,6 +861,17 @@ pub(crate) fn install_icons(icons: &mut Icons) {
     icons.alias("outline.level", "outline.showLevel");
     icons.alias("outline.showFormatting", "outline.showLevel");
     icons.alias("outline.firstLine", "outline.showLevel");
-    doc(icons, "outline.showDocument", &[("M7 8h10v1.5h-10ZM7 12h10v1.5h-10Z", blue), ("M7 16h6v1.5h-6Z", grey)]);
-    doc(icons, "outline.collapseSubdocs", &[("M7 8h10v1.5h-10Z", blue), ("M10 13l2 3l2-3Z", grey)]);
+    doc(
+        icons,
+        "outline.showDocument",
+        &[
+            ("M7 8h10v1.5h-10ZM7 12h10v1.5h-10Z", blue),
+            ("M7 16h6v1.5h-6Z", grey),
+        ],
+    );
+    doc(
+        icons,
+        "outline.collapseSubdocs",
+        &[("M7 8h10v1.5h-10Z", blue), ("M10 13l2 3l2-3Z", grey)],
+    );
 }

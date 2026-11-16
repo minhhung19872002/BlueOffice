@@ -3,6 +3,7 @@
 //! galleries, Outline view, Compare, Restrict Editing, Language, Envelopes and Labels,
 //! Design Effects and Set as Default. A child module of the shell so the window's state is
 //! at hand; the widgets live in `doc_r3_ui`, `doc_tiles`, `doc_forms`, `doc_outline`.
+#![allow(clippy::match_same_arms, clippy::type_complexity)]
 use super::{DocWindow, Request};
 use crate::doc_forms::{self, DocForm, DocFormKind, FormContext, FormOut};
 use crate::doc_outline::{OutlineAction, OutlineView};
@@ -76,7 +77,11 @@ fn latent_spec(id: &str) -> Option<Value> {
         .iter()
         .find(|(i, ..)| *i == id)
         .map(|(_, n, m)| (*n, id, *m))?;
-    let kind = if mark == "a" { "character" } else { "paragraph" };
+    let kind = if mark == "a" {
+        "character"
+    } else {
+        "paragraph"
+    };
     let mut spec = json!({ "name": name, "type": kind, "addToGallery": true, "basedOn": "Normal" });
     let o = spec.as_object_mut()?;
     let mut set = |k: &str, v: Value| {
@@ -224,7 +229,11 @@ impl DocWindow {
                 let r = &v["mergeOut"]["records"];
                 let fields = r["fields"]
                     .as_array()
-                    .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect())
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|x| x.as_str().map(str::to_owned))
+                            .collect()
+                    })
                     .unwrap_or_default();
                 let rows = r["rows"]
                     .as_array()
@@ -233,7 +242,11 @@ impl DocWindow {
                             .map(|row| {
                                 row["values"]
                                     .as_array()
-                                    .map(|v| v.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect())
+                                    .map(|v| {
+                                        v.iter()
+                                            .filter_map(|x| x.as_str().map(str::to_owned))
+                                            .collect()
+                                    })
                                     .unwrap_or_default()
                             })
                             .collect()
@@ -393,12 +406,10 @@ impl DocWindow {
                 let mut e = bo_engine::Engine::with_bundled_fonts();
                 let bytes = bo_engine::merge::base64_decode(&rev_b64).unwrap_or_default();
                 let made = e.open(&bytes, &rev_name).is_ok()
-                    && e
-                        .command_json(
-                            &json!({ "cmd": "compareWith", "name": name, "base64": b64 })
-                                .to_string(),
-                        )
-                        .is_ok();
+                    && e.command_json(
+                        &json!({ "cmd": "compareWith", "name": name, "base64": b64 }).to_string(),
+                    )
+                    .is_ok();
                 if let (true, Ok(out)) = (made, e.save_docx()) {
                     self.r3.new_document = Some(out);
                     self.requests.push(Request::OpenNewDocument);
@@ -607,7 +618,11 @@ impl DocWindow {
                 checked: match e.id {
                     _ if e.id.starts_with("mailings.type.") => {
                         e.id.strip_prefix("mailings.type.")
-                            == Some(if self.r3.merge_type.is_empty() { "normal" } else { self.r3.merge_type.as_str() })
+                            == Some(if self.r3.merge_type.is_empty() {
+                                "normal"
+                            } else {
+                                self.r3.merge_type.as_str()
+                            })
                     }
                     "picture.alignTo.page" => self.r3.align_page,
                     "picture.alignTo.margin" => !self.r3.align_page,
@@ -660,8 +675,8 @@ impl DocWindow {
         )
     }
 
-    fn picture(&mut self, v: Value) -> bool {
-        self.view.picture_command(&v)
+    fn picture(&mut self, v: &Value) -> bool {
+        self.view.picture_command(v)
     }
 
     /// Open the Paste Options drop-down under the Paste button.
@@ -704,13 +719,21 @@ impl DocWindow {
 
     fn refresh_styles_pane_into(&mut self, pane: &mut StylesPane) {
         let all = self.view.all_styles();
+        let all_default = all
+            .iter()
+            .find(|s| s.is_default && s.kind == "paragraph")
+            .map(|s| s.id.clone());
         let mut list: Vec<PaneStyle> = Vec::new();
         // The reference's recommended list first, in its order: the document's style when
         // it has one, else the latent default (made when first applied).
         for (id, name, mark) in LATENT {
-            let own = all.iter().find(|s| s.id == *id);
+            // By id, else by name (documents may give Normal another id).
+            let own = all
+                .iter()
+                .find(|s| s.id == *id)
+                .or_else(|| all.iter().find(|s| s.name.eq_ignore_ascii_case(name)));
             list.push(PaneStyle {
-                id: (*id).to_owned(),
+                id: own.map_or_else(|| (*id).to_owned(), |s| s.id.clone()),
                 name: own.map_or_else(
                     || (*name).to_owned(),
                     |s| {
@@ -725,7 +748,7 @@ impl DocWindow {
         let rest = all
             .into_iter()
             .filter(|s| s.recommended && (s.kind == "paragraph" || s.kind == "character"))
-            .filter(|s| !LATENT.iter().any(|(id, ..)| *id == s.id))
+            .filter(|s| !list.iter().any(|l| l.id == s.id))
             .map(|s| PaneStyle {
                 mark: if s.kind == "character" {
                     "a"
@@ -742,12 +765,14 @@ impl DocWindow {
             .collect::<Vec<_>>();
         list.extend(rest);
         pane.styles = list;
+        // No direct style: the document's default paragraph style.
+        pane.default_id = all_default.unwrap_or_else(|| "Normal".into());
         pane.current = Some(
             self.view
                 .format()
                 .style
                 .clone()
-                .unwrap_or_else(|| "Normal".into()),
+                .unwrap_or_else(|| pane.default_id.clone()),
         );
     }
 
@@ -851,7 +876,7 @@ impl DocWindow {
                     .engine()
                     .document()
                     .and_then(|d| d.protection.as_ref())
-                    .is_some_and(|p| p.has_password());
+                    .is_some_and(bo_model::DocProtection::has_password);
                 if has_pw {
                     self.r3_open_form(DocFormKind::Unprotect)
                 } else {
@@ -863,7 +888,7 @@ impl DocWindow {
                 }
             }
             PaneAction::Button("editType") => {
-                let Some(r) = self.r3.restrict.as_ref().map(|r| r.kind_rect()) else {
+                let Some(r) = self.r3.restrict.as_ref().map(RestrictPane::kind_rect) else {
                     return false;
                 };
                 let current = self.r3.restrict.as_ref().map_or(3, |r| r.kind);
@@ -916,14 +941,14 @@ impl DocWindow {
             });
         }
         if let Some(w) = id.strip_prefix("picture.wrap.") {
-            return Some(self.picture(json!({ "cmd": "pictureWrap", "wrap": w })));
+            return Some(self.picture(&json!({ "cmd": "pictureWrap", "wrap": w })));
         }
         if let Some(p) = id.strip_prefix("picture.pos.") {
-            return Some(self.picture(json!({ "cmd": "picturePosition", "position": p })));
+            return Some(self.picture(&json!({ "cmd": "picturePosition", "position": p })));
         }
         if let Some(a) = id.strip_prefix("picture.align.") {
             let page = self.r3.align_page;
-            return Some(self.picture(json!({ "cmd": "pictureAlign", "align": a, "page": page })));
+            return Some(self.picture(&json!({ "cmd": "pictureAlign", "align": a, "page": page })));
         }
         if let Some(to) = id.strip_prefix("picture.alignTo.") {
             self.r3.align_page = to == "page";
@@ -931,7 +956,7 @@ impl DocWindow {
         }
         if let Some(dir) = id.strip_prefix("picture.rotate.") {
             let degrees = if dir == "left" { -90 } else { 90 };
-            return Some(self.picture(json!({ "cmd": "pictureRotate", "degrees": degrees })));
+            return Some(self.picture(&json!({ "cmd": "pictureRotate", "degrees": degrees })));
         }
         if let Some(style) = id.strip_prefix("references.style.") {
             self.r3.cite_style = Some(style.to_owned());
@@ -998,7 +1023,9 @@ impl DocWindow {
                 "mergeRec" => json!({ "kind": "mergeRec" }),
                 "mergeSeq" => json!({ "kind": "mergeSeq" }),
                 "next" => json!({ "kind": "next" }),
-                "fillIn" => json!({ "kind": "fillIn", "prompt": self.r3_t("docR3.fillInPrompt", "Fill in") }),
+                "fillIn" => {
+                    json!({ "kind": "fillIn", "prompt": self.r3_t("docR3.fillInPrompt", "Fill in") })
+                }
                 _ => return Some(false),
             };
             return Some(self.r3_run(vec![json!({ "cmd": "mergeInsertRule", "rule": rule })]));
@@ -1120,7 +1147,11 @@ impl DocWindow {
         let m = v.as_ref().map(|v| v["merge"].clone()).unwrap_or_default();
         let fields = m["fields"]
             .as_array()
-            .map(|a| a.iter().filter_map(|f| f.as_str().map(str::to_owned)).collect())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|f| f.as_str().map(str::to_owned))
+                    .collect()
+            })
             .unwrap_or_default();
         (fields, m["count"].as_u64().unwrap_or(0) as usize)
     }
@@ -1145,10 +1176,14 @@ impl DocWindow {
         }
         let pick = |keys: &[&str]| Self::field_like(&fields, keys);
         let lines: Vec<Vec<String>> = vec![
-            [pick(&["title", "danh xưng"]), pick(&["first", "tên"]), pick(&["last", "họ"])]
-                .into_iter()
-                .flatten()
-                .collect(),
+            [
+                pick(&["title", "danh xưng"]),
+                pick(&["first", "tên"]),
+                pick(&["last", "họ"]),
+            ]
+            .into_iter()
+            .flatten()
+            .collect(),
             pick(&["company", "công ty"]).into_iter().collect(),
             pick(&["address", "địa chỉ"]).into_iter().collect(),
             pick(&["city", "thành phố", "tỉnh"]).into_iter().collect(),
@@ -1177,7 +1212,9 @@ impl DocWindow {
     /// Greeting Line: "Dear «first name»," (the first field when no name column).
     fn insert_greeting_line(&mut self) -> bool {
         let (fields, _) = self.merge_fields();
-        let Some(name) = Self::field_like(&fields, &["first", "name", "tên"]).or_else(|| fields.first().cloned()) else {
+        let Some(name) = Self::field_like(&fields, &["first", "name", "tên"])
+            .or_else(|| fields.first().cloned())
+        else {
             return false;
         };
         self.r3_run(vec![
@@ -1249,7 +1286,7 @@ impl DocWindow {
             let mut looks: Vec<_> = (1..=9).map(|n| look(&format!("Heading{n}"))).collect();
             looks.push(look("Normal"));
             o.set_looks(looks);
-            o.set_items(items, self.view.caret_para(), &labels);
+            o.set_items(&items, self.view.caret_para(), &labels);
             self.r3.outline = Some(o);
         }
         self.relayout_pending = true;
@@ -1293,7 +1330,7 @@ impl DocWindow {
             let caret = self.view.caret_para();
             let labels = self.view.engine().list_labels();
             if let Some(o) = self.r3.outline.as_mut() {
-                o.set_items(items, caret, &labels);
+                o.set_items(&items, caret, &labels);
             }
         }
     }
@@ -1468,10 +1505,10 @@ impl DocWindow {
     /// Lay the round-3 widgets out (each input).
     pub(super) fn r3_layout(&mut self, text: &dyn TextMeasure) {
         // One pane at a time on the right: the proofing and comments panes win.
-        if self.spell_pane.is_some() || self.comments_pane.is_some() {
-            if self.r3.styles_pane.take().is_some() || self.r3.restrict.take().is_some() {
-                self.relayout_pending = true;
-            }
+        if (self.spell_pane.is_some() || self.comments_pane.is_some())
+            && (self.r3.styles_pane.take().is_some() || self.r3.restrict.take().is_some())
+        {
+            self.relayout_pending = true;
         }
         let (top, bottom, right, scale) = (
             self.chrome_bottom(),
@@ -1482,7 +1519,7 @@ impl DocWindow {
         let current = self.view.format().style.clone();
         if let Some(p) = self.r3.styles_pane.as_mut() {
             p.layout(right, top, bottom, scale);
-            p.current = current;
+            p.current = Some(current.unwrap_or_else(|| p.default_id.clone()));
         }
         if let Some(p) = self.r3.restrict.as_mut() {
             p.layout(right, top, bottom, scale);
@@ -1491,16 +1528,10 @@ impl DocWindow {
         let left = self.nav_w();
         let pane = self.r3_pane_w();
         if let Some(o) = self.r3.outline.as_mut() {
-            o.layout(
-                [
-                    left,
-                    top + if self.show_ruler { 0.0 } else { 0.0 },
-                    right - pane - left,
-                    bottom - top,
-                ],
-                scale,
-                text,
-            );
+            o.layout([left, top, right - pane - left, bottom - top], scale, text);
+        }
+        if let Some(m) = self.r3.paste_menu.as_mut() {
+            m.measure(text);
         }
         let (size, sc) = (self.size, self.scale);
         if let Some(f) = self.r3.form.as_mut() {
@@ -1511,7 +1542,10 @@ impl DocWindow {
     /// Current value shown in drop-down box `id` of the ribbon.
     fn box_value(&self, id: &str) -> Option<String> {
         let level = |l: Option<u8>| match l {
-            Some(l) => self.r3_t(&format!("docR3.level{}", l + 1), &format!("Level {}", l + 1)),
+            Some(l) => self.r3_t(
+                &format!("docR3.level{}", l + 1),
+                &format!("Level {}", l + 1),
+            ),
             None => self.r3_t("docR3.bodyText", "Body Text"),
         };
         match id {
@@ -1552,8 +1586,10 @@ impl DocWindow {
         };
         let ink = bo_render::Rgba(0x26, 0x26, 0x26, 255);
         for id in crate::doc_r3_menus::BOXES {
-            let (Some(r), Some(value)) = (self.ribbon.rect_of(RibbonHit::Command(id)), self.box_value(id))
-            else {
+            let (Some(r), Some(value)) = (
+                self.ribbon.rect_of(RibbonHit::Command(id)),
+                self.box_value(id),
+            ) else {
                 continue;
             };
             p.fill_rect(r[0], r[1], r[2], r[3], self.theme.ribbon);
@@ -1566,14 +1602,43 @@ impl DocWindow {
             let mut bx = r[0] + px(2.0);
             if let Some(c) = caption {
                 let cw = px(6.5) * c.chars().count() as f32 * 1.05;
-                p.text_font(&c, bx, (r[1] + (r[3] - font.size * 1.33) / 2.0).round(), &font, ink);
+                p.text_font(
+                    &c,
+                    bx,
+                    (r[1] + (r[3] - font.size * 1.33) / 2.0).round(),
+                    &font,
+                    ink,
+                );
                 bx += cw + px(4.0);
             }
-            let b = [bx, r[1] + px(1.0), r[0] + r[2] - bx - px(2.0), r[3] - px(2.0)];
-            p.fill_rect(b[0], b[1], b[2], b[3], bo_render::Rgba(0x94, 0x94, 0x94, 255));
-            p.fill_rect(b[0] + 1.0, b[1] + 1.0, b[2] - 2.0, b[3] - 2.0, bo_render::Rgba(255, 255, 255, 255));
+            let b = [
+                bx,
+                r[1] + px(1.0),
+                r[0] + r[2] - bx - px(2.0),
+                r[3] - px(2.0),
+            ];
+            p.fill_rect(
+                b[0],
+                b[1],
+                b[2],
+                b[3],
+                bo_render::Rgba(0x94, 0x94, 0x94, 255),
+            );
+            p.fill_rect(
+                b[0] + 1.0,
+                b[1] + 1.0,
+                b[2] - 2.0,
+                b[3] - 2.0,
+                bo_render::Rgba(255, 255, 255, 255),
+            );
             p.push_clip(b[0], b[1], b[2] - px(16.0), b[3]);
-            p.text_font(&value, b[0] + px(4.0), (b[1] + (b[3] - font.size * 1.33) / 2.0).round(), &font, ink);
+            p.text_font(
+                &value,
+                b[0] + px(4.0),
+                (b[1] + (b[3] - font.size * 1.33) / 2.0).round(),
+                &font,
+                ink,
+            );
             p.pop_clip();
             let (cx, cy, k) = (b[0] + b[2] - px(8.0), b[1] + b[3] / 2.0, px(3.0));
             p.path(
@@ -1586,14 +1651,40 @@ impl DocWindow {
                 Some((ink, self.scale.max(1.0))),
             );
         }
-        if let Some(r) = self.ribbon.rect_of(RibbonHit::Command("mailings.recordBox")) {
+        if let Some(r) = self
+            .ribbon
+            .rect_of(RibbonHit::Command("mailings.recordBox"))
+        {
             p.fill_rect(r[0], r[1], r[2], r[3], self.theme.ribbon);
-            let b = [r[0] + px(2.0), r[1] + px(3.0), r[2] - px(4.0), r[3] - px(6.0)];
-            p.fill_rect(b[0], b[1], b[2], b[3], bo_render::Rgba(0xc8, 0xc8, 0xc8, 255));
-            p.fill_rect(b[0] + 1.0, b[1] + 1.0, b[2] - 2.0, b[3] - 2.0, bo_render::Rgba(255, 255, 255, 255));
+            let b = [
+                r[0] + px(2.0),
+                r[1] + px(3.0),
+                r[2] - px(4.0),
+                r[3] - px(6.0),
+            ];
+            p.fill_rect(
+                b[0],
+                b[1],
+                b[2],
+                b[3],
+                bo_render::Rgba(0xc8, 0xc8, 0xc8, 255),
+            );
+            p.fill_rect(
+                b[0] + 1.0,
+                b[1] + 1.0,
+                b[2] - 2.0,
+                b[3] - 2.0,
+                bo_render::Rgba(255, 255, 255, 255),
+            );
             if let Some(n) = self.merge_record {
                 let t = (n + 1).to_string();
-                p.text_font(&t, b[0] + px(6.0), (b[1] + (b[3] - font.size * 1.33) / 2.0).round(), &font, ink);
+                p.text_font(
+                    &t,
+                    b[0] + px(6.0),
+                    (b[1] + (b[3] - font.size * 1.33) / 2.0).round(),
+                    &font,
+                    ink,
+                );
             }
         }
         if let Some(o) = &self.r3.outline {
@@ -1601,7 +1692,14 @@ impl DocWindow {
                 ("outline.showFormatting", o.formatting),
                 ("outline.firstLine", o.first_line),
             ];
-            crate::doc_table::paint_checks(p, &self.ribbon, &checks, &self.theme, &self.strings, self.scale);
+            crate::doc_table::paint_checks(
+                p,
+                &self.ribbon,
+                &checks,
+                &self.theme,
+                &self.strings,
+                self.scale,
+            );
         }
     }
 

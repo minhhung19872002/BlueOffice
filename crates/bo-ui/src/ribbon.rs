@@ -434,7 +434,10 @@ fn references_tab() -> Tab {
             Group {
                 label: "ribbon.groups.toc",
                 large: vec![L("references.toc")],
-                rows: vec![vec![S("references.addText")], vec![S("references.updateToc")]],
+                rows: vec![
+                    vec![S("references.addText")],
+                    vec![S("references.updateToc")],
+                ],
             },
             Group {
                 label: "ribbon.groups.footnotes",

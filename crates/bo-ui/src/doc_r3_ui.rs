@@ -113,6 +113,8 @@ pub(crate) struct PasteMenu {
     hover: Option<usize>,
     /// Labels: header, the three mode names, Paste Special…, Set Default Paste….
     labels: [String; 6],
+    /// Access-key underlines of the two rows (x offset, width), measured.
+    keys: [Option<(f32, f32)>; 2],
 }
 
 impl PasteMenu {
@@ -123,8 +125,32 @@ impl PasteMenu {
         Self {
             rect: [anchor[0], anchor[1] + anchor[3], w, h],
             scale,
-            hover: None,
+            // The default option (Keep Source Formatting) is framed when the menu opens.
+            hover: Some(0),
             labels,
+            keys: [None, None],
+        }
+    }
+
+    /// Measure the access keys of the two rows (Paste S̲pecial…, Set Defa̲ult Paste…).
+    pub(crate) fn measure(&mut self, m: &dyn crate::TextMeasure) {
+        let font = ui_font(self.px(12.0), 400);
+        for (k, (row, key)) in [(4usize, 'S'), (5, 'a')].into_iter().enumerate() {
+            let label = &self.labels[row];
+            let at = if row == 4 {
+                label
+                    .find(' ')
+                    .map(|i| i + 1)
+                    .filter(|i| label[*i..].starts_with(key))
+            } else {
+                label.find("Defa").map(|i| i + 3)
+            };
+            self.keys[k] = at.and_then(|i| {
+                let ch = label[i..].chars().next()?;
+                let x = m.measure_font(&label[..i], &font).0;
+                let w = m.measure_font(&ch.to_string(), &font).0;
+                Some((x, w))
+            });
         }
     }
 
@@ -205,7 +231,7 @@ impl PasteMenu {
             &bold,
             Rgba(0x44, 0x44, 0x44, 255),
         );
-        for i in 0..3 {
+        for (i, mode) in PASTE_MODES.iter().enumerate() {
             let r = self.icon_rect(i);
             if self.hover == Some(i) {
                 p.fill_rect(r[0], r[1], r[2], r[3], Rgba(0, 0, 0, 255));
@@ -219,7 +245,7 @@ impl PasteMenu {
             }
             paste_icon(
                 p,
-                PASTE_MODES[i],
+                mode,
                 r[0] + self.px(5.0),
                 r[1] + self.px(5.0),
                 self.px(25.0),
@@ -239,6 +265,16 @@ impl PasteMenu {
                 &font,
                 INK,
             );
+            if let Some((kx, kw)) = self.keys[i] {
+                let ux = x + self.px(37.0) + kx;
+                p.fill_rect(
+                    ux.round(),
+                    (r[1] + self.px(21.0)).round(),
+                    kw.round().max(1.0),
+                    self.scale.max(1.0).round(),
+                    INK,
+                );
+            }
         }
     }
 }
@@ -362,6 +398,8 @@ pub(crate) struct StylesPane {
     scale: f32,
     pub(crate) styles: Vec<PaneStyle>,
     pub(crate) current: Option<String>,
+    /// The document's default paragraph style (current when the text has no style).
+    pub(crate) default_id: String,
     pub(crate) show_preview: bool,
     pub(crate) disable_linked: bool,
     scroll: f32,
@@ -380,6 +418,7 @@ impl StylesPane {
             scale: 1.0,
             styles: Vec::new(),
             current: None,
+            default_id: "Normal".into(),
             show_preview: false,
             disable_linked: false,
             scroll: 0.0,
@@ -530,7 +569,7 @@ impl StylesPane {
         p.push_clip(x, y, w, h);
         p.fill_rect(x, y, w, h, PANE);
         p.fill_rect(x, y, 1.0, h, PANE_EDGE);
-        let title = ui_font(self.px(20.0), 300);
+        let title = ui_font(self.px(24.0), 300);
         p.text_font(
             &self.labels[0],
             x + self.px(10.0),
@@ -602,18 +641,65 @@ impl StylesPane {
                     );
                 }
                 None => {
-                    p.text_font(name, r[0] + self.px(6.0), ry + self.px(5.0), &font, Rgba(0, 0, 0, 255));
+                    p.text_font(
+                        name,
+                        r[0] + self.px(6.0),
+                        ry + self.px(5.0),
+                        &font,
+                        Rgba(0, 0, 0, 255),
+                    );
                 }
             }
             if !mark.is_empty() {
                 // Kind glyphs in grey (¶ paragraph, ¶a linked, a character), as the reference.
-                p.text_font(
-                    mark,
-                    r[0] + r[2] - self.px(20.0),
-                    ry + self.px(6.0),
-                    &mark_font,
-                    Rgba(0x60, 0x60, 0x60, 255),
-                );
+                // The pilcrow drawn as a shape (a filled bowl and two stems), so it stays grey.
+                let grey = Rgba(0x70, 0x70, 0x70, 255);
+                let (gx, gy, u) = (r[0] + r[2] - self.px(22.0), ry + self.px(8.0), self.scale);
+                if mark.starts_with('¶') {
+                    let s1 = (u).max(1.0).round();
+                    p.fill_rect(
+                        (gx + 3.0 * u).round(),
+                        gy.round(),
+                        s1,
+                        (9.0 * u).round(),
+                        grey,
+                    );
+                    p.fill_rect(
+                        (gx + 5.0 * u).round(),
+                        gy.round(),
+                        s1,
+                        (9.0 * u).round(),
+                        grey,
+                    );
+                    p.fill_rect(
+                        (gx + 1.0 * u).round(),
+                        gy.round(),
+                        (5.0 * u).round(),
+                        s1,
+                        grey,
+                    );
+                    p.path(
+                        &[
+                            PathSeg::M(gx + 3.0 * u, gy),
+                            PathSeg::L(gx + 1.2 * u, gy + 0.6 * u),
+                            PathSeg::L(gx + 0.6 * u, gy + 2.2 * u),
+                            PathSeg::L(gx + 1.2 * u, gy + 3.8 * u),
+                            PathSeg::L(gx + 3.0 * u, gy + 4.4 * u),
+                            PathSeg::Z,
+                        ],
+                        Some(grey),
+                        None,
+                    );
+                }
+                let rest = mark.trim_start_matches('¶');
+                if !rest.is_empty() {
+                    let ax = if mark.starts_with('¶') {
+                        gx + 7.5 * u
+                    } else {
+                        gx + 3.0 * u
+                    };
+                    p.text_font(rest, ax, ry + self.px(6.0), &mark_font, grey);
+                }
             }
         }
         p.pop_clip();
@@ -626,7 +712,13 @@ impl StylesPane {
             let track = l[3] - 2.0 * bw;
             let th = (track * l[3] / total).max(self.px(20.0));
             let ty = l[1] + bw + (track - th) * self.scroll / (total - l[3]).max(1.0);
-            p.fill_rect(bx + self.px(3.0), ty, bw - self.px(6.0), th, Rgba(0xc2, 0xc2, 0xc2, 255));
+            p.fill_rect(
+                bx + self.px(3.0),
+                ty,
+                bw - self.px(6.0),
+                th,
+                Rgba(0xc2, 0xc2, 0xc2, 255),
+            );
             for (cy, up) in [(l[1] + bw / 2.0, true), (l[1] + l[3] - bw / 2.0, false)] {
                 let (cx, k) = (bx + bw / 2.0, self.px(3.0));
                 let d = if up { -1.0 } else { 1.0 };

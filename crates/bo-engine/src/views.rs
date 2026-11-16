@@ -295,7 +295,11 @@ impl Engine {
     /// List labels (`1.`, `1.1.`, bullets) of the numbered body paragraphs by paragraph id,
     /// counted in document order (§17.9 numbering, style-linked lists included): the outline
     /// view shows them before the text as the reference does.
-    pub fn list_labels(&self) -> std::collections::HashMap<usize, String> {
+    ///
+    /// With each label: where the text starts after a tab suffix (§17.9.28 suff), in points
+    /// from the label's start — the level's hanging indent (§17.3.1.12 ind), as the tab
+    /// stop Print Layout uses; `0` for a space or no suffix.
+    pub fn list_labels(&self) -> std::collections::HashMap<usize, (String, f32)> {
         let mut out = std::collections::HashMap::new();
         let Some(doc) = self.document() else {
             return out;
@@ -307,8 +311,14 @@ impl Engine {
             };
             let props = bo_layout::para_props(doc, p);
             if let Some(n) = props.num.filter(|n| n.num_id != 0) {
-                if let Some((label, ..)) = counters.next(doc, n) {
-                    out.insert(id, label);
+                if let Some((label, _, suffix)) = counters.next(doc, n) {
+                    let hanging = props.indent_first_line.map_or(0, |t| (-t.0).max(0));
+                    let gap = if suffix == "space" || suffix == "nothing" {
+                        0.0
+                    } else {
+                        hanging as f32 / 20.0
+                    };
+                    out.insert(id, (label, gap));
                 }
             }
         }
@@ -700,7 +710,7 @@ mod tests {
         let labels = e.list_labels();
         let mut v: Vec<(usize, String)> = labels.into_iter().collect();
         v.sort();
-        let texts: Vec<&str> = v.iter().map(|(_, l)| l.as_str()).collect();
+        let texts: Vec<&str> = v.iter().map(|(_, l)| l.0.as_str()).collect();
         assert_eq!(texts, ["1.", "1.1.", "1.2.", "2.", "2.1."], "{v:?}");
     }
 

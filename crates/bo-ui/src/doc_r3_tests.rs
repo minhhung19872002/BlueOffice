@@ -92,7 +92,7 @@ fn paste_split_button_lower_half_opens_paste_options() {
     // Lower half (label and ▾): the Paste Options menu.
     click(&mut w, (r[0] + r[2] / 2.0, r[1] + r[3] * 0.85));
     assert!(w.r3_paste_open());
-    assert!(w.take_requests().is_empty());
+    assert_eq!(w.take_requests(), Vec::new());
     // Keep Text Only, the third icon: a paste with that mode.
     let m = w.r3.paste_menu.as_ref().expect("menu").rect;
     click(&mut w, (m[0] + 2.0 + 2.5 * 40.0 - 20.0, m[1] + 45.0));
@@ -131,7 +131,6 @@ fn styles_pane_lists_styles_and_applies_one() {
                 ctrl: true,
                 alt: true,
                 shift: true,
-                ..Mods::default()
             },
         ),
         &Fixed,

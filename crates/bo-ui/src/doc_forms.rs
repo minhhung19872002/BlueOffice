@@ -5,7 +5,8 @@
 //! Documents, Language, Envelopes and Labels, Start Enforcing Protection. They reuse the
 //! self-drawn form of BlueSheet (`sheet_form.rs`); option buttons are drawn here.
 //! Every dialog ends in engine commands through the JSON bridge (ADR-0008).
-#[allow(dead_code)]
+#![allow(clippy::match_same_arms)]
+#[allow(dead_code, clippy::duplicate_mod)]
 #[path = "sheet_form.rs"]
 mod form;
 
@@ -521,7 +522,7 @@ impl DocForm {
             (DocFormKind::Envelopes, "newDocument" | "printLabels") => {
                 FormOut::NewDocument(self.labels())
             }
-            (DocFormKind::CrossRef, "list") | (DocFormKind::Language, "list") => self.ok(),
+            (DocFormKind::CrossRef | DocFormKind::Language, "list") => self.ok(),
             _ => FormOut::Redraw,
         }
     }
@@ -797,8 +798,9 @@ impl DocForm {
                 // The typed text after "Label n" is the caption's own text.
                 let text = caption
                     .split_once(char::is_numeric)
-                    .map(|(_, rest)| rest.trim_start_matches(|c: char| c.is_numeric()))
-                    .unwrap_or("")
+                    .map_or("", |(_, rest)| {
+                        rest.trim_start_matches(|c: char| c.is_numeric())
+                    })
                     .trim()
                     .to_owned();
                 FormOut::Run(
@@ -882,7 +884,7 @@ impl DocForm {
             }
             match id {
                 "preview" | "webPreview" => {
-                    paint_preview(label_w, p, r, preview, kind, id == "webPreview", &font)
+                    paint_preview(label_w, p, r, preview, kind, id == "webPreview", &font);
                 }
                 "clipIcon" => crate::doc_r3_ui::paste_icon(p, "text", r[0], r[1], r[3]),
                 "envPreview" => paint_envelope(p, r),
@@ -1036,9 +1038,11 @@ fn paint_preview(
             // Dotted leader.
             // From the end of the entry text (measured in the dialog font, scaled to the
             // preview's) to the page number.
-            let text_w = label_w.get(i).map_or(big.size * 0.5 * label.chars().count() as f32, |w| {
-                w * big.size / font.size
-            });
+            let text_w = label_w
+                .get(i)
+                .map_or(big.size * 0.5 * label.chars().count() as f32, |w| {
+                    w * big.size / font.size
+                });
             let mut x = r[0] + 4.0 + indent + text_w + 2.0;
             while x < r[0] + r[2] - big.size * 1.4 {
                 p.fill_rect(x.round(), y + big.size * 1.05, 1.5, 1.5, Rgba(0, 0, 0, 255));
@@ -1052,7 +1056,13 @@ fn paint_preview(
 /// A drop-down box drawn on a canvas (white, grey frame, ▾ column).
 fn paint_combo_box(p: &mut dyn Painter, r: [f32; 4], _font: &Font<'_>, k: f32) {
     p.fill_rect(r[0], r[1], r[2], r[3], Rgba(0x7a, 0x7a, 0x7a, 255));
-    p.fill_rect(r[0] + 1.0, r[1] + 1.0, r[2] - 2.0, r[3] - 2.0, Rgba(255, 255, 255, 255));
+    p.fill_rect(
+        r[0] + 1.0,
+        r[1] + 1.0,
+        r[2] - 2.0,
+        r[3] - 2.0,
+        Rgba(255, 255, 255, 255),
+    );
     let (cx, cy, a) = (r[0] + r[2] - 10.0 * k, r[1] + r[3] / 2.0, 4.0 * k);
     p.path(
         &[
@@ -1071,7 +1081,13 @@ fn paint_folder(p: &mut dyn Painter, r: [f32; 4], k: f32) {
     let gold = Rgba(0xd8, 0x9b, 0x2b, 255);
     p.fill_rect(x, y, 7.0 * k, 3.0 * k, gold);
     p.fill_rect(x, y + 2.0 * k, 17.0 * k, 12.0 * k, gold);
-    p.fill_rect(x + 1.0 * k, y + 5.0 * k, 15.0 * k, 8.0 * k, Rgba(0xf3, 0xc6, 0x5a, 255));
+    p.fill_rect(
+        x + 1.0 * k,
+        y + 5.0 * k,
+        15.0 * k,
+        8.0 * k,
+        Rgba(0xf3, 0xc6, 0x5a, 255),
+    );
 }
 
 /// The ⇄ swap button between the two documents (own drawing).
@@ -2592,7 +2608,12 @@ pub(crate) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
                 (!rows.is_empty()).then_some(0),
             );
             let (w, h) = f.form.size;
-            f.button("cancel", [w - 131.0, h - 48.0, 112.0, 28.0], &tr("common.ok", "OK"), true);
+            f.button(
+                "cancel",
+                [w - 131.0, h - 48.0, 112.0, 28.0],
+                &tr("common.ok", "OK"),
+                true,
+            );
             f
         }
         DocFormKind::TocOptions => {
@@ -2602,14 +2623,38 @@ pub(crate) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
                 (420.0, 470.0),
                 vec![],
             );
-            f.label("buildL", [16.0, 48.0, 380.0, 18.0], &tr("docR3.buildFrom", "Build table of contents from:"));
-            f.label("stylesL", [32.0, 72.0, 200.0, 18.0], &tr("docR3.availableStyles", "Available styles:"));
-            f.label("levelL", [300.0, 72.0, 100.0, 18.0], &tr("docR3.tocLevel", "TOC level:"));
+            f.label(
+                "buildL",
+                [16.0, 48.0, 380.0, 18.0],
+                &tr("docR3.buildFrom", "Build table of contents from:"),
+            );
+            f.label(
+                "stylesL",
+                [32.0, 72.0, 200.0, 18.0],
+                &tr("docR3.availableStyles", "Available styles:"),
+            );
+            f.label(
+                "levelL",
+                [300.0, 72.0, 100.0, 18.0],
+                &tr("docR3.tocLevel", "TOC level:"),
+            );
             for (i, id) in TOC_LEVEL_IDS.iter().enumerate() {
                 let y = 96.0 + i as f32 * 30.0;
                 let lid = TOC_STYLE_LABELS[i];
-                f.label(lid, [32.0, y + 4.0, 250.0, 18.0], &format!("{} {}", tr("docR3.heading", "Heading"), i + 1));
-                f.edit(id, [300.0, y, 60.0, 24.0], &if i < 3 { (i + 1).to_string() } else { String::new() });
+                f.label(
+                    lid,
+                    [32.0, y + 4.0, 250.0, 18.0],
+                    &format!("{} {}", tr("docR3.heading", "Heading"), i + 1),
+                );
+                f.edit(
+                    id,
+                    [300.0, y, 60.0, 24.0],
+                    &if i < 3 {
+                        (i + 1).to_string()
+                    } else {
+                        String::new()
+                    },
+                );
             }
             f.ok_cancel(s);
             f

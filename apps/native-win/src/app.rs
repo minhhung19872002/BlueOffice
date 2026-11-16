@@ -319,6 +319,54 @@ impl Shell {
         self.view.insert_picture(bytes, &name)
     }
 
+    /// Requests of BlueDoc round 3: Compare's file, Envelopes and Labels' new window,
+    /// Design › Set as Default; `true` to redraw.
+    fn round3_request(&mut self, r: &Request) -> bool {
+        let mut redraw = false;
+        match r {
+            // Review › Compare: the document to compare with (BLUEOFFICE_COMPARE, a
+            // path, skips the dialog for scripted comparisons).
+            Request::PickCompareFile => {
+                let filters = [("Documents (*.docx;*.doc;*.odt)", "*.docx;*.doc;*.odt")];
+                let path = std::env::var_os("BLUEOFFICE_COMPARE")
+                    .map(std::path::PathBuf::from)
+                    .or_else(|| win32::file_dialog(false, &filters, ""));
+                if let Some(bytes) = path.as_ref().and_then(|p| std::fs::read(p).ok()) {
+                    use base64::Engine as _;
+                    let b64 = base64::engine::general_purpose::STANDARD.encode(bytes);
+                    let name = path
+                        .as_ref()
+                        .and_then(|p| p.file_name())
+                        .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+                    redraw |= self.view.compare_file(&name, &b64);
+                }
+            }
+            // Envelopes and Labels: the new document opens in a window of its own.
+            Request::OpenNewDocument => {
+                if let Some(bytes) = self.view.take_new_document() {
+                    let stamp = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map_or(0, |d| d.as_millis());
+                    let path = std::env::temp_dir().join(format!("BlueDoc-{stamp}.docx"));
+                    if std::fs::write(&path, bytes).is_ok() {
+                        spawn_self(Some(&path));
+                    }
+                }
+            }
+            // Design › Set as Default: kept for new documents.
+            Request::SaveDefaults => {
+                if let (Some(path), Some(v)) = (defaults_path(), self.view.design_defaults()) {
+                    if let Some(dir) = path.parent() {
+                        let _ = std::fs::create_dir_all(dir);
+                    }
+                    let _ = std::fs::write(&path, v);
+                }
+            }
+            _ => {}
+        }
+        redraw
+    }
+
     /// Carry out the interface's requests (files, clipboard, printing); `true` to redraw.
     fn handle_requests(&mut self) -> bool {
         let mut redraw = false;
@@ -408,44 +456,9 @@ impl Shell {
                     }
                 }
                 Request::PickPicture => redraw |= self.pick_picture(),
-                // Review › Compare: the document to compare with (BLUEOFFICE_COMPARE, a
-                // path, skips the dialog for scripted comparisons).
-                Request::PickCompareFile => {
-                    let filters = [("Documents (*.docx;*.doc;*.odt)", "*.docx;*.doc;*.odt")];
-                    let path = std::env::var_os("BLUEOFFICE_COMPARE")
-                        .map(std::path::PathBuf::from)
-                        .or_else(|| win32::file_dialog(false, &filters, ""));
-                    if let Some(bytes) = path.as_ref().and_then(|p| std::fs::read(p).ok()) {
-                        use base64::Engine as _;
-                        let b64 = base64::engine::general_purpose::STANDARD.encode(bytes);
-                        let name = path
-                            .as_ref()
-                            .and_then(|p| p.file_name())
-                            .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
-                        redraw |= self.view.compare_file(&name, &b64);
-                    }
-                }
-                // Envelopes and Labels: the new document opens in a window of its own.
-                Request::OpenNewDocument => {
-                    if let Some(bytes) = self.view.take_new_document() {
-                        let stamp = std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .map_or(0, |d| d.as_millis());
-                        let path = std::env::temp_dir().join(format!("BlueDoc-{stamp}.docx"));
-                        if std::fs::write(&path, bytes).is_ok() {
-                            spawn_self(Some(&path));
-                        }
-                    }
-                }
-                // Design › Set as Default: kept for new documents.
-                Request::SaveDefaults => {
-                    if let (Some(path), Some(v)) = (defaults_path(), self.view.design_defaults()) {
-                        if let Some(dir) = path.parent() {
-                            let _ = std::fs::create_dir_all(dir);
-                        }
-                        let _ = std::fs::write(&path, v);
-                    }
-                }
+                r @ (Request::PickCompareFile
+                | Request::OpenNewDocument
+                | Request::SaveDefaults) => redraw |= self.round3_request(&r),
                 other => self.pending.push(other),
             }
         }

@@ -30,8 +30,10 @@ struct Row {
     para: usize,
     level: Option<u8>,
     text: String,
-    /// List label (`1.`, `1.1.`) of a numbered paragraph.
+    /// List label (`1.`, `1.1.`) of a numbered paragraph and the tab stop after it
+    /// (points from the label's start; 0 = a space).
     label: String,
+    tab: f32,
     /// A heading followed by deeper content.
     parent: bool,
 }
@@ -55,6 +57,8 @@ pub(crate) struct OutlineView {
     pub(crate) formatting: bool,
     /// Show only the first line of each paragraph.
     pub(crate) first_line: bool,
+    /// Measured label widths (12 px reference size), by row.
+    label_w: Vec<f32>,
     /// Collapsed headings (paragraph ids): their subordinate content is hidden.
     collapsed: std::collections::HashSet<usize>,
 }
@@ -84,6 +88,7 @@ impl OutlineView {
             formatting: true,
             first_line: false,
             collapsed: std::collections::HashSet::new(),
+            label_w: Vec::new(),
         }
     }
 
@@ -106,9 +111,9 @@ impl OutlineView {
     /// Take the document's outline; select the row of `caret` (body paragraph id).
     pub(crate) fn set_items(
         &mut self,
-        items: Vec<OutlineItem>,
+        items: &[OutlineItem],
         caret: Option<usize>,
-        labels: &std::collections::HashMap<usize, String>,
+        labels: &std::collections::HashMap<usize, (String, f32)>,
     ) {
         let keep = self.rows.get(self.selected).map(|r| r.para);
         self.rows = items
@@ -125,7 +130,11 @@ impl OutlineView {
                     para: it.entry.para,
                     level,
                     text: it.entry.text.clone(),
-                    label: labels.get(&it.entry.para).cloned().unwrap_or_default(),
+                    label: labels
+                        .get(&it.entry.para)
+                        .map(|l| l.0.clone())
+                        .unwrap_or_default(),
+                    tab: labels.get(&it.entry.para).map_or(0.0, |l| l.1),
                     parent,
                 }
             })
@@ -200,9 +209,28 @@ impl OutlineView {
         out
     }
 
-    pub(crate) fn layout(&mut self, rect: [f32; 4], scale: f32, _text: &dyn TextMeasure) {
+    pub(crate) fn layout(&mut self, rect: [f32; 4], scale: f32, text: &dyn TextMeasure) {
         self.rect = rect;
         self.scale = scale;
+        // Label widths at a 12 px reference size (scaled to each row's font when drawn).
+        let f = Font {
+            family: "Times New Roman",
+            size: (12.0 * scale).round(),
+            weight: 700,
+            italic: false,
+            underline: false,
+        };
+        self.label_w = self
+            .rows
+            .iter()
+            .map(|r| {
+                if r.label.is_empty() {
+                    0.0
+                } else {
+                    text.measure_font(&r.label, &f).0
+                }
+            })
+            .collect();
         self.clamp();
     }
 
@@ -391,24 +419,32 @@ impl OutlineView {
             let color = look
                 .and_then(|l| crate::theme::parse_color(&format!("#{}", l.color)))
                 .unwrap_or(color);
-            // The list label first ("1.", "1.1."), then the text, as the reference.
-            let text = if r.label.is_empty() {
+            // The list label first ("1.", "1.1."), then the text at the list's tab stop
+            // (as in Print Layout), as the reference.
+            let mut text: String = if self.first_line {
+                r.text.chars().take(90).collect()
+            } else {
                 r.text.clone()
-            } else {
-                format!("{}   {}", r.label, r.text)
             };
-            let text = if self.first_line {
-                text.chars().take(90).collect()
-            } else {
-                text
-            };
-            p.text_font(
-                &text,
-                lx + self.px(18.0),
-                (cy - font.size * 0.68).round(),
-                &font,
-                color,
-            );
+            let tx = lx + self.px(18.0);
+            let ty = (cy - font.size * 0.68).round();
+            if !r.label.is_empty() {
+                p.text_font(&r.label, tx, ty, &font, color);
+                let label_w = self.label_w.get(i).copied().unwrap_or(0.0) * font.size
+                    / self.px(12.0).max(1.0);
+                let stop = r.tab * 4.0 / 3.0 * self.scale;
+                let gap = if stop > label_w + self.px(2.0) {
+                    stop
+                } else {
+                    // Past the stop (or a space suffix): a space after the label.
+                    label_w + font.size * 0.3
+                };
+                p.text_font(&text, tx + gap, ty, &font, color);
+                text.clear();
+            }
+            if !text.is_empty() {
+                p.text_font(&text, tx, ty, &font, color);
+            }
         }
         if self.rows.is_empty() {
             let font = Font {

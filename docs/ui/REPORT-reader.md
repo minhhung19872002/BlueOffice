@@ -367,7 +367,8 @@ trái, cột giữa, xem trước, Page Setting / OK / Cancel), bỏ qua điều
 phản WCAG 2.2: chữ ≥ 4,5 : 1 trên mọi nền (kể cả hover / pressed), vòng focus, chữ gợi ý, viền trang ≥ 3 : 1.
 
 **Mở tệp trên máy rảnh.** Chờ 60 phút một khoảng 2 phút không có cargo / rustc / link (`idle7.ps1`): máy không
-lúc nào rảnh (9–13 tiến trình biên dịch của các agent khác); số đo ở trên là trên máy bận. `--search`: mở 42 ms.
+lúc nào rảnh (khoảng yên lặng dài nhất 0 s; 9–13 tiến trình biên dịch của các agent khác). 5 lần đo ngay sau
+đó (CPU 40–54 %): mở 38–48 ms, trang đầu 50–63 ms (vòng 6: 36–74 / 47–86 ms; mục tiêu ≤ 210 ms).
 
 Còn lại: chữ gợi ý và thứ tự Tab của bản đối chiếu (cần thao tác thật), bộ nhớ còn ~1,5 × bản đối chiếu (nền D3D),
 mở 1 202 trang đo trên máy rảnh, Share / Skins.

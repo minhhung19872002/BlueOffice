@@ -337,3 +337,84 @@ fn advanced_filter_in_place_copy_and_show_all() {
     assert!(err.is_err());
     assert_eq!(text(&e, 1, 8), "An");
 }
+
+#[test]
+fn table_header_buttons_filter_the_table() {
+    let mut e = engine();
+    run(
+        &mut e,
+        json!({ "cmd": "createTable", "sheet": 0, "range": rng(0, 0, 8, 2) }),
+    );
+    // Without a sheet AutoFilter, the table's own filter answers for its rows.
+    let v = run(
+        &mut e,
+        json!({ "cmd": "filterValues", "sheet": 0, "col": 0, "row": 0 }),
+    );
+    assert_eq!(v["kind"], "none");
+    assert_eq!(v["values"].as_array().unwrap().len(), 3);
+    let out = run(
+        &mut e,
+        json!({ "cmd": "setFilter", "sheet": 0, "col": 0, "row": 0, "filter": { "values": ["Nam"] } }),
+    );
+    assert_eq!(out["hidden"], 5);
+    assert_eq!(out["total"], 8);
+    assert_eq!(hidden(&e, 0), vec![1, 3, 4, 6, 8]);
+    let xml = e.workbook().unwrap().sheets[0].tables[0]
+        .auto_filter
+        .clone()
+        .unwrap();
+    assert!(
+        xml.contains(r#"<filterColumn colId="0"><filters><filter val="Nam"/>"#),
+        "{xml}"
+    );
+    assert!(e.workbook().unwrap().sheets[0].auto_filter.is_none());
+    let v = run(
+        &mut e,
+        json!({ "cmd": "filterValues", "sheet": 0, "col": 0, "row": 3 }),
+    );
+    assert_eq!(v["kind"], "values");
+    // A second column narrows further; saved in the table part and read back.
+    run(
+        &mut e,
+        json!({ "cmd": "setFilter", "sheet": 0, "col": 1, "row": 0, "filter": { "values": ["Bình"] } }),
+    );
+    assert_eq!(hidden(&e, 0), vec![1, 3, 4, 6, 7, 8]);
+    let bytes = e.save("xlsx", 0).unwrap();
+    let mut back = SheetEngine::with_bundled_fonts();
+    back.open(&bytes, "x.xlsx").unwrap();
+    let v = run(
+        &mut back,
+        json!({ "cmd": "filterValues", "sheet": 0, "col": 1, "row": 0 }),
+    );
+    assert_eq!(v["kind"], "values");
+    assert_eq!(hidden(&back, 0), vec![1, 3, 4, 6, 7, 8]);
+    // Undo takes back one criterion; Clear shows everything and drops the criteria.
+    assert!(e.undo().unwrap());
+    assert_eq!(hidden(&e, 0), vec![1, 3, 4, 6, 8]);
+    run(&mut e, json!({ "cmd": "showAllData", "sheet": 0 }));
+    assert_eq!(hidden(&e, 0), Vec::<u32>::new());
+    let xml = e.workbook().unwrap().sheets[0].tables[0]
+        .auto_filter
+        .clone()
+        .unwrap();
+    assert!(!xml.contains("filterColumn"), "{xml}");
+}
+
+#[test]
+fn table_filter_skips_the_totals_row() {
+    let mut e = engine();
+    run(
+        &mut e,
+        json!({ "cmd": "createTable", "sheet": 0, "range": rng(0, 0, 8, 2) }),
+    );
+    run(
+        &mut e,
+        json!({ "cmd": "tableUpdate", "sheet": 0, "table": 0, "totalsRow": true }),
+    );
+    run(
+        &mut e,
+        json!({ "cmd": "setFilter", "sheet": 0, "col": 0, "row": 0, "filter": { "values": ["Trung"] } }),
+    );
+    // The totals row (9) stays shown.
+    assert_eq!(hidden(&e, 0), vec![1, 2, 3, 5, 6, 7]);
+}

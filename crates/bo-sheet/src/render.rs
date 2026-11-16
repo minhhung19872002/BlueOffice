@@ -825,38 +825,92 @@ impl Renderer<'_> {
                 continue;
             }
             let r = Self::screen_rect(p, self.geom.cell_rect(row, col));
-            let s = (r.h - 3.0).clamp(6.0, 12.0);
+            // Measured on the reference at 125 % (1 px = 0.6 pt): a square button one pixel
+            // inside the row (top and bottom) and the right gridline, 1 px grey edge, a face
+            // shading from white to a cool light grey, a dark grey ▾ in the middle.
+            let px = 0.6;
+            let s = (r.h - 3.0 * px).clamp(6.0, 14.0);
             let b = Rect {
-                x: r.x + r.w - s - 1.5,
-                y: r.y + (r.h - s) / 2.0,
+                x: r.x + r.w - s - px,
+                y: r.y + px + ((r.h - 3.0 * px) - s).max(0.0) / 2.0,
                 w: s,
                 h: s,
             };
-            self.fill_rect(b, Rgba(0xF3, 0xF4, 0xF6, 255));
-            let edge = Rgba(0xA0, 0xA6, 0xAD, 255);
-            self.line(b.x, b.y, b.x + b.w, b.y, 0.5, edge);
-            self.line(b.x, b.y + b.h, b.x + b.w, b.y + b.h, 0.5, edge);
-            self.line(b.x, b.y, b.x, b.y + b.h, 0.5, edge);
-            self.line(b.x + b.w, b.y, b.x + b.w, b.y + b.h, 0.5, edge);
-            let color = if active {
-                Rgba(0x1F, 0x7A, 0x4D, 255)
-            } else {
-                Rgba(0x3C, 0x40, 0x43, 255)
-            };
-            let (cx, cy, h) = (b.x + b.w / 2.0, b.y + b.h / 2.0, b.w * 0.28);
-            // Down triangle (a funnel stem is added when a criterion is active).
             self.out.push(Command::Path {
                 segs: vec![
-                    bo_render::PathSeg::M(f(cx - h), f(cy - h * 0.6)),
-                    bo_render::PathSeg::L(f(cx + h), f(cy - h * 0.6)),
-                    bo_render::PathSeg::L(f(cx), f(cy + h * 0.6)),
+                    bo_render::PathSeg::M(f(b.x), f(b.y)),
+                    bo_render::PathSeg::L(f(b.x + b.w), f(b.y)),
+                    bo_render::PathSeg::L(f(b.x + b.w), f(b.y + b.h)),
+                    bo_render::PathSeg::L(f(b.x), f(b.y + b.h)),
                     bo_render::PathSeg::Z,
                 ],
-                fill: Some(bo_render::Paint::Solid { color }),
+                fill: Some(bo_render::Paint::Linear {
+                    x1: f(b.x),
+                    y1: f(b.y),
+                    x2: f(b.x),
+                    y2: f(b.y + b.h),
+                    stops: vec![
+                        bo_render::GradientStop {
+                            offset: 0.0,
+                            color: Rgba(0xFF, 0xFF, 0xFF, 255),
+                        },
+                        bo_render::GradientStop {
+                            offset: 1.0,
+                            color: Rgba(0xEF, 0xF2, 0xF7, 255),
+                        },
+                    ],
+                }),
                 stroke: None,
             });
+            let edge = Rgba(0xA6, 0xAC, 0xB3, 255);
+            let (x0, y0, x1, y1) = (
+                b.x + px / 2.0,
+                b.y + px / 2.0,
+                b.x + b.w - px / 2.0,
+                b.y + b.h - px / 2.0,
+            );
+            self.line(x0, y0, x1, y0, px, edge);
+            self.line(x0, y1, x1, y1, px, edge);
+            self.line(x0, y0, x0, y1, px, edge);
+            self.line(x1, y0, x1, y1, px, edge);
+            let color = Rgba(0x5E, 0x60, 0x63, 255);
+            let (cx, cy) = (b.x + b.w / 2.0, b.y + b.h / 2.0);
+            let tri = |cx: f64, top: f64, half: f64| {
+                vec![
+                    bo_render::PathSeg::M(f(cx - half), f(top)),
+                    bo_render::PathSeg::L(f(cx + half), f(top)),
+                    bo_render::PathSeg::L(f(cx), f(top + half)),
+                    bo_render::PathSeg::Z,
+                ]
+            };
             if active {
-                self.line(cx, cy + h * 0.5, cx, cy + h * 1.3, 1.0, color);
+                // A criterion: a funnel, with a small ▾ at its lower left.
+                let (fx, top, half) = (cx + 1.5 * px, cy - 4.5 * px, 4.0 * px);
+                self.out.push(Command::Path {
+                    segs: vec![
+                        bo_render::PathSeg::M(f(fx - half), f(top)),
+                        bo_render::PathSeg::L(f(fx + half), f(top)),
+                        bo_render::PathSeg::L(f(fx + px), f(top + 4.0 * px)),
+                        bo_render::PathSeg::L(f(fx + px), f(top + 8.0 * px)),
+                        bo_render::PathSeg::L(f(fx - px), f(top + 7.0 * px)),
+                        bo_render::PathSeg::L(f(fx - px), f(top + 4.0 * px)),
+                        bo_render::PathSeg::Z,
+                    ],
+                    fill: Some(bo_render::Paint::Solid { color }),
+                    stroke: None,
+                });
+                self.out.push(Command::Path {
+                    segs: tri(cx - 4.5 * px, cy + 2.0 * px, 2.5 * px),
+                    fill: Some(bo_render::Paint::Solid { color }),
+                    stroke: None,
+                });
+            } else {
+                // ▾ 7 px wide, 4 px tall, its top one pixel above the middle.
+                self.out.push(Command::Path {
+                    segs: tri(cx, cy - 1.5 * px, 3.5 * px),
+                    fill: Some(bo_render::Paint::Solid { color }),
+                    stroke: None,
+                });
             }
         }
     }
@@ -2057,7 +2111,7 @@ mod tests {
                 .iter()
                 .filter(|c| {
                     matches!(c, Command::Path { fill: Some(bo_render::Paint::Solid { color }), .. }
-                        if *color == Rgba(0x3C, 0x40, 0x43, 255))
+                        if *color == Rgba(0x5E, 0x60, 0x63, 255))
                 })
                 .count()
         };

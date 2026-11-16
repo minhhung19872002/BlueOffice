@@ -39,6 +39,8 @@ mod gallery_impl;
 mod illus_impl;
 #[path = "sheet_insert.rs"]
 mod insert_impl;
+#[path = "sheet_options.rs"]
+mod options_impl;
 #[path = "sheet_pagelayout.rs"]
 mod pagelayout_impl;
 #[path = "sheet_paste.rs"]
@@ -389,6 +391,15 @@ pub struct SheetWindow {
     filter_labels: filter_impl::Labels,
     filter_col: u32,
     filter_status: bool,
+    /// The table range `[r0, c0, r1, c1]` (header to last data row) whose filter the open
+    /// drop-down edits; `None` for the sheet's AutoFilter.
+    pub(super) filter_table: Option<[u32; 4]>,
+    /// Application preferences (File › Options), and their text when changed and not yet
+    /// taken by the host.
+    prefs: options_impl::SheetPrefs,
+    prefs_out: Option<String>,
+    /// The Options dialog's category.
+    options_page: usize,
     /// Create Sparklines: the kind chosen on the ribbon; Symbol: the selected grid cell.
     spark_kind: String,
     symbol: (usize, usize),
@@ -508,6 +519,10 @@ impl SheetWindow {
             filter_labels: filter_impl::Labels::default(),
             filter_col: 0,
             filter_status: false,
+            filter_table: None,
+            prefs: options_impl::SheetPrefs::default(),
+            prefs_out: None,
+            options_page: 0,
             spark_kind: String::new(),
             symbol: (0, 0),
             form_stash: None,
@@ -546,6 +561,44 @@ impl SheetWindow {
     /// The grid view (saving).
     pub fn view(&self) -> &SheetView {
         &self.view
+    }
+
+    /// Apply stored preferences (`key=value` lines of File › Options).
+    pub fn set_preferences(&mut self, text: &str) {
+        self.set_prefs(options_impl::SheetPrefs::from_text(text));
+        self.prefs_out = None;
+    }
+
+    /// Run a menu / ribbon command by id (`goto.<ref>` selects a range), as a choice of a
+    /// menu does.
+    pub fn run_command(&mut self, id: &str, text: &dyn TextMeasure) -> bool {
+        let done = self.choose(Choice::Command(id.to_owned()), text);
+        self.layout_form(text);
+        done
+    }
+
+    /// Start the new workbook with the preferences' default font, size and sheets (call once,
+    /// before the first frame, when no file was opened).
+    pub fn apply_new_workbook_prefs(&mut self, name: &str) -> bool {
+        self.new_book_with_prefs(name)
+    }
+
+    /// The preferences' text when File › Options changed them since the last call (the host
+    /// stores it).
+    pub fn take_preferences(&mut self) -> Option<String> {
+        self.prefs_out.take()
+    }
+
+    /// Default font (`""`: the theme's body font) and size of new workbooks, sheets in a new
+    /// workbook, AutoRecover interval in minutes (`None`: off).
+    pub fn new_workbook_prefs(&self) -> (String, f64, u32, Option<u32>) {
+        let p = &self.prefs;
+        (
+            p.font.clone(),
+            p.size,
+            p.sheets,
+            p.autosave.then_some(p.autosave_min),
+        )
     }
 
     /// The grid view, for the host's file operations.
@@ -970,6 +1023,7 @@ impl SheetWindow {
                 self.requests.push(Request::Close);
                 false
             }
+            "file.options" => self.open_options(),
             "edit.copy" | "edit.cut" => {
                 let text = self.view.copy(id == "edit.cut");
                 self.requests.push(Request::SetClipboard {
@@ -1198,6 +1252,7 @@ impl SheetWindow {
             ("file.save", "backstage.nav.save", "Save"),
             ("file.saveAs", "backstage.nav.saveAs", "Save As"),
             ("file.close", "backstage.nav.close", "Close"),
+            ("file.options", "sheetNative.optMenu", "Options"),
         ]
         .iter()
         .map(|(id, key, fb)| MenuItem {
@@ -1669,11 +1724,11 @@ impl SheetWindow {
             }
             Input::Press { x, y, .. } if self.totals_press(x, y) => true,
             Input::Press { x, y, .. } if self.filter_button_at(x, y).is_some() => {
-                let col = self.filter_button_at(x, y).unwrap_or_default();
+                let (col, table) = self.filter_button_at(x, y).unwrap_or_default();
                 if self.view.editing() {
                     self.view.commit();
                 }
-                self.open_filter(col)
+                self.open_filter(col, table)
             }
             Input::Press { .. } => {
                 if std::mem::take(&mut self.filter_status) {
@@ -1910,6 +1965,38 @@ impl SheetWindow {
             self.paint_cf_rules(r, p, self.scale / 1.25);
         } else if self.form_kind == form_impl::FormKind::TableStyle && id == "preview" {
             self.paint_tstyle_preview(r, p);
+        } else if self.form_kind == form_impl::FormKind::Options {
+            self.paint_options(id, r, p);
+        } else if self.form_kind == form_impl::FormKind::Sort && id == "grid" {
+            // The Sort dialog's level grid (measured on the reference, round 39).
+            let k = self.scale / 1.25;
+            p.fill_rect(r[0], r[1], r[2], r[3], Rgba(0x82, 0x87, 0x90, 255));
+            p.fill_rect(
+                r[0] + 1.0,
+                r[1] + 1.0,
+                r[2] - 2.0,
+                r[3] - 2.0,
+                Rgba(255, 255, 255, 255),
+            );
+            let hy = (r[1] + 32.0 * k).round();
+            p.fill_rect(r[0] + 1.0, hy, r[2] - 2.0, 1.0, Rgba(0xE0, 0xDF, 0xE3, 255));
+            for x in [267.0, 533.0] {
+                p.fill_rect(
+                    (r[0] + x * k).round(),
+                    r[1] + 1.0,
+                    1.0,
+                    hy - r[1] - 1.0,
+                    Rgba(0xE5, 0xE5, 0xE5, 255),
+                );
+            }
+            // The chosen level's label cell.
+            p.fill_rect(
+                r[0] + 1.0,
+                hy + 1.0,
+                (72.0 * k).round(),
+                (30.0 * k).round(),
+                Rgba(0xE0, 0xDF, 0xE3, 255),
+            );
         }
     }
 

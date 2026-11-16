@@ -101,6 +101,8 @@ pub(super) enum FormKind {
     TabColor,
     /// New Table Style….
     TableStyle,
+    /// File › Options.
+    Options,
 }
 
 /// The value of a colour drop-down that has no colour (drawn as an empty swatch; `""` is
@@ -451,6 +453,14 @@ impl Form {
         if let Some(c) = self.get_mut(id) {
             c.enabled = v;
         }
+    }
+
+    /// Show page `i` of a form without a tab strip (its owner draws the page chooser, as the
+    /// category list of File › Options).
+    pub fn set_page(&mut self, i: usize) {
+        self.tab = i;
+        self.open = None;
+        self.focus = self.first_focus();
     }
 
     /// Show tab page `i`.

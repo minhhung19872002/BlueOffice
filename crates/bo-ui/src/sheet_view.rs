@@ -466,6 +466,9 @@ pub struct SheetView {
     /// Where Enter moves the active cell (the reference's "After pressing Enter, move
     /// selection", down by default); `None` stays.
     enter_move: Option<(i64, i64)>,
+    /// R1C1 reference style (File › Options › Formulas): numbered column headers, R1C1
+    /// addresses in the name box and formulas shown / typed in R1C1 notation.
+    r1c1: bool,
     /// Column the last run of Tab presses started on: Enter goes back to it on the next row
     /// (as the reference).
     tab_start: Option<u32>,
@@ -546,6 +549,7 @@ impl SheetView {
             show_headings: true,
             fill_to: None,
             enter_move: Some((1, 0)),
+            r1c1: false,
             tab_start: None,
             mouse_ctrl: false,
             layout: None,
@@ -832,6 +836,10 @@ impl SheetView {
             || (CellRef::new(r, c).to_string(), String::new()),
             |d| (d.address, d.input),
         );
+        if self.r1c1 {
+            self.details.0 = format!("R{}C{}", r + 1, c + 1);
+            self.details.1 = convert_refs(&self.details.1, (r, c), true);
+        }
         let st = self
             .engine
             .exec(SheetCommand::FormatState {
@@ -1705,6 +1713,9 @@ impl SheetView {
         let (r, c) = self.active;
         if e.text == self.details.1 && !e.typed {
             return false;
+        }
+        if self.r1c1 {
+            e.text = convert_refs(&e.text, (r, c), false);
         }
         match self.engine.set_input(self.sheet, r, c, &e.text) {
             Ok(()) => {
@@ -2815,6 +2826,35 @@ impl SheetView {
         self.enter_move = dir;
     }
 
+    /// Where Enter moves the active cell (`None`: it stays).
+    pub fn enter_move(&self) -> Option<(i64, i64)> {
+        self.enter_move
+    }
+
+    /// Switch the R1C1 reference style (§18.17.2 formulas are stored in A1 notation; only
+    /// what is shown and typed changes).
+    pub fn set_r1c1(&mut self, on: bool) {
+        if self.r1c1 != on {
+            self.r1c1 = on;
+            self.label_widths.clear();
+            self.load_details();
+        }
+    }
+
+    /// Whether the R1C1 reference style is on.
+    pub fn r1c1(&self) -> bool {
+        self.r1c1
+    }
+
+    /// Column header label: letters, or the column number in R1C1 style.
+    fn col_label(&self, col: u32) -> String {
+        if self.r1c1 {
+            (col + 1).to_string()
+        } else {
+            col_to_letters(col)
+        }
+    }
+
     /// Whether Ctrl is held with the next mouse release (the host reads the key state).
     pub fn set_mouse_ctrl(&mut self, on: bool) {
         self.mouse_ctrl = on;
@@ -3108,7 +3148,7 @@ impl SheetView {
                 HDR_COL_LINE
             };
             p.fill_rect(x1, fy, 1.0, gy - fy - 1.0, line);
-            let label = col_to_letters(c.index);
+            let label = self.col_label(c.index);
             let ink = if sel { SEL_GREEN } else { HDR_TEXT };
             // Measured: column letters sit one pixel higher than row numbers in their band.
             self.centred(
@@ -3256,7 +3296,7 @@ impl SheetView {
         let labels: Vec<String> = self
             .cols
             .iter()
-            .map(|c| col_to_letters(c.index))
+            .map(|c| self.col_label(c.index))
             .chain(self.rows.iter().map(|r| (r.index + 1).to_string()))
             .filter(|l| !self.label_widths.contains_key(l))
             .collect();
@@ -3322,4 +3362,27 @@ pub fn cycle_reference(text: &str, caret: usize) -> Option<(String, usize)> {
     let mut text = text.to_owned();
     text.replace_range(s..e, &new);
     Some((text, s + new.len()))
+}
+
+/// A formula's references converted between A1 and R1C1 notation relative to the cell at
+/// `at` (`to_r1c1`: A1 → R1C1). Text that is not a formula, or does not parse, is kept.
+pub(crate) fn convert_refs(text: &str, at: (u32, u32), to_r1c1: bool) -> String {
+    use bo_formula::{ParseOptions, RefStyle};
+    let Some(body) = text.strip_prefix('=') else {
+        return text.to_owned();
+    };
+    let (from, to) = if to_r1c1 {
+        (RefStyle::A1, RefStyle::R1C1)
+    } else {
+        (RefStyle::R1C1, RefStyle::A1)
+    };
+    let opts = |style| ParseOptions {
+        style,
+        origin_row: at.0,
+        origin_col: at.1,
+    };
+    match bo_formula::parse_with(body, &opts(from)) {
+        Ok(expr) => format!("={}", bo_formula::format_with(&expr, &opts(to))),
+        Err(_) => text.to_owned(),
+    }
 }

@@ -707,27 +707,64 @@ impl SheetWindow {
         info.sheets.get(self.view.sheet())?.auto_filter
     }
 
-    /// The filter button under (`x`, `y`): the column, when the point is on the button
-    /// part (right end) of an AutoFilter header cell.
-    pub(super) fn filter_button_at(&self, x: f32, y: f32) -> Option<u32> {
-        let [r0, c0, _, c1] = self.auto_filter()?;
-        let (r, c) = self.view.cell_under(x, y)?;
-        if r != r0 || c < c0 || c > c1 {
+    /// The filter range (header to last data row) of the table at (`row`, `col`) when the
+    /// table shows filter buttons on a header row (§18.5.1.2 `table/autoFilter`) and the
+    /// column's button is not hidden (§18.3.2.7 `hiddenButton`).
+    pub(super) fn table_filter_at(&self, row: u32, col: u32) -> Option<[u32; 4]> {
+        let ws = self
+            .view
+            .engine()
+            .workbook()?
+            .sheets
+            .get(self.view.sheet())?;
+        let t = ws.tables.iter().find(|t| {
+            t.auto_filter.is_some()
+                && t.header_row_count != Some(0)
+                && t.range.contains(bo_model::sheet::CellRef::new(row, col))
+        })?;
+        let xml = t.auto_filter.as_deref().unwrap_or_default();
+        let id = format!("colId=\"{}\"", col - t.range.first.col);
+        if xml
+            .split("<filterColumn")
+            .skip(1)
+            .find(|f| f.contains(&id))
+            .is_some_and(|f| f.contains("hiddenButton=\"1\""))
+        {
             return None;
         }
-        let [_, top, right, bottom] = self.view.cell_box(r, c)?;
-        let size = (bottom - top - 3.0).clamp(self.px(8.0), self.px(16.0));
-        (x >= right - size - 2.0).then_some(c)
+        let totals = u32::from(t.totals_row_count.unwrap_or(0) > 0);
+        Some([
+            t.range.first.row,
+            t.range.first.col,
+            t.range.last.row.saturating_sub(totals),
+            t.range.last.col,
+        ])
     }
 
-    /// Open the drop-down of AutoFilter column `col`.
-    pub(super) fn open_filter(&mut self, col: u32) -> bool {
-        let Some([r0, _, _, _]) = self.auto_filter() else {
+    /// The filter button under (`x`, `y`): the column (and the table range when it is a
+    /// table's header button), when the point is on the button part (right end) of an
+    /// AutoFilter or table header cell.
+    pub(super) fn filter_button_at(&self, x: f32, y: f32) -> Option<(u32, Option<[u32; 4]>)> {
+        let (r, c) = self.view.cell_under(x, y)?;
+        let table = match self.auto_filter() {
+            Some([r0, c0, _, c1]) if r == r0 && c >= c0 && c <= c1 => None,
+            _ => Some(self.table_filter_at(r, c).filter(|t| t[0] == r)?),
+        };
+        let [_, top, right, bottom] = self.view.cell_box(r, c)?;
+        let size = (bottom - top - 3.0).clamp(self.px(8.0), self.px(16.0));
+        (x >= right - size - 2.0).then_some((c, table))
+    }
+
+    /// Open the drop-down of AutoFilter column `col` (of the table filter `table` when
+    /// given).
+    pub(super) fn open_filter(&mut self, col: u32, table: Option<[u32; 4]>) -> bool {
+        let Some([r0, _, _, _]) = table.or_else(|| self.auto_filter()) else {
             return false;
         };
+        self.filter_table = table;
         let Some(v) = self
             .view
-            .query(json!({ "cmd": "filterValues", "col": col }))
+            .query(json!({ "cmd": "filterValues", "col": col, "row": table.map(|t| t[0]) }))
         else {
             return false;
         };
@@ -896,9 +933,10 @@ impl SheetWindow {
     /// Set the criterion of AutoFilter column `col` and report "x of y records found".
     #[allow(clippy::needless_pass_by_value)]
     pub(super) fn set_filter(&mut self, col: u32, filter: Option<Value>) -> bool {
+        let row = self.filter_table.map(|t| t[0]);
         let Some(out) = self
             .view
-            .query(json!({ "cmd": "setFilter", "col": col, "filter": filter }))
+            .query(json!({ "cmd": "setFilter", "col": col, "filter": filter, "row": row }))
         else {
             return false;
         };
@@ -914,7 +952,7 @@ impl SheetWindow {
     }
 
     fn filter_sort(&mut self, descending: bool, col: u32) -> bool {
-        let Some([r0, c0, r1, c1]) = self.auto_filter() else {
+        let Some([r0, c0, r1, c1]) = self.filter_table.or_else(|| self.auto_filter()) else {
             return false;
         };
         self.view.run(json!({

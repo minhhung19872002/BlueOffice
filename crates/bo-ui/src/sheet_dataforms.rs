@@ -10,13 +10,12 @@ use bo_model::sheet::col_to_letters;
 use serde_json::{json, Value};
 
 /// Sort levels shown at most (ids of the level label, column, sort-on and order boxes).
-const LEVELS: [(&str, &str, &str, &str); 6] = [
+const LEVELS: [(&str, &str, &str, &str); 5] = [
     ("lv0", "col0", "on0", "ord0"),
     ("lv1", "col1", "on1", "ord1"),
     ("lv2", "col2", "on2", "ord2"),
     ("lv3", "col3", "on3", "ord3"),
     ("lv4", "col4", "on4", "ord4"),
-    ("lv5", "col5", "on5", "ord5"),
 ];
 
 /// Argument names of common functions for the Insert Function help (BlueOffice's own
@@ -152,19 +151,24 @@ impl SheetWindow {
             .and_then(Value::as_bool)
             .unwrap_or(false);
         let t = |k: &str, d: &str| self.t(k, d);
-        let mut f = Form::new(&t("sheetSort.title", "Sort"), (800.0, 420.0), Vec::new());
+        // Geometry measured on the reference's Sort dialog at 125 % (round 39, `sheet-31`):
+        // 767 × 344 px, a row of 34 px buttons at y 48, the level grid from y 89, combo
+        // boxes 28 px high, OK / Cancel 106 × 33 at y 291.
+        let mut f = Form::new(&t("sheetSort.title", "Sort"), (767.0, 344.0), Vec::new());
+        // The level grid: white, framed #828790, a header row with #E5E5E5 separators.
+        f.add("grid", None, [16.0, 88.0, 735.0, 197.0], Kind::Canvas);
         let bx = [
-            ("add", "sheetSort.add", "Add Level", 20.0, 130.0),
-            ("del", "sheetSort.delete", "Delete Level", 160.0, 130.0),
-            ("copy", "sheetSort.copy", "Copy Level", 300.0, 120.0),
+            ("add", "sheetSort.add", "Add Level", 18.0, 114.0),
+            ("del", "sheetSort.delete", "Delete Level", 138.0, 130.0),
+            ("copy", "sheetSort.copy", "Copy Level", 274.0, 120.0),
         ];
         for (id, k, d, x, w) in bx {
-            f.add(id, None, [x, 52.0, w, 28.0], Self::button(t(k, d)));
+            f.add(id, None, [x, 48.0, w, 34.0], Self::button(t(k, d)));
         }
         f.add(
             "header",
             None,
-            [560.0, 56.0, 220.0, 20.0],
+            [582.0, 55.0, 175.0, 20.0],
             Kind::Check {
                 label: t("sheetSort.headers", "My data has headers"),
                 on: header,
@@ -173,34 +177,34 @@ impl SheetWindow {
         f.add(
             "hCol",
             None,
-            [110.0, 96.0, 0.0, 0.0],
+            [23.0, 96.0, 0.0, 0.0],
             Kind::Label(t("sheetSort.column", "Column")),
         );
         f.add(
             "hOn",
             None,
-            [360.0, 96.0, 0.0, 0.0],
+            [289.0, 96.0, 0.0, 0.0],
             Kind::Label(t("sheetSort.sortOn", "Sort On")),
         );
         f.add(
             "hOrd",
             None,
-            [570.0, 96.0, 0.0, 0.0],
+            [555.0, 96.0, 0.0, 0.0],
             Kind::Label(t("sheetSort.order", "Order")),
         );
         let orders = vec![t("sheetSort.az", "A to Z"), t("sheetSort.za", "Z to A")];
         for (i, (lv, col, on, ord)) in LEVELS.iter().enumerate() {
-            let y = 120.0 + i as f32 * 34.0;
+            let y = 121.0 + i as f32 * 31.0;
             let label = if i == 0 {
                 t("sheetSort.sortBy", "Sort by")
             } else {
                 t("sheetSort.thenBy", "Then by")
             };
-            f.add(lv, None, [24.0, y + 5.0, 0.0, 0.0], Kind::Label(label));
+            f.add(lv, None, [20.0, y + 4.0, 0.0, 0.0], Kind::Label(label));
             f.add(
                 col,
                 None,
-                [110.0, y, 230.0, 26.0],
+                [90.0, y, 178.0, 28.0],
                 Kind::Combo {
                     items: Vec::new(),
                     sel: 0,
@@ -209,7 +213,7 @@ impl SheetWindow {
             f.add(
                 on,
                 None,
-                [360.0, y, 190.0, 26.0],
+                [285.0, y, 250.0, 28.0],
                 Kind::Combo {
                     items: vec![t("sheetSort.cellValues", "Cell Values")],
                     sel: 0,
@@ -218,7 +222,7 @@ impl SheetWindow {
             f.add(
                 ord,
                 None,
-                [570.0, y, 200.0, 26.0],
+                [551.0, y, 196.0, 28.0],
                 Kind::Combo {
                     items: orders.clone(),
                     sel: 0,
@@ -226,6 +230,12 @@ impl SheetWindow {
             );
         }
         f.ok_cancel(&t("common.ok", "OK"), &t("common.cancel", "Cancel"));
+        if let Some(c) = f.get_mut("ok") {
+            c.rect = [522.0, 291.0, 106.0, 33.0];
+        }
+        if let Some(c) = f.get_mut("cancel") {
+            c.rect = [645.0, 291.0, 106.0, 33.0];
+        }
         self.sort_range = Some(r);
         self.sort_levels = 1;
         self.form = Some(f);
@@ -1168,6 +1178,7 @@ impl SheetWindow {
             FormKind::PasteSpecial => self.paste_special_event(ev),
             FormKind::Unhide | FormKind::TabColor => self.tabs_form_event(kind, ev),
             FormKind::TableStyle => self.tstyle_event(ev),
+            FormKind::Options => self.options_event(ev),
             FormKind::FormatCells => {}
         }
         true

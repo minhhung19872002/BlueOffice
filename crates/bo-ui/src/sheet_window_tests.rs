@@ -1541,7 +1541,7 @@ fn filter_drop_down_checks_values_and_reports_records_found() {
     // The button sits at the right end of the header cell.
     let b = w.view().cell_box(0, 1).expect("header");
     let at = (b[2] - 4.0, f32::midpoint(b[1], b[3]));
-    assert_eq!(w.filter_button_at(at.0, at.1), Some(1));
+    assert_eq!(w.filter_button_at(at.0, at.1), Some((1, None)));
     assert_eq!(w.filter_button_at(b[0] + 4.0, at.1), None);
     press(&mut w, at, 1);
     let f = w.filter.as_ref().expect("drop-down open");
@@ -2952,4 +2952,84 @@ fn tab_then_enter_returns_to_the_first_column_and_enter_direction_is_an_option()
     w.view_mut().undo();
     assert_eq!(shown(&w, 2, 4), "");
     assert_eq!(shown(&w, 0, 4), "d");
+}
+
+#[test]
+fn table_header_buttons_open_the_table_filter() {
+    let mut w = window();
+    put(
+        &mut w,
+        &[
+            (0, 0, "Name"),
+            (0, 1, "Region"),
+            (1, 0, "An"),
+            (1, 1, "North"),
+            (2, 0, "Binh"),
+            (2, 1, "South"),
+            (3, 0, "Chi"),
+            (3, 1, "North"),
+        ],
+    );
+    w.view.run(serde_json::json!({ "cmd": "createTable", "range": { "r0": 0, "c0": 0, "r1": 3, "c1": 1 } }));
+    assert_eq!(w.auto_filter(), None);
+    let b = w.view().cell_box(0, 1).expect("header");
+    let at = (b[2] - 4.0, f32::midpoint(b[1], b[3]));
+    assert_eq!(
+        w.filter_button_at(at.0, at.1),
+        Some((1, Some([0, 0, 3, 1])))
+    );
+    press(&mut w, at, 1);
+    let f = w.filter.as_ref().expect("drop-down open");
+    assert_eq!(f.header, "Region");
+    w.filter.as_mut().expect("open").toggle(2);
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert_eq!(w.status, "2 of 3 records found");
+    let info = w.view().engine().info().expect("info");
+    assert_eq!(info.sheets[0].hidden_rows, vec![(2, 2)]);
+    // Sort Z to A from the table's drop-down sorts the table's rows.
+    press(&mut w, at, 1);
+    assert!(w.filter_item(1));
+    assert_eq!(input(&w, 1, 1), "South");
+}
+
+#[test]
+fn options_dialog_sets_enter_direction_r1c1_and_iteration() {
+    let mut w = window();
+    assert!(w.action("file.options", &Fixed));
+    assert_eq!(w.form_kind, form_impl::FormKind::Options);
+    {
+        let f = w.form.as_mut().expect("options");
+        f.set_on("aEnter", true);
+        f.set_sel("aDir", Some(1));
+        f.set_on("fR1c1", true);
+        f.set_on("fIterate", true);
+        f.set_num("fCount", 50);
+    }
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert!(w.form.is_none());
+    let text = w.take_preferences().expect("changed");
+    assert!(
+        text.contains("enterDir=1") && text.contains("r1c1=1"),
+        "{text}"
+    );
+    assert_eq!(w.view().enter_move(), Some((0, 1)));
+    assert!(w.view().r1c1());
+    let calc = w
+        .view
+        .query(serde_json::json!({ "cmd": "calcOptions" }))
+        .expect("calc");
+    assert_eq!(calc["options"]["iterate"], true);
+    assert_eq!(calc["options"]["iterateCount"], 50);
+    // R1C1: the name box and formulas read and type in R1C1 notation.
+    put(&mut w, &[(0, 0, "2"), (1, 0, "=A1*3")]);
+    w.view.select((1, 0), (1, 0), (1, 0));
+    assert_eq!(w.view().name_box(), "R2C1");
+    assert_eq!(w.view().formula_text(), "=R[-1]C*3");
+    w.view.select((1, 1), (1, 1), (1, 1));
+    w.handle(Input::Text("=R[-1]C[-1]+1".into()), &Fixed);
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert_eq!(
+        w.view().engine().cell(0, 1, 1).expect("cell").input,
+        "=A1+1"
+    );
 }

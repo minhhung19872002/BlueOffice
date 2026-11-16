@@ -90,6 +90,13 @@ pub fn run() -> Result<(), String> {
         "Book1.xlsx".into()
     };
     let mut view = SheetWindow::new(SheetView::new(engine), &locale, &name);
+    // File › Options (key=value lines in %LOCALAPPDATA%\BlueOffice\sheet-prefs.txt).
+    if let Some(text) = prefs_file().and_then(|f| std::fs::read_to_string(f).ok()) {
+        view.set_preferences(&text);
+    }
+    if file.is_none() {
+        view.apply_new_workbook_prefs(&name);
+    }
     // Page layout ruler: inches when the region measures in US units (iMeasure = 1).
     view.set_ruler_inches(win32::region_value("iMeasure").as_deref() == Some("1"));
     // BLUEOFFICE_SHEET_ENTER=down|right|up|left|none: where Enter moves the active cell.
@@ -122,6 +129,7 @@ pub fn run() -> Result<(), String> {
             pending: Vec::new(),
             dirty: true,
             pending_input: None,
+            recovered: Instant::now(),
             last_frame: [std::time::Duration::ZERO; 3],
             gpu_ms: 0.0,
             gpu_grid_ms: 0.0,
@@ -389,6 +397,8 @@ struct Shell {
     pending: Vec<Request>,
     dirty: bool,
     pending_input: Option<PendingInput>,
+    /// When AutoRecover information was last considered.
+    recovered: Instant,
     /// Last frame: grid image, interface paint, end of drawing + present.
     last_frame: [std::time::Duration; 3],
     /// GPU time after the last logged frame's present (BLUEOFFICE_NATIVE_GPU=1 waits for it).
@@ -415,6 +425,15 @@ struct PendingInput {
 }
 
 /// Start another BlueSheet window (with `file`, or a new workbook).
+/// BlueSheet's File › Options preferences.
+fn prefs_file() -> Option<std::path::PathBuf> {
+    std::env::var_os("LOCALAPPDATA").map(|d| {
+        std::path::PathBuf::from(d)
+            .join("BlueOffice")
+            .join("sheet-prefs.txt")
+    })
+}
+
 fn spawn_self(file: Option<&std::path::Path>) {
     if let Ok(exe) = std::env::current_exe() {
         let mut cmd = std::process::Command::new(exe);
@@ -426,6 +445,38 @@ fn spawn_self(file: Option<&std::path::Path>) {
 }
 
 impl Shell {
+    /// Save AutoRecover information every N minutes (File › Options › Save): a copy of a
+    /// changed workbook in %LOCALAPPDATA%\BlueOffice\AutoRecover, never over the file itself.
+    fn auto_recover(&mut self) {
+        let Some(min) = self.view.new_workbook_prefs().3 else {
+            return;
+        };
+        if self.recovered.elapsed().as_secs() < u64::from(min) * 60 {
+            return;
+        }
+        self.recovered = Instant::now();
+        if !self.view.view().modified() {
+            return;
+        }
+        let Some(dir) = std::env::var_os("LOCALAPPDATA").map(|d| {
+            std::path::PathBuf::from(d)
+                .join("BlueOffice")
+                .join("AutoRecover")
+        }) else {
+            return;
+        };
+        let name = self
+            .file
+            .as_ref()
+            .and_then(|p| p.file_stem())
+            .map_or_else(|| "Book1".to_owned(), |n| n.to_string_lossy().into_owned());
+        let sheet = self.view.view().sheet();
+        if let Ok(bytes) = self.view.view_mut().engine_mut().save("xlsx", sheet) {
+            let _ = std::fs::create_dir_all(&dir);
+            let _ = std::fs::write(dir.join(format!("{name} (AutoRecover).xlsx")), bytes);
+        }
+    }
+
     fn save(&mut self) -> bool {
         let Some(path) = self.file.clone() else {
             return self.save_as();
@@ -620,7 +671,13 @@ impl Handler for Shell {
             Ok("light") => TextRendering::light_cleartype(),
             _ => TextRendering::System,
         });
-        let mut surface = WindowSurface::new(&device, hwnd, width, height)?;
+        // BLUEOFFICE_SHEET_DCOMP=1 shows the swap chain through a DirectComposition visual
+        // (round 39 wheel try; docs/ui/REPORT-sheet.md).
+        let mut surface = if std::env::var("BLUEOFFICE_SHEET_DCOMP").as_deref() == Ok("1") {
+            WindowSurface::new_composition(&device, hwnd, width, height)?
+        } else {
+            WindowSurface::new(&device, hwnd, width, height)?
+        };
         // BLUEOFFICE_SHEET_SYNC=0 hands frames to the compositor without waiting for the
         // vertical blank (the same on-screen latency here, and window captures with
         // PrintWindow can then read a frame still being drawn), 1 (default) as BlueDoc.
@@ -652,6 +709,13 @@ impl Handler for Shell {
             .and_then(|v| v.parse::<f32>().ok())
         {
             self.view.handle(Input::Zoom((z - 100.0) / 10.0), &m);
+        }
+        // BLUEOFFICE_SHEET_ACTIONS="goto.A2;sheet.sort": commands run once the window is up
+        // (scripted side-by-side captures of dialogs, without sending input).
+        if let Ok(list) = std::env::var("BLUEOFFICE_SHEET_ACTIONS") {
+            for id in list.split(';').filter(|s| !s.is_empty()) {
+                self.view.run_command(id, &m);
+            }
         }
         Ok(())
     }
@@ -686,6 +750,15 @@ impl Handler for Shell {
         let m = Measure(self.gpu.as_ref().map(|g| &g.device));
         let mut redraw = self.view.handle(input, &m);
         redraw |= self.handle_requests();
+        if let Some(text) = self.view.take_preferences() {
+            if let Some(f) = prefs_file() {
+                if let Some(dir) = f.parent() {
+                    let _ = std::fs::create_dir_all(dir);
+                }
+                let _ = std::fs::write(f, text);
+            }
+        }
+        self.auto_recover();
         if !redraw {
             return;
         }

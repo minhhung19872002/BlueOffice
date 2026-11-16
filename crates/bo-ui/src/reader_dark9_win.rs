@@ -32,6 +32,9 @@ const CURVE: [(f32, f32); 8] = [
     (1.0, 0.27),
 ];
 
+/// OKLab lightness of accent colours in the dark skin.
+const ACCENT_L: f32 = 0.76;
+
 fn curve(l: f32) -> f32 {
     let l = l.clamp(0.0, 1.0);
     for w in CURVE.windows(2) {
@@ -97,7 +100,12 @@ fn from_oklab(lab: (f32, f32, f32), alpha: u8) -> Rgba {
 /// The dark skin's colour for `c` of the light skin (the skin palette function).
 pub(crate) fn dark_ink(c: Rgba) -> Rgba {
     let (l, a, b) = oklab(c);
-    // Keep the hue; a little less chroma so tints read as greys on the dark ground.
+    // Accent colours (saturated, mid lightness) keep their chroma at one lightness that
+    // carries the dark ground's text on them and reads as text on the ground (≥ 4.5 : 1 both
+    // ways); greys and tints follow the curve with a little less chroma.
+    if a.hypot(b) > 0.08 && (0.3..0.85).contains(&l) {
+        return from_oklab((ACCENT_L, a, b), c.3);
+    }
     from_oklab((curve(l), a * 0.85, b * 0.85), c.3)
 }
 

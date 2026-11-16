@@ -2644,10 +2644,8 @@ impl DocWindow {
                 Input::Move { x, y } => return fd.hover(x, y),
                 Input::Press { x, y, .. } => fd.press(x, y),
                 Input::Blink => return true,
-                Input::Wheel(_)
-                | Input::Drag { .. }
-                | Input::Release { .. }
-                | Input::Context { .. } => return false,
+                Input::Wheel(dy) => return fd.wheel(dy),
+                Input::Drag { .. } | Input::Release { .. } | Input::Context { .. } => return false,
                 _ => FindAction::None,
             };
             if a != FindAction::None {

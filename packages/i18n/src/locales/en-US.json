@@ -10801,6 +10801,13 @@
     "chartSheetPrefix": "Chart"
   },
   "findDlg": {
+    "footnote": "Footnote",
+    "endnote": "Endnote",
+    "field": "Field",
+    "table": "Table",
+    "graphic": "Graphic",
+    "equation": "Equation",
+    "object": "Object",
     "title": "Find and Replace",
     "tabFind": "Fin&d",
     "tabReplace": "Re&place",
@@ -10861,6 +10868,13 @@
     }
   },
   "docBorders": {
+    "threeD": "3-D",
+    "custom": "Custom",
+    "tabBorders": "Borders",
+    "tabPage": "Page Border",
+    "tabShading": "Shading",
+    "art": "Art:",
+    "options": "Options…",
     "title": "Borders and Shading",
     "setting": "Setting:",
     "none": "None",

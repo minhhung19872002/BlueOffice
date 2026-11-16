@@ -13,6 +13,9 @@ fn mix(a: Rgba, b: Rgba, k: f32) -> Rgba {
     let m = |x: u8, y: u8| (f32::from(x) * k + f32::from(y) * (1.0 - k)).round() as u8;
     Rgba(m(a.0, b.0), m(a.1, b.1), m(a.2, b.2), m(a.3, b.3))
 }
+/// Group labels sit this much (logical px) below the middle of their row: measured at
+/// 125 % the reference's label ink ends 2 px above the ribbon body's bottom edge.
+const LABEL_DROP: f32 = 4.0;
 
 /// One control of a group row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -39,10 +42,10 @@ pub(crate) fn icon_of(id: &str) -> &str {
         "review.rejectAll" => "review.reject",
         "review.deleteComment" => "review.resolveComment",
         "review.wordCount" => "review.checkDocument",
-        "design.pageColor" | "format.shading" => "format.fillColor",
+        "format.shading" => "format.fillColor",
         "format.paraBorders" => "format.borders",
         "format.sortParagraphs" => "data.sortAsc",
-        "design.watermark" | "slide.layout" => "layout.pageSetup",
+        "slide.layout" => "layout.pageSetup",
         "view.layout" | "view.notes" => "view.normal",
         "view.onePage" => "view.reading",
         "view.pageWidth" | "view.fitSlide" => "view.fitWidth",
@@ -2052,7 +2055,7 @@ impl Ribbon {
                     p.text(
                         label,
                         (r.x + ((r.w - w) / 2.0).max(0.0)).round(),
-                        r.y + (r.h - line) / 2.0,
+                        r.y + (r.h - line) / 2.0 + self.px(LABEL_DROP),
                         style,
                         // Near the body text: muted labels read faded next to desktop ribbons.
                         mix(t.text, t.text_muted, 0.8),

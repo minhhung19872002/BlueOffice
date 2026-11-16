@@ -13,12 +13,18 @@ const FRAME: Rgba = Rgba(170, 170, 170, 255);
 const EDGE: Rgba = Rgba(171, 173, 179, 255);
 const WHITE: Rgba = Rgba(255, 255, 255, 255);
 const INK: Rgba = Rgba(0, 0, 0, 255);
+const GREY: Rgba = Rgba(160, 160, 160, 255);
+const PAGE_EDGE: Rgba = Rgba(229, 229, 229, 255);
+const PAGE: Rgba = Rgba(249, 249, 249, 255);
+const TAB_OFF: Rgba = Rgba(243, 243, 243, 255);
 const SELECT: Rgba = Rgba(0, 120, 212, 255);
 const BUTTON: Rgba = Rgba(253, 253, 253, 255);
 const BUTTON_EDGE: Rgba = Rgba(208, 208, 208, 255);
 
 const W: f32 = 560.0;
-const H: f32 = 380.0;
+const H: f32 = 430.0;
+/// Content below the tab strip.
+const DY: f32 = 36.0;
 
 /// Line styles (§17.18.2 ST_Border) and their labels.
 const STYLES: [(&str, &str, &str); 5] = [
@@ -43,7 +49,7 @@ const COLORS: [Option<&str>; 8] = [
 const WIDTHS: [u32; 7] = [4, 6, 8, 12, 18, 24, 36];
 
 /// Labels: key, en-US fallback.
-const LABELS: [(&str, &str); 14] = [
+const LABELS: [(&str, &str); 21] = [
     ("docBorders.title", "Borders and Shading"),
     ("docBorders.setting", "Setting:"),
     ("docBorders.none", "None"),
@@ -58,6 +64,13 @@ const LABELS: [(&str, &str); 14] = [
     ("docBorders.section", "This section"),
     ("findDlg.cancel", "Cancel"),
     ("common.ok", "OK"),
+    ("docBorders.threeD", "3-D"),
+    ("docBorders.custom", "Custom"),
+    ("docBorders.tabBorders", "Borders"),
+    ("docBorders.tabPage", "Page Border"),
+    ("docBorders.tabShading", "Shading"),
+    ("docBorders.art", "Art:"),
+    ("docBorders.options", "Options…"),
 ];
 
 /// What a press asks the window to do.
@@ -161,23 +174,23 @@ impl BordersDialog {
     }
 
     fn setting_rect(&self, i: usize) -> [f32; 4] {
-        self.r(16.0, 70.0 + i as f32 * 56.0, 130.0, 50.0)
+        self.r(16.0, DY + 70.0 + i as f32 * 46.0, 130.0, 42.0)
     }
 
     fn style_rect(&self, i: usize) -> [f32; 4] {
-        self.r(166.0, 70.0 + i as f32 * 26.0, 170.0, 24.0)
+        self.r(166.0, DY + 70.0 + i as f32 * 26.0, 170.0, 24.0)
     }
 
     fn color_rect(&self, i: usize) -> [f32; 4] {
-        self.r(166.0 + i as f32 * 21.0, 228.0, 18.0, 18.0)
+        self.r(166.0 + i as f32 * 21.0, DY + 228.0, 18.0, 18.0)
     }
 
     fn width_rect(&self, i: usize) -> [f32; 4] {
-        self.r(166.0 + i as f32 * 24.0, 276.0, 22.0, 20.0)
+        self.r(166.0 + i as f32 * 24.0, DY + 276.0, 22.0, 20.0)
     }
 
     fn apply_rect(&self, i: usize) -> [f32; 4] {
-        self.r(360.0, 270.0 + i as f32 * 22.0, 180.0, 20.0)
+        self.r(360.0, DY + 270.0 + i as f32 * 22.0, 180.0, 20.0)
     }
 
     fn button_rect(&self, i: usize) -> [f32; 4] {
@@ -334,9 +347,74 @@ impl BordersDialog {
         p.text(self.label(0), x + self.px(10.0), ty(y, cap), st, INK);
         let c = self.r(W - 46.0, 0.0, 46.0, 30.0);
         p.text("\u{2715}", c[0] + self.px(17.0), ty(c[1], c[3]), st, INK);
+        // Tabs: Borders, Page Border (shown), Shading; the others are not available yet.
+        let mut tx = x + self.px(9.0);
+        for (k, label) in [16, 17, 18].into_iter().enumerate() {
+            let tw = self.px(96.0);
+            let on = k == 1;
+            let top = if on { 38.0 } else { 40.0 };
+            let r = self.r(0.0, top, 0.0, 60.0 - top);
+            p.fill_rect(tx, r[1], tw, r[3] + 1.0, PAGE_EDGE);
+            p.fill_rect(
+                tx + 1.0,
+                r[1] + 1.0,
+                tw - 2.0,
+                r[3] - 1.0 + if on { 1.0 } else { 0.0 },
+                if on { PAGE } else { TAB_OFF },
+            );
+            p.text(
+                self.label(label),
+                tx + self.px(12.0),
+                ty(r[1], r[3]),
+                st,
+                if on { INK } else { GREY },
+            );
+            tx += tw;
+        }
+        let pg = self.r(7.0, 60.0, W - 14.0, H - 60.0 - 50.0);
+        p.fill_rect(pg[0], pg[1], pg[2], 1.0, PAGE_EDGE);
+        // Art ▾ and Options… (not available yet).
+        p.text(
+            self.label(19),
+            x + self.px(166.0),
+            y + self.px(DY + 306.0),
+            st,
+            GREY,
+        );
+        let art = self.r(166.0, DY + 324.0, 170.0, 20.8);
+        p.fill_rect(art[0], art[1], art[2], art[3], Rgba(204, 204, 204, 255));
+        p.fill_rect(
+            art[0] + 1.0,
+            art[1] + 1.0,
+            art[2] - 2.0,
+            art[3] - 2.0,
+            Rgba(245, 245, 245, 255),
+        );
+        let opt = self.r(440.0, DY + 324.0, 100.0, 23.2);
+        p.fill_rect(opt[0], opt[1], opt[2], opt[3], BUTTON_EDGE);
+        p.fill_rect(
+            opt[0] + 1.0,
+            opt[1] + 1.0,
+            opt[2] - 2.0,
+            opt[3] - 2.0,
+            BUTTON,
+        );
+        p.text(
+            self.label(20),
+            opt[0] + self.px(18.0),
+            ty(opt[1], opt[3]),
+            st,
+            GREY,
+        );
         // Setting.
-        p.text(self.label(1), x + self.px(16.0), y + self.px(46.0), st, INK);
-        for i in 0..3 {
+        p.text(
+            self.label(1),
+            x + self.px(16.0),
+            y + self.px(DY + 46.0),
+            st,
+            INK,
+        );
+        for i in 0..5 {
             let r = self.setting_rect(i);
             if self.setting == i {
                 p.fill_rect(r[0], r[1], r[2], r[3], Rgba(204, 228, 247, 255));
@@ -345,11 +423,11 @@ impl BordersDialog {
             let pg = [
                 r[0] + self.px(6.0),
                 r[1] + self.px(6.0),
+                self.px(24.0),
                 self.px(30.0),
-                self.px(38.0),
             ];
             p.fill_rect(pg[0], pg[1], pg[2], pg[3], WHITE);
-            if i > 0 {
+            if (1..3).contains(&i) {
                 let e = self.scale.max(1.0).round();
                 if i == 2 {
                     p.fill_rect(
@@ -366,23 +444,28 @@ impl BordersDialog {
                 p.fill_rect(pg[0], pg[1], e, pg[3], INK);
                 p.fill_rect(pg[0] + pg[2] - e, pg[1], e, pg[3], INK);
             }
+            let name = if i < 3 {
+                self.label(2 + i)
+            } else {
+                self.label(11 + i)
+            };
             p.text(
-                self.label(2 + i),
+                name,
                 r[0] + self.px(46.0),
                 ty(r[1], r[3]),
                 st,
-                INK,
+                if i < 3 { INK } else { GREY },
             );
         }
         // Style list, colours, widths.
         p.text(
             self.label(5),
             x + self.px(166.0),
-            y + self.px(46.0),
+            y + self.px(DY + 46.0),
             st,
             INK,
         );
-        let lr = self.r(164.0, 68.0, 174.0, 136.0);
+        let lr = self.r(164.0, DY + 68.0, 174.0, 136.0);
         p.fill_rect(lr[0], lr[1], lr[2], lr[3], EDGE);
         p.fill_rect(lr[0] + 1.0, lr[1] + 1.0, lr[2] - 2.0, lr[3] - 2.0, WHITE);
         for i in 0..STYLES.len() {
@@ -407,7 +490,7 @@ impl BordersDialog {
         p.text(
             self.label(6),
             x + self.px(166.0),
-            y + self.px(208.0),
+            y + self.px(DY + 208.0),
             st,
             INK,
         );
@@ -438,7 +521,7 @@ impl BordersDialog {
         p.text(
             self.label(7),
             x + self.px(166.0),
-            y + self.px(256.0),
+            y + self.px(DY + 256.0),
             st,
             INK,
         );
@@ -460,11 +543,11 @@ impl BordersDialog {
         p.text(
             self.label(8),
             x + self.px(360.0),
-            y + self.px(46.0),
+            y + self.px(DY + 46.0),
             st,
             INK,
         );
-        let pv = self.r(380.0, 70.0, 120.0, 160.0);
+        let pv = self.r(380.0, DY + 70.0, 120.0, 160.0);
         p.fill_rect(pv[0], pv[1], pv[2], pv[3], WHITE);
         if self.setting > 0 {
             let ink = self.color();
@@ -515,7 +598,7 @@ impl BordersDialog {
         p.text(
             self.label(9),
             x + self.px(360.0),
-            y + self.px(246.0),
+            y + self.px(DY + 246.0),
             st,
             INK,
         );

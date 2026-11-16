@@ -641,6 +641,71 @@ pub(crate) fn install_icons(icons: &mut Icons) {
             icons.alias(id, existing);
         }
     }
+    // Design tab, filled like the rest of BlueDoc's ribbon (own shapes): Themes an "Aa"
+    // tile over four accent bars, Colors four swatches of a BlueOffice theme, Fonts a solid
+    // A, Watermark a page with a pale diagonal band, Page Color a tinted page and a drop.
+    let rgb = |r, g, b| Some(bo_render::Rgba(r, g, b, 255));
+    let page = "M4 3h16v18h-16Z";
+    icons.add_solid(
+        "design.themes",
+        &[
+            (page, rgb(255, 255, 255)),
+            (
+                "M5.5 13L8.6 4.5h1.6L13.3 13h-1.7l-0.7-2h-3l-0.7 2Z",
+                rgb(38, 38, 38),
+            ),
+            ("M8.7 9.6h1.9L9.6 6.6Z", rgb(255, 255, 255)),
+            ("M14.2 8.5h3.6v4.5h-3.6Z", rgb(38, 38, 38)),
+            ("M15.3 9.7h1.4v2.1h-1.4Z", rgb(255, 255, 255)),
+            ("M6 16h3v3h-3Z", rgb(0x1f, 0x6f, 0xb2)),
+            ("M9.3 16h3v3h-3Z", rgb(0x2b, 0xa3, 0xa0)),
+            ("M12.6 16h3v3h-3Z", rgb(0xf2, 0xa5, 0x41)),
+            ("M15.9 16h2.1v3h-2.1Z", rgb(0xd9, 0x53, 0x4f)),
+            (page, None),
+        ],
+    );
+    icons.add_solid(
+        "design.colors",
+        &[
+            ("M3 3h9v9h-9Z", rgb(0x1b, 0x3a, 0x5c)),
+            ("M12 3h9v9h-9Z", rgb(0xe7, 0xee, 0xf5)),
+            ("M3 12h9v9h-9Z", rgb(0x1f, 0x6f, 0xb2)),
+            ("M12 12h9v9h-9Z", rgb(0xf2, 0xa5, 0x41)),
+            ("M3 3h18v18h-18Z", None),
+        ],
+    );
+    icons.add_solid(
+        "design.fonts",
+        &[
+            (page, rgb(255, 255, 255)),
+            (
+                "M6.5 19L11 5h2l4.5 14h-2.4l-1.1-3.4h-4l-1.1 3.4Z",
+                rgb(20, 20, 20),
+            ),
+            ("M10.6 13.6h2.8L12 9Z", rgb(255, 255, 255)),
+            (page, None),
+        ],
+    );
+    icons.add_solid(
+        "design.watermark",
+        &[
+            (page, rgb(255, 255, 255)),
+            ("M6 16.5L15.5 5.5h2.5L8.5 16.5Z", rgb(0xf0, 0xb4, 0xb4)),
+            ("M6 18.5h12v1h-12Z", rgb(150, 150, 150)),
+            (page, None),
+        ],
+    );
+    icons.add_solid(
+        "design.pageColor",
+        &[
+            ("M3 3h14v18h-14Z", rgb(0xc8, 0xde, 0xf5)),
+            ("M3 3h14v18h-14Z", None),
+            (
+                "M18.5 11L21.5 15.5L21 18L18.5 19.5L16 18L15.5 15.5Z",
+                rgb(0x1f, 0x6f, 0xb2),
+            ),
+        ],
+    );
     // Navigation pane: a page with a filled list column on its left (own drawing).
     icons.add_solid(
         "view.navigationPane",

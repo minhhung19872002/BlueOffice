@@ -155,3 +155,32 @@ fn tabs_switch_and_go_to_moves_to_a_page() {
     assert!(w.find_dialog.is_none());
     assert_eq!(doc_find::HISTORY, 20);
 }
+
+#[test]
+fn go_to_list_clips_and_scrolls() {
+    let mut w = window();
+    w.handle(ctrl('g'), &Fixed);
+    let (rows, (list, down)) = {
+        let d = w.find_dialog.as_ref().expect("dialog");
+        (d.go_rows(), d.go_list())
+    };
+    // Five rows inside the box; the rest scroll into view.
+    assert_eq!(rows.len(), 5);
+    for (_, r) in &rows {
+        assert!(
+            r[1] >= list[1] && r[1] + r[3] <= list[1] + list[3],
+            "inside the box"
+        );
+    }
+    for _ in 0..20 {
+        press(&mut w, (down[0] + down[2] / 2.0, down[1] + down[3] / 2.0));
+    }
+    let d = w.find_dialog.as_ref().expect("dialog");
+    assert_eq!(d.go_scroll, 8, "scrolled to the last rows (13 entries)");
+    assert_eq!(d.go_rows().last().map(|r| r.0), Some(12), "Heading in view");
+    // The wheel over the list scrolls back up.
+    let (x, y) = (list[0] + 20.0, list[1] + 20.0);
+    w.handle(Input::Move { x, y }, &Fixed);
+    w.handle(Input::Wheel(120.0), &Fixed);
+    assert_eq!(w.find_dialog.as_ref().map(|d| d.go_scroll), Some(7));
+}

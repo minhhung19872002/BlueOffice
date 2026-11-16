@@ -120,14 +120,31 @@ pub(crate) const L_NOT_FOUND: usize = 38;
 pub(crate) const L_REPLACED: usize = 39;
 pub(crate) const L_FOUND: usize = 40;
 
-/// Go to what: entries (only Page is carried out; the others are listed greyed).
-const GO_WHAT: [(&str, &str); 5] = [
+/// Go to what: the reference's targets in its order; only Page is carried out here, the
+/// others are listed greyed.
+const GO_WHAT: [(&str, &str); 13] = [
     ("findDlg.page", "Page"),
     ("findDlg.section", "Section"),
     ("findDlg.line", "Line"),
     ("findDlg.bookmark", "Bookmark"),
     ("findDlg.comment", "Comment"),
+    ("findDlg.footnote", "Footnote"),
+    ("findDlg.endnote", "Endnote"),
+    ("findDlg.field", "Field"),
+    ("findDlg.table", "Table"),
+    ("findDlg.graphic", "Graphic"),
+    ("findDlg.equation", "Equation"),
+    ("findDlg.object", "Object"),
+    ("findDlg.heading", "Heading"),
 ];
+/// Rows the Go to what list shows (16 px each in its 82 px box), and its scroll bar width.
+const GO_ROWS: usize = 5;
+const GO_BAR: f32 = 16.0;
+
+/// Go to what entries BlueDoc carries out.
+fn go_supported(i: usize) -> bool {
+    i == 0
+}
 
 /// Special ▾ entries: label and the code typed into the box (the engine's search codes).
 const SPECIAL: [(&str, &str, &str); 9] = [
@@ -175,6 +192,8 @@ enum Hit {
     Button(Button),
     Check(usize),
     GoWhat(usize),
+    /// Scroll the Go to what list by rows.
+    GoScroll(isize),
     Item(usize),
 }
 
@@ -261,6 +280,10 @@ pub(crate) struct FindDialog {
     page: Edit,
     focus: Field,
     go_what: usize,
+    /// First Go to what row shown (the list scrolls).
+    pub(crate) go_scroll: usize,
+    /// Last pointer position (the wheel scrolls the list under it).
+    pointer: (f32, f32),
     history: Vec<String>,
     drop: Option<DropList>,
     hover: Option<Hit>,
@@ -313,6 +336,8 @@ impl FindDialog {
             page: Edit::default(),
             focus: if tab == 2 { Field::Page } else { Field::Find },
             go_what: 0,
+            go_scroll: 0,
+            pointer: (-1.0, -1.0),
             history,
             drop: None,
             hover: None,
@@ -607,10 +632,43 @@ impl FindDialog {
         }
     }
 
-    fn go_rects(&self) -> Vec<[f32; 4]> {
-        (0..GO_WHAT.len())
-            .map(|i| self.r(20.0, 87.0 + i as f32 * 16.0, 172.0, 16.0))
+    /// Go to what rows in view: entry index and rectangle.
+    fn go_rects(&self) -> Vec<(usize, [f32; 4])> {
+        (self.go_scroll..(self.go_scroll + GO_ROWS).min(GO_WHAT.len()))
+            .map(|i| {
+                let row = (i - self.go_scroll) as f32;
+                (i, self.r(20.0, 87.0 + row * 16.0, 172.0 - GO_BAR, 16.0))
+            })
             .collect()
+    }
+
+    fn go_box(&self) -> [f32; 4] {
+        self.r(19.0, 86.0, 174.0, 82.0)
+    }
+
+    /// Scroll bar of the list: up arrow, down arrow, track.
+    fn go_bar(&self) -> [[f32; 4]; 3] {
+        let x = 19.0 + 174.0 - 1.0 - GO_BAR;
+        [
+            self.r(x, 87.0, GO_BAR, 16.0),
+            self.r(x, 87.0 + 80.0 - 16.0, GO_BAR, 16.0),
+            self.r(x, 87.0, GO_BAR, 80.0),
+        ]
+    }
+
+    fn go_scroll_by(&mut self, rows: isize) -> bool {
+        let max = GO_WHAT.len().saturating_sub(GO_ROWS);
+        let next = self.go_scroll.saturating_add_signed(rows).min(max);
+        std::mem::replace(&mut self.go_scroll, next) != next
+    }
+
+    /// The wheel over the Go to what list scrolls it (`dy` > 0: up).
+    pub(crate) fn wheel(&mut self, dy: f32) -> bool {
+        let (x, y) = self.pointer;
+        if self.tab != 2 || !inside(self.go_box(), x, y) {
+            return false;
+        }
+        self.go_scroll_by(if dy > 0.0 { -1 } else { 1 })
     }
 
     fn hit(&self, x: f32, y: f32) -> Option<Hit> {
@@ -649,7 +707,22 @@ impl FindDialog {
             return Some(Hit::Check(l));
         }
         if self.tab == 2 {
-            if let Some(i) = self.go_rects().iter().position(|r| inside(*r, x, y)) {
+            let [up, down, track] = self.go_bar();
+            if inside(up, x, y) {
+                return Some(Hit::GoScroll(-1));
+            }
+            if inside(down, x, y) {
+                return Some(Hit::GoScroll(1));
+            }
+            if inside(track, x, y) {
+                let mid = track[1] + track[3] / 2.0;
+                return Some(Hit::GoScroll(if y < mid { -1 } else { 1 }));
+            }
+            if let Some((i, _)) = self
+                .go_rects()
+                .into_iter()
+                .find(|(i, r)| go_supported(*i) && inside(*r, x, y))
+            {
                 return Some(Hit::GoWhat(i));
             }
         }
@@ -657,6 +730,7 @@ impl FindDialog {
     }
 
     pub(crate) fn hover(&mut self, x: f32, y: f32) -> bool {
+        self.pointer = (x, y);
         let h = self.hit(x, y);
         std::mem::replace(&mut self.hover, h) != h
     }
@@ -792,6 +866,10 @@ impl FindDialog {
             }
             Some(Hit::GoWhat(i)) => {
                 self.go_what = i;
+                FindAction::Redraw
+            }
+            Some(Hit::GoScroll(rows)) => {
+                self.go_scroll_by(rows);
                 FindAction::Redraw
             }
             None => FindAction::Redraw,
@@ -964,6 +1042,18 @@ impl FindDialog {
         self.drop
             .as_ref()
             .map(|d| (d.rect[0] + self.px(20.0), d.rect[1] + self.px(10.0)))
+    }
+
+    /// Go to what rows in view (tests): entry index and rectangle.
+    #[cfg(test)]
+    pub(crate) fn go_rows(&self) -> Vec<(usize, [f32; 4])> {
+        self.go_rects()
+    }
+
+    /// The list box and its down arrow (tests).
+    #[cfg(test)]
+    pub(crate) fn go_list(&self) -> ([f32; 4], [f32; 4]) {
+        (self.go_box(), self.go_bar()[1])
     }
 
     /// Centre of the Match case box (tests).
@@ -1163,10 +1253,12 @@ impl FindDialog {
             if let Some(l) = self.labels.get(L_GO_WHAT) {
                 self.draw_label(p, l, self.x0 + self.px(19.0), self.y0 + self.px(68.0), INK);
             }
-            let lr = self.r(19.0, 86.0, 174.0, 82.0);
+            let lr = self.go_box();
             p.fill_rect(lr[0], lr[1], lr[2], lr[3], FIELD_EDGE);
             p.fill_rect(lr[0] + 1.0, lr[1] + 1.0, lr[2] - 2.0, lr[3] - 2.0, WHITE);
-            for (i, r) in self.go_rects().into_iter().enumerate() {
+            // Rows clipped to the box; entries BlueDoc cannot go to yet are greyed.
+            p.push_clip(lr[0] + 1.0, lr[1] + 1.0, lr[2] - 2.0, lr[3] - 2.0);
+            for (i, r) in self.go_rects() {
                 let Some(l) = self.go_labels.get(i) else {
                     continue;
                 };
@@ -1174,9 +1266,45 @@ impl FindDialog {
                 if sel {
                     p.fill_rect(r[0], r[1], r[2], r[3], DEFAULT_EDGE);
                 }
-                let color = if sel { WHITE } else { INK };
+                let color = if sel {
+                    WHITE
+                } else if go_supported(i) {
+                    INK
+                } else {
+                    GREY
+                };
                 self.draw_label(p, l, r[0] + self.px(3.0), self.text_y(r[1], r[3]), color);
             }
+            // Scroll bar: track, arrows and a thumb sized to the rows in view.
+            let [up, down, track] = self.go_bar();
+            p.fill_rect(track[0], track[1], track[2], track[3], FACE);
+            let n = GO_WHAT.len() as f32;
+            let inner = track[3] - up[3] - down[3];
+            let th = (inner * GO_ROWS as f32 / n).max(self.px(8.0));
+            let ty = up[1]
+                + up[3]
+                + (inner - th) * self.go_scroll as f32 / (n - GO_ROWS as f32).max(1.0);
+            p.fill_rect(
+                track[0] + self.px(4.0),
+                ty,
+                track[2] - self.px(8.0),
+                th,
+                Rgba(205, 205, 205, 255),
+            );
+            for (r, dir) in [(up, -1.0_f32), (down, 1.0)] {
+                let (cx, cy, k) = (r[0] + r[2] / 2.0, r[1] + r[3] / 2.0, self.px(3.0));
+                p.path(
+                    &[
+                        PathSeg::M(cx - k, cy - dir * k / 2.0),
+                        PathSeg::L(cx, cy + dir * k / 2.0),
+                        PathSeg::L(cx + k, cy - dir * k / 2.0),
+                        PathSeg::Z,
+                    ],
+                    Some(Rgba(96, 96, 96, 255)),
+                    None,
+                );
+            }
+            p.pop_clip();
             let hx = self.x0 + self.px(210.0);
             let mut hy = self.y0 + self.px(114.0);
             for line in &self.hint {

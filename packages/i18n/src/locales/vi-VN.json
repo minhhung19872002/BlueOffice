@@ -10801,6 +10801,13 @@
     "chartSheetPrefix": "Biểu đồ"
   },
   "findDlg": {
+    "footnote": "Chú thích cuối trang",
+    "endnote": "Chú thích cuối bài",
+    "field": "Trường",
+    "table": "Bảng",
+    "graphic": "Hình",
+    "equation": "Phương trình",
+    "object": "Đối tượng",
     "title": "Tìm và thay thế",
     "tabFind": "&Tìm",
     "tabReplace": "Th&ay thế",
@@ -10861,6 +10868,13 @@
     }
   },
   "docBorders": {
+    "threeD": "3-D",
+    "custom": "Tùy chỉnh",
+    "tabBorders": "Viền",
+    "tabPage": "Viền trang",
+    "tabShading": "Tô nền",
+    "art": "Họa tiết:",
+    "options": "Tùy chọn…",
     "title": "Viền và tô nền",
     "setting": "Kiểu viền:",
     "none": "Không",

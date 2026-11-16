@@ -12,6 +12,7 @@ mod commands;
 mod design_gallery;
 mod dialog;
 mod doc_comments;
+mod doc_find;
 mod doc_table;
 mod doc_tips;
 mod doc_tools;

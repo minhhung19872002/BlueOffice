@@ -565,14 +565,10 @@ fn ctrl_g_goes_to_a_page() {
         ..Mods::default()
     };
     w.handle(Input::Key(Key::Letter('g'), ctrl), &Fixed);
-    assert_eq!(w.dialog.as_ref().map(|d| d.kind), Some(DialogKind::GoTo));
-    for _ in 0..4 {
-        w.handle(Input::Key(Key::Backspace, Mods::default()), &Fixed);
-    }
+    assert_eq!(w.find_dialog.as_ref().map(|d| d.tab), Some(2), "Go To tab");
     w.view.scroll_to(0.0);
     w.handle(Input::Text("3".into()), &Fixed);
     w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
-    assert!(w.dialog.is_none());
     let (scroll, _, _) = w.view.scroll_info();
     let third = w.view.slots().iter().find(|s| s.index == 2).map(|s| s.y);
     assert!(scroll > 0.0, "scrolled to page 3");

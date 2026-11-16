@@ -1,5 +1,4 @@
-//! BlueDoc Design tab: Themes / Colors / Fonts / Paragraph Spacing drop-downs, and the
-//! tabbed Find and Replace dialog.
+//! BlueDoc Design tab: Themes / Colors / Fonts / Paragraph Spacing drop-downs.
 use super::*;
 use bo_engine::Engine;
 
@@ -78,42 +77,4 @@ fn design_tab_has_the_document_formatting_drop_downs() {
     w.action("design.colors");
     w.handle(Input::Key(Key::Escape, Mods::default()), &Fixed);
     assert!(w.design_gallery.is_none());
-}
-
-#[test]
-fn find_replace_and_go_to_are_tabs_of_one_dialog() {
-    let mut w = window();
-    w.action("edit.replace");
-    let d = w.dialog.as_ref().expect("dialog");
-    assert_eq!(d.kind, DialogKind::Replace);
-    assert_eq!(d.page(), 1);
-    w.handle(Input::Text("needle".into()), &Fixed);
-    // Ctrl+PageUp shows the Find tab, keeping the text.
-    w.handle(
-        Input::Key(
-            Key::PageUp,
-            Mods {
-                ctrl: true,
-                ..Mods::default()
-            },
-        ),
-        &Fixed,
-    );
-    let d = w.dialog.as_ref().expect("still open");
-    assert_eq!(d.kind, DialogKind::Find);
-    assert_eq!(d.page(), 0);
-    assert!(d.values()[0].contains("needle"));
-    w.handle(
-        Input::Key(
-            Key::PageUp,
-            Mods {
-                ctrl: true,
-                ..Mods::default()
-            },
-        ),
-        &Fixed,
-    );
-    let d = w.dialog.as_ref().expect("still open");
-    assert_eq!(d.kind, DialogKind::GoTo);
-    assert_eq!(d.page(), 2);
 }

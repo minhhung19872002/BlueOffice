@@ -4,6 +4,7 @@ use crate::catalog;
 use crate::design_gallery::{DesignGallery, DesignMenu};
 use crate::dialog::{Dialog, DialogButton, DialogKind};
 use crate::doc_comments::{CommentAction, CommentsPane};
+use crate::doc_find::{FindAction, FindDialog};
 use crate::doc_tools::{self, Context, Tool};
 use crate::doc_view::DocView;
 use crate::icons::Icons;
@@ -166,6 +167,12 @@ pub struct DocWindow {
     reply_to: Option<i32>,
     /// Text typed in Find what, carried to the next tab of Find and Replace.
     find_draft: Option<String>,
+    /// The classic Find and Replace dialog (Ctrl+H, Ctrl+G), when open.
+    find_dialog: Option<FindDialog>,
+    /// Searches typed in it, most recent first (its combo boxes' history).
+    find_history: Vec<String>,
+    /// Search options of the matches in `find` (JSON), to search again when they change.
+    find_options: String,
     /// Insert › Table size picker, when open.
     table_grid: Option<TableGrid>,
     /// Insert › Symbol gallery, when open.
@@ -337,6 +344,9 @@ impl DocWindow {
             comments_pane: None,
             reply_to: None,
             find_draft: None,
+            find_dialog: None,
+            find_history: Vec::new(),
+            find_options: String::new(),
             table_grid: None,
             symbol_grid: None,
             design_gallery: None,
@@ -878,6 +888,9 @@ impl DocWindow {
         if let Some(g) = self.symbol_grid.as_mut() {
             g.measure(text);
         }
+        if let Some(fd) = self.find_dialog.as_mut() {
+            fd.layout(text, &self.strings, self.size, self.scale);
+        }
         if let Some(g) = self.design_gallery.as_mut() {
             g.measure(text);
         }
@@ -1258,6 +1271,127 @@ impl DocWindow {
         self.dialog = Some(dialog);
         self.relayout_pending = true;
         true
+    }
+
+    /// Open the Find and Replace dialog on tab `tab` (0 Find, 1 Replace, 2 Go To).
+    fn open_find_dialog(&mut self, tab: usize) -> bool {
+        let sel = self.find.as_ref().map(|f| f.0.clone()).unwrap_or_default();
+        self.menu = None;
+        self.find_dialog = Some(FindDialog::new(tab, &sel, self.find_history.clone()));
+        self.relayout_pending = true;
+        true
+    }
+
+    /// Carry out what the Find and Replace dialog asked for.
+    fn find_dialog_action(&mut self, a: FindAction) -> bool {
+        let Some(fd) = self.find_dialog.as_mut() else {
+            return false;
+        };
+        let query = fd.query();
+        let with = fd.replacement();
+        let options = fd.options();
+        if matches!(
+            a,
+            FindAction::FindNext | FindAction::Replace | FindAction::ReplaceAll
+        ) {
+            fd.remember();
+            self.find_history = fd.history().to_vec();
+        }
+        match a {
+            FindAction::None => return false,
+            FindAction::Redraw => {}
+            FindAction::Close => self.find_dialog = None,
+            FindAction::FindNext => self.find_with(&query, &options),
+            FindAction::Replace => {
+                if let Some((q, matches, i)) = self.find.clone().filter(|f| f.0 == query) {
+                    if let Some(m) = matches.get(i) {
+                        let cmd = catalog::from_json(json!({
+                            "cmd": "replace", "match": m, "with": with, "query": q,
+                            "options": options,
+                        }));
+                        if let Some(c) = cmd {
+                            self.view.run_command(c);
+                        }
+                    }
+                    self.find = None;
+                }
+                self.find_with(&query, &options);
+            }
+            FindAction::ReplaceAll => {
+                let cmd = catalog::from_json(json!({
+                    "cmd": "replaceAll", "query": query, "with": with, "options": options,
+                }));
+                let n = cmd
+                    .and_then(|c| self.view.exec(c))
+                    .and_then(|r| r.count)
+                    .unwrap_or(0);
+                self.find = None;
+                if let Some(fd) = self.find_dialog.as_mut() {
+                    fd.message = fd
+                        .label(crate::doc_find::L_REPLACED)
+                        .replace("{{count}}", &n.to_string());
+                }
+            }
+            FindAction::GoTo(typed) => {
+                // Page numbers count from 1; "+n" / "-n" move from the current page.
+                let t = typed.trim();
+                let current = self.view.current_page() as i64;
+                let target = if let Some(n) = t.strip_prefix('+') {
+                    n.parse::<i64>().ok().map(|n| current + n)
+                } else if let Some(n) = t.strip_prefix('-') {
+                    n.parse::<i64>().ok().map(|n| current - n)
+                } else {
+                    t.parse::<i64>().ok().map(|n| n - 1)
+                };
+                if let Some(page) = target {
+                    let last = self.view.page_count().saturating_sub(1) as i64;
+                    self.view.show_page(page.clamp(0, last) as usize);
+                }
+            }
+        }
+        true
+    }
+
+    /// Find the next match of `query` with search `options` (JSON) and select it.
+    fn find_with(&mut self, query: &str, options: &serde_json::Value) {
+        if query.is_empty() {
+            return;
+        }
+        let key = options.to_string();
+        let fresh = self.find_options != key || self.find.as_ref().is_none_or(|f| f.0 != query);
+        if fresh {
+            self.find_options = key;
+            let matches =
+                catalog::from_json(json!({ "cmd": "find", "query": query, "options": options }))
+                    .and_then(|c| self.view.exec(c))
+                    .and_then(|r| r.matches)
+                    .unwrap_or_default();
+            self.find = Some((query.to_owned(), matches, usize::MAX));
+        }
+        let found = match self.find.as_mut() {
+            Some((_, matches, i)) if !matches.is_empty() => {
+                *i = if *i == usize::MAX {
+                    0
+                } else {
+                    (*i + 1) % matches.len()
+                };
+                let (n, total, m) = (*i + 1, matches.len(), matches[*i]);
+                if let Some(c) = catalog::from_json(json!({ "cmd": "selectMatch", "match": m })) {
+                    self.view.run_command(c);
+                }
+                Some((n, total))
+            }
+            _ => None,
+        };
+        if let Some(fd) = self.find_dialog.as_mut() {
+            fd.message = match found {
+                Some((n, total)) => fd
+                    .label(crate::doc_find::L_FOUND)
+                    .replace("{{n}}", &n.to_string())
+                    .replace("{{total}}", &total.to_string()),
+                None => fd.label(crate::doc_find::L_NOT_FOUND),
+            };
+        }
     }
 
     /// The Find and Replace dialog shows another tab: open that tab's kind in its place,
@@ -1763,7 +1897,7 @@ impl DocWindow {
             "edit.find" => self.toggle_nav(true, true),
             "review.spellingDialog" => self.open_spelling(),
             "layout.pageSetup" => self.open_dialog(DialogKind::PageSetup),
-            "edit.goTo" => self.open_dialog(DialogKind::GoTo),
+            "edit.goTo" => self.open_find_dialog(2),
             id if id == crate::doc_table::DIALOGS[0] => {
                 self.open_dialog(DialogKind::TableProperties)
             }
@@ -1798,7 +1932,7 @@ impl DocWindow {
                 self.refresh_nav();
                 true
             }
-            "edit.replace" => self.open_dialog(DialogKind::Replace),
+            "edit.replace" => self.open_find_dialog(1),
             "insert.link" => self.open_dialog(DialogKind::Link),
             "format.fontSettings" => self.open_dialog(DialogKind::Font),
             "format.paragraphSettings" => self.open_dialog(DialogKind::Paragraph),
@@ -2304,6 +2438,9 @@ impl DocWindow {
         if let Some(g) = self.symbol_grid.as_mut() {
             g.measure(text);
         }
+        if let Some(fd) = self.find_dialog.as_mut() {
+            fd.layout(text, &self.strings, self.size, self.scale);
+        }
         if let Some(g) = self.design_gallery.as_mut() {
             g.measure(text);
         }
@@ -2421,6 +2558,30 @@ impl DocWindow {
         }
         if let Some(redraw) = self.cell_spin_input(&input) {
             return redraw;
+        }
+        // The Find and Replace dialog is modal too.
+        if let Some(fd) = self.find_dialog.as_mut() {
+            let a = match input {
+                Input::Text(ref s) => {
+                    fd.text(s);
+                    FindAction::Redraw
+                }
+                Input::Key(k, m) => fd.key(k, m),
+                Input::Move { x, y } => return fd.hover(x, y),
+                Input::Press { x, y, .. } => fd.press(x, y),
+                Input::Blink => return true,
+                Input::Wheel(_)
+                | Input::Drag { .. }
+                | Input::Release { .. }
+                | Input::Context { .. } => return false,
+                _ => FindAction::None,
+            };
+            if a != FindAction::None {
+                return self.find_dialog_action(a);
+            }
+            if !matches!(input, Input::Resize { .. } | Input::Scale(_) | Input::Tick) {
+                return false;
+            }
         }
         // A dialog is modal: it takes keyboard and pointer input.
         if let Some(d) = self.dialog.as_mut() {
@@ -3254,6 +3415,9 @@ impl DocWindow {
         if let Some(d) = &self.dialog {
             d.paint(p, &self.theme, self.size, true);
         }
+        if let Some(fd) = &self.find_dialog {
+            fd.paint(p, &self.theme, true);
+        }
     }
 
     /// Paint `paint` through cached layer `id` over `rect` (window pixels): the backend
@@ -3954,6 +4118,9 @@ mod doc_comments_tests;
 #[cfg(test)]
 #[path = "doc_design_tests.rs"]
 mod doc_design_tests;
+#[cfg(test)]
+#[path = "doc_find_tests.rs"]
+mod doc_find_tests;
 #[cfg(test)]
 #[path = "doc_perf_tests.rs"]
 mod doc_perf_tests;

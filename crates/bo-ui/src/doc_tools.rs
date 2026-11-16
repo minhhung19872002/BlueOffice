@@ -253,6 +253,8 @@ fn outlining_tab() -> Tab {
     Tab {
         label: OUTLINING,
         groups: vec![
+            // « ← [Level ▾] → », ▲ ▼ + −, then Show Level / Show Text Formatting / Show
+            // First Line Only, as the reference's Outline Tools.
             Group {
                 label: "docR3.groupOutlineTools",
                 large: vec![],
@@ -260,12 +262,31 @@ fn outlining_tab() -> Tab {
                     vec![
                         B("outline.promoteHeading"),
                         B("outline.promote"),
+                        S("outline.level"),
                         B("outline.demote"),
                         B("outline.demoteBody"),
                     ],
-                    vec![B("outline.moveUp"), B("outline.moveDown")],
-                    vec![S("outline.showLevel")],
+                    vec![
+                        B("outline.moveUp"),
+                        B("outline.moveDown"),
+                        B("outline.expand"),
+                        B("outline.collapse"),
+                    ],
                 ],
+            },
+            Group {
+                label: "docR3.groupOutlineShow",
+                large: vec![],
+                rows: vec![
+                    vec![S("outline.showLevel")],
+                    vec![S("outline.showFormatting")],
+                    vec![S("outline.firstLine")],
+                ],
+            },
+            Group {
+                label: "docR3.groupMaster",
+                large: vec![L("outline.showDocument"), L("outline.collapseSubdocs")],
+                rows: vec![],
             },
             Group {
                 label: "docR3.groupClose",
@@ -528,7 +549,7 @@ pub(crate) fn enabled(id: &str, f: &FormatState) -> Option<bool> {
     let in_table = f.table.is_some();
     Some(match id {
         "table.mergeCells" => f.table.as_ref().is_some_and(|t| t.multi_cell),
-        "picture.group" => false,
+        "picture.group" | "outline.showDocument" | "outline.collapseSubdocs" => false,
         _ if id.starts_with("outline.") => true,
         _ if id.starts_with("table.") => in_table,
         _ if id.starts_with("picture.") => f.picture.is_some() || f.picture_tools,

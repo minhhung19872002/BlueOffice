@@ -22,7 +22,15 @@ pub(crate) const MENUS: [&str; 12] = [
 ];
 
 /// More menu buttons (Review › Language / Protect).
-pub(crate) const MORE_MENUS: [&str; 2] = ["review.languageMenu", "review.protectMenu"];
+pub(crate) const MORE_MENUS: [&str; 7] = [
+    "mailings.startMerge",
+    "mailings.insertField",
+    "mailings.rules",
+    "review.languageMenu",
+    "review.protectMenu",
+    "references.addText",
+    "references.nextFootnote",
+];
 
 /// The `&'static str` of a round-3 menu id.
 pub(crate) fn static_id(id: &str) -> Option<&'static str> {
@@ -35,7 +43,22 @@ pub(crate) fn static_id(id: &str) -> Option<&'static str> {
 }
 
 /// Buttons of round 3 that are not menus.
-pub(crate) const BUTTONS: [&str; 16] = [
+pub(crate) const BUTTONS: [&str; 31] = [
+    "mailings.editRecipients",
+    "mailings.highlightFields",
+    "mailings.addressBlock",
+    "mailings.greetingLine",
+    "mailings.matchFields",
+    "mailings.updateLabels",
+    "mailings.firstRecord",
+    "mailings.lastRecord",
+    "mailings.recordBox",
+    "mailings.findRecipient",
+    "mailings.checkErrors",
+    "mailings.recipients",
+    "references.showNotes",
+    "references.updateFigures",
+    "references.notesLauncher",
     "view.stylesPane",
     "view.outline",
     "references.manageSources",
@@ -55,16 +78,38 @@ pub(crate) const BUTTONS: [&str; 16] = [
 ];
 
 /// Outlining tab commands (Outline view).
-pub(crate) const OUTLINE: [&str; 8] = [
+pub(crate) const OUTLINE: [&str; 15] = [
     "outline.promoteHeading",
     "outline.promote",
+    "outline.level",
     "outline.demote",
     "outline.demoteBody",
     "outline.moveUp",
     "outline.moveDown",
+    "outline.expand",
+    "outline.collapse",
     "outline.showLevel",
+    "outline.showFormatting",
+    "outline.firstLine",
+    "outline.showDocument",
+    "outline.collapseSubdocs",
     "outline.close",
 ];
+
+/// Drop-down boxes drawn over their ribbon placeholders (current value and ▾).
+pub(crate) const BOXES: [&str; 3] = ["outline.level", "outline.showLevel", "references.citationStyle"];
+
+/// Widths (logical px) of the round-3 placeholders measured on the reference at 125 %.
+pub(crate) fn labeled_w(id: &str) -> Option<f32> {
+    Some(match id {
+        "outline.level" => 114.0,
+        "outline.showLevel" => 214.0,
+        "outline.showFormatting" | "outline.firstLine" => 160.0,
+        "references.citationStyle" => 134.0,
+        "mailings.recordBox" => 54.0,
+        _ => return None,
+    })
+}
 
 const fn e(id: &'static str, label: &'static str) -> Entry {
     Entry { id, label }
@@ -150,14 +195,59 @@ pub(crate) fn menu(id: &str) -> Vec<Entry> {
             e("review.compare.compare", "docR3.compareDots"),
             e("review.compare.combine", "docR3.combineDots"),
         ],
+        "references.addText" => vec![
+            e("references.addText.none", "docR3.notShownInToc"),
+            e("references.addText.0", "docR3.level1"),
+            e("references.addText.1", "docR3.level2"),
+            e("references.addText.2", "docR3.level3"),
+        ],
+        "references.nextFootnote" => vec![
+            e("references.note.nextFoot", "docR3.nextFootnote"),
+            e("references.note.prevFoot", "docR3.previousFootnote"),
+            e("references.note.nextEnd", "docR3.nextEndnote"),
+            e("references.note.prevEnd", "docR3.previousEndnote"),
+        ],
+        "mailings.startMerge" => vec![
+            e("mailings.type.letters", "docR3.mergeLetters"),
+            e("mailings.type.labels", "docR3.mergeLabels"),
+            e("mailings.type.directory", "docR3.mergeDirectory"),
+            e("mailings.type.normal", "docR3.mergeNormal"),
+        ],
+        // Fields come from the data source at open time (see the window).
+        "mailings.insertField" => vec![e("mailings.field.none", "docR3.noRecipients")],
+        "mailings.rules" => vec![
+            e("mailings.rule.ask", "docR3.ruleAsk"),
+            e("mailings.rule.fillIn", "docR3.ruleFillIn"),
+            e("mailings.rule.if", "docR3.ruleIf"),
+            e("mailings.rule.mergeRec", "docR3.ruleMergeRec"),
+            e("mailings.rule.mergeSeq", "docR3.ruleMergeSeq"),
+            e("mailings.rule.next", "docR3.ruleNext"),
+            e("mailings.rule.skipIf", "docR3.ruleSkipIf"),
+        ],
         "review.languageMenu" => vec![e("review.language.set", "docR3.setProofingLanguage")],
         "review.protectMenu" => vec![e("review.restrictEditing", "docR3.restrictEditing")],
+        "outline.level" => vec![
+            e("outline.setLevel.0", "docR3.level1"),
+            e("outline.setLevel.1", "docR3.level2"),
+            e("outline.setLevel.2", "docR3.level3"),
+            e("outline.setLevel.3", "docR3.level4"),
+            e("outline.setLevel.4", "docR3.level5"),
+            e("outline.setLevel.5", "docR3.level6"),
+            e("outline.setLevel.6", "docR3.level7"),
+            e("outline.setLevel.7", "docR3.level8"),
+            e("outline.setLevel.8", "docR3.level9"),
+            e("outline.setLevel.body", "docR3.bodyText"),
+        ],
         "outline.showLevel" => vec![
             e("outline.level.1", "docR3.level1"),
             e("outline.level.2", "docR3.level2"),
             e("outline.level.3", "docR3.level3"),
             e("outline.level.4", "docR3.level4"),
             e("outline.level.5", "docR3.level5"),
+            e("outline.level.6", "docR3.level6"),
+            e("outline.level.7", "docR3.level7"),
+            e("outline.level.8", "docR3.level8"),
+            e("outline.level.9", "docR3.level9"),
             e("outline.level.all", "docR3.allLevels"),
         ],
         _ => Vec::new(),
@@ -189,6 +279,10 @@ pub(crate) fn dim(id: &str) -> bool {
             | "picture.flip.horizontal"
             | "picture.group"
             | "references.citation.placeholder"
+            | "mailings.rule.ask"
+            | "mailings.rule.if"
+            | "mailings.rule.skipIf"
+            | "mailings.field.none"
     )
 }
 
@@ -234,6 +328,10 @@ pub(crate) fn separator(id: &str) -> bool {
     )
 }
 
+fn green_add() -> Option<Rgba> {
+    Some(Rgba(0x2e, 0x8b, 0x57, 255))
+}
+
 /// Ribbon labels of the round-3 buttons in the reference's casing (`docR3.cmd.*` copied to
 /// `commands.<id>`, so the shared interface keeps its own wording).
 pub(crate) fn install_strings(s: &mut crate::strings::Strings) {
@@ -258,7 +356,53 @@ pub(crate) fn install_strings(s: &mut crate::strings::Strings) {
             s.set(&format!("commands.{id}"), &v);
         }
     }
+    // The reference's Title Case on the References / Mailings / Review / View / picture tabs
+    // (the shared interface keeps its own wording).
+    for target in TITLE_CASE {
+        let key = format!("docR3.tc.{}", target.replace('.', "_"));
+        let v = s.get(&key).to_owned();
+        if v != key {
+            s.set(target, &v);
+        }
+    }
 }
+
+/// Labels shown in Title Case like the reference (`docR3.tc.*`).
+pub(crate) const TITLE_CASE: [&str; 33] = [
+    "ribbon.groups.toc",
+    "ribbon.groups.footnotes",
+    "ribbon.groups.mergeData",
+    "ribbon.groups.mergePreview",
+    "pictureTools.groupAdjust",
+    "pictureTools.groupSize",
+    "commands.insert.footnote",
+    "commands.insert.endnote",
+    "commands.references.updateToc",
+    "commands.mailings.preview",
+    "commands.mailings.nextRecord",
+    "commands.mailings.previousRecord",
+    "commands.mailings.finish",
+    "commands.mailings.recipients",
+    "commands.review.newComment",
+    "commands.review.deleteComment",
+    "commands.review.nextComment",
+    "commands.review.previousComment",
+    "commands.review.trackChanges",
+    "commands.review.next",
+    "commands.review.previous",
+    "commands.review.markupMode",
+    "commands.review.showMarkup",
+    "commands.review.spellingDialog",
+    "commands.view.readMode",
+    "commands.view.printLayout",
+    "commands.view.webLayout",
+    "commands.view.formattingMarks",
+    "commands.view.navigationPane",
+    "commands.view.zoomIn",
+    "commands.view.zoomOut",
+    "commands.picture.reset",
+    "commands.picture.crop",
+];
 
 /// Own icon shapes (24-unit SVG paths, filled like the rest of BlueDoc's ribbon) for the
 /// round-3 buttons, and aliases to existing icons.
@@ -371,6 +515,9 @@ pub(crate) fn install_icons(icons: &mut Icons) {
             ("M3 3h18v18h-18ZM4 4v16h16v-16Z", grey),
             ("M6 6h7v6h-7Z", blue),
             ("M11 11h7v7h-7Z", pale),
+            // Outlines: what a dimmed (disabled) icon shows.
+            ("M3.5 3.5h17v17h-17Z", None),
+            ("M6.5 6.5h6v5h-6ZM11.5 11.5h6v6h-6Z", None),
         ],
     );
     icons.add_solid(
@@ -467,6 +614,26 @@ pub(crate) fn install_icons(icons: &mut Icons) {
     );
     doc(
         icons,
+        "references.addText",
+        &[("M7 7h10v1.5h-10ZM7 11h7v1.5h-7Z", grey), ("M14 14h1.5v2.5h2.5v1.5h-2.5v2.5h-1.5v-2.5h-2.5v-1.5h2.5Z", green_add())],
+    );
+    doc(
+        icons,
+        "references.nextFootnote",
+        &[("M7 7h10v1.5h-10Z", grey), ("M8 12h6v-2l3.5 3.5l-3.5 3.5v-2h-6Z", blue)],
+    );
+    doc(
+        icons,
+        "references.showNotes",
+        &[("M7 7h10v1.5h-10ZM7 10h10v1.5h-10Z", grey), ("M7 16h10v1h-10ZM7 18.5h6v1h-6Z", blue)],
+    );
+    doc(
+        icons,
+        "references.updateFigures",
+        &[("M7 7h10v1.5h-10Z", grey), ("M11 11h2v5h-2ZM11 17.5h2v2h-2Z", rgb(0xc0, 0x39, 0x2b))],
+    );
+    doc(
+        icons,
         "references.notesDialog",
         &[("M7 15h10v1.5h-10Z", grey), ("M7 18h6v1.5h-6Z", blue)],
     );
@@ -501,6 +668,34 @@ pub(crate) fn install_icons(icons: &mut Icons) {
             ("M4 8h4v1h-4ZM16 8h4v3h-4ZM9 13h7v1h-7ZM9 15h7v1h-7Z", grey),
         ],
     );
+    doc(
+        icons,
+        "mailings.startMerge",
+        &[("M7 7h10v1.5h-10ZM7 10h10v1.5h-10Z", grey), ("M7 14h4v5h-4ZM13 14h4v5h-4Z", blue)],
+    );
+    doc(
+        icons,
+        "mailings.editRecipients",
+        &[("M7 7h10v1.5h-10ZM7 10.5h10v1.5h-10ZM7 14h10v1.5h-10Z", grey), ("M13 19l5-5l1.5 1.5l-5 5h-1.5Z", blue)],
+    );
+    doc(
+        icons,
+        "mailings.highlightFields",
+        &[("M6 9h12v4h-12Z", rgb(0xf5, 0xe6, 0x7a)), ("M7 10.3h10v1.4h-10Z", grey), ("M7 16h10v1.5h-10Z", grey)],
+    );
+    doc(icons, "mailings.addressBlock", &[("M7 8h10v1.5h-10ZM7 11h8v1.5h-8ZM7 14h9v1.5h-9Z", blue)]);
+    doc(icons, "mailings.greetingLine", &[("M7 9h3v1.5h-3Z", blue), ("M11 9h6v1.5h-6ZM7 13h10v1.5h-10Z", grey)]);
+    doc(icons, "mailings.insertField", &[("M7 10h10v4h-10Z", blue), ("M8 11.3h8v1.4h-8Z", pale)]);
+    doc(icons, "mailings.rules", &[("M8 8h3v3h-3ZM8 13h3v3h-3Z", blue), ("M12.5 9h5v1h-5ZM12.5 14h5v1h-5Z", grey)]);
+    doc(icons, "mailings.matchFields", &[("M7 8h4v3h-4ZM13 13h4v3h-4Z", blue), ("M11 9.5h2l1 3.5h-1.5l-0.5-2h-1Z", grey)]);
+    doc(icons, "mailings.updateLabels", &[("M7 7h4v4h-4ZM13 7h4v4h-4ZM7 13h4v4h-4Z", blue), ("M13 15a2 2 0 1 1 4 0h-1.2a0.8 0.8 0 1 0-1.6 0Z", grey)]);
+    icons.add_solid("mailings.firstRecord", &[("M6 6h2v12h-2ZM18 6v12l-9-6Z", grey)]);
+    icons.add_solid("mailings.lastRecord", &[("M16 6h2v12h-2ZM6 6v12l9-6Z", grey)]);
+    icons.add_solid("mailings.recordPrevious", &[("M16 6v12l-9-6Z", grey)]);
+    icons.add_solid("mailings.recordNext", &[("M8 6v12l9-6Z", grey)]);
+    icons.add_solid("mailings.recordBox", &[("M3 7h18v10h-18Z", white)]);
+    doc(icons, "mailings.findRecipient", &[("M10 9a3 3 0 1 1 0 6a3 3 0 1 1 0-6ZM10 10.3a1.7 1.7 0 1 0 0 3.4a1.7 1.7 0 1 0 0-3.4ZM12 14.5l1-1l3 3l-1 1Z", grey)]);
+    doc(icons, "mailings.checkErrors", &[("M7 13l2-2l2 2l4-5l2 2l-6 7Z", rgb(0x2e, 0x8b, 0x57))]);
     icons.add_solid(
         "mailings.labels",
         &[
@@ -557,18 +752,38 @@ pub(crate) fn install_icons(icons: &mut Icons) {
         ],
     );
     icons.alias("table.viewGridlines", "table.bordersInside");
-    for (id, existing) in [
-        ("outline.promoteHeading", "format.outdent"),
-        ("outline.promote", "format.outdent"),
-        ("outline.demote", "format.indent"),
-        ("outline.demoteBody", "format.indent"),
-        ("outline.moveUp", "data.sortAsc"),
-        ("outline.moveDown", "data.sortDesc"),
-        ("outline.showLevel", "format.numbering"),
-        ("outline.close", "view.outline"),
-    ] {
-        if !icons.has(id) {
-            icons.alias(id, existing);
-        }
-    }
+    let green = rgb(0x2e, 0x8b, 0x57);
+    icons.add_solid("outline.promote", &[("M4 12l7-6v4h9v4h-9v4Z", green)]);
+    icons.add_solid("outline.demote", &[("M20 12l-7-6v4h-9v4h9v4Z", green)]);
+    icons.add_solid(
+        "outline.promoteHeading",
+        &[("M3 12l6-6v3.5l3-3.5v12l-3-3.5v3.5ZM12 10h9v4h-9Z", green)],
+    );
+    icons.add_solid(
+        "outline.demoteBody",
+        &[("M21 12l-6-6v3.5l-3-3.5v12l3-3.5v3.5ZM3 10h9v4h-9Z", green)],
+    );
+    icons.add_solid("outline.moveUp", &[("M12 7l6 8h-12Z", grey)]);
+    icons.add_solid("outline.moveDown", &[("M12 17l6-8h-12Z", grey)]);
+    icons.add_solid("outline.expand", &[("M10.5 5h3v5.5h5.5v3h-5.5v5.5h-3v-5.5h-5.5v-3h5.5Z", blue)]);
+    icons.add_solid("outline.collapse", &[("M5 10.5h14v3h-14Z", blue)]);
+    icons.add_solid(
+        "outline.close",
+        &[
+            ("M3 3h18v18h-18Z", rgb(0xd0, 0x45, 0x2f)),
+            ("M7.5 6l4.5 4.5l4.5-4.5l1.5 1.5l-4.5 4.5l4.5 4.5l-1.5 1.5l-4.5-4.5l-4.5 4.5l-1.5-1.5l4.5-4.5l-4.5-4.5Z", white),
+        ],
+    );
+    icons.add_solid(
+        "outline.showLevel",
+        &[
+            ("M5 7a2.5 2.5 0 1 1 0 0.1ZM4 6h2v2h-2Z", grey),
+            ("M9 6.5h11v1.5h-11ZM11 12h9v1.5h-9ZM11 17h9v1.5h-9Z", grey),
+        ],
+    );
+    icons.alias("outline.level", "outline.showLevel");
+    icons.alias("outline.showFormatting", "outline.showLevel");
+    icons.alias("outline.firstLine", "outline.showLevel");
+    doc(icons, "outline.showDocument", &[("M7 8h10v1.5h-10ZM7 12h10v1.5h-10Z", blue), ("M7 16h6v1.5h-6Z", grey)]);
+    doc(icons, "outline.collapseSubdocs", &[("M7 8h10v1.5h-10Z", blue), ("M10 13l2 3l2-3Z", grey)]);
 }

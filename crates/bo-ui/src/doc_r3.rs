@@ -41,6 +41,92 @@ pub(super) struct R3 {
     pub(super) defaults: Option<(Option<String>, Option<String>, Option<String>)>,
     /// A document made by Envelopes and Labels, waiting for the host to open it.
     pub(super) new_document: Option<Vec<u8>>,
+    /// Citation style shown in References › Style (read once, then kept up to date).
+    cite_style: Option<String>,
+    /// A dialog kept under another one (Table of Contents under TOC Options).
+    stash: Option<DocForm>,
+    /// Mailings › Start Mail Merge document type (`letters`, `directory`, `normal`).
+    merge_type: String,
+}
+
+/// The reference's recommended quick styles (id, name, kind mark ¶ / ¶a / a).
+const LATENT: [(&str, &str, &str); 17] = [
+    ("Normal", "Normal", "¶"),
+    ("NoSpacing", "No Spacing", "¶"),
+    ("Heading1", "Heading 1", "¶a"),
+    ("Heading2", "Heading 2", "¶a"),
+    ("Heading3", "Heading 3", "¶a"),
+    ("Title", "Title", "¶a"),
+    ("Subtitle", "Subtitle", "¶a"),
+    ("SubtleEmphasis", "Subtle Emphasis", "a"),
+    ("Emphasis", "Emphasis", "a"),
+    ("IntenseEmphasis", "Intense Emphasis", "a"),
+    ("Strong", "Strong", "a"),
+    ("Quote", "Quote", "¶a"),
+    ("IntenseQuote", "Intense Quote", "¶a"),
+    ("SubtleReference", "Subtle Reference", "a"),
+    ("IntenseReference", "Intense Reference", "a"),
+    ("BookTitle", "Book Title", "a"),
+    ("ListParagraph", "List Paragraph", "¶"),
+];
+
+/// BlueOffice's own look of a latent default style (`styleNew` spec).
+fn latent_spec(id: &str) -> Option<Value> {
+    let (name, _, mark) = LATENT
+        .iter()
+        .find(|(i, ..)| *i == id)
+        .map(|(_, n, m)| (*n, id, *m))?;
+    let kind = if mark == "a" { "character" } else { "paragraph" };
+    let mut spec = json!({ "name": name, "type": kind, "addToGallery": true, "basedOn": "Normal" });
+    let o = spec.as_object_mut()?;
+    let mut set = |k: &str, v: Value| {
+        o.insert(k.to_owned(), v);
+    };
+    match id {
+        "NoSpacing" => {
+            set("spaceAfter", json!(0));
+            set("lineSpacing", json!(240));
+        }
+        "Subtitle" => {
+            set("color", json!("5A5A5A"));
+            set("spaceAfter", json!(160));
+        }
+        "SubtleEmphasis" => {
+            set("italic", json!(true));
+            set("color", json!("404040"));
+        }
+        "Emphasis" => set("italic", json!(true)),
+        "IntenseEmphasis" => {
+            set("italic", json!(true));
+            set("color", json!("2F5496"));
+        }
+        "Strong" => set("bold", json!(true)),
+        "Quote" => {
+            set("italic", json!(true));
+            set("color", json!("404040"));
+            set("align", json!("center"));
+        }
+        "IntenseQuote" => {
+            set("italic", json!(true));
+            set("color", json!("2F5496"));
+            set("align", json!("center"));
+        }
+        "SubtleReference" => set("color", json!("5A5A5A")),
+        "IntenseReference" => {
+            set("bold", json!(true));
+            set("color", json!("2F5496"));
+        }
+        "BookTitle" => {
+            set("bold", json!(true));
+            set("italic", json!(true));
+        }
+        "ListParagraph" => set("indentLeft", json!(720)),
+        _ => {}
+    }
+    if kind == "character" {
+        o.remove("basedOn");
+    }
+    Some(spec)
 }
 
 fn mode_of(i: usize) -> &'static str {
@@ -131,6 +217,31 @@ impl DocWindow {
                 )
             })
             .collect();
+        let recipients = self
+            .view
+            .run_json(&json!({ "cmd": "mergeRecords", "limit": 500 }))
+            .map(|v| {
+                let r = &v["mergeOut"]["records"];
+                let fields = r["fields"]
+                    .as_array()
+                    .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect())
+                    .unwrap_or_default();
+                let rows = r["rows"]
+                    .as_array()
+                    .map(|a| {
+                        a.iter()
+                            .map(|row| {
+                                row["values"]
+                                    .as_array()
+                                    .map(|v| v.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect())
+                                    .unwrap_or_default()
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                (fields, rows)
+            })
+            .unwrap_or_default();
         let selection = if self.view.has_selection() {
             self.view.copy(false).map(|c| c.text).unwrap_or_default()
         } else {
@@ -146,6 +257,7 @@ impl DocWindow {
             sources,
             selection,
             paste_defaults: self.r3.paste_defaults,
+            recipients,
         }
     }
 
@@ -214,7 +326,8 @@ impl DocWindow {
             FormOut::None => false,
             FormOut::Redraw => true,
             FormOut::Close => {
-                self.r3.form = None;
+                // Back to a dialog kept under this one (TOC Options), else closed.
+                self.r3.form = self.r3.stash.take();
                 true
             }
             FormOut::Run(cmds, close) => {
@@ -246,9 +359,50 @@ impl DocWindow {
                 self.r3.form = None;
                 self.r3_open_form(kind)
             }
+            FormOut::Stash(kind) => {
+                self.r3.stash = self.r3.form.take();
+                self.r3_open_form(kind)
+            }
+            FormOut::TocMap(map) => {
+                self.r3.form = self.r3.stash.take();
+                if let Some(f) = self.r3.form.as_mut() {
+                    f.toc_map = (!map.is_empty()).then_some(map);
+                }
+                true
+            }
             FormOut::PickFile(original) => {
                 self.r3.compare_pending = original;
                 self.requests.push(Request::PickCompareFile);
+                true
+            }
+            FormOut::Compare(original, (rev_name, rev_b64)) => {
+                self.r3.form = None;
+                // The revised file in an engine of its own, compared with the original (this
+                // document when none was picked); the result opens in a new window.
+                let original = original.or_else(|| {
+                    use base64::Engine as _;
+                    let bytes = self.view.save_docx().ok()?;
+                    Some((
+                        self.name.clone(),
+                        base64::engine::general_purpose::STANDARD.encode(bytes),
+                    ))
+                });
+                let Some((name, b64)) = original else {
+                    return true;
+                };
+                let mut e = bo_engine::Engine::with_bundled_fonts();
+                let bytes = bo_engine::merge::base64_decode(&rev_b64).unwrap_or_default();
+                let made = e.open(&bytes, &rev_name).is_ok()
+                    && e
+                        .command_json(
+                            &json!({ "cmd": "compareWith", "name": name, "base64": b64 })
+                                .to_string(),
+                        )
+                        .is_ok();
+                if let (true, Ok(out)) = (made, e.save_docx()) {
+                    self.r3.new_document = Some(out);
+                    self.requests.push(Request::OpenNewDocument);
+                }
                 true
             }
             FormOut::NewDocument(cmd) => {
@@ -400,6 +554,9 @@ impl DocWindow {
             _ => return false,
         };
         let mut m = TileMenu::open(anchor, self.size, sections, rows, look, draw, self.scale);
+        if id == "picture.position" && self.picture_wrap().as_deref() == Some("inline") {
+            m.current = Some("picture.pos.inline".into());
+        }
         if id == "design.effects" {
             m.current = Some(format!(
                 "design.effects.{}",
@@ -417,6 +574,22 @@ impl DocWindow {
             return false;
         };
         let entries = menus::menu(id);
+        if id == "mailings.insertField" {
+            let (fields, _) = self.merge_fields();
+            if !fields.is_empty() {
+                let items: Vec<MenuItem> = fields
+                    .iter()
+                    .map(|f| MenuItem {
+                        label: f.clone(),
+                        choice: Choice::Command(format!("mailings.field.{f}")),
+                        checked: false,
+                        dim: false,
+                    })
+                    .collect();
+                self.menu = Some(Menu::open(items, anchor, self.size, self.scale));
+                return true;
+            }
+        }
         let wrap = self.picture_wrap();
         let style = self
             .view
@@ -432,6 +605,10 @@ impl DocWindow {
                 },
                 choice: Choice::Command(e.id.to_owned()),
                 checked: match e.id {
+                    _ if e.id.starts_with("mailings.type.") => {
+                        e.id.strip_prefix("mailings.type.")
+                            == Some(if self.r3.merge_type.is_empty() { "normal" } else { self.r3.merge_type.as_str() })
+                    }
                     "picture.alignTo.page" => self.r3.align_page,
                     "picture.alignTo.margin" => !self.r3.align_page,
                     _ => {
@@ -487,6 +664,23 @@ impl DocWindow {
         self.view.picture_command(&v)
     }
 
+    /// Open the Paste Options drop-down under the Paste button.
+    fn open_paste_menu(&mut self) -> bool {
+        let Some(r) = self.ribbon.rect_of(RibbonHit::Command("edit.paste")) else {
+            return false;
+        };
+        let labels = [
+            self.r3_t("docR3.pasteOptions", "Paste Options:"),
+            self.r3_t("docR3.keepSourceK", "Keep Source Formatting (K)"),
+            self.r3_t("docR3.mergeFormattingM", "Merge Formatting (M)"),
+            self.r3_t("docR3.keepTextT", "Keep Text Only (T)"),
+            self.r3_t("docR3.pasteSpecialDots", "Paste Special..."),
+            self.r3_t("docR3.setDefaultPaste", "Set Default Paste..."),
+        ];
+        self.r3.paste_menu = Some(PasteMenu::open(r, labels, self.scale));
+        true
+    }
+
     /// Show the Styles pane (or hide it).
     fn toggle_styles_pane(&mut self) -> bool {
         if self.r3.styles_pane.take().is_none() {
@@ -510,9 +704,28 @@ impl DocWindow {
 
     fn refresh_styles_pane_into(&mut self, pane: &mut StylesPane) {
         let all = self.view.all_styles();
-        pane.styles = all
+        let mut list: Vec<PaneStyle> = Vec::new();
+        // The reference's recommended list first, in its order: the document's style when
+        // it has one, else the latent default (made when first applied).
+        for (id, name, mark) in LATENT {
+            let own = all.iter().find(|s| s.id == *id);
+            list.push(PaneStyle {
+                id: (*id).to_owned(),
+                name: own.map_or_else(
+                    || (*name).to_owned(),
+                    |s| {
+                        crate::commands::style_name_key(&s.name)
+                            .map_or_else(|| s.name.clone(), |k| self.strings.get(k).to_owned())
+                    },
+                ),
+                mark,
+                preview: own.map(|s| s.preview.clone()),
+            });
+        }
+        let rest = all
             .into_iter()
             .filter(|s| s.recommended && (s.kind == "paragraph" || s.kind == "character"))
+            .filter(|s| !LATENT.iter().any(|(id, ..)| *id == s.id))
             .map(|s| PaneStyle {
                 mark: if s.kind == "character" {
                     "a"
@@ -526,8 +739,36 @@ impl DocWindow {
                 id: s.id,
                 preview: Some(s.preview),
             })
-            .collect();
-        pane.current = self.view.format().style.clone();
+            .collect::<Vec<_>>();
+        list.extend(rest);
+        pane.styles = list;
+        pane.current = Some(
+            self.view
+                .format()
+                .style
+                .clone()
+                .unwrap_or_else(|| "Normal".into()),
+        );
+    }
+
+    /// Apply style `id`, first making a latent default style the document lacks.
+    fn apply_pane_style(&mut self, id: String) -> bool {
+        let exists = self.view.all_styles().iter().any(|s| s.id == id);
+        if !exists {
+            if let Some(spec) = latent_spec(&id) {
+                let created = self
+                    .view
+                    .run_json(&json!({ "cmd": "styleNew", "spec": spec }))
+                    .and_then(|v| v["styleMgr"]["created"].as_str().map(str::to_owned));
+                if let Some(c) = created {
+                    return self
+                        .view
+                        .run_command(bo_engine::edit::Command::ApplyStyle { id: c });
+                }
+            }
+        }
+        self.view
+            .run_command(bo_engine::edit::Command::ApplyStyle { id })
     }
 
     fn toggle_restrict(&mut self) -> bool {
@@ -594,11 +835,10 @@ impl DocWindow {
                     self.view
                         .run_command(bo_engine::edit::Command::ClearFormatting)
                 } else {
-                    self.view
-                        .run_command(bo_engine::edit::Command::ApplyStyle { id })
+                    self.apply_pane_style(id)
                 };
                 if let Some(mut p) = self.r3.styles_pane.take() {
-                    p.current = self.view.format().style.clone();
+                    self.refresh_styles_pane_into(&mut p);
                     self.r3.styles_pane = Some(p);
                 }
                 ok
@@ -664,6 +904,8 @@ impl DocWindow {
         }
         if let Some(mode) = id.strip_prefix("paste.") {
             return Some(match mode {
+                // The Paste button's lower half (scripts and keyboard).
+                "menu" => self.open_paste_menu(),
                 "special" => self.r3_open_form(DocFormKind::PasteSpecial),
                 "defaults" => self.r3_open_form(DocFormKind::PasteDefaults),
                 m => {
@@ -692,7 +934,30 @@ impl DocWindow {
             return Some(self.picture(json!({ "cmd": "pictureRotate", "degrees": degrees })));
         }
         if let Some(style) = id.strip_prefix("references.style.") {
+            self.r3.cite_style = Some(style.to_owned());
             return Some(self.r3_run(vec![json!({ "cmd": "citeSetStyle", "style": style })]));
+        }
+        if let Some(level) = id.strip_prefix("references.addText.") {
+            let cmd = match level.parse::<u8>() {
+                Ok(l) => json!({ "cmd": "setOutlineLevel", "level": l }),
+                Err(_) => json!({ "cmd": "setOutlineLevel" }),
+            };
+            return Some(self.r3_run(vec![cmd]));
+        }
+        if let Some(which) = id.strip_prefix("references.note.") {
+            return Some(self.goto_note(which));
+        }
+        if let Some(level) = id.strip_prefix("outline.setLevel.") {
+            let Some((para, _)) = self.r3.outline.as_ref().and_then(OutlineView::selected) else {
+                return Some(false);
+            };
+            let cmd = match level.parse::<u8>() {
+                Ok(l) => json!({ "cmd": "setOutlineLevel", "para": para, "level": l }),
+                Err(_) => json!({ "cmd": "setOutlineLevel", "para": para }),
+            };
+            let ok = self.r3_run(vec![cmd]);
+            self.refresh_outline();
+            return Some(ok);
         }
         if let Some(kind) = id.strip_prefix("references.bib.") {
             let heading = match kind {
@@ -717,6 +982,26 @@ impl DocWindow {
                 o.show_level = n;
             }
             return Some(true);
+        }
+        if let Some(t) = id.strip_prefix("mailings.type.") {
+            if t == "labels" {
+                return Some(self.r3_action("mailings.labels").unwrap_or(false));
+            }
+            self.r3.merge_type = t.to_owned();
+            return Some(true);
+        }
+        if let Some(name) = id.strip_prefix("mailings.field.") {
+            return Some(self.r3_run(vec![json!({ "cmd": "mergeInsertField", "name": name })]));
+        }
+        if let Some(rule) = id.strip_prefix("mailings.rule.") {
+            let rule = match rule {
+                "mergeRec" => json!({ "kind": "mergeRec" }),
+                "mergeSeq" => json!({ "kind": "mergeSeq" }),
+                "next" => json!({ "kind": "next" }),
+                "fillIn" => json!({ "kind": "fillIn", "prompt": self.r3_t("docR3.fillInPrompt", "Fill in") }),
+                _ => return Some(false),
+            };
+            return Some(self.r3_run(vec![json!({ "cmd": "mergeInsertRule", "rule": rule })]));
         }
         if let Some(k) = id.strip_prefix("design.effects.") {
             self.r3.effects = Some(k.to_owned());
@@ -744,7 +1029,25 @@ impl DocWindow {
             }
             "references.toc.custom" => self.r3_open_form(DocFormKind::Toc),
             "references.toc.remove" => self.remove_toc(),
-            "references.notesDialog" => self.r3_open_form(DocFormKind::Notes),
+            "references.notesDialog" | "references.notesLauncher" => {
+                self.r3_open_form(DocFormKind::Notes)
+            }
+            "references.showNotes" => self.goto_note("show"),
+            "mailings.editRecipients" => self.r3_open_form(DocFormKind::Recipients),
+            "mailings.addressBlock" => self.insert_address_block(),
+            "mailings.greetingLine" => self.insert_greeting_line(),
+            "mailings.firstRecord" | "mailings.lastRecord" => {
+                let count = self.merge_fields().1;
+                if count == 0 {
+                    return Some(false);
+                }
+                let record = if id == "mailings.firstRecord" { 0 } else { count - 1 };
+                self.merge_record = Some(record);
+                self.r3_run(vec![json!({ "cmd": "mergePreview", "record": record })])
+            }
+            "mailings.highlightFields" | "mailings.matchFields" | "mailings.updateLabels"
+            | "mailings.findRecipient" | "mailings.checkErrors" | "mailings.recordBox" => false,
+            "references.updateFigures" => self.r3_run(vec![json!({ "cmd": "updateFields" })]),
             "references.citation.new" => self.r3_open_form(DocFormKind::NewSource),
             "references.manageSources" => self.r3_open_form(DocFormKind::Sources),
             "references.markEntry" => self.r3_open_form(DocFormKind::MarkEntry),
@@ -782,7 +1085,21 @@ impl DocWindow {
             "outline.promote" | "outline.demote" | "outline.promoteHeading" | "outline.demoteBody" | "outline.moveUp" | "outline.moveDown" => {
                 self.outline_command(id)
             }
-            "outline.showLevel" => self.open_r3_menu_dyn("outline.showLevel"),
+            "outline.showLevel" | "outline.level" => self.open_r3_menu_dyn(id),
+            "outline.expand" | "outline.collapse" => self
+                .r3
+                .outline
+                .as_mut()
+                .is_some_and(|o| o.expand(id == "outline.expand")),
+            "outline.showFormatting" => self.r3.outline.as_mut().is_some_and(|o| {
+                o.formatting = !o.formatting;
+                true
+            }),
+            "outline.firstLine" => self.r3.outline.as_mut().is_some_and(|o| {
+                o.first_line = !o.first_line;
+                true
+            }),
+            "outline.showDocument" | "outline.collapseSubdocs" => false,
             "design.effects" => self.open_tiles("design.effects"),
             "design.setDefault" => {
                 self.r3.defaults = Some((
@@ -795,6 +1112,112 @@ impl DocWindow {
             }
             _ => return None,
         })
+    }
+
+    /// The data source's field names and record count (empty without recipients).
+    fn merge_fields(&mut self) -> (Vec<String>, usize) {
+        let v = self.view.run_json(&json!({ "cmd": "state" }));
+        let m = v.as_ref().map(|v| v["merge"].clone()).unwrap_or_default();
+        let fields = m["fields"]
+            .as_array()
+            .map(|a| a.iter().filter_map(|f| f.as_str().map(str::to_owned)).collect())
+            .unwrap_or_default();
+        (fields, m["count"].as_u64().unwrap_or(0) as usize)
+    }
+
+    /// The field whose name contains one of `keys` (case-insensitive).
+    fn field_like(fields: &[String], keys: &[&str]) -> Option<String> {
+        fields
+            .iter()
+            .find(|f| {
+                let l = f.to_lowercase();
+                keys.iter().any(|k| l.contains(k))
+            })
+            .cloned()
+    }
+
+    /// Address Block: name, address and city fields of the data source on their own lines
+    /// (BlueOffice's own block of MERGEFIELDs, §17.16.5.35).
+    fn insert_address_block(&mut self) -> bool {
+        let (fields, _) = self.merge_fields();
+        if fields.is_empty() {
+            return false;
+        }
+        let pick = |keys: &[&str]| Self::field_like(&fields, keys);
+        let lines: Vec<Vec<String>> = vec![
+            [pick(&["title", "danh xưng"]), pick(&["first", "tên"]), pick(&["last", "họ"])]
+                .into_iter()
+                .flatten()
+                .collect(),
+            pick(&["company", "công ty"]).into_iter().collect(),
+            pick(&["address", "địa chỉ"]).into_iter().collect(),
+            pick(&["city", "thành phố", "tỉnh"]).into_iter().collect(),
+        ];
+        let lines: Vec<Vec<String>> = lines.into_iter().filter(|l| !l.is_empty()).collect();
+        let lines = if lines.is_empty() {
+            vec![vec![fields[0].clone()]]
+        } else {
+            lines
+        };
+        let mut cmds = Vec::new();
+        for (i, line) in lines.iter().enumerate() {
+            if i > 0 {
+                cmds.push(json!({ "cmd": "splitParagraph" }));
+            }
+            for (k, f) in line.iter().enumerate() {
+                if k > 0 {
+                    cmds.push(json!({ "cmd": "insertText", "text": " " }));
+                }
+                cmds.push(json!({ "cmd": "mergeInsertField", "name": f }));
+            }
+        }
+        self.r3_run(cmds)
+    }
+
+    /// Greeting Line: "Dear «first name»," (the first field when no name column).
+    fn insert_greeting_line(&mut self) -> bool {
+        let (fields, _) = self.merge_fields();
+        let Some(name) = Self::field_like(&fields, &["first", "name", "tên"]).or_else(|| fields.first().cloned()) else {
+            return false;
+        };
+        self.r3_run(vec![
+            json!({ "cmd": "insertText", "text": self.r3_t("docR3.dear", "Dear ") }),
+            json!({ "cmd": "mergeInsertField", "name": name }),
+            json!({ "cmd": "insertText", "text": "," }),
+        ])
+    }
+
+    /// Move to the next / previous footnote or endnote reference (`nextFoot`, `prevFoot`,
+    /// `nextEnd`, `prevEnd`), or (`show`) edit the first note on its page.
+    fn goto_note(&mut self, which: &str) -> bool {
+        let notes = self
+            .view
+            .run_json(&json!({ "cmd": "notes" }))
+            .and_then(|v| v["notes"].as_array().cloned())
+            .unwrap_or_default();
+        if which == "show" {
+            let Some(n) = notes.first() else {
+                return false;
+            };
+            return self.r3_run(vec![json!({
+                "cmd": "editNote", "endnote": n["endnote"], "id": n["id"],
+            })]);
+        }
+        let endnote = which.ends_with("End");
+        let forward = which.starts_with("next");
+        let caret = self.view.caret_para().unwrap_or(0);
+        let mut paras: Vec<usize> = notes
+            .iter()
+            .filter(|n| n["endnote"].as_bool() == Some(endnote))
+            .filter_map(|n| n["para"].as_u64().map(|p| p as usize))
+            .collect();
+        paras.sort_unstable();
+        let target = if forward {
+            paras.into_iter().find(|p| *p > caret)
+        } else {
+            paras.into_iter().rev().find(|p| *p < caret)
+        };
+        target.is_some_and(|p| self.view.goto_para(p))
     }
 
     fn open_r3_menu_dyn(&mut self, id: &str) -> bool {
@@ -814,6 +1237,7 @@ impl DocWindow {
                 self.leave_read_mode();
             }
             let items = self.view.outline();
+            let labels = self.view.engine().list_labels();
             let mut o = OutlineView::new(self.r3_t("docR3.bodyText", "Body Text"));
             let styles = self.view.all_styles();
             let look = |id: &str| {
@@ -825,7 +1249,7 @@ impl DocWindow {
             let mut looks: Vec<_> = (1..=9).map(|n| look(&format!("Heading{n}"))).collect();
             looks.push(look("Normal"));
             o.set_looks(looks);
-            o.set_items(items, self.view.caret_para());
+            o.set_items(items, self.view.caret_para(), &labels);
             self.r3.outline = Some(o);
         }
         self.relayout_pending = true;
@@ -867,8 +1291,9 @@ impl DocWindow {
         if self.r3.outline.is_some() {
             let items = self.view.outline();
             let caret = self.view.caret_para();
+            let labels = self.view.engine().list_labels();
             if let Some(o) = self.r3.outline.as_mut() {
-                o.set_items(items, caret);
+                o.set_items(items, caret, &labels);
             }
         }
     }
@@ -962,16 +1387,7 @@ impl DocWindow {
                 if let Some(r) = self.ribbon.rect_of(paste) {
                     if self.pointer.1 >= r[1] + r[3] * 0.52 {
                         self.ribbon.release(x, y);
-                        let labels = [
-                            self.r3_t("docR3.pasteOptions", "Paste Options:"),
-                            self.r3_t("docR3.keepSourceK", "Keep Source Formatting (K)"),
-                            self.r3_t("docR3.mergeFormattingM", "Merge Formatting (M)"),
-                            self.r3_t("docR3.keepTextT", "Keep Text Only (T)"),
-                            self.r3_t("docR3.pasteSpecialDots", "Paste Special..."),
-                            self.r3_t("docR3.setDefaultPaste", "Set Default Paste..."),
-                        ];
-                        self.r3.paste_menu = Some(PasteMenu::open(r, labels, self.scale));
-                        return Some(true);
+                        return Some(self.open_paste_menu());
                     }
                 }
             }
@@ -1071,7 +1487,8 @@ impl DocWindow {
         if let Some(p) = self.r3.restrict.as_mut() {
             p.layout(right, top, bottom, scale);
         }
-        let left = self.nav_w() + self.vr_w();
+        // The outline covers the vertical ruler too, as the reference shows none.
+        let left = self.nav_w();
         let pane = self.r3_pane_w();
         if let Some(o) = self.r3.outline.as_mut() {
             o.layout(
@@ -1091,8 +1508,108 @@ impl DocWindow {
         }
     }
 
+    /// Current value shown in drop-down box `id` of the ribbon.
+    fn box_value(&self, id: &str) -> Option<String> {
+        let level = |l: Option<u8>| match l {
+            Some(l) => self.r3_t(&format!("docR3.level{}", l + 1), &format!("Level {}", l + 1)),
+            None => self.r3_t("docR3.bodyText", "Body Text"),
+        };
+        match id {
+            "outline.level" => {
+                let (_, l) = self.r3.outline.as_ref()?.selected()?;
+                Some(level(l))
+            }
+            "outline.showLevel" => {
+                let o = self.r3.outline.as_ref()?;
+                Some(match o.show_level {
+                    Some(n) => level(Some(n - 1)),
+                    None => self.r3_t("docR3.allLevels", "All Levels"),
+                })
+            }
+            "references.citationStyle" => Some(
+                crate::doc_r3_menus::STYLES
+                    .iter()
+                    .find(|(k, _)| {
+                        k.strip_prefix("references.style.")
+                            == Some(self.r3.cite_style.as_deref().unwrap_or("APA"))
+                    })
+                    .map_or("APA", |(_, n)| n)
+                    .to_owned(),
+            ),
+            _ => None,
+        }
+    }
+
+    /// Ribbon drop-down boxes and check boxes of round 3, over their placeholders.
+    fn r3_paint_ribbon(&self, p: &mut dyn Painter) {
+        let px = |v: f32| (v * self.scale).round();
+        let font = crate::Font {
+            family: "Segoe UI",
+            size: px(12.0),
+            weight: 400,
+            italic: false,
+            underline: false,
+        };
+        let ink = bo_render::Rgba(0x26, 0x26, 0x26, 255);
+        for id in crate::doc_r3_menus::BOXES {
+            let (Some(r), Some(value)) = (self.ribbon.rect_of(RibbonHit::Command(id)), self.box_value(id))
+            else {
+                continue;
+            };
+            p.fill_rect(r[0], r[1], r[2], r[3], self.theme.ribbon);
+            // A caption before the box (Show Level:, Style:), as the reference.
+            let caption = match id {
+                "outline.showLevel" => Some(self.r3_t("docR3.showLevelCaption", "Show Level:")),
+                "references.citationStyle" => Some(self.r3_t("docR3.styleCaption", "Style:")),
+                _ => None,
+            };
+            let mut bx = r[0] + px(2.0);
+            if let Some(c) = caption {
+                let cw = px(6.5) * c.chars().count() as f32 * 1.05;
+                p.text_font(&c, bx, (r[1] + (r[3] - font.size * 1.33) / 2.0).round(), &font, ink);
+                bx += cw + px(4.0);
+            }
+            let b = [bx, r[1] + px(1.0), r[0] + r[2] - bx - px(2.0), r[3] - px(2.0)];
+            p.fill_rect(b[0], b[1], b[2], b[3], bo_render::Rgba(0x94, 0x94, 0x94, 255));
+            p.fill_rect(b[0] + 1.0, b[1] + 1.0, b[2] - 2.0, b[3] - 2.0, bo_render::Rgba(255, 255, 255, 255));
+            p.push_clip(b[0], b[1], b[2] - px(16.0), b[3]);
+            p.text_font(&value, b[0] + px(4.0), (b[1] + (b[3] - font.size * 1.33) / 2.0).round(), &font, ink);
+            p.pop_clip();
+            let (cx, cy, k) = (b[0] + b[2] - px(8.0), b[1] + b[3] / 2.0, px(3.0));
+            p.path(
+                &[
+                    bo_render::PathSeg::M(cx - k, cy - k / 2.0),
+                    bo_render::PathSeg::L(cx, cy + k / 2.0),
+                    bo_render::PathSeg::L(cx + k, cy - k / 2.0),
+                ],
+                None,
+                Some((ink, self.scale.max(1.0))),
+            );
+        }
+        if let Some(r) = self.ribbon.rect_of(RibbonHit::Command("mailings.recordBox")) {
+            p.fill_rect(r[0], r[1], r[2], r[3], self.theme.ribbon);
+            let b = [r[0] + px(2.0), r[1] + px(3.0), r[2] - px(4.0), r[3] - px(6.0)];
+            p.fill_rect(b[0], b[1], b[2], b[3], bo_render::Rgba(0xc8, 0xc8, 0xc8, 255));
+            p.fill_rect(b[0] + 1.0, b[1] + 1.0, b[2] - 2.0, b[3] - 2.0, bo_render::Rgba(255, 255, 255, 255));
+            if let Some(n) = self.merge_record {
+                let t = (n + 1).to_string();
+                p.text_font(&t, b[0] + px(6.0), (b[1] + (b[3] - font.size * 1.33) / 2.0).round(), &font, ink);
+            }
+        }
+        if let Some(o) = &self.r3.outline {
+            let checks = [
+                ("outline.showFormatting", o.formatting),
+                ("outline.firstLine", o.first_line),
+            ];
+            crate::doc_table::paint_checks(p, &self.ribbon, &checks, &self.theme, &self.strings, self.scale);
+        }
+    }
+
     /// Paint the round-3 widgets over the window.
     pub(super) fn r3_paint_panes(&self, p: &mut dyn Painter) {
+        if self.read_mode.is_none() {
+            self.r3_paint_ribbon(p);
+        }
         if let Some(o) = &self.r3.outline {
             o.paint(p);
         }

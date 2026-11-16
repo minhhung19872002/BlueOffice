@@ -36,6 +36,8 @@ pub(crate) enum DocFormKind {
     Envelopes,
     Protect,
     Unprotect,
+    Recipients,
+    TocOptions,
 }
 
 /// What the owner does after an input.
@@ -56,6 +58,12 @@ pub(crate) enum FormOut {
     PickFile(bool),
     /// A new document from this envelope / label sheet command (opened in a new window).
     NewDocument(Value),
+    /// Open another dialog over this one, keeping this one to come back to.
+    Stash(DocFormKind),
+    /// TOC Options chosen: the style → level pairs (back to the kept dialog).
+    TocMap(String),
+    /// Compare two files (the original `None`: this document) into a new window.
+    Compare(Option<(String, String)>, (String, String)),
 }
 
 /// A radio button drawn on a canvas control.
@@ -81,6 +89,10 @@ pub(crate) struct DocForm {
     pub(crate) files: [Option<(String, String)>; 2],
     /// Preview lines of the TOC / Index dialogs and the source preview.
     preview: Vec<String>,
+    /// Measured width (dialog font) of each preview line's entry text.
+    label_w: Vec<f32>,
+    /// TOC Options: style → level pairs (`TOC \t`), when set.
+    pub(crate) toc_map: Option<String>,
 }
 
 /// Reference ids of `ST_NumberFormat` values offered for notes (§17.18.59).
@@ -124,6 +136,10 @@ const SOURCE_TYPES: [&str; 6] = [
 /// Caption labels (the reference's built-in three).
 pub(crate) const CAPTION_LABELS: [&str; 3] = ["Figure", "Table", "Equation"];
 
+/// Level boxes of TOC Options (Heading 1–9).
+const TOC_LEVEL_IDS: [&str; 9] = ["l1", "l2", "l3", "l4", "l5", "l6", "l7", "l8", "l9"];
+const TOC_STYLE_LABELS: [&str; 9] = ["s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9"];
+
 /// Tab leaders of the TOC / Index dialogs.
 const LEADERS: [(&str, &str); 4] = [
     ("dot", "......."),
@@ -151,6 +167,8 @@ pub(crate) struct FormContext {
     pub(crate) selection: String,
     /// The paste defaults.
     pub(crate) paste_defaults: [usize; 3],
+    /// Mail merge recipients: field names and rows.
+    pub(crate) recipients: (Vec<String>, Vec<Vec<String>>),
 }
 
 impl DocForm {
@@ -164,6 +182,8 @@ impl DocForm {
             style_ids: Vec::new(),
             files: [None, None],
             preview: Vec::new(),
+            label_w: Vec::new(),
+            toc_map: None,
         }
     }
 
@@ -378,6 +398,13 @@ impl DocForm {
         let mut strings: Vec<String> = self.radios.iter().map(|r| r.label.clone()).collect();
         strings.extend(self.preview.iter().cloned());
         self.form.measure(m, &strings);
+        // Entry text before the page number, for the preview's leaders.
+        let font = self.form.font();
+        self.label_w = self
+            .preview
+            .iter()
+            .map(|l| m.measure_font(l.split('\t').next().unwrap_or(""), &font).0)
+            .collect();
     }
 
     /// Window point (device pixels) of the centre of control `id` (tests).
@@ -478,9 +505,14 @@ impl DocForm {
                 None => FormOut::Redraw,
             },
             (DocFormKind::Index, "markEntry") => FormOut::Open(DocFormKind::MarkEntry),
+            (DocFormKind::Toc, "options") => FormOut::Stash(DocFormKind::TocOptions),
             (DocFormKind::Caption, "newLabel") => FormOut::Redraw,
             (DocFormKind::Compare, "pickOriginal") => FormOut::PickFile(true),
             (DocFormKind::Compare, "pickRevised") => FormOut::PickFile(false),
+            (DocFormKind::Compare, "swap") => {
+                self.files.swap(0, 1);
+                FormOut::Redraw
+            }
             (DocFormKind::MarkEntry, "markAll") => self.mark_entry(true),
             (DocFormKind::Notes, "apply") => FormOut::Run(vec![self.note_options()], true),
             (DocFormKind::Envelopes, "addToDocument" | "print") => {
@@ -630,7 +662,29 @@ impl DocForm {
             }
             DocFormKind::Toc => {
                 let levels = self.form.num("levels").clamp(1, 9);
-                let mut instr = format!("TOC \\o \"1-{levels}\" \\h \\z \\u");
+                let mut instr = match &self.toc_map {
+                    // §17.16.5.68 TOC \o for the heading levels TOC Options keeps, plus \t
+                    // with its style → level pairs when they are not Heading n → n.
+                    Some(map) => {
+                        let pairs: Vec<(u8, u8)> = map
+                            .split(',')
+                            .collect::<Vec<_>>()
+                            .chunks(2)
+                            .filter_map(|c| {
+                                let n = c.first()?.trim().strip_prefix("Heading ")?.parse().ok()?;
+                                Some((n, c.get(1)?.trim().parse().ok()?))
+                            })
+                            .collect();
+                        let lo = pairs.iter().map(|p| p.0).min().unwrap_or(1);
+                        let hi = pairs.iter().map(|p| p.0).max().unwrap_or(levels as u8);
+                        if pairs.iter().all(|(n, l)| n == l) {
+                            format!("TOC \\o \"{lo}-{hi}\" \\h \\z \\u")
+                        } else {
+                            format!("TOC \\o \"{lo}-{hi}\" \\t \"{map}\" \\h \\z \\u")
+                        }
+                    }
+                    None => format!("TOC \\o \"1-{levels}\" \\h \\z \\u"),
+                };
                 if !self.on("pageNumbers") {
                     instr.push_str(" \\n");
                 }
@@ -752,12 +806,15 @@ impl DocForm {
                     true,
                 )
             }
-            DocFormKind::Compare => match &self.files[0] {
-                Some((name, b64)) => FormOut::Run(
+            DocFormKind::Compare => match &self.files {
+                // Revised = this document: its differences from the original.
+                [Some((name, b64)), None] => FormOut::Run(
                     vec![json!({ "cmd": "compareWith", "name": name, "base64": b64 })],
                     true,
                 ),
-                None => FormOut::PickFile(true),
+                [None, None] => FormOut::PickFile(true),
+                // Another revised file: the result opens in a new window.
+                [original, Some(revised)] => FormOut::Compare(original.clone(), revised.clone()),
             },
             DocFormKind::Language => {
                 let tag = self.sel("list").and_then(|i| LANGUAGES.get(i)).map(|l| l.0);
@@ -790,6 +847,19 @@ impl DocForm {
                     true,
                 )
             }
+            DocFormKind::Recipients => FormOut::Close,
+            DocFormKind::TocOptions => {
+                let mut pairs = Vec::new();
+                for (i, id) in TOC_LEVEL_IDS.iter().enumerate() {
+                    let v = self.text(id);
+                    if let Ok(l) = v.trim().parse::<u8>() {
+                        if (1..=9).contains(&l) {
+                            pairs.push(format!("Heading {},{l}", i + 1));
+                        }
+                    }
+                }
+                FormOut::TocMap(pairs.join(","))
+            }
             DocFormKind::Unprotect => FormOut::Run(
                 vec![json!({ "cmd": "unprotectDocument", "password": self.text("pw") })],
                 true,
@@ -802,6 +872,7 @@ impl DocForm {
         let k = self.form.font().size / 13.5;
         let radios = &self.radios;
         let preview = &self.preview;
+        let label_w = &self.label_w;
         let kind = self.kind;
         let files = &self.files;
         let mut canvas = |id: &str, r: [f32; 4], p: &mut dyn Painter| {
@@ -811,7 +882,7 @@ impl DocForm {
             }
             match id {
                 "preview" | "webPreview" => {
-                    paint_preview(p, r, preview, kind, id == "webPreview", &font)
+                    paint_preview(label_w, p, r, preview, kind, id == "webPreview", &font)
                 }
                 "clipIcon" => crate::doc_r3_ui::paste_icon(p, "text", r[0], r[1], r[3]),
                 "envPreview" => paint_envelope(p, r),
@@ -827,10 +898,24 @@ impl DocForm {
                 }
                 "origName" | "revName" => {
                     let i = usize::from(id == "revName");
-                    if let Some((name, _)) = &files[i] {
-                        p.text_font(name, r[0], r[1], &font, Rgba(0, 0, 0, 255));
-                    }
+                    paint_combo_box(p, r, &font, k);
+                    let name = match &files[i] {
+                        Some((name, _)) => name.as_str(),
+                        None if i == 1 => preview.first().map_or("", String::as_str),
+                        None => "",
+                    };
+                    p.push_clip(r[0], r[1], r[2] - 20.0 * k, r[3]);
+                    p.text_font(
+                        name,
+                        r[0] + 4.0 * k,
+                        (r[1] + (r[3] - font.size * 1.33) / 2.0).round(),
+                        &font,
+                        Rgba(0, 0, 0, 255),
+                    );
+                    p.pop_clip();
                 }
+                "pickOriginal" | "pickRevised" => paint_folder(p, r, k),
+                "swap" => paint_swap(p, r, k),
                 _ => {}
             }
         };
@@ -899,6 +984,7 @@ fn paint_radio(p: &mut dyn Painter, r: [f32; 4], rb: &Radio, font: &Font<'_>, k:
 /// Print Preview of the TOC / Index dialogs and the source preview: white box with sample
 /// lines (headings indented by level, dotted leaders, page numbers right).
 fn paint_preview(
+    label_w: &[f32],
     p: &mut dyn Painter,
     r: [f32; 4],
     lines: &[String],
@@ -948,7 +1034,12 @@ fn paint_preview(
                 Rgba(0, 0, 0, 255),
             );
             // Dotted leader.
-            let mut x = r[0] + 4.0 + indent + big.size * 0.55 * label.chars().count() as f32 + 4.0;
+            // From the end of the entry text (measured in the dialog font, scaled to the
+            // preview's) to the page number.
+            let text_w = label_w.get(i).map_or(big.size * 0.5 * label.chars().count() as f32, |w| {
+                w * big.size / font.size
+            });
+            let mut x = r[0] + 4.0 + indent + text_w + 2.0;
             while x < r[0] + r[2] - big.size * 1.4 {
                 p.fill_rect(x.round(), y + big.size * 1.05, 1.5, 1.5, Rgba(0, 0, 0, 255));
                 x += big.size * 0.3;
@@ -956,6 +1047,53 @@ fn paint_preview(
         }
     }
     p.pop_clip();
+}
+
+/// A drop-down box drawn on a canvas (white, grey frame, ▾ column).
+fn paint_combo_box(p: &mut dyn Painter, r: [f32; 4], _font: &Font<'_>, k: f32) {
+    p.fill_rect(r[0], r[1], r[2], r[3], Rgba(0x7a, 0x7a, 0x7a, 255));
+    p.fill_rect(r[0] + 1.0, r[1] + 1.0, r[2] - 2.0, r[3] - 2.0, Rgba(255, 255, 255, 255));
+    let (cx, cy, a) = (r[0] + r[2] - 10.0 * k, r[1] + r[3] / 2.0, 4.0 * k);
+    p.path(
+        &[
+            PathSeg::M(cx - a, cy - a / 2.0),
+            PathSeg::L(cx, cy + a / 2.0),
+            PathSeg::L(cx + a, cy - a / 2.0),
+        ],
+        None,
+        Some((Rgba(0x40, 0x40, 0x40, 255), k.max(1.0))),
+    );
+}
+
+/// The folder button of a file box (own drawing: a yellow folder).
+fn paint_folder(p: &mut dyn Painter, r: [f32; 4], k: f32) {
+    let (x, y) = (r[0] + 4.0 * k, r[1] + 6.0 * k);
+    let gold = Rgba(0xd8, 0x9b, 0x2b, 255);
+    p.fill_rect(x, y, 7.0 * k, 3.0 * k, gold);
+    p.fill_rect(x, y + 2.0 * k, 17.0 * k, 12.0 * k, gold);
+    p.fill_rect(x + 1.0 * k, y + 5.0 * k, 15.0 * k, 8.0 * k, Rgba(0xf3, 0xc6, 0x5a, 255));
+}
+
+/// The ⇄ swap button between the two documents (own drawing).
+fn paint_swap(p: &mut dyn Painter, r: [f32; 4], k: f32) {
+    let ink = Rgba(0x70, 0x70, 0x70, 255);
+    let (x0, x1, cy) = (r[0] + 4.0 * k, r[0] + r[2] - 4.0 * k, r[1] + r[3] / 2.0);
+    let w = k.max(1.0) * 1.3;
+    for (y, right) in [(cy - 4.0 * k, true), (cy + 4.0 * k, false)] {
+        let (a, b) = if right { (x0, x1) } else { (x1, x0) };
+        let d = if right { -4.0 * k } else { 4.0 * k };
+        p.path(
+            &[
+                PathSeg::M(a, y),
+                PathSeg::L(b, y),
+                PathSeg::M(b + d, y - 3.0 * k),
+                PathSeg::L(b, y),
+                PathSeg::L(b + d, y + 3.0 * k),
+            ],
+            None,
+            Some((ink, w)),
+        );
+    }
 }
 
 /// The Envelopes tab's preview: an envelope with return lines top-left, stamp top-right and
@@ -1375,7 +1513,6 @@ pub(crate) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
                 [629.0, 504.0, 112.0, 28.0],
                 &tr("docR3.modify", "Modify..."),
             );
-            f.disable("options");
             f.disable("modify");
             f.ok_cancel(s);
             f
@@ -2100,8 +2237,10 @@ pub(crate) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
                 [10.0, 48.0, 200.0, 18.0],
                 &tr("docR3.originalDocument", "Original document"),
             );
-            f.canvas("origName", [14.0, 72.0, 240.0, 20.0]);
-            f.button("pickOriginal", [10.0, 68.0, 280.0, 26.0], "", false);
+            // Both documents are drop-down boxes with a folder button, as the reference;
+            // the revised one starts as this document.
+            f.canvas("origName", [10.0, 68.0, 262.0, 26.0]);
+            f.canvas("pickOriginal", [282.0, 68.0, 26.0, 26.0]);
             f.label(
                 "origLab",
                 [10.0, 102.0, 130.0, 18.0],
@@ -2113,12 +2252,10 @@ pub(crate) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
                 [350.0, 48.0, 200.0, 18.0],
                 &tr("docR3.revisedDocument", "Revised document"),
             );
-            f.canvas("revName", [354.0, 72.0, 240.0, 20.0]);
-            f.label(
-                "revCur",
-                [354.0, 72.0, 240.0, 18.0],
-                &tr("docR3.thisDocument", "(this document)"),
-            );
+            f.canvas("revName", [350.0, 68.0, 262.0, 26.0]);
+            f.canvas("pickRevised", [622.0, 68.0, 26.0, 26.0]);
+            f.canvas("swap", [320.0, 134.0, 26.0, 26.0]);
+            f.preview = vec![tr("docR3.thisDocument", "(this document)")];
             f.label(
                 "revLab",
                 [350.0, 102.0, 130.0, 18.0],
@@ -2286,7 +2423,7 @@ pub(crate) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
             f.form.add(
                 "envPreview",
                 Some(0),
-                [376.0, 316.0, 216.0, 152.0],
+                [384.0, 340.0, 200.0, 124.0],
                 Kind::Canvas,
             );
             f.form.add(
@@ -2296,7 +2433,7 @@ pub(crate) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
                 Kind::Group(tr("docR3.feed", "Feed")),
             );
             f.form
-                .add("feed", Some(0), [591.0, 316.0, 98.0, 152.0], Kind::Canvas);
+                .add("feed", Some(0), [599.0, 340.0, 82.0, 124.0], Kind::Canvas);
             f.label_on(
                 0,
                 "verify",
@@ -2428,6 +2565,52 @@ pub(crate) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
                 &tr("docR3.reenterPassword", "Reenter password to confirm:"),
             );
             f.edit("pw2", [24.0, 150.0, 372.0, 24.0], "");
+            f.ok_cancel(s);
+            f
+        }
+        DocFormKind::Recipients => {
+            let mut f = DocForm::new(
+                kind,
+                &tr("docR3.mailMergeRecipients", "Mail Merge Recipients"),
+                (760.0, 460.0),
+                vec![],
+            );
+            f.label(
+                "intro",
+                [12.0, 48.0, 730.0, 18.0],
+                &tr(
+                    "docR3.recipientsIntro",
+                    "This is the list of recipients that will be used in your merge.",
+                ),
+            );
+            let (fields, rows) = &c.recipients;
+            f.label("head", [12.0, 76.0, 730.0, 18.0], &fields.join("  |  "));
+            f.list(
+                "rows",
+                [12.0, 96.0, 736.0, 300.0],
+                rows.iter().map(|r| r.join("  |  ")).collect(),
+                (!rows.is_empty()).then_some(0),
+            );
+            let (w, h) = f.form.size;
+            f.button("cancel", [w - 131.0, h - 48.0, 112.0, 28.0], &tr("common.ok", "OK"), true);
+            f
+        }
+        DocFormKind::TocOptions => {
+            let mut f = DocForm::new(
+                kind,
+                &tr("docR3.tocOptions", "Table of Contents Options"),
+                (420.0, 470.0),
+                vec![],
+            );
+            f.label("buildL", [16.0, 48.0, 380.0, 18.0], &tr("docR3.buildFrom", "Build table of contents from:"));
+            f.label("stylesL", [32.0, 72.0, 200.0, 18.0], &tr("docR3.availableStyles", "Available styles:"));
+            f.label("levelL", [300.0, 72.0, 100.0, 18.0], &tr("docR3.tocLevel", "TOC level:"));
+            for (i, id) in TOC_LEVEL_IDS.iter().enumerate() {
+                let y = 96.0 + i as f32 * 30.0;
+                let lid = TOC_STYLE_LABELS[i];
+                f.label(lid, [32.0, y + 4.0, 250.0, 18.0], &format!("{} {}", tr("docR3.heading", "Heading"), i + 1));
+                f.edit(id, [300.0, y, 60.0, 24.0], &if i < 3 { (i + 1).to_string() } else { String::new() });
+            }
             f.ok_cancel(s);
             f
         }

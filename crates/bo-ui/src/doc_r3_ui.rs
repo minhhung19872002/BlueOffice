@@ -21,7 +21,7 @@ const HOVER: Rgba = Rgba(0xd5, 0xe1, 0xf2, 255);
 const PANE: Rgba = Rgba(0xf3, 0xf3, 0xf3, 255);
 const PANE_EDGE: Rgba = Rgba(0xd2, 0xd2, 0xd2, 255);
 /// Current style frame in the Styles pane (dark blue, as the reference).
-const CURRENT: Rgba = Rgba(0x2b, 0x57, 0x9a, 255);
+const CURRENT: Rgba = Rgba(0x00, 0x78, 0xd4, 255);
 const LINK: Rgba = Rgba(0x1e, 0x5c, 0xb3, 255);
 const HEADING_LINE: Rgba = Rgba(0xd9, 0xd9, 0xd9, 255);
 
@@ -565,7 +565,7 @@ impl StylesPane {
             let current = style.is_some_and(|s| Some(&s.id) == self.current.as_ref());
             if current {
                 p.fill_rect(r[0], r[1] + 1.0, r[2], r[3] - 2.0, CURRENT);
-                p.fill_rect(r[0] + 2.0, r[1] + 3.0, r[2] - 4.0, r[3] - 6.0, WHITE);
+                p.fill_rect(r[0] + 1.0, r[1] + 2.0, r[2] - 2.0, r[3] - 4.0, WHITE);
             } else if self.hover == Some(i) {
                 p.fill_rect(r[0], r[1] + 1.0, r[2], r[3] - 2.0, HOVER);
             }
@@ -602,10 +602,11 @@ impl StylesPane {
                     );
                 }
                 None => {
-                    p.text_font(name, r[0] + self.px(6.0), ry + self.px(5.0), &font, INK);
+                    p.text_font(name, r[0] + self.px(6.0), ry + self.px(5.0), &font, Rgba(0, 0, 0, 255));
                 }
             }
             if !mark.is_empty() {
+                // Kind glyphs in grey (¶ paragraph, ¶a linked, a character), as the reference.
                 p.text_font(
                     mark,
                     r[0] + r[2] - self.px(20.0),
@@ -616,6 +617,31 @@ impl StylesPane {
             }
         }
         p.pop_clip();
+        // Scroll bar of the list (the reference's thin bar with arrows).
+        let total = self.rows() as f32 * rh + self.px(4.0);
+        if total > l[3] {
+            let bw = self.px(14.0);
+            let bx = l[0] + l[2] - bw - 1.0;
+            p.fill_rect(bx, l[1] + 1.0, bw, l[3] - 2.0, Rgba(0xf0, 0xf0, 0xf0, 255));
+            let track = l[3] - 2.0 * bw;
+            let th = (track * l[3] / total).max(self.px(20.0));
+            let ty = l[1] + bw + (track - th) * self.scroll / (total - l[3]).max(1.0);
+            p.fill_rect(bx + self.px(3.0), ty, bw - self.px(6.0), th, Rgba(0xc2, 0xc2, 0xc2, 255));
+            for (cy, up) in [(l[1] + bw / 2.0, true), (l[1] + l[3] - bw / 2.0, false)] {
+                let (cx, k) = (bx + bw / 2.0, self.px(3.0));
+                let d = if up { -1.0 } else { 1.0 };
+                p.path(
+                    &[
+                        PathSeg::M(cx - k, cy - d * k / 2.0),
+                        PathSeg::L(cx + k, cy - d * k / 2.0),
+                        PathSeg::L(cx, cy + d * k / 2.0),
+                        PathSeg::Z,
+                    ],
+                    Some(Rgba(0x60, 0x60, 0x60, 255)),
+                    None,
+                );
+            }
+        }
         let label_font = ui_font(self.px(12.5), 400);
         for (i, on) in [self.show_preview, self.disable_linked]
             .into_iter()
@@ -638,19 +664,24 @@ impl StylesPane {
             let enabled = i == 0;
             if i < 3 {
                 let name = ["styles.newStyle", "styles.inspector", "styles.manage"][i];
+                let (ix, iy, isz) = (r[0] + self.px(4.0), r[1] + self.px(4.0), self.px(20.0));
                 icons.draw(
                     p,
                     name,
-                    r[0] + self.px(4.0),
-                    r[1] + self.px(4.0),
-                    self.px(20.0),
+                    ix,
+                    iy,
+                    isz,
                     crate::icons::IconColors {
                         ink: if enabled { t.text } else { DIM },
                         accent: t.accent,
                         on: t.accent_on,
-                        tinted: enabled,
+                        tinted: true,
                     },
                 );
+                if !enabled {
+                    // Not available yet: the drawing greyed out.
+                    p.fill_rect(ix, iy, isz, isz, Rgba(255, 255, 255, 150));
+                }
             } else {
                 p.text_font(
                     &self.labels[4],

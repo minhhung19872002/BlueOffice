@@ -50,7 +50,10 @@ pub(crate) fn icon_of(id: &str) -> &str {
         "mailings.recipients" => "mailings.selectRecipients",
         "mailings.finish" => "mailings.mergeDocument",
         "insert.link" => "insert.link",
-        "format.fontSettings" | "format.paragraphSettings" | "layout.pageSetup" => "launcher",
+        "format.fontSettings"
+        | "format.paragraphSettings"
+        | "layout.pageSetup"
+        | "references.notesLauncher" => "launcher",
         "insert.shapes" => "insert.rect",
         "insert.dateTime" => "format.date",
         "insert.dropCap" => "format.fontGrow",
@@ -431,12 +434,16 @@ fn references_tab() -> Tab {
             Group {
                 label: "ribbon.groups.toc",
                 large: vec![L("references.toc")],
-                rows: vec![vec![S("references.updateToc")]],
+                rows: vec![vec![S("references.addText")], vec![S("references.updateToc")]],
             },
             Group {
                 label: "ribbon.groups.footnotes",
                 large: vec![L("insert.footnote")],
-                rows: vec![vec![S("insert.endnote")], vec![S("references.notesDialog")]],
+                rows: vec![
+                    vec![S("insert.endnote")],
+                    vec![S("references.nextFootnote")],
+                    vec![S("references.showNotes")],
+                ],
             },
             Group {
                 label: "docR3.groupCitations",
@@ -452,6 +459,7 @@ fn references_tab() -> Tab {
                 large: vec![L("references.insertCaption")],
                 rows: vec![
                     vec![S("references.tableOfFigures")],
+                    vec![S("references.updateFigures")],
                     vec![S("references.crossReference")],
                 ],
             },
@@ -466,11 +474,12 @@ fn references_tab() -> Tab {
 
 fn mailings_tab() -> Tab {
     #[allow(unused_imports)]
-    use Item::{Labeled as S, Large as L};
+    use Item::{Button as B, Labeled as S, Large as L};
+    // The reference's Mailings tab: Create, Start Mail Merge, Write & Insert Fields, Preview
+    // Results (with record navigation), Finish.
     Tab {
         label: "ribbon.tabs.mailings",
         groups: vec![
-            // Create: Envelopes and Labels, as the reference's first Mailings group.
             Group {
                 label: "docR3.groupCreate",
                 large: vec![],
@@ -478,15 +487,35 @@ fn mailings_tab() -> Tab {
             },
             Group {
                 label: "ribbon.groups.mergeData",
-                large: vec![L("mailings.recipients")],
+                large: vec![
+                    L("mailings.startMerge"),
+                    L("mailings.recipients"),
+                    L("mailings.editRecipients"),
+                ],
                 rows: vec![],
+            },
+            Group {
+                label: "docR3.groupWriteFields",
+                large: vec![L("mailings.highlightFields")],
+                rows: vec![
+                    vec![S("mailings.addressBlock"), S("mailings.rules")],
+                    vec![S("mailings.greetingLine"), S("mailings.matchFields")],
+                    vec![S("mailings.insertField"), S("mailings.updateLabels")],
+                ],
             },
             Group {
                 label: "ribbon.groups.mergePreview",
                 large: vec![L("mailings.preview")],
                 rows: vec![
-                    vec![S("mailings.previousRecord")],
-                    vec![S("mailings.nextRecord")],
+                    vec![
+                        B("mailings.firstRecord"),
+                        B("mailings.previousRecord"),
+                        S("mailings.recordBox"),
+                        B("mailings.nextRecord"),
+                        B("mailings.lastRecord"),
+                    ],
+                    vec![S("mailings.findRecipient")],
+                    vec![S("mailings.checkErrors")],
                 ],
             },
             Group {
@@ -1184,6 +1213,7 @@ impl Ribbon {
                     "ribbon.groups.font" => Some("format.fontSettings"),
                     "ribbon.groups.paragraph" => Some("format.paragraphSettings"),
                     "ribbon.groups.pageSetup" => Some("layout.pageSetup"),
+                    "ribbon.groups.footnotes" => Some("references.notesLauncher"),
                     _ => None,
                 };
                 if let Some(id) = launcher {
@@ -2753,7 +2783,8 @@ mod tests {
                             Item::Button(
                                 "format.fontSettings"
                                 | "format.paragraphSettings"
-                                | "layout.pageSetup",
+                                | "layout.pageSetup"
+                                | "references.notesLauncher",
                             ),
                             _,
                         ) = placed

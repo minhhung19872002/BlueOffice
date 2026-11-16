@@ -313,6 +313,9 @@ pub(crate) const SELECT: [(&str, &str); 4] = [
 /// Width (logical px) of the check box items, measured on the reference at 125 %: the
 /// first column 138 px ("Banded Rows" with its box), the second 162 px ("Banded Columns").
 pub(crate) fn labeled_w(id: &str) -> Option<f32> {
+    if let Some(w) = crate::doc_r3_menus::labeled_w(id) {
+        return Some(w);
+    }
     // Header & Footer options are check boxes too (reference: 224 px at 125 % for
     // "Different Odd & Even Pages").
     if HF_CHECKS.contains(&id) {

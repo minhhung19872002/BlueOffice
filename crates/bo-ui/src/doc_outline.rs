@@ -30,6 +30,8 @@ struct Row {
     para: usize,
     level: Option<u8>,
     text: String,
+    /// List label (`1.`, `1.1.`) of a numbered paragraph.
+    label: String,
     /// A heading followed by deeper content.
     parent: bool,
 }
@@ -49,6 +51,12 @@ pub(crate) struct OutlineView {
     /// Look of each level (Heading 1–9, then body text) from the document's styles: the
     /// reference shows the text with its formatting.
     looks: Vec<Option<bo_engine::gallery::StylePreview>>,
+    /// Show the text with its formatting (else the plain interface face).
+    pub(crate) formatting: bool,
+    /// Show only the first line of each paragraph.
+    pub(crate) first_line: bool,
+    /// Collapsed headings (paragraph ids): their subordinate content is hidden.
+    collapsed: std::collections::HashSet<usize>,
 }
 
 /// Row height at 100 % per level (Heading 1 is the tallest).
@@ -73,6 +81,9 @@ impl OutlineView {
             hover: None,
             body_label,
             looks: vec![None; 10],
+            formatting: true,
+            first_line: false,
+            collapsed: std::collections::HashSet::new(),
         }
     }
 
@@ -93,7 +104,12 @@ impl OutlineView {
     }
 
     /// Take the document's outline; select the row of `caret` (body paragraph id).
-    pub(crate) fn set_items(&mut self, items: Vec<OutlineItem>, caret: Option<usize>) {
+    pub(crate) fn set_items(
+        &mut self,
+        items: Vec<OutlineItem>,
+        caret: Option<usize>,
+        labels: &std::collections::HashMap<usize, String>,
+    ) {
         let keep = self.rows.get(self.selected).map(|r| r.para);
         self.rows = items
             .iter()
@@ -109,6 +125,7 @@ impl OutlineView {
                     para: it.entry.para,
                     level,
                     text: it.entry.text.clone(),
+                    label: labels.get(&it.entry.para).cloned().unwrap_or_default(),
                     parent,
                 }
             })
@@ -135,12 +152,45 @@ impl OutlineView {
         }
     }
 
+    /// Rows hidden under a collapsed heading.
+    fn hidden(&self) -> Vec<bool> {
+        let mut out = vec![false; self.rows.len()];
+        let mut under: Option<u8> = None;
+        for (i, r) in self.rows.iter().enumerate() {
+            if let Some(l) = under {
+                if r.level.is_none_or(|rl| rl > l) {
+                    out[i] = true;
+                    continue;
+                }
+                under = None;
+            }
+            if r.level.is_some() && self.collapsed.contains(&r.para) {
+                under = r.level;
+            }
+        }
+        out
+    }
+
+    /// Expand (`true`) or collapse the selected heading; `false` when nothing changed.
+    pub(crate) fn expand(&mut self, open: bool) -> bool {
+        let Some(r) = self.rows.get(self.selected).filter(|r| r.parent) else {
+            return false;
+        };
+        let para = r.para;
+        if open {
+            self.collapsed.remove(&para)
+        } else {
+            self.collapsed.insert(para)
+        }
+    }
+
     /// Visible rows with their top (content coordinates) and height.
     fn placed(&self) -> Vec<(usize, f32, f32)> {
         let mut y = self.px(12.0);
         let mut out = Vec::new();
+        let hidden = self.hidden();
         for (i, r) in self.rows.iter().enumerate() {
-            if !self.shown(r) {
+            if !self.shown(r) || hidden[i] {
                 continue;
             }
             let h = self.px(self.line_h(r.level));
@@ -194,6 +244,12 @@ impl OutlineView {
 
     pub(crate) fn press(&mut self, _x: f32, y: f32, count: u8) -> OutlineAction {
         match self.row_at(y) {
+            Some(i) if count >= 2 && self.rows[i].parent => {
+                self.selected = i;
+                let open = self.collapsed.contains(&self.rows[i].para);
+                self.expand(open);
+                OutlineAction::Redraw
+            }
             Some(i) if count >= 2 => OutlineAction::Open(self.rows[i].para),
             Some(i) => {
                 self.selected = i;
@@ -265,11 +321,6 @@ impl OutlineView {
                 continue;
             }
             let r = &self.rows[i];
-            if i == self.selected {
-                p.fill_rect(x, ry, w, rh, SELECTED);
-            } else if self.hover == Some(i) {
-                p.fill_rect(x, ry, w, rh, HOVER);
-            }
             let lx = left + f32::from(r.level.unwrap_or(9).min(8)) * indent;
             let lx = if r.level.is_none() {
                 // Body text sits one step under the heading before it.
@@ -280,6 +331,11 @@ impl OutlineView {
             };
             let cy = ry + rh / 2.0;
             let k = self.px(5.0);
+            if i == self.selected {
+                circle(p, lx + k, cy, k + self.px(3.0), SELECTED);
+            } else if self.hover == Some(i) {
+                circle(p, lx + k, cy, k + self.px(3.0), HOVER);
+            }
             if r.level.is_some() {
                 circle(p, lx + k, cy, k, SYMBOL);
                 circle(p, lx + k, cy, k - self.scale.max(1.0) * 1.2, WHITE);
@@ -311,7 +367,7 @@ impl OutlineView {
                 Some(_) => (11.0, 400, HEADING),
                 None => (11.0, 400, INK),
             };
-            let look = self.look(r.level);
+            let look = self.look(r.level).filter(|_| self.formatting);
             let font = match look {
                 Some(l) => Font {
                     family: l.font.as_str(),
@@ -335,13 +391,19 @@ impl OutlineView {
             let color = look
                 .and_then(|l| crate::theme::parse_color(&format!("#{}", l.color)))
                 .unwrap_or(color);
-            let text = if r.text.is_empty() && r.level.is_none() {
-                ""
+            // The list label first ("1.", "1.1."), then the text, as the reference.
+            let text = if r.label.is_empty() {
+                r.text.clone()
             } else {
-                r.text.as_str()
+                format!("{}   {}", r.label, r.text)
+            };
+            let text = if self.first_line {
+                text.chars().take(90).collect()
+            } else {
+                text
             };
             p.text_font(
-                text,
+                &text,
                 lx + self.px(18.0),
                 (cy - font.size * 0.68).round(),
                 &font,

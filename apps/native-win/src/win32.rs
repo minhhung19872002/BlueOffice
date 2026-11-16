@@ -995,17 +995,27 @@ pub fn run(title: &str, handler: Box<dyn Handler>) -> Result<(), String> {
         // BLUEOFFICE_SHOW_NOACTIVATE=1 (measurement scripts) shows the window without taking
         // the focus from the user's window.
         let quiet = std::env::var_os("BLUEOFFICE_SHOW_NOACTIVATE").is_some();
+        // BLUEOFFICE_WINDOW=1500x1102 (measurement scripts) opens the window at that size at
+        // (40, 40), so BLUEOFFICE_ACTIONS run at the size it is captured at.
+        let place = std::env::var("BLUEOFFICE_WINDOW").ok().and_then(|v| {
+            let (w, h) = v.split_once('x')?;
+            Some((w.trim().parse::<i32>().ok()?, h.trim().parse::<i32>().ok()?))
+        });
+        let (pw, ph) = place.unwrap_or((0, 0));
         // Recompute the frame now that WM_NCCALCSIZE removes the system caption.
         let _ = SetWindowPos(
             hwnd,
             None,
-            0,
-            0,
-            0,
-            0,
+            40,
+            40,
+            pw,
+            ph,
             SWP_FRAMECHANGED
-                | SWP_NOMOVE
-                | SWP_NOSIZE
+                | if place.is_some() {
+                    windows::Win32::UI::WindowsAndMessaging::SET_WINDOW_POS_FLAGS(0)
+                } else {
+                    SWP_NOMOVE | SWP_NOSIZE
+                }
                 | SWP_NOZORDER
                 | if quiet {
                     SWP_NOACTIVATE
@@ -1019,6 +1029,11 @@ pub fn run(title: &str, handler: Box<dyn Handler>) -> Result<(), String> {
             SW_SHOWMAXIMIZED
         };
         let _ = ShowWindow(hwnd, show);
+        if quiet {
+            // The first ShowWindow of a process takes the starting process's show state (a
+            // hidden script starts it minimised); the second one is ours.
+            let _ = ShowWindow(hwnd, show);
+        }
         let mut rect = RECT::default();
         let _ = GetClientRect(hwnd, &mut rect);
         let (w, h) = (

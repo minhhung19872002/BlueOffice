@@ -17,7 +17,7 @@ fn pdf(n: usize, files: bool) -> Vec<u8> {
         "<< /Type /Filespec /F (notes.txt) /UF (notes.txt) /Desc (Meeting notes) \
          /EF << /F 5 0 R >> >>"
             .into(),
-        "<< /Type /EmbeddedFile /Params << /Size 11 >> /Length 11 >>\nstream\nhello notes\nendstream"
+        "<< /Type /EmbeddedFile /Params << /Size 11 /ModDate (D:20261116093000+07'00') >> /Length 11 >>\nstream\nhello notes\nendstream"
             .into(),
     ];
     let mut kids = Vec::new();
@@ -89,6 +89,7 @@ fn portfolio_files_are_listed_and_read() {
     assert_eq!(files[0].name, "notes.txt");
     assert_eq!(files[0].size, 11);
     assert_eq!(files[0].description, "Meeting notes");
+    assert_eq!(files[0].modified, "2026-11-16 09:30");
     assert_eq!(doc.embedded_file_bytes(0).expect("bytes"), b"hello notes");
     assert!(doc.embedded_file_bytes(1).is_err());
     let plain = PdfDocument::open(pdf(1, false), standard_fonts()).expect("opens");

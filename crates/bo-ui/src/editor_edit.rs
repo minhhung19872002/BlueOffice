@@ -533,6 +533,11 @@ impl Editing {
         }
     }
 
+    /// Items of the page from the last analysis (empty before one).
+    pub(crate) fn cached_items(&self) -> &[Item] {
+        self.cache.as_ref().map_or(&[][..], |c| c.2.as_slice())
+    }
+
     /// Boxes of the selected items and of the other items of the page (from the cache).
     fn split_boxes(&self) -> (Vec<[f32; 4]>, Vec<[f32; 4]>) {
         let list = self.cache.as_ref().map_or(&[][..], |c| c.2.as_slice());

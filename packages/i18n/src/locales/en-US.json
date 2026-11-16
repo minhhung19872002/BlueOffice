@@ -8263,7 +8263,15 @@
     "batchAdd": "Add Files...",
     "batchNeedsPassword": "Type a password first.",
     "batchFailed": "Not encrypted (already protected?)",
-    "batchDone": "file(s) encrypted"
+    "batchDone": "file(s) encrypted",
+    "templateGoto": "Go to",
+    "close": "Close",
+    "portfolioHome": "Home ▸",
+    "colName": "Name",
+    "colDescription": "Description",
+    "colModified": "Modified",
+    "colSize": "Size",
+    "unknown": "Unknown"
   },
   "taskPane": {
     "dockLeft": "Dock left",

@@ -43,6 +43,68 @@ fn page_templates_add_spawn_and_delete() {
         .is_some_and(|v| v.doc_mut().page_templates().is_empty()));
 }
 
+/// A one-page portfolio embedding a text file.
+fn portfolio_pdf() -> Vec<u8> {
+    let objs = [
+        "<< /Type /Catalog /Pages 2 0 R /Collection << /Type /Collection >> \
+         /Names << /EmbeddedFiles << /Names [(notes.txt) 4 0 R] >> >> >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>",
+        "<< /Type /Filespec /F (notes.txt) /Desc (Notes) /EF << /F 5 0 R >> >>",
+        "<< /Type /EmbeddedFile /Length 5 >>\nstream\nhello\nendstream",
+    ];
+    let mut out = b"%PDF-1.7\n".to_vec();
+    let mut offs = Vec::new();
+    for (i, o) in objs.iter().enumerate() {
+        offs.push(out.len());
+        out.extend_from_slice(format!("{} 0 obj\n{o}\nendobj\n", i + 1).as_bytes());
+    }
+    let x = out.len();
+    out.extend_from_slice(b"xref\n0 6\n0000000000 65535 f \n");
+    for o in offs {
+        out.extend_from_slice(format!("{o:010} 00000 n \n").as_bytes());
+    }
+    out.extend_from_slice(
+        format!("trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n{x}\n%%EOF\n").as_bytes(),
+    );
+    out
+}
+
+#[test]
+fn a_portfolio_opens_in_its_details_view() {
+    let mut w = window(1);
+    let doc =
+        bo_pdfread::PdfDocument::open(portfolio_pdf(), bo_pdfread::standard_fonts()).expect("pdf");
+    w.open(doc, "folio.pdf", None);
+    let mut rec = crate::editor_tests::Rec::default();
+    w.paint(&mut rec);
+    assert!(
+        rec.texts.iter().any(|t| t == "notes.txt"),
+        "{:?}",
+        rec.texts
+    );
+    assert!(rec.texts.iter().any(|t| t == "5 Bytes"));
+    // Double click on the row saves the text file.
+    let r = w.five.portfolio.as_ref().expect("view").rows[0];
+    w.handle(
+        crate::Input::Press {
+            x: r[0] + 50.0,
+            y: r[1] + 5.0,
+            count: 2,
+            shift: false,
+        },
+        &Fixed,
+    );
+    assert!(w.take_requests().iter().any(
+        |q| matches!(q, ReaderRequest::SaveBytes { name, bytes } if name == "notes.txt" && bytes == b"hello")
+    ));
+    // Convert › PDF Portfolio shows the cover page.
+    w.run("conv.portfolio", &Fixed);
+    let mut rec = crate::editor_tests::Rec::default();
+    w.paint(&mut rec);
+    assert!(!rec.texts.iter().any(|t| t == "notes.txt"));
+}
+
 #[test]
 fn portfolio_without_files_says_so_and_batch_encrypts_copies() {
     let mut w = window(1);

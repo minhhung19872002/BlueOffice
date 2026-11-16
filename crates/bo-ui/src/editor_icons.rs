@@ -122,6 +122,11 @@ pub(crate) fn shape(name: &str) -> &'static [Part] {
         "objRotateLeft" => &[S("M10 10h9v10h-9z M15 4.5a7 7 0 0 0-9.5 4 M5 5v4h4")],
         "objFlipAcross" => &[S("M12 2v20 M9.5 6L3 18h6.5z M14.5 6L21 18h-6.5z")],
         "objFlipDown" => &[S("M2 12h20 M6 9.5L18 3v6.5z M6 14.5L18 21v-6.5z")],
+        // Format pane Split section (own drawings; not offered, drawn grey).
+        "splitBlock" => &[S("M3 4h18v6H3z M3 14h18v6H3z M8 12h8")],
+        "splitLines" => &[S("M4 5h16 M4 9h16 M12 12v8 M9 17l3 3 3-3 M4 21h4 M16 21h4")],
+        "joinBlocks" => &[S("M3 3h8v8H3z M13 13h8v8h-8z M11 7h6v6")],
+        "textArea" => &[S("M3 3h18v18H3z M8 8h8 M12 8v9")],
         // File page.
         "clock" => &[S("M12 3a9 9 0 1 0 .01 0z"), A("M12 7v5l3.5 2")],
         "computer" => &[S("M3 4h18v12H3z M9 20h6 M12 16v4")],

@@ -592,6 +592,7 @@ impl EditorWindow {
         self.edit.reset(self.r.view_mut());
         self.x = crate::editor_actions::Extras::default();
         self.r.open(doc, name, path);
+        self.portfolio_opened();
         self.apply_view_prefs();
         self.org = Organize::default();
         self.sync();
@@ -799,6 +800,10 @@ impl EditorWindow {
                 self.caret_on = !self.caret_on;
                 return true;
             }
+        }
+        if self.portfolio_input(&input) {
+            self.sync();
+            return true;
         }
         let mut redraw = false;
         let mut used = false;
@@ -1803,6 +1808,7 @@ impl EditorWindow {
     /// Paint the window.
     pub fn paint(&mut self, p: &mut dyn Painter) {
         self.r.paint(p);
+        self.paint_portfolio(p);
         if self.organize_on() {
             if let (Some(v), Some(base)) = (self.r.view(), self.r.key_base()) {
                 let labels: Vec<String> = (0..v.page_count())

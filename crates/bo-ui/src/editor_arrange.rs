@@ -7,7 +7,7 @@ use crate::editor_edit::{Editing, Item};
 use crate::editor_window::{EditTool, EditorWindow};
 use crate::reader_icons::{self, Ink};
 use crate::reader_view::ReaderView;
-use crate::{Key, Mods, Painter, TextStyle};
+use crate::{Key, Mods, Painter, TextMeasure, TextStyle};
 use bo_pdfread::{flip_about, rotation_about};
 use bo_render::Rgba;
 
@@ -314,6 +314,16 @@ impl Editing {
     pub(crate) fn selected_count(&self) -> usize {
         self.selected.len()
     }
+
+    /// Kinds of the selected items (from the cache).
+    pub(crate) fn selected_kinds(&self) -> Vec<bo_pdfread::ObjectKind> {
+        self.cached_items()
+            .iter()
+            .enumerate()
+            .filter(|(k, _)| self.selected.contains(k))
+            .map(|(_, it)| it.kind)
+            .collect()
+    }
 }
 
 /// A pane row of the Arrange section: sub-heading, buttons (command, icon), x step in logical
@@ -454,16 +464,11 @@ impl EditorWindow {
         true
     }
 
-    /// The Format pane with Edit Object: the Arrange section.
-    pub(crate) fn paint_arrange(&mut self, p: &mut dyn Painter, x0: f32, y0: f32) {
+    /// A collapsible section heading of the Format pane as the reference's: a small triangle,
+    /// the title at x 27 and a rule from the title to the pane's edge.
+    pub(crate) fn section_heading(&self, p: &mut dyn Painter, x0: f32, ty: f32, label: &str) {
         let k = self.ui_scale();
         let px = |v: f32| (v * k).round();
-        let style = |s125: f32| TextStyle {
-            size: s125 / 1.375 * k,
-            bold: false,
-        };
-        let n = self.edit.selected_count();
-        let ty = y0 + px(46.0);
         p.path(
             &[
                 bo_render::PathSeg::M(x0 + px(7.0), ty + px(4.0)),
@@ -474,14 +479,63 @@ impl EditorWindow {
             Some(MUTED),
             None,
         );
-        p.text(
-            &self.t("pdfEditor.arrange"),
-            x0 + px(27.0),
-            ty,
-            style(17.0),
-            TEXT,
+        let text = self.t(label);
+        let style = TextStyle {
+            size: 17.0 / 1.375 * k,
+            bold: false,
+        };
+        let w = crate::editor_window::Estimate.measure(&text, style).0 * 0.95;
+        let right = self.r.right_pane_rect();
+        let x = x0 + px(27.0) + w + px(8.0);
+        p.fill_rect(
+            x.round(),
+            ty + px(9.0),
+            (right[0] + right[2] - px(14.0) - x).max(0.0).round(),
+            1.0,
+            Rgba(224, 224, 224, 255),
         );
-        // Rows as the reference's (125 %: heading +26, buttons +71, next heading +119 …).
+        p.text(&text, x0 + px(27.0), ty, style, TEXT);
+    }
+
+    /// The Split section shown for a text object (its commands are not offered: grey).
+    pub(crate) fn paint_split(&mut self, p: &mut dyn Painter, x0: f32, ty: f32) {
+        let k = self.ui_scale();
+        let px = |v: f32| (v * k).round();
+        self.section_heading(p, x0, ty, "pdfEditor.split");
+        // 125 %: icons 50 px under the heading, 63 px apart.
+        for (j, icon) in ["splitBlock", "splitLines", "joinBlocks", "textArea"]
+            .iter()
+            .enumerate()
+        {
+            let cx = x0 + px(42.0 + 50.0 * j as f32);
+            let cy = ty + px(40.0);
+            reader_icons::draw_weight(
+                p,
+                icon,
+                cx - px(10.0),
+                cy - px(10.0),
+                px(20.0),
+                Ink {
+                    ink: MUTED,
+                    accent: MUTED,
+                },
+                0.9,
+            );
+        }
+    }
+
+    /// The Arrange section of the Format pane with Edit Object, its heading at `ty`.
+    pub(crate) fn paint_arrange(&mut self, p: &mut dyn Painter, x0: f32, ty: f32) {
+        let k = self.ui_scale();
+        let px = |v: f32| (v * k).round();
+        let style = |s125: f32| TextStyle {
+            size: s125 / 1.375 * k,
+            bold: false,
+        };
+        let n = self.edit.selected_count();
+        self.section_heading(p, x0, ty, "pdfEditor.arrange");
+        // Rows as the reference's (125 %: sub-heading +26, buttons +71, next sub-heading +119,
+        // buttons +153, next +201, buttons +235).
         let mut y = ty + px(21.0);
         for (i, (label, buttons, step)) in ARRANGE_ROWS.iter().enumerate() {
             p.text(&self.t(label), x0 + px(27.0), y, style(16.0), SUB);
@@ -513,7 +567,7 @@ impl EditorWindow {
                         .push(([cx - s / 2.0, cy - s / 2.0, s, s], cmd));
                 }
             }
-            y = cy + px(if i == 0 { 38.0 } else { 34.0 });
+            y = cy + px(if i == 0 { 38.0 } else { 39.0 });
         }
     }
 }

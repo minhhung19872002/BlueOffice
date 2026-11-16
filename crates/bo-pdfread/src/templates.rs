@@ -17,6 +17,25 @@ pub struct EmbeddedFile {
     pub size: usize,
     /// Description (`/Desc`).
     pub description: String,
+    /// Modification date as `YYYY-MM-DD HH:MM` (`/Params /ModDate`, §7.9.4), empty when unknown.
+    pub modified: String,
+}
+
+/// `D:YYYYMMDDHHmm…` (§7.9.4) as `YYYY-MM-DD HH:MM` (or the date alone).
+fn date_text(s: &str) -> String {
+    let d: String = s
+        .trim_start_matches("D:")
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .collect();
+    if d.len() < 8 {
+        return String::new();
+    }
+    let mut out = format!("{}-{}-{}", &d[0..4], &d[4..6], &d[6..8]);
+    if d.len() >= 12 {
+        out.push_str(&format!(" {}:{}", &d[8..10], &d[10..12]));
+    }
+    out
 }
 
 /// Text of a PDF string (UTF-16BE with a byte order mark, else PDFDocEncoding as Latin-1).
@@ -237,6 +256,15 @@ impl PdfDocument {
                     .and_then(|p| p.get(b"Size").ok())
                     .and_then(|v| resolve(&self.doc, v).as_i64().ok())
                     .map_or(s.content.len(), |v| v.max(0) as usize);
+                let modified = s
+                    .dict
+                    .get(b"Params")
+                    .ok()
+                    .and_then(|p| resolve(&self.doc, p).as_dict().ok())
+                    .and_then(|p| p.get(b"ModDate").ok())
+                    .and_then(|v| resolve(&self.doc, v).as_str().ok())
+                    .map(|b| date_text(&text(b)))
+                    .unwrap_or_default();
                 let description = spec
                     .get(b"Desc")
                     .ok()
@@ -253,6 +281,7 @@ impl PdfDocument {
                     name: shown,
                     size,
                     description,
+                    modified,
                 })
             })
             .collect()

@@ -44,6 +44,7 @@ mod editor_organize;
 #[cfg(test)]
 mod editor_organize5_tests;
 mod editor_pages5;
+mod editor_portfolio;
 mod editor_sign;
 #[cfg(test)]
 mod editor_tests;

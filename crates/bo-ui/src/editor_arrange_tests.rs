@@ -156,6 +156,9 @@ fn marquee_selects_and_arrange_centres_on_the_page() {
     w.paint(&mut rec);
     assert!(rec.texts.iter().any(|t| t == "Arrange"), "{:?}", rec.texts);
     assert!(rec.texts.iter().any(|t| t == "Page Center"));
+    // A text object also shows Text Style and Split above Arrange, as the reference.
+    assert!(rec.texts.iter().any(|t| t == "Text Style"));
+    assert!(rec.texts.iter().any(|t| t == "Split"));
     w.run("obj.alignLeft", &Fixed);
     assert!((lines(&mut w)[0][0] - b[0]).abs() < 0.1);
     w.run("obj.centerBoth", &Fixed);

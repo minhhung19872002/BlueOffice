@@ -25,6 +25,8 @@ pub(crate) enum FiveAsk {
 pub(crate) struct FiveState {
     pub batch_files: Vec<(String, Vec<u8>)>,
     pub batch_typed: (String, String),
+    /// The details view of an open portfolio.
+    pub portfolio: Option<crate::editor_portfolio::PortfolioView>,
 }
 
 /// "1.2 KB" style size.
@@ -76,7 +78,11 @@ impl EditorWindow {
     pub(crate) fn five_command(&mut self, cmd: &str) -> bool {
         match cmd {
             "form.pageTemplates" => self.open_templates(),
-            "conv.portfolio" => self.open_portfolio(),
+            "conv.portfolio" => {
+                if !self.portfolio_toggle() {
+                    self.open_portfolio();
+                }
+            }
             "prot.batchEncrypt" => self.open_batch(),
             _ => return false,
         }
@@ -102,7 +108,8 @@ impl EditorWindow {
             (self.t("pdfEditor.templateAdd"), DialogButton::Ok),
             (self.t("pdfEditor.templateSpawn"), DialogButton::FindNext),
             (self.t("pdfEditor.templateDelete"), DialogButton::Replace),
-            (self.t("pdfReader.cancel"), DialogButton::Cancel),
+            (self.t("pdfEditor.templateGoto"), DialogButton::ReplaceAll),
+            (self.t("pdfEditor.close"), DialogButton::Cancel),
         ];
         self.five_dialog(
             FiveAsk::Templates(names),
@@ -203,6 +210,20 @@ impl EditorWindow {
                     .filter_map(|i| names.get(i).cloned())
                     .collect();
                 let page = self.r.view().map_or(0, crate::ReaderView::current_page);
+                if b == DialogButton::ReplaceAll {
+                    // Go to the first ticked template's page, as the reference's Goto.
+                    let list = self
+                        .with_doc(|d| Ok(d.page_templates()))
+                        .unwrap_or_default();
+                    let to = picked
+                        .first()
+                        .and_then(|n| list.iter().find(|(m, _)| m == n))
+                        .map(|(_, p)| *p);
+                    if let (Some(to), Some(v)) = (to, self.r.view_mut()) {
+                        v.go_to(to, None);
+                    }
+                    return;
+                }
                 let r = match b {
                     DialogButton::Ok => self.doc_edit(|d| d.add_page_template(&name, page)),
                     DialogButton::FindNext => self.doc_edit(|d| {

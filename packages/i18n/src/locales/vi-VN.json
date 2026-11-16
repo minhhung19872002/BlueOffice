@@ -8263,7 +8263,15 @@
     "batchAdd": "Thêm tệp...",
     "batchNeedsPassword": "Hãy nhập mật khẩu trước.",
     "batchFailed": "Không mã hoá được (đã có mật khẩu?)",
-    "batchDone": "tệp đã mã hoá"
+    "batchDone": "tệp đã mã hoá",
+    "templateGoto": "Đi tới",
+    "close": "Đóng",
+    "portfolioHome": "Gốc ▸",
+    "colName": "Tên",
+    "colDescription": "Mô tả",
+    "colModified": "Sửa đổi",
+    "colSize": "Cỡ",
+    "unknown": "Không rõ"
   },
   "taskPane": {
     "dockLeft": "Gắn bên trái",

@@ -25,6 +25,11 @@ impl ReaderWindow {
     pub(crate) fn help_items9() -> Vec<(&'static str, Kind)> {
         use Kind::{Big, Sep};
         vec![
+            (
+                "help.manual",
+                Big("userManual", "pdfTabs9.userManual", false),
+            ),
+            ("help.center", Big("info", "pdfTabs9.helpCenter", false)),
             ("help.cli", Big("cmdLine", "pdfTabs9.commandLine", false)),
             ("sep1", Sep),
             (
@@ -97,6 +102,35 @@ impl ReaderWindow {
         balanced_split(text)
     }
 
+    /// A small button that opens a menu carries a drop-down arrow right of it, like the
+    /// reference's page display options (BlueReader).
+    pub(crate) fn paint_small_arrow9(
+        &self,
+        p: &mut dyn crate::Painter,
+        id: &str,
+        r: [f32; 4],
+        ink: bo_render::Rgba,
+    ) {
+        if self.profile.is_some() || !id.starts_with("menu.") {
+            return;
+        }
+        let a = (2.4 * self.scale).round();
+        let (x, y) = (
+            r[0] + r[2] + (1.6 * self.scale).round(),
+            r[1] + r[3] / 2.0 - a / 2.0,
+        );
+        p.path(
+            &[
+                bo_render::PathSeg::M(x, y),
+                bo_render::PathSeg::L(x + 2.0 * a, y),
+                bo_render::PathSeg::L(x + a, y + a),
+                bo_render::PathSeg::Z,
+            ],
+            Some(ink),
+            None,
+        );
+    }
+
     /// Share commands need a saved document.
     pub(crate) fn tabs9_enabled(&self, id: &str) -> Option<bool> {
         let has_path = self.tabs.get(self.active).is_some_and(|t| t.path.is_some());
@@ -105,6 +139,8 @@ impl ReaderWindow {
             "share.copy" | "share.folder" => Some(has_path),
             // The reference greys Tool Settings when the document has no form fields.
             "menu.formSettings" => Some(self.has_form9()),
+            // No user guide or support site ships with this build yet: grey, with a tooltip.
+            "help.manual" | "help.center" => Some(false),
             _ => None,
         }
     }
@@ -178,6 +214,7 @@ mod tests {
             .any(|r| matches!(r, ReaderRequest::Copy(p) if p.contains("a.pdf"))));
         w.set_ribbon_tab(super::SHARE_TAB + 1, &Fixed);
         assert!(w.control_rect("help.cli").is_some());
+        assert!(!w.enabled("help.manual"));
         assert!(w.control_rect("tool.hand").is_none());
         w.run_command("help.default", &Fixed);
         assert!(w

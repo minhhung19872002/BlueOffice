@@ -68,6 +68,11 @@ fn to_srgb(v: f32) -> u8 {
     b
 }
 
+/// OKLab lightness of `c`.
+fn l_of(c: Rgba) -> f32 {
+    oklab(c).0
+}
+
 /// sRGB → OKLab (L, a, b).
 #[allow(clippy::many_single_char_names)]
 fn oklab(c: Rgba) -> (f32, f32, f32) {
@@ -109,6 +114,19 @@ pub(crate) fn dark_ink(c: Rgba) -> Rgba {
     from_oklab((curve(l), a * 0.85, b * 0.85), c.3)
 }
 
+/// The dark skin's colour for a hairline (separators, frames 1–2 px wide): light greys that
+/// sit close to the light ground stay at least 1.5 : 1 from the dark one.
+pub(crate) fn dark_line(c: Rgba) -> Rgba {
+    let (l, a, b) = oklab(c);
+    if a.hypot(b) > 0.08 && (0.3..0.85).contains(&l) {
+        return dark_ink(c);
+    }
+    from_oklab((curve(l).max(LINE_L), a * 0.85, b * 0.85), c.3)
+}
+
+/// Least OKLab lightness of a neutral hairline in the dark skin.
+const LINE_L: f32 = 0.45;
+
 /// A painter that draws the window in the dark skin over `inner`.
 pub(crate) struct DarkPainter<'a> {
     pub(crate) inner: &'a mut dyn Painter,
@@ -136,7 +154,11 @@ impl Painter for DarkPainter<'_> {
         self.inner.clear(c);
     }
     fn fill_rect(&mut self, x: f32, y: f32, w: f32, h: f32, color: Rgba) {
-        let c = self.ink(color);
+        let c = if self.raw == 0 && (w <= 2.0 || h <= 2.0) && l_of(color) > 0.8 {
+            dark_line(color)
+        } else {
+            self.ink(color)
+        };
         self.inner.fill_rect(x, y, w, h, c);
     }
     fn page(&mut self, index: usize, x: i32, y: i32) {
@@ -213,6 +235,11 @@ impl ReaderWindow {
     /// `pdfTip.<id>` string).
     fn tip_text9(&self, id: &str) -> Option<String> {
         let c = self.controls.iter().find(|c| c.id == id)?;
+        // A `pdfTip.<id>` string wins (greyed commands say why).
+        let tip = format!("pdfTip.{id}");
+        if self.strings.get(&tip) != tip {
+            return Some(self.strings.get(&tip).to_owned());
+        }
         match c.kind {
             Kind::Big(_, key, _) | Kind::Row(_, key, _) if !key.is_empty() => {
                 Some(self.strings.get(key).replace('\n', " "))
@@ -292,6 +319,14 @@ mod tests {
             |c: Rgba| 0.2126 * to_linear(c.0) + 0.7152 * to_linear(c.1) + 0.0722 * to_linear(c.2);
         let (x, y) = (lum(a), lum(b));
         (x.max(y) + 0.05) / (x.min(y) + 0.05)
+    }
+
+    #[test]
+    fn menu_separators_stay_visible_in_the_dark_skin() {
+        // Separator grey on the reader menu's fill: at least 1.5 : 1.
+        let bg = dark_ink(Rgba(251, 251, 253, 255));
+        let line = dark_line(Rgba(0xe1, 0xe1, 0xe1, 255));
+        assert!(contrast(bg, line) >= 1.5, "{}", contrast(bg, line));
     }
 
     #[test]

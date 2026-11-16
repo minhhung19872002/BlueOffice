@@ -11154,6 +11154,8 @@
     "properties": "Properties..."
   },
   "pdfTabs9": {
+    "userManual": "User Manual",
+    "helpCenter": "Help Center",
     "email": "Email",
     "copyPath": "Copy File Path",
     "showFolder": "Show in Folder",
@@ -11193,5 +11195,9 @@
     "reduce": "Reduce Page Thumbnails",
     "printPages": "Print Pages...",
     "properties": "Properties..."
+  },
+  "pdfTip": {
+    "help.manual": "User Manual: not included in this build",
+    "help.center": "Help Center: no support address is set in this build"
   }
 }

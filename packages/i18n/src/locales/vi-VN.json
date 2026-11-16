@@ -11154,6 +11154,8 @@
     "properties": "Thuộc tính..."
   },
   "pdfTabs9": {
+    "userManual": "Hướng dẫn sử dụng",
+    "helpCenter": "Trung tâm trợ giúp",
     "email": "E-mail",
     "copyPath": "Chép đường dẫn tệp",
     "showFolder": "Mở thư mục chứa tệp",
@@ -11193,5 +11195,9 @@
     "reduce": "Thu nhỏ ảnh trang",
     "printPages": "In trang...",
     "properties": "Thuộc tính..."
+  },
+  "pdfTip": {
+    "help.manual": "Hướng dẫn sử dụng: chưa có trong bản này",
+    "help.center": "Trung tâm trợ giúp: bản này chưa đặt địa chỉ hỗ trợ"
   }
 }

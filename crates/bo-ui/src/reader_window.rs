@@ -2852,6 +2852,9 @@ impl ReaderWindow {
                     if c.kind == Kind::Nav(Panel::Attachments) {
                         self.paint_nav_badge8(p, r);
                     }
+                    if matches!(c.kind, Kind::Small(_)) {
+                        self.paint_small_arrow9(p, c.id, r, col);
+                    }
                 }
                 Kind::Row(icon, label, dropdown) => {
                     let enabled = self.enabled(c.id);

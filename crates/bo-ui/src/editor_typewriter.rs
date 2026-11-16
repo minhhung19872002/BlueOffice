@@ -13,6 +13,8 @@ pub(crate) const TW_SIZE: f32 = 9.0;
 pub(crate) const TW_COLOR: [u8; 3] = [0, 0, 255];
 /// Frame of the text being typed (the reference: 1 px #759DB8, text inset 3 px).
 const FRAME: Rgba = Rgba(117, 157, 184, 255);
+/// Text inset from the frame (points), as the saved appearance draws it.
+const INSET: f32 = 1.0;
 
 /// A typewriter comment being typed.
 #[derive(Debug, Clone, Default)]
@@ -106,10 +108,12 @@ impl EditorWindow {
         let Some(d) = &self.tw else { return };
         let Some(v) = self.view() else { return };
         let lines: Vec<&str> = d.text.split('\n').collect();
-        let lh = TW_SIZE * 1.2;
-        let h = lh * lines.len() as f32 + 4.0;
+        // The reference's frame hugs the text (99.6 %: 103 x 19 px for one 9 pt line, ink 3 px
+        // in): lines 1.15 em apart, 1 pt in from the left as the saved appearance draws it.
+        let lh = TW_SIZE * 1.15;
+        let h = lh * lines.len() as f32 + TW_SIZE * 0.12;
         let width = d.widths.iter().copied().fold(0.0, f32::max);
-        let r = [d.at[0], d.at[1], d.at[0] + width + 6.0, d.at[1] + h];
+        let r = [d.at[0], d.at[1], d.at[0] + width + 2.0 * INSET, d.at[1] + h];
         let Some(w) = v.doc_rect_to_window(d.page, r) else {
             return;
         };
@@ -118,7 +122,7 @@ impl EditorWindow {
         let ink = Rgba(c[0], c[1], c[2], 255);
         let f = font(TW_SIZE * s);
         for (i, l) in lines.iter().enumerate() {
-            p.text_font(l, w[0] + 3.0 * s, w[1] + (2.0 + lh * i as f32) * s, &f, ink);
+            p.text_font(l, w[0] + INSET * s, w[1] + lh * i as f32 * s, &f, ink);
         }
         // Frame: 1 px lines around the box.
         p.fill_rect(w[0], w[1], w[2], 1.0, FRAME);
@@ -128,12 +132,12 @@ impl EditorWindow {
         if self.caret_on {
             // After the last character.
             let cx = d.widths.last().copied().unwrap_or(0.0);
-            let y = w[1] + (2.0 + lh * (lines.len() - 1) as f32) * s;
+            let y = w[1] + lh * (lines.len() - 1) as f32 * s + 1.0;
             p.fill_rect(
-                (w[0] + (3.0 + cx) * s).round(),
+                (w[0] + (INSET + cx) * s).round(),
                 y,
-                1.0_f32.max(s.round() * 0.75),
-                lh * s,
+                1.0,
+                (lh * s).round(),
                 Rgba(0, 0, 0, 255),
             );
         }

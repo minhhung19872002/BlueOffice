@@ -377,7 +377,7 @@ pub(crate) fn float_item(
         // §20.4.2.20 wrapTight: text follows the edges of the wrap polygon
         // (§20.4.2.16, in 21 600ths of the extent) plus distL/R line by line;
         // distT/B do not apply. The zone is the polygon's bounding box.
-        Wrap::Tight => {
+        Wrap::Tight | Wrap::Through => {
             let [px0, py0, px1, py1] = a
                 .polygon
                 .map_or([0.0, 0.0, 1.0, 1.0], |p| p.map(|v| v as f32 / 21_600.0));

@@ -234,6 +234,7 @@ fn every_contextual_button_has_a_label_an_icon_and_a_command() {
         story: Some(true),
         table: true,
         picture: true,
+        outline: true,
     });
     for tab in &all {
         assert_ne!(w.strings.get(tab.label), tab.label, "{}", tab.label);
@@ -263,6 +264,8 @@ fn every_contextual_button_has_a_label_an_icon_and_a_command() {
                 );
                 assert!(
                     catalog::is_menu(id)
+                        || crate::doc_r3_menus::static_id(id).is_some()
+                        || crate::doc_r3_menus::OUTLINE.contains(id)
                         || crate::doc_table::DIALOGS.contains(id)
                         || doc_tools::command(
                             id,
@@ -275,6 +278,12 @@ fn every_contextual_button_has_a_label_an_icon_and_a_command() {
                         || catalog::command(id, &format.section).is_some(),
                     "{id} does nothing"
                 );
+                // Round-3 menus run in the window (doc_r3, tested there).
+                if crate::doc_r3_menus::static_id(id).is_some()
+                    || crate::doc_r3_menus::OUTLINE.contains(id)
+                {
+                    continue;
+                }
                 for e in catalog::menu(id) {
                     assert!(
                         doc_tools::command(

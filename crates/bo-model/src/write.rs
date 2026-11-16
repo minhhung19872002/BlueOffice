@@ -1912,6 +1912,9 @@ pub enum Wrap {
     Square,
     /// Tight wrap around the object outline (`wrapTight`).
     Tight,
+    /// Wrap through the object's wrap polygon, open spaces included (`wrapThrough`,
+    /// §20.4.2.18); laid out like [`Wrap::Tight`].
+    Through,
     /// Text only above and below (`wrapTopAndBottom`).
     TopAndBottom,
 }

@@ -529,6 +529,9 @@ pub enum Command {
     },
     /// Insert a table of contents at the caret.
     InsertToc,
+    /// Remove the table of contents (References › Table of Contents › Remove; `noToc` when
+    /// the document has none).
+    RemoveToc,
     /// Insert a table of figures (`TOC \c` / `\a`), an index (`INDEX`) or a table of
     /// authorities (`TOA`) at the caret and fill it (ECMA-376 Part 1, §17.16.5.68,
     /// §17.16.5.29, §17.16.5.67).
@@ -1063,6 +1066,14 @@ pub enum Command {
     /// (`bo_edit::design::DOC_STYLE_SETS`; Design › Document Formatting gallery).
     ApplyDocumentStyleSet {
         /// Style set id (`standard`, `capital`, `lotus`, `river`, `harbor`, `quiet`, `bold`).
+        id: String,
+    },
+    /// Apply theme effects (Design › Effects): BlueOffice's own effect sets written as the
+    /// theme's §20.1.4.1.14 fmtScheme effect styles (§20.1.4.1.12 effectStyleLst), keeping
+    /// its colours and fonts.
+    ApplyThemeEffects {
+        /// Effect set id (`flat`, `soft`, `lifted`, `glow`, `inset`, `gloss`, `outline`,
+        /// `deep`).
         id: String,
     },
     /// Apply a paragraph-spacing style set.
@@ -1897,6 +1908,7 @@ impl crate::Engine {
                     | Command::SetWatermark { .. }
                     | Command::ApplyTheme { .. }
                     | Command::ApplyThemeFile { .. }
+                    | Command::ApplyThemeEffects { .. }
                     | Command::SaveThemeFile
                     | Command::ApplyStyleSet { .. }
                     | Command::ApplyDocumentStyleSet { .. }
@@ -2439,6 +2451,11 @@ impl crate::Engine {
                     }
                     Command::InsertToc => {
                         extra.1 = Some(s.insert_toc(&mut pages_of)?);
+                    }
+                    Command::RemoveToc => {
+                        if !s.remove_toc()? {
+                            return Err(bo_edit::EditError::Unsupported("noToc".into()));
+                        }
                     }
                     Command::InsertReferenceTable {
                         instr,

@@ -25,7 +25,7 @@ const MORE_W: f32 = 18.0;
 
 /// Commands shown greyed: not carried out by BlueDoc yet (theme effects, saving the
 /// formatting as the default for new documents).
-pub(crate) const UNAVAILABLE: [&str; 2] = ["design.effects", "design.setDefault"];
+pub(crate) const UNAVAILABLE: [&str; 0] = [];
 
 /// Fixed widths (logical px) of the gallery placeholders: tiles 80 (100 px at 125 %), the
 /// ▾ column 18.

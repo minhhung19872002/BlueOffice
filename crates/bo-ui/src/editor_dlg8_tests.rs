@@ -376,7 +376,7 @@ fn backspace_and_delete_join_paragraphs_like_the_reference() {
     w.handle(Input::Key(Key::Escape, Mods::default()), &Fixed);
     let b = blocks(&mut w);
     assert_eq!(b.len(), 2, "{b:?}");
-    let joined = b.concat().replace(" ", "");
+    let joined = b.concat().replace(' ', "");
     assert!(
         joined.contains("text.XThesecondonefollowsclosebelowit."),
         "{b:?}"

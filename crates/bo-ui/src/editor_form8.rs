@@ -237,11 +237,11 @@ impl Form {
     }
 
     /// Replace the items of drop-down `id`.
-    pub(crate) fn set_items(&mut self, id: &str, new: Vec<String>) {
+    pub(crate) fn set_items(&mut self, id: &str, new: &[String]) {
         for c in &mut self.ctls {
             if let Ctl::Combo { id: i, items, .. } = c {
                 if *i == id {
-                    items.clone_from(&new);
+                    *items = new.to_vec();
                 }
             }
         }
@@ -999,9 +999,7 @@ impl Form {
                             b[3] - 2.0 * inset,
                             q(3.0),
                         ),
-                        Some(if !on {
-                            Rgba(0xF5, 0xF5, 0xF5, 255)
-                        } else if hot {
+                        Some(if !on || hot {
                             Rgba(0xF5, 0xF5, 0xF5, 255)
                         } else {
                             Rgba(0xFD, 0xFD, 0xFD, 255)

@@ -55,12 +55,11 @@ pub(crate) fn page_groups(s: &str, n: usize) -> Vec<Vec<usize>> {
             if part.is_empty() {
                 return None;
             }
-            let (a, b) = match part.split_once('-') {
-                Some((a, b)) => (a.trim().parse::<usize>().ok()?, b.trim().parse().ok()?),
-                None => {
-                    let v = part.parse::<usize>().ok()?;
-                    (v, v)
-                }
+            let (a, b) = if let Some((a, b)) = part.split_once('-') {
+                (a.trim().parse::<usize>().ok()?, b.trim().parse().ok()?)
+            } else {
+                let v = part.parse::<usize>().ok()?;
+                (v, v)
             };
             let (a, b) = (a.min(b).max(1), a.max(b).min(n));
             (a <= b).then(|| (a - 1..b).collect())
@@ -1281,8 +1280,8 @@ impl EditorWindow {
             page_groups(&f.text("pages"), n)
         };
         let keep = |p: &usize| match f.pick("which") {
-            1 => p % 2 == 1,
-            2 => p % 2 == 0,
+            1 => p & 1 == 1,
+            2 => p & 1 == 0,
             _ => true,
         };
         let groups: Vec<Vec<usize>> = groups
@@ -1528,15 +1527,14 @@ impl EditorWindow {
         let Some((page, id)) = self.edit.selected_image(v) else {
             return;
         };
-        match v.doc_mut().object_image(page, id) {
-            Some((bytes, ext)) => self.push(ReaderRequest::SaveBytes {
+        if let Some((bytes, ext)) = v.doc_mut().object_image(page, id) {
+            self.push(ReaderRequest::SaveBytes {
                 name: format!("{stem}-p{}-image.{ext}", page + 1),
                 bytes,
-            }),
-            None => {
-                let msg = self.t("pdfEditor8.noImage");
-                self.set_status(&msg);
-            }
+            });
+        } else {
+            let msg = self.t("pdfEditor8.noImage");
+            self.set_status(&msg);
         }
     }
 

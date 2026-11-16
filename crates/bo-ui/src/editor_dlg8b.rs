@@ -77,8 +77,8 @@ impl EditorWindow {
             (0..n).collect()
         };
         let keep = |p: &usize| match f.pick("prs") {
-            1 => p % 2 == 1,
-            2 => p % 2 == 0,
+            1 => p & 1 == 1,
+            2 => p & 1 == 0,
             _ => true,
         };
         let out: Vec<usize> = base.into_iter().filter(keep).collect();
@@ -301,7 +301,7 @@ impl EditorWindow {
                     }
                     let names = self.preset_names(kind);
                     if let Some((f, _)) = self.form8.last_mut() {
-                        f.set_items("saved", names);
+                        f.set_items("saved", &names);
                         f.set("saved", Val::Pick(0));
                     }
                 }
@@ -338,7 +338,7 @@ impl EditorWindow {
         let at = list.len();
         let names = self.preset_names(kind);
         if let Some((p, _)) = self.form8.last_mut() {
-            p.set_items("saved", names);
+            p.set_items("saved", &names);
             p.set("saved", Val::Pick(at));
         }
     }
@@ -403,7 +403,7 @@ impl EditorWindow {
         if pages.is_empty() {
             pages = (0..n).collect();
         }
-        let (dx, dy) = self.offset_of(f);
+        let (dx, dy) = Self::offset_of(f);
         let alpha = (f.num("opacity", 50.0) / 100.0).clamp(0.05, 1.0);
         let rel = f.pick("scaleOn") == 1;
         let r = self.doc_edit(|d| {
@@ -433,7 +433,7 @@ impl EditorWindow {
     }
 
     /// Distances of the Position group as an offset from the page centre (right / up, pt).
-    fn offset_of(&self, f: &Form) -> (f32, f32) {
+    fn offset_of(f: &Form) -> (f32, f32) {
         let pt = |d: &str| f.num(d, 0.0) * 72.0;
         (pt("hdist"), pt("vdist"))
     }

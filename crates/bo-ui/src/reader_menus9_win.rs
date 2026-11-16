@@ -348,7 +348,7 @@ fn comment_rows(popup: bool) -> (Vec<Row>, Vec<usize>) {
             (
                 "comment.setStatus",
                 "pdfCtx.setStatus",
-                "\u{25B8}",
+                "\u{25B6}",
                 None,
                 false,
             ),

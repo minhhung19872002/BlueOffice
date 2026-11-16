@@ -365,12 +365,32 @@ fn design_tab() -> Tab {
             // reference's Design tab.
             Group {
                 label: "ribbon.groups.documentFormatting",
-                large: vec![L("design.themes"), L("design.colors"), L("design.fonts")],
-                rows: vec![vec![S("design.paragraphSpacing")]],
+                large: vec![
+                    L("design.themes"),
+                    L("design.styleSet.standard"),
+                    L("design.styleSet.capital"),
+                    L("design.styleSet.lotus"),
+                    L("design.styleSet.river"),
+                    L("design.styleSet.harbor"),
+                    L("design.styleSet.quiet"),
+                    L("design.styleSet.bold"),
+                    L("design.styleSetMore"),
+                    L("design.colors"),
+                    L("design.fonts"),
+                ],
+                rows: vec![
+                    vec![S("design.paragraphSpacing")],
+                    vec![S("design.effects")],
+                    vec![S("design.setDefault")],
+                ],
             },
             Group {
                 label: "ribbon.groups.pageBackground",
-                large: vec![L("design.watermark"), L("design.pageColor")],
+                large: vec![
+                    L("design.watermark"),
+                    L("design.pageColor"),
+                    L("design.pageBorders"),
+                ],
                 rows: vec![],
             },
         ],
@@ -2639,7 +2659,11 @@ mod tests {
                 assert_ne!(strings.get(g.label), g.label, "missing label {}", g.label);
                 for item in g.large.iter().chain(g.rows.iter().flatten()) {
                     if let Item::Button(id) | Item::Large(id) | Item::Labeled(id) = item {
-                        assert!(commands::enabled(id, &format), "{id} has no action");
+                        assert!(
+                            commands::enabled(id, &format)
+                                || crate::doc_design::UNAVAILABLE.contains(id),
+                            "{id} has no action"
+                        );
                         let glyph = GLYPH_BUTTONS.iter().any(|(g, _)| g == id);
                         assert!(glyph || icons.has(icon_of(id)), "{id} has no icon");
                         let key = format!("commands.{id}");

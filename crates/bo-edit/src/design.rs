@@ -6,7 +6,7 @@
 
 use crate::{EditError, Op, Result, Session, SetupScope};
 use bo_model::{
-    Anchor, Block, Border, Color, DocDesign, Emu, Image, LineSpacing, PageBorder,
+    Anchor, Block, Border, Color, DocDesign, Emu, HalfPoints, Image, LineSpacing, PageBorder,
     PageBorderDisplay, PageBorders, ParaProps, Paragraph, Run, RunContent, RunProps, Section,
     Shape, ShapeArt, Style, StyleKind, StyleSheet, TextPath, ThemeFonts, Twips, Wrap,
 };
@@ -359,6 +359,122 @@ fn spaced_styles(sheet: &StyleSheet, set: &StyleSetDef) -> StyleSheet {
     out
 }
 
+/// Look of a heading-like style in a document style set: size (half-points), bold, all
+/// capitals (§17.3.2.5 caps), character spacing (twips, §17.3.2.35).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HeadLook {
+    /// Font size in half-points.
+    pub size: u32,
+    /// Bold.
+    pub bold: bool,
+    /// All capitals.
+    pub caps: bool,
+    /// Character spacing in twips (0 = normal).
+    pub spacing: i32,
+}
+
+/// A document style set (Design › Document Formatting gallery): the look of Title,
+/// Heading 1 and Heading 2. Fonts and colours keep following the theme. Bluestar's own
+/// sets and names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DocStyleSetDef {
+    /// Id used by hosts.
+    pub id: &'static str,
+    /// Title.
+    pub title: HeadLook,
+    /// Heading 1.
+    pub heading1: HeadLook,
+    /// Heading 2.
+    pub heading2: HeadLook,
+}
+
+const fn look(size: u32, bold: bool, caps: bool, spacing: i32) -> HeadLook {
+    HeadLook {
+        size,
+        bold,
+        caps,
+        spacing,
+    }
+}
+
+/// The BlueOffice document style sets, in gallery order.
+pub const DOC_STYLE_SETS: &[DocStyleSetDef] = &[
+    DocStyleSetDef {
+        id: "standard",
+        title: look(56, false, false, 0),
+        heading1: look(32, false, false, 0),
+        heading2: look(26, false, false, 0),
+    },
+    DocStyleSetDef {
+        id: "capital",
+        title: look(52, false, true, 20),
+        heading1: look(28, true, true, 10),
+        heading2: look(24, true, false, 0),
+    },
+    DocStyleSetDef {
+        id: "lotus",
+        title: look(64, true, false, -10),
+        heading1: look(30, true, false, 0),
+        heading2: look(26, true, false, 0),
+    },
+    DocStyleSetDef {
+        id: "river",
+        title: look(48, false, false, 0),
+        heading1: look(28, false, true, 20),
+        heading2: look(24, false, true, 10),
+    },
+    DocStyleSetDef {
+        id: "harbor",
+        title: look(60, true, true, 0),
+        heading1: look(32, true, false, 0),
+        heading2: look(28, false, false, 0),
+    },
+    DocStyleSetDef {
+        id: "quiet",
+        title: look(44, false, false, 0),
+        heading1: look(26, false, false, 0),
+        heading2: look(24, false, false, 0),
+    },
+    DocStyleSetDef {
+        id: "bold",
+        title: look(72, true, false, 0),
+        heading1: look(36, true, false, 0),
+        heading2: look(28, true, false, 0),
+    },
+];
+
+/// `sheet` with the Title / Heading 1 / Heading 2 looks of document style set `set`
+/// (missing styles are added, based on Normal, followed by Normal; §17.7.4.17).
+fn styled_heads(sheet: &StyleSheet, set: &DocStyleSetDef) -> StyleSheet {
+    let mut out = sheet.clone();
+    let normal = out
+        .styles
+        .iter()
+        .find(|s| s.kind == StyleKind::Paragraph && s.is_default)
+        .map(|s| s.id.clone());
+    for (id, name, l) in [
+        ("Title", "Title", set.title),
+        ("Heading1", "heading 1", set.heading1),
+        ("Heading2", "heading 2", set.heading2),
+    ] {
+        let i = if let Some(i) = out.styles.iter().position(|s| s.id == id) {
+            i
+        } else {
+            let mut st = Style::new(id, name, StyleKind::Paragraph);
+            st.based_on.clone_from(&normal);
+            st.next.clone_from(&normal);
+            out.styles.push(st);
+            out.styles.len() - 1
+        };
+        let s = &mut out.styles[i];
+        s.rpr.size = Some(HalfPoints(l.size));
+        s.rpr.bold = Some(l.bold);
+        s.rpr.caps = Some(l.caps);
+        s.rpr.spacing = (l.spacing != 0).then_some(Twips(l.spacing));
+    }
+    out
+}
+
 /// Is `img` a watermark shape?
 fn is_watermark(img: &Image) -> bool {
     img.shape
@@ -511,6 +627,26 @@ impl Session {
                     new: Box::new(new),
                 })?;
             }
+            Ok(sel)
+        })?;
+        Ok(())
+    }
+
+    /// Apply document style set `id` (Title / Heading 1 / Heading 2 looks; one undo step).
+    pub fn apply_document_style_set(&mut self, id: &str) -> Result<()> {
+        let set = DOC_STYLE_SETS
+            .iter()
+            .find(|s| s.id == id)
+            .ok_or(EditError::BadPath)?;
+        let styles = styled_heads(&self.doc.styles, set);
+        if styles == self.doc.styles {
+            return Ok(());
+        }
+        self.edit(|tx, sel| {
+            tx.push(Op::Styles {
+                old: Box::new(tx.doc.styles.clone()),
+                new: Box::new(styles),
+            })?;
             Ok(sel)
         })?;
         Ok(())
@@ -953,6 +1089,27 @@ mod tests {
             Some(Twips(480))
         );
         assert!(s.apply_theme("nope").is_err());
+    }
+
+    #[test]
+    fn document_style_set_restyles_title_and_headings() {
+        let mut s = session(1);
+        let before = s.doc().styles.clone();
+        s.apply_document_style_set("capital").unwrap();
+        let h1 = s.doc().style("Heading1").unwrap();
+        assert_eq!(h1.rpr.size, Some(HalfPoints(28)));
+        assert_eq!(h1.rpr.bold, Some(true));
+        assert_eq!(h1.rpr.caps, Some(true));
+        assert_eq!(h1.rpr.spacing, Some(Twips(10)));
+        assert_eq!(
+            s.doc().style("Title").unwrap().rpr.size,
+            Some(HalfPoints(52))
+        );
+        assert!(s.doc().style("Heading2").is_some());
+        assert!(s.undo());
+        assert_eq!(s.doc().styles, before);
+        assert!(s.apply_document_style_set("nope").is_err());
+        assert_eq!(DOC_STYLE_SETS.len(), 7);
     }
 
     #[test]

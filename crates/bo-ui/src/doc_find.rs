@@ -368,10 +368,11 @@ impl FindDialog {
     }
 
     fn style(&self) -> TextStyle {
-        // The dialog font: Segoe UI 9 pt (12 px at 100 %); the host applies the Windows
-        // text size factor.
+        // The dialog font: Segoe UI 9 pt as the reference draws it (its labels measure
+        // 56 px for "Find what:" at 125 %; the host applies the Windows text size factor
+        // on top of this size).
         TextStyle {
-            size: self.px(12.0),
+            size: self.px(10.0),
             bold: false,
         }
     }

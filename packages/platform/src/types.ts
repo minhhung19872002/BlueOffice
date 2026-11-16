@@ -991,7 +991,7 @@ export type EditCommand =
   | { cmd: 'setPageBorders'; borders?: PageBordersSpec | null; scope?: 'section' | 'document' }
   /** Text or picture watermark of every page; absent removes it. */
   | { cmd: 'setWatermark'; watermark?: WatermarkSpec | null }
-  | { cmd: 'applyTheme' | 'applyStyleSet'; id: string }
+  | { cmd: 'applyTheme' | 'applyStyleSet' | 'applyDocumentStyleSet'; id: string }
   /** File › Info document properties (CORE-UI-002) → `docProperties`. */
   | import('./docProperties').DocPropertiesCommand
   /** Check document (CORE-INSPECT-001): `inspect`, `inspectRemove`, `inspectKeep` → `inspection`. */

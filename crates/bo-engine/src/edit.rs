@@ -1059,6 +1059,12 @@ pub enum Command {
     },
     /// The document's theme as a `.thmx` file (`design.themeFile`, base64).
     SaveThemeFile,
+    /// Apply a document style set: the looks of Title / Heading 1 / Heading 2
+    /// (`bo_edit::design::DOC_STYLE_SETS`; Design › Document Formatting gallery).
+    ApplyDocumentStyleSet {
+        /// Style set id (`standard`, `capital`, `lotus`, `river`, `harbor`, `quiet`, `bold`).
+        id: String,
+    },
     /// Apply a paragraph-spacing style set.
     ApplyStyleSet {
         /// Style set id (`compact`, `balanced`, `airy`, `double`).
@@ -1892,6 +1898,7 @@ impl crate::Engine {
                     | Command::ApplyThemeFile { .. }
                     | Command::SaveThemeFile
                     | Command::ApplyStyleSet { .. }
+                    | Command::ApplyDocumentStyleSet { .. }
                     | Command::InsertSignatureLine { .. }
                     | Command::SignatureLines
                     | Command::SignatureLineImages { .. }

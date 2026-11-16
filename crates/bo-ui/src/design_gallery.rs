@@ -19,6 +19,8 @@ pub(crate) enum DesignMenu {
     Colors,
     Fonts,
     Spacing,
+    /// Document style sets as a list (the inline gallery's ▾).
+    StyleSets,
 }
 
 /// Parse `RRGGBB`.
@@ -82,6 +84,7 @@ impl DesignGallery {
     fn count(&self) -> usize {
         match self.menu {
             DesignMenu::Spacing => STYLE_SETS.len(),
+            DesignMenu::StyleSets => bo_edit::design::DOC_STYLE_SETS.len(),
             _ => THEMES.len(),
         }
     }
@@ -97,6 +100,7 @@ impl DesignGallery {
             DesignMenu::Colors => (self.px(300.0), self.px(26.0)),
             DesignMenu::Fonts => (self.px(300.0), self.px(54.0)),
             DesignMenu::Spacing => (self.px(300.0), self.px(36.0)),
+            DesignMenu::StyleSets => (self.px(220.0), self.px(28.0)),
         }
     }
 
@@ -157,6 +161,10 @@ impl DesignGallery {
             DesignMenu::Spacing => {
                 serde_json::json!({ "cmd": "applyStyleSet", "id": STYLE_SETS.get(i)?.id })
             }
+            DesignMenu::StyleSets => serde_json::json!({
+                "cmd": "applyDocumentStyleSet",
+                "id": bo_edit::design::DOC_STYLE_SETS.get(i)?.id,
+            }),
             _ => serde_json::json!({ "cmd": "applyTheme", "id": THEMES.get(i)?.id }),
         })
     }
@@ -264,6 +272,16 @@ impl DesignGallery {
                         r[0] + self.px(52.0),
                         r[1] + self.px(36.0),
                         &self.face(th.minor, 11.0),
+                        t.text,
+                    );
+                }
+                DesignMenu::StyleSets => {
+                    let label = self.spacing_labels.get(i).map_or("", String::as_str);
+                    p.text(
+                        label,
+                        r[0] + self.px(10.0),
+                        r[1] + (r[3] - ui.size * 1.33) / 2.0,
+                        ui,
                         t.text,
                     );
                 }

@@ -3,6 +3,7 @@ use crate::backstage::{Backstage, FileAction};
 use crate::catalog;
 use crate::design_gallery::{DesignGallery, DesignMenu};
 use crate::dialog::{Dialog, DialogButton, DialogKind};
+use crate::doc_borders::{BordersAction, BordersDialog};
 use crate::doc_comments::{CommentAction, CommentsPane};
 use crate::doc_find::{FindAction, FindDialog};
 use crate::doc_tools::{self, Context, Tool};
@@ -181,6 +182,10 @@ pub struct DocWindow {
     design_gallery: Option<DesignGallery>,
     /// Theme applied from the Design tab (framed in its gallery).
     design_theme: Option<String>,
+    /// Document style set applied from the Design tab's gallery.
+    design_style_set: Option<String>,
+    /// Design › Page Borders dialog, when open.
+    borders_dialog: Option<BordersDialog>,
     /// Symbols inserted from the gallery, most recent first.
     recent_symbols: Vec<char>,
     /// The format painter stays on after applying (double click), until Escape.
@@ -351,6 +356,8 @@ impl DocWindow {
             symbol_grid: None,
             design_gallery: None,
             design_theme: None,
+            design_style_set: None,
+            borders_dialog: None,
             recent_symbols: crate::symbol_grid::DEFAULT_RECENT.to_vec(),
             painter_lock: false,
         }
@@ -397,7 +404,15 @@ impl DocWindow {
             ])
             .map(|(fallback, key)| self.t(&format!("docTable.{key}"), fallback))
             .collect();
-        let title = if menu == DesignMenu::Spacing {
+        let spacing = if menu == DesignMenu::StyleSets {
+            crate::doc_design::STYLE_TILES
+                .iter()
+                .map(|(id, _)| self.strings.get(&format!("commands.{id}")).to_owned())
+                .collect()
+        } else {
+            spacing
+        };
+        let title = if matches!(menu, DesignMenu::Spacing | DesignMenu::StyleSets) {
             self.t("docTable.builtIn", "Built-In")
         } else {
             "BlueOffice".to_owned()
@@ -421,6 +436,9 @@ impl DocWindow {
                 if let Some(v) = pick {
                     if v["cmd"] == "applyTheme" {
                         self.design_theme = v["id"].as_str().map(str::to_owned);
+                    }
+                    if v["cmd"] == "applyDocumentStyleSet" {
+                        self.design_style_set = v["id"].as_str().map(str::to_owned);
                     }
                     if let Some(c) = catalog::from_json(v) {
                         self.view.run_command(c);
@@ -890,6 +908,9 @@ impl DocWindow {
         }
         if let Some(fd) = self.find_dialog.as_mut() {
             fd.layout(text, &self.strings, self.size, self.scale);
+        }
+        if let Some(bd) = self.borders_dialog.as_mut() {
+            bd.layout(text, &self.strings, self.size, self.scale);
         }
         if let Some(g) = self.design_gallery.as_mut() {
             g.measure(text);
@@ -1919,6 +1940,26 @@ impl DocWindow {
             "design.paragraphSpacing" => {
                 self.open_design_gallery("design.paragraphSpacing", DesignMenu::Spacing)
             }
+            "design.styleSetMore" => {
+                self.open_design_gallery("design.styleSetMore", DesignMenu::StyleSets)
+            }
+            "design.pageBorders" => {
+                let has = self
+                    .view
+                    .engine()
+                    .document()
+                    .is_some_and(|d| d.sections.iter().any(|s| s.page_borders.is_some()));
+                self.menu = None;
+                self.borders_dialog = Some(BordersDialog::new(has));
+                self.relayout_pending = true;
+                true
+            }
+            id if crate::doc_design::style_set_of(id).is_some() => {
+                let set = crate::doc_design::style_set_of(id).unwrap_or_default();
+                self.design_style_set = Some(set.to_owned());
+                catalog::from_json(json!({ "cmd": "applyDocumentStyleSet", "id": set }))
+                    .is_some_and(|c| self.view.run_command(c))
+            }
             "view.navigationPane" => {
                 let show = self.nav.is_none();
                 self.toggle_nav(show, false)
@@ -2441,6 +2482,9 @@ impl DocWindow {
         if let Some(fd) = self.find_dialog.as_mut() {
             fd.layout(text, &self.strings, self.size, self.scale);
         }
+        if let Some(bd) = self.borders_dialog.as_mut() {
+            bd.layout(text, &self.strings, self.size, self.scale);
+        }
         if let Some(g) = self.design_gallery.as_mut() {
             g.measure(text);
         }
@@ -2558,6 +2602,36 @@ impl DocWindow {
         }
         if let Some(redraw) = self.cell_spin_input(&input) {
             return redraw;
+        }
+        // So is the Page Borders dialog.
+        if let Some(bd) = self.borders_dialog.as_mut() {
+            let a = match input {
+                Input::Press { x, y, .. } => bd.press(x, y),
+                Input::Key(k, m) => bd.key(k, m),
+                Input::Move { .. }
+                | Input::Blink
+                | Input::Text(_)
+                | Input::Wheel(_)
+                | Input::Drag { .. }
+                | Input::Release { .. }
+                | Input::Context { .. } => return false,
+                _ => BordersAction::None,
+            };
+            match a {
+                BordersAction::None => {}
+                BordersAction::Redraw => return true,
+                BordersAction::Close => {
+                    self.borders_dialog = None;
+                    return true;
+                }
+                BordersAction::Apply(v) => {
+                    self.borders_dialog = None;
+                    if let Some(c) = catalog::from_json(v) {
+                        self.view.run_command(c);
+                    }
+                    return true;
+                }
+            }
         }
         // The Find and Replace dialog is modal too.
         if let Some(fd) = self.find_dialog.as_mut() {
@@ -3293,6 +3367,38 @@ impl DocWindow {
                     self.scale,
                 );
             }
+            // Design › Document Formatting: the style set gallery in the theme's faces.
+            if self
+                .ribbon
+                .rect_of(RibbonHit::Command(crate::doc_design::MORE))
+                .is_some()
+            {
+                let (major, minor) = self
+                    .view
+                    .engine()
+                    .document()
+                    .map(|d| {
+                        (
+                            d.theme_fonts.major_latin.clone(),
+                            d.theme_fonts.minor_latin.clone(),
+                        )
+                    })
+                    .unwrap_or_default();
+                let look = crate::doc_design::PreviewLook::new(
+                    self.design_theme.as_deref(),
+                    &major,
+                    &minor,
+                );
+                crate::doc_design::paint(
+                    p,
+                    &self.ribbon,
+                    self.design_style_set.as_deref(),
+                    &look,
+                    &self.theme,
+                    &self.strings,
+                    self.scale,
+                );
+            }
         });
         if self.show_ruler {
             self.ruler.paint(p, &self.theme);
@@ -3417,6 +3523,9 @@ impl DocWindow {
         }
         if let Some(fd) = &self.find_dialog {
             fd.paint(p, &self.theme, true);
+        }
+        if let Some(bd) = &self.borders_dialog {
+            bd.paint(p, &self.theme);
         }
     }
 

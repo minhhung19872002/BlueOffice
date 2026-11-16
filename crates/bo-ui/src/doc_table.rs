@@ -336,7 +336,11 @@ pub(crate) fn trailing(id: &str) -> bool {
 
 /// Width (logical px) of a gallery tile (the reference's step 108 px at 125 %).
 pub(crate) fn large_w(id: &str) -> Option<f32> {
-    LOOK_TILES.iter().any(|(t, _)| *t == id).then_some(84.0)
+    LOOK_TILES
+        .iter()
+        .any(|(t, _)| *t == id)
+        .then_some(84.0)
+        .or_else(|| crate::doc_design::large_w(id))
 }
 
 /// The quick look last applied and the style options (the reference keeps them in the

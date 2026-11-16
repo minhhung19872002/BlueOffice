@@ -18,7 +18,7 @@ pub(crate) const HEADER_FOOTER: &str = "ribbon.tabs.headerFooter";
 pub(crate) const PICTURE_FORMAT: &str = "ribbon.tabs.pictureFormat";
 
 /// Menu buttons of the contextual tabs.
-const MENUS: [&str; 15] = [
+const MENUS: [&str; 16] = [
     "table.select",
     "table.data",
     "review.markupMode",
@@ -34,6 +34,7 @@ const MENUS: [&str; 15] = [
     "design.colors",
     "design.fonts",
     "design.paragraphSpacing",
+    "design.effects",
 ];
 
 /// What the selection needs: header/footer editing, a table, a picture.
@@ -490,7 +491,11 @@ pub(crate) fn enabled(id: &str, f: &FormatState) -> Option<bool> {
         | "design.themes"
         | "design.colors"
         | "design.fonts"
-        | "design.paragraphSpacing" => true,
+        | "design.paragraphSpacing"
+        | "design.styleSetMore"
+        | "design.pageBorders" => true,
+        _ if id.starts_with("design.styleSet.") => true,
+        _ if crate::doc_design::UNAVAILABLE.contains(&id) => false,
         _ => return None,
     })
 }
@@ -550,8 +555,36 @@ pub(crate) fn install_strings(s: &mut Strings) {
         ("design.colors", "docTable.designColors"),
         ("design.fonts", "docTable.designFonts"),
         ("design.paragraphSpacing", "docTable.paragraphSpacing"),
+        ("design.effects", "docTable.effects"),
+        ("design.setDefault", "docTable.setDefault"),
+        ("design.pageBorders", "docTable.pageBorders"),
+        ("design.pageColor", "docTable.pageColor"),
+        ("design.styleSetMore", "docTable.moreStyleSets"),
+        ("design.styleSet.standard", "docTable.styleSet.standard"),
+        ("design.styleSet.capital", "docTable.styleSet.capital"),
+        ("design.styleSet.lotus", "docTable.styleSet.lotus"),
+        ("design.styleSet.river", "docTable.styleSet.river"),
+        ("design.styleSet.harbor", "docTable.styleSet.harbor"),
+        ("design.styleSet.quiet", "docTable.styleSet.quiet"),
+        ("design.styleSet.bold", "docTable.styleSet.bold"),
     ] {
         copy(s, id, key);
+    }
+    // Group names in the reference's casing (Document Formatting, Page Background).
+    for (group, key) in [
+        (
+            "ribbon.groups.documentFormatting",
+            "docTable.groupDocumentFormatting",
+        ),
+        (
+            "ribbon.groups.pageBackground",
+            "docTable.groupPageBackground",
+        ),
+    ] {
+        let v = s.get(key).to_owned();
+        if v != key {
+            s.set(group, &v);
+        }
     }
 }
 
@@ -589,6 +622,17 @@ pub(crate) fn install_icons(icons: &mut Icons) {
         ("design.colors", "format.color"),
         ("design.fonts", "format.fontDialog"),
         ("design.paragraphSpacing", "format.lineSpacing"),
+        ("design.effects", "format.fill"),
+        ("design.setDefault", "review.accept"),
+        ("design.pageBorders", "format.borders"),
+        ("design.styleSetMore", "style.title"),
+        ("design.styleSet.standard", "style.title"),
+        ("design.styleSet.capital", "style.title"),
+        ("design.styleSet.lotus", "style.title"),
+        ("design.styleSet.river", "style.title"),
+        ("design.styleSet.harbor", "style.title"),
+        ("design.styleSet.quiet", "style.title"),
+        ("design.styleSet.bold", "style.title"),
         ("picture.crop", "picture.position"),
         ("picture.fill", "view.fitWidth"),
         ("picture.fit", "view.fitWidth"),

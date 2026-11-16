@@ -106,6 +106,8 @@ pub(crate) struct Ten {
     clip: Option<(Annot, String)>,
     /// Paste waiting for the clipboard: page, point (page points).
     paste: Option<(usize, [f32; 2])>,
+    /// When the document was read (D: date): notes without a date show it, as the reference.
+    read_at: String,
 }
 
 fn tint(c: [u8; 3], f: f32, base: f32) -> Rgba {
@@ -143,6 +145,31 @@ pub(crate) fn popup_date(raw: &str) -> String {
         }
         _ => String::new(),
     }
+}
+
+/// The local time now as a PDF date (D:YYYYMMDDHHmmSS).
+fn local_now() -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs() as i64)
+        + i64::from(super::panels8::UTC_OFFSET.load(std::sync::atomic::Ordering::Relaxed)) * 60;
+    let (days, rem) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
+    // Civil date from days since 1970-01-01 (H. Hinnant's algorithm).
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + i64::from(m <= 2);
+    format!(
+        "D:{y:04}{m:02}{d:02}{:02}{:02}{:02}",
+        rem / 3600,
+        rem / 60 % 60,
+        rem % 60
+    )
 }
 
 fn font(size: f32) -> Font<'static> {
@@ -205,6 +232,9 @@ impl ReaderWindow {
         };
         let doc = t.view.doc();
         let key = (t.key_base, doc.edit_count(), doc.page_count());
+        if self.ten.read_for.map(|k| k.0) != Some(key.0) {
+            self.ten.read_at = local_now();
+        }
         if self.ten.read_for != Some(key) {
             self.ten.notes = doc.popup_notes();
             self.ten.read_for = Some(key);
@@ -216,13 +246,26 @@ impl ReaderWindow {
         if !self.ten_on() {
             return;
         }
+        if !self.draw.reader_defaults {
+            // The reference reader's tool defaults (measured, round 10): yellow highlight,
+            // pure red rectangle; the drawing tools in reader_draw_win.rs.
+            self.draw.reader_defaults = true;
+            for (k, c) in [
+                (AnnotKind::Highlight, [255, 255, 0]),
+                (AnnotKind::Square, [255, 0, 0]),
+            ] {
+                if self.nine.default_color(k).is_none() {
+                    self.nine.set_default_color(k, c);
+                }
+            }
+        }
         self.refresh10();
         let head = font((HEAD_FONT * self.scale).round());
         let body = font((BODY_FONT * self.scale * 1.25).round() / 1.25);
         let mut want: Vec<String> = vec![self.t("pdfTen.options")];
         let mut wrap_jobs = Vec::new();
         for n in self.ten.notes.iter().filter(|n| n.open) {
-            want.push(popup_date(&n.comment.modified));
+            want.push(self.note_date10(n));
             want.push(n.comment.author.clone());
             let text = match &self.ten.editing {
                 Some((e, s)) if e.id == n.id => s.clone(),
@@ -333,6 +376,16 @@ impl ReaderWindow {
             return Some((n.clone(), part));
         }
         None
+    }
+
+    /// A note's date: its comment's, else when the document was read.
+    fn note_date10(&self, n: &PopupNote) -> String {
+        let d = popup_date(&n.comment.modified);
+        if d.is_empty() {
+            popup_date(&self.ten.read_at)
+        } else {
+            d
+        }
     }
 
     fn close_box(&self, b: [f32; 4]) -> [f32; 4] {
@@ -645,7 +698,10 @@ impl ReaderWindow {
             accent: Rgba(60, 60, 40, 255),
         };
         let icon = self.px(12.8);
-        reader_icons::draw(p, "note", x + self.px(1.6), y + self.px(2.4), icon, ink);
+        // Only sticky notes show their icon in the header (as the reference).
+        if n.comment.kind == AnnotKind::Note {
+            reader_icons::draw(p, "note", x + self.px(1.6), y + self.px(2.4), icon, ink);
+        }
         let hf = font((HEAD_FONT * self.scale).round());
         let cb = self.close_box(b);
         p.fill_rect(cb[0], cb[1], cb[2], cb[3], edge);
@@ -658,7 +714,7 @@ impl ReaderWindow {
             PathSeg::L(cb[0] + i, cb[1] + cb[3] - i),
         ];
         p.path(&cross, None, Some((edge, 1.0)));
-        let date = popup_date(&n.comment.modified);
+        let date = self.note_date10(n);
         let dw = self.head_width(&date);
         let dx = (cb[0] - self.px(4.0) - dw).max(x + icon + self.px(4.0));
         p.text_font(&date, dx.round(), y + self.px(DATE_Y), &hf, INK);

@@ -1907,13 +1907,11 @@ impl ReaderWindow {
                     self.ask_text(Pending::TextBox { page, rect }, "pdfReader.textboxTitle");
                 } else {
                     let rect = self.view().map_or(rect, |v| v.unrotate_rect(page, rect));
-                    self.add_annot(
-                        AnnotKind::Square,
-                        page,
-                        vec![rect],
-                        COLOR_MARK,
-                        String::new(),
-                    );
+                    let color = self
+                        .nine
+                        .default_color(AnnotKind::Square)
+                        .unwrap_or(COLOR_MARK);
+                    self.add_annot(AnnotKind::Square, page, vec![rect], color, String::new());
                 }
                 true
             }

@@ -3,8 +3,8 @@
 //! reference editor's classic layout ([`crate::editor_form8::Form`]; positions are the
 //! reference's at 125 %, measured on its dialogs, `docs/ui/REPORT-editor.md` round 8).
 use crate::editor_form8::{
-    button, check, combo, edit, group, label, label_on, radio, rlabel, spin, Ctl, Form, FormOut,
-    On, Val,
+    button, check, combo, edit, group, label, label_on, link, radio, rlabel, spin, Ctl, Form,
+    FormOut, IconKind, On, Val,
 };
 use crate::editor_window::EditorWindow;
 use crate::reader_window::ReaderRequest;
@@ -27,6 +27,11 @@ pub(crate) enum FormWhat {
     Insert(Option<(String, Vec<u8>)>),
     Extract,
     Split,
+    /// A small dialog whose values go back into the dialog under it on OK (Appearance
+    /// Options, Page number and date format, Page Range Options, text style).
+    Sub,
+    /// Name of a preset to save from the dialog under it (preset kind).
+    SavePreset(&'static str),
 }
 
 /// Font sizes offered by the Size lists.
@@ -140,6 +145,10 @@ impl EditorWindow {
 
     /// A file picked for Insert › From File: ask where its pages go.
     pub(crate) fn dlg8_file_picked(&mut self, purpose: &str, name: &str, bytes: &[u8]) -> bool {
+        if purpose == "wm8Image" {
+            self.wm_image_picked(name, bytes);
+            return true;
+        }
         if purpose != "insert" || bo_pdfread::PdfDocument::needs_password(bytes) {
             return false;
         }
@@ -156,20 +165,20 @@ impl EditorWindow {
             combo(
                 "saved",
                 [123.0, 46.0, 148.0, 28.0],
-                vec![t("pdfEditor8.noneSpecified")],
+                self.preset_names("hf"),
                 On::Always,
             ),
             button(
                 "delete",
                 [279.0, 46.0, 91.0, 28.0],
                 t("pdfEditor8.delete"),
-                On::Never,
+                On::Always,
             ),
             button(
                 "save",
                 [378.0, 46.0, 115.0, 28.0],
                 t("pdfEditor8.saveSettings"),
-                On::Never,
+                On::Always,
             ),
             group(t("pdfEditor8.font"), [17.0, 92.0, 612.0, 95.0]),
             label(28.0, 147.0, t("pdfEditor8.name")),
@@ -190,6 +199,13 @@ impl EditorWindow {
                 id: "color",
                 r: [418.0, 132.0, 31.0, 31.0],
             },
+            Ctl::Icon {
+                id: "tstyle",
+                r: [457.0, 132.0, 33.0, 31.0],
+                icon: IconKind::TextStyle,
+                on: On::Always,
+            },
+            link("appearance", 16.0, 204.0, t("pdfEditor8.appearanceOptions")),
             group(t("pdfEditor8.marginInches"), [637.0, 92.0, 351.0, 95.0]),
             label(649.0, 127.0, t("pdfEditor8.top")),
             spin(
@@ -260,6 +276,8 @@ impl EditorWindow {
                 t("pdfEditor8.insert"),
                 On::Always,
             ),
+            link("numfmt", 462.0, 423.0, t("pdfEditor8.numberDateFormat")),
+            link("range", 756.0, 423.0, t("pdfEditor8.pageRangeOptions")),
             group(t("pdfEditor8.preview"), [17.0, 454.0, 971.0, 312.0]),
             label(28.0, 490.0, t("pdfEditor8.previewPage")),
             spin(
@@ -300,17 +318,26 @@ impl EditorWindow {
             side: f32::midpoint(f.num("left", 1.0), f.num("right", 1.0)) * 72.0,
             size,
             color: f.color("color"),
-            date: today(),
+            date: crate::editor_dlg8b::date_text(f.pick("datefmt")),
+            offset: (f.num("offx", 0.0), f.num("offy", 0.0)),
+            page_start: f.num("start", 1.0) as i32,
+            underline: f.pick("under") == 1,
             ..PageMarks::default()
         };
         if m.header.iter().chain(&m.footer).all(String::is_empty) {
             return;
         }
-        self.apply_page_marks(&m);
+        let pages = self.range_pages(f);
+        self.apply_marks_on(&pages, &m);
     }
 
     fn apply_page_marks(&mut self, m: &PageMarks) {
-        match self.doc_edit(|d| d.add_page_marks(&[], m)) {
+        self.apply_marks_on(&[], m);
+    }
+
+    /// Marks on `pages` (all when empty).
+    fn apply_marks_on(&mut self, pages: &[usize], m: &PageMarks) {
+        match self.doc_edit(|d| d.add_page_marks(pages, m)) {
             Ok(()) => self.after_doc_edit(),
             Err(e) => self.set_status(&e),
         }
@@ -373,14 +400,32 @@ impl EditorWindow {
             combo(
                 "saved",
                 [123.0, 46.0, 272.0, 28.0],
-                vec![t("pdfEditor8.noneSpecified")],
+                self.preset_names("wm"),
                 On::Always,
             ),
+            Ctl::Icon {
+                id: "save",
+                r: [403.0, 45.0, 32.0, 30.0],
+                icon: IconKind::SavePreset,
+                on: On::Always,
+            },
+            Ctl::Icon {
+                id: "load",
+                r: [441.0, 45.0, 32.0, 30.0],
+                icon: IconKind::LoadPreset,
+                on: On::Always,
+            },
+            Ctl::Icon {
+                id: "delete",
+                r: [479.0, 45.0, 32.0, 30.0],
+                icon: IconKind::DeletePreset,
+                on: On::Always,
+            },
             button(
                 "save",
                 [517.0, 46.0, 115.0, 28.0],
                 t("pdfEditor8.saveSettings"),
-                On::Never,
+                On::Always,
             ),
             group(t("pdfEditor8.source"), [17.0, 93.0, 616.0, 228.0]),
             radio("src", 0, 28.0, 158.0, t("pdfEditor8.textColon")),
@@ -410,20 +455,25 @@ impl EditorWindow {
                 id: "color",
                 r: [515.0, 210.0, 30.0, 30.0],
             },
-            Ctl::Radio {
-                id: "src",
-                k: 1,
-                x: 28.0,
-                y: 262.0,
-                label: t("pdfEditor8.file"),
+            Ctl::Icon {
+                id: "tstyle",
+                r: [552.0, 209.0, 32.0, 32.0],
+                icon: IconKind::TextStyle,
+                on: On::If("src", 0),
+            },
+            Ctl::Icon {
+                id: "dynamic",
+                r: [589.0, 209.0, 32.0, 32.0],
+                icon: IconKind::Dynamic,
                 on: On::Never,
             },
-            edit("file", [87.0, 248.0, 254.0, 28.0], On::Never),
+            radio("src", 1, 28.0, 262.0, t("pdfEditor8.file")),
+            edit("file", [87.0, 248.0, 254.0, 28.0], On::If("src", 1)),
             button(
                 "browse",
                 [349.0, 248.0, 157.0, 28.0],
                 t("pdfEditor8.browse"),
-                On::Never,
+                On::If("src", 1),
             ),
             rlabel(180.0, 298.0, t("pdfEditor8.pageNumber"), On::Never),
             spin(
@@ -433,13 +483,18 @@ impl EditorWindow {
                 (1.0, 1.0),
                 On::Never,
             ),
-            rlabel(453.0, 298.0, t("pdfEditor8.absoluteScale"), On::Never),
+            rlabel(
+                453.0,
+                298.0,
+                t("pdfEditor8.absoluteScale"),
+                On::If("src", 1),
+            ),
             spin(
                 "fscale",
                 [459.0, 284.0, 123.0, 28.0],
                 10.0,
                 (1.0, 1000.0),
-                On::Never,
+                On::If("src", 1),
             ),
             group(t("pdfEditor8.appearance"), [17.0, 341.0, 616.0, 258.0]),
             label(28.0, 377.0, t("pdfEditor8.rotation")),
@@ -474,36 +529,37 @@ impl EditorWindow {
                 (1.0, 400.0),
                 On::If("scaleOn", 1),
             ),
-            Ctl::Check {
-                id: "tile",
-                x: 28.0,
-                y: 480.0,
-                label: t("pdfEditor8.tiling"),
-                on: On::Never,
-            },
-            label_on(28.0, 514.0, t("pdfEditor8.rowSpacing"), On::Never),
+            check("tile", 28.0, 480.0, t("pdfEditor8.tiling")),
+            label_on(28.0, 514.0, t("pdfEditor8.rowSpacing"), On::If("tile", 1)),
             spin(
                 "rows",
                 [197.0, 500.0, 101.0, 28.0],
                 0.1,
                 (0.0, 20.0),
-                On::Never,
+                On::If("tile", 1),
             ),
-            label_on(357.0, 514.0, t("pdfEditor8.columnSpacing"), On::Never),
+            label_on(
+                357.0,
+                514.0,
+                t("pdfEditor8.columnSpacing"),
+                On::If("tile", 1),
+            ),
             spin(
                 "cols",
                 [520.0, 500.0, 101.0, 28.0],
                 0.1,
                 (0.0, 20.0),
-                On::Never,
+                On::If("tile", 1),
             ),
             label(28.0, 547.0, t("pdfEditor8.location")),
             radio("loc", 0, 147.0, 547.0, t("pdfEditor8.behind")),
             radio("loc", 1, 388.0, 547.0, t("pdfEditor8.onTop")),
+            link("appearance", 28.0, 577.0, t("pdfEditor8.appearanceOptions")),
             group(t("pdfEditor8.position"), [17.0, 619.0, 616.0, 96.0]),
         ];
         self.position_ctls(654.0, (166.0, 173.0, 320.0, 482.0), &mut c);
         c.extend([
+            link("range", 16.0, 737.0, t("pdfEditor8.pageRangeOptions")),
             check("preview", 17.0, 770.0, t("pdfEditor8.showPreview")),
             group(t("pdfEditor8.preview"), [640.0, 94.0, 437.0, 654.0]),
             label(652.0, 130.0, t("pdfEditor8.previewPage")),
@@ -565,6 +621,10 @@ impl EditorWindow {
     }
 
     fn watermark_ok(&mut self, f: &Form) {
+        if f.pick("src") == 1 {
+            self.image_watermark(f);
+            return;
+        }
         let text = f.text("text").replace('\n', " ");
         if text.trim().is_empty() {
             return;
@@ -595,10 +655,14 @@ impl EditorWindow {
             watermark_angle: angle,
             watermark_behind: f.pick("loc") == 0,
             watermark_offset: self.offset(f),
+            watermark_tile: (f.pick("tile") == 1)
+                .then(|| (f.num("rows", 2.0) * 72.0, f.num("cols", 2.0) * 72.0)),
+            underline: f.pick("under") == 1,
             date: today(),
             ..PageMarks::default()
         };
-        self.apply_page_marks(&m);
+        let pages = self.range_pages(f);
+        self.apply_marks_on(&pages, &m);
     }
 
     fn open_background(&mut self) {
@@ -608,20 +672,20 @@ impl EditorWindow {
             combo(
                 "saved",
                 [123.0, 46.0, 148.0, 28.0],
-                vec![t("pdfEditor8.noneSpecified")],
+                self.preset_names("bg"),
                 On::Always,
             ),
             button(
                 "delete",
                 [281.0, 46.0, 91.0, 28.0],
                 t("pdfEditor8.delete"),
-                On::Never,
+                On::Always,
             ),
             button(
                 "save",
                 [381.0, 46.0, 115.0, 28.0],
                 t("pdfEditor8.saveSettings"),
-                On::Never,
+                On::Always,
             ),
             group(t("pdfEditor8.source"), [17.0, 92.0, 480.0, 145.0]),
             radio("src", 0, 28.0, 134.0, t("pdfEditor8.fromColor")),
@@ -693,6 +757,7 @@ impl EditorWindow {
         ];
         self.position_ctls(498.0, (162.0, 169.0, 252.0, 362.0), &mut c);
         c.extend([
+            link("range", 16.0, 611.0, t("pdfEditor8.pageRangeOptions")),
             check("preview", 17.0, 671.0, t("pdfEditor8.showPreview")),
             group(t("pdfEditor8.preview"), [505.0, 92.0, 436.0, 555.0]),
             label(516.0, 128.0, t("pdfEditor8.previewPage")),
@@ -732,7 +797,8 @@ impl EditorWindow {
             background_opacity: if op >= 0.999 { 0.0 } else { op.max(0.05) },
             ..PageMarks::default()
         };
-        self.apply_page_marks(&m);
+        let pages = self.range_pages(f);
+        self.apply_marks_on(&pages, &m);
     }
 
     // --- Bates Numbering ---------------------------------------------------------------
@@ -871,47 +937,19 @@ impl EditorWindow {
         let mut c = vec![
             group(t("pdfEditor8.openSettings"), [17.0, 55.0, 675.0, 95.0]),
             check("openOn", 28.0, 90.0, t("pdfEditor8.requireOpen")),
-            label_on(
-                65.0,
-                125.0,
-                t("pdfEditor8.passwordInput"),
-                On::If("openOn", 1),
-            ),
-            edit("open", [175.0, 111.0, 134.0, 28.0], On::If("openOn", 1)),
-            label_on(
-                417.0,
-                125.0,
-                t("pdfEditor8.passwordConfirm"),
-                On::If("openOn", 1),
-            ),
-            edit("open2", [545.0, 111.0, 135.0, 28.0], On::If("openOn", 1)),
+            label_on(65.0, 125.0, t("pdfEditor8.passwordInput"), On::Always),
+            edit("open", [179.0, 111.0, 130.0, 28.0], On::Always),
+            label_on(417.0, 125.0, t("pdfEditor8.passwordConfirm"), On::Always),
+            edit("open2", [549.0, 111.0, 131.0, 28.0], On::Always),
             group(
                 t("pdfEditor8.restrictSettings"),
                 [17.0, 169.0, 675.0, 274.0],
             ),
             check("restrictOn", 28.0, 203.0, t("pdfEditor8.addRestriction")),
-            label_on(
-                65.0,
-                237.0,
-                t("pdfEditor8.passwordInput"),
-                On::If("restrictOn", 1),
-            ),
-            edit(
-                "owner",
-                [175.0, 223.0, 134.0, 28.0],
-                On::If("restrictOn", 1),
-            ),
-            label_on(
-                417.0,
-                237.0,
-                t("pdfEditor8.passwordConfirm"),
-                On::If("restrictOn", 1),
-            ),
-            edit(
-                "owner2",
-                [545.0, 223.0, 135.0, 28.0],
-                On::If("restrictOn", 1),
-            ),
+            label_on(65.0, 237.0, t("pdfEditor8.passwordInput"), On::Always),
+            edit("owner", [179.0, 223.0, 130.0, 28.0], On::Always),
+            label_on(417.0, 237.0, t("pdfEditor8.passwordConfirm"), On::Always),
+            edit("owner2", [549.0, 223.0, 131.0, 28.0], On::Always),
             group(t("pdfEditor8.permissionSpec"), [28.0, 268.0, 544.0, 163.0]),
             rlabel(
                 125.0,
@@ -976,28 +1014,15 @@ impl EditorWindow {
             label(28.0, 498.0, t("pdfEditor8.algorithm")),
             radio("alg", 0, 192.0, 498.0, t("pdfEditor8.aes128")),
             radio("alg", 1, 357.0, 498.0, t("pdfEditor8.aes256")),
-            Ctl::Radio {
-                id: "alg",
-                k: 2,
-                x: 521.0,
-                y: 498.0,
-                label: t("pdfEditor8.rc4"),
-                on: On::Never,
-            },
+            radio("alg", 2, 521.0, 498.0, t("pdfEditor8.rc4")),
             Ctl::Check {
                 id: "meta",
                 x: 28.0,
                 y: 532.0,
                 label: t("pdfEditor8.noMetadata"),
-                on: On::Never,
+                on: On::IfNot("alg", 2),
             },
-            Ctl::Check {
-                id: "policy",
-                x: 17.0,
-                y: 581.0,
-                label: t("pdfEditor8.savePolicy"),
-                on: On::Never,
-            },
+            check("policy", 17.0, 581.0, t("pdfEditor8.savePolicy")),
         ];
         c.push(button(
             "ok",
@@ -1011,7 +1036,16 @@ impl EditorWindow {
             t("pdfReader.cancel"),
             On::Always,
         ));
-        let f = Form::new(t("pdfEditor8.pwTitle"), (708.0, 612.0), c).with("alg", Val::Pick(0));
+        let mut f = Form::new(t("pdfEditor8.pwTitle"), (708.0, 612.0), c).with("alg", Val::Pick(0));
+        f.ticks = vec![
+            ("open", "openOn"),
+            ("open2", "openOn"),
+            ("owner", "restrictOn"),
+            ("owner2", "restrictOn"),
+        ];
+        if let Some(v) = self.policy8.clone() {
+            f.vals.extend(v);
+        }
         self.open_form(f, FormWhat::Password);
     }
 
@@ -1068,10 +1102,19 @@ impl EditorWindow {
             copy,
             modify,
             annotate,
-            assemble: modify,
+            // "Any except extracting pages": page assembly stays reserved.
+            assemble: false,
         };
-        let aes256 = f.pick("alg") == 1;
-        match self.doc_edit(|d| d.set_protection(&user, &owner, allow, aes256)) {
+        let cipher = match f.pick("alg") {
+            1 => bo_pdfread::Cipher::Aes256,
+            2 => bo_pdfread::Cipher::Rc4,
+            _ => bo_pdfread::Cipher::Aes128,
+        };
+        let meta = f.pick("meta") != 1;
+        if f.pick("policy") == 1 {
+            self.keep_policy(f);
+        }
+        match self.doc_edit(|d| d.set_protection_with(&user, &owner, allow, cipher, meta)) {
             Ok(()) => {
                 self.after_doc_edit();
                 let msg = self.t("pdfEditor.securityAdded");
@@ -1192,7 +1235,7 @@ impl EditorWindow {
             label(345.0, 125.0, t("pdfEditor8.of")),
             label(383.0, 125.0, n.to_string()),
             label(115.0, 158.0, t("pdfEditor8.sample")),
-            Ctl::Info { x: 230.0, y: 157.0 },
+            Ctl::Info { x: 257.0, y: 157.0 },
             rlabel(107.0, 206.0, t("pdfEditor8.extractColon"), On::Always),
             combo(
                 "which",
@@ -1220,7 +1263,7 @@ impl EditorWindow {
         ];
         c.extend(self.ok_cancel(446.0, 236.0));
         let f = Form::new(t("pdfEditor8.extractTitle"), (444.0, 491.0), c)
-            .with("range", Val::Pick(usize::from(!range.is_empty())))
+            .with("range", Val::Pick(0))
             .with("pages", Val::Text(range));
         self.open_form(f, FormWhat::Extract);
     }
@@ -1509,9 +1552,17 @@ impl EditorWindow {
             }
             _ => {}
         }
+        let saved = f.pick("saved");
         let out = f.input(input);
         if let FormOut::Button(id) = out {
             self.form8_button(id);
+        } else if self
+            .form8
+            .last()
+            .is_some_and(|f| f.0.pick("saved") != saved)
+        {
+            // A preset picked from Saved Settings fills the dialog.
+            self.load_preset8();
         }
         true
     }
@@ -1526,7 +1577,9 @@ impl EditorWindow {
             }
             ("insert", FormWhat::HeaderFooter) => {
                 let macro_text = match f.pick("macro") {
-                    0 => "<<page>>",
+                    0 => crate::editor_dlg8b::NUMBER_FORMATS
+                        .get(f.pick("numfmt"))
+                        .map_or("<<page>>", |n| n.1),
                     1 => "<<page>> / <<pages>>",
                     _ => "<<date>>",
                 };
@@ -1586,19 +1639,22 @@ impl EditorWindow {
                     FormWhat::Insert(file) => self.insert_ok(&f, file),
                     FormWhat::Extract => self.extract_ok(&f),
                     FormWhat::Split => self.split_ok(&f),
+                    FormWhat::Sub => self.sub_ok(&f),
+                    FormWhat::SavePreset(kind) => self.save_preset_ok(kind, &f),
                 }
             }
-            _ => {}
+            _ => self.dlg8b_button(id),
         }
     }
 
     /// The open round-8 dialogs, the top one last.
     pub(crate) fn paint_form8(&mut self, p: &mut dyn crate::Painter) {
         let (win, scale, caret) = (self.window_size(), self.ui_scale(), self.caret_on);
+        let img = self.preview_image8();
         let n = self.form8.len();
         for (i, (f, what)) in self.form8.iter_mut().enumerate() {
             f.paint(p, win, scale, caret && i + 1 == n);
-            paint_preview(p, f, what, scale);
+            paint_preview(p, f, what, scale, img);
         }
     }
 }
@@ -1634,7 +1690,13 @@ fn today() -> String {
 
 /// The preview boxes: dashed margin guides and the header / footer texts (Header & Footer), a
 /// page with the watermark text or the background colour (Watermark, Background).
-fn paint_preview(p: &mut dyn crate::Painter, f: &Form, what: &FormWhat, scale: f32) {
+fn paint_preview(
+    p: &mut dyn crate::Painter,
+    f: &Form,
+    what: &FormWhat,
+    scale: f32,
+    img: Option<(usize, f32, f32)>,
+) {
     use bo_render::Rgba;
     if f.pick("preview") != 1 {
         return;
@@ -1692,7 +1754,10 @@ fn paint_preview(p: &mut dyn crate::Painter, f: &Form, what: &FormWhat, scale: f
                         .replace('\n', " ")
                         .replace("<<page>>", &f.text("ppage"))
                         .replace("<<pages>>", total)
-                        .replace("<<date>>", &today());
+                        .replace(
+                            "<<date>>",
+                            &crate::editor_dlg8b::date_text(f.pick("datefmt")),
+                        );
                     if t.is_empty() {
                         continue;
                     }
@@ -1712,10 +1777,19 @@ fn paint_preview(p: &mut dyn crate::Painter, f: &Form, what: &FormWhat, scale: f
             }
         }
         FormWhat::Watermark | FormWhat::Background => {
-            // A page of the document's proportions centred in the box.
-            let ph = b[3] - q(40.0);
-            let pw = (ph * 0.707).min(b[2] - q(40.0));
-            let (px, py) = (b[0] + (b[2] - pw) / 2.0, b[1] + q(20.0));
+            // The page itself when its image is ready (else a page of its proportions),
+            // centred in the box.
+            let (ph, pw) = img.map_or_else(
+                || {
+                    let ph = b[3] - q(40.0);
+                    (ph, (ph * 0.707).min(b[2] - q(40.0)))
+                },
+                |(_, w, h)| (h, w),
+            );
+            let (px, py) = (
+                (b[0] + (b[2] - pw) / 2.0).round(),
+                (b[1] + (b[3] - ph) / 2.0).round(),
+            );
             let bg = if matches!(what, FormWhat::Background) {
                 let c = f.color("color");
                 let a = (f.num("opacity", 100.0) / 100.0).clamp(0.0, 1.0);
@@ -1724,31 +1798,46 @@ fn paint_preview(p: &mut dyn crate::Painter, f: &Form, what: &FormWhat, scale: f
             } else {
                 Rgba(255, 255, 255, 255)
             };
-            p.fill_rect(px, py, pw, ph, Rgba(0x40, 0x40, 0x40, 255));
-            p.fill_rect(px + 1.0, py + 1.0, pw - 2.0, ph - 2.0, bg);
-            for k in 0..6 {
-                let y = py + q(40.0) + q(16.0) * k as f32 + if k > 2 { q(10.0) } else { 0.0 };
-                let w = if k % 3 == 2 { pw * 0.45 } else { pw * 0.7 };
-                p.fill_rect(px + pw * 0.15, y, w, q(3.0), Rgba(0x90, 0x90, 0x90, 255));
+            p.fill_rect(
+                px - 1.0,
+                py - 1.0,
+                pw + 2.0,
+                ph + 2.0,
+                Rgba(0x40, 0x40, 0x40, 255),
+            );
+            if let Some((key, _, _)) = img {
+                p.page(key, px as i32, py as i32);
+                if matches!(what, FormWhat::Background) {
+                    // The colour under the page's content, shown as a tint over it.
+                    let a = (f.num("opacity", 100.0) / 100.0).clamp(0.0, 1.0);
+                    let c = f.color("color");
+                    p.fill_rect(px, py, pw, ph, Rgba(c[0], c[1], c[2], (a * 110.0) as u8));
+                }
+            } else {
+                p.fill_rect(px, py, pw, ph, bg);
             }
             if matches!(what, FormWhat::Watermark) {
                 let t = f.text("text").replace('\n', " ");
                 if !t.is_empty() {
                     let c = f.color("color");
                     let a = (f.num("opacity", 50.0) / 100.0).clamp(0.05, 1.0);
-                    let mix = |v: u8| (255.0 - (255.0 - f32::from(v)) * a).round() as u8;
+                    // Watermark text at its share of the page width (Scale relative to target
+                    // page), in its colour at its opacity.
+                    let k = f.num("scale", 50.0) / 100.0;
+                    let unit = crate::editor_form8::text_w(&t, 10.0).max(1.0);
                     let size = crate::TextStyle {
-                        size: q(28.0),
+                        size: (pw * k * 10.0 / unit).clamp(q(8.0), ph / 3.0).round(),
                         bold: false,
                     };
                     let tw = crate::editor_form8::text_w(&t, size.size);
+
                     p.push_clip(px, py, pw, ph);
                     p.text(
                         &t,
                         (px + (pw - tw) / 2.0).round(),
                         (py + ph / 2.0 - size.size * 0.66).round(),
                         size,
-                        Rgba(mix(c[0]), mix(c[1]), mix(c[2]), 255),
+                        Rgba(c[0], c[1], c[2], (a * 255.0) as u8),
                     );
                     p.pop_clip();
                 }

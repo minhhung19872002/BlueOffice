@@ -59,6 +59,14 @@ pub struct PageMarks {
     pub watermark_offset: (f32, f32),
     /// Background opacity 0–1 (0: opaque).
     pub background_opacity: f32,
+    /// Header / footer text moved right / up (points; Appearance Options).
+    pub offset: (f32, f32),
+    /// Number `<<page>>` gives the first page (0: 1).
+    pub page_start: i32,
+    /// Header / footer text underlined.
+    pub underline: bool,
+    /// Watermark repeated over the page: row and column spacing (points).
+    pub watermark_tile: Option<(f32, f32)>,
 }
 
 fn face() -> Option<ttf_parser::Face<'static>> {
@@ -108,7 +116,8 @@ impl PdfDocument {
                 ul.1.max(lr.1),
             );
             let sub = |s: &str| {
-                s.replace("<<page>>", &(i + 1).to_string())
+                let first = if m.page_start == 0 { 1 } else { m.page_start };
+                s.replace("<<page>>", &(i as i32 + first).to_string())
                     .replace("<<pages>>", &total.to_string())
                     .replace("<<date>>", &m.date)
             };
@@ -151,8 +160,19 @@ impl PdfDocument {
                         0 => x0 + side,
                         1 => f32::midpoint(x0, x1) - tw / 2.0,
                         _ => x1 - side - tw,
-                    };
+                    } + m.offset.0;
+                    let y = y + m.offset.1;
                     s.push_str(&outlined(&face, &t, size, x, y));
+                    if m.underline {
+                        let _ = write!(
+                            s,
+                            "{} {} {} {} re ",
+                            n(x),
+                            n(y - size * 0.15),
+                            n(tw),
+                            n((size * 0.06).max(0.3))
+                        );
+                    }
                 }
                 if !s.is_empty() {
                     let _ = writeln!(
@@ -187,19 +207,54 @@ impl PdfDocument {
                 );
                 let a = m.watermark_angle.to_radians();
                 let (c, s) = (a.cos(), a.sin());
-                let path = outlined(&face, &t, size, -tw / 2.0, -size * 0.35);
+                let mut path = outlined(&face, &t, size, -tw / 2.0, -size * 0.35);
+                if m.underline {
+                    let _ = write!(
+                        path,
+                        "{} {} {} {} re ",
+                        n(-tw / 2.0),
+                        n(-size * 0.5),
+                        n(tw),
+                        n((size * 0.06).max(0.3))
+                    );
+                }
                 let op = m.watermark_opacity.clamp(0.05, 1.0);
                 let gs = String::from_utf8_lossy(&self.watermark_gs(i, op)?).into_owned();
+                // One centre, or a grid of them over the page (tiling).
+                let mut centres = vec![(cx, cy)];
+                if let Some((row, col)) = m.watermark_tile {
+                    centres.clear();
+                    let (sx, sy) = ((tw + col.max(0.0)).max(1.0), (size + row.max(0.0)).max(1.0));
+                    let (nx, ny) = (
+                        ((x1 - x0) / sx).ceil() as i32 + 1,
+                        ((y1 - y0) / sy).ceil() as i32 + 1,
+                    );
+                    for r in -ny..=ny {
+                        for k in -nx..=nx {
+                            let (px, py) = (cx + k as f32 * sx, cy + r as f32 * sy);
+                            if px > x0 - sx && px < x1 + sx && py > y0 - sy && py < y1 + sy {
+                                centres.push((px, py));
+                            }
+                        }
+                    }
+                }
+                let mut marks = String::new();
+                for (px, py) in centres {
+                    let _ = write!(
+                        marks,
+                        "q {} {} {} {} {} {} cm {path}f Q ",
+                        n(c),
+                        n(s),
+                        n(-s),
+                        n(c),
+                        n(px),
+                        n(py)
+                    );
+                }
                 let _ = writeln!(
                     if m.watermark_behind { &mut back } else { &mut front },
-                    "/Artifact <</Type /Pagination /Subtype /Watermark>> BDC q /{gs} gs {}{} {} {} {} {} {} cm {path}f Q EMC",
-                    fill(m.watermark_color),
-                    n(c),
-                    n(s),
-                    n(-s),
-                    n(c),
-                    n(cx),
-                    n(cy)
+                    "/Artifact <</Type /Pagination /Subtype /Watermark>> BDC q /{gs} gs {}{marks}Q EMC",
+                    fill(m.watermark_color)
                 );
             }
             if front.is_empty() && back.is_empty() {

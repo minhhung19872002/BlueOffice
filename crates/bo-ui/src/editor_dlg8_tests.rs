@@ -424,3 +424,95 @@ fn edit_object_extracts_the_selected_picture() {
     assert!(name.ends_with("-p1-image.png"), "{name}");
     assert!(bytes.starts_with(b"\x89PNG"));
 }
+
+#[test]
+fn links_open_small_dialogs_and_presets_come_back() {
+    let mut w = window(4);
+    w.run("org8.add.headerFooter", &Fixed);
+    let t = texts(&mut w);
+    for l in [
+        "Appearance Options...",
+        "Page number and date format",
+        "Page Range Options...",
+    ] {
+        assert!(t.iter().any(|x| x == l), "{l}: {t:?}");
+    }
+    // Page Range Options: pages 2 to 3; the values go back to the dialog under it.
+    click(&mut w, "range", 0);
+    assert_eq!(w.form8.len(), 2);
+    click(&mut w, "prk", 1);
+    set(&mut w, "prf", Val::Text("2".into()));
+    set(&mut w, "prt", Val::Text("3".into()));
+    enter(&mut w);
+    assert_eq!(w.form8.len(), 1);
+    let f = w.form8.last().expect("dialog").0.clone();
+    assert_eq!(w.range_pages(&f), vec![1, 2]);
+    // Number format "Page 1 of n" from the Insert button, start number 5.
+    click(&mut w, "numfmt", 0);
+    set(&mut w, "numfmt", Val::Pick(4));
+    set(&mut w, "start", Val::Text("5".into()));
+    enter(&mut w);
+    click(&mut w, "fc", 0);
+    click(&mut w, "insert", 0);
+    assert_eq!(
+        w.form8.last().expect("dialog").0.text("fc"),
+        "Page <<page>> of <<pages>>"
+    );
+    // Save Settings as "Mine", then a new dialog lists and loads it.
+    click(&mut w, "save", 0);
+    w.handle(Input::Text("Mine".into()), &Fixed);
+    enter(&mut w);
+    assert_eq!(w.form8.last().expect("dialog").0.pick("saved"), 1);
+    click(&mut w, "ok", 0);
+    assert!(w.form8.is_empty());
+    w.run("org8.add.headerFooter", &Fixed);
+    set(&mut w, "saved", Val::Pick(1));
+    w.load_preset8();
+    assert_eq!(
+        w.form8.last().expect("dialog").0.text("fc"),
+        "Page <<page>> of <<pages>>"
+    );
+}
+
+#[test]
+fn password_typing_ticks_and_rc4() {
+    let mut w = window(1);
+    w.run("prot.password", &Fixed);
+    // The boxes are usable at once; typing ticks "Require a password".
+    click(&mut w, "open", 0);
+    w.handle(Input::Text("pw".into()), &Fixed);
+    assert_eq!(w.form8.last().expect("dialog").0.pick("openOn"), 1);
+    set(&mut w, "open2", Val::Text("pw".into()));
+    click(&mut w, "alg", 2);
+    click(&mut w, "policy", 0);
+    enter(&mut w);
+    assert!(w.form8.is_empty());
+    let bytes = w.view_mut().expect("view").doc_mut().save().expect("saves");
+    assert!(String::from_utf8_lossy(&bytes).contains("/R 3"));
+    // The policy brings the choices back.
+    w.run("prot.password", &Fixed);
+    assert_eq!(w.form8.last().expect("dialog").0.pick("alg"), 2);
+}
+
+#[test]
+fn picture_watermark_and_tiling() {
+    let mut w = window(2);
+    w.run("org8.add.watermark", &Fixed);
+    click(&mut w, "src", 1);
+    w.file_picked(
+        "wm8Image",
+        std::path::Path::new("logo.png"),
+        &crate::editor_tests::png2x2(),
+    );
+    assert_eq!(w.form8.last().expect("dialog").0.text("file"), "logo.png");
+    let before = cmds(&mut w);
+    enter(&mut w);
+    assert!(cmds(&mut w) > before, "picture placed");
+    // Tiled text.
+    w.run("org8.add.watermark", &Fixed);
+    set(&mut w, "text", Val::Text("COPY".into()));
+    click(&mut w, "tile", 0);
+    let before = cmds(&mut w);
+    enter(&mut w);
+    assert!(cmds(&mut w) > before);
+}

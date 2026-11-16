@@ -488,6 +488,26 @@ impl PdfDocument {
         allow: Permissions,
         aes256: bool,
     ) -> Result<(), String> {
+        let cipher = if aes256 {
+            Cipher::Aes256
+        } else {
+            Cipher::Aes128
+        };
+        self.set_protection_with(user, owner, allow, cipher, true)
+    }
+
+    /// [`PdfDocument::set_protection`] with the cipher chosen and, for the AES ciphers,
+    /// whether the metadata stream is encrypted too (`/EncryptMetadata`, ISO 32000-1 Table
+    /// 20); RC4 128-bit is security handler revision 3 (§7.6.3.2), metadata always encrypted.
+    pub fn set_protection_with(
+        &mut self,
+        user: &str,
+        owner: &str,
+        allow: Permissions,
+        cipher: Cipher,
+        encrypt_metadata: bool,
+    ) -> Result<(), String> {
+        let aes256 = cipher == Cipher::Aes256;
         use lopdf::encryption::crypt_filters::{Aes128CryptFilter, Aes256CryptFilter, CryptFilter};
         use lopdf::{EncryptionState, EncryptionVersion};
         if let Ok(e) = self
@@ -510,12 +530,20 @@ impl PdfDocument {
             }
             let mut filters: std::collections::BTreeMap<Vec<u8>, std::sync::Arc<dyn CryptFilter>> =
                 std::collections::BTreeMap::new();
-            let state = if aes256 {
+            let state = if cipher == Cipher::Rc4 {
+                EncryptionState::try_from(EncryptionVersion::V2 {
+                    document: &self.doc,
+                    owner_password: owner,
+                    user_password: user,
+                    key_length: 128,
+                    permissions: allow.flags(),
+                })
+            } else if aes256 {
                 filters.insert(b"StdCF".to_vec(), std::sync::Arc::new(Aes256CryptFilter));
                 let mut key = new_file_id(1);
                 key.extend(new_file_id(2));
                 EncryptionState::try_from(EncryptionVersion::V5 {
-                    encrypt_metadata: true,
+                    encrypt_metadata,
                     crypt_filters: filters,
                     file_encryption_key: &key,
                     stream_filter: b"StdCF".to_vec(),
@@ -528,7 +556,7 @@ impl PdfDocument {
                 filters.insert(b"StdCF".to_vec(), std::sync::Arc::new(Aes128CryptFilter));
                 EncryptionState::try_from(EncryptionVersion::V4 {
                     document: &self.doc,
-                    encrypt_metadata: true,
+                    encrypt_metadata,
                     crypt_filters: filters,
                     stream_filter: b"StdCF".to_vec(),
                     string_filter: b"StdCF".to_vec(),
@@ -884,4 +912,15 @@ pub(crate) fn write_document(
 #[cfg(test)]
 pub(crate) fn object_map(doc: &PdfDocument) -> std::collections::BTreeMap<ObjectId, Object> {
     doc.doc.objects.clone()
+}
+
+/// Cipher of [`PdfDocument::set_protection_with`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Cipher {
+    /// AES 128-bit (security handler revision 4).
+    Aes128,
+    /// AES 256-bit (revision 6).
+    Aes256,
+    /// RC4 128-bit ("ARC-FOUR", revision 3).
+    Rc4,
 }

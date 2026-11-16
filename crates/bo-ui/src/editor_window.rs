@@ -521,6 +521,13 @@ pub struct EditorWindow {
     pub(crate) perm8: (bool, bool, bool, bool),
     /// The Format pane shows a comment tool's properties (asked for with `cmt8.props`).
     pub(crate) comment_pane8: bool,
+    /// Saved Settings of the page design dialogs: kind (`hf`, `wm`, `bg`) → named values.
+    pub(crate) presets8:
+        std::collections::BTreeMap<&'static str, Vec<(String, crate::editor_dlg8b::Vals)>>,
+    /// Password Protection choices kept with "Save the settings as a new policy".
+    pub(crate) policy8: Option<crate::editor_dlg8b::Vals>,
+    /// Picture picked as the watermark (File source).
+    pub(crate) wm_image8: Option<Vec<u8>>,
     /// Form field tool.
     pub(crate) design: crate::editor_design::DesignState,
     /// Caret shown (blink phase).
@@ -599,6 +606,9 @@ impl EditorWindow {
             form8: Vec::new(),
             perm8: (true, true, false, true),
             comment_pane8: false,
+            presets8: std::collections::BTreeMap::new(),
+            policy8: None,
+            wm_image8: None,
             close_box: None,
             design: crate::editor_design::DesignState::default(),
             caret_on: true,
@@ -1873,6 +1883,12 @@ impl EditorWindow {
                 }
             }
         }
+        // Round 8: the Watermark / Background preview shows the page itself.
+        if let Some((i, s)) = self.preview_want8() {
+            if let Some(v) = self.r.view_mut() {
+                v.want_preview(i, s);
+            }
+        }
         self.r.prepare(store) || closed
     }
 
@@ -1891,6 +1907,8 @@ impl EditorWindow {
                     .collect();
                 self.org.paint(p, v, base, &labels, self.r.theme());
             }
+            // Round 8: a ribbon menu stays over the page grid (it was cut at the tabs).
+            self.r.paint_open_menu(p);
         }
         if let Some(tool) = self.tool {
             if self.r.showing_doc() && !self.organize_on() {

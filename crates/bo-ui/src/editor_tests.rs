@@ -268,9 +268,9 @@ fn page_commands_make_files_and_requests() {
     let Some(ReaderRequest::OpenDocument { name, bytes }) = req.first() else {
         panic!("{req:?}");
     };
-    assert_eq!(name, "document-1.pdf");
+    assert_eq!(name, "document-1-4.pdf");
     let part = PdfDocument::open(bytes.clone(), bo_pdfread::standard_fonts()).expect("opens");
-    assert_eq!(part.page_count(), 1);
+    assert_eq!(part.page_count(), 4);
     // Split asks how many pages per file, then writes the parts.
     w.run("org.split", &Fixed);
     w.handle(Input::Key(Key::Backspace, Mods::default()), &Fixed);

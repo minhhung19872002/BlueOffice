@@ -11902,6 +11902,23 @@
     "wmTitle": "Thêm hình mờ",
     "replaceImage": "Thay ảnh...",
     "extractImage": "Trích ảnh...",
-    "noImage": "Không lưu được ảnh này thành tệp."
+    "noImage": "Không lưu được ảnh này thành tệp.",
+    "appearanceOptions": "Tuỳ chọn hiển thị...",
+    "appearanceOptions2": "Tuỳ chọn hiển thị",
+    "numberDateFormat": "Định dạng số trang và ngày",
+    "pageRangeOptions": "Tuỳ chọn khoảng trang...",
+    "offsetX": "Dời sang phải (pt):",
+    "offsetY": "Dời lên (pt):",
+    "shrink": "Thu nhỏ tài liệu để không đè lên nội dung",
+    "numberFormat": "Định dạng số trang:",
+    "dateFormat": "Định dạng ngày:",
+    "pagesFrom": "Các trang từ",
+    "to": "đến",
+    "subset": "Tập con:",
+    "textStyle": "Kiểu chữ",
+    "underline": "Gạch chân",
+    "presetName": "Tên thiết lập:",
+    "saveSettingsTitle": "Lưu thiết lập",
+    "pickPicture": "Hãy chọn ảnh bằng Duyệt... trước."
   }
 }

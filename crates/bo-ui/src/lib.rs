@@ -39,6 +39,7 @@ mod editor_design_tests;
 mod editor_dlg8;
 #[cfg(test)]
 mod editor_dlg8_tests;
+mod editor_dlg8b;
 mod editor_edit;
 mod editor_file7;
 mod editor_five;

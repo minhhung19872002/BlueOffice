@@ -11902,6 +11902,23 @@
     "wmTitle": "Add Watermark",
     "replaceImage": "Replace Image...",
     "extractImage": "Extract Image...",
-    "noImage": "This picture cannot be saved as a file."
+    "noImage": "This picture cannot be saved as a file.",
+    "appearanceOptions": "Appearance Options...",
+    "appearanceOptions2": "Appearance Options",
+    "numberDateFormat": "Page number and date format",
+    "pageRangeOptions": "Page Range Options...",
+    "offsetX": "Move right (pt):",
+    "offsetY": "Move up (pt):",
+    "shrink": "Shrink document to avoid overwriting its content",
+    "numberFormat": "Page number format:",
+    "dateFormat": "Date format:",
+    "pagesFrom": "Pages from",
+    "to": "to",
+    "subset": "Subset:",
+    "textStyle": "Text Style",
+    "underline": "Underline",
+    "presetName": "Name of the settings:",
+    "saveSettingsTitle": "Save Settings",
+    "pickPicture": "Pick a picture with Browse... first."
   }
 }

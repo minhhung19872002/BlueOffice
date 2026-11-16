@@ -18,6 +18,7 @@ pub(crate) enum On {
     Always,
     Never,
     If(&'static str, usize),
+    IfNot(&'static str, usize),
     /// Either of two conditions.
     Either(&'static str, usize, &'static str, usize),
 }
@@ -84,6 +85,20 @@ pub(crate) enum Ctl {
     },
     /// Colour box (a click cycles through a few colours).
     Swatch { id: &'static str, r: [f32; 4] },
+    /// Underlined blue text that acts as a button (round 8: the reference's links).
+    Link {
+        id: &'static str,
+        x: f32,
+        y: f32,
+        text: String,
+    },
+    /// Small square button with one of our own icons (`IconKind`).
+    Icon {
+        id: &'static str,
+        r: [f32; 4],
+        icon: IconKind,
+        on: On,
+    },
     /// Slider bound to spin box `id` (0–100).
     Slider { id: &'static str, r: [f32; 4] },
     /// Information mark (blue disc with an "i").
@@ -96,6 +111,21 @@ pub(crate) enum Ctl {
         cols: Vec<(String, f32)>,
         rows: Vec<Vec<String>>,
     },
+}
+
+/// Icons of the classic dialogs' small buttons (our own drawings).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum IconKind {
+    /// A text-style "T".
+    TextStyle,
+    /// Dynamic text: a figure with a tag.
+    Dynamic,
+    /// Save a preset: a tray with an arrow into it.
+    SavePreset,
+    /// Load a preset: a tray with an arrow out of it.
+    LoadPreset,
+    /// Delete a preset: a bin.
+    DeletePreset,
 }
 
 /// A value of the store.
@@ -141,6 +171,8 @@ pub(crate) struct Form {
     hits: Vec<([f32; 4], Hit)>,
     /// Window rectangle of the dialog (set when painted).
     pub frame: [f32; 4],
+    /// Typing into text box `.0` ticks check box `.1` (Password Protection).
+    pub ticks: Vec<(&'static str, &'static str)>,
 }
 
 const WHITE: Rgba = Rgba(255, 255, 255, 255);
@@ -173,6 +205,7 @@ pub(crate) fn text_w(s: &str, size: f32) -> f32 {
         })
         .sum::<f32>()
         * size
+        * 1.1
 }
 
 impl Form {
@@ -187,6 +220,7 @@ impl Form {
             hover: None,
             hits: Vec::new(),
             frame: [0.0; 4],
+            ticks: Vec::new(),
         }
     }
 
@@ -200,6 +234,17 @@ impl Form {
     pub(crate) fn with(mut self, id: &'static str, v: Val) -> Self {
         self.set(id, v);
         self
+    }
+
+    /// Replace the items of drop-down `id`.
+    pub(crate) fn set_items(&mut self, id: &str, new: Vec<String>) {
+        for c in &mut self.ctls {
+            if let Ctl::Combo { id: i, items, .. } = c {
+                if *i == id {
+                    items.clone_from(&new);
+                }
+            }
+        }
     }
 
     /// Builder: focus text / spin box `id`.
@@ -251,6 +296,7 @@ impl Form {
             On::Always => true,
             On::Never => false,
             On::If(id, k) => self.pick(id) == k,
+            On::IfNot(id, k) => self.pick(id) != k,
             On::Either(a, j, b, k) => self.pick(a) == j || self.pick(b) == k,
         }
     }
@@ -263,7 +309,8 @@ impl Form {
             | Ctl::Combo { on, .. }
             | Ctl::Radio { on, .. }
             | Ctl::Check { on, .. }
-            | Ctl::Button { on, .. } => self.enabled(*on),
+            | Ctl::Button { on, .. }
+            | Ctl::Icon { on, .. } => self.enabled(*on),
             _ => true,
         }
     }
@@ -278,7 +325,9 @@ impl Form {
             | Ctl::Combo { id: i, .. }
             | Ctl::Check { id: i, .. }
             | Ctl::Button { id: i, .. }
-            | Ctl::Swatch { id: i, .. } => *i == id,
+            | Ctl::Swatch { id: i, .. }
+            | Ctl::Link { id: i, .. }
+            | Ctl::Icon { id: i, .. } => *i == id,
             _ => false,
         })
     }
@@ -416,7 +465,9 @@ impl Form {
                         self.set(id, Val::Color(SWATCHES[(at + 1) % SWATCHES.len()]));
                         FormOut::Changed
                     }
-                    Ctl::Button { id, .. } => FormOut::Button(id),
+                    Ctl::Button { id, .. } | Ctl::Link { id, .. } | Ctl::Icon { id, .. } => {
+                        FormOut::Button(id)
+                    }
                     _ => FormOut::Kept,
                 }
             }
@@ -528,6 +579,9 @@ impl Form {
                 let mut v = self.text(id);
                 v.extend(s.chars().filter(|c| !c.is_control()));
                 self.set(id, Val::Text(v));
+                if let Some(&(_, check)) = self.ticks.iter().find(|t| t.0 == id) {
+                    self.set(check, Val::Pick(1));
+                }
                 FormOut::Changed
             }
             _ => FormOut::Kept,
@@ -545,7 +599,7 @@ impl Form {
         self.frame = [x0, y0, w, h];
         let at = |r: [f32; 4]| [x0 + q(r[0]), y0 + q(r[1]), q(r[2]), q(r[3])];
         let text = TextStyle {
-            size: q(15.0),
+            size: (14.4 * s).round(),
             bold: false,
         };
         let th = text.size * 1.33;
@@ -965,6 +1019,30 @@ impl Form {
                         hits.push((b, Hit::Ctl(i)));
                     }
                 }
+                Ctl::Link { x, y, text: t, .. } => {
+                    let (lx, ly) = (x0 + q(*x), (y0 + q(*y) - th / 2.0).round());
+                    let link = Rgba(0x00, 0x00, 0xFF, 255);
+                    p.text(t, lx, ly, text, link);
+                    let tw = est(t);
+                    p.fill_rect(lx, ly + th - q(2.0), tw, 1.0, link);
+                    hits.push(([lx, ly, tw, th], Hit::Ctl(i)));
+                }
+                Ctl::Icon { r, icon, .. } => {
+                    let b = at(*r);
+                    if hot && on {
+                        p.fill_rect(b[0], b[1], b[2], b[3], Rgba(0xE5, 0xF1, 0xFB, 255));
+                    }
+                    paint_icon(
+                        p,
+                        b,
+                        *icon,
+                        if on { Rgba(0x30, 0x30, 0x30, 255) } else { DIM },
+                        s,
+                    );
+                    if on {
+                        hits.push((b, Hit::Ctl(i)));
+                    }
+                }
                 Ctl::Swatch { id, r } => {
                     let b = at(*r);
                     let c = self.color(id);
@@ -1151,6 +1229,63 @@ pub(crate) fn paint_list(
         );
     }
     out
+}
+
+/// Our own small icons (strokes in `ink`), centred in `b`.
+fn paint_icon(p: &mut dyn Painter, b: [f32; 4], icon: IconKind, ink: Rgba, s: f32) {
+    let (cx, cy) = (b[0] + b[2] / 2.0, b[1] + b[3] / 2.0);
+    let u = (b[2].min(b[3]) / 2.0 - 3.0 * s).max(4.0);
+    let w = (1.3 * s).max(1.0);
+    let line = |p: &mut dyn Painter, pts: &[(f32, f32)]| {
+        let mut segs = Vec::new();
+        for (k, (x, y)) in pts.iter().enumerate() {
+            let pt = (cx + x * u, cy + y * u);
+            segs.push(if k == 0 {
+                PathSeg::M(pt.0, pt.1)
+            } else {
+                PathSeg::L(pt.0, pt.1)
+            });
+        }
+        p.path(&segs, None, Some((ink, w)));
+    };
+    match icon {
+        IconKind::TextStyle => {
+            line(p, &[(-0.7, -0.8), (0.7, -0.8)]);
+            line(p, &[(0.0, -0.8), (0.0, 0.85)]);
+            line(p, &[(-0.3, 0.85), (0.3, 0.85)]);
+        }
+        IconKind::Dynamic => {
+            // A head and shoulders with a small tag at the right.
+            p.path(
+                &circle(cx - 0.15 * u, cy - 0.4 * u, 0.35 * u),
+                None,
+                Some((ink, w)),
+            );
+            line(p, &[(-0.85, 0.9), (-0.75, 0.3), (0.45, 0.3), (0.55, 0.9)]);
+            line(p, &[(0.55, -0.2), (0.9, -0.2), (0.9, 0.15), (0.55, 0.15)]);
+        }
+        IconKind::SavePreset | IconKind::LoadPreset => {
+            line(p, &[(-0.85, 0.2), (-0.85, 0.85), (0.85, 0.85), (0.85, 0.2)]);
+            line(p, &[(0.0, -0.9), (0.0, 0.45)]);
+            if icon == IconKind::SavePreset {
+                line(p, &[(-0.35, 0.1), (0.0, 0.45), (0.35, 0.1)]);
+            } else {
+                line(p, &[(-0.35, -0.55), (0.0, -0.9), (0.35, -0.55)]);
+            }
+        }
+        IconKind::DeletePreset => {
+            line(p, &[(-0.85, -0.6), (0.85, -0.6)]);
+            line(p, &[(-0.3, -0.6), (-0.3, -0.9), (0.3, -0.9), (0.3, -0.6)]);
+            line(p, &[(-0.6, -0.6), (-0.5, 0.9), (0.5, 0.9), (0.6, -0.6)]);
+            line(p, &[(-0.15, -0.3), (-0.15, 0.6)]);
+            line(p, &[(0.2, -0.3), (0.2, 0.6)]);
+        }
+    }
+}
+
+/// A link control.
+pub(crate) fn link(id: &'static str, x: f32, y: f32, text: String) -> Ctl {
+    Ctl::Link { id, x, y, text }
 }
 
 pub(crate) fn circle(cx: f32, cy: f32, r: f32) -> Vec<PathSeg> {

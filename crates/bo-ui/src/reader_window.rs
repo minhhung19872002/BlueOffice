@@ -2125,6 +2125,7 @@ impl ReaderWindow {
 
     fn run_search(&mut self, forward: bool) {
         let q = self.search_text.clone();
+        let (case, word) = self.find_options8();
         let Some(t) = self.tabs.get_mut(self.active) else {
             return;
         };
@@ -2134,7 +2135,7 @@ impl ReaderWindow {
         } else {
             // The first hit after the current page shows at once; the rest of a long document
             // is read on ticks (`tick_search`).
-            t.view.find_start(&q, false, false);
+            t.view.find_start(&q, case, word);
         }
         self.search_status();
     }

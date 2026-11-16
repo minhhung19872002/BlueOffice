@@ -11098,7 +11098,9 @@
     "filter": "Filter",
     "open": "Open",
     "save": "Save",
-    "add": "Add Attachment"
+    "add": "Add Attachment",
+    "wholeWords": "Whole words only",
+    "matchCase": "Case-Sensitive"
   },
   "pdfShare": {
     "title": "Share",

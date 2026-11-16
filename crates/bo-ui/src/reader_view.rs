@@ -39,6 +39,25 @@ pub trait PdfStore {
 /// Page cache budget (display lists, text, decoded images), bytes.
 const CACHE_BYTES: usize = 32 * 1024 * 1024;
 
+/// Memory settings for measuring (round 8): `BO_READER_CACHE_MB` (page cache budget) and
+/// `BO_READER_NEIGHBOURS` (0: none, 1: the next page only, 2: one each way, the default).
+fn mem_setting(name: &str, default: usize) -> usize {
+    std::env::var(name)
+        .ok()
+        .and_then(|v| v.trim().parse().ok())
+        .unwrap_or(default)
+}
+
+fn cache_budget() -> usize {
+    static V: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *V.get_or_init(|| mem_setting("BO_READER_CACHE_MB", CACHE_BYTES >> 20) << 20)
+}
+
+fn neighbours() -> usize {
+    static V: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *V.get_or_init(|| mem_setting("BO_READER_NEIGHBOURS", 2))
+}
+
 /// Key of page `i`'s thumbnail image in the store.
 pub const THUMB_KEY: usize = 1 << 24;
 /// Key of the one preview image (print preview) in the store.
@@ -828,7 +847,7 @@ impl ReaderView {
         self.lru.push_back(i);
         // At most 48 pages and about 32 MB of display lists, text and images (the least
         // recently used go first; the pages on screen are always the most recent).
-        while self.lru.len() > 48 || (self.lru.len() > 6 && self.cache_bytes() > CACHE_BYTES) {
+        while self.lru.len() > 48 || (self.lru.len() > 6 && self.cache_bytes() > cache_budget()) {
             if let Some(old) = self.lru.pop_front() {
                 self.cache.remove(&old);
             }
@@ -905,10 +924,11 @@ impl ReaderView {
         let mut wanted: Vec<usize> = visible.clone();
         // Neighbours for smooth scrolling (one each way keeps memory near the reference's).
         if let (Some(&lo), Some(&hi)) = (visible.iter().min(), visible.iter().max()) {
-            if hi + 1 < self.sizes.len() {
+            let n = neighbours();
+            if n >= 1 && hi + 1 < self.sizes.len() {
                 wanted.push(hi + 1);
             }
-            if lo >= 1 {
+            if n >= 2 && lo >= 1 {
                 wanted.push(lo - 1);
             }
         }

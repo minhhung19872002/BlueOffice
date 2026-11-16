@@ -167,6 +167,9 @@ struct Gpu {
     /// Page images dropped since the driver's memory was last trimmed, and when that was.
     dropped: usize,
     trimmed: Instant,
+    /// Frames drawn since the last trim and when the last one was (idle trim, round 8).
+    untrimmed: bool,
+    rendered: Instant,
 }
 
 struct Store<'a> {
@@ -741,6 +744,8 @@ impl Shell {
             painted = p0.elapsed();
         });
         self.last_frame = [t1 - t0, painted, t1.elapsed().saturating_sub(painted)];
+        gpu.untrimmed = true;
+        gpu.rendered = Instant::now();
         // Page images left the view: give the driver's freed memory back (at most once a
         // second, after the frame).
         if gpu.dropped > 0 && gpu.trimmed.elapsed().as_millis() > 1000 {
@@ -773,6 +778,8 @@ impl Handler for Shell {
             pages: HashMap::new(),
             dropped: 0,
             trimmed: Instant::now(),
+            untrimmed: false,
+            rendered: Instant::now(),
         });
         let m = Measure(self.gpu.as_ref().map(|g| &g.device));
         self.window.handle(Input::Scale(scale), &m);
@@ -787,6 +794,20 @@ impl Handler for Shell {
     }
 
     fn input(&mut self, input: Input, age_ms: u32) {
+        // A second after the last frame, with nothing left to draw, the driver gives back the
+        // memory it kept while drawing (`BO_READER_IDLE_TRIM=0` turns it off for measuring).
+        if matches!(input, Input::Tick) && !self.more {
+            if let Some(gpu) = self.gpu.as_mut() {
+                if gpu.untrimmed
+                    && gpu.rendered.elapsed().as_millis() > 1000
+                    && std::env::var("BO_READER_IDLE_TRIM").as_deref() != Ok("0")
+                {
+                    gpu.device.trim();
+                    gpu.untrimmed = false;
+                    gpu.trimmed = Instant::now();
+                }
+            }
+        }
         let kind = match &input {
             Input::Text(_) => "text",
             Input::Key(..) => "key",

@@ -11098,7 +11098,9 @@
     "filter": "Lọc",
     "open": "Mở",
     "save": "Lưu",
-    "add": "Thêm tệp đính kèm"
+    "add": "Thêm tệp đính kèm",
+    "wholeWords": "Chỉ nguyên từ",
+    "matchCase": "Phân biệt hoa thường"
   },
   "pdfShare": {
     "title": "Chia sẻ",

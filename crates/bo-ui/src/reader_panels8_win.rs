@@ -126,6 +126,9 @@ type Section = (&'static str, Vec<(String, String, bool)>);
 #[derive(Default)]
 pub(crate) struct Panels8 {
     tools: Vec<(&'static str, [f32; 4], bool)>,
+    /// Search box options (the reference's Whole words only / Case-Sensitive).
+    find_case: bool,
+    find_word: bool,
     hover: Option<&'static str>,
     rows: Vec<([f32; 4], Hit)>,
     attach_selected: Option<usize>,
@@ -483,6 +486,45 @@ impl ReaderWindow {
         } else {
             p.fill_rect(x, r[1], 1.0, r[3], FRAME);
         }
+    }
+
+    /// Search options: (match case, whole words only).
+    pub(crate) fn find_options8(&self) -> (bool, bool) {
+        (self.panels8.find_case, self.panels8.find_word)
+    }
+
+    /// The options button at the right end of the title bar's search box.
+    fn find_button8(&self) -> [f32; 4] {
+        let s = self.search;
+        let w = self.q(26.0);
+        [s[0] + s[2] - w - 1.0, s[1] + 1.0, w, s[3] - 2.0]
+    }
+
+    fn paint_find_button8(&self, p: &mut dyn Painter) {
+        if self.profile.is_some() || self.search[2] <= 0.0 {
+            return;
+        }
+        let b = self.find_button8();
+        let on = self.panels8.find_case || self.panels8.find_word;
+        if on {
+            p.path(
+                &rounded(b[0], b[1] + 2.0, b[2] - 2.0, b[3] - 4.0, 2.0),
+                Some(BAND),
+                None,
+            );
+        }
+        let s = self.q(12.0);
+        reader_icons::draw(
+            p,
+            "chevronDown",
+            b[0] + ((b[2] - s) / 2.0).round(),
+            b[1] + ((b[3] - s) / 2.0).round(),
+            s,
+            Ink {
+                ink: SOFT,
+                accent: SOFT,
+            },
+        );
     }
 
     /// Draw a round 8 panel below its title (panel rectangle `r`).
@@ -990,6 +1032,29 @@ impl ReaderWindow {
 
     /// Input of the round 8 panels (tools, rows, search box, filter dialog).
     pub(crate) fn route_panels8(&mut self, input: &Input, m: &dyn TextMeasure) -> Option<bool> {
+        if let Input::Press { x, y, .. } = input {
+            if self.profile.is_none()
+                && self.panels8.dialog.is_none()
+                && self.panels8.confirm.is_none()
+                && self.menu.is_none()
+                && self.search[2] > 0.0
+                && inside(self.find_button8(), *x, *y)
+            {
+                let item = |cmd: &str, key: &str, on: bool| MenuItem {
+                    label: self.t(key),
+                    choice: Choice::Command(cmd.to_owned()),
+                    checked: on,
+                    dim: false,
+                };
+                let items = vec![
+                    item("find.word", "pdfPanels.wholeWords", self.panels8.find_word),
+                    item("find.case", "pdfPanels.matchCase", self.panels8.find_case),
+                ];
+                let b = self.find_button8();
+                self.menu_at(items, b, "find");
+                return Some(true);
+            }
+        }
         if self.panels8.dialog.is_some() {
             return Some(self.route_filter_dialog(input, m));
         }
@@ -1179,6 +1244,15 @@ impl ReaderWindow {
             return true;
         }
         match cmd {
+            "find.word" | "find.case" => {
+                if cmd == "find.word" {
+                    self.panels8.find_word = !self.panels8.find_word;
+                } else {
+                    self.panels8.find_case = !self.panels8.find_case;
+                }
+                // The next Enter searches again with the new options.
+                self.status = String::new();
+            }
             "nav.layers" | "panel.layers" => self.toggle_panel(Panel::Layers),
             "nav.attachments" | "panel.attachments" => self.toggle_panel(Panel::Attachments),
             "comment.setStatus" => {
@@ -1504,6 +1578,9 @@ impl ReaderWindow {
 
     /// The filter dialog over the window (BlueReader only).
     pub(crate) fn paint_panels8_overlay(&mut self, p: &mut dyn Painter) {
+        if self.menu.is_none() {
+            self.paint_find_button8(p);
+        }
         if let Some((d, _)) = self.panels8.confirm.as_ref() {
             d.paint(p, &self.theme, self.size, false);
         }

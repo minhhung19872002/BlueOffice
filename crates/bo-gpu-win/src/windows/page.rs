@@ -414,6 +414,26 @@ impl State {
 }
 
 impl Device {
+    /// Hand the driver's freed allocations back to the system (`IDXGIDevice3::Trim`, after
+    /// clearing the immediate context's state) once page images were dropped; call between
+    /// frames. Readers of long documents call it so memory follows the pages kept.
+    pub fn trim(&self) {
+        use windows::core::Interface as _;
+        // SAFETY: plain calls on this device's live COM objects, outside any drawing.
+        unsafe {
+            if let Ok(ctx) = self.d3d.GetImmediateContext() {
+                ctx.ClearState();
+                ctx.Flush();
+            }
+            if let Ok(d) = self
+                .d3d
+                .cast::<windows::Win32::Graphics::Dxgi::IDXGIDevice3>()
+            {
+                d.Trim();
+            }
+        }
+    }
+
     pub(super) fn geometry(&self, segs: &[PathSeg]) -> Result<ID2D1PathGeometry1, String> {
         // SAFETY: the factory owns the geometry; the sink is closed before the geometry is used.
         unsafe {

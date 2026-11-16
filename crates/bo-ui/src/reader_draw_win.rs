@@ -549,20 +549,21 @@ impl ReaderWindow {
         }
     }
 
-    fn add_shape(&mut self, page: usize, shape: &Shape, text: &str) {
+    pub(crate) fn add_shape(&mut self, page: usize, shape: &Shape, text: &str) {
         let mut style = self.draw.style();
         if let Shape::Stamp(_, k) = shape {
             style.color = k.color();
             style.width = 2.0;
         }
         let author = self.author.clone();
+        let unit = self.measure_unit();
         let Some(t) = self.tabs.get_mut(self.active) else {
             return;
         };
         match t
             .view
             .doc_mut()
-            .add_drawing(page, shape, &style, &author, text)
+            .add_drawing_in(page, shape, &style, &author, text, &unit)
         {
             Ok(()) => self.document_changed(),
             Err(e) => self.status = e,

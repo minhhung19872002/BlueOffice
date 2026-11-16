@@ -139,7 +139,10 @@ fn substitute_names(name: &str, serif: bool, fixed: bool) -> (Vec<String>, bool,
         } else if lower.starts_with("courier") {
             Some("Courier New")
         } else if lower.starts_with("symbol") {
-            Some("Symbol")
+            // Greek and mathematical signs by Unicode (the built-in encoding's names) in a
+            // serif face: Windows' own Symbol face keeps its glyphs at U+F0xx and is not
+            // drawn by the page renderer.
+            Some("Times New Roman")
         } else if lower.starts_with("zapfdingbats") {
             Some("Segoe UI Symbol")
         } else {
@@ -439,10 +442,26 @@ impl Font {
             }
         }
         if !composite {
+            let std_name = base_name(&base).to_ascii_lowercase();
             let builtin = match &font.program {
                 Program::Type1(t) if !t.standard_encoding && !t.encoding.is_empty() => {
                     Some(t.encoding.clone())
                 }
+                // Standard 14 symbol fonts not embedded: their built-in encodings (Annex D.5,
+                // D.6), whatever face substitutes them.
+                Program::None if std_name.starts_with("zapfdingbats") => Some(
+                    (0..256_usize)
+                        .filter_map(|c| encoding::zapf_dingbats(c).map(|n| (c as u8, n)))
+                        .collect(),
+                ),
+                Program::None if std_name == "symbol" || std_name.starts_with("symbol,") => Some(
+                    encoding::symbol()
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, n)| !n.is_empty())
+                        .map(|(c, n)| (c as u8, (*n).to_owned()))
+                        .collect(),
+                ),
                 _ => None,
             };
             font.apply_encoding(doc, dict, builtin);
@@ -458,6 +477,25 @@ impl Font {
                                 .map(|a| f32::from(a) * 1000.0 / upem)
                         })
                         .collect();
+                }
+            }
+            // An embedded TrueType font without /Widths (allowed for symbolic fonts in old
+            // files): the program's own advances, as other readers use (else every glyph would
+            // advance by /MissingWidth, often 0).
+            if font.widths.is_empty() && !font.substitute {
+                if let Program::Sfnt(data) = &font.program {
+                    let data = Arc::clone(data);
+                    if let Ok(face) = ttf_parser::Face::parse(&data, 0) {
+                        let upem = f32::from(face.units_per_em().max(16));
+                        font.face_widths = (0..256)
+                            .map(|c| match font.glyph(c) {
+                                Some(GlyphRef::Gid(g)) => face
+                                    .glyph_hor_advance(ttf_parser::GlyphId(g))
+                                    .map(|a| f32::from(a) * 1000.0 / upem),
+                                _ => None,
+                            })
+                            .collect();
+                    }
                 }
             }
         }

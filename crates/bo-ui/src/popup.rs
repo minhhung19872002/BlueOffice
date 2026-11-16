@@ -89,7 +89,12 @@ pub struct Menu {
     /// Items preceded by a separator line.
     separators: Vec<usize>,
     look: MenuLook,
+    /// An app's own icon drawing (`painter, name, x, y, size, dim`) in place of the shared set.
+    icon_fn: Option<IconFn>,
 }
+
+/// Draws icon `name` into a `size`-pixel square at (`x`, `y`), greyed when `dim`.
+pub type IconFn = fn(&mut dyn Painter, &str, f32, f32, f32, bool);
 
 impl Menu {
     /// Open near the control at (`x`, `y`, `w`, `h`), within the window's viewport.
@@ -152,6 +157,7 @@ impl Menu {
             icons: Vec::new(),
             separators: Vec::new(),
             look,
+            icon_fn: None,
         };
         // Show the current value in the middle of the list.
         if let Some(i) = current {
@@ -173,6 +179,13 @@ impl Menu {
     pub fn with_decor(mut self, icons: Vec<Option<&'static str>>, separators: Vec<usize>) -> Self {
         self.icons = icons;
         self.separators = separators;
+        self
+    }
+
+    /// Draw the icons of [`Menu::with_decor`] with an app's own icon set.
+    #[must_use]
+    pub fn with_icon_fn(mut self, f: IconFn) -> Self {
+        self.icon_fn = Some(f);
         self
     }
 
@@ -335,19 +348,27 @@ impl Menu {
             }
             if let Some(Some(name)) = self.icons.get(i) {
                 let size = (look.icon * s).round();
-                icons.draw(
-                    p,
-                    name,
+                let (ix, iy) = (
                     self.x + (look.icon_x * s).round(),
                     (y + (self.item_h - size) / 2.0).round(),
-                    size,
-                    crate::icons::IconColors {
-                        ink: t.text,
-                        accent: t.accent,
-                        on: t.accent_on,
-                        tinted: !item.dim,
-                    },
                 );
+                if let Some(f) = self.icon_fn {
+                    f(p, name, ix, iy, size, item.dim);
+                } else {
+                    icons.draw(
+                        p,
+                        name,
+                        ix,
+                        iy,
+                        size,
+                        crate::icons::IconColors {
+                            ink: t.text,
+                            accent: t.accent,
+                            on: t.accent_on,
+                            tinted: !item.dim,
+                        },
+                    );
+                }
             }
             let color = if item.dim { t.text_muted } else { t.text };
             p.text(

@@ -19,16 +19,19 @@ mod win32;
 #[cfg(windows)]
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    if args
-        .first()
-        .is_some_and(|a| a == "--render" || a == "--bench" || a == "--print" || a == "--text")
-    {
+    if args.first().is_some_and(|a| {
+        a == "--render" || a == "--bench" || a == "--print" || a == "--text" || a == "--search"
+    }) {
         if let Err(e) = reader_app::tool(&args) {
             eprintln!("{e}");
             std::process::exit(1);
         }
         return;
     }
+    // Alt / F10 show the ribbon's key tips.
+    win32::enable_ribbon_keys();
+    // Client area to the window edge, like the reference reader.
+    win32::enable_full_client();
     let ui = std::thread::Builder::new()
         .name("ui".into())
         .stack_size(64 * 1024 * 1024)

@@ -164,11 +164,15 @@ struct Gpu {
     device: Device,
     surface: WindowSurface,
     pages: HashMap<usize, PageBitmap>,
+    /// Page images dropped since the driver's memory was last trimmed, and when that was.
+    dropped: usize,
+    trimmed: Instant,
 }
 
 struct Store<'a> {
     device: &'a Device,
     pages: &'a mut HashMap<usize, PageBitmap>,
+    removed: &'a mut usize,
 }
 
 fn pictures(
@@ -235,7 +239,9 @@ impl PdfStore for Store<'_> {
     }
 
     fn remove(&mut self, key: usize) {
-        self.pages.remove(&key);
+        if self.pages.remove(&key).is_some() {
+            *self.removed += 1;
+        }
     }
 }
 
@@ -710,6 +716,7 @@ impl Shell {
         self.more = self.window.prepare(&mut Store {
             device: &gpu.device,
             pages: &mut gpu.pages,
+            removed: &mut gpu.dropped,
         });
         let t1 = Instant::now();
         let (window, pages) = (&mut self.window, &gpu.pages);
@@ -720,6 +727,13 @@ impl Shell {
             painted = p0.elapsed();
         });
         self.last_frame = [t1 - t0, painted, t1.elapsed().saturating_sub(painted)];
+        // Page images left the view: give the driver's freed memory back (at most once a
+        // second, after the frame).
+        if gpu.dropped > 0 && gpu.trimmed.elapsed().as_millis() > 1000 {
+            gpu.device.trim();
+            gpu.dropped = 0;
+            gpu.trimmed = Instant::now();
+        }
         let title = self.window.title();
         if title != self.title && self.hwnd != 0 {
             win32::set_title(self.hwnd, &title);
@@ -743,6 +757,8 @@ impl Handler for Shell {
             device,
             surface,
             pages: HashMap::new(),
+            dropped: 0,
+            trimmed: Instant::now(),
         });
         let m = Measure(self.gpu.as_ref().map(|g| &g.device));
         self.window.handle(Input::Scale(scale), &m);
@@ -1185,6 +1201,31 @@ fn text_tool(doc: &mut PdfDocument) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+/// `--search in.pdf word`: read every page's text as the search does (from page 1), print the
+/// time to the first hit and in all, and the hit count.
+fn search_tool(doc: &mut PdfDocument, query: &str, open_ms: f64) -> Result<(), String> {
+    let t0 = Instant::now();
+    let mut first = None;
+    let mut hits = 0;
+    for i in 0..doc.page_count() {
+        let p = doc.render(i, RenderOptions::default())?;
+        let n = bo_pdfread::TextLayer::new(p.chars)
+            .find(query, false, false)
+            .len();
+        if n > 0 && first.is_none() {
+            first = Some((i + 1, t0.elapsed().as_secs_f64() * 1e3));
+        }
+        hits += n;
+    }
+    let (page, ms) = first.unwrap_or((0, 0.0));
+    println!(
+        r#"{{"open_ms":{open_ms:.1},"first_hit_page":{page},"first_hit_ms":{ms:.1},"total_ms":{:.1},"hits":{hits},"pages":{}}}"#,
+        t0.elapsed().as_secs_f64() * 1e3,
+        doc.page_count()
+    );
+    Ok(())
+}
+
 /// Command-line tools: `--render in.pdf <page> out.png [zoom%]`, `--bench in.pdf [pages]` and
 /// `--text in.pdf`.
 #[allow(clippy::too_many_lines)]
@@ -1196,6 +1237,9 @@ pub fn tool(args: &[String]) -> Result<(), String> {
     if args[0] == "--text" {
         return text_tool(&mut doc);
     }
+    if args[0] == "--search" {
+        return search_tool(&mut doc, args.get(2).map_or("", String::as_str), open_ms);
+    }
     let device = Device::new()?;
     device.set_text_rendering(page_text());
     if args[0] == "--print" {
@@ -1203,9 +1247,39 @@ pub fn tool(args: &[String]) -> Result<(), String> {
     }
     // 125 % display scale at 100 % zoom unless a zoom is given.
     if args[0] == "--render" {
-        let page: usize = args.get(2).and_then(|v| v.parse().ok()).unwrap_or(1);
         let out = args.get(3).ok_or("missing output path")?;
         let zoom: f32 = args.get(4).and_then(|v| v.parse().ok()).unwrap_or(100.0);
+        // `all` (or `a-b`) with `%d` in the output path: many pages in one run.
+        let spec = args.get(2).map_or("1", String::as_str);
+        if spec == "all" || spec.contains('-') {
+            let pages = if spec == "all" {
+                (0..doc.page_count()).collect()
+            } else {
+                bo_ui::parse_pages(spec, doc.page_count())
+            };
+            for i in pages {
+                let one = out.replace("%d", &(i + 1).to_string());
+                if let Err(e) = render_one(&mut doc, &device, i + 1, &one, zoom) {
+                    println!("{one}: FAILED {e}");
+                }
+            }
+            return Ok(());
+        }
+        let page: usize = spec.parse().unwrap_or(1);
+        return render_one(&mut doc, &device, page, out, zoom);
+    }
+    bench_tool(args, &mut doc, &device, open_ms)
+}
+
+/// `--render`: one page to a PNG at `zoom` % (125 % display scale).
+fn render_one(
+    doc: &mut PdfDocument,
+    device: &Device,
+    page: usize,
+    out: &str,
+    zoom: f32,
+) -> Result<(), String> {
+    {
         let scale = zoom / 100.0 * 96.0 / 72.0 * 1.25;
         let opts = RenderOptions {
             min_line: 1.0 / scale,
@@ -1238,8 +1312,17 @@ pub fn tool(args: &[String]) -> Result<(), String> {
             img.height,
             p.list.commands.len()
         );
-        return Ok(());
+        Ok(())
     }
+}
+
+/// `--bench`: open time, first page, display list and GPU times per page.
+fn bench_tool(
+    args: &[String],
+    doc: &mut PdfDocument,
+    device: &Device,
+    open_ms: f64,
+) -> Result<(), String> {
     let n = doc.page_count();
     let limit: usize = args.get(2).and_then(|v| v.parse().ok()).unwrap_or(n).min(n);
     let scale = 96.0 / 72.0 * 1.25;

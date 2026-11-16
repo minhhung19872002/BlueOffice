@@ -498,3 +498,68 @@ bị bỏ ngay (“not rendered”), cửa sổ đứng hình trang cũ. Đã s�
 một mục); test `reader_window_draws_a_page_changed_sixty_times` (làm mới trang 60 lần trong cửa sổ BlueReader, lần
 nào cũng vẽ) và `two_hundred_typed_characters_are_all_drawn_and_saved` (BlueEditor). `BLUEOFFICE_DRAW_LOG=<tệp>` ghi
 lỗi dựng / vẽ trang.
+
+## Vòng 10 (2026-11-16)
+
+Phần thêm ở mô-đun riêng: `reader_popups10_win.rs` (ghi chú bật lên trên trang, thanh công cụ nổi khi chọn chữ, Dán);
+lõi: `bo-pdfread/src/annot_popup.rs` (`popup_notes` / `set_popup_note` / `add_popup_note`, §12.5.6.14),
+`annot_paste.rs` (`paste_annotation`), `RenderExtra::no_zoom` (cờ NoZoom §12.5.3); thêm chung (chỉ cộng thêm): menu
+chú thích có Cut / Copy / Paste và Open / Close Popup Note, mặc định công cụ kiểu bản đối chiếu (`Draw::reader_defaults`),
+host `host.paste10`, `BO_READER_STARTUP=<tệp>` (mốc khởi động). Ảnh so sánh: `scratchpad/show/reader-62…*.png`.
+
+**Ghi chú bật lên** (`reader-62`). Đo ở 125 %: cửa sổ ghi chú 180 × 120 pt vẽ 300 × 200 px ở mọi zoom (cỡ `/Rect` ở
+96 dpi), góc trên trái ở chỗ của `/Rect` trên trang, bị đẩy vào trong vùng xem (ghi chú Bob ở mép dưới như bản đối
+chiếu). Viền 1 px 133; tiêu đề màu chú thích ngả 30 % về trắng (vàng → 255, 255, 77), vùng chữ 244, 244, 190; ghi chú
+đang chọn: màu thật 255, 255, 0, viền 80, vùng chữ 240 khi đang gõ. Hai hàng 25 px (biểu tượng — chỉ ghi chú dán, ngày
+"11/16/2026 1:54:32 PM", ô đóng 18 px cách viền 2 px; tác giả, Options ▾), vùng chữ từ 51 px, dải dưới 17 px có hai tay
+nắm đổi cỡ, chữ Arial 17 px / 11 px (dòng 13 px). Chú thích không có `/M` hiện giờ lúc mở tài liệu (bản đối chiếu cũng
+vậy). Kéo tiêu đề để dời, kéo tay nắm để đổi cỡ (ghi `/Rect`), nhấp vùng chữ để gõ (Esc / nhấp ra ngoài ghi
+`/Contents`), ô đóng ghi `/Open false`; nhấp đúp chú thích mở ghi chú (thêm `/Popup` nếu chưa có); Options và menu chuột
+phải trên ghi chú mở menu chú thích (Reply | Cut, Copy, Paste | Delete | Set Status, Mark | Open / Close Popup Note,
+Reset, Open / Close All Popups | Properties, Set Default — như menu Options đo được). Open / Close All Popups vẽ lại ngay.
+
+**Biểu tượng ghi chú dán trên trang** (`reader-65`). Chú thích có cờ NoZoom (PyMuPDF / bản đối chiếu ghi `/F 28`) giữ cỡ
+trên màn hình: bản đối chiếu vẽ ghi chú 16 pt thành 21 × 20 px ở 137 % và 20 × 20 px ở 91 % (1 pt = 1 px giao diện);
+trước đây ta phóng theo zoom (36 px, viền 1 pt thành 3 px). Nay `RenderExtra::no_zoom` = 1 / (zoom × 4/3): hình
+co về góc trên trái, 20 px ở mọi zoom (test `no_zoom_notes_keep_their_screen_size`). Còn lại: vùng nhấp / khung chọn
+của chú thích vẫn theo `/Rect` đầy đủ.
+
+**Thanh công cụ nổi khi chọn chữ** (`reader-63`). Bản đối chiếu: cửa sổ 324 × 52 px, viền 199, 204, 217, nền 251, 251, 253,
+8 biểu tượng 20 px cách 35 px, lề 25 px, vạch ngăn 1 px (230, 233, 240) sau biểu tượng thứ tư (thêm 8 px); góc dưới trái
+ở đúng chỗ thả chuột, cao hơn 2 px (đo hai lần chọn khác nhau). Ta cùng số đo, 9 biểu tượng của ta (bỏ các mục AI):
+Copy, Look Up, Word Count, More (menu chữ đang chọn) | Highlight, Strikeout, Underline, Squiggly, Replace Text (358 px);
+ẩn khi nhấp chỗ khác, gõ phím, cuộn, zoom hoặc bỏ chọn.
+
+**Dán.** Menu trang: Paste bật, Paste in Place bật khi đã chép một chú thích. Dán: hình trên bộ nhớ tạm thành dấu
+(stamp) ảnh ở 96 dpi (thu vào trang), chữ thành chú thích máy chữ (FreeText) góc trên trái ở chỗ nhấp chuột phải, chú
+thích vừa chép (Ctrl+C / Ctrl+X hoặc Cut / Copy của menu) thành bản sao ở chỗ nhấp; Paste in Place đặt bản sao trùng chỗ
+cũ; Ctrl+V / Ctrl+Alt+V dán ở con trỏ. Không thử trên bản đối chiếu vì cần ghi đè bộ nhớ tạm của chủ máy; hành vi theo
+hướng dẫn công khai của nó (test `paste_text_picture_and_comments`, `paste_at_a_point_and_in_place`).
+
+**Công cụ tab Comment** (`reader-64`, nhấp / kéo đưa vào trên bản sao). Mặc định đo được: Drawing (hình chữ nhật) và
+Pencil đỏ 255, 0, 0, nét 2 pt; Highlight 255, 255, 0; Typewriter chữ xanh 0, 0, 255 cỡ 9 pt; Note mở ngay ghi chú để gõ
+(kèm ngăn Format bên phải). Ta trước: đỏ 229, 57, 53 nét 1 pt, highlight 255, 230, 0, máy chữ đỏ 12 pt → nay như bản
+đối chiếu (chỉ BlueReader). Area Highlight / Measure / Stamp của bản đối chiếu không nhận kéo đưa vào nên chưa so.
+
+**Tay nắm của chú thích đang chọn** (`reader-66`, `reader_handles10_win.rs`). Bản đối chiếu: viền chấm, tám chấm tròn
+12 px (51, 142, 244, mép trắng) ở góc và giữa cạnh, tay xoay trên cuống 2 px (38, 128, 235) cách cạnh trên 28 px; đường
+thẳng chỉ có hai chấm ở hai đầu. Ta vẽ như vậy (hình mũi tên xoay của ta) thay cho ô vuông cũ: kéo tay nắm đổi cỡ (Shift
+giữ tỉ lệ, góc đối diện đứng yên), kéo đầu đường thẳng / đo khoảng cách, kéo tay xoay để xoay quanh tâm (Shift: bước
+15°) — nét chì, đường gấp khúc, đa giác, số đo giữ loại; hình chữ nhật / elip thành đa giác (`rotate_drawing`, vì
+`/Square` `/Circle` luôn đứng thẳng); hộp chữ, chú thích gọi ra, dấu không xoay (không có tay xoay). Mỗi thao tác một
+bước hoàn tác, File › Save ghi lại (test `handles_resize_turn_and_move_line_ends`, `corners_keep_the_ratio_with_shift`).
+
+**Khởi động lạnh tới trang đầu** (PDF 100 trang, `startup.py`: chạy exe, dò cửa sổ mỗi 15 ms rồi PrintWindow tới khi giữa
+trang có chữ; 5–6 lần, lần đầu sau khi chép exe bị quét nên bỏ):
+
+| | Cửa sổ hiện | Trang đầu vẽ xong | CPU cả máy lúc đo (trước khi đo) |
+| --- | --- | --- | --- |
+| Bản đối chiếu | 567–690 ms | 851–980 ms | 59–77 % (50–56 %) |
+| BlueReader | 71–91 ms | 259–352 ms | 40–60 % (34–46 %) |
+
+Mốc của ta (`BO_READER_STARTUP`): mở tài liệu 41–53 ms, cửa sổ 50–64 ms, tạo thiết bị D3D11 + D2D thêm 146–208 ms, swap
+chain 5 ms, khung đầu 20–25 ms. Thử tạo thiết bị trước trên luồng phụ (nạp driver song song khi mở tài liệu): thiết bị
+của cửa sổ vẫn mất 136 ms, trang đầu chậm hơn (435–507 ms) → bỏ.
+
+Còn lại: ngăn Format khi gõ ghi chú, vùng nhấp của chú thích NoZoom, Area Highlight / Measure /
+Stamp của bản đối chiếu (không nhận thao tác đưa vào), tạo thiết bị D3D chiếm ~60 % thời gian tới trang đầu.

@@ -597,3 +597,47 @@ fn aes_256_with_an_empty_user_password_opens() {
     let text: String = page.chars.iter().map(|c| c.text.as_str()).collect();
     assert!(text.contains("AES-256"), "{text}");
 }
+
+#[test]
+fn no_zoom_notes_keep_their_screen_size() {
+    // A 16 pt sticky note with Print | NoZoom | NoRotate (28), drawn at 2× zoom: half its
+    // rectangle about the upper left corner (§12.5.3).
+    let mut d = Dictionary::new();
+    d.set("F", 28);
+    let r = [330.0, 656.0, 346.0, 672.0];
+    assert_eq!(no_zoom_rect(&d, r, 0.5), [330.0, 664.0, 338.0, 672.0]);
+    assert_eq!(no_zoom_rect(&d, r, 0.0), r);
+    d.set("F", 4);
+    assert_eq!(no_zoom_rect(&d, r, 0.5), r);
+    // Rendered: the note's appearance fills only the scaled rectangle.
+    let pdf = build_pdf(&[
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Annots [4 0 R] >>",
+        "<< /Type /Annot /Subtype /Text /F 28 /Rect [330 656 346 672] /AP << /N 5 0 R >> >>",
+        "<< /Type /XObject /Subtype /Form /BBox [0 0 16 16] /Length 22 >>\nstream\n1 1 0 rg 0 0 16 16 re f\nendstream",
+    ]);
+    let mut doc = PdfDocument::open(pdf, standard_fonts()).expect("opens");
+    let extra = RenderExtra {
+        no_zoom: 0.5,
+        ..RenderExtra::default()
+    };
+    let page = doc
+        .render_extra(0, RenderOptions::default(), extra)
+        .expect("renders");
+    let xs: Vec<f32> = page
+        .list
+        .commands
+        .iter()
+        .filter_map(|c| match c {
+            Command::Path { segs, .. } => Some(segs.iter().filter_map(|s| match s {
+                bo_render::PathSeg::M(x, _) | bo_render::PathSeg::L(x, _) => Some(*x),
+                _ => None,
+            })),
+            _ => None,
+        })
+        .flatten()
+        .collect();
+    let right = xs.iter().copied().fold(f32::MIN, f32::max);
+    assert!((right - 338.0).abs() < 0.01, "{xs:?}");
+}

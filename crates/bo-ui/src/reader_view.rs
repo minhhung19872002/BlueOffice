@@ -885,6 +885,9 @@ impl ReaderView {
     fn render_extra(&self) -> bo_pdfread::RenderExtra {
         bo_pdfread::RenderExtra {
             text_color: self.night.then_some(crate::reader_viewx::NIGHT_TEXT),
+            // Sticky notes keep one point per interface pixel whatever the zoom, as the
+            // reference reader draws them (16 pt note: 20 px at 125 %, round 10).
+            no_zoom: 1.0 / (self.zoom * PT).max(0.01),
             ..bo_pdfread::RenderExtra::default()
         }
     }

@@ -1196,6 +1196,14 @@ impl SheetEngine {
         sheet: usize,
         pages: &[usize],
     ) -> Result<Vec<(usize, PageList)>> {
+        self.printing(|e| e.page_layout_lists_at(sheet, pages))
+    }
+
+    fn page_layout_lists_at(
+        &mut self,
+        sheet: usize,
+        pages: &[usize],
+    ) -> Result<Vec<(usize, PageList)>> {
         let st = settings_on(self.sheet(sheet)?, self.default_paper);
         let frames = self.frames_for(sheet, &st, true)?;
         let n = frames.len();

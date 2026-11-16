@@ -142,7 +142,7 @@ impl SheetEngine {
 
     /// The sheets of paper of one copy of a print job.
     pub fn print_sheets(&mut self, o: &PrintOptions) -> Result<Vec<PageList>> {
-        let pages = self.job_pages(o)?;
+        let pages = self.printing(|e| e.job_pages(o))?;
         let chosen = choose(o, pages.len(), None)?;
         let logical: Vec<Logical> =
             if chosen.len() == pages.len() && chosen.iter().enumerate().all(|(k, &i)| k == i) {

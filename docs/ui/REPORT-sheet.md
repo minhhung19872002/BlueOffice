@@ -740,7 +740,11 @@ các nấc lỡ khung trùng lúc lưới dựng dải mới (lưới 4,4 ms ở
   không ghi khổ giấy thì engine dùng A4, còn đối chứng dùng khổ của máy in mặc định (theo vùng: Letter); (2) 45 hàng
   × 14,4 = 648 pt lấp đúng chiều cao in được, đối chứng không nhận hàng lấp vừa khít. Sửa: `SheetEngine::set_default_paper`
   (host đọc `iPaperSize` của vùng), khi tỷ lệ cố định thì hàng/cột lấp vừa khít sang trang sau (khi co cho vừa N trang
-  vẫn lấp tới mép). Test `breaks_match_the_reference_on_letter`.
+  vẫn lấp tới mép). Test `breaks_match_the_reference_on_letter`. Còn (3): Page Break Preview mở ở 60 %, chiều cao hàng
+  của lưới làm tròn theo pixel ở zoom đó (15 pt thay vì 14,4 pt) nên ngắt lệch; đối chứng giữ chiều cao hàng theo point
+  bất kể zoom. Engine có hình học riêng cho trang ở tỷ lệ màn hình 100 % (`set_print_scale`, `printing`): phân trang,
+  khung nhìn trang, xem trước, in đều dùng nó; test `zoom_does_not_move_page_breaks`. Sau sửa: ngắt trước hàng 45 và
+  89, cột K, như đối chứng.
 - Page Layout view: các trang trên nền #E6E6E6, thước trên/trái (lề #F2F2F2, inch theo `iMeasure` của vùng), chữ cột /
   số hàng từng trang, vùng đầu trang "Add header", chọn ô trên trang; thanh trạng thái ghi "Page: 1 of 6" như đối chứng.
   Dải trên đo lại: từ khung tới mép trang 98 px ở 125 % (trước 91 px) (`sheet-26`).

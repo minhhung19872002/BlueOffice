@@ -234,6 +234,11 @@ fn sel_cell(text: Option<&str>) -> Option<[u32; 2]> {
 impl SheetEngine {
     /// Runs a view command.
     pub fn view_command(&mut self, cmd: ViewCommand) -> Result<Value> {
+        // Pages are laid out at the print scale (row heights at 100 % zoom).
+        self.printing(|e| e.view_command_at(cmd))
+    }
+
+    fn view_command_at(&mut self, cmd: ViewCommand) -> Result<Value> {
         if cmd.edits() {
             self.writable()?;
         }

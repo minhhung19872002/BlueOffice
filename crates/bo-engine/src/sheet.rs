@@ -504,6 +504,10 @@ pub struct SheetEngine {
     pub(crate) name: String,
     /// Screen scale of the geometry ([`SheetEngine::set_display_scale`]).
     display_ppp: Option<f64>,
+    /// Screen scale without the view's zoom, for printing ([`SheetEngine::set_print_scale`]),
+    /// and the geometry laid out at it.
+    print_ppp: Option<f64>,
+    print_geometry: Vec<Option<SheetGeometry>>,
     /// Calculate every formula when a file is opened ([`SheetEngine::set_recalc_on_open`]).
     recalc_on_open: bool,
     wb: Option<wb_slot::WbSlot>,
@@ -1050,6 +1054,8 @@ impl SheetEngine {
             fonts: FontManager::new(),
             name: String::new(),
             display_ppp: None,
+            print_ppp: None,
+            print_geometry: Vec::new(),
             recalc_on_open: false,
             wb: None,
             geometry: Vec::new(),
@@ -1464,6 +1470,38 @@ impl SheetEngine {
         slot.as_ref().ok_or(EngineError::NoDocument)
     }
 
+    /// The screen scale at 100 % zoom (device pixels per point): pages are laid out with
+    /// the row heights the sheet has at that scale whatever the view's zoom, as the
+    /// reference (its row heights in points do not follow the zoom). `None`: the display
+    /// geometry.
+    pub fn set_print_scale(&mut self, ppp: Option<f64>) {
+        if self.print_ppp != ppp {
+            self.print_ppp = ppp;
+            self.print_geometry.clear();
+        }
+    }
+
+    /// Runs `f` with the geometry laid out at the print scale (pagination, page views,
+    /// printing); the display geometry is kept for after.
+    pub(crate) fn printing<R>(&mut self, f: impl FnOnce(&mut Self) -> R) -> R {
+        if self.print_ppp.is_none() || self.print_ppp == self.display_ppp {
+            return f(self);
+        }
+        let n = self.wb.as_deref().map_or(0, |w| w.sheets.len());
+        std::mem::swap(&mut self.geometry, &mut self.print_geometry);
+        self.geometry.resize_with(n, || None);
+        let display = std::mem::replace(&mut self.display_ppp, self.print_ppp);
+        let r = f(self);
+        self.display_ppp = display;
+        std::mem::swap(&mut self.geometry, &mut self.print_geometry);
+        // A change inside `f` cleared the print cache only: the display cache is stale
+        // when the sheet count no longer matches.
+        if self.geometry.len() != n {
+            self.invalidate(None);
+        }
+        r
+    }
+
     /// Lay sheets out for a screen at `ppp` device pixels per point (zoom × dpi / 72), with
     /// row heights in whole pixels as a desktop spreadsheet shows them
     /// ([`SheetGeometry::for_display`]); `None` restores the file's point sizes. Native
@@ -1476,6 +1514,8 @@ impl SheetEngine {
     }
 
     fn invalidate(&mut self, sheet: Option<usize>) {
+        // The print layout follows every change of the display one.
+        self.print_geometry.clear();
         if let Some(i) = sheet {
             if let Some(g) = self.geometry.get_mut(i) {
                 *g = None;

@@ -5027,7 +5027,7 @@ impl SheetEngine {
                 sheet,
                 page,
                 layout,
-            } => self.print_preview(sheet, page, layout),
+            } => self.printing(|e| e.print_preview(sheet, page, layout)),
             C::HeaderFooterPicture {
                 sheet,
                 section,

@@ -23,8 +23,12 @@ mod commands_impl;
 mod comments_impl;
 #[path = "sheet_data.rs"]
 mod data_impl;
+#[path = "sheet_datadlg.rs"]
+mod datadlg_impl;
 #[path = "sheet_dataforms.rs"]
 mod dataforms_impl;
+#[path = "sheet_evaluate.rs"]
+mod evaluate_impl;
 #[path = "sheet_fbar.rs"]
 mod fbar_impl;
 #[path = "sheet_fcells.rs"]
@@ -202,7 +206,6 @@ fn sheet_enabled(id: &str, f: &FormatState) -> bool {
         | "sheet.queryProps"
         | "sheet.editLinks"
         | "sheet.filterReapply"
-        | "sheet.filterAdvanced"
         | "sheet.relationships"
         | "sheet.dataModel"
         | "sheet.forecastSheet"
@@ -400,6 +403,10 @@ pub struct SheetWindow {
     prefs_out: Option<String>,
     /// The Options dialog's category.
     options_page: usize,
+    /// The list `[r0, c0, r1, c1]` the open Subtotal / Remove Duplicates dialog works on.
+    dd_list: Option<[u32; 4]>,
+    /// The open Evaluate Formula dialog's steps.
+    eval: Option<evaluate_impl::EvalState>,
     /// Create Sparklines: the kind chosen on the ribbon; Symbol: the selected grid cell.
     spark_kind: String,
     symbol: (usize, usize),
@@ -523,6 +530,8 @@ impl SheetWindow {
             prefs: options_impl::SheetPrefs::default(),
             prefs_out: None,
             options_page: 0,
+            dd_list: None,
+            eval: None,
             spark_kind: String::new(),
             symbol: (0, 0),
             form_stash: None,
@@ -1914,6 +1923,7 @@ impl SheetWindow {
     fn layout_form(&mut self, text: &dyn TextMeasure) {
         let strings = match (self.form.is_some(), self.form_kind) {
             (true, form_impl::FormKind::FormatCells) => self.fc_strings(),
+            (true, form_impl::FormKind::Evaluate) => self.eval_strings(),
             (true, _) => Vec::new(),
             _ => return,
         };
@@ -1967,6 +1977,8 @@ impl SheetWindow {
             self.paint_tstyle_preview(r, p);
         } else if self.form_kind == form_impl::FormKind::Options {
             self.paint_options(id, r, p);
+        } else if self.form_kind == form_impl::FormKind::Evaluate && id == "box" {
+            self.paint_evaluate(f, r, p);
         } else if self.form_kind == form_impl::FormKind::Sort && id == "grid" {
             // The Sort dialog's level grid (measured on the reference, round 39).
             let k = self.scale / 1.25;

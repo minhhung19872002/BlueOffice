@@ -3033,3 +3033,112 @@ fn options_dialog_sets_enter_direction_r1c1_and_iteration() {
         "=A1+1"
     );
 }
+
+fn region_list(w: &mut SheetWindow) {
+    put(
+        w,
+        &[
+            (0, 0, "Region"),
+            (0, 1, "Sales"),
+            (1, 0, "North"),
+            (1, 1, "5"),
+            (2, 0, "North"),
+            (2, 1, "7"),
+            (3, 0, "South"),
+            (3, 1, "4"),
+            (4, 0, "South"),
+            (4, 1, "4"),
+        ],
+    );
+    w.view.select((1, 0), (1, 0), (1, 0));
+}
+
+#[test]
+fn subtotal_dialog_adds_and_removes_subtotals() {
+    let mut w = window();
+    region_list(&mut w);
+    assert!(w.action("outline.subtotal", &Fixed));
+    assert_eq!(w.form_kind, form_impl::FormKind::Subtotal);
+    {
+        let f = w.form.as_ref().expect("subtotal");
+        // The last column is ticked, as the reference.
+        assert!(!f.on("c0") && f.on("c1"));
+    }
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert!(w.form.is_none());
+    // North 5 + 7 = 12 under the North rows.
+    assert_eq!(shown(&w, 3, 1), "12");
+    assert!(w.action("outline.subtotal", &Fixed));
+    w.form_event(
+        form_impl::FormKind::Subtotal,
+        &form_impl::Event::Clicked("removeAll"),
+        &Fixed,
+    );
+    assert_eq!(input(&w, 3, 0), "South");
+}
+
+#[test]
+fn remove_duplicates_dialog_compares_the_ticked_columns() {
+    let mut w = window();
+    region_list(&mut w);
+    assert!(w.action("sheet.removeDuplicates", &Fixed));
+    assert_eq!(w.form_kind, form_impl::FormKind::RemoveDups);
+    {
+        let f = w.form.as_mut().expect("dups");
+        assert!(f.on("header") && f.on("c0") && f.on("c1"));
+        // Only Region: one North and one South stay.
+        f.set_on("c1", false);
+    }
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert!(w.form.is_none());
+    assert_eq!(input(&w, 1, 0), "North");
+    assert_eq!(input(&w, 2, 0), "South");
+    assert_eq!(input(&w, 3, 0), "");
+    assert!(w.status.contains('2'), "{}", w.status);
+}
+
+#[test]
+fn advanced_filter_dialog_filters_in_place() {
+    let mut w = window();
+    region_list(&mut w);
+    put(&mut w, &[(0, 4, "Region"), (1, 4, "South")]);
+    w.view.select((1, 0), (1, 0), (1, 0));
+    assert!(w.action("sheet.filterAdvanced", &Fixed));
+    assert_eq!(w.form_kind, form_impl::FormKind::AdvancedFilter);
+    {
+        let f = w.form.as_mut().expect("advanced");
+        assert_eq!(f.text("list"), "$A$1:$B$5");
+        f.set_text("crit", "E1:E2");
+    }
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert!(w.form.is_none());
+    let info = w.view().engine().info().expect("info");
+    assert_eq!(info.sheets[0].hidden_rows, vec![(1, 2)]);
+}
+
+#[test]
+fn evaluate_formula_steps_like_the_reference() {
+    let mut w = window();
+    put(&mut w, &[(0, 0, "2"), (0, 1, "3"), (1, 0, "=A1+B1*2")]);
+    w.view.select((1, 0), (1, 0), (1, 0));
+    assert!(w.action("sheet.evaluateFormula", &Fixed));
+    assert_eq!(w.form_kind, form_impl::FormKind::Evaluate);
+    let first = w.eval.as_ref().expect("state").pieces();
+    assert!(!first.1.is_empty(), "an underlined part: {first:?}");
+    let n = w.eval.as_ref().map_or(0, |e| e.steps.len());
+    for _ in 0..n {
+        w.form_event(
+            form_impl::FormKind::Evaluate,
+            &form_impl::Event::Clicked("evaluate"),
+            &Fixed,
+        );
+    }
+    // Every step done: the result, in the box as the last value.
+    assert_eq!(w.eval.as_ref().expect("state").pieces().3, "8");
+    w.form_event(
+        form_impl::FormKind::Evaluate,
+        &form_impl::Event::Clicked("cancel"),
+        &Fixed,
+    );
+    assert!(w.form.is_none());
+}

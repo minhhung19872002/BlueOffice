@@ -741,6 +741,9 @@ impl SheetWindow {
         if matches!(id, "sheet.cellStyles" | "sheet.formatTable") {
             return Some(self.open_gallery(id == "sheet.cellStyles", text));
         }
+        if let Some(r) = self.datadlg_action(id) {
+            return Some(r);
+        }
         if let Some(r) = self.chart_action(id) {
             return Some(r);
         }

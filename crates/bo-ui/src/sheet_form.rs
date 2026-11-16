@@ -103,6 +103,12 @@ pub(super) enum FormKind {
     TableStyle,
     /// File › Options.
     Options,
+    /// Formulas › Evaluate Formula.
+    Evaluate,
+    /// Data tab: Subtotal, Remove Duplicates, Advanced Filter.
+    Subtotal,
+    RemoveDups,
+    AdvancedFilter,
 }
 
 /// The value of a colour drop-down that has no colour (drawn as an empty swatch; `""` is

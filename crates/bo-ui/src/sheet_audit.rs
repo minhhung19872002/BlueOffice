@@ -52,7 +52,7 @@ impl SheetWindow {
                 true
             }
             "sheet.errorCheck" => self.error_check(),
-            "sheet.evaluateFormula" => self.open_evaluate(),
+            "sheet.evaluateFormula" => self.open_evaluate_formula(),
             "sheet.sortDialog" => self.open_sort_dialog(),
             "sheet.dataValidation" => self.open_validation_dialog(),
             "sheet.goalSeek" => self.open_goal_seek(),
@@ -302,99 +302,6 @@ impl SheetWindow {
                 );
             }
         }
-        true
-    }
-
-    /// Evaluate Formula: the steps of the active cell's formula in a list.
-    fn open_evaluate(&mut self) -> bool {
-        let (r, c) = self.view.active();
-        let sheet = self.view.sheet();
-        let out = self
-            .view
-            .query(json!({ "cmd": "evaluateFormula", "sheet": sheet, "row": r, "col": c }))
-            .unwrap_or(Value::Null);
-        let t = |k: &str, d: &str| self.t(k, d);
-        let mut f = Form::new(
-            &t("sheetAudit.evaluate", "Evaluate Formula"),
-            (640.0, 420.0),
-            Vec::new(),
-        );
-        let s = |k: &str| out.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
-        f.add(
-            "refL",
-            None,
-            [20.0, 50.0, 0.0, 0.0],
-            Kind::Label(t("sheetAudit.reference", "Reference:")),
-        );
-        f.add("ref", None, [120.0, 50.0, 0.0, 0.0], Kind::Label(s("cell")));
-        f.add(
-            "evL",
-            None,
-            [260.0, 50.0, 0.0, 0.0],
-            Kind::Label(t("sheetAudit.evaluation", "Evaluation:")),
-        );
-        f.add(
-            "formula",
-            None,
-            [260.0, 72.0, 0.0, 0.0],
-            Kind::Label(s("formula")),
-        );
-        let steps: Vec<String> = out
-            .get("steps")
-            .and_then(Value::as_array)
-            .map(|a| {
-                a.iter()
-                    .map(|st| {
-                        let e = st
-                            .get("expr")
-                            .or_else(|| st.get("text"))
-                            .and_then(Value::as_str)
-                            .unwrap_or("");
-                        let v = st
-                            .get("value")
-                            .or_else(|| st.get("result"))
-                            .map(|v| v.as_str().map_or_else(|| v.to_string(), str::to_owned))
-                            .unwrap_or_default();
-                        format!("{e}  →  {v}")
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        let empty = steps.is_empty();
-        f.add(
-            "steps",
-            None,
-            [20.0, 100.0, 600.0, 230.0],
-            Kind::List {
-                items: if empty {
-                    vec![t("sheetAudit.noFormula", "The active cell has no formula.")]
-                } else {
-                    steps
-                },
-                sel: None,
-                top: 0,
-            },
-        );
-        let result = s("result");
-        f.add(
-            "result",
-            None,
-            [20.0, 342.0, 0.0, 0.0],
-            Kind::Label(format!("{} {result}", t("sheetAudit.result", "Result:"))),
-        );
-        f.add(
-            "cancel",
-            None,
-            [640.0 - 131.0, 420.0 - 48.0, 112.0, 28.0],
-            Kind::Button {
-                label: t("sheetNames.close", "Close"),
-                default: true,
-            },
-        );
-        self.form = Some(f);
-        self.form_kind = FormKind::Names;
-        // Close only: reuse the Name Manager's close handling without its list.
-        self.name_rows.clear();
         true
     }
 

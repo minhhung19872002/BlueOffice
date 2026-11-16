@@ -932,28 +932,31 @@ impl SheetWindow {
     /// Open Insert Function: search, category, function list and its arguments.
     pub(super) fn open_insert_function(&mut self) -> bool {
         let t = |k: &str, d: &str| self.t(k, d);
+        // Geometry of the reference's Insert Function at 125 % (round 39, `sheet-35`):
+        // 645 × 483 px, a two-line search box, the category box right of its label, a
+        // 7-row function list, signature and description under it, OK / Cancel 111 × 30.
         let mut f = Form::new(
             &t("sheetFn.title", "Insert Function"),
-            (560.0, 520.0),
+            (645.0, 483.0),
             Vec::new(),
         );
         f.add(
             "searchL",
             None,
-            [20.0, 50.0, 0.0, 0.0],
+            [18.0, 48.0, 0.0, 0.0],
             Kind::Label(t("sheetFn.search", "Search for a function:")),
         );
-        f.add("search", None, [20.0, 70.0, 420.0, 24.0], Self::edit(""));
+        f.add("search", None, [32.0, 73.0, 467.0, 40.0], Self::edit(""));
         f.add(
             "go",
             None,
-            [452.0, 68.0, 88.0, 28.0],
+            [514.0, 73.0, 111.0, 29.0],
             Self::button(t("sheetFn.go", "Go")),
         );
         f.add(
             "catL",
             None,
-            [20.0, 110.0, 0.0, 0.0],
+            [32.0, 122.0, 0.0, 0.0],
             Kind::Label(t("sheetFn.category", "Or select a category:")),
         );
         let mut cats = vec![t("sheetFn.all", "All")];
@@ -964,7 +967,7 @@ impl SheetWindow {
         f.add(
             "cat",
             None,
-            [200.0, 106.0, 240.0, 26.0],
+            [158.0, 118.0, 341.0, 27.0],
             Kind::Combo {
                 items: cats,
                 sel: 0,
@@ -973,13 +976,13 @@ impl SheetWindow {
         f.add(
             "fnL",
             None,
-            [20.0, 144.0, 0.0, 0.0],
+            [18.0, 155.0, 0.0, 0.0],
             Kind::Label(t("sheetFn.select", "Select a function:")),
         );
         f.add(
             "fns",
             None,
-            [20.0, 164.0, 520.0, 208.0],
+            [32.0, 181.0, 595.0, 122.0],
             Kind::List {
                 items: Vec::new(),
                 sel: None,
@@ -989,16 +992,22 @@ impl SheetWindow {
         f.add(
             "sig",
             None,
-            [20.0, 384.0, 0.0, 0.0],
+            [32.0, 309.0, 0.0, 0.0],
             Kind::Label(String::new()),
         );
         f.add(
             "help",
             None,
-            [20.0, 408.0, 0.0, 0.0],
+            [32.0, 330.0, 0.0, 0.0],
             Kind::Note(String::new()),
         );
         f.ok_cancel(&t("common.ok", "OK"), &t("common.cancel", "Cancel"));
+        if let Some(c) = f.get_mut("ok") {
+            c.rect = [387.0, 435.0, 111.0, 30.0];
+        }
+        if let Some(c) = f.get_mut("cancel") {
+            c.rect = [514.0, 435.0, 111.0, 30.0];
+        }
         self.form = Some(f);
         self.form_kind = FormKind::Function;
         self.function_refresh();
@@ -1179,6 +1188,13 @@ impl SheetWindow {
             FormKind::Unhide | FormKind::TabColor => self.tabs_form_event(kind, ev),
             FormKind::TableStyle => self.tstyle_event(ev),
             FormKind::Options => self.options_event(ev),
+            FormKind::Evaluate => {
+                self.evaluate_event(ev);
+                self.layout_form(text);
+            }
+            FormKind::Subtotal | FormKind::RemoveDups | FormKind::AdvancedFilter => {
+                self.datadlg_event(kind, ev);
+            }
             FormKind::FormatCells => {}
         }
         true

@@ -87,6 +87,16 @@ impl ReaderWindow {
         }
     }
 
+    /// The two lines of a ribbon label: BlueReader splits at the space that balances the lines
+    /// (the longer line first on a tie), as the reference does ("Command / Line Help", "Time
+    /// Stamp / Document"); windows built on it split at the last space.
+    pub(crate) fn split_label9<'a>(&self, text: &'a str) -> (&'a str, &'a str) {
+        if self.profile.is_some() {
+            return text.rsplit_once(' ').unwrap_or((text, ""));
+        }
+        balanced_split(text)
+    }
+
     /// Share commands need a saved document.
     pub(crate) fn tabs9_enabled(&self, id: &str) -> Option<bool> {
         let has_path = self.tabs.get(self.active).is_some_and(|t| t.path.is_some());
@@ -100,8 +110,38 @@ impl ReaderWindow {
     }
 }
 
+/// Split `text` at the space that makes the longer of the two lines shortest (characters),
+/// preferring the longer first line on a tie.
+fn balanced_split(text: &str) -> (&str, &str) {
+    let mut best: Option<(usize, usize, usize)> = None;
+    for (i, _) in text.match_indices(' ') {
+        let a = text[..i].chars().count();
+        let b = text[i + 1..].chars().count();
+        let worst = a.max(b);
+        if best.is_none_or(|(w, fa, _)| worst < w || (worst == w && a > fa)) {
+            best = Some((worst, a, i));
+        }
+    }
+    best.map_or((text, ""), |(_, _, i)| (&text[..i], &text[i + 1..]))
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn labels_split_like_the_reference() {
+        for (t, a, b) in [
+            ("Command Line Help", "Command", "Line Help"),
+            ("Set to Default PDF Reader", "Set to Default", "PDF Reader"),
+            ("Time Stamp Document", "Time Stamp", "Document"),
+            ("Page Fit Option", "Page Fit", "Option"),
+            ("Fill & Sign", "Fill &", "Sign"),
+            ("Copy File Path", "Copy File", "Path"),
+            ("Read Mode", "Read", "Mode"),
+        ] {
+            assert_eq!(super::balanced_split(t), (a, b), "{t}");
+        }
+    }
+
     use crate::reader_tests::{pdf, Fixed};
     use crate::reader_window::{ReaderRequest, ReaderWindow};
     use crate::Input;

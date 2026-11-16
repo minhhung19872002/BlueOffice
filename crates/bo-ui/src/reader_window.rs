@@ -1201,7 +1201,7 @@ impl ReaderWindow {
                         0.0
                     };
                     let lw = if two {
-                        let (a, b) = text.rsplit_once(' ').unwrap_or((&text, ""));
+                        let (a, b) = self.split_label9(&text);
                         let wa = self.measure(m, a, label_style);
                         let wb = self.measure(m, b, label_style);
                         wa.max(wb + arrow)
@@ -2746,7 +2746,7 @@ impl ReaderWindow {
                     let lines: Vec<String> = if text.contains(' ')
                         && (text.len() > self.wrap_after9() || self.look.wrap_words)
                     {
-                        let (a, b) = text.rsplit_once(' ').unwrap_or((&text, ""));
+                        let (a, b) = self.split_label9(&text);
                         vec![a.to_owned(), b.to_owned()]
                     } else {
                         vec![text]

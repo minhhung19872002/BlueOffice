@@ -54,6 +54,8 @@ mod bs5;
 mod dark9;
 #[path = "reader_keys7_win.rs"]
 mod keys7;
+#[path = "reader_marks9_win.rs"]
+mod marks9;
 #[path = "reader_menus9_win.rs"]
 mod menus9;
 #[path = "reader_panels8_win.rs"]
@@ -523,6 +525,8 @@ pub struct ReaderWindow {
     nine: dark9::Nine,
     /// Advanced Search pane of round 9.
     search9: search9::Search9,
+    /// Bookmark editing and thumbnail size of round 9.
+    marks9: marks9::Marks9,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -606,6 +610,7 @@ impl ReaderWindow {
             panels8: panels8::Panels8::default(),
             nine: dark9::Nine::default(),
             search9: search9::Search9::default(),
+            marks9: marks9::Marks9::default(),
         }
     }
 
@@ -2527,8 +2532,13 @@ impl ReaderWindow {
         let animating = self.view4_animating() | self.step_smooth();
         let pages_panel = self.panel_open() == Some(Panel::Pages);
         let panel = self.panel_rect;
-        let thumb_w = self.px(THUMB_W);
+        let thumb_w = self.px(self.thumb_w9());
         let thumb_gap = self.px(THUMB_GAP);
+        let thumb_top = if self.profile.is_none() {
+            self.px(marks9::THUMB_TOP) + self.px(4.0)
+        } else {
+            8.0
+        };
         let Some(t) = self.tabs.get_mut(self.active) else {
             return false;
         };
@@ -2539,7 +2549,7 @@ impl ReaderWindow {
         if pages_panel {
             // Thumbnails of the rows shown in the panel.
             let n = t.view.page_count();
-            let mut y = panel[1] + 8.0 - t.panel_scroll;
+            let mut y = panel[1] + thumb_top - t.panel_scroll;
             for i in 0..n {
                 let (pw, ph) = t.view.page_size(i);
                 let s = thumb_w / pw.max(1.0);
@@ -2958,6 +2968,7 @@ impl ReaderWindow {
         p.fill_rect(0.0, h - 1.0, w, 1.0, self.look.edge);
         self.paint_extra(p);
         self.paint_search9(p);
+        self.paint_marks9(p);
         if let Some((menu, _)) = &self.menu {
             menu.paint(p, &self.theme, &self.icons);
         }
@@ -3247,6 +3258,8 @@ impl ReaderWindow {
         let list_top = r[1]
             + if panel == Panel::Bookmarks {
                 self.paint_bookmark_tools(p, r)
+            } else if panel == Panel::Pages && self.profile.is_none() {
+                self.paint_thumb_tools9(p, r)
             } else {
                 self.px(40.0)
             };
@@ -3264,7 +3277,7 @@ impl ReaderWindow {
                 let n = t.view.page_count();
                 let cur = t.view.current_page();
                 let key_base = t.key_base;
-                let tw = self.px(THUMB_W);
+                let tw = self.px(self.thumb_w9());
                 let mut rows = Vec::new();
                 for i in 0..n {
                     let (pw, ph) = t.view.page_size(i);

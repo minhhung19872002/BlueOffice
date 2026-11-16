@@ -267,6 +267,9 @@ impl ReaderWindow {
             if let Some(r) = self.route_search9(input, m) {
                 return Some(r);
             }
+            if let Some(r) = self.route_marks9(input, m) {
+                return Some(r);
+            }
         }
         if self.extra.print.is_none() {
             if let Some(r) = self.route_panels8(input, m) {
@@ -548,6 +551,7 @@ impl ReaderWindow {
         if self.command_prefs6(cmd, m)
             || self.command_menus9(cmd)
             || self.command_tabs9(cmd)
+            || self.command_marks9(cmd)
             || self.command_panels8(cmd, m)
             || self.command_viewx(cmd, m)
             || self.command_view4(cmd, m)

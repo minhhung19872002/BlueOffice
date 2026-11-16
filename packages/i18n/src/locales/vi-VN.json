@@ -11181,5 +11181,17 @@
     "page": "Trang",
     "inBookmark": "Dấu trang",
     "inComment": "Chú thích"
+  },
+  "pdfMarks9": {
+    "untitled": "Không tên",
+    "add": "Thêm dấu trang",
+    "rename": "Đổi tên",
+    "delete": "Xoá",
+    "promote": "Nâng cấp",
+    "demote": "Hạ cấp",
+    "enlarge": "Phóng to ảnh trang",
+    "reduce": "Thu nhỏ ảnh trang",
+    "printPages": "In trang...",
+    "properties": "Thuộc tính..."
   }
 }

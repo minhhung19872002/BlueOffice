@@ -11181,5 +11181,17 @@
     "page": "Page",
     "inBookmark": "Bookmark",
     "inComment": "Comment"
+  },
+  "pdfMarks9": {
+    "untitled": "Untitled",
+    "add": "Add Bookmark",
+    "rename": "Rename",
+    "delete": "Delete",
+    "promote": "Promote",
+    "demote": "Demote",
+    "enlarge": "Enlarge Page Thumbnails",
+    "reduce": "Reduce Page Thumbnails",
+    "printPages": "Print Pages...",
+    "properties": "Properties..."
   }
 }

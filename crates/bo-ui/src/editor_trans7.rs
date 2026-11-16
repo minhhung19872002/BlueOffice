@@ -532,28 +532,18 @@ impl EditorWindow {
             );
             hits.push((r, hit));
         }
-        // An open drop-down list over everything, with its own hit boxes first.
+        // An open drop-down list over everything, with its own hit boxes first: the Windows
+        // combo list of the reference (round 8, `editor_form8::paint_list`).
         if let Some((i, r)) = list_box {
-            let ih = q(24.0);
-            let items = &lists[i];
-            let lr = [r[0], r[1] + r[3], r[2], ih * items.len() as f32 + 2.0];
-            p.fill_rect(lr[0], lr[1], lr[2], lr[3], Rgba(0x99, 0x99, 0x99, 255));
-            p.fill_rect(lr[0] + 1.0, lr[1] + 1.0, lr[2] - 2.0, lr[3] - 2.0, WHITE);
-            let mut front = Vec::new();
-            for (k, it) in items.iter().enumerate() {
-                let ir = [lr[0] + 1.0, lr[1] + 1.0 + ih * k as f32, lr[2] - 2.0, ih];
-                if k == values[i] {
-                    p.fill_rect(ir[0], ir[1], ir[2], ir[3], Rgba(0xCC, 0xE8, 0xFF, 255));
-                }
-                p.text(
-                    it,
-                    ir[0] + q(4.0),
-                    (ir[1] + (ih - th) / 2.0).round(),
-                    text,
-                    ink,
-                );
-                front.push((ir, TransHit::Item(i, k)));
-            }
+            let hover = match d.hover.and_then(|k| hits.get(k)).map(|h| h.1) {
+                Some(TransHit::Item(j, k)) if j == i => Some(k),
+                _ => None,
+            };
+            let mut front: Vec<([f32; 4], TransHit)> =
+                crate::editor_form8::paint_list(p, r, &lists[i], values[i], hover, s, text)
+                    .into_iter()
+                    .map(|(ir, k)| (ir, TransHit::Item(i, k)))
+                    .collect();
             front.extend(hits);
             hits = front;
         }

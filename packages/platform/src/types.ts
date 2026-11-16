@@ -895,6 +895,8 @@ export type EditCommand =
   | { cmd: 'deleteComment' | 'selectComment'; id: number }
   | { cmd: 'nextComment'; forward: boolean }
   | { cmd: 'insertToc' | 'crossReferenceTargets' }
+  /** References › Table of Contents › Remove Table of Contents. */
+  | { cmd: 'removeToc' }
   /**
    * Update the fields; `answers`: typed answers of the ASK / FILLIN questions by prompt key;
    * `selection`: only the fields in the selection (F9; the field at the caret).
@@ -992,6 +994,8 @@ export type EditCommand =
   /** Text or picture watermark of every page; absent removes it. */
   | { cmd: 'setWatermark'; watermark?: WatermarkSpec | null }
   | { cmd: 'applyTheme' | 'applyStyleSet' | 'applyDocumentStyleSet'; id: string }
+  /** Design › Effects: BlueOffice's theme effect sets (`flat`, `soft`, `lifted`, `glow`, `inset`, `gloss`, `outline`, `deep`). */
+  | { cmd: 'applyThemeEffects'; id: string }
   /** File › Info document properties (CORE-UI-002) → `docProperties`. */
   | import('./docProperties').DocPropertiesCommand
   /** Check document (CORE-INSPECT-001): `inspect`, `inspectRemove`, `inspectKeep` → `inspection`. */

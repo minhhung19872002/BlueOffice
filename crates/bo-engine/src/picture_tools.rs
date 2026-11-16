@@ -165,6 +165,35 @@ pub enum PictureCommand {
     /// shows a PNG with alpha, the original stays in the file ("Reset picture"
     /// restores it).
     PictureRemoveBackground(RemovalSpec),
+    /// Text wrapping of the selected picture (Wrap Text menu): `inline` (§20.4.2.8),
+    /// `square` (§20.4.2.17), `tight` (§20.4.2.20), `through` (§20.4.2.18),
+    /// `topAndBottom` (§20.4.2.19), `behind` / `inFront` (§20.4.2.15 wrapNone with
+    /// `behindDoc`).
+    PictureWrap {
+        /// Wrapping name.
+        wrap: String,
+    },
+    /// Position gallery: `inline`, or the picture square-wrapped at one of nine places of
+    /// the page's margins (`tl` `tc` `tr` `ml` `mc` `mr` `bl` `bc` `br`; §20.4.2.1 /
+    /// §20.4.2.2 align relative to the margin).
+    PicturePosition {
+        /// Place.
+        position: String,
+    },
+    /// Align the floating picture: `left` `center` `right` (§20.4.2.1) or `top` `middle`
+    /// `bottom` (§20.4.2.2), relative to the margin or (`page`) the page.
+    PictureAlign {
+        /// Edge.
+        align: String,
+        /// Align to the page instead of the margin.
+        #[serde(default)]
+        page: bool,
+    },
+    /// Turn the picture by `degrees` (§20.1.7.6 xfrm rot), clockwise.
+    PictureRotate {
+        /// Degrees to add (multiples of 90 in the Rotate menu).
+        degrees: i32,
+    },
     /// Insert an SVG picture (with a PNG fallback).
     PictureInsertSvg {
         /// SVG document, base64.

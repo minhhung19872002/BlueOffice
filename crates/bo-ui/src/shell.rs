@@ -26,6 +26,9 @@ use bo_engine::edit::Command;
 use bo_render::{PathSeg, Rgba};
 use serde_json::json;
 
+#[path = "doc_r3.rs"]
+mod r3;
+
 /// Something only the platform host can do.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Request {
@@ -64,6 +67,13 @@ pub enum Request {
     FullScreen(bool),
     /// Let the user pick picture files and call [`DocWindow::insert_picture`] for each.
     PickPicture,
+    /// Let the user pick a document to compare with and call [`DocWindow::compare_file`].
+    PickCompareFile,
+    /// Open [`DocWindow::take_new_document`] in a new window (Envelopes and Labels).
+    OpenNewDocument,
+    /// Store the Design tab's theme, style set and effects as the defaults of new documents
+    /// (Design › Set as Default; [`DocWindow::design_defaults`]).
+    SaveDefaults,
 }
 
 /// Window contents of BlueDoc.
@@ -190,6 +200,8 @@ pub struct DocWindow {
     recent_symbols: Vec<char>,
     /// The format painter stays on after applying (double click), until Escape.
     painter_lock: bool,
+    /// Parity round 3 (paste options, panes, dialogs, outline view).
+    r3: r3::R3,
 }
 
 /// Font sizes offered by the size box (points).
@@ -287,6 +299,8 @@ impl DocWindow {
         let mut icons = Icons::load();
         doc_tools::install_icons(&mut icons);
         crate::doc_table::install_icons(&mut icons);
+        crate::doc_r3_menus::install_icons(&mut icons);
+        crate::doc_r3_menus::install_strings(&mut strings);
         Self {
             view,
             title: TitleBar::new(),
@@ -361,6 +375,7 @@ impl DocWindow {
             borders_dialog: None,
             recent_symbols: crate::symbol_grid::DEFAULT_RECENT.to_vec(),
             painter_lock: false,
+            r3: r3::R3::default(),
         }
     }
 
@@ -531,7 +546,7 @@ impl DocWindow {
             } else if self.comments_pane.is_some() {
                 CommentsPane::width(self.scale)
             } else {
-                0.0
+                self.r3_pane_w()
             }
     }
 
@@ -901,6 +916,7 @@ impl DocWindow {
             self.relayout(text);
         }
         self.layout_status(text);
+        self.r3_layout(text);
         if let Some(sp) = self.spell_pane.as_mut() {
             sp.measure(text);
         }
@@ -979,7 +995,8 @@ impl DocWindow {
 
     /// Show the contextual tabs the selection needs (table, header/footer, picture).
     fn sync_context(&mut self) {
-        let c = Context::of(self.view.format(), self.view.story().map(|s| s.kind));
+        let mut c = Context::of(self.view.format(), self.view.story().map(|s| s.kind));
+        c.outline = self.r3.outline.is_some();
         if c == self.context && !self.activate_context {
             return;
         }
@@ -987,7 +1004,9 @@ impl DocWindow {
         // forward; moving the caret into an existing table only shows the tabs.
         let story_opened = c.story.is_some() && self.context.story.is_none();
         let new_object = (c.table && !self.context.table) || (c.picture && !self.context.picture);
-        let activate = story_opened || (self.activate_context && new_object);
+        let activate = story_opened
+            || (self.activate_context && new_object)
+            || (c.outline && !self.context.outline);
         self.activate_context = false;
         if c != self.context || activate {
             self.context = c;
@@ -1958,7 +1977,8 @@ impl DocWindow {
         html: Option<String>,
         text: Option<String>,
     ) -> bool {
-        self.view.paste(internal, html, text)
+        let mode = self.r3_paste_mode(internal.is_some(), html.is_some());
+        self.view.paste_with(internal, html, text, Some(mode))
     }
 
     fn clipboard(&mut self, id: &str) -> bool {
@@ -1983,6 +2003,9 @@ impl DocWindow {
 
     /// Run interface command `id` from the ribbon, title bar, a menu or a shortcut.
     fn action(&mut self, id: &str) -> bool {
+        if let Some(r) = self.r3_action(id) {
+            return r;
+        }
         // Space before / after toggles: remove when the paragraph has some, else 12 pt.
         let toggle = match id {
             "format.spaceBefore.toggle" => Some((true, self.view.format().space_before)),
@@ -2580,6 +2603,7 @@ impl DocWindow {
         } else if self.show_ruler {
             self.layout_ruler();
         }
+        self.r3_layout(text);
         if let Some(d) = self.dialog.as_mut() {
             d.layout(text, self.size, self.scale);
         }
@@ -2710,6 +2734,9 @@ impl DocWindow {
         }
         if let Input::Press { x, y, .. } = input {
             self.pointer = (x, y);
+        }
+        if let Some(redraw) = self.r3_input(&input, text) {
+            return redraw;
         }
         if let Some(redraw) = self.cell_spin_input(&input) {
             return redraw;
@@ -3122,9 +3149,11 @@ impl DocWindow {
             Input::Tick => self.tick(text),
             Input::Zoom(_) | Input::Context { .. } => false,
             Input::Maximized(m) => self.title.set_maximized(m),
+            // Only the hover goes: a press keeps its control until the release, so a click
+            // posted to a window the pointer is not over (measurement scripts) still runs.
             Input::Leave => {
                 let a = self.title.hover(-1.0, -1.0);
-                self.ribbon.clear_pointer() || a
+                self.ribbon.hover(-1.0e6, -1.0e6) || a
             }
             Input::Move { x, y } => {
                 let a = self.title.hover(x, y);
@@ -3538,6 +3567,7 @@ impl DocWindow {
         if let Some(cp) = &self.comments_pane {
             cp.paint(p, &self.theme, &self.strings, self.view.comment_at_caret());
         }
+        self.r3_paint_panes(p);
         // Status bar.
         let (w, h) = self.size;
         let sh = self.status_h();
@@ -3640,6 +3670,7 @@ impl DocWindow {
         if let Some(bd) = &self.borders_dialog {
             bd.paint(p, &self.theme);
         }
+        self.r3_paint_popups(p);
     }
 
     /// Paint `paint` through cached layer `id` over `rect` (window pixels): the backend

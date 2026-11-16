@@ -81,6 +81,7 @@ pub fn static_id(id: &str) -> &'static str {
         .find(|m| **m == id)
         .copied()
         .or_else(|| crate::doc_tools::static_id(id))
+        .or_else(|| crate::doc_r3_menus::static_id(id))
         .unwrap_or("")
 }
 

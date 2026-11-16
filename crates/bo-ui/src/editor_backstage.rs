@@ -2,7 +2,7 @@
 //! commands at the left (Properties, Create, Open, Save, Save As, PDF Optimizer, Export,
 //! Print, Close), a white page for the chosen one (Open: recent documents and Computer;
 //! Create; Export; Properties of the document). Measured at 125 % with 110 % text: column
-//! 263 px wide, #EAEAEA, items 47 px apart from y 113, the chosen one a pill in the accent
+//! 263 px wide (272 from the window edge, round 8), #EAEAEA, items 47 px apart from y 113, the chosen one a pill in the accent
 //! colour, middle column to x 647 with a #E0E0E0 rule, page title 26 px text.
 use crate::editor_window::{inside, EditorWindow};
 use crate::reader_icons::{self, Ink};
@@ -173,8 +173,9 @@ impl EditorWindow {
         let top = self.r.tabs_bottom() + 1.0;
         let mut hits = Vec::new();
         p.fill_rect(0.0, top, w, h - top, WHITE);
-        // Left column.
-        let cw = px(210.4);
+        // Left column: 272 px from the window's edge at 125 % like the reference (round 8; its
+        // column starts after a 9 px frame strip, items and pill keep their place from it).
+        let cw = px(217.6);
         p.fill_rect(0.0, top, cw, h - top, COLUMN);
         let item = self.bs_style(17.0);
         let doc = self.showing_doc() || self.view().is_some();
@@ -186,7 +187,7 @@ impl EditorWindow {
             let Some((cmd, key)) = it else {
                 // The reference (125 %): rule 26 px below Close's label centre, Preferences 54.
                 y -= px(1.2);
-                p.fill_rect(px(20.0), y, cw - px(40.0), 1.0, Rgba(0xD4, 0xD4, 0xD4, 255));
+                p.fill_rect(px(27.2), y, cw - px(47.2), 1.0, Rgba(0xD4, 0xD4, 0xD4, 255));
                 y += px(6.8);
                 continue;
             };
@@ -195,7 +196,7 @@ impl EditorWindow {
             let enabled = tip.is_none()
                 && ((doc && (!matches!(cmd, "file.save" | "bs.revert") || modified))
                     || matches!(cmd, "bs.create" | "bs.open" | "bs.preferences" | "bs.skins"));
-            let r = [px(10.4), y, cw - px(22.4), px(31.2)];
+            let r = [px(17.6), y, cw - px(29.6), px(31.2)];
             let chosen = cmd == self.bs.page;
             if chosen {
                 p.path(
@@ -213,7 +214,7 @@ impl EditorWindow {
             };
             let ty = r[1] + ((r[3] - item.size * 1.33) / 2.0).round();
             let label = self.t(key);
-            p.text(label.trim_end_matches(['.', '…']), px(25.6), ty, item, col);
+            p.text(label.trim_end_matches(['.', '…']), px(32.8), ty, item, col);
             if enabled {
                 hits.push((r, cmd.to_owned()));
             }

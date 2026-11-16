@@ -64,6 +64,8 @@ fn select_line(w: &mut EditorWindow) -> [f32; 4] {
 #[test]
 fn arrows_nudge_one_point_and_shift_ten_each_one_undo_step() {
     let mut w = window(1);
+    // Round 8: the Format pane starts collapsed; these tests use it opened.
+    w.format_open8 = true;
     w.run("ed.editObject", &Fixed);
     let b = select_line(&mut w);
     key(&mut w, Key::Right, false, false);
@@ -82,6 +84,8 @@ fn arrows_nudge_one_point_and_shift_ten_each_one_undo_step() {
 #[test]
 fn shift_drag_keeps_the_line_and_ctrl_drag_copies() {
     let mut w = window(1);
+    // Round 8: the Format pane starts collapsed; these tests use it opened.
+    w.format_open8 = true;
     w.run("ed.editObject", &Fixed);
     let b = select_line(&mut w);
     let a = (b[0] + 3.0, (b[1] + b[3]) / 2.0);
@@ -121,6 +125,8 @@ fn shift_drag_keeps_the_line_and_ctrl_drag_copies() {
 #[test]
 fn a_move_snaps_to_the_page_centre_with_a_guide() {
     let mut w = window(1);
+    // Round 8: the Format pane starts collapsed; these tests use it opened.
+    w.format_open8 = true;
     w.run("ed.editObject", &Fixed);
     let b = select_line(&mut w);
     let a = (b[0] + 3.0, (b[1] + b[3]) / 2.0);
@@ -141,6 +147,8 @@ fn a_move_snaps_to_the_page_centre_with_a_guide() {
 #[test]
 fn marquee_selects_and_arrange_centres_on_the_page() {
     let mut w = window(1);
+    // Round 8: the Format pane starts collapsed; these tests use it opened.
+    w.format_open8 = true;
     w.run("ed.editObject", &Fixed);
     let b = lines(&mut w)[0];
     // From empty space above-left of the line to its middle.

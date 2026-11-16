@@ -1293,7 +1293,13 @@ impl Writer<'_> {
                     // §20.4.2.20 wrapTight with its §20.4.2.16 wrapPolygon: the
                     // points read from the file (§20.4.2.14 start, §20.4.2.9
                     // lineTo), else the rectangle of the bounding box.
-                    Wrap::Tight => {
+                    Wrap::Tight | Wrap::Through => {
+                        // §20.4.2.18 wrapThrough takes the same polygon.
+                        let el = if a.wrap == Wrap::Through {
+                            "wrapThrough"
+                        } else {
+                            "wrapTight"
+                        };
                         let pts: Vec<(i64, i64)> = if a.polygon_points.len() >= 3 {
                             a.polygon_points.clone()
                         } else {
@@ -1306,7 +1312,7 @@ impl Writer<'_> {
                             poly.push_str(&format!("<wp:{tag} x=\"{x}\" y=\"{y}\"/>"));
                         }
                         let edited = u8::from(a.polygon_points.len() >= 3);
-                        format!("<wp:wrapTight wrapText=\"{side}\"><wp:wrapPolygon edited=\"{edited}\">{poly}</wp:wrapPolygon></wp:wrapTight>")
+                        format!("<wp:{el} wrapText=\"{side}\"><wp:wrapPolygon edited=\"{edited}\">{poly}</wp:wrapPolygon></wp:{el}>")
                     }
                     Wrap::TopAndBottom => "<wp:wrapTopAndBottom/>".to_owned(),
                 };

@@ -1908,7 +1908,8 @@ fn read_drawing_frame(
                 if let Some(a) = anchor.as_mut() {
                     a.wrap = match name(&e).as_slice() {
                         b"wrapSquare" => Wrap::Square,
-                        b"wrapTight" | b"wrapThrough" => Wrap::Tight,
+                        b"wrapTight" => Wrap::Tight,
+                        b"wrapThrough" => Wrap::Through,
                         b"wrapTopAndBottom" => Wrap::TopAndBottom,
                         _ => Wrap::None,
                     };

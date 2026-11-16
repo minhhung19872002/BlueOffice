@@ -47,6 +47,22 @@ fn format_pane_follows_edit_text() {
     let mut w = window(1);
     assert_eq!(w.r.right_pane_rect()[2], 0.0);
     let before = w.view().map(crate::ReaderView::frame).expect("view");
+    // Round 8: Edit Text shows the pane collapsed to the reference's 18 px strip (the page
+    // keeps its size); a click on the strip opens it.
+    w.run("ed.editText", &Fixed);
+    let strip = w.r.right_pane_rect();
+    assert!((strip[2] - 18.0).abs() < 1.0, "{strip:?}");
+    w.handle(
+        Input::Press {
+            x: strip[0] + 5.0,
+            y: strip[1] + 100.0,
+            count: 1,
+            shift: false,
+        },
+        &Fixed,
+    );
+    assert!(w.format_open8);
+    w.run("ed.editText", &Fixed);
     start_typing(&mut w);
     let pane = w.r.right_pane_rect();
     assert!((pane[2] - PANE_W * 1.25).abs() < 1.0, "{pane:?}");
@@ -120,6 +136,8 @@ fn format_pane_follows_edit_text() {
 #[test]
 fn typing_rewrites_only_the_paragraph() {
     let mut w = window(1);
+    // Round 8: the Format pane starts collapsed; these tests use it opened.
+    w.format_open8 = true;
     start_typing(&mut w);
     key(&mut w, Key::End, false, false);
     for c in "abcdefghij".chars() {
@@ -132,6 +150,8 @@ fn typing_rewrites_only_the_paragraph() {
 #[test]
 fn pane_rows_spacing_lists_and_replace() {
     let mut w = window(1);
+    // Round 8: the Format pane starts collapsed; these tests use it opened.
+    w.format_open8 = true;
     start_typing(&mut w);
     // Edit Text switches to the Edit tab.
     assert_eq!(w.r.ribbon_tab(), 2);

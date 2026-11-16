@@ -17,8 +17,8 @@ transform [1.000 0.000 0.000 1.000 72.0 108.0]
   path n=4 [216.0 0.0 360.0 72.0] fill=#1f6fb2ff
   path n=4 [216.0 0.0 360.0 72.0] stroke=#ffffffff w1.00
   transform [1.000 0.000 0.000 1.000 216.0 0.0]
-    text 16.2pt 41.9,59.0 #ffffffff "Tầm "
-    text 16.2pt 72.9,59.0 #ffffffff "nhìn"
+    text 16.6pt 41.0,57.7 #ffffffff "Tầm "
+    text 16.6pt 72.9,57.7 #ffffffff "nhìn"
   pop transform
   path n=5 [144.0 72.0 432.0 144.0] fill=#2e8b57ff
   path n=5 [144.0 72.0 432.0 144.0] stroke=#ffffffff w1.00

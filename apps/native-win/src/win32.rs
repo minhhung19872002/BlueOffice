@@ -48,11 +48,12 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WS_OVERLAPPEDWINDOW,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    IsZoomed, PeekMessageW, PostMessageW, HTCAPTION, HTCLIENT, HTCLOSE, HTMAXBUTTON, HTMINBUTTON,
-    HTTOP, HTTOPLEFT, HTTOPRIGHT, NCCALCSIZE_PARAMS, PM_REMOVE, SM_CXPADDEDBORDER, SM_CXSIZEFRAME,
-    SM_CYSIZEFRAME, SWP_FRAMECHANGED, SWP_NOMOVE, SWP_NOSIZE, SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE,
-    WM_CLOSE, WM_NCCALCSIZE, WM_NCHITTEST, WM_NCLBUTTONDOWN, WM_NCLBUTTONUP, WM_NCMOUSELEAVE,
-    WM_NCMOUSEMOVE, WM_QUIT, WM_RBUTTONUP,
+    IsZoomed, PeekMessageW, PostMessageW, HTBOTTOM, HTBOTTOMLEFT, HTBOTTOMRIGHT, HTCAPTION,
+    HTCLIENT, HTCLOSE, HTLEFT, HTMAXBUTTON, HTMINBUTTON, HTRIGHT, HTTOP, HTTOPLEFT, HTTOPRIGHT,
+    NCCALCSIZE_PARAMS, PM_REMOVE, SM_CXPADDEDBORDER, SM_CXSIZEFRAME, SM_CYSIZEFRAME,
+    SWP_FRAMECHANGED, SWP_NOMOVE, SWP_NOSIZE, SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE, WM_CLOSE,
+    WM_NCCALCSIZE, WM_NCHITTEST, WM_NCLBUTTONDOWN, WM_NCLBUTTONUP, WM_NCMOUSELEAVE, WM_NCMOUSEMOVE,
+    WM_QUIT, WM_RBUTTONUP,
 };
 use windows::Win32::UI::WindowsAndMessaging::{SetWindowTextW, IDC_HAND, IDC_SIZEALL};
 
@@ -504,6 +505,20 @@ fn full_screen(hwnd: HWND, on: bool) {
     }
 }
 
+/// BlueReader: the client area covers the whole window (no invisible resize borders, like
+/// the reference reader); the resize edges are hit-tested inside it.
+static FULL_CLIENT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Turn on [`FULL_CLIENT`] for this process.
+#[allow(dead_code)] // BlueReader only.
+pub fn enable_full_client() {
+    FULL_CLIENT.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn full_client() -> bool {
+    FULL_CLIENT.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// Resize-frame thickness at the window's DPI (the part of the frame kept as non-client).
 fn frame(hwnd: HWND) -> (i32, i32) {
     // SAFETY: plain metric queries.
@@ -798,10 +813,15 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             unsafe {
                 let params = &mut *(lparam.0 as *mut NCCALCSIZE_PARAMS);
                 let r = &mut params.rgrc[0];
-                r.left += fx;
-                r.right -= fx;
-                r.bottom -= fy;
-                if IsZoomed(hwnd).as_bool() {
+                let zoomed = IsZoomed(hwnd).as_bool();
+                // FULL_CLIENT: the whole window is client unless maximised (then the frame
+                // lies off-screen and stays non-client on every side).
+                if !full_client() || zoomed {
+                    r.left += fx;
+                    r.right -= fx;
+                    r.bottom -= fy;
+                }
+                if zoomed {
                     r.top += fy;
                 }
             }
@@ -822,7 +842,49 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                 let _ = GetClientRect(hwnd, &mut r);
                 (IsZoomed(hwnd).as_bool(), r.right as f32)
             };
-            if !zoomed && y < fy as f32 {
+            if full_client() && !zoomed {
+                // Resize edges inside the client: 4 px at 100 % (5 at 125 %), corners twice
+                // as long, so the scroll bar at the right edge stays usable.
+                let dpi_k = fx as f32 / 8.0;
+                let edge = (4.0 * dpi_k.max(1.0)).round();
+                // SAFETY: plain query of this window's size.
+                let height = unsafe {
+                    let mut r = RECT::default();
+                    let _ = GetClientRect(hwnd, &mut r);
+                    r.bottom as f32
+                };
+                let left = x < edge;
+                let right = x >= width - edge;
+                let top = y < edge;
+                let bottom = y >= height - edge;
+                let near_left = x < 4.0 * edge;
+                let near_right = x >= width - 4.0 * edge;
+                let near_top = y < 4.0 * edge;
+                let near_bottom = y >= height - 4.0 * edge;
+                let code = if (top && near_left) || (left && near_top) {
+                    Some(HTTOPLEFT)
+                } else if (top && near_right) || (right && near_top) {
+                    Some(HTTOPRIGHT)
+                } else if (bottom && near_left) || (left && near_bottom) {
+                    Some(HTBOTTOMLEFT)
+                } else if (bottom && near_right) || (right && near_bottom) {
+                    Some(HTBOTTOMRIGHT)
+                } else if top {
+                    Some(HTTOP)
+                } else if bottom {
+                    Some(HTBOTTOM)
+                } else if left {
+                    Some(HTLEFT)
+                } else if right {
+                    Some(HTRIGHT)
+                } else {
+                    None
+                };
+                if let Some(code) = code {
+                    return LRESULT(code as isize);
+                }
+            }
+            if !zoomed && y < fy as f32 && !full_client() {
                 let code = if x < 2.0 * fx as f32 {
                     HTTOPLEFT
                 } else if x > width - 2.0 * fx as f32 {

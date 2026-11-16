@@ -36,6 +36,9 @@ pub trait PdfStore {
     fn remove(&mut self, key: usize);
 }
 
+/// Page cache budget (display lists, text, decoded images), bytes.
+const CACHE_BYTES: usize = 32 * 1024 * 1024;
+
 /// Key of page `i`'s thumbnail image in the store.
 pub const THUMB_KEY: usize = 1 << 24;
 /// Key of the one preview image (print preview) in the store.
@@ -823,12 +826,26 @@ impl ReaderView {
             },
         );
         self.lru.push_back(i);
-        while self.lru.len() > 48 {
+        // At most 48 pages and about 32 MB of display lists, text and images (the least
+        // recently used go first; the pages on screen are always the most recent).
+        while self.lru.len() > 48 || (self.lru.len() > 6 && self.cache_bytes() > CACHE_BYTES) {
             if let Some(old) = self.lru.pop_front() {
                 self.cache.remove(&old);
             }
         }
         true
+    }
+
+    /// Estimated bytes of the page cache.
+    fn cache_bytes(&self) -> usize {
+        self.cache
+            .values()
+            .map(|r| {
+                r.list.commands.len() * std::mem::size_of::<Command>()
+                    + r.text.len() * std::mem::size_of::<bo_pdfread::TextChar>()
+                    + r.images.values().map(|i| i.pixels.len()).sum::<usize>()
+            })
+            .sum()
     }
 
     /// Night Mode greys every shown text, outlined text included.
@@ -886,15 +903,13 @@ impl ReaderView {
         }
         let mut more = false;
         let mut wanted: Vec<usize> = visible.clone();
-        // Neighbours for smooth scrolling.
+        // Neighbours for smooth scrolling (one each way keeps memory near the reference's).
         if let (Some(&lo), Some(&hi)) = (visible.iter().min(), visible.iter().max()) {
-            for k in 1..=2 {
-                if hi + k < self.sizes.len() {
-                    wanted.push(hi + k);
-                }
-                if lo >= k {
-                    wanted.push(lo - k);
-                }
+            if hi + 1 < self.sizes.len() {
+                wanted.push(hi + 1);
+            }
+            if lo >= 1 {
+                wanted.push(lo - 1);
             }
         }
         for (n, &i) in wanted.iter().enumerate() {
@@ -1562,3 +1577,22 @@ pub const HIT: Rgba = Rgba(255, 214, 0, 110);
 pub const HIT_CURRENT: Rgba = Rgba(255, 140, 0, 130);
 /// Selected text.
 pub const SELECTION: Rgba = Rgba(0, 120, 215, 80);
+
+#[cfg(test)]
+mod cache_tests {
+    use super::*;
+
+    #[test]
+    fn page_cache_stays_within_its_budget() {
+        let doc = PdfDocument::open(crate::reader_tests::pdf(60), bo_pdfread::standard_fonts())
+            .expect("pdf");
+        let mut v = ReaderView::new(doc);
+        for i in 0..60 {
+            assert!(v.ensure(i));
+        }
+        assert!(v.cache.len() <= 48);
+        assert!(v.cache_bytes() <= CACHE_BYTES || v.cache.len() <= 6);
+        // The most recent pages stay.
+        assert!(v.cache.contains_key(&59) && !v.cache.contains_key(&0));
+    }
+}

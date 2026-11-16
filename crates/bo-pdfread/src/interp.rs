@@ -63,7 +63,10 @@ pub(crate) struct ImageCache {
     bytes: usize,
 }
 
-const IMAGE_CACHE_BYTES: usize = 384 * 1024 * 1024;
+/// Decoded images kept for pages drawn again (a 1 202-page manual read to the end or searched
+/// decoded every image into 384 MB before; the reader keeps the pages around the view in its
+/// own cache).
+const IMAGE_CACHE_BYTES: usize = 64 * 1024 * 1024;
 
 impl ImageCache {
     fn get_or(&mut self, key: &str, f: impl FnOnce() -> Option<Image>) -> Option<Arc<Image>> {

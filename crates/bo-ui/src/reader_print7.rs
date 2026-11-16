@@ -17,6 +17,7 @@ impl PrintDialog {
         let mut v: Vec<(u8, f32, f32, Part)> = self
             .parts
             .iter()
+            .filter(|(p, _)| self.tab_stop(*p))
             .filter(|(p, _)| {
                 !matches!(
                     p,
@@ -58,6 +59,20 @@ impl PrintDialog {
             })
         });
         v.into_iter().map(|t| t.3).collect()
+    }
+
+    /// Whether a control takes the focus ring: greyed controls are skipped, as in Windows
+    /// dialogs (Bleed Marks, Summarize Comments; Collate with one copy; Reverse with all
+    /// pages; the page list unless Pages is chosen; the flip edges without both sides).
+    fn tab_stop(&self, p: Part) -> bool {
+        match p {
+            Part::Bleed | Part::Summarize => false,
+            Part::Collate => self.copies > 1,
+            Part::Reverse => self.range != super::Range::All,
+            Part::PagesText => self.range == super::Range::Pages,
+            Part::Flip(_) => self.duplex,
+            _ => true,
+        }
     }
 
     /// Tab (or Shift+Tab when `back`): the next control takes the focus ring.

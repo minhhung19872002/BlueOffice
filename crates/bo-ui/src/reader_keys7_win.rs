@@ -31,7 +31,13 @@ impl ReaderWindow {
     pub(crate) fn key_items(&self) -> Vec<(&'static str, String)> {
         let mut used: Vec<String> = Vec::new();
         let mut out = Vec::new();
-        for c in &self.controls {
+        // Only the ribbon's body (not the title bar, navigation column or status bar).
+        let (top, bottom) = (self.tabs_y(), self.ribbon_bottom());
+        for c in self
+            .controls
+            .iter()
+            .filter(|c| c.r[1] > top && c.r[1] + c.r[3] <= bottom + 1.0)
+        {
             let label = match c.kind {
                 Kind::Big(_, key, _) | Kind::Row(_, key, _) if !key.is_empty() => {
                     self.strings.get(key).to_owned()
@@ -252,10 +258,12 @@ impl ReaderWindow {
                     }
                     let cy = match c.kind {
                         Kind::Big(..) => r[1] + r[3] - self.px(4.0),
+                        Kind::Small(_) => r[1] + r[3] - self.px(2.0),
                         _ => r[1] + r[3] / 2.0,
                     };
                     let cx = match c.kind {
                         Kind::Big(..) => r[0] + r[2] / 2.0,
+                        Kind::Small(_) => r[0] + r[2] - self.px(2.0),
                         _ => r[0] + self.px(10.0),
                     };
                     badge(p, cx, cy, &tip);

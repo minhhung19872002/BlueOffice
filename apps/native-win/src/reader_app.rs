@@ -164,11 +164,15 @@ struct Gpu {
     device: Device,
     surface: WindowSurface,
     pages: HashMap<usize, PageBitmap>,
+    /// Page images dropped since the driver's memory was last trimmed, and when that was.
+    dropped: usize,
+    trimmed: Instant,
 }
 
 struct Store<'a> {
     device: &'a Device,
     pages: &'a mut HashMap<usize, PageBitmap>,
+    removed: &'a mut usize,
 }
 
 fn pictures(
@@ -235,7 +239,9 @@ impl PdfStore for Store<'_> {
     }
 
     fn remove(&mut self, key: usize) {
-        self.pages.remove(&key);
+        if self.pages.remove(&key).is_some() {
+            *self.removed += 1;
+        }
     }
 }
 
@@ -710,6 +716,7 @@ impl Shell {
         self.more = self.window.prepare(&mut Store {
             device: &gpu.device,
             pages: &mut gpu.pages,
+            removed: &mut gpu.dropped,
         });
         let t1 = Instant::now();
         let (window, pages) = (&mut self.window, &gpu.pages);
@@ -720,6 +727,13 @@ impl Shell {
             painted = p0.elapsed();
         });
         self.last_frame = [t1 - t0, painted, t1.elapsed().saturating_sub(painted)];
+        // Page images left the view: give the driver's freed memory back (at most once a
+        // second, after the frame).
+        if gpu.dropped > 0 && gpu.trimmed.elapsed().as_millis() > 1000 {
+            gpu.device.trim();
+            gpu.dropped = 0;
+            gpu.trimmed = Instant::now();
+        }
         let title = self.window.title();
         if title != self.title && self.hwnd != 0 {
             win32::set_title(self.hwnd, &title);
@@ -743,6 +757,8 @@ impl Handler for Shell {
             device,
             surface,
             pages: HashMap::new(),
+            dropped: 0,
+            trimmed: Instant::now(),
         });
         let m = Measure(self.gpu.as_ref().map(|g| &g.device));
         self.window.handle(Input::Scale(scale), &m);

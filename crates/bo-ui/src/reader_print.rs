@@ -2238,6 +2238,8 @@ mod tests {
         assert_eq!(order.first(), Some(&Part::Printer));
         assert_eq!(&order[order.len() - 2..], &[Part::Ok, Part::Cancel]);
         let pos = |p: Part| order.iter().position(|q| *q == p).expect("part");
+        // Greyed controls are not tab stops.
+        assert!(!order.contains(&Part::Bleed) && !order.contains(&Part::Collate));
         assert!(pos(Part::Copies) < pos(Part::Range(Range::All)));
         assert!(pos(Part::Range(Range::All)) < pos(Part::Duplex));
         assert!(pos(Part::Duplex) < pos(Part::PageSetting));
@@ -2260,8 +2262,8 @@ mod tests {
         assert!(!d.gray);
         d.text(" ");
         assert!(d.gray);
-        // Wraps around.
-        for _ in 0..order.len() {
+        // Wraps around (two copies now: Collate is a tab stop too).
+        for _ in 0..d.tab_order().len() {
             d.key(Key::Tab, Mods::default());
         }
         assert_eq!(d.kbd, Some(Part::Gray));

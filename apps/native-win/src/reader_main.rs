@@ -30,6 +30,8 @@ fn main() {
     }
     // Alt / F10 show the ribbon's key tips.
     win32::enable_ribbon_keys();
+    // Client area to the window edge, like the reference reader.
+    win32::enable_full_client();
     let ui = std::thread::Builder::new()
         .name("ui".into())
         .stack_size(64 * 1024 * 1024)

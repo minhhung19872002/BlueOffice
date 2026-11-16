@@ -40,6 +40,9 @@ mod editor_more;
 mod editor_more2;
 #[cfg(test)]
 mod editor_more_tests;
+mod editor_objtext;
+#[cfg(test)]
+mod editor_objtext_tests;
 mod editor_organize;
 #[cfg(test)]
 mod editor_organize5_tests;

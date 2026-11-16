@@ -47,7 +47,8 @@ fn ribbon(tab: usize) -> Vec<(&'static str, Kind)> {
     use Kind::{Big, Row, Sep, Small};
     let common = [
         ("tool.hand", Big("hand", "pdfReader.hand", false)),
-        ("tool.select", Big("select", "pdfReader.select", false)),
+        // The reference's Select has a menu: text and images, comments, an area.
+        ("tool.select", Big("select", "pdfReader.select", true)),
     ];
     let mut v: Vec<(&'static str, Kind)> = common.to_vec();
     match tab {
@@ -490,7 +491,7 @@ pub struct EditorWindow {
     pub(crate) org: Organize,
     tool: Option<EditTool>,
     dialog: Option<(Dialog, Ask)>,
-    requests: Vec<ReaderRequest>,
+    pub(crate) requests: Vec<ReaderRequest>,
     /// Panel shown before the page grid hid it.
     panel_before: Option<Panel>,
     /// Pointer position (window pixels).
@@ -1032,6 +1033,8 @@ impl EditorWindow {
             || self.design_command(cmd)
             || self.more_command(cmd)
             || self.more2_command(cmd)
+            || self.split_command(cmd)
+            || self.image_command(cmd)
             || self.arrange_command(cmd)
             || self.five_command(cmd)
         {
@@ -1071,7 +1074,20 @@ impl EditorWindow {
                 self.comment.tool = None;
                 self.design.tool = None;
                 self.tools.tool = None;
+                if cmd == "tool.select" {
+                    let items = [
+                        ("ed.selTextImage", "pdfEditor.selTextImage"),
+                        ("ed.selAnnot", "pdfEditor.selAnnot"),
+                        ("ed.selArea", "pdfEditor.selArea"),
+                    ];
+                    self.menu(&items, "tool.select");
+                }
             }
+            "ed.selTextImage" => self.r.set_tool(Tool::Select),
+            // Comments are picked, moved and resized with the hand.
+            "ed.selAnnot" => self.r.set_tool(Tool::Hand),
+            // An area of the page copied as a picture.
+            "ed.selArea" => self.r.run_command("home.snapshot", m),
             "org.insertMenu" => {
                 let items = [
                     ("org.insertBlank", "pdfEditor.blankPage"),
@@ -1847,7 +1863,7 @@ impl EditorWindow {
     }
 }
 
-fn image_filters() -> Vec<(String, String)> {
+pub(crate) fn image_filters() -> Vec<(String, String)> {
     vec![("Images (*.png; *.jpg)".into(), "*.png;*.jpg;*.jpeg".into())]
 }
 

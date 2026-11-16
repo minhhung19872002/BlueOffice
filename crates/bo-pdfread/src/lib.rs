@@ -56,6 +56,7 @@ mod sigappear;
 mod store;
 mod templates;
 mod text;
+mod text_ops;
 mod type1;
 mod viewer;
 mod write;
@@ -1158,3 +1159,5 @@ mod paragraph_tests;
 mod templates_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod text_ops_tests;

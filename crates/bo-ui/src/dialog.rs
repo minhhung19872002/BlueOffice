@@ -39,6 +39,8 @@ pub enum DialogButton {
     Replace,
     /// Replace every match.
     ReplaceAll,
+    /// A further button of a dialog (its number, as the dialog's owner defines it).
+    Extra(u8),
 }
 
 struct Field {

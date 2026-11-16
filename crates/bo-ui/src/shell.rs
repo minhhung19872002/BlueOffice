@@ -951,6 +951,8 @@ impl DocWindow {
         let v = |i: usize| values.get(i).cloned().unwrap_or_default();
         match (kind, b) {
             (_, DialogButton::Cancel) | (DialogKind::WordCount, _) => self.dialog = None,
+            // Owner-defined buttons are not used by BlueDoc's dialogs.
+            (_, DialogButton::Extra(_)) => {}
             (DialogKind::Link, _) => {
                 self.dialog = None;
                 self.view.run_command(Command::SetLink {

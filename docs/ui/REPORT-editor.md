@@ -271,13 +271,14 @@ riêng `ed.selectMenu` của Editor (lệnh `tool.select` của Reader không c�
 **Typewriter gõ tại chỗ** (`editor_typewriter.rs`): bấm công cụ rồi bấm lên trang là có con trỏ, gõ thẳng (Enter
 xuống dòng, Backspace), bấm chỗ khác hoặc Esc thì thành ghi chú — như bản đối chiếu (trước đây hỏi qua hộp
 thoại). Mặc định lấy từ tệp bản đối chiếu lưu ra (`/DA (/Helvetica 9 Tf)`, chữ `#0000FF`, không viền), khung
-khi gõ 1 px `#759DB8`, chữ lùi 3 px. Typewriter ở tab Home và tab Comment là cùng một công cụ.
+khi gõ 1 px `#759DB8` ôm sát chữ (100,9 %: khung 103 × 19 px, chữ lùi 3 px — bản đối chiếu 99,6 %: 103 × 19,
+3 px), con trỏ nhấp nháy ở cuối chữ. Typewriter ở tab Home và tab Comment là cùng một công cụ.
 
 **Hỏi lưu khi đóng** (`editor_close.rs`): đóng tài liệu đã sửa (nút ✕ của tab, Ctrl+W, File › Close, nút đóng
 cửa sổ — host thêm `Handler::close_requested`) hiện hộp “Do you want to save changes to '…' before closing?”
 như bản đối chiếu: Yes lưu rồi đóng, No đóng không lưu, Cancel. Hộp vẽ theo số đo hộp thông báo của bản đối
 chiếu ở 125 %: 793 × 193 px, thanh tiêu đề 32 px `#F3F3F3` (tên ứng dụng xám `#919191`, ✕), dấu thông tin
-32 px (hình của ta, màu nhấn của ta) ở x 35, chữ `#222222` từ x 88, nút viên thuốc 100 × 35 px cách 13 px, Yes
+32 px (hình tròn của ta, màu nhấn của ta) ở x 35, chữ `#222222` từ x 88, nút viên thuốc 100 × 35 px cách 13 px, Yes
 tô màu nhấn chữ trắng, No / Cancel nền trắng viền `#D5D5D5`. Nhiều tài liệu sửa: hỏi lần lượt từng cái.
 
 **Khung cửa sổ**: vùng client phủ tới mép cửa sổ như bản đối chiếu (PrintWindow: màu thanh tiêu đề từ x = 0),
@@ -297,5 +298,8 @@ Nguyên nhân: mỗi phím diễn giải lại cả trang (3,1 ms trên trang m�
 tra trạng thái đồ hoạ trở về như đầu) và mỗi phím chỉ diễn giải đoạn đó; test so khớp với diễn giải cả trang.
 Cuộn: không còn chênh so với vòng 5 — phần lớn là vẽ khung cửa sổ.
 
-Còn lại: đoạn gõ dài ra đè lên đoạn dưới khi Reflow Editing tắt; Page Transitions, OCR, From Web Page, XFA,
+Trang File (`editor-55`): bố cục cột trái khớp; bản đối chiếu có thêm Action Wizard, Batch Print, Index, Share,
+Skins (ta chưa có).
+
+Còn lại: đoạn gõ dài ra đè lên đoạn dưới khi Reflow Editing tắt; các mục File còn thiếu ở trên; Page Transitions, OCR, From Web Page, XFA,
 Accounting Calculator, Preflight vẫn xám; thanh tiêu đề hộp thoại chung của BlueEditor (Dialog) vẫn kiểu cũ.

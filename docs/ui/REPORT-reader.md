@@ -434,3 +434,58 @@ lúc đo). 5 lần `--bench` (CPU 51–71 %): mở 34–55 ms, trang đầu 44�
 
 Còn lại: giao diện Tối (cần màu chữ theo giao diện ở mọi ngăn), cột Lớp của bản đối chiếu (menu chuột phải không nhận
 nhấp đưa vào), so Ctrl + bánh xe / tìm với tuỳ chọn trên bản đối chiếu (cần thao tác thật), bộ nhớ nền của driver GPU.
+
+## Vòng 9 (2026-11-16)
+
+Phần thêm ở mô-đun riêng: `reader_dark9_win.rs` (giao diện Tối, chú giải công cụ), `reader_menus9_win.rs` (menu chuột
+phải trên trang), `reader_tabs9_win.rs` (tab Chia sẻ, tab Trợ giúp, cách ngắt nhãn ribbon), `reader_search9_win.rs` (Tìm
+kiếm nâng cao), `reader_marks9_win.rs` (sửa dấu trang, cỡ ảnh trang); thêm chung (chỉ cộng thêm): `Painter::raw_colours`,
+`Menu::with_keys` (cột phím tắt canh phải + khoảng cách đường kẻ), `PrintSettings::bleed`, `PrintAction::Summarize`.
+Ảnh so sánh: `scratchpad/show/reader-52…*.png` (bản đối chiếu trái / trên).
+
+**Giao diện Tối** (`reader-52`, `reader-53`). Mọi bề mặt (ribbon, cột trái, trang File, menu, hộp thoại, thanh trạng
+thái, chú giải) vẽ qua một hàm bảng màu (`dark_ink`): độ sáng OKLab lật theo một đường cong chọn để chữ ≥ 4,5 : 1 trên
+mọi nền; màu nhấn (độ bão hoà > 0,08) giữ sắc độ ở L 0,76 để vừa làm chữ trên nền tối vừa mang chữ tối; đường kẻ 1–2 px
+sáng giữ ≥ 1,5 : 1 (`dark_line`). Trang, ảnh trang, xem trước khi in, mẫu giao diện vẽ giữa `raw_colours(true/false)`
+nên giữ màu thật (bản đối chiếu cũng giữ trang trắng). Test đi qua mọi lệnh của mọi tab (menu / hộp thoại / ngăn mở ra),
+các cột, trang File, hộp In, menu chuột phải, chú giải: 6 854 chữ, thấp nhất 4,66 : 1 (chữ của lệnh mờ được miễn theo
+WCAG 1.4.3). Giao diện Tối của bản đối chiếu chỉ đặt được trong registry HKCU của nó (không có tệp hồ sơ để chép) nên
+không chụp; ảnh là Cổ điển / Tối của ta.
+
+**Các tab** (`reader-54`). Xem / Biểu mẫu / Bảo vệ / Chia sẻ / Trợ giúp đặt cạnh nhau. Sửa: nhãn hai dòng ngắt ở dấu cách
+làm hai dòng cân nhất, dòng dài trước khi hoà ("Command / Line Help", "Time Stamp / Document", "Read / Mode"); Export có
+mũi tên thả; Tool Settings mờ khi tài liệu không có trường biểu mẫu; nút menu của lưới hiển thị trang có mũi tên. Tab
+Chia sẻ mới: E-mail, Chép đường dẫn tệp, Mở thư mục chứa (dịch vụ đám mây / duyệt của bản đối chiếu không làm). Tab Trợ
+giúp theo thứ tự của bản đối chiếu: User Manual, Help Center (mờ, chú giải nói lý do: bản này chưa kèm hướng dẫn / địa
+chỉ hỗ trợ), Command Line Help (hộp liệt kê tham số dòng lệnh), Set to Default PDF Reader (mở Default apps của
+Windows), About. Chú giải công cụ sau 0,5 s đứng yên trên một lệnh.
+
+**Menu chuột phải** (`reader-55`). Đo menu của bản đối chiếu ở 125 %: phím tắt canh phải cách mép 21 px, đường kẻ thêm
+8 px, rộng theo hàng rộng nhất (nhãn + 40 px + phím tắt; menu vùng trống 249 px). Vùng trống / nền: Dán, Dán tại chỗ (mờ)
+| Read Mode, Full Screen | Zoom In / Out | Actual Size, Fit Page, Fit Width (đánh dấu cái đang dùng) | Rotate Right |
+Reverse View | Print | Rulers, Guides | Hide Navigation Panels. Chữ đang chọn: Copy | Select All | Highlight,
+Strikeout, Underline, Squiggly Underline, Replace Text | Word Count. Chú thích: Reply | Delete | Set Status, Mark with
+Checkmark | Open Popup Note | Properties (các mục cửa sổ ghi chú bật lên của bản đối chiếu không làm).
+
+**Tìm kiếm nâng cao** (`reader-56`). Ngăn bên phải (Ctrl+Shift+F hoặc nút tuỳ chọn của ô tìm): tài liệu hiện tại hoặc mọi
+PDF trong một thư mục (Chọn... lấy thư mục của tệp được chọn), chỉ nguyên từ, phân biệt hoa thường, gồm dấu trang, gồm
+chú thích; kết quả theo tài liệu → trang, mỗi dòng có ngữ cảnh và chữ tìm thấy tô nền; nhấp đi tới trang và chọn đúng
+đoạn; đọc trang theo nhịp 45 ms mỗi tick. Ngăn của bản đối chiếu không mở được bằng nhấp đưa vào (danh sách thả của ô tìm
+bỏ qua PostMessage, UIA không có mục), bố cục theo hướng dẫn sử dụng công khai của nó. Sổ tay 1 202 trang, "snapshot",
+bản release, máy bận (CPU 45 %): 354 kết quả, kết quả đầu 17–55 ms, đọc hết 1,70–1,81 s (`--search`, cùng đường đọc
+chữ).
+
+**Dấu trang và ảnh trang** (`reader-57`). Dấu trang: thêm (Ctrl+B, tên là chữ đang chọn, trỏ tới trang hiện tại), đổi
+tên tại chỗ (F2, Enter / Esc), xoá (Del khi cột đang nhận phím), nâng / hạ cấp, kéo thả lên một dấu trang khác để chuyển
+tới trước nó, menu chuột phải; ghi `/Outlines` rồi File › Save nối thành cập nhật tăng dần (test: byte gốc còn nguyên là
+phần đầu tệp, mở lại thấy dấu trang). Ảnh trang: hàng công cụ và menu chuột phải như bản đối chiếu (Enlarge / Reduce Page
+Thumbnails | Print Pages, Properties — bản đối chiếu là trình đọc nên không có xoay / xoá trang), Ctrl + bánh xe trên cột
+đổi cỡ (7 bậc 0,6–2,5 ×), khung đỏ phần trang đang thấy trên ảnh trang hiện tại.
+
+**Hộp In** (`reader-58`). So lại với bản mới nhất: Scale (None / Fit to printer margins / Reduce to printer margins /
+Custom scale / Choose paper source by PDF page size), Tile Large Pages, Multiple Pages Per Sheet, Booklet đã khớp. Thêm:
+Bleed Marks (dấu góc ở mép mọi trang in, xem trước và in thật), Summarize Comments bật khi có chú thích (đóng hộp In, mở
+tóm tắt chú thích). Các nút chế độ in của bản đối chiếu bỏ qua nhấp đưa vào nên chỉ so được chế độ Scale.
+
+Còn lại: giao diện Tối của bản đối chiếu (registry), ngăn Tìm kiếm nâng cao của bản đối chiếu (cần thao tác thật), các
+mục cửa sổ ghi chú bật lên trong menu chú thích, thanh công cụ nổi khi chọn chữ, Dán (ảnh / chữ thành chú thích).

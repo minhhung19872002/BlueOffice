@@ -410,7 +410,8 @@ như bản đối chiếu, trang giữ mức thu phóng (trước: khung mở ng
 Nhấp đúp chọn từ, nhấp ba chọn đoạn, Ctrl+mũi tên, Home / End, Shift chọn, Enter tách, dán chữ thường: đã có.
 
 **Edit Object**: menu chuột phải của ảnh thêm Replace Image / Extract Image (JPEG giữ nguyên, khác thì PNG,
-`PdfDocument::object_image`). Bản đối chiếu có thêm tay cầm xoay phía trên ảnh và mục Clip Path — chưa làm.
+`PdfDocument::object_image`). Tay cầm xoay như bản đối chiếu (`editor_rot8.rs`): nút tròn phía trên giữa cạnh trên của vùng chọn, đường nét đứt
+xuống tâm; kéo thì xoay vùng chọn quanh tâm (Shift: bước 15°), hiện góc khi kéo, một bước hoàn tác. Clip Path chưa làm.
 
 **Sót từ vòng 7**: chọn công cụ ghi chú không mở khung Format, không đổi thu phóng (`cmt8.props` mở thuộc tính khi
 cần); cột trái trang File 272 px tính từ mép cửa sổ như bản đối chiếu; menu của ribbon không còn bị lưới trang của
@@ -428,5 +429,5 @@ Organize che (trước bị cắt ở dải tab).
 
 XFA tĩnh → biểu mẫu thường đã làm ở vòng 7; OCR vẫn xám (cần mô hình nhận dạng).
 
-Còn lại: tay cầm xoay và Clip Path của Edit Object; vùng chọn chữ của bản đối chiếu là nền `#1B3471` chữ trắng (ta vẫn
+Còn lại: Clip Path của Edit Object; vùng chọn chữ của bản đối chiếu là nền `#1B3471` chữ trắng (ta vẫn
 phủ xanh trong); Optimize / Save As chưa đối chiếu.

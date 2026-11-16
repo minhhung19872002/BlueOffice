@@ -533,3 +533,65 @@ fn presets_and_policy_survive_the_file() {
     assert_eq!(back.get("hf"), Some(&vec![("Mine".to_owned(), vals)]));
     assert_eq!(pol, Some(policy));
 }
+
+#[test]
+fn rotation_handle_turns_the_selection() {
+    let mut w = window(1);
+    w.run("ed.editObject", &Fixed);
+    w.handle(
+        Input::Key(
+            Key::Letter('a'),
+            Mods {
+                ctrl: true,
+                shift: false,
+                alt: false,
+            },
+        ),
+        &Fixed,
+    );
+    paint(&mut w);
+    let (_, h, c) = w.rot_handle().expect("handle shown");
+    let before = {
+        let v = w.view_mut().expect("view");
+        bo_pdfread::text_blocks(&v.doc_mut().page_objects(0).expect("objects"))[0].bbox
+    };
+    // Drag the handle a quarter turn clockwise (from above the centre to its right), Shift
+    // snapping to 90°.
+    w.handle(
+        Input::Press {
+            x: h.0,
+            y: h.1,
+            count: 1,
+            shift: true,
+        },
+        &Fixed,
+    );
+    let r = (h.1 - c.1).abs();
+    w.handle(
+        Input::Drag {
+            x: c.0 + r,
+            y: c.1 + 2.0,
+        },
+        &Fixed,
+    );
+    paint(&mut w);
+    w.handle(
+        Input::Release {
+            x: c.0 + r,
+            y: c.1 + 2.0,
+        },
+        &Fixed,
+    );
+    let after = {
+        let v = w.view_mut().expect("view");
+        let objs = v.doc_mut().page_objects(0).expect("objects");
+        objs.iter()
+            .find(|o| o.kind == bo_pdfread::ObjectKind::Text)
+            .map(|o| o.bbox)
+            .expect("text")
+    };
+    let (bw, bh) = (before[2] - before[0], before[3] - before[1]);
+    let (aw, ah) = (after[2] - after[0], after[3] - after[1]);
+    assert!(bw > bh && ah > aw, "{before:?} -> {after:?}");
+    assert!(w.view().expect("view").doc().can_undo());
+}

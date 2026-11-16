@@ -234,7 +234,12 @@ fn moves_for(a: Arrange, boxes: &[[f32; 4]], page: (f32, f32)) -> Option<Vec<[f3
 impl Editing {
     /// Apply `moves` (one matrix per selected item) as one undo step and keep the moved
     /// items selected.
-    fn apply_moves(&mut self, v: &mut ReaderView, page: usize, moves: &[[f32; 6]]) -> bool {
+    pub(crate) fn apply_moves(
+        &mut self,
+        v: &mut ReaderView,
+        page: usize,
+        moves: &[[f32; 6]],
+    ) -> bool {
         let list: Vec<Item> = self.items(v, page).to_vec();
         let sel: Vec<&Item> = self.selected.iter().filter_map(|&k| list.get(k)).collect();
         if sel.is_empty() || sel.len() != moves.len() {

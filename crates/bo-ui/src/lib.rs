@@ -63,6 +63,7 @@ mod editor_organize;
 mod editor_organize5_tests;
 mod editor_pages5;
 mod editor_portfolio;
+mod editor_rot8;
 #[cfg(test)]
 mod editor_round7_tests;
 mod editor_sign;

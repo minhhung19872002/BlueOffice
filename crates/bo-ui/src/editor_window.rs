@@ -532,6 +532,8 @@ pub struct EditorWindow {
     pub(crate) wm_image8: Option<Vec<u8>>,
     /// The presets file was read (`editor_dlg8b::presets_file`).
     pub(crate) presets_loaded8: bool,
+    /// The Edit Object rotation handle being dragged (`editor_rot8`).
+    pub(crate) rot8: Option<crate::editor_rot8::RotDrag>,
     /// Form field tool.
     pub(crate) design: crate::editor_design::DesignState,
     /// Caret shown (blink phase).
@@ -615,6 +617,7 @@ impl EditorWindow {
             policy8: None,
             wm_image8: None,
             presets_loaded8: false,
+            rot8: None,
             close_box: None,
             design: crate::editor_design::DesignState::default(),
             caret_on: true,
@@ -846,7 +849,11 @@ impl EditorWindow {
         if self.dialog.is_some() || self.dialog2.is_some() {
             return self.dialog_input(&input, m);
         }
-        if self.close_box_input(&input) || self.trans_input(&input) || self.form8_input(&input) {
+        if self.close_box_input(&input)
+            || self.trans_input(&input)
+            || self.form8_input(&input)
+            || self.rot8_input(&input)
+        {
             return true;
         }
         if self.tw_input(&input, m) {
@@ -1923,6 +1930,7 @@ impl EditorWindow {
                 if let Some(v) = self.r.view_mut() {
                     self.edit.paint(p, v, accent, tool, caret_on);
                 }
+                self.paint_rot8(p);
             }
         }
         self.paint_extras(p);

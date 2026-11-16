@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use std::hash::BuildHasher;
 use std::ops::Range;
 
-use bo_model::sheet::{CellRange, CellRef, SheetColor, Table, Workbook};
+use bo_model::sheet::{CellRange, CellRef, SheetColor, Table, ThemeColors, Workbook};
 use bo_render::Rgba;
 use serde::Serialize;
 
@@ -261,6 +261,87 @@ fn rgba(hex: &str) -> Option<Rgba> {
     parse_hex(hex).map(|(r, g, b)| Rgba(r, g, b, 255))
 }
 
+/// Theme the styles were measured with (the reference's default theme), in `clrScheme` order:
+/// dk1, lt1, dk2, lt2, accent1–6.
+const MEASURED_THEME: [&str; 10] = [
+    "000000", "FFFFFF", "44546A", "E7E6E6", "4472C4", "ED7D31", "A5A5A5", "FFC000", "5B9BD5",
+    "70AD47",
+];
+
+/// The theme colour and tint each measured colour is with the measured theme (the reference
+/// defines its table styles on theme colours, §18.8.40): `RRGGBB` → (theme index, tint).
+fn theme_slots() -> &'static HashMap<String, (u32, f64)> {
+    static DATA: std::sync::OnceLock<HashMap<String, (u32, f64)>> = std::sync::OnceLock::new();
+    DATA.get_or_init(|| {
+        let mut colours: Vec<&str> = Vec::new();
+        for l in measured().values() {
+            colours.extend(l.fill.as_deref());
+            colours.extend(l.font.as_deref());
+            colours.extend(l.borders.iter().flatten().map(|e| e.color.as_str()));
+        }
+        // Untinted first, then the smallest tint, as a style would use them.
+        let mut tints: Vec<f64> = (1..=19).map(|i| f64::from(i) * 0.05).collect();
+        tints.extend(tints.clone().iter().map(|t| -t));
+        tints.sort_by(|a, b| a.abs().total_cmp(&b.abs()));
+        tints.insert(0, 0.0);
+        let mut out = HashMap::new();
+        for hex in colours {
+            if out.contains_key(hex) {
+                continue;
+            }
+            let Some(want) = parse_hex(hex) else { continue };
+            let measured_theme = ThemeColors {
+                colors: MEASURED_THEME.iter().map(|s| (*s).to_owned()).collect(),
+            };
+            // Accents, then dark 2 / light 2, then text / background.
+            // Within three steps per channel: the reference rounds tints its own way.
+            let near = |a: (u8, u8, u8)| {
+                a.0.abs_diff(want.0) <= 3 && a.1.abs_diff(want.1) <= 3 && a.2.abs_diff(want.2) <= 3
+            };
+            let found = tints.iter().find_map(|&tint| {
+                [4, 5, 6, 7, 8, 9, 3, 2, 1, 0].into_iter().find_map(|i| {
+                    near(crate::color::apply_tint(
+                        crate::color::theme_rgb(i, Some(&measured_theme)),
+                        tint,
+                    ))
+                    .then_some((i, tint))
+                })
+            });
+            if let Some(slot) = found {
+                out.insert(hex.to_owned(), slot);
+            }
+        }
+        out
+    })
+}
+
+/// `l` with its colours taken from `theme` instead of the default theme (a workbook whose
+/// theme changed restyles its tables, as the reference). Colours that are not theme colours
+/// stay.
+#[must_use]
+pub fn themed(mut l: Look, theme: Option<&ThemeColors>) -> Look {
+    let Some(theme) = theme else {
+        return l;
+    };
+    let slots = theme_slots();
+    let map = |hex: &mut String| {
+        if let Some(&(i, tint)) = slots.get(hex.as_str()) {
+            let (r, g, b) = crate::color::apply_tint(crate::color::theme_rgb(i, Some(theme)), tint);
+            *hex = format!("{r:02X}{g:02X}{b:02X}");
+        }
+    };
+    if let Some(f) = l.fill.as_mut() {
+        map(f);
+    }
+    if let Some(f) = l.font.as_mut() {
+        map(f);
+    }
+    for e in l.borders.iter_mut().flatten() {
+        map(&mut e.color);
+    }
+    l
+}
+
 /// A font colour that is the default one (automatic, text theme colour, black).
 fn automatic(c: Option<&SheetColor>) -> bool {
     c.is_none_or(|c| {
@@ -296,6 +377,7 @@ pub fn overlay<S: BuildHasher>(
         for r in r0..=r1 {
             for c in c0..=c1 {
                 let Some(l) = look(t, r, c) else { continue };
+                let l = themed(l, wb.theme.as_ref());
                 let cell = ws.cells.get(&(r, c));
                 let own_fill = cell.is_some_and(|x| cell_fill_rgb(wb, x).is_some());
                 let own_font = cell.is_some_and(|x| {
@@ -327,6 +409,7 @@ pub fn bake(wb: &mut Workbook, sheet: usize, t: &Table) {
         let mut runs: Vec<(u32, u32, StylePatch)> = Vec::new();
         for c in t.range.first.col..=t.range.last.col {
             let Some(l) = look(t, r, c) else { continue };
+            let l = themed(l, wb.theme.as_ref());
             let own_fill = wb
                 .sheets
                 .get(sheet)
@@ -429,7 +512,7 @@ pub fn borders(
             for c in c0..=c1 {
                 if let Some(l) = look(t, r, c) {
                     if l.borders.iter().any(Option::is_some) {
-                        out.push((r, c, l.borders));
+                        out.push((r, c, themed(l, wb.theme.as_ref()).borders));
                     }
                 }
             }
@@ -541,5 +624,35 @@ mod tests {
         // Header text white and bold.
         assert_eq!(cf[&(1, 1)].font_color, Some(Rgba(255, 255, 255, 255)));
         assert_eq!(cf[&(1, 1)].bold, Some(true));
+    }
+
+    #[test]
+    fn table_styles_follow_the_workbook_theme() {
+        let t = table("TableStyleMedium2");
+        // Header of Medium 2: accent 1 fill with the default theme.
+        let l = look(&t, 1, 2).expect("header look");
+        assert_eq!(l.fill.as_deref(), Some("4472C4"));
+        // A theme whose accent 1 is green restyles the header; a band (accent 1 at +0.8)
+        // follows with the same tint.
+        let mut colors: Vec<String> = [
+            "000000", "FFFFFF", "44546A", "E7E6E6", "00B050", "ED7D31", "A5A5A5", "FFC000",
+            "5B9BD5", "70AD47",
+        ]
+        .iter()
+        .map(|s| (*s).to_owned())
+        .collect();
+        colors.extend(["0563C1".to_owned(), "954F72".to_owned()]);
+        let theme = ThemeColors { colors };
+        assert_eq!(themed(l, Some(&theme)).fill.as_deref(), Some("00B050"));
+        let band = look(&t, 2, 2).expect("band");
+        let green = themed(band.clone(), Some(&theme));
+        assert_ne!(green.fill, band.fill);
+        let (r, g, b) = crate::color::apply_tint(
+            (0x00, 0xB0, 0x50),
+            theme_slots()[band.fill.as_deref().unwrap()].1,
+        );
+        assert_eq!(green.fill, Some(format!("{r:02X}{g:02X}{b:02X}")));
+        // Without a theme of its own the measured colours stay.
+        assert_eq!(themed(band.clone(), None), band);
     }
 }

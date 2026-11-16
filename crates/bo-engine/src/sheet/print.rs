@@ -1182,6 +1182,29 @@ impl SheetEngine {
         Ok(serde_json::json!({ "pages": n, "page": p }))
     }
 
+    /// Display lists of pages `pages` of `sheet` in the page layout view (the native page
+    /// layout view draws only the pages it shows; see [`SheetEngine::print_preview`]).
+    pub fn page_layout_lists(
+        &mut self,
+        sheet: usize,
+        pages: &[usize],
+    ) -> Result<Vec<(usize, PageList)>> {
+        let st = settings(self.sheet(sheet)?);
+        let frames = self.frames_for(sheet, &st, true)?;
+        let n = frames.len();
+        let mut opts = self.print_options(&st);
+        if !st.gridlines {
+            opts.gridlines = None;
+        }
+        let mut out = Vec::with_capacity(pages.len());
+        for &i in pages {
+            if let Some(fr) = frames.get(i) {
+                out.push((i, self.draw_frame(sheet, &st, fr, i, n, &opts)?));
+            }
+        }
+        Ok(out)
+    }
+
     /// Printed pages of every visible sheet, with each sheet's name and first
     /// page index (sheets without pages are left out of the list of firsts).
     pub(crate) fn printed_pages(&mut self) -> Result<PrintedPages> {

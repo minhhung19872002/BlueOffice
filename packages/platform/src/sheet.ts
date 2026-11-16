@@ -1158,6 +1158,7 @@ export type SheetCommand =
   | { cmd: 'unprotectWorkbook'; password?: string }
   | { cmd: 'moveSheet'; from: number; to: number }
   | { cmd: 'setTabColor'; sheet: number; color?: string | null }
+  | { cmd: 'setSheetHidden'; sheet: number; hidden: boolean }
   | { cmd: 'batch'; cmds: SheetCommand[] }
   /** Undo history length → `{ history }`; join the steps after `since` into one (BlueScript, CORE-SCRIPT-001). */
   | { cmd: 'historyLen' }

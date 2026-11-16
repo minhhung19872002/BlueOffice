@@ -1418,6 +1418,14 @@ pub enum SheetCommand {
         /// 0-based index the sheet ends up at.
         to: usize,
     },
+    /// Hides or shows a sheet (§18.2.19 sheet/@state `hidden`); the last visible sheet
+    /// cannot be hidden. One undo step.
+    SetSheetHidden {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// Hide (`true`) or show.
+        hidden: bool,
+    },
     /// `sheetPr/tabColor` (§18.3.1.93) as `RRGGBB`; `None`/empty removes it.
     SetTabColor {
         /// 0-based sheet index.
@@ -2826,7 +2834,7 @@ impl SheetEngine {
             | C::PivotMove { sheet, .. }
             | C::PivotChangeSource { sheet, .. }
             | C::PivotRefresh { sheet, .. } => check(ws(*sheet)?, A::PivotTables),
-            C::MoveSheet { .. } => super::protect::check_structure(wb),
+            C::MoveSheet { .. } | C::SetSheetHidden { .. } => super::protect::check_structure(wb),
             C::Subtotal { sheet, .. } | C::RemoveSubtotals { sheet, .. } => {
                 let w = ws(*sheet)?;
                 check(w, A::InsertRows)?;
@@ -3120,6 +3128,29 @@ impl SheetEngine {
                 })?;
                 self.invalidate(None);
                 Ok(out)
+            }
+            C::SetSheetHidden { sheet, hidden } => {
+                use bo_model::sheet::SheetState;
+                let wb = self.wb()?;
+                if sheet >= wb.sheets.len() {
+                    return Err(EngineError::PageOutOfRange(sheet));
+                }
+                let visible = wb
+                    .sheets
+                    .iter()
+                    .filter(|w| w.state == SheetState::Visible)
+                    .count();
+                if hidden && visible <= 1 && wb.sheets[sheet].state == SheetState::Visible {
+                    return Err(bad("a workbook must keep at least one visible sheet"));
+                }
+                self.edit(sheet, Recalc::No, |wb, _| {
+                    wb.sheets[sheet].state = if hidden {
+                        SheetState::Hidden
+                    } else {
+                        SheetState::Visible
+                    };
+                    Ok(json!({ "ok": true }))
+                })
             }
             C::SetTabColor { sheet, color } => self.edit(sheet, Recalc::No, |wb, _| {
                 let hex = color

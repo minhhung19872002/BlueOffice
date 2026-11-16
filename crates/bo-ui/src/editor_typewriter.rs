@@ -20,14 +20,18 @@ const INSET: f32 = 1.5;
 #[derive(Debug, Clone, Default)]
 pub(crate) struct TwDraft {
     pub page: usize,
-    /// Top-left corner (page points).
+    /// Top-left corner (page points); of the text area for a text box.
     pub at: [f32; 2],
     pub text: String,
     /// Width of each line (points).
     pub widths: Vec<f32>,
+    /// A Comment › Text Box (`editor_textbox`): lines wrapped in its fixed width.
+    pub boxed: bool,
+    /// Lines as shown (wrapped for a text box).
+    pub lines: Vec<String>,
 }
 
-fn font(size: f32) -> Font<'static> {
+pub(crate) fn font(size: f32) -> Font<'static> {
     Font {
         family: "Arial",
         size,
@@ -53,6 +57,10 @@ impl EditorWindow {
     pub(crate) fn tw_commit(&mut self) {
         let Some(d) = self.tw.take() else { return };
         if d.text.trim().is_empty() {
+            return;
+        }
+        if d.boxed {
+            self.tb_commit(d);
             return;
         }
         let [x, y] = d.at;
@@ -93,12 +101,16 @@ impl EditorWindow {
             }
             _ => return false,
         }
-        d.widths = d
-            .text
-            .split('\n')
-            // Measured large and scaled: small sizes round each advance to whole pixels.
-            .map(|l| m.measure_font(l, &font(100.0)).0 * TW_SIZE / 100.0)
-            .collect();
+        if d.boxed {
+            crate::editor_textbox::wrap(d, m);
+        } else {
+            d.widths = d
+                .text
+                .split('\n')
+                // Measured large and scaled: small sizes round each advance to whole pixels.
+                .map(|l| m.measure_font(l, &font(100.0)).0 * TW_SIZE / 100.0)
+                .collect();
+        }
         self.caret_on = true;
         true
     }
@@ -106,6 +118,10 @@ impl EditorWindow {
     /// The text being typed, its frame and the caret.
     pub(crate) fn paint_tw(&self, p: &mut dyn Painter) {
         let Some(d) = &self.tw else { return };
+        if d.boxed {
+            self.paint_tb(p);
+            return;
+        }
         let Some(v) = self.view() else { return };
         let lines: Vec<&str> = d.text.split('\n').collect();
         // The reference's frame hugs the text (99.6 %: 103 x 19 px for one 9 pt line, ink 3 px

@@ -403,7 +403,7 @@ pub struct BlockEdit {
     /// Top-left of the first line's baseline (page points).
     origin: (f32, f32),
     /// Width the text wraps at.
-    width: f32,
+    pub(crate) width: f32,
     /// First-line indent of each paragraph (along the baseline).
     indent: f32,
     /// Unit vectors along the baseline and across lines (downwards) in page points.
@@ -411,11 +411,13 @@ pub struct BlockEdit {
     v: (f32, f32),
     /// CTM of the first run (user space to page points).
     ctm: M,
-    prefix: Vec<u8>,
+    pub(crate) prefix: Vec<u8>,
     sid: Option<ObjectId>,
     metrics: HashMap<(usize, char), Metric>,
     /// The page content was written by this session.
     pub dirty: bool,
+    /// What moves with the paragraph when it gains or loses lines (`block_edit_push`).
+    pub(crate) push: Option<crate::paragraph_push::Push>,
 }
 
 fn metric(e: &BlockEdit, i: usize) -> Option<&Metric> {
@@ -608,6 +610,11 @@ impl BlockEdit {
             let m = self.style_of.len();
             self.style_of.drain(a.min(m)..b.min(m));
         }
+    }
+
+    /// Unit vector across lines (downwards) in page points.
+    pub(crate) fn across(&self) -> (f32, f32) {
+        self.v
     }
 
     /// Space beyond the line height between lines (points): the pitch less the height of the
@@ -878,6 +885,7 @@ impl PdfDocument {
             sid: None,
             metrics: HashMap::new(),
             dirty: false,
+            push: None,
         };
         // Measure the paragraph's characters now: the first keystroke only lays out.
         if let Err(err) = self.measure(&mut e) {
@@ -1253,6 +1261,7 @@ impl PdfDocument {
             }
         }
         tail.extend_from_slice(b"Q\n");
+        crate::paragraph_push::update(e);
         let sid = match e.sid {
             Some(s) => s,
             None => {

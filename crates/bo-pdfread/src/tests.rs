@@ -481,6 +481,78 @@ fn text_render_modes_stroke_and_clip() {
 }
 
 #[test]
+fn embedded_truetype_without_widths_advances_by_its_own_metrics() {
+    // A symbolic simple TrueType font with no /Widths: the glyphs must not pile up.
+    let ttf = crate::bundled::FONTS[0];
+    let content = b"BT /F 20 Tf 72 700 Td (abc) Tj ET";
+    let objs: Vec<Vec<u8>> = vec![
+        b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R \
+          /Resources << /Font << /F 5 0 R >> >> >>"
+            .to_vec(),
+        [
+            format!("<< /Length {} >>\nstream\n", content.len()).as_bytes(),
+            content,
+            b"\nendstream",
+        ]
+        .concat(),
+        b"<< /Type /Font /Subtype /TrueType /BaseFont /Test /FontDescriptor 6 0 R >>".to_vec(),
+        b"<< /Type /FontDescriptor /FontName /Test /Flags 4 /FontFile2 7 0 R >>".to_vec(),
+        [
+            format!("<< /Length {} >>\nstream\n", ttf.len()).as_bytes(),
+            ttf,
+            b"\nendstream",
+        ]
+        .concat(),
+    ];
+    let mut pdf = b"%PDF-1.7\n".to_vec();
+    let mut offs = Vec::new();
+    for (i, o) in objs.iter().enumerate() {
+        offs.push(pdf.len());
+        pdf.extend_from_slice(format!("{} 0 obj\n", i + 1).as_bytes());
+        pdf.extend_from_slice(o);
+        pdf.extend_from_slice(b"\nendobj\n");
+    }
+    let x = pdf.len();
+    pdf.extend_from_slice(format!("xref\n0 {}\n0000000000 65535 f \n", objs.len() + 1).as_bytes());
+    for o in offs {
+        pdf.extend_from_slice(format!("{o:010} 00000 n \n").as_bytes());
+    }
+    pdf.extend_from_slice(
+        format!(
+            "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{x}\n%%EOF\n",
+            objs.len() + 1
+        )
+        .as_bytes(),
+    );
+    let mut doc = open(pdf);
+    let page = doc.render(0, RenderOptions::default()).expect("renders");
+    let xs: Vec<f32> = page.chars.iter().map(|c| c.origin[0]).collect();
+    assert_eq!(xs.len(), 3, "{xs:?}");
+    assert!(xs[1] - xs[0] > 5.0 && xs[2] - xs[1] > 5.0, "{xs:?}");
+}
+
+#[test]
+fn standard_symbol_fonts_use_their_built_in_encodings() {
+    // Symbol and ZapfDingbats not embedded (Annex D.5 / D.6): 'a' is alpha, 'H' a black star
+    // whatever face substitutes them.
+    let pdf = build_pdf(&[
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R \
+         /Resources << /Font << /S 5 0 R /Z 6 0 R >> >> >>",
+        "<< /Length 58 >>\nstream\nBT /S 12 Tf 72 700 Td (ab) Tj /Z 12 Tf 0 -20 Td (H4) Tj ET\nendstream",
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Symbol >>",
+        "<< /Type /Font /Subtype /Type1 /BaseFont /ZapfDingbats >>",
+    ]);
+    let mut doc = open(pdf);
+    let page = doc.render(0, RenderOptions::default()).expect("renders");
+    let text: String = page.chars.iter().map(|c| c.text.as_str()).collect();
+    assert_eq!(text, "\u{3b1}\u{3b2}\u{2605}\u{2714}");
+}
+
+#[test]
 fn aes_256_with_an_empty_user_password_opens() {
     // Revision 6 (ISO 32000-2 §7.6.4.4) with only an owner password (made with MuPDF).
     let bytes = include_bytes!("../testdata/aes256-empty-user.pdf").to_vec();

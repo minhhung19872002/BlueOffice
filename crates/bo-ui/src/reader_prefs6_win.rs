@@ -205,21 +205,18 @@ impl ReaderWindow {
 
     /// A distance, perimeter or area label in the chosen unit (the measuring tools).
     pub(crate) fn unit_label(&self, shape: &bo_pdfread::Shape) -> Option<String> {
-        let (_, u, k) = UNITS[self.prefs6.prefs.units];
-        let k = if self.profile.is_none() { k } else { 72.0 };
-        let u = if self.profile.is_none() { u } else { "in" };
-        Some(match shape {
-            bo_pdfread::Shape::Distance(a, b) => {
-                format!("{:.2} {u}", bo_pdfread::path_length(&[*a, *b]) / k)
-            }
-            bo_pdfread::Shape::Perimeter(p) => {
-                format!("{:.2} {u}", bo_pdfread::path_length(p) / k)
-            }
-            bo_pdfread::Shape::Area(p) => {
-                format!("{:.2} sq {u}", bo_pdfread::polygon_area(p) / (k * k))
-            }
-            _ => return None,
-        })
+        bo_pdfread::measure_label_in(shape, &self.measure_unit())
+    }
+
+    /// The measuring unit of the preferences (BlueEditor's window: inches), used for the
+    /// labels while measuring and for the `/Measure` of saved measurements (§12.9).
+    pub(crate) fn measure_unit(&self) -> bo_pdfread::MeasureUnit {
+        if self.profile.is_none() {
+            let (_, u, k) = UNITS[self.prefs6.prefs.units.min(UNITS.len() - 1)];
+            bo_pdfread::MeasureUnit::new(u, k)
+        } else {
+            bo_pdfread::MeasureUnit::default()
+        }
     }
 
     /// Wheel over the document: animated when smooth scrolling is on; `true` when taken.
@@ -762,5 +759,25 @@ mod tests {
         assert!(t.contains("zoom=width") && t.contains("units=mm"));
         assert_eq!(Prefs::from_text(&t), p);
         assert_eq!(Prefs::from_text("zoom=nonsense\nfoo=1"), Prefs::default());
+    }
+
+    #[test]
+    fn saved_measurements_use_the_preferred_unit() {
+        let doc = bo_pdfread::PdfDocument::open(
+            crate::reader_tests::pdf(1),
+            bo_pdfread::standard_fonts(),
+        )
+        .expect("pdf");
+        let mut w = ReaderWindow::new("en-US");
+        w.open(doc, "t.pdf", None);
+        // Centimetres: 144 pt = 5.08 cm, in the label, the contents and the /Measure.
+        w.prefs6.prefs.units = 2;
+        let shape = bo_pdfread::Shape::Distance([60.0, 100.0], [204.0, 100.0]);
+        assert_eq!(w.unit_label(&shape).as_deref(), Some("5.08 cm"));
+        w.add_shape(0, &shape, "");
+        let doc = w.view().expect("view").doc();
+        let a = doc.annotations().pop().expect("annot");
+        assert_eq!(a.contents, "5.08 cm");
+        assert_eq!(doc.measure_unit(&a).label, "cm");
     }
 }

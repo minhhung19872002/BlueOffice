@@ -50,6 +50,8 @@ mod props5;
 #[path = "reader_backstage5_win.rs"]
 mod bs5;
 // Preferences, Batch Print (BlueReader round 6).
+#[path = "reader_keys7_win.rs"]
+mod keys7;
 #[path = "reader_prefs6_win.rs"]
 mod prefs6;
 
@@ -68,6 +70,11 @@ const TRACK: Rgba = Rgba(240, 240, 240, 255);
 const THUMB: Rgba = Rgba(133, 133, 133, 255);
 const WHITE: Rgba = Rgba(255, 255, 255, 255);
 const CLOSE_BG: Rgba = Rgba(0xC4, 0x2B, 0x1C, 255);
+/// Page thumbnails measured on the reference at 125 %: pages 126 px wide in a 2 px frame,
+/// 200 px apart for Letter pages (163 px high).
+const THUMB_W: f32 = 100.8;
+const THUMB_GAP: f32 = 29.6;
+const THUMB_EDGE: Rgba = Rgba(207, 207, 208, 255);
 
 /// Pointer tools.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -484,6 +491,8 @@ pub struct ReaderWindow {
     /// Fill & Sign, signing, comment exchange of round 5.
     tabs5: tabs5::Tabs5,
     prefs6: prefs6::Prefs6,
+    /// Keyboard access to the ribbon (key tips, focus ring).
+    keys7: keys7::KeyLevel,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -563,6 +572,7 @@ impl ReaderWindow {
             tabs4: tabs4::Tabs4::default(),
             tabs5: tabs5::Tabs5::default(),
             prefs6: prefs6::Prefs6::default(),
+            keys7: keys7::KeyLevel::Off,
         }
     }
 
@@ -1399,7 +1409,10 @@ impl ReaderWindow {
                 self.maximized = on;
                 true
             }
-            Input::Tick => self.tick_viewx(m) || self.search_focus,
+            Input::Tick => {
+                let searched = self.tick_search();
+                self.tick_viewx(m) || self.search_focus || searched
+            }
             Input::Blink => self.search_focus,
             Input::Leave => self.hover.take().is_some(),
             _ => {
@@ -2097,16 +2110,44 @@ impl ReaderWindow {
         if same && t.view.current_hit().is_some() && self.status.starts_with(&q) {
             t.view.next_hit(forward);
         } else {
-            let n = t.view.find(&q, false, false);
-            self.status = format!("{q}: {n}");
+            // The first hit after the current page shows at once; the rest of a long document
+            // is read on ticks (`tick_search`).
+            t.view.find_start(&q, false, false);
         }
+        self.search_status();
+    }
+
+    /// Status of the search box's query: hit k / n (with the pages read while searching).
+    fn search_status(&mut self) {
+        let q = self.search_text.clone();
+        let Some(t) = self.tabs.get(self.active) else {
+            return;
+        };
         let n = t.view.hits().len();
         let cur = t.view.current_hit().map_or(0, |c| c + 1);
-        self.status = if n == 0 {
+        let progress = t
+            .view
+            .search_progress()
+            .map(|(done, all)| format!(" ({done} / {all})"))
+            .unwrap_or_default();
+        self.status = if n == 0 && progress.is_empty() {
             format!("{q}: {}", self.strings.get("pdfReader.noMatches"))
         } else {
-            format!("{q}: {cur} / {n}")
+            format!("{q}: {cur} / {n}{progress}")
         };
+    }
+
+    /// Continue a running search for part of a tick; `true` when the window changed.
+    fn tick_search(&mut self) -> bool {
+        let Some(t) = self.tabs.get_mut(self.active) else {
+            return false;
+        };
+        if !t.view.searching() {
+            return false;
+        }
+        t.view.search_step(std::time::Duration::from_millis(60));
+        self.search_status();
+        true
     }
 
     fn click(&mut self, id: &'static str, r: [f32; 4], m: &dyn TextMeasure) {
@@ -2409,7 +2450,9 @@ impl ReaderWindow {
     pub fn wheel_at(&mut self, x: f32, y: f32, dy: f32) -> bool {
         if inside(self.panel_rect, x, y) {
             if let Some(t) = self.tabs.get_mut(self.active) {
-                t.panel_scroll = (t.panel_scroll + dy).max(0.0);
+                // 60 px per notch at 125 % like the document (measured on the reference's
+                // page thumbnails too).
+                t.panel_scroll = (t.panel_scroll + dy * 0.8).max(0.0);
                 return true;
             }
         }
@@ -2437,7 +2480,8 @@ impl ReaderWindow {
         let animating = self.view4_animating() | self.step_smooth();
         let pages_panel = self.panel_open() == Some(Panel::Pages);
         let panel = self.panel_rect;
-        let thumb_w = self.px(120.0);
+        let thumb_w = self.px(THUMB_W);
+        let thumb_gap = self.px(THUMB_GAP);
         let Some(t) = self.tabs.get_mut(self.active) else {
             return false;
         };
@@ -2456,7 +2500,7 @@ impl ReaderWindow {
                 if y + h > panel[1] && y < panel[1] + panel[3] {
                     t.view.want_thumb(i, s);
                 }
-                y += h + 30.0 * (thumb_w / 120.0);
+                y += h + thumb_gap;
                 if y > panel[1] + panel[3] {
                     break;
                 }
@@ -3135,7 +3179,7 @@ impl ReaderWindow {
                 let n = t.view.page_count();
                 let cur = t.view.current_page();
                 let key_base = t.key_base;
-                let tw = self.px(120.0);
+                let tw = self.px(THUMB_W);
                 let mut rows = Vec::new();
                 for i in 0..n {
                     let (pw, ph) = t.view.page_size(i);
@@ -3150,7 +3194,9 @@ impl ReaderWindow {
                             p.fill_rect(x - 4.0, y - 4.0, tw + 8.0, hh + 8.0, self.theme.accent);
                             p.fill_rect(x - 2.0, y - 2.0, tw + 4.0, hh + 4.0, WHITE);
                         }
-                        p.fill_rect(x - 1.0, y - 1.0, tw + 2.0, hh + 2.0, PAGE_EDGE);
+                        // The reference: a 2 px light grey frame (207, 207, 208 at 125 %).
+                        let b = self.px(1.6).round().max(1.0);
+                        p.fill_rect(x - b, y - b, tw + 2.0 * b, hh + 2.0 * b, THUMB_EDGE);
                         p.fill_rect(x, y, tw, hh, WHITE);
                         if t.view.has_image(THUMB_KEY + i) {
                             p.page(key_base + THUMB_KEY + i, x as i32, y as i32);
@@ -3166,7 +3212,7 @@ impl ReaderWindow {
                         );
                     }
                     rows.push((y, hh + self.px(24.0), PanelRow::Page(i)));
-                    y += hh + self.px(30.0) * (tw / self.px(120.0));
+                    y += hh + self.px(THUMB_GAP);
                 }
                 self.panel_rows = rows;
             }

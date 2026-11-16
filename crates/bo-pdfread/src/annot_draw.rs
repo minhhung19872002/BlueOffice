@@ -163,8 +163,56 @@ impl Default for Style {
     }
 }
 
-/// Points per measured unit (inches) and its label.
-const UNIT: (f32, &str) = (72.0, "in");
+/// Unit of measurements: its label and page points per unit (§12.9 number format: `/U`, and
+/// `/C` = 1 / points). Inches by default.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MeasureUnit {
+    /// Label after the value (`in`, `mm`, `cm`, `pt`, `pc`).
+    pub label: String,
+    /// Page points (default user space units) per unit.
+    pub points: f32,
+}
+
+impl Default for MeasureUnit {
+    fn default() -> Self {
+        Self {
+            label: "in".to_owned(),
+            points: 72.0,
+        }
+    }
+}
+
+impl MeasureUnit {
+    /// A unit of `points` page points labelled `label` (non-positive sizes fall back to inches).
+    #[must_use]
+    pub fn new(label: &str, points: f32) -> Self {
+        if points.is_finite() && points > 0.0 && !label.is_empty() {
+            Self {
+                label: label.to_owned(),
+                points,
+            }
+        } else {
+            Self::default()
+        }
+    }
+
+    /// The unit of a `/Measure` dictionary: its first `/X` (or `/D`) number format's `/U` and
+    /// `/C` (§12.9 Table 261 / 263).
+    fn of_measure(doc: &crate::store::Document, m: &Object) -> Option<Self> {
+        let m = resolve(doc, m).as_dict().ok()?;
+        let fmt = [&b"X"[..], b"D"].iter().find_map(|k| {
+            let a = resolve(doc, m.get(k).ok()?).as_array().ok()?;
+            resolve(doc, a.first()?).as_dict().ok()
+        })?;
+        let u = fmt.get(b"U").ok().map(|o| resolve(doc, o))?;
+        let label = crate::text_string(u.as_str().ok()?);
+        let c = fmt
+            .get(b"C")
+            .ok()
+            .and_then(|o| resolve(doc, o).as_float().ok())?;
+        (c > 0.0).then(|| Self::new(label.trim(), 1.0 / c))
+    }
+}
 
 /// Length of a polyline in page points.
 #[must_use]
@@ -193,7 +241,13 @@ pub fn polygon_area(p: &[[f32; 2]]) -> f32 {
 /// The label of a measurement.
 #[must_use]
 pub fn measure_label(shape: &Shape) -> Option<String> {
-    let (k, u) = UNIT;
+    measure_label_in(shape, &MeasureUnit::default())
+}
+
+/// [`measure_label`] in `unit`.
+#[must_use]
+pub fn measure_label_in(shape: &Shape, unit: &MeasureUnit) -> Option<String> {
+    let (k, u) = (unit.points, unit.label.as_str());
     Some(match shape {
         Shape::Distance(a, b) => format!("{:.2} {u}", path_length(&[*a, *b]) / k),
         Shape::Perimeter(p) => format!("{:.2} {u}", path_length(p) / k),
@@ -248,6 +302,12 @@ impl Shape {
     /// Page-point box the comment covers (its `/Rect` before turning to user space).
     #[must_use]
     pub fn bounds(&self, style: &Style) -> [f32; 4] {
+        self.bounds_in(style, &MeasureUnit::default())
+    }
+
+    /// [`Shape::bounds`] with measurement labels in `unit`.
+    #[must_use]
+    pub fn bounds_in(&self, style: &Style, unit: &MeasureUnit) -> [f32; 4] {
         let w = style.width.max(0.5);
         match self {
             Shape::Ink(strokes) => {
@@ -264,7 +324,7 @@ impl Shape {
                 grow(b, w * 5.0)
             }
             Shape::Distance(a, b) => {
-                let label = measure_label(self).unwrap_or_default();
+                let label = measure_label_in(self, unit).unwrap_or_default();
                 let mid = [f32::midpoint(a[0], b[0]), f32::midpoint(a[1], b[1])];
                 let tw = text_width(&label, style.font_size) / 2.0 + 2.0;
                 let r = bounds(&[
@@ -276,7 +336,7 @@ impl Shape {
                 grow(r, w * 4.0)
             }
             Shape::Perimeter(p) | Shape::Area(p) => {
-                let label = measure_label(self).unwrap_or_default();
+                let label = measure_label_in(self, unit).unwrap_or_default();
                 let last = p.last().copied().unwrap_or([0.0, 0.0]);
                 let mut pts = p.clone();
                 pts.push([
@@ -454,7 +514,13 @@ fn wrap_text(text: &str, width: f32, size: f32) -> Vec<String> {
 
 /// Appearance content and resources of `shape`; `m` maps page points to user space.
 #[allow(clippy::too_many_lines)]
-fn appearance(shape: &Shape, style: &Style, text: &str, m: M) -> (String, Dictionary) {
+fn appearance(
+    shape: &Shape,
+    style: &Style,
+    text: &str,
+    m: M,
+    unit: &MeasureUnit,
+) -> (String, Dictionary) {
     let [r, g, b] = style.color.map(|c| f32::from(c) / 255.0);
     let w = style.width.max(0.1);
     let mut pen = Pen {
@@ -586,7 +652,7 @@ fn appearance(shape: &Shape, style: &Style, text: &str, m: M) -> (String, Dictio
             pen.s.push_str("S\n");
             pen.arrow(*b, *a, (w * 4.0).max(5.0));
             pen.arrow(*a, *b, (w * 4.0).max(5.0));
-            let label = measure_label(shape).unwrap_or_default();
+            let label = measure_label_in(shape, unit).unwrap_or_default();
             let mid = [f32::midpoint(a[0], b[0]), f32::midpoint(a[1], b[1])];
             let tw = text_width(&label, fs);
             pen.text(
@@ -603,7 +669,7 @@ fn appearance(shape: &Shape, style: &Style, text: &str, m: M) -> (String, Dictio
             } else {
                 "S\n"
             });
-            let label = measure_label(shape).unwrap_or_default();
+            let label = measure_label_in(shape, unit).unwrap_or_default();
             let last = p.last().copied().unwrap_or([0.0, 0.0]);
             pen.text(&[&label], [last[0] + 4.0, last[1] - fs * 1.4], fs, "Helv");
         }
@@ -629,6 +695,20 @@ impl PdfDocument {
         author: &str,
         text: &str,
     ) -> Result<(), String> {
+        self.add_drawing_in(page, shape, style, author, text, &MeasureUnit::default())
+    }
+
+    /// [`PdfDocument::add_drawing`] with measurements (distance, perimeter, area) in `unit`:
+    /// their label and `/Measure` dictionary (§12.9) use it.
+    pub fn add_drawing_in(
+        &mut self,
+        page: usize,
+        shape: &Shape,
+        style: &Style,
+        author: &str,
+        text: &str,
+        unit: &MeasureUnit,
+    ) -> Result<(), String> {
         if self.doc.is_encrypted() && self.doc.encryption_state.is_none() {
             return Err("comments cannot be added to an encrypted document".into());
         }
@@ -647,7 +727,7 @@ impl PdfDocument {
         );
         self.begin("drawing");
         let id = self.add(Object::Dictionary(Dictionary::new()));
-        let r = self.write_drawing(id, page, shape, style, text, d);
+        let r = self.write_drawing(id, page, shape, style, text, d, Some(unit));
         if r.is_ok() {
             // Link it from the page's /Annots.
             if let Ok(Object::Reference(arr)) = self
@@ -678,7 +758,9 @@ impl PdfDocument {
     }
 
     /// Fill annotation `id` (dictionary `d` with the fixed keys) with `shape`'s geometry keys,
-    /// style and a new appearance stream.
+    /// style and a new appearance stream; measurements in `unit`, else in the unit of the
+    /// comment's own `/Measure` (inches when it has none).
+    #[allow(clippy::too_many_arguments)]
     fn write_drawing(
         &mut self,
         id: lopdf::ObjectId,
@@ -687,14 +769,17 @@ impl PdfDocument {
         style: &Style,
         text: &str,
         mut d: Dictionary,
+        unit: Option<&MeasureUnit>,
     ) -> Result<(), String> {
+        let unit = unit.cloned().unwrap_or_else(|| self.measure_unit_of(&d));
+        let unit = &unit;
         let (_, inv) = self.user_matrix(page)?;
         let u = |p: [f32; 2]| {
             let (x, y) = apply(inv, p[0], p[1]);
             [x, y]
         };
         let flat = |v: &[[f32; 2]]| -> Vec<f32> { v.iter().flat_map(|p| u(*p)).collect() };
-        let b = shape.bounds(style);
+        let b = shape.bounds_in(style, unit);
         let corners = [
             u([b[0], b[1]]),
             u([b[2], b[3]]),
@@ -725,19 +810,22 @@ impl PdfDocument {
             d.remove(k);
         }
         let measure = || {
-            // §12.9 Table 261: a rectilinear measure of inches, 1 in = 1 in.
+            // §12.9 Table 261: a rectilinear measure, 1 unit = 1 unit; Table 263: /C turns
+            // default user space units (points) into the unit.
             let mut x = Dictionary::new();
-            x.set("U", text_obj(UNIT.1));
-            x.set("C", Object::Real(1.0 / UNIT.0));
+            x.set("Type", Object::Name(b"NumberFormat".to_vec()));
+            x.set("U", text_obj(&unit.label));
+            x.set("C", Object::Real(1.0 / unit.points));
             x.set("D", 100);
             let mut a = Dictionary::new();
-            a.set("U", text_obj(&format!("sq {}", UNIT.1)));
+            a.set("Type", Object::Name(b"NumberFormat".to_vec()));
+            a.set("U", text_obj(&format!("sq {}", unit.label)));
             a.set("C", Object::Real(1.0));
             a.set("D", 100);
             let mut m = Dictionary::new();
             m.set("Type", Object::Name(b"Measure".to_vec()));
             m.set("Subtype", Object::Name(b"RL".to_vec()));
-            m.set("R", text_obj(&format!("1 {u} = 1 {u}", u = UNIT.1)));
+            m.set("R", text_obj(&format!("1 {u} = 1 {u}", u = unit.label)));
             m.set("X", vec![Object::Dictionary(x.clone())]);
             m.set("D", vec![Object::Dictionary(x)]);
             m.set("A", vec![Object::Dictionary(a)]);
@@ -762,7 +850,7 @@ impl PdfDocument {
                 d.set("Measure", measure());
                 d.set(
                     "Contents",
-                    text_obj(&measure_label(shape).unwrap_or_default()),
+                    text_obj(&measure_label_in(shape, unit).unwrap_or_default()),
                 );
             }
             Shape::Polyline(p) => d.set("Vertices", nums(&flat(p))),
@@ -780,7 +868,7 @@ impl PdfDocument {
                 d.set("Measure", measure());
                 d.set(
                     "Contents",
-                    text_obj(&measure_label(shape).unwrap_or_default()),
+                    text_obj(&measure_label_in(shape, unit).unwrap_or_default()),
                 );
             }
             Shape::Oval(_) | Shape::Rect(_) => {}
@@ -811,7 +899,7 @@ impl PdfDocument {
             }
             Shape::Stamp(_, k) => d.set("Name", name(k.name())),
         }
-        let (content, res) = appearance(shape, style, text, inv);
+        let (content, res) = appearance(shape, style, text, inv, unit);
         let mut ap_dict = Dictionary::new();
         ap_dict.set("Type", Object::Name(b"XObject".to_vec()));
         ap_dict.set("Subtype", Object::Name(b"Form".to_vec()));
@@ -963,6 +1051,21 @@ impl PdfDocument {
         Some((shape, style, a.contents.clone()))
     }
 
+    /// Unit of a measurement comment (its `/Measure`; inches when it has none).
+    #[must_use]
+    pub fn measure_unit(&self, a: &Annot) -> MeasureUnit {
+        a.id.and_then(|id| self.doc.get_dictionary(id).ok())
+            .map(|d| self.measure_unit_of(d))
+            .unwrap_or_default()
+    }
+
+    fn measure_unit_of(&self, d: &Dictionary) -> MeasureUnit {
+        d.get(b"Measure")
+            .ok()
+            .and_then(|m| MeasureUnit::of_measure(&self.doc, m))
+            .unwrap_or_default()
+    }
+
     /// Give a drawn comment another geometry, style or text (resize, properties): its keys and
     /// appearance are written again. Comments without a geometry of ours get only their
     /// `/Rect` (their appearance scales to it).
@@ -980,7 +1083,7 @@ impl PdfDocument {
             .map_err(|e| e.to_string())?
             .clone();
         self.begin("change drawing");
-        let r = self.write_drawing(id, a.page, shape, style, text, d);
+        let r = self.write_drawing(id, a.page, shape, style, text, d, None);
         self.commit();
         r
     }
@@ -991,7 +1094,7 @@ impl PdfDocument {
             return Err("too small".into());
         }
         if let Some((shape, style, text)) = self.drawing(a) {
-            let from = shape.bounds(&style);
+            let from = shape.bounds_in(&style, &self.measure_unit(a));
             // Map the shape's own box so the new bounds land on `rect`.
             let shape = shape.mapped(from, rect);
             return self.update_drawing(a, &shape, &style, &text);
@@ -1049,6 +1152,58 @@ mod tests {
             .as_deref(),
             Some("2.00 sq in")
         );
+    }
+
+    #[test]
+    fn measurements_saved_in_the_chosen_unit() {
+        let mut doc = blank();
+        let mm = MeasureUnit::new("mm", 72.0 / 25.4);
+        let style = Style::default();
+        // 144 pt = 50.8 mm.
+        let d = Shape::Distance([60.0, 600.0], [204.0, 600.0]);
+        doc.add_drawing_in(0, &d, &style, "me", "", &mm)
+            .expect("add");
+        let a = doc.annotations().pop().expect("annot");
+        assert_eq!(a.contents, "50.80 mm");
+        let unit = doc.measure_unit(&a);
+        assert_eq!(unit.label, "mm");
+        assert!((unit.points - 72.0 / 25.4).abs() < 1e-3);
+        // §12.9: /Measure /RL with /R, /X number format /U mm /C = 1 / points per mm.
+        let dict = doc.doc.get_dictionary(a.id.expect("id")).expect("dict");
+        let m = dict
+            .get(b"Measure")
+            .and_then(Object::as_dict)
+            .expect("measure");
+        assert_eq!(
+            m.get(b"Subtype").and_then(Object::as_name).ok(),
+            Some(&b"RL"[..])
+        );
+        assert_eq!(
+            m.get(b"R").and_then(Object::as_str).ok(),
+            Some(&b"1 mm = 1 mm"[..])
+        );
+        let x = m.get(b"X").and_then(Object::as_array).expect("x")[0]
+            .as_dict()
+            .expect("fmt");
+        let c = x.get(b"C").and_then(Object::as_float).expect("c");
+        assert!((c - 25.4 / 72.0).abs() < 1e-4);
+        // Restyling keeps the comment's own unit.
+        let (shape, mut st, text) = doc.drawing(&a).expect("drawing");
+        st.width = 3.0;
+        doc.update_drawing(&a, &shape, &st, &text).expect("update");
+        let a = doc.annotations().pop().expect("annot");
+        assert_eq!(a.contents, "50.80 mm");
+        // Area in square centimetres: 144 × 72 pt = 5.08 × 2.54 cm = 12.90 sq cm.
+        let cm = MeasureUnit::new("cm", 72.0 / 2.54);
+        let area = Shape::Area(vec![
+            [400.0, 600.0],
+            [544.0, 600.0],
+            [544.0, 672.0],
+            [400.0, 672.0],
+        ]);
+        assert_eq!(measure_label_in(&area, &cm).as_deref(), Some("12.90 sq cm"));
+        // Bad units fall back to inches.
+        assert_eq!(MeasureUnit::new("", 0.0), MeasureUnit::default());
     }
 
     #[test]

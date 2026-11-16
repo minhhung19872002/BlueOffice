@@ -46,6 +46,13 @@ pub fn run() -> Result<(), String> {
     }
     // Formulas are calculated when a file opens, as the reference spreadsheet does with
     // files another application saved (BLUEOFFICE_SHEET_RECALC=0 keeps the saved results).
+    // Sheets without a paper size print on the region's paper (iPaperSize: 1 Letter,
+    // 9 A4), as the reference with the default printer.
+    engine.set_default_paper(
+        win32::region_value("iPaperSize")
+            .and_then(|v| v.trim().parse().ok())
+            .filter(|v| *v > 0),
+    );
     engine.set_recalc_on_open(std::env::var("BLUEOFFICE_SHEET_RECALC").as_deref() != Ok("0"));
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

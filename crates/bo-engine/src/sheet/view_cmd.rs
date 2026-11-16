@@ -18,7 +18,7 @@
 //!   AutoFilter instead.
 
 use super::cmd::Recalc;
-use super::print::{settings, PageBox, Pagination};
+use super::print::{settings_on, PageBox, Pagination};
 use super::SheetEngine;
 use crate::{EngineError, Result};
 use bo_model::sheet::{
@@ -401,7 +401,7 @@ impl SheetEngine {
 
     fn break_preview(&mut self, sheet: usize) -> Result<Value> {
         let ws = self.sheet(sheet)?;
-        let st = settings(ws);
+        let st = settings_on(ws, self.default_paper);
         let manual_rows = ws.page_setup.row_breaks.clone();
         let manual_cols = ws.page_setup.col_breaks.clone();
         let mut number = st.first_page;
@@ -441,7 +441,7 @@ impl SheetEngine {
         from: Option<u32>,
         to: u32,
     ) -> Result<Value> {
-        let st = settings(self.sheet(sheet)?);
+        let st = settings_on(self.sheet(sheet)?, self.default_paper);
         let pags = self.paginations(sheet, &st)?;
         let (range, p): &(bo_model::sheet::CellRange, Pagination) =
             pags.get(area).ok_or_else(|| bad("no such print area"))?;

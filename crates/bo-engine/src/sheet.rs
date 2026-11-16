@@ -509,6 +509,9 @@ pub struct SheetEngine {
     wb: Option<wb_slot::WbSlot>,
     geometry: Vec<Option<SheetGeometry>>,
     locale: Locale,
+    /// Paper of sheets whose page setup names none (§18.3.1.63 `paperSize` absent): the
+    /// system's default paper ([`SheetEngine::set_default_paper`]); A4 when unset.
+    pub(crate) default_paper: Option<u32>,
     undo: Vec<UndoEntry>,
     redo: Vec<UndoEntry>,
     /// Persistent formula engine: edits recalculate only their dependents.
@@ -1051,6 +1054,7 @@ impl SheetEngine {
             wb: None,
             geometry: Vec::new(),
             locale: Locale::VI_VN,
+            default_paper: None,
             undo: Vec::new(),
             redo: Vec::new(),
             live: LiveCalc::new(),
@@ -1131,6 +1135,13 @@ impl SheetEngine {
     /// Takes effect at the next recalculation (the function is volatile).
     pub fn set_web_provider(&mut self, provider: Option<Arc<dyn bo_formula::WebProvider>>) {
         self.live.set_web_provider(provider);
+    }
+
+    /// The paper (`paperSize` code, 1 = Letter, 9 = A4) sheets without a paper size of their
+    /// own are printed and paginated on: the reference takes the default printer's paper,
+    /// which follows the region (the desktop host passes the region's paper).
+    pub fn set_default_paper(&mut self, size: Option<u32>) {
+        self.default_paper = size;
     }
 
     /// Number locale (separators, month names) values are shown with.

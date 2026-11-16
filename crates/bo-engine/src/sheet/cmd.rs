@@ -5009,7 +5009,7 @@ impl SheetEngine {
                     .map_or((None, None), super::print::parse_titles);
                 Ok(json!({
                     "orientation": p.orientation.clone().unwrap_or_else(|| "portrait".into()),
-                    "paperSize": p.paper_size.unwrap_or(9),
+                    "paperSize": p.paper_size.or(self.default_paper).unwrap_or(9),
                     "scale": p.scale.unwrap_or(100),
                     "fit": (ws.props.fit_to_page == Some(true))
                         .then(|| [p.fit_to_width.unwrap_or(1), p.fit_to_height.unwrap_or(1)]),

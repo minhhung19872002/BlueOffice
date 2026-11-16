@@ -405,3 +405,46 @@ fn custom_views_save_apply_delete() {
         Some(vec![(4, 4)])
     );
 }
+
+/// Measured on the reference (`HPageBreaks` / `VPageBreaks` through its object model) with a
+/// sheet of 120 rows × 14 columns in the default font, no paper size in the file and the
+/// region's paper Letter: margins 0.75 / 1 in → 504 × 648 pt printable; rows 14.4 pt, so 45
+/// rows fill the page exactly and the reference puts 44 per page (breaks before rows 45 and
+/// 89).
+#[test]
+fn breaks_match_the_reference_on_letter() {
+    let mut e = engine();
+    e.set_default_paper(Some(1));
+    {
+        let wb = e.wb.as_deref_mut().unwrap();
+        let ws = &mut wb.sheets[0];
+        ws.page_setup.margins = Some(bo_model::sheet::PageMargins {
+            left: 0.75,
+            right: 0.75,
+            top: 1.0,
+            bottom: 1.0,
+            header: 0.5,
+            footer: 0.5,
+        });
+        ws.format.default_row_height = Some(14.4);
+        for r in 0..120 {
+            for c in 0..14 {
+                ws.set_cell(
+                    r,
+                    c,
+                    bo_model::sheet::Cell::new(CellValue::Number(f64::from(r + c))),
+                );
+            }
+        }
+    }
+    e.invalidate(None);
+    let p = run(&mut e, json!({ "cmd": "pageBreakPreview", "sheet": 0 }));
+    assert_eq!(
+        spans(&p["areas"][0]["rows"]),
+        vec![[0, 43], [44, 87], [88, 119]],
+        "{p}"
+    );
+    // The page setup reports the paper the sheet is paginated on.
+    let s = run(&mut e, json!({ "cmd": "pageSetup", "sheet": 0 }));
+    assert_eq!(s["paperSize"], 1, "{s}");
+}

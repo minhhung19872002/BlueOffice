@@ -38,15 +38,16 @@ fn fixed(w: f64) -> impl Fn(u32) -> f64 {
 
 #[test]
 fn page_order_both_ways() {
-    // 5 columns × 100 pt, 10 rows × 20 pt on a 250 × 100 pt printable area:
-    // 2 columns per page (200 ≤ 250 < 300) → A:B, C:D, E; 5 rows per page.
+    // 5 columns × 100 pt, 10 rows × 20 pt on a 250 × 110 pt printable area:
+    // 2 columns per page (200 ≤ 250 < 300) → A:B, C:D, E; 5 rows per page (100 ≤ 110 < 120;
+    // rows filling the page exactly would not fit, as the reference).
     let cw = fixed(100.0);
     let rh = fixed(20.0);
     let mut input = PageInput {
         col_w: &cw,
         row_h: &rh,
         area: CellRange::new(CellRef::new(0, 0), CellRef::new(9, 4)),
-        avail: (250.0, 100.0),
+        avail: (250.0, 110.0),
         fixed: (0.0, 0.0),
         fit: None,
         scale_pct: 100,
@@ -69,8 +70,8 @@ fn page_order_both_ways() {
         p.order,
         vec![(0, 0), (1, 0), (2, 0), (0, 1), (1, 1), (2, 1)]
     );
-    // 50 %: 500 × 200 pt of sheet fit on one page.
-    input.scale_pct = 50;
+    // 40 %: the 500 × 200 pt of sheet take 200 × 80 pt: one page.
+    input.scale_pct = 40;
     let p = paginate(&input);
     assert_eq!((p.cols.len(), p.rows.len()), (1, 1));
     // Manual row break after row 3 (index 2): 0–2, then 5 rows, then the rest.

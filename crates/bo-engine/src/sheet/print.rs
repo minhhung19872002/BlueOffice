@@ -200,9 +200,11 @@ pub(super) struct PageBox {
     pub cells: Option<PageCells>,
 }
 
-pub(super) fn settings(ws: &Worksheet) -> Settings {
+/// Print settings of `ws`; `default_paper` for a page setup without a paper size (A4 when
+/// `None`).
+pub(super) fn settings_on(ws: &Worksheet, default_paper: Option<u32>) -> Settings {
     let ps = &ws.page_setup;
-    let (mut pw, mut ph) = paper(ps.paper_size);
+    let (mut pw, mut ph) = paper(ps.paper_size.or(default_paper));
     if ps.orientation.as_deref() == Some("landscape") {
         std::mem::swap(&mut pw, &mut ph);
     }
@@ -254,6 +256,7 @@ pub(super) fn spans(
     last: u32,
     avail: f64,
     breaks: &[u32],
+    slack: f64,
 ) -> Vec<(u32, u32)> {
     let mut out = Vec::new();
     let mut start = first;
@@ -261,7 +264,7 @@ pub(super) fn spans(
     let mut i = first;
     while i <= last {
         let s = sizes(i);
-        if acc > 0.0 && acc + s > avail + 0.01 {
+        if acc > 0.0 && acc + s > avail + slack {
             out.push((start, i - 1));
             start = i;
             acc = 0.0;
@@ -334,8 +337,12 @@ pub(super) fn paginate(p: &PageInput<'_>) -> Pagination {
     };
     let aw = (aw0 / scale - p.fixed.0).max(10.0);
     let ah = (ah0 / scale - p.fixed.1).max(10.0);
-    let cols = spans(p.col_w, a.first.col, a.last.col, aw, p.col_breaks);
-    let rows = spans(p.row_h, a.first.row, a.last.row, ah, p.row_breaks);
+    // Measured on the reference: at a set scale, rows that fill the page exactly (45 ×
+    // 14.4 pt on 648 pt) do not fit and the last one starts the next page; a scale
+    // fitted to the pages fills them to the edge.
+    let slack = if p.fit.is_some() { 0.01 } else { -0.01 };
+    let cols = spans(p.col_w, a.first.col, a.last.col, aw, p.col_breaks, slack);
+    let rows = spans(p.row_h, a.first.row, a.last.row, ah, p.row_breaks, slack);
     let mut order = Vec::with_capacity(cols.len() * rows.len());
     if p.over_then_down {
         for r in 0..rows.len() {
@@ -784,7 +791,7 @@ impl SheetEngine {
     /// margins and, for pages of cells, the cell spans, the scale and the page
     /// position of the first body cell.
     pub(super) fn page_layout(&mut self, sheet: usize) -> Result<Vec<PageBox>> {
-        let st = settings(self.sheet(sheet)?);
+        let st = settings_on(self.sheet(sheet)?, self.default_paper);
         let frames = self.frames_for(sheet, &st, true)?;
         let mut out = Vec::with_capacity(frames.len());
         for fr in &frames {
@@ -1125,7 +1132,7 @@ impl SheetEngine {
 
     /// The printed pages of one sheet (empty when there is nothing to print).
     pub(crate) fn print_pages(&mut self, sheet: usize) -> Result<Vec<PageList>> {
-        let st = settings(self.sheet(sheet)?);
+        let st = settings_on(self.sheet(sheet)?, self.default_paper);
         let frames = self.frames(sheet, &st)?;
         let opts = self.print_options(&st);
         let n = frames.len();
@@ -1167,7 +1174,7 @@ impl SheetEngine {
         page: usize,
         layout: bool,
     ) -> Result<serde_json::Value> {
-        let st = settings(self.sheet(sheet)?);
+        let st = settings_on(self.sheet(sheet)?, self.default_paper);
         let frames = self.frames_for(sheet, &st, layout)?;
         let n = frames.len();
         let mut opts = self.print_options(&st);
@@ -1189,7 +1196,7 @@ impl SheetEngine {
         sheet: usize,
         pages: &[usize],
     ) -> Result<Vec<(usize, PageList)>> {
-        let st = settings(self.sheet(sheet)?);
+        let st = settings_on(self.sheet(sheet)?, self.default_paper);
         let frames = self.frames_for(sheet, &st, true)?;
         let n = frames.len();
         let mut opts = self.print_options(&st);

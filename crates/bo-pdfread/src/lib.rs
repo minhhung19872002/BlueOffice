@@ -58,6 +58,7 @@ mod templates;
 mod text;
 mod text_ops;
 mod type1;
+mod typing_fast;
 mod viewer;
 mod write;
 
@@ -255,6 +256,8 @@ pub struct PdfDocument {
     font_cache: font::FontCache,
     images: interp::ImageCache,
     hidden: HashSet<ObjectId>,
+    /// Drawing kept while BlueEditor types into a paragraph (`typing_fast`).
+    typing: typing_fast::TypingCache,
     /// Objects added or changed since opening (written by an incremental save).
     changed: Vec<ObjectId>,
     /// The document has `/PageLabels`.
@@ -544,6 +547,7 @@ impl PdfDocument {
             font_cache: font::FontCache::default(),
             images: interp::ImageCache::default(),
             hidden,
+            typing: typing_fast::TypingCache::default(),
             changed: Vec::new(),
             labelled,
             edit: edit::EditState::default(),
@@ -643,6 +647,13 @@ impl PdfDocument {
         let page = doc.get_dictionary(info.id).map_err(|e| e.to_string())?;
         let resources = inherited(doc, page, b"Resources").and_then(|o| o.as_dict().ok());
         let content = page_content(doc, page);
+        // BlueEditor typing: the kept drawing of the page without the paragraph, when the
+        // content is still that prefix plus the paragraph (`typing_fast`).
+        let split = if extra == RenderExtra::default() {
+            self.typing.split(index, &content)
+        } else {
+            None
+        };
         let mut shared = Shared {
             doc,
             fonts: &mut self.fonts,
@@ -651,17 +662,45 @@ impl PdfDocument {
             hidden: &self.hidden,
             opts,
         };
+        let mut kept = None;
+        if let Some(n) = split {
+            if !self.typing.fresh(opts, base, self.hidden.len()) {
+                let mut pi = Interp::new(
+                    &mut shared,
+                    base,
+                    resources,
+                    (info.width, info.height),
+                    format!("p{index}"),
+                );
+                pi.run(&content[..n]);
+                let rest = pi.at_rest(base);
+                pi.finish();
+                self.typing.drawn =
+                    rest.then(|| (opts, base, self.hidden.len(), std::mem::take(&mut pi.out)));
+            }
+            kept = self.typing.drawing();
+        }
         let mut it = Interp::new(
             &mut shared,
             base,
             resources,
             (info.width, info.height),
-            format!("p{index}"),
+            if kept.is_some() {
+                format!("p{index}t")
+            } else {
+                format!("p{index}")
+            },
         );
         it.text_color = extra.text_color;
         it.overprint = extra.overprint;
         if extra.print_what.content() {
-            it.run(&content);
+            match (kept, split) {
+                (Some(out), Some(n)) => {
+                    it.out = out;
+                    it.run(&content[n..]);
+                }
+                _ => it.run(&content),
+            }
         }
         it.finish();
         let mut links = Vec::new();

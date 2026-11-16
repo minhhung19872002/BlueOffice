@@ -1265,6 +1265,7 @@ impl PdfDocument {
         content.extend_from_slice(&e.prefix);
         content.extend_from_slice(&tail);
         self.set_stream_raw(sid, content);
+        self.typing.note(e.page, &e.prefix);
         e.dirty = true;
         Ok(())
     }
@@ -1374,6 +1375,7 @@ impl PdfDocument {
 
     /// Finish editing: compress the page stream and close the undo group.
     pub fn end_block_edit(&mut self, e: &BlockEdit) {
+        self.typing.clear();
         if let Some(sid) = e.sid {
             let bytes = match self.doc.get_object(sid) {
                 Ok(Object::Stream(s)) if s.dict.get(b"Filter").is_err() => Some(s.content.clone()),

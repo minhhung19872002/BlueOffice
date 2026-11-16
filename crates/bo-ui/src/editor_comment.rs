@@ -378,17 +378,27 @@ impl EditorWindow {
         contents: String,
     ) {
         let c = &self.comment;
+        // Typewriter text has the reference's own defaults (`editor_typewriter`).
+        let typewriter = kind == MarkupKind::Typewriter;
         let m = Markup {
             kind,
             page,
             rect,
             points,
-            color: c.color,
+            color: if typewriter {
+                crate::editor_typewriter::TW_COLOR
+            } else {
+                c.color
+            },
             opacity: c.opacity,
             width: c.width,
             author: self.prefs.author.clone(),
             contents,
-            font_size: 12.0,
+            font_size: if typewriter {
+                crate::editor_typewriter::TW_SIZE
+            } else {
+                12.0
+            },
         };
         match self.doc_edit(|d| d.add_markup(&m)) {
             Ok(()) => {

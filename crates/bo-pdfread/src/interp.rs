@@ -486,6 +486,17 @@ impl<'s, 'a> Interp<'s, 'a> {
     }
 
     /// Close every clip and state still open.
+    /// Whether the run left the graphics state as it started from `base`: nothing saved,
+    /// clipped or marked is still open (BlueEditor's kept page drawing, `typing_fast`).
+    pub(crate) fn at_rest(&self, base: M) -> bool {
+        self.stack.is_empty()
+            && self.gs.clips == 0
+            && self.gs.ctm == base
+            && self.marked.is_empty()
+            && self.bo_marks.is_empty()
+            && self.hidden_depth == 0
+    }
+
     pub(crate) fn finish(&mut self) {
         while !self.stack.is_empty() {
             self.restore();

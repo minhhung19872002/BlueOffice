@@ -7,10 +7,12 @@ use crate::{Font, Input, Key, Painter, TextMeasure};
 use bo_pdfread::MarkupKind;
 use bo_render::Rgba;
 
-/// Font size of typewriter text (points), as [`EditorWindow::add_comment`] writes it.
-pub(crate) const TW_SIZE: f32 = 12.0;
-/// Frame of the text being typed (the reference: a thin blue box).
-const FRAME: Rgba = Rgba(0, 120, 215, 255);
+/// Typewriter text as the reference editor writes it (its saved `/FreeText`: `/DA (/Helvetica
+/// 9 Tf)`, text colour `#0000FF`): size in points and colour.
+pub(crate) const TW_SIZE: f32 = 9.0;
+pub(crate) const TW_COLOR: [u8; 3] = [0, 0, 255];
+/// Frame of the text being typed (the reference: 1 px #759DB8, text inset 3 px).
+const FRAME: Rgba = Rgba(117, 157, 184, 255);
 
 /// A typewriter comment being typed.
 #[derive(Debug, Clone, Default)]
@@ -111,7 +113,7 @@ impl EditorWindow {
             return;
         };
         let s = w[2] / (r[2] - r[0]).max(1e-3);
-        let c = self.comment.color;
+        let c = TW_COLOR;
         let ink = Rgba(c[0], c[1], c[2], 255);
         let f = font(TW_SIZE * s);
         for (i, l) in lines.iter().enumerate() {

@@ -47,8 +47,9 @@ fn ribbon(tab: usize) -> Vec<(&'static str, Kind)> {
     use Kind::{Big, Row, Sep, Small};
     let common = [
         ("tool.hand", Big("hand", "pdfReader.hand", false)),
-        // The reference's Select has a menu: text and images, or comments.
-        ("tool.select", Big("select", "pdfReader.select", true)),
+        // The reference's Select has a menu: text and images, or comments (the editor's own
+        // command: the reader's `tool.select` has none).
+        ("ed.selectMenu", Big("select", "pdfReader.select", true)),
     ];
     let mut v: Vec<(&'static str, Kind)> = common.to_vec();
     match tab {
@@ -76,8 +77,9 @@ fn ribbon(tab: usize) -> Vec<(&'static str, Kind)> {
                 Big("editObject", "pdfEditor.editObject", true),
             ),
             ("sep3", Sep),
+            // The same Typewriter as the Comment tab's: typed in place (`editor_typewriter`).
             (
-                "tool.textbox",
+                "cm.typewriter",
                 Big("typewriter", "pdfReader.typewriter", false),
             ),
             (
@@ -509,6 +511,8 @@ pub struct EditorWindow {
     pub(crate) tw: Option<crate::editor_typewriter::TwDraft>,
     /// Tab to close once the host saved it (Yes in the close question).
     pub(crate) close_after_save: Option<usize>,
+    /// The save-changes question being shown.
+    pub(crate) close_box: Option<crate::editor_close::CloseBox>,
     /// Form field tool.
     pub(crate) design: crate::editor_design::DesignState,
     /// Caret shown (blink phase).
@@ -583,6 +587,7 @@ impl EditorWindow {
             comment: crate::editor_comment::CommentState::default(),
             tw: None,
             close_after_save: None,
+            close_box: None,
             design: crate::editor_design::DesignState::default(),
             caret_on: true,
             x: crate::editor_actions::Extras::default(),
@@ -808,6 +813,9 @@ impl EditorWindow {
         }
         if self.dialog.is_some() || self.dialog2.is_some() {
             return self.dialog_input(&input, m);
+        }
+        if self.close_box_input(&input) {
+            return true;
         }
         if self.tw_input(&input, m) {
             return true;
@@ -1085,18 +1093,19 @@ impl EditorWindow {
             "ed.editObject" => self.toggle_tool(EditTool::Object),
             "ed.addText" => self.toggle_tool(EditTool::AddText),
             "prot.redact" => self.toggle_tool(EditTool::Redact),
-            "tool.hand" | "tool.select" => {
+            "tool.hand" | "tool.select" | "ed.selectMenu" => {
                 self.edit.reset(self.r.view_mut());
                 self.tool = None;
                 self.comment.tool = None;
                 self.design.tool = None;
                 self.tools.tool = None;
-                if cmd == "tool.select" {
+                if cmd == "ed.selectMenu" {
+                    self.r.set_tool(Tool::Select);
                     let items = [
                         ("ed.selTextImage", "pdfEditor.selTextImage"),
                         ("ed.selAnnot", "pdfEditor.selAnnot"),
                     ];
-                    self.menu(&items, "tool.select");
+                    self.menu(&items, "ed.selectMenu");
                 }
             }
             "ed.selTextImage" => self.r.set_tool(Tool::Select),
@@ -1338,8 +1347,6 @@ impl EditorWindow {
                     self.tools_answer(t, b, &d.values());
                 } else if let crate::editor_actions::Ask2::Five(t) = what {
                     self.five_answer(t, b, &d.values());
-                } else if let crate::editor_actions::Ask2::Close(c) = what {
-                    self.close_answer(c, b);
                 } else if b == DialogButton::Ok {
                     self.answer2(what, &d.values());
                 }
@@ -1667,6 +1674,12 @@ impl EditorWindow {
         if let Some(t) = self.comment.tool {
             self.r.on.insert(crate::editor_comment::tool_command(t));
         }
+        if self.tool.is_none()
+            && self.comment.tool.is_none()
+            && self.r.current_tool() == Tool::Select
+        {
+            self.r.on.insert("ed.selectMenu");
+        }
         for id in ["ed.scanner", "ed.ocr"] {
             self.r.enabled_override.insert(id, false);
         }
@@ -1878,6 +1891,7 @@ impl EditorWindow {
         if let Some((d, _)) = &self.dialog2 {
             d.paint(p, self.r.theme(), self.r.window_size(), true);
         }
+        self.paint_close_box(p);
     }
 }
 

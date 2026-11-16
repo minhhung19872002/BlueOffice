@@ -107,6 +107,13 @@ pub use sorter::ViewMode;
 mod ink;
 pub use ink::InkTool;
 
+#[path = "slide_ruler.rs"]
+mod ruler;
+pub use ruler::Ruler;
+
+#[path = "slide_view8.rs"]
+mod view8;
+
 #[path = "slide_present.rs"]
 mod present;
 pub use present::ShowPlan;
@@ -351,6 +358,15 @@ pub struct SlideView {
     /// Draw tab tool in use, and the stroke being drawn (slide points).
     ink_tool: Option<InkTool>,
     ink_stroke: Vec<[f64; 2]>,
+    /// Draw > Ruler over the slide.
+    draw_ruler: Option<Ruler>,
+    /// What the Draw tab's eraser removes.
+    erase_mode: bo_engine::slide_edit::ink::EraseMode,
+    /// View > Grid and Guides: snap moves to the grid, its spacing (points).
+    grid_snap: bool,
+    grid_spacing: f64,
+    /// Draw > Ink Replay running.
+    replay: Option<ruler::Replay>,
     focus: Focus,
     state: Option<SlideEditResult>,
     /// Display list each stored image shows, with its scale.
@@ -430,6 +446,11 @@ impl SlideView {
             spell_dirty: true,
             sort_zoom: 1.0,
             ink_tool: None,
+            draw_ruler: None,
+            erase_mode: bo_engine::slide_edit::ink::EraseMode::Stroke,
+            grid_snap: false,
+            grid_spacing: 6.0,
+            replay: None,
             ink_stroke: Vec::new(),
             focus: Focus::Canvas,
             state: None,
@@ -992,6 +1013,16 @@ impl SlideView {
             return false;
         }
         self.color_mode = mode;
+        self.invalidate_page_images();
+        true
+    }
+
+    /// Review > Hide Ink: leave ink out of the editing area, the thumbnails and the show;
+    /// `true` when it changed.
+    pub fn set_hide_ink(&mut self, hide: bool) -> bool {
+        if self.engine.slide_hide_ink() == hide || self.engine.set_slide_hide_ink(hide).is_err() {
+            return false;
+        }
         self.invalidate_page_images();
         true
     }
@@ -1795,6 +1826,7 @@ impl SlideView {
                         dx = 0.0;
                     }
                 }
+                let (dx, dy) = self.grid_move(dx, dy);
                 Some(Transform::Move { dx, dy })
             }
             Drag::Handle {
@@ -2117,6 +2149,14 @@ impl SlideView {
         if self.show.is_some() {
             return self.show_input(&input);
         }
+        if self.replay.is_some()
+            && matches!(input, Input::Press { .. } | Input::Key(..) | Input::Text(_))
+        {
+            self.stop_replay();
+        }
+        if let Some(r) = self.ruler_input(&input) {
+            return r;
+        }
         if let Some(r) = self.ink_input(&input) {
             return r;
         }
@@ -2294,14 +2334,19 @@ impl SlideView {
 
     /// Whether a transition or effects are playing (the host draws every frame).
     pub fn animating(&self) -> bool {
-        self.show
-            .as_ref()
-            .is_some_and(|s| !s.ended && (s.trans.is_some() || s.fx_start.is_some()))
+        self.replay.is_some()
+            || self
+                .show
+                .as_ref()
+                .is_some_and(|s| !s.ended && (s.trans.is_some() || s.fx_start.is_some()))
     }
 
     /// The host's clock (ms, any origin) for the next frame; `true` when the show changed.
     pub fn set_clock(&mut self, ms: f64) -> bool {
         self.clock = ms;
+        if self.replay.is_some() {
+            return self.replay_clock(ms);
+        }
         let Some(s) = self.show.as_mut() else {
             return false;
         };
@@ -2524,7 +2569,11 @@ impl SlideView {
         slide: usize,
         scale: f32,
     ) -> Result<bool, String> {
-        let list = self.engine.slide(slide).map_err(|e| e.to_string())?;
+        // Ink Replay draws the slide without its ink under the strokes it replays.
+        let list = match self.replay.as_ref().filter(|r| r.slide == slide) {
+            Some(r) => &r.backdrop,
+            None => self.engine.slide(slide).map_err(|e| e.to_string())?,
+        };
         let band = if self.full.contains(&key) {
             None
         } else {
@@ -3119,7 +3168,9 @@ impl SlideView {
         let canvas = self.canvas_rect();
         p.push_clip(canvas[0], canvas[1], canvas[2], canvas[3]);
         self.paint_slide(p);
+        self.paint_replay(p);
         self.paint_ink(p);
+        self.paint_ruler(p);
         self.paint_marquee(p);
         p.pop_clip();
         if let Some(n) = self.notes_rect() {

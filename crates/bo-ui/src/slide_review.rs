@@ -7,8 +7,9 @@
 //!   `bo_engine::slide_edit::a11y::slide_shapes`); a row goes to the shape.
 //! - Language sets the proofing language of the text (or leaves it unchecked), engine
 //!   `TextFormat::Lang`.
-//! - Thesaurus and Translate have no engine behind them yet and are greyed, as is Hide Ink
-//!   (the reference greys it too while the deck holds no ink).
+//! - Thesaurus and Translate have no engine behind them yet and are greyed. Hide Ink is
+//!   greyed while the deck holds no ink (as on the reference) and otherwise toggles the ink
+//!   out of the slides, thumbnails and the show (round 17).
 use super::selpane::{A11yRow, SideHit, SideKind};
 use super::{MenuKind, SlideWindow};
 use crate::popup::{Choice, Menu, MenuItem};
@@ -18,11 +19,12 @@ use bo_engine::slide_edit::text::TextFormat;
 use bo_engine::slide_edit::SlideCommand;
 use bo_render::Rgba;
 
-/// Commands of these groups that work (Thesaurus, Translate, Hide Ink are greyed).
-pub const COMMANDS: [&str; 2] = ["sl.checkA11y", "sl.language"];
+/// Commands of these groups that work (Thesaurus and Translate are greyed; Hide Ink needs
+/// ink in the deck).
+pub const COMMANDS: [&str; 3] = ["sl.checkA11y", "sl.language", "sl.hideInk"];
 
 /// Commands shown greyed.
-pub const GREYED: [&str; 3] = ["sl.thesaurus", "sl.translate", "sl.hideInk"];
+pub const GREYED: [&str; 2] = ["sl.thesaurus", "sl.translate"];
 
 /// Proofing languages of the Language menu (BCP 47 tag, `spell.lang.*` key); the last
 /// entry leaves the text unchecked.
@@ -150,6 +152,30 @@ impl SlideWindow {
                 self.review_menu(items, "sl.language");
                 true
             }
+            "sl.hideInk" => {
+                // As the reference's split button: Hide Ink (checked while hidden), Delete
+                // All Ink on Slide, Delete All Ink in Presentation.
+                let hidden = self.view.engine().slide_hide_ink();
+                let items: Vec<MenuItem> = [
+                    ("hideInk", "rv:hideink", hidden),
+                    ("deleteInkSlide", "rv:delinkslide", false),
+                    ("deleteInkAll", "rv:delinkall", false),
+                ]
+                .iter()
+                .map(|(k, c, on)| MenuItem {
+                    label: self.t(&format!("slideNative.{k}"), k),
+                    choice: Choice::Command((*c).to_owned()),
+                    checked: *on,
+                    dim: false,
+                })
+                .collect();
+                let Some(r) = self.ribbon.rect_of(RibbonHit::Command("sl.hideInk")) else {
+                    return Some(false);
+                };
+                self.menu_kind = MenuKind::Duration;
+                self.menu = Some(Menu::open(items, r, self.size, self.scale));
+                true
+            }
             id if GREYED.contains(&id) => false,
             _ => return None,
         })
@@ -179,6 +205,12 @@ impl SlideWindow {
             "alt" => self.action("sl.altText"),
             "sel" => self.action("sl.selPane"),
             "noproof" => self.view.format_text(TextFormat::Lang { lang: None }),
+            "hideink" => {
+                let hide = !self.view.engine().slide_hide_ink();
+                self.view.set_hide_ink(hide)
+            }
+            "delinkslide" => self.view.delete_ink(false),
+            "delinkall" => self.view.delete_ink(true),
             _ => match v.strip_prefix("lang:") {
                 Some(l) => self.view.format_text(TextFormat::Lang {
                     lang: Some(l.to_owned()),

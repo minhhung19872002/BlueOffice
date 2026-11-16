@@ -21,7 +21,8 @@ pub(super) enum ShowDialog {
 }
 
 /// Commands of the tab.
-pub const COMMANDS: [&str; 8] = [
+pub const COMMANDS: [&str; 9] = [
+    "show.record",
     "show.custom",
     "show.setUp",
     "show.rehearse",
@@ -44,7 +45,12 @@ pub(super) fn show_tab() -> Tab {
             },
             Group {
                 label: "slideNative.setUp",
-                large: vec![L("show.setUp"), L("show.hideSlide"), L("show.rehearse")],
+                large: vec![
+                    L("show.setUp"),
+                    L("show.hideSlide"),
+                    L("show.rehearse"),
+                    L("show.record"),
+                ],
                 rows: vec![
                     vec![S("show.narrations")],
                     vec![S("show.useTimings")],
@@ -73,6 +79,7 @@ pub(super) fn install_strings(s: &mut crate::strings::Strings) {
         ("show.mediaControls", "mediaControls"),
         ("show.usePresenter", "usePresenter"),
         ("show.presenterView", "presenterView"),
+        ("show.record", "record"),
     ] {
         let v = s.get(&format!("slideNative.{key}")).to_owned();
         s.set(&format!("commands.{id}"), &v);
@@ -116,6 +123,19 @@ pub(super) fn install_icons(icons: &mut crate::icons::Icons) {
         ],
     );
     icons.alias("show.presenterView", "show.presenter");
+    // Record: a screen with a red dot (own drawing).
+    icons.add_solid(
+        "show.record",
+        &[
+            (screen, Some(white)),
+            (screen, None),
+            (
+                "M14 14a4.5 4.5 0 1 0 9 0a4.5 4.5 0 1 0 -9 0Z",
+                Some(Rgba(0xd8, 0x3b, 0x2f, 255)),
+            ),
+            ("M12 16v5M8 21h4", None),
+        ],
+    );
 }
 
 impl SlideWindow {
@@ -159,10 +179,11 @@ impl SlideWindow {
                 self.open_custom_menu();
                 true
             }
-            "show.setUp" => {
-                self.open_show_dialog(ShowDialog::SetUp);
+            "show.record" => {
+                self.open_record_menu();
                 true
             }
+            "show.setUp" => self.open_form8(super::forms8::Dlg::SetUp),
             "show.narrations" | "show.useTimings" => {
                 let Some(mut setup) = self.view.engine().presentation().map(present::show_setup)
                 else {
@@ -185,6 +206,30 @@ impl SlideWindow {
             }
             _ => return None,
         })
+    }
+
+    /// Record ▾ as on the reference: recording (narration / camera) is not available here
+    /// and greyed; Clear removes the slides' automatic timings.
+    fn open_record_menu(&mut self) {
+        let Some(anchor) = self.ribbon.rect_of(RibbonHit::Command("show.record")) else {
+            return;
+        };
+        let items = [
+            ("recordCurrent", "rec:cur", true),
+            ("recordBeginning", "rec:start", true),
+            ("clearTimingSlide", "rec:clear1", false),
+            ("clearTimingsAll", "rec:clearall", false),
+        ]
+        .iter()
+        .map(|(k, c, dim)| MenuItem {
+            label: self.t(&format!("slideNative.{k}"), k),
+            choice: Choice::Command((*c).to_owned()),
+            checked: false,
+            dim: *dim,
+        })
+        .collect();
+        self.menu_kind = super::MenuKind::Duration;
+        self.menu = Some(Menu::open(items, anchor, self.size, self.scale));
     }
 
     fn open_custom_menu(&mut self) {
@@ -218,10 +263,24 @@ impl SlideWindow {
 
     /// Menu choices of the tab.
     pub(super) fn choose_show(&mut self, kind: &str, v: &str) -> Option<bool> {
+        if kind == "rec" {
+            let slides: Vec<usize> = match v {
+                "clear1" => vec![self.view.current()],
+                "clearall" => (0..self.view.slide_count()).collect(),
+                _ => return Some(false),
+            };
+            let timings = slides
+                .into_iter()
+                .map(|slide| present::SlideTiming { slide, ms: None })
+                .collect();
+            return Some(self.view.run(SlideCommand::SetTimings {
+                timings,
+                use_timings: None,
+            }));
+        }
         (kind == "cshow").then(|| {
             if v == "new" {
-                self.open_show_dialog(ShowDialog::CustomShow);
-                return true;
+                return self.open_form8(super::forms8::Dlg::CustomShows);
             }
             let Ok(id) = v.parse::<u32>() else {
                 return false;

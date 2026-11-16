@@ -161,6 +161,14 @@ fn ribbon_format(view: &SlideView, anim: bool) -> bo_edit::FormatState {
             flags.push_str("cmt ");
         }
     }
+    // Hide Ink is dimmed while the deck holds no ink (as on the reference); Ink Replay
+    // while the slide has none.
+    if view.engine().slide_has_ink() {
+        flags.push_str("ink ");
+        if view.current_slide_has_ink() {
+            flags.push_str("slink ");
+        }
+    }
     let (can_undo, can_redo) = view.history();
     bo_edit::FormatState {
         bold: f.bold,
@@ -204,6 +212,16 @@ pub struct SlideWindow {
     /// Animation Painter: the effect to give the next shape chosen, and the shape it came
     /// from.
     painter: Option<(AnimSpec, u32)>,
+    /// Round 17 dialogs (Set Up Show, Custom Shows, Zoom, Grid and Guides): the open one,
+    /// whether it needs laying out, the pointer's last position over it.
+    form8: Option<forms8::Open>,
+    form8_layout: bool,
+    form8_ptr: (f32, f32),
+    /// Outline View: the chosen line (slide, body paragraph or `None` for the title).
+    outline_sel: Option<outline8::Line>,
+    /// Draw tab: the pens of the gallery and the one in use.
+    pens: Vec<draw::PenSlot>,
+    active_pen: Option<&'static str>,
     /// Measured widths of the gallery tiles' names.
     gallery_w: Vec<(&'static str, f32)>,
     ribbon: Ribbon,
@@ -342,6 +360,25 @@ mod insert_icons;
 
 #[path = "slide_review.rs"]
 mod review;
+
+#[path = "slide_draw.rs"]
+mod draw;
+
+#[path = "slide_anim8.rs"]
+mod anim8;
+
+#[path = "sheet_form.rs"]
+#[allow(dead_code)]
+mod sform;
+
+#[path = "slide_forms8.rs"]
+mod forms8;
+
+#[path = "slide_outline8.rs"]
+mod outline8;
+
+#[path = "slide_thesaurus.rs"]
+mod thesaurus;
 pub use ins::InsertFile;
 pub use views5::WindowRequest;
 
@@ -349,6 +386,12 @@ impl SlideWindow {
     /// The fixed tabs now shown: Slide Master's tab first while the master is edited.
     fn fixed_tabs(&self) -> Vec<Tab> {
         let mut tabs = base_tabs();
+        // Pens added to the Draw tab's gallery.
+        if self.pens.len() != 6 {
+            if let Some(t) = tabs.iter_mut().find(|t| t.label == "slideNative.draw") {
+                *t = draw::draw_tab(self.pens.len());
+            }
+        }
         if self.master_view {
             tabs.insert(0, viewtab::master_tab());
         }
@@ -364,7 +407,7 @@ fn base_tabs() -> Vec<Tab> {
     vec![
         home(),
         ins::insert_tab(),
-        sr::draw_tab(),
+        draw::draw_tab(6),
         sr::design_tab(),
         sr::transitions_tab(),
         sr::animations_tab(),
@@ -377,6 +420,7 @@ fn base_tabs() -> Vec<Tab> {
 /// Fixed widths of gallery tiles (themes, transitions, effects, shape styles).
 fn large_widths(id: &str) -> Option<f32> {
     sr::large_width(id)
+        .or_else(|| draw::large_width(id))
         .or_else(|| ins::large_width(id))
         .or_else(|| fmt::large_width(id))
 }
@@ -454,6 +498,9 @@ fn slide_enabled(id: &str, f: &bo_edit::FormatState) -> bool {
         "transition.preview" => return flags.contains("trans "),
         "anim.preview" => return flags.contains("anims "),
         "review.deleteComment" => return flags.contains("cmt "),
+        "sl.hideInk" => return flags.contains("ink "),
+        "draw.replay" => return flags.contains("slink "),
+        "draw.inkToMath" => return false,
         // Screenshot needs other windows' pictures from the host: not available yet.
         "sl.screenshot" => return false,
         id if review::GREYED.contains(&id) => return false,
@@ -464,6 +511,8 @@ fn slide_enabled(id: &str, f: &bo_edit::FormatState) -> bool {
         || ins::COMMANDS.contains(&id)
         || showtab::COMMANDS.contains(&id)
         || viewtab::COMMANDS.contains(&id)
+        || draw::COMMANDS.contains(&id)
+        || draw::PEN_IDS.contains(&id)
         || fmt::COMMANDS.contains(&id)
         || pic::COMMANDS.contains(&id)
         || pic::BG_COMMANDS.contains(&id)
@@ -488,6 +537,7 @@ impl SlideWindow {
         sections::install_strings(&mut strings);
         paragraph::install_strings(&mut strings);
         review::install_strings(&mut strings);
+        draw::install_strings(&mut strings);
         let mut icons = Icons::load();
         sr::install_icons(&mut icons);
         ins::install_icons(&mut icons);
@@ -501,6 +551,7 @@ impl SlideWindow {
         paragraph::install_icons(&mut icons);
         insert_icons::install(&mut icons);
         review::install_icons(&mut icons);
+        draw::install_icons(&mut icons);
         view.set_labels(
             strings.get("slideEditor.notesPlaceholder"),
             strings.get("slideEditor.end"),
@@ -531,6 +582,12 @@ impl SlideWindow {
             anim_pane: AnimPane::default(),
             anim_focus: false,
             painter: None,
+            pens: draw::default_pens(),
+            form8: None,
+            form8_layout: false,
+            form8_ptr: (0.0, 0.0),
+            outline_sel: None,
+            active_pen: None,
             gallery_w: Vec::new(),
             ribbon: Ribbon::with_tabs(base_tabs())
                 .with_band_extra(RIBBON_EXTRA)
@@ -803,6 +860,13 @@ impl SlideWindow {
                 d.layout(text, self.size, self.scale);
             }
         }
+        if std::mem::take(&mut self.form8_layout) {
+            if let Some(o) = self.form8.as_mut() {
+                o.form.layout(text, self.size, self.scale);
+                let labels: Vec<String> = o.radios.iter().flat_map(|r| r.labels.clone()).collect();
+                o.form.measure(text, &labels);
+            }
+        }
         if mode != self.view.mode() {
             self.relayout_pending = true;
         }
@@ -910,6 +974,9 @@ impl SlideWindow {
 
     /// Run interface command `id` (ribbon, title bar, menu, shortcut).
     fn action(&mut self, id: &str) -> bool {
+        if let Some(r) = self.draw_action(id) {
+            return r;
+        }
         if let Some(r) = self.table_tool_action(id) {
             return r;
         }
@@ -954,6 +1021,7 @@ impl SlideWindow {
             }
             "draw.inkToShape" => self.view.ink_to_shapes(),
             id if sr::DRAW_TOOLS.contains(&id) => {
+                self.active_pen = None;
                 self.view.set_ink_tool(crate::slide_view::InkTool::of(id));
                 true
             }
@@ -1089,8 +1157,16 @@ impl SlideWindow {
                     "transition.effect" => (MenuKind::TransitionEffect, "transition.effect"),
                     "transition.duration" => (MenuKind::Duration, "transition.duration"),
                     "transition.more" => (MenuKind::TransitionMore, "transition.more"),
-                    "anim.more" => (MenuKind::AnimMore, "anim.more"),
-                    "anim.add" => (MenuKind::AnimAdd, "anim.add"),
+                    // The full gallery: effects by class with their pictures (round 17).
+                    "anim.more" | "anim.add" => {
+                        let anchor = if id == "anim.add" {
+                            "anim.add"
+                        } else {
+                            "anim.none"
+                        };
+                        self.open_effects(anchor, id == "anim.add");
+                        return true;
+                    }
                     _ => (MenuKind::AnimEffect, "anim.effect"),
                 };
                 self.open_menu(kind, RibbonHit::Command(anchor));
@@ -1270,8 +1346,18 @@ impl SlideWindow {
                     Some(AnimHit::Earlier) => self.action("anim.earlier"),
                     Some(AnimHit::Later) => self.action("anim.later"),
                     Some(AnimHit::Select(i)) => self.choose_effect(i),
+                    Some(AnimHit::Menu(i)) => self.open_effect_menu(i),
                     None => false,
                 })
+            }
+            Input::Context { x, y } if self.anim_pane.contains(*x, *y) => {
+                match self.anim_pane.press(*x, *y) {
+                    Some(AnimHit::Select(i) | AnimHit::Menu(i)) => {
+                        self.choose_effect(i);
+                        Some(self.open_effect_menu(i))
+                    }
+                    _ => Some(false),
+                }
             }
             Input::Press { .. } => {
                 self.anim_focus = false;
@@ -1961,6 +2047,8 @@ impl SlideWindow {
                 true
             }
             "rv" => self.choose_review(v),
+            "deras" | "dadd" | "dpen" => return self.choose_draw(kind, v),
+            "arow" => return self.choose_effect_menu(v),
             "hl" | "fc" | "body" => self.choose_home(kind, v),
             "slchart" => self.chart_action(c).unwrap_or(false),
             "tdir" => self.set_transition(None, Some(v.to_owned()), None, false),
@@ -2001,7 +2089,7 @@ impl SlideWindow {
             }
             "side" => self.choose_format(v),
             "sect" => self.choose_section(v),
-            "cshow" => return self.choose_show(kind, v),
+            "cshow" | "rec" => return self.choose_show(kind, v),
             "zoom" | "pm" => return self.choose_view(kind, v),
             _ => return self.choose_insert(kind, v),
         })
@@ -2120,6 +2208,16 @@ impl SlideWindow {
                 Input::Blink => false,
                 other => self.view.handle(other),
             };
+        }
+        if self.form8.is_some() {
+            if let Some(r) = self.form8_input(&input) {
+                return r;
+            }
+        }
+        if let Input::Key(k, m) = input {
+            if let Some(r) = self.outline_key(k, m) {
+                return r;
+            }
         }
         if let Some(b) = self.backstage.as_mut() {
             match input {
@@ -2409,6 +2507,7 @@ impl SlideWindow {
             );
             self.paint_theme_tiles(p);
             self.paint_galleries(p, &on);
+            self.paint_pens(p);
             self.paint_controls(p);
             self.paint_insert(p);
             self.paint_table_design(p);
@@ -2417,6 +2516,7 @@ impl SlideWindow {
             self.paint_view_checks(p);
         }
         self.paint_markers(p);
+        self.paint_anim_tags(p);
         self.comments.paint(p);
         self.anim_pane.paint(p);
         self.paint_bg_pane(p);
@@ -2442,6 +2542,7 @@ impl SlideWindow {
         if let Some((d, _)) = &self.dialog {
             d.paint(p, &self.theme, self.size, true);
         }
+        self.paint_form8(p);
     }
 
     /// Ribbon commands shown as on: notes, the current slide's transition, the selection's
@@ -2460,16 +2561,14 @@ impl SlideWindow {
         if self.view.format().shadow {
             on.push("sl.shadow");
         }
+        if self.view.engine().slide_hide_ink() {
+            on.push("sl.hideInk");
+        }
         self.view_toggled(&mut on);
         self.picture_toggled(&mut on);
         self.table_tool_toggled(&mut on);
-        // The Draw tool in use (Select when none).
-        let tool = sr::DRAW_TOOLS
-            .iter()
-            .find(|id| crate::slide_view::InkTool::of(id).as_ref() == self.view.ink_tool());
-        if let Some(id) = tool {
-            on.push(id);
-        }
+        // The Draw tool in use, the ruler.
+        self.draw_toggled(&mut on);
         let Some(st) = self.view.state() else {
             return on;
         };

@@ -130,7 +130,9 @@ pub fn is_command(id: &str) -> bool {
 pub fn has_menu_mark(id: &str) -> bool {
     matches!(
         id,
-        "sl.table"
+        "draw.eraser"
+            | "draw.add"
+            | "sl.table"
             | "sl.shapes"
             | "sl.arrange"
             | "sl.quickStyles"
@@ -155,6 +157,7 @@ pub fn has_menu_mark(id: &str) -> bool {
             | "design.layout"
             | "design.slideSize"
             | "show.custom"
+            | "show.record"
             | "sl.links"
             | "sl.pictures"
             | "sl.screenshot"

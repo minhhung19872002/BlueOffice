@@ -696,6 +696,15 @@ impl SlideWindow {
                 self.label("themeColors"),
                 self.label("standardColors"),
             ],
+            PickKind::Effects => pk::EFFECT_SECTIONS
+                .iter()
+                .map(|(k, _, _)| self.strings.get(k).to_owned())
+                .chain(pk::EFFECT_SECTIONS.iter().flat_map(|(_, _, ids)| {
+                    ids.iter()
+                        .map(|id| self.t(&format!("slideFx.{id}"), id))
+                        .collect::<Vec<_>>()
+                }))
+                .collect(),
         };
         if kind == PickKind::Icons && self.library.is_empty() {
             self.library = pk::load_library();
@@ -780,6 +789,10 @@ impl SlideWindow {
                     })
             }
             "sym" => self.insert_text(value),
+            "fx" => {
+                let (effect, class) = value.split_once(':').unwrap_or((value, "entr"));
+                self.pick_effect(effect, class, anchor == "anim.add")
+            }
             "style" => {
                 let mut it = value.split(':').filter_map(|n| n.parse::<usize>().ok());
                 let (a, r) = (it.next().unwrap_or(0), it.next().unwrap_or(0));
@@ -794,6 +807,9 @@ impl SlideWindow {
                 f || l
             }
             "color" => {
+                if let Some(r) = self.pick_pen_color(anchor, value) {
+                    return r;
+                }
                 let color = (!value.is_empty()).then(|| value.to_owned());
                 if let Some(r) = self.pick_text_color(anchor, color.clone()) {
                     return r;

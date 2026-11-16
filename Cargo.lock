@@ -1067,6 +1067,7 @@ dependencies = [
  "bo-sign",
  "bo-spell",
  "bo-text",
+ "miniz_oxide 0.8.9",
  "png",
  "rand 0.8.8",
  "serde",

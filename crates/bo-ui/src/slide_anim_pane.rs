@@ -31,6 +31,8 @@ pub enum AnimHit {
     Later,
     /// Choose effect `index`.
     Select(usize),
+    /// The drop-down of effect `index`'s row (start, remove; round 17).
+    Menu(usize),
 }
 
 /// What a key in the pane asks for.
@@ -315,6 +317,28 @@ impl AnimPane {
                 class_color(a.class),
             ));
             hits.push((r, AnimHit::Select(i)));
+            // The chosen row's drop-down button at its right end, as on the reference.
+            if self.selected == Some(i) {
+                let bw = self.px(18.0);
+                let b = [r[0] + r[2] - bw, ry + 1.0, bw, row_h - 2.0];
+                ops.push(Op::Rect(b, EDGE));
+                ops.push(Op::Rect(
+                    [b[0] + 1.0, b[1] + 1.0, b[2] - 2.0, b[3] - 2.0],
+                    PANE_BG,
+                ));
+                let (ax, ay, k) = (b[0] + bw / 2.0, b[1] + b[3] / 2.0, self.px(3.5));
+                ops.push(Op::Path(
+                    vec![
+                        PathSeg::M(ax - k, ay - k / 2.0),
+                        PathSeg::L(ax + k, ay - k / 2.0),
+                        PathSeg::L(ax, ay + k / 2.0 + 1.0),
+                        PathSeg::Z,
+                    ],
+                    Some(ink),
+                    None,
+                ));
+                hits.push((b, AnimHit::Menu(i)));
+            }
             ry += row_h;
         }
         self.ops = ops;

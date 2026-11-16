@@ -117,6 +117,10 @@ pub struct SpellShown {
     pub suggestions: Vec<String>,
     /// The chosen correction.
     pub chosen: usize,
+    /// Meanings of the chosen correction: definition, synonyms (round 17, English thesaurus).
+    pub meanings: Vec<(String, String)>,
+    /// Name of the text's proofing language, shown at the pane's foot.
+    pub lang: String,
 }
 
 /// What typing in a pane asks for.
@@ -843,6 +847,41 @@ impl SidePane {
                 Some((ink, self.scale.max(1.0).round())),
             ));
             hits.push(([sx - 2.0, sy - 2.0, s + 4.0, s + 4.0], SideHit::Speak));
+            // Its meanings (numbered definitions, synonyms under each), as the reference
+            // lists them under the word.
+            let mut my = wy + sh + self.px(10.0);
+            let [_, py, _, ph] = self.rect;
+            let foot = py + ph - self.px(40.0);
+            for (n, (gloss, syn)) in shown.meanings.iter().enumerate() {
+                for (k, l) in wrap(&format!("{}. {gloss}", n + 1), width, text, body)
+                    .into_iter()
+                    .enumerate()
+                {
+                    if my + line > foot {
+                        break;
+                    }
+                    let x = if k == 0 { left } else { left + self.px(14.0) };
+                    ops.push(Op::Text(l, x, my, body, ink));
+                    my += line;
+                }
+                if !syn.is_empty() {
+                    for l in wrap(syn, width - self.px(14.0), text, body) {
+                        if my + line > foot {
+                            break;
+                        }
+                        ops.push(Op::Text(l, left + self.px(14.0), my, body, DIM));
+                        my += line;
+                    }
+                }
+                my += self.px(6.0);
+            }
+        }
+        // The proofing language at the foot of the pane.
+        if !shown.lang.is_empty() {
+            let [_, py, _, ph] = self.rect;
+            let fy = py + ph - self.px(32.0);
+            ops.push(Op::Rect([left, fy - self.px(8.0), width, 1.0], ROW_SEL));
+            ops.push(Op::Text(shown.lang.clone(), left, fy, body, ink));
         }
         self.ops = ops;
         self.hits = hits;

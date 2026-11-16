@@ -11,7 +11,8 @@ use bo_engine::slide_edit::master::MasterCommand;
 use bo_render::Rgba;
 
 /// Commands of the tab.
-pub const COMMANDS: [&str; 7] = [
+pub const COMMANDS: [&str; 8] = [
+    "view.gridSettings",
     "view.outline",
     "view.notesPage",
     "view.slideMaster",
@@ -52,7 +53,7 @@ pub(super) fn view_tab() -> Tab {
             super::views5::master_views_group(),
             // Check boxes first, then Notes, as the reference.
             Group {
-                label: "ribbon.groups.show",
+                label: "slideNative.showGroup",
                 large: vec![L("view.notes")],
                 rows: vec![
                     vec![S("view.ruler")],
@@ -195,10 +196,8 @@ impl SlideWindow {
                 self.guides = !self.guides;
                 true
             }
-            "view.zoom" => {
-                self.open_zoom_menu();
-                true
-            }
+            "view.zoom" => self.open_form8(super::forms8::Dlg::Zoom),
+            "view.gridSettings" => self.open_form8(super::forms8::Dlg::Grid),
             _ => return None,
         })
     }
@@ -275,7 +274,10 @@ impl SlideWindow {
                     .rev()
                     .find(|(top, _)| y >= *top)
                     .map(|(_, slide)| *slide)?;
-                Some(self.view.go_to(hit))
+                // The line clicked is chosen for promoting / demoting (round 17).
+                self.outline_sel = self.outline_line_at(y);
+                self.view.go_to(hit);
+                Some(true)
             }
             Pane::NotesPage => {
                 // The page is drawn over the canvas: presses there do not edit the slide.
@@ -292,7 +294,10 @@ impl SlideWindow {
             return;
         }
         match self.pane {
-            Pane::Outline => self.paint_outline(p),
+            Pane::Outline => {
+                self.paint_outline(p);
+                self.paint_outline_sel(p);
+            }
             Pane::NotesPage => self.paint_notes_page(p),
             Pane::Normal => {}
         }
@@ -312,9 +317,11 @@ impl SlideWindow {
         let c = self.view.canvas_rect();
         p.push_clip(c[0], c[1], c[2], c[3]);
         if self.gridlines {
-            // Dotted lines every half inch (36 pt), grey as the reference draws them.
+            // Dotted lines every half inch (36 pt), grey as the reference draws them; a grid
+            // spacing of 1/4" or more (Grid and Guides) is drawn at its own spacing.
             let dot = Rgba(0x9a, 0x9a, 0x9a, 255);
-            let step = 36.0 * k;
+            let sp = self.view.grid_spacing();
+            let step = if sp >= 18.0 { sp as f32 } else { 36.0 } * k;
             let d = (2.0 * self.scale).round().max(2.0);
             let mut x = ox + step;
             while x < ox + w - 0.5 {

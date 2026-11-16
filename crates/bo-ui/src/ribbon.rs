@@ -1161,6 +1161,8 @@ impl Ribbon {
                     "ribbon.groups.font" => Some("format.fontSettings"),
                     "ribbon.groups.paragraph" => Some("format.paragraphSettings"),
                     "ribbon.groups.pageSetup" => Some("layout.pageSetup"),
+                    // BlueSlide View > Show: Grid and Guides.
+                    "slideNative.showGroup" => Some("view.gridSettings"),
                     _ => None,
                 };
                 if let Some(id) = launcher {

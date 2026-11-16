@@ -22,6 +22,205 @@ pub enum PickKind {
     Fill,
     /// Shape outline colour.
     Outline,
+    /// Animation effects by class (Entrance, Emphasis, Exit, Motion Paths): the
+    /// Animations tab's gallery opened in full (round 17).
+    Effects,
+}
+
+/// The full animation gallery by section (heading key, effects as engine id), as the
+/// reference's drop-down lays it out; every id is in `bo_pptx::anim_catalog` (or a built-in
+/// effect of the engine). Exit reuses the entrance effects played backwards.
+pub const EFFECT_SECTIONS: [(&str, &str, &[&str]); 5] = [
+    ("slideNative.fxNone", "none", &["none"]),
+    (
+        "slideNative.fxEntrance",
+        "entr",
+        &[
+            "appear",
+            "fade",
+            "flyIn",
+            "float",
+            "wipe",
+            "randomBars",
+            "growTurn",
+            "zoom",
+            "swivel",
+            "bounce",
+            "blinds",
+            "box",
+            "circle",
+            "diamond",
+            "dissolve",
+            "peek",
+            "plus",
+            "wedge",
+            "expand",
+            "spinner",
+        ],
+    ),
+    (
+        "slideNative.fxEmphasis",
+        "emph",
+        &["pulse", "teeter", "spin", "growShrink", "blink"],
+    ),
+    (
+        "slideNative.fxExit",
+        "exit",
+        &[
+            "appear",
+            "fade",
+            "flyIn",
+            "float",
+            "wipe",
+            "randomBars",
+            "growTurn",
+            "zoom",
+            "swivel",
+            "bounce",
+            "blinds",
+            "box",
+            "circle",
+            "diamond",
+            "dissolve",
+            "peek",
+            "plus",
+            "wedge",
+            "expand",
+            "spinner",
+        ],
+    ),
+    (
+        "slideNative.fxPaths",
+        "path",
+        &[
+            "lineDown",
+            "lineUp",
+            "lineLeft",
+            "lineRight",
+            "arcDown",
+            "arcUp",
+            "turnDown",
+            "circlePath",
+            "squarePath",
+            "diamondPath",
+            "triangle",
+            "loop",
+            "wave",
+        ],
+    ),
+];
+
+/// Columns of the effects gallery (reference: 5 tiles of 124 × 84 px at 125 %).
+pub const EFFECT_COLS: usize = 5;
+
+/// Colour of an effect class's star (entrance green, emphasis amber, exit red, path blue).
+#[must_use]
+pub fn class_color(class: &str) -> Rgba {
+    match class {
+        "emph" => Rgba(0xe8, 0xb3, 0x1e, 255),
+        "exit" => Rgba(0xd2, 0x4a, 0x3c, 255),
+        "path" => Rgba(0x5b, 0x8f, 0xd0, 255),
+        "none" => Rgba(0xa6, 0xa6, 0xa6, 255),
+        _ => Rgba(0x68, 0xa4, 0x90, 255),
+    }
+}
+
+/// A motion path tile: the path's own outline (dotted) from a green start to a red end
+/// (own drawing).
+pub fn paint_path_tile(p: &mut dyn Painter, id: &str, cx: f32, cy: f32, r: f32) {
+    let pts: Vec<(f32, f32)> = match id {
+        "lineDown" => vec![(0.0, -1.0), (0.0, 1.0)],
+        "lineUp" => vec![(0.0, 1.0), (0.0, -1.0)],
+        "lineLeft" => vec![(1.0, 0.0), (-1.0, 0.0)],
+        "lineRight" => vec![(-1.0, 0.0), (1.0, 0.0)],
+        "arcDown" | "arcUp" => {
+            let s = if id == "arcDown" { 1.0 } else { -1.0 };
+            (0..=12)
+                .map(|i| {
+                    let a = std::f32::consts::PI * i as f32 / 12.0;
+                    (-a.cos(), s * a.sin() * 0.8)
+                })
+                .collect()
+        }
+        "turnDown" => vec![
+            (-1.0, -0.6),
+            (0.2, -0.6),
+            (0.6, -0.4),
+            (0.7, 0.0),
+            (0.7, 1.0),
+        ],
+        "circlePath" | "loop" => (0..=24)
+            .map(|i| {
+                let a = std::f32::consts::TAU * i as f32 / 24.0;
+                (a.sin() * 0.9, -a.cos() * 0.9)
+            })
+            .collect(),
+        "squarePath" => vec![
+            (-0.8, -0.8),
+            (0.8, -0.8),
+            (0.8, 0.8),
+            (-0.8, 0.8),
+            (-0.8, -0.8),
+        ],
+        "diamondPath" => vec![
+            (0.0, -1.0),
+            (1.0, 0.0),
+            (0.0, 1.0),
+            (-1.0, 0.0),
+            (0.0, -1.0),
+        ],
+        "triangle" => vec![(0.0, -0.9), (0.9, 0.8), (-0.9, 0.8), (0.0, -0.9)],
+        _ => (0..=16)
+            .map(|i| {
+                let t = i as f32 / 16.0;
+                (t * 2.0 - 1.0, (t * std::f32::consts::TAU).sin() * 0.45)
+            })
+            .collect(),
+    };
+    let at = |(x, y): (f32, f32)| (cx + x * r, cy + y * r);
+    // Dots along the path, every few pixels.
+    let mut prev = at(pts[0]);
+    let mut carry = 0.0f32;
+    let step = (r / 4.0).max(2.0);
+    for q in pts.iter().skip(1) {
+        let next = at(*q);
+        let len = (next.0 - prev.0).hypot(next.1 - prev.1);
+        let mut d = carry;
+        while d < len {
+            let t = d / len.max(1e-3);
+            let (x, y) = (
+                prev.0 + (next.0 - prev.0) * t,
+                prev.1 + (next.1 - prev.1) * t,
+            );
+            p.fill_rect(
+                x.round() - 1.0,
+                y.round() - 1.0,
+                2.0,
+                2.0,
+                Rgba(0x40, 0x40, 0x40, 255),
+            );
+            d += step;
+        }
+        carry = d - len;
+        prev = next;
+    }
+    let (sx, sy) = at(pts[0]);
+    let (ex, ey) = at(pts[pts.len() - 1]);
+    let dot = (r / 5.0).max(3.0).round();
+    p.fill_rect(
+        sx - dot / 2.0,
+        sy - dot / 2.0,
+        dot,
+        dot,
+        Rgba(0x3f, 0xa3, 0x4d, 255),
+    );
+    p.fill_rect(
+        ex - dot / 2.0,
+        ey - dot / 2.0,
+        dot,
+        dot,
+        Rgba(0xd2, 0x4a, 0x3c, 255),
+    );
 }
 
 /// Preset shapes of the gallery by section (string key of the heading, presets); presets
@@ -417,6 +616,30 @@ impl Picker {
                 }
                 (2.0 * pad + 6.0 * cw, head + 4.0 * ch + pad)
             }
+            PickKind::Effects => {
+                // Section headings, then labelled tiles of 5 across (labels: the section
+                // headings, then each effect's name in section order).
+                let (cw, ch) = (px(99.2, scale), px(67.2, scale));
+                let head_h = px(24.0, scale);
+                let mut y = 0.0;
+                let mut n = EFFECT_SECTIONS.len();
+                for (si, (_, class, ids)) in EFFECT_SECTIONS.iter().enumerate() {
+                    heads.push((label(si), [0.0, y, 0.0, head_h]));
+                    y += head_h + px(2.0, scale);
+                    for (i, id) in ids.iter().enumerate() {
+                        let (c, r) = (i % EFFECT_COLS, i / EFFECT_COLS);
+                        cells.push(Cell {
+                            r: [pad + c as f32 * cw, y + r as f32 * ch, cw, ch],
+                            value: format!("fx:{id}:{class}"),
+                            label: Some(label(n)),
+                        });
+                        n += 1;
+                    }
+                    let rows = ids.len().div_ceil(EFFECT_COLS);
+                    y += rows as f32 * ch + px(4.0, scale);
+                }
+                (2.0 * pad + EFFECT_COLS as f32 * cw, y + pad)
+            }
             PickKind::Fill | PickKind::Outline => {
                 // Theme colours: dark 1, light 1, six accents; tints / shades under them;
                 // standard colours; "No Fill" (reference layout at 125 %: 10 columns).
@@ -645,6 +868,31 @@ impl Picker {
                     ch - 2.0,
                     Rgba(0xfc, 0xe4, 0xd6, 255),
                 );
+            }
+            if let (Some(label), Some(fx)) = (&c.label, c.value.strip_prefix("fx:")) {
+                let (id, class) = fx.split_once(':').unwrap_or((fx, "entr"));
+                let r = px(17.0, s);
+                let (mx, my) = ((cx + cw / 2.0).round(), cy + px(6.0, s) + r);
+                if class == "path" {
+                    paint_path_tile(p, id, mx, my, r);
+                } else {
+                    crate::slide_ribbon::paint_star(p, mx, my, r, class_color(class), true);
+                }
+                let small = TextStyle {
+                    size: px(12.0, s),
+                    bold: false,
+                };
+                let tw = text(label, small).min(cw - px(4.0, s));
+                p.push_clip(cx + 1.0, cy, cw - 2.0, ch);
+                p.text(
+                    label,
+                    (cx + (cw - tw) / 2.0).round(),
+                    cy + ch - small.size * 1.33 - px(4.0, s),
+                    small,
+                    t.text,
+                );
+                p.pop_clip();
+                continue;
             }
             if let Some(label) = &c.label {
                 p.text(

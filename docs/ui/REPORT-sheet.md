@@ -798,3 +798,114 @@ các nấc lỡ khung trùng lúc lưới dựng dải mới (lưới 4,4 ms ở
 - Bánh xe: 8/30 nấc lỡ một khung khi lưới dựng dải mới; DirectComposition chưa thử.
 - Hộp Options (hướng Enter, …); thanh trạng thái: mục Accessibility, giá trị bên phải trong menu thống kê.
 - Hộp New Table Style của đối chứng không mở được bằng input gửi vào (chỉ có ảnh BlueSheet).
+
+## Vòng 9 — lọc theo bảng, File › Options, hộp thoại Data / Formulas, bánh xe
+
+Nhánh `worktree-agent-a1dd12e871ce4d158` (từ `work/desktop-performance` sau "Merge BlueSheet round 8"). Ảnh so sánh
+`show/sheet-28…` của thư mục scratch phiên (đối chứng trái/trên, BlueSheet phải/dưới). Hộp thoại của đối chứng nay mở
+được bằng `CommandBars.ExecuteMso` / `Dialogs(n).Show` qua COM trên bản sao tệp: một timer C# trong cùng tiến trình
+chụp cửa sổ bằng PrintWindow rồi gửi WM_CLOSE (`xdlg.ps1`, không gửi input thật). Phía BlueSheet:
+`BLUEOFFICE_SHEET_ACTIONS="goto.A2;sheet.sortDialog"` chạy lệnh khi cửa sổ vừa mở để chụp.
+
+### Vòng 39 — nút lọc trên tiêu đề bảng
+
+- Engine: `filterValues` / `setFilter` nhận `row`; hàng thuộc bảng có nút lọc (§18.5.1.2 `table/autoFilter`) thì lọc
+  bảng đó: `autoFilter` của phần bảng được đọc / ghi qua `bo_xlsx::parse_auto_filter_xml` / `auto_filter_xml` (mô hình
+  `AutoFilter` như AutoFilter của trang), vùng lọc = tiêu đề tới hàng dữ liệu cuối (bỏ hàng tổng), `hiddenButton` giữ
+  nguyên; Data › Clear xoá điều kiện của các bảng. Mỗi lần lọc một bước hoàn tác, lưu/mở lại giữ điều kiện (test
+  `table_header_buttons_filter_the_table`, `table_filter_skips_the_totals_row`; kiểu TS trong `platform/src/sheet.ts`).
+- Giao diện: nhấp nút trên tiêu đề bảng mở danh sách lọc của bảng (sắp xếp, lọc giá trị / văn bản / số / ngày, xoá lọc
+  theo bảng) (`sheet-29`).
+- Nút vẽ theo số đo (125 %): ô vuông 21 × 21 px cách hàng 1 px trên/dưới và 1 px trước đường lưới phải, viền 1 px
+  #A6ACB3, mặt chuyển từ #FFFFFF xuống #EFF2F7, tam giác xám đậm (#5E6063) rộng 7 px cao 4 px, đỉnh ở dòng thứ 9 —
+  trùng từng pixel với đối chứng (`sheet-28`); đang lọc: phễu + tam giác nhỏ (hình tự vẽ). Áp dụng cả AutoFilter của
+  trang.
+- Danh sách hàm của hàng tổng: luôn hiện đủ (dưới nút, không vừa thì lên trên, không vừa nữa thì sát đáy cửa sổ);
+  More Functions… mở Insert Function.
+
+### Vòng 40 — File › Options
+
+Đo trên đối chứng (`sheet-30`): cửa sổ 1050 × 856 px, mặt trắng, danh sách mục x 16–217 khung #949494 nền #F3F3F3, hàng
+41 px, mục đang chọn nền #D2D2D2 khung đen 2 px, vạch ngăn #D2D2D2 dưới Advanced và Quick Access Toolbar, tiêu đề mục
+đậm trên vạch #E6E6E6, chữ lớn hơn hộp thoại cổ điển ~1,3 lần ("Show Mini Toolbar on selection" 246 px so với 190 px).
+Form có thêm cỡ chữ theo tỷ lệ, tiêu đề mục đậm, nút tuỳ chọn tròn, phím tắt Alt gạch chân.
+
+Làm được: General (phông và cỡ mặc định của sổ mới — ghi vào phông 0 của Normal, bỏ `scheme`; số trang tính của sổ
+mới), Formulas (chế độ tính, tính lặp: số lần / thay đổi tối đa — lưu trong `calcPr` của sổ, một bước hoàn tác; kiểu
+tham chiếu R1C1), Save (AutoRecover mỗi N phút: bản sao trong `%LOCALAPPDATA%\BlueOffice\AutoRecover`, không ghi đè
+tệp), Advanced (sau Enter di chuyển, hướng). Còn lại mờ / "chưa có". Tuỳ chọn ứng dụng lưu dạng `key=value` trong
+`%LOCALAPPDATA%\BlueOffice\sheet-prefs.txt`.
+
+R1C1: tiêu đề cột là số, hộp tên `R2C1`, công thức hiện và gõ theo R1C1 (đổi qua `bo_formula::parse_with` /
+`format_with` với ô gốc), lưu vẫn là A1 (test `options_dialog_sets_enter_direction_r1c1_and_iteration`).
+
+### Vòng 41 — bánh xe: DirectComposition
+
+`WindowSurface::new_composition` (swap chain `CreateSwapChainForComposition` + visual DirectComposition trên cửa sổ,
+`BLUEOFFICE_SHEET_DCOMP=1`). `thumb.ps1`, `big10k.xlsx`, 900 × 700, 30 nấc, 144 Hz (máy đang chạy build của các phiên
+khác):
+
+| | trung vị / p95 | nấc hiện sau 1 khung (< 10 ms) |
+|---|---|---|
+| Flip model (mặc định), lần 1 | 7,9 / 14,5 ms | 23/30 |
+| DirectComposition, lần 1 | 8,1 / 15,0 ms | 23/30 |
+| Flip model, lần 2 | 8,9 / 15,9 ms | 18/30 |
+| DirectComposition, lần 2 | 13,0 / 15,2 ms | 14/30 |
+
+Không cải thiện: giữ flip model làm mặc định, DirectComposition để so (vòng 8: 22/30, đối chứng 26/30). Các nấc lỡ khung
+vẫn trùng lúc lưới dựng dải mới.
+
+### Vòng 42 — Data tab
+
+- Sort (767 × 344 px, `sheet-31`): hàng nút 34 px ở y 48 — Add / Delete / Copy Level có biểu tượng tự vẽ, vạch ngăn,
+  ▲ ▼ chuyển mức đang chọn, Options… (phân biệt hoa thường; trên xuống / trái sang phải — engine `caseSensitive`,
+  `leftToRight`), ô "My data has headers"; phím tắt Alt có gạch chân (A, D, C, O, h); lưới mức trắng khung #828790,
+  tiêu đề với vạch #E5E5E5, ô nhãn của mức đang chọn #E0DFE3; "Sort by" mở rỗng như đối chứng (đã kiểm với ô hiện hành
+  trong và ngoài dữ liệu, vùng chọn), mức không có khoá bị bỏ qua. Delete xoá mức đang chọn, Copy chèn ngay dưới (test
+  `sort_dialog_moves_levels_and_sorts_with_options`).
+- Subtotal (401 × 606 px): hộp mới (trước đây chạy ngay với mặc định): cột thay đổi, 11 hàm, cột được cộng (đánh dấu cột
+  cuối như đối chứng), Replace / Page break / Summary below, Remove All; mặt trắng, hộp cột #F3F3F3 khung #949494
+  (`sheet-32`).
+- Remove Duplicates (501 × 415 px): hộp mới (trước đây chạy ngay): Select All / Unselect All, "My data has headers",
+  danh sách cột trong hộp trắng khung #828790, vạch #DCDCDC; kết quả "x duplicate values found and removed; y unique
+  values remain." trên thanh trạng thái (`sheet-33`).
+- Advanced Filter (331 × 314 px): trước đây mờ; nay lọc tại chỗ / chép tới chỗ khác, vùng danh sách (điền sẵn vùng hiện
+  hành), vùng điều kiện, chép tới, chỉ bản ghi duy nhất (engine `advancedFilter`) (`sheet-34`).
+
+### Vòng 43 — Formulas tab
+
+- Insert Function: hình học đo trên đối chứng (645 × 483 px, ô tìm hai dòng, danh mục cạnh nhãn, danh sách 7 dòng, OK /
+  Cancel 111 × 30) (`sheet-35`).
+- Name Manager (705 × 547 px): bảng Name / Value / Refers To / Scope / Comment với vạch ngăn, hàng 22 px, chọn hàng bằng
+  nhấp; Refers to dưới bảng (`sheet-36`).
+- Evaluate Formula (781 × 349 px): như đối chứng — tham chiếu tuyệt đối bên trái, công thức trong hộp trắng với phần sắp
+  tính gạch chân, Evaluate tính từng bước (`before` / `part` / `after` / `shown` của engine), giá trị vừa tính in nghiêng,
+  hết bước thành Restart; Step In / Step Out mờ (`sheet-37`). Trước đây là danh sách các bước (đọc sai trường).
+- Trace Precedents / Dependents, Show Formulas (`sheet-38`): mũi tên của nhiều lần dò giữ lại tới Remove Arrows, nối
+  điểm cách mép trái ô 22 % (18 px của cột 80 px), chấm tròn ở nguồn; Show Formulas ghi vào `sheetView/@showFormulas`
+  (engine nới cột gấp đôi như đối chứng), hằng số canh trái.
+
+### Vòng 44 — chi tiết hộp thoại (sau góp ý)
+
+- Ô đánh dấu / nút tuỳ chọn kiểu Windows 11 như đối chứng (đo `xsub`: ô 19 px ở cỡ chữ lớn, viền #808080 khi chưa chọn,
+  nền màu nhấn viền đậm hơn + dấu trắng khi chọn) với màu xanh của BlueSheet; 15 px ở hộp thoại cổ điển. Gạch chân
+  phím tắt cho nhãn (Subtotal: At each change in, Use function, Add subtotal to, Replace, Page break, Summary, Remove
+  All). Chỉ trong form của BlueSheet; BlueDoc không đổi.
+- Options › General: thêm "When using multiple displays" (mờ), ScreenTip style (tắt thì không hiện mẹo ribbon), dấu
+  (i) và biểu tượng trang (tự vẽ); Default view for new sheets hoạt động (sổ mới mở ở Page Break Preview / Page Layout).
+- Insert Function: danh mục "Most Recently Used" mặc định (lưu trong tuỳ chọn, khởi tạo SUM, AVERAGE, IF, HYPERLINK,
+  COUNT, MAX, SIN như đối chứng), mô tả một dòng của 64 hàm thông dụng (tự viết, en + vi), Go tìm theo tên và mô tả,
+  dòng cú pháp đậm, chữ gợi ý được chọn sẵn trong ô tìm, "Help on this function" mờ (chưa có tài liệu từng hàm).
+- Name Manager: cột Value tính giá trị (`{"120";"80";…}`, cắt bằng "…"), Filter (phạm vi trang / sổ, có / không lỗi,
+  tên định nghĩa / tên bảng), dấu tên / bảng ở đầu hàng, ô Refers to sửa tại chỗ với ✗ / ✓; New… / Edit… mở hộp New
+  Name (393 × 297 px: Name, Scope, Comment, Refers to; tên đề xuất từ nhãn trên vùng chọn).
+- Subtotal: hàm mặc định Count khi cột được đánh dấu (cột cuối) là chữ, Sum khi là số.
+
+## Còn lại (sau vòng 9)
+
+- Text to Columns vẫn là hộp thoại cũ (chưa phải trình hướng dẫn 3 bước 771 × 546 px của đối chứng); Data Validation
+  thiếu ô Data mờ khi Any value và "Apply these changes…".
+- Insert Function: mô tả cho các hàm ngoài 64 hàm thông dụng; tài liệu từng hàm cho "Help on this function".
+- Name Manager: nút thu hộp thoại để chọn vùng trên trang (đang mờ).
+- Bánh xe: DirectComposition không giúp; thử tiếp Present1 với vùng bẩn.
+- Danh sách lọc và danh sách hàm của đối chứng không mở được bằng input gửi vào (chỉ có ảnh BlueSheet).

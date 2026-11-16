@@ -101,6 +101,18 @@ pub(super) enum FormKind {
     TabColor,
     /// New Table Style….
     TableStyle,
+    /// File › Options.
+    Options,
+    /// Formulas › Evaluate Formula.
+    Evaluate,
+    /// Options… of the Sort dialog (over the stashed Sort form).
+    SortOptions,
+    /// New / Edit Name over the stashed Name Manager.
+    NewName,
+    /// Data tab: Subtotal, Remove Duplicates, Advanced Filter.
+    Subtotal,
+    RemoveDups,
+    AdvancedFilter,
 }
 
 /// The value of a colour drop-down that has no colour (drawn as an empty swatch; `""` is
@@ -206,6 +218,22 @@ pub(super) struct Form {
     pub more_for: Option<&'static str>,
     /// Palette texts: Automatic, Theme Colors, Standard Colors, More Colors….
     pub palette_labels: Vec<String>,
+    /// Text size of the controls relative to the classic dialogs (File › Options is larger).
+    font_k: f32,
+    /// Group captions drawn as bold section headings over a full-width rule (File › Options).
+    headings: bool,
+    /// Check boxes drawn as option buttons (round; the owner keeps one of a group on).
+    radios: Vec<&'static str>,
+    /// Access keys: control id and the char index of its label's underlined letter
+    /// (Alt+letter presses the button / toggles the box).
+    access: Vec<(&'static str, usize)>,
+    /// Buttons whose label starts `pad` reference pixels from the left edge (an icon the
+    /// owner draws sits before it) instead of being centred.
+    left_labels: Vec<(&'static str, f32)>,
+    /// Text shown selected in an empty edit box until something is typed.
+    placeholders: Vec<(&'static str, String)>,
+    /// Labels drawn bold.
+    bold: Vec<&'static str>,
 }
 
 /// An entry of an open colour palette.
@@ -266,7 +294,83 @@ impl Form {
             palette: None,
             more_for: None,
             palette_labels: Vec::new(),
+            font_k: 1.0,
+            headings: false,
+            radios: Vec::new(),
+            access: Vec::new(),
+            left_labels: Vec::new(),
+            placeholders: Vec::new(),
+            bold: Vec::new(),
         }
+    }
+
+    /// Controls' text `k` times the classic dialogs' size (the title keeps its size).
+    pub fn set_font_scale(&mut self, k: f32) {
+        self.font_k = k;
+    }
+
+    /// Underline letter `at` (char index) of control `id`'s label; Alt+that letter presses
+    /// it.
+    pub fn set_access(&mut self, id: &'static str, at: usize) {
+        self.access.retain(|(i, _)| *i != id);
+        self.access.push((id, at));
+    }
+
+    /// Show `text` selected in edit box `id` while it is empty (the reference's search hint).
+    pub fn set_placeholder(&mut self, id: &'static str, text: &str) {
+        self.placeholders.retain(|(i, _)| *i != id);
+        self.placeholders.push((id, text.to_owned()));
+    }
+
+    /// Draw label `id` bold.
+    pub fn set_bold(&mut self, id: &'static str) {
+        if !self.bold.contains(&id) {
+            self.bold.push(id);
+        }
+    }
+
+    /// Start button `id`'s label `pad` reference pixels from its left edge.
+    pub fn set_label_left(&mut self, id: &'static str, pad: f32) {
+        self.left_labels.retain(|(i, _)| *i != id);
+        self.left_labels.push((id, pad));
+    }
+
+    /// The label prefix before the access letter and the letter, of control `i`.
+    fn access_parts(&self, i: usize) -> Option<(String, String)> {
+        let c = self.ctls.get(i)?;
+        let at = self.access.iter().find(|(id, _)| *id == c.id)?.1;
+        let (Kind::Button { label, .. } | Kind::Check { label, .. } | Kind::Label(label)) = &c.kind
+        else {
+            return None;
+        };
+        let pre: String = label.chars().take(at).collect();
+        let ch: String = label.chars().skip(at).take(1).collect();
+        (!ch.is_empty()).then_some((pre, ch))
+    }
+
+    /// Draw the access-key underline of control `i` whose label starts at `x`, `y`.
+    fn paint_access(&self, p: &mut dyn Painter, i: usize, x: f32, y: f32, ink: Rgba) {
+        if let Some((pre, ch)) = self.access_parts(i) {
+            let line = self.font().size * 1.33;
+            let ux = x + self.width(&pre);
+            p.fill_rect(
+                ux.round(),
+                (y + line - 2.0 * self.k).round(),
+                self.width(&ch).max(1.0),
+                1.0,
+                ink,
+            );
+        }
+    }
+
+    /// Draw the check boxes `ids` as option buttons.
+    pub fn set_radios(&mut self, ids: &[&'static str]) {
+        self.radios = ids.to_vec();
+    }
+
+    /// Draw group captions as bold section headings with a rule under them.
+    pub fn set_headings(&mut self, on: bool) {
+        self.headings = on;
     }
 
     /// Measured width of `s` in the dialog font (device pixels; measured at layout time).
@@ -453,6 +557,14 @@ impl Form {
         }
     }
 
+    /// Show page `i` of a form without a tab strip (its owner draws the page chooser, as the
+    /// category list of File › Options).
+    pub fn set_page(&mut self, i: usize) {
+        self.tab = i;
+        self.open = None;
+        self.focus = self.first_focus();
+    }
+
     /// Show tab page `i`.
     pub fn set_tab(&mut self, i: usize) {
         if i < self.tabs.len() {
@@ -539,7 +651,14 @@ impl Form {
                 _ => {}
             }
         }
+        let parts: Vec<String> = (0..self.ctls.len())
+            .filter_map(|i| self.access_parts(i))
+            .flat_map(|(a, b)| [a, b])
+            .collect();
+        let hints: Vec<String> = self.placeholders.iter().map(|(_, t)| t.clone()).collect();
         self.measure(m, &strings);
+        self.measure(m, &parts);
+        self.measure(m, &hints);
         let font = self.font();
         self.wrapped = self
             .ctls
@@ -578,7 +697,7 @@ impl Form {
     pub fn font(&self) -> Font<'static> {
         Font {
             family: "Segoe UI",
-            size: 10.8 * REF_SCALE * self.k,
+            size: 10.8 * REF_SCALE * self.k * self.font_k,
             weight: 400,
             italic: false,
             underline: false,
@@ -872,6 +991,29 @@ impl Form {
             }
             return Event::None;
         }
+        if let (Key::Letter(ch), true) = (key, m.alt) {
+            let want = ch.to_lowercase().next().unwrap_or(ch);
+            let hit = (0..self.ctls.len()).find(|&i| {
+                let c = &self.ctls[i];
+                self.shown(c)
+                    && c.enabled
+                    && self
+                        .access_parts(i)
+                        .is_some_and(|(_, l)| l.to_lowercase().starts_with(want))
+            });
+            if let Some(i) = hit {
+                let id = self.ctls[i].id;
+                self.focus = Some(i);
+                return match &mut self.ctls[i].kind {
+                    Kind::Button { .. } => Event::Clicked(id),
+                    Kind::Check { on, .. } => {
+                        *on = !*on;
+                        Event::Changed(id)
+                    }
+                    _ => Event::None,
+                };
+            }
+        }
         let pages = self.tabs.len();
         match key {
             Key::Tab | Key::PageDown | Key::PageUp if m.ctrl && pages > 1 => {
@@ -1019,7 +1161,18 @@ impl Form {
         let font = self.font();
         let line = font.size * 1.33;
         let text_y = |r: [f32; 4]| (r[1] + (r[3] - line) / 2.0).round();
-        p.text_font(&self.title, t[0] + 19.0 * self.k, text_y(t), &font, INK);
+        let title_font = Font {
+            size: font.size / self.font_k,
+            ..font
+        };
+        let title_line = title_font.size * 1.33;
+        p.text_font(
+            &self.title,
+            t[0] + 19.0 * self.k,
+            (t[1] + (t[3] - title_line) / 2.0).round(),
+            &title_font,
+            INK,
+        );
         // Close (×).
         let c = self.dev([self.size.0 - 30.0, 13.0, 11.0, 11.0]);
         p.path(
@@ -1083,7 +1236,18 @@ impl Form {
             let ink = if c.enabled { INK } else { GREY_INK };
             let focused = self.focus == Some(i);
             match &c.kind {
-                Kind::Label(s) => p.text_font(s, r[0], r[1], &font, ink),
+                Kind::Label(s) => {
+                    if self.bold.contains(&c.id) {
+                        let b = Font {
+                            weight: 700,
+                            ..font
+                        };
+                        p.text_font(s, r[0], r[1], &b, ink);
+                    } else {
+                        p.text_font(s, r[0], r[1], &font, ink);
+                    }
+                    self.paint_access(p, i, r[0], r[1], ink);
+                }
                 Kind::Note(s) => match self.wrapped.iter().find(|(k, _)| *k == i) {
                     Some((_, lines)) => {
                         for (n, l) in lines.iter().enumerate() {
@@ -1092,6 +1256,15 @@ impl Form {
                     }
                     None => p.text_font(s, r[0], r[1], &font, ink),
                 },
+                Kind::Group(s) if self.headings => {
+                    let bold = Font {
+                        weight: 700,
+                        ..font
+                    };
+                    p.text_font(s, r[0], r[1], &bold, ink);
+                    let ly = (r[1] + line + 6.0 * self.k).round();
+                    p.fill_rect(r[0], ly, r[2], 1.0, Rgba(0xe6, 0xe6, 0xe6, 255));
+                }
                 Kind::Group(s) => {
                     let tw = self.width(s);
 
@@ -1132,18 +1305,56 @@ impl Form {
                     p.push_clip(r[0] + 1.0, r[1] + 1.0, r[2] - 2.0, r[3] - 2.0);
                     let s: String = value.iter().collect();
                     let tx = r[0] + 5.0 * self.k;
-                    p.text_font(&s, tx, text_y(r), &font, ink);
+                    match self.placeholders.iter().find(|(id, _)| *id == c.id) {
+                        Some((_, hint)) if s.is_empty() => {
+                            // Shown selected, as the reference's search box opens.
+                            let w = self.width(hint);
+                            p.fill_rect(
+                                tx,
+                                text_y(r),
+                                w,
+                                font.size * 1.33,
+                                Rgba(0xc8, 0xc8, 0xc8, 255),
+                            );
+                            p.text_font(hint, tx, text_y(r), &font, ink);
+                        }
+                        _ => p.text_font(&s, tx, text_y(r), &font, ink),
+                    }
                     if focused && caret_on {
                         let cx = (tx + self.caret_w).round();
                         p.fill_rect(cx, r[1] + 4.0 * self.k, 1.0, r[3] - 8.0 * self.k, INK);
                     }
                     p.pop_clip();
                 }
-                Kind::Check { label, on } => {
-                    let b = (13.0 * self.k).round();
+                Kind::Check { label, on } if self.radios.contains(&c.id) => {
+                    // Option button: a ring, filled in the accent with a white dot when on
+                    // (the reference's Windows 11 controls).
+                    let b = (13.0 * self.k * self.font_k * 1.12).round();
                     let (bx, by) = (r[0], (r[1] + (r[3] - b) / 2.0).round());
-                    paint_check(p, [bx, by, b, b], *on, c.enabled, focused, self.k);
-                    p.text_font(label, bx + b + 8.0 * self.k, text_y(r), &font, ink);
+                    let (cx, cy, rr) = (bx + b / 2.0, by + b / 2.0, b / 2.0);
+                    let accent = if c.enabled { ACCENT } else { GREY_INK };
+                    if *on {
+                        p.path(&ring(cx, cy, rr), Some(accent), None);
+                        p.path(&ring(cx, cy, rr * 0.42), Some(WHITE), None);
+                    } else {
+                        let edge = if c.enabled {
+                            Rgba(0x80, 0x80, 0x80, 255)
+                        } else {
+                            Rgba(0xc6, 0xc6, 0xc6, 255)
+                        };
+                        p.path(&ring(cx, cy, rr - 0.5), Some(WHITE), Some((edge, 1.0)));
+                    }
+                    p.text_font(label, bx + b + 7.0 * self.k, text_y(r), &font, ink);
+                    self.paint_access(p, i, bx + b + 7.0 * self.k, text_y(r), ink);
+                }
+                Kind::Check { label, on } => {
+                    // Windows 11 boxes as the reference's dialogs: 19 px at its larger text,
+                    // 15 px in the classic dialogs.
+                    let b = (13.0 * self.k * self.font_k * 1.12).round();
+                    let (bx, by) = (r[0], (r[1] + (r[3] - b) / 2.0).round());
+                    paint_check_box(p, [bx, by, b, b], *on, c.enabled, focused, self.k);
+                    p.text_font(label, bx + b + 7.0 * self.k, text_y(r), &font, ink);
+                    self.paint_access(p, i, bx + b + 7.0 * self.k, text_y(r), ink);
                 }
                 Kind::List { items, sel, top } => {
                     p.fill_rect(r[0], r[1], r[2], r[3], LIST_EDGE);
@@ -1276,13 +1487,12 @@ impl Form {
                         if hover { HOVER } else { BUTTON },
                     );
                     let tw = self.width(label);
-                    p.text_font(
-                        label,
-                        (r[0] + (r[2] - tw) / 2.0).round(),
-                        text_y(r),
-                        &font,
-                        ink,
-                    );
+                    let tx = match self.left_labels.iter().find(|(id, _)| *id == c.id) {
+                        Some((_, pad)) => (r[0] + pad * self.k).round(),
+                        None => (r[0] + (r[2] - tw) / 2.0).round(),
+                    };
+                    p.text_font(label, tx, text_y(r), &font, ink);
+                    self.paint_access(p, i, tx, text_y(r), ink);
                 }
                 Kind::Swatches {
                     colors,
@@ -1460,6 +1670,59 @@ fn swatch_at(
     })
 }
 
+/// BlueSheet's accent (the selection green), for checked boxes and option buttons.
+const ACCENT: Rgba = Rgba(0x21, 0x73, 0x46, 255);
+
+/// A Windows 11 style check box as the reference's dialogs draw it (measured at 125 %):
+/// unchecked white framed #808080; checked filled with the accent, framed a darker shade,
+/// a white tick; greyed #C6C6C6. A focused box gets an outer focus line.
+fn paint_check_box(
+    p: &mut dyn Painter,
+    b: [f32; 4],
+    on: bool,
+    enabled: bool,
+    focused: bool,
+    k: f32,
+) {
+    let grey = Rgba(0xc6, 0xc6, 0xc6, 255);
+    if focused {
+        p.fill_rect(b[0] - 2.0, b[1] - 2.0, b[2] + 4.0, b[3] + 4.0, INK);
+        p.fill_rect(b[0] - 1.0, b[1] - 1.0, b[2] + 2.0, b[3] + 2.0, WHITE);
+    }
+    if on {
+        let (edge, fill) = if enabled {
+            (Rgba(0x0e, 0x5c, 0x2f, 255), ACCENT)
+        } else {
+            (grey, grey)
+        };
+        p.fill_rect(b[0], b[1], b[2], b[3], edge);
+        p.fill_rect(b[0] + 1.0, b[1] + 1.0, b[2] - 2.0, b[3] - 2.0, fill);
+        let (x, y, s) = (b[0], b[1], b[2]);
+        p.path(
+            &[
+                PathSeg::M(x + s * 0.22, y + s * 0.45),
+                PathSeg::L(x + s * 0.42, y + s * 0.65),
+                PathSeg::L(x + s * 0.76, y + s * 0.27),
+            ],
+            None,
+            Some((WHITE, (1.6 * k).max(1.4))),
+        );
+    } else {
+        p.fill_rect(
+            b[0],
+            b[1],
+            b[2],
+            b[3],
+            if enabled {
+                Rgba(0x80, 0x80, 0x80, 255)
+            } else {
+                grey
+            },
+        );
+        p.fill_rect(b[0] + 1.0, b[1] + 1.0, b[2] - 2.0, b[3] - 2.0, WHITE);
+    }
+}
+
 /// A check box (white, framed #333333, blue when focused; a dark tick).
 pub(crate) fn paint_check(
     p: &mut dyn Painter,
@@ -1525,6 +1788,19 @@ fn chevron(p: &mut dyn Painter, x: f32, y: f32, k: f32) {
         None,
         Some((ARROW, 1.0)),
     );
+}
+
+/// A circle of radius `r` around (`cx`, `cy`) as four cubic Béziers.
+fn ring(cx: f32, cy: f32, r: f32) -> Vec<PathSeg> {
+    let k = r * 0.552_284_8;
+    vec![
+        PathSeg::M(cx + r, cy),
+        PathSeg::C(cx + r, cy + k, cx + k, cy + r, cx, cy + r),
+        PathSeg::C(cx - k, cy + r, cx - r, cy + k, cx - r, cy),
+        PathSeg::C(cx - r, cy - k, cx - k, cy - r, cx, cy - r),
+        PathSeg::C(cx + k, cy - r, cx + r, cy - k, cx + r, cy),
+        PathSeg::Z,
+    ]
 }
 
 #[cfg(test)]

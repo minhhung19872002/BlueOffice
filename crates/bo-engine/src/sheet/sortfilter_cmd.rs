@@ -6,8 +6,8 @@ use super::cmd::Rng;
 use super::SheetEngine;
 use crate::{EngineError, Result};
 use bo_model::sheet::{
-    CellRange, CellRef, Dxf, Fill, Font, PatternFill, SheetColor, SortCondition, SortState,
-    Workbook,
+    AutoFilter, CellRange, CellRef, Dxf, Fill, Font, PatternFill, SheetColor, SortCondition,
+    SortState, Workbook,
 };
 use bo_sheet::sort::{SortBy, SortKey};
 use serde_json::{json, Value};
@@ -181,7 +181,7 @@ impl SheetEngine {
     pub(super) fn show_all_data(&mut self, sheet: usize) -> Result<Value> {
         self.edit_light(sheet, &[], |wb, _, fx| {
             fx.hidden.push(sheet);
-            let shown = bo_sheet::advfilter::show_all(wb, sheet);
+            let shown = clear_table_filters(wb, sheet) + bo_sheet::advfilter::show_all(wb, sheet);
             Ok(json!({ "shown": shown }))
         })
     }
@@ -195,6 +195,112 @@ impl SheetEngine {
                 .collect::<Vec<_>>(),
         )
     }
+}
+
+/// The data rows (header excluded, totals row excluded) a table's filter covers, header
+/// row included in the range as `autoFilter/@ref` has it (§18.3.1.2).
+fn table_filter_range(t: &bo_model::sheet::Table) -> CellRange {
+    let last = t.range.last.row - u32::from(bo_sheet::table::has_totals(t));
+    CellRange::new(t.range.first, CellRef::new(last, t.range.last.col))
+}
+
+/// The filter that column `col` belongs to: the table at `row` when the table shows
+/// filter buttons (§18.5.1.2 `table/autoFilter`, parsed from the part's XML), else the
+/// sheet's AutoFilter. `(Some(table index), filter)` for a table.
+pub(super) fn filter_of(
+    ws: &bo_model::sheet::Worksheet,
+    col: u32,
+    row: Option<u32>,
+) -> Result<(Option<usize>, AutoFilter)> {
+    if let Some(row) = row {
+        let at = CellRef::new(row, col);
+        if let Some((ti, t)) = ws.tables.iter().enumerate().find(|(_, t)| {
+            t.auto_filter.is_some() && bo_sheet::table::has_header(t) && t.range.contains(at)
+        }) {
+            let mut af = t
+                .auto_filter
+                .as_deref()
+                .and_then(bo_xlsx::parse_auto_filter_xml)
+                .unwrap_or_default();
+            // The table's own extent wins over a stale `ref`.
+            af.range = table_filter_range(t);
+            return Ok((Some(ti), af));
+        }
+    }
+    let af = ws.auto_filter.clone().ok_or_else(|| bad("no AutoFilter"))?;
+    if col < af.range.first.col || col > af.range.last.col {
+        return Err(bad("column outside the AutoFilter"));
+    }
+    Ok((None, af))
+}
+
+/// Store `af` as table `ti`'s filter (written back into the table part's `autoFilter`,
+/// §18.5.1.2) and hide the data rows it leaves out. Returns the rows hidden.
+pub(super) fn apply_table_filter(
+    wb: &mut Workbook,
+    sheet: usize,
+    ti: usize,
+    af: &AutoFilter,
+    locale: &bo_sheet::numfmt::Locale,
+    now: Option<f64>,
+) -> usize {
+    let hidden = bo_sheet::filter::hidden_rows_at(wb, &wb.sheets[sheet], af, locale, now);
+    let ws = &mut wb.sheets[sheet];
+    for r in af.range.first.row + 1..=af.range.last.row {
+        let hide = hidden.binary_search(&r).is_ok();
+        let info = ws.rows.entry(r).or_default();
+        info.hidden = hide;
+        if *info == bo_model::sheet::RowInfo::default() {
+            ws.rows.remove(&r);
+        }
+    }
+    if let Some(t) = ws.tables.get_mut(ti) {
+        t.auto_filter = Some(bo_xlsx::auto_filter_xml(af));
+    }
+    hidden.len()
+}
+
+/// Clear the criteria of every table filter of `sheet` (Data › Clear) and show the rows
+/// they hid. Returns the rows shown.
+fn clear_table_filters(wb: &mut Workbook, sheet: usize) -> usize {
+    let mut shown = 0;
+    let ws = &mut wb.sheets[sheet];
+    for ti in 0..ws.tables.len() {
+        let t = &ws.tables[ti];
+        let Some(mut af) = t
+            .auto_filter
+            .as_deref()
+            .and_then(bo_xlsx::parse_auto_filter_xml)
+        else {
+            continue;
+        };
+        if af
+            .columns
+            .iter()
+            .all(|c| matches!(c.filter, bo_model::sheet::ColumnFilter::None))
+        {
+            continue;
+        }
+        af.range = table_filter_range(t);
+        // Columns whose button is hidden stay (without a criterion).
+        af.columns.retain(|c| c.hidden_button);
+        for c in &mut af.columns {
+            c.filter = bo_model::sheet::ColumnFilter::None;
+        }
+        for r in af.range.first.row + 1..=af.range.last.row {
+            if let Some(info) = ws.rows.get_mut(&r) {
+                if info.hidden {
+                    info.hidden = false;
+                    shown += 1;
+                }
+                if *info == bo_model::sheet::RowInfo::default() {
+                    ws.rows.remove(&r);
+                }
+            }
+        }
+        ws.tables[ti].auto_filter = Some(bo_xlsx::auto_filter_xml(&af));
+    }
+    shown
 }
 
 #[cfg(test)]

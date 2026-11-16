@@ -421,6 +421,20 @@ impl ReaderWindow {
         self.panels8.tools.push((id, b, on));
     }
 
+    /// Author names: the interface font at weight 700 like the reference's (the shared bold
+    /// is 600), centred on `cy`.
+    #[allow(clippy::unused_self)]
+    fn bold8(&self, p: &mut dyn Painter, s: &str, x: f32, cy: f32, st: TextStyle) {
+        let f = crate::Font {
+            family: "",
+            size: st.size,
+            weight: 700,
+            italic: false,
+            underline: false,
+        };
+        p.text_font(s, x, (cy - st.size * 1.33 / 2.0).round(), &f, INK);
+    }
+
     /// Text centred on `cy`.
     #[allow(clippy::unused_self)]
     fn line8(&self, p: &mut dyn Painter, s: &str, x: f32, cy: f32, st: TextStyle, c: Rgba) {
@@ -926,12 +940,12 @@ impl ReaderWindow {
                 }
                 // Selected: an Add Reply box (30 px, 28 px under the last line, 6 px in).
                 let reply_box = is_sel.then(|| {
-                    let top = cur + self.q(28.0);
+                    let top = cur + self.q(25.0);
                     [cx0 + self.q(6.0), y + top, cw - self.q(12.0), self.q(30.0)]
                 });
                 let h = match reply_box {
                     Some(b) => b[1] - y + b[3] + self.q(13.0),
-                    None => cur + self.q(21.0),
+                    None => cur + self.q(17.5),
                 };
                 let card = [cx0, y, cw, h];
                 if y < bottom && y + h > list_top {
@@ -1019,7 +1033,7 @@ impl ReaderWindow {
                         a.author.clone()
                     };
                     let ax = cx0 + self.q(36.0);
-                    self.line8(p, &name, ax, row1, author, INK);
+                    self.bold8(p, &name, ax, row1, author);
                     // Status and checkmark after the author.
                     let mut sx = ax + self.width_of(&name, author) + self.q(8.0);
                     if let Some(rv) = &state.review {
@@ -1079,7 +1093,10 @@ impl ReaderWindow {
                     }
                     for (cy, x, text, kind) in &items8 {
                         let (st, x) = match kind {
-                            0 => (author, *x),
+                            0 => {
+                                self.bold8(p, text, *x, y + cy, author);
+                                continue;
+                            }
                             1 => (body, *x),
                             _ => (date, *x - self.width_of(text, date)),
                         };

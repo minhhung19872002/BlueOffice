@@ -27,6 +27,26 @@ fn refresh_text_scale() {
 }
 
 /// Interface text size grown by the Windows text size setting (as BlueDoc does).
+/// `BO_READER_MEMSTEPS=<file>`: append "<ms since 1970> <step>" and wait 2 s after each
+/// start-up step, so an outside sampler can attribute private bytes (round 8 measurements).
+fn mem_step(step: &str) {
+    let Ok(path) = std::env::var("BO_READER_MEMSTEPS") else {
+        return;
+    };
+    let ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis());
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+    {
+        use std::io::Write as _;
+        let _ = writeln!(f, "{ms} {step}");
+    }
+    std::thread::sleep(std::time::Duration::from_secs(2));
+}
+
 fn ui_size(size: f32) -> f32 {
     (size * f32::from_bits(TEXT_SCALE.load(Ordering::Relaxed)) - 0.01).round()
 }
@@ -270,6 +290,15 @@ impl Painter for WinPainter<'_, '_> {
             .text(text, x, y, ui_size(style.size), style.bold, color);
     }
     fn text_font(&mut self, text: &str, x: f32, y: f32, font: &Font<'_>, color: Rgba) {
+        // No family: the interface font grown like interface text (BlueReader's bold 700
+        // comment authors).
+        if font.family.is_empty() {
+            let mut f = spec(font);
+            f.family = "Segoe UI";
+            f.size = ui_size(font.size);
+            self.frame.text_font(text, x, y, &f, color);
+            return;
+        }
         self.frame.text_font(text, x, y, &spec(font), color);
     }
     fn path(&mut self, segs: &[PathSeg], fill: Option<Rgba>, stroke: Option<(Rgba, f32)>) {
@@ -766,12 +795,15 @@ impl Handler for Shell {
     fn created(&mut self, hwnd: isize, width: u32, height: u32, scale: f32) -> Result<(), String> {
         refresh_text_scale();
         self.hwnd = hwnd;
+        mem_step("window");
         let device = Device::new()?;
+        mem_step("device");
         if let Err(e) = device.update_window_monitor(hwnd) {
             eprintln!("monitor text settings: {e}");
         }
         device.set_text_rendering(page_text());
         let surface = WindowSurface::new(&device, hwnd, width, height)?;
+        mem_step("swap chain");
         self.gpu = Some(Gpu {
             device,
             surface,

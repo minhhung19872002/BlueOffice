@@ -19,7 +19,8 @@ use windows::Win32::Graphics::Direct3D::{
     D3D_DRIVER_TYPE, D3D_DRIVER_TYPE_HARDWARE, D3D_DRIVER_TYPE_WARP,
 };
 use windows::Win32::Graphics::Direct3D11::{
-    D3D11CreateDevice, ID3D11Device, D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_SDK_VERSION,
+    D3D11CreateDevice, ID3D11Device, D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+    D3D11_CREATE_DEVICE_SINGLETHREADED, D3D11_SDK_VERSION,
 };
 use windows::Win32::Graphics::DirectWrite::DWRITE_MEASURING_MODE_NATURAL;
 use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM;
@@ -397,7 +398,13 @@ impl Device {
                 None::<&IDXGIAdapter>,
                 kind,
                 HMODULE::default(),
-                D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+                // `BO_GPU_SINGLETHREADED=1`: a device without its own locking (memory
+                // measurements of BlueReader round 8; every caller draws on one thread).
+                if std::env::var("BO_GPU_SINGLETHREADED").as_deref() == Ok("1") {
+                    D3D11_CREATE_DEVICE_BGRA_SUPPORT | D3D11_CREATE_DEVICE_SINGLETHREADED
+                } else {
+                    D3D11_CREATE_DEVICE_BGRA_SUPPORT
+                },
                 None,
                 D3D11_SDK_VERSION,
                 Some(&mut d3d),

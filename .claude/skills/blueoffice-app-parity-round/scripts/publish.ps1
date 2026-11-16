@@ -13,8 +13,8 @@ $samples = @{
   "bluedoc-native"    = "tests\corpus\doc\phase1-sample.docx"
   "bluesheet-native"  = "tests\corpus\sheet"   # first .xlsx in the folder
   "blueslide-native"  = "tests\corpus\slide"   # first .pptx in the folder
-  "bluereader-native" = "tests"                # first .pdf under tests
-  "blueeditor-native" = "tests"
+  "bluereader-native" = "crates\bo-sign\tests\data\ocsp\signed-hai.pdf"
+  "blueeditor-native" = "crates\bo-sign\tests\data\ocsp\signed-hai.pdf"
 }
 foreach ($n in $Apps) {
   $exe = Join-Path $From "$n.exe"
@@ -29,7 +29,13 @@ foreach ($n in $Apps) {
     Copy-Item $src $copy -Force
     $env:BLUEOFFICE_SHOW_NOACTIVATE = "1"
     $p = Start-Process $exe -ArgumentList "`"$copy`"" -PassThru; Start-Sleep 5
-    & (Join-Path $repo "tools\ui-compare\cap2.ps1") ([IO.Path]::GetFileName($copy)) (Join-Path $env:TEMP "smoke-$n.png")
+    try {
+      & (Join-Path $repo "tools\ui-compare\cap2.ps1") ([IO.Path]::GetFileName($copy)) (Join-Path $env:TEMP "smoke-$n.png")
+    } catch {
+      "smoke capture failed for ${n}: $_ (not published)"
+      $p | Stop-Process -ErrorAction SilentlyContinue
+      continue
+    }
     $p | Stop-Process -ErrorAction SilentlyContinue
   }
   $running = Get-Process $n -ErrorAction SilentlyContinue

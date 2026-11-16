@@ -63,7 +63,8 @@ mod write;
 
 pub use annot::{Annot, AnnotKind, NewAnnot};
 pub use annot_draw::{
-    measure_label, path_length, polygon_area, Shape, StampKind, Style as DrawStyle,
+    measure_label, measure_label_in, path_length, polygon_area, MeasureUnit, Shape, StampKind,
+    Style as DrawStyle,
 };
 pub use annot_edit::CommentThread;
 pub use arrange::{flip_about, rotation_about};

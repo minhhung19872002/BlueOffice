@@ -50,6 +50,22 @@ fn shape(name: &str) -> &'static [Part] {
             S("M8 4H5.5v18h13V4H16 M8 3h8v3H8z"),
             S("M8.5 10h7 M8.5 13.5h7 M8.5 17h7"),
         ],
+        // Clipboard menu (ours: blade pair over two rings, stacked sheets, sheet on a board,
+        // dashed frame round text lines).
+        "cut" => &[
+            S("M7 18a2.8 2.8 0 1 0 0.01 0z M17 18a2.8 2.8 0 1 0 0.01 0z"),
+            S("M8.8 15.8L16 3 M15.2 15.8L8 3"),
+            FA("M12 9.6a1 1 0 1 0 0.01 0z"),
+        ],
+        "copy" => &[S("M5 16.5V3.5h9.5"), S("M8.5 7h10.5v14H8.5z"), A("M11 11h6 M11 14h6 M11 17h4")],
+        "paste" => &[
+            S("M8 4.5H4.5v16H10 M8 3h6v3H8z M14 4.5h3.5V9"),
+            A("M11.5 10.5h9v10.5h-9z M13.5 14h5 M13.5 17h5"),
+        ],
+        "selectAll" => &[
+            S("M3 3h4 M10 3h4 M17 3h4 M3 21h4 M10 21h4 M17 21h4 M3 3v4 M3 10v4 M3 17v4 M21 3v4 M21 10v4 M21 17v4"),
+            A("M7.5 8h9 M7.5 12h9 M7.5 16h6"),
+        ],
         "zoom" => &[
             S("M10.5 3a7.5 7.5 0 1 0 0.01 0z M16 16l5.5 5.5"),
             A("M10.5 7v7 M7 10.5h7"),
@@ -200,6 +216,22 @@ fn shape(name: &str) -> &'static [Part] {
 /// Draw reader icon `name` into a `size`-pixel square at (`x`, `y`).
 pub(crate) fn draw(p: &mut dyn Painter, name: &str, x: f32, y: f32, size: f32, c: Ink) {
     draw_weight(p, name, x, y, size, c, 1.5);
+}
+
+/// Menu icon of the reader (`popup::IconFn`): toolbar ink and accent, grey when `dim`.
+pub(crate) fn menu_icon(p: &mut dyn Painter, name: &str, x: f32, y: f32, size: f32, dim: bool) {
+    let c = if dim {
+        Ink {
+            ink: DISABLED,
+            accent: DISABLED,
+        }
+    } else {
+        Ink {
+            ink: Rgba(51, 51, 51, 255),
+            accent: crate::theme::Theme::light("reader").accent,
+        }
+    };
+    draw(p, name, x, y, size, c);
 }
 
 /// [`draw`] with strokes `stroke` grid units wide (at least one device pixel).
@@ -406,6 +438,10 @@ mod tests {
             "select",
             "snapshot",
             "clipboard",
+            "cut",
+            "copy",
+            "paste",
+            "selectAll",
             "zoom",
             "fit",
             "rotate",

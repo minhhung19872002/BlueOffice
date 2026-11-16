@@ -447,6 +447,50 @@ impl SheetEngine {
         })
     }
 
+    /// `createTableStyle`: a new custom table style (§18.8.40 `tableStyle` with its element
+    /// formats in §18.8.15 `dxfs`), in [`bo_sheet::table_style::TABLE_ELEMENTS`] order;
+    /// unknown element types are refused. One undo step; tables use it once it is chosen.
+    pub(super) fn table_style_create(
+        &mut self,
+        sheet: usize,
+        name: &str,
+        elements: &std::collections::BTreeMap<String, ElementFormat>,
+        set_default: bool,
+    ) -> Result<Value> {
+        use bo_sheet::table_style::TABLE_ELEMENTS;
+        if let Some(k) = elements
+            .keys()
+            .find(|k| !TABLE_ELEMENTS.contains(&k.as_str()))
+        {
+            return Err(bad(format!("unknown table style element {k}")));
+        }
+        let parts = bo_model::sheet::TableStyleParts {
+            name: name.trim().to_owned(),
+            pivot: false,
+            elements: TABLE_ELEMENTS
+                .iter()
+                .filter_map(|k| {
+                    let f = elements.get(*k)?;
+                    Some(bo_model::sheet::TableStyleElementParts {
+                        kind: (*k).to_owned(),
+                        size: 1,
+                        dxf: Some(bo_sheet::table_style::element_dxf(
+                            f.fill.as_deref(),
+                            f.text.as_deref(),
+                            f.bold,
+                            f.italic,
+                            f.border.as_deref(),
+                        )?),
+                    })
+                })
+                .collect(),
+        };
+        self.edit(sheet, Recalc::No, |wb, _| {
+            bo_xlsx::add_table_style(&mut wb.styles, &parts, set_default).map_err(bad)?;
+            Ok(json!({ "name": parts.name }))
+        })
+    }
+
     /// `slicerConnect` / `timelineConnect`: the pivot tables the frame filters.
     pub(super) fn frame_connect(
         &mut self,

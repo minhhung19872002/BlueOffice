@@ -1260,6 +1260,18 @@ export type SheetCommand =
       selected?: FrameElementFormat;
       unselected?: FrameElementFormat;
     }
+  /**
+   * New Table Style: a custom table style (ECMA-376 §18.8.40) with a format per element type
+   * (`wholeTable`, `headerRow`, `firstRowStripe`, …); `setDefault` makes it the default table
+   * style. One undo step.
+   */
+  | {
+      cmd: 'createTableStyle';
+      sheet: number;
+      name: string;
+      elements?: Record<string, FrameElementFormat>;
+      setDefault?: boolean;
+    }
   /** The pivot tables a timeline filters. */
   | {
       cmd: 'timelineConnect';

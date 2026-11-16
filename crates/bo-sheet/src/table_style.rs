@@ -12,7 +12,9 @@ use std::collections::HashMap;
 use std::hash::BuildHasher;
 use std::ops::Range;
 
-use bo_model::sheet::{CellRange, CellRef, SheetColor, Table, ThemeColors, Workbook};
+use bo_model::sheet::{
+    BorderEdge, CellRange, CellRef, Dxf, SheetColor, Table, TableStyleParts, ThemeColors, Workbook,
+};
 use bo_render::Rgba;
 use serde::Serialize;
 
@@ -342,6 +344,232 @@ pub fn themed(mut l: Look, theme: Option<&ThemeColors>) -> Look {
     l
 }
 
+/// The elements of a custom table style in the reference's list order (§18.18.83
+/// ST_TableStyleType, table styles only).
+pub const TABLE_ELEMENTS: [&str; 13] = [
+    "wholeTable",
+    "firstColumnStripe",
+    "secondColumnStripe",
+    "firstRowStripe",
+    "secondRowStripe",
+    "lastColumn",
+    "firstColumn",
+    "headerRow",
+    "totalRow",
+    "firstHeaderCell",
+    "lastHeaderCell",
+    "firstTotalCell",
+    "lastTotalCell",
+];
+
+fn hex_color(s: Option<&str>) -> Option<SheetColor> {
+    let h = s?.trim().trim_start_matches('#');
+    (h.len() == 6 && h.chars().all(|c| c.is_ascii_hexdigit()))
+        .then(|| SheetColor::rgb(&h.to_ascii_uppercase()))
+}
+
+/// A differential format (§18.8.14 `dxf`) of a table style element: fill, text colour (hex
+/// `RRGGBB`, `#` optional), bold / italic, a thin border of a colour around the element and
+/// between its cells. `None` when it sets nothing.
+#[must_use]
+pub fn element_dxf(
+    fill: Option<&str>,
+    text: Option<&str>,
+    bold: bool,
+    italic: bool,
+    border: Option<&str>,
+) -> Option<Dxf> {
+    use bo_model::sheet::{Border, Fill, Font, PatternFill};
+    let text = hex_color(text);
+    let font = (text.is_some() || bold || italic).then(|| Font {
+        bold,
+        italic,
+        color: text,
+        ..Font::default()
+    });
+    // §18.8.32 patternFill: a solid differential fill keeps its colour in bgColor.
+    let fill = hex_color(fill).map(|c| {
+        Fill::Pattern(PatternFill {
+            pattern: Some("solid".into()),
+            bg: Some(c),
+            ..PatternFill::default()
+        })
+    });
+    let border = hex_color(border).map(|c| {
+        let edge = BorderEdge {
+            style: Some("thin".into()),
+            color: Some(c),
+        };
+        Border {
+            left: edge.clone(),
+            right: edge.clone(),
+            top: edge.clone(),
+            bottom: edge.clone(),
+            vertical: Some(edge.clone()),
+            horizontal: Some(edge),
+            ..Border::default()
+        }
+    });
+    (font.is_some() || fill.is_some() || border.is_some()).then(|| Dxf {
+        font,
+        fill,
+        border,
+        ..Dxf::default()
+    })
+}
+
+fn color_hex(c: &SheetColor, theme: Option<&ThemeColors>) -> Option<String> {
+    crate::color::resolve_color(c, theme).map(|x| crate::color::hex((x.0, x.1, x.2)))
+}
+
+fn edge_of(e: &BorderEdge, theme: Option<&ThemeColors>) -> Option<Edge> {
+    let style = e.style.as_deref().filter(|s| *s != "none")?;
+    let color = e
+        .color
+        .as_ref()
+        .and_then(|c| color_hex(c, theme))
+        .unwrap_or_else(|| "000000".into());
+    Some(Edge {
+        color,
+        width: match style {
+            "medium" | "mediumDashed" | "mediumDashDot" | "mediumDashDotDot" => 2,
+            "thick" => 3,
+            _ => 1,
+        },
+        double: style == "double",
+    })
+}
+
+/// Look of (`row`, `col`) of `t` drawn in custom style `style` (§18.8.40): the elements that
+/// apply to the cell from the lowest to the highest precedence (whole table, column stripes,
+/// row stripes, last / first column, header / total row, the corner cells), each one's fill,
+/// text and borders over the ones below. Borders: an element's outer edges on the edges of the
+/// area it covers, its inner lines (`horizontal` / `vertical`) inside it.
+#[must_use]
+pub fn custom_look(
+    style: &TableStyleParts,
+    t: &Table,
+    row: u32,
+    col: u32,
+    theme: Option<&ThemeColors>,
+) -> Option<Look> {
+    if !t.range.contains(CellRef::new(row, col)) {
+        return None;
+    }
+    let info = t.style.clone().unwrap_or_default();
+    let r = t.range;
+    let header = has_header(t);
+    let totals = has_totals(t);
+    let is_header = header && row == r.first.row;
+    let is_total = totals && row == r.last.row;
+    let d0 = r.first.row + u32::from(header);
+    let d1 = r.last.row.saturating_sub(u32::from(totals));
+    let data = !is_header && !is_total && row >= d0 && row <= d1;
+    let el = |kind: &str| style.elements.iter().find(|e| e.kind == kind);
+    let size = |kind: &str| el(kind).map_or(1, |e| e.size.max(1));
+    // (element, area: first row, last row, first col, last col).
+    let mut apply: Vec<(&str, [u32; 4])> = vec![(
+        "wholeTable",
+        [r.first.row, r.last.row, r.first.col, r.last.col],
+    )];
+    if data && info.show_column_stripes {
+        let (a, b) = (size("firstColumnStripe"), size("secondColumnStripe"));
+        let at = (col - r.first.col) % (a + b);
+        let start = col - at;
+        let (kind, c0, c1) = if at < a {
+            ("firstColumnStripe", start, start + a - 1)
+        } else {
+            ("secondColumnStripe", start + a, start + a + b - 1)
+        };
+        apply.push((kind, [d0, d1, c0, c1.min(r.last.col)]));
+    }
+    if data && info.show_row_stripes {
+        let (a, b) = (size("firstRowStripe"), size("secondRowStripe"));
+        let at = (row - d0) % (a + b);
+        let start = row - at;
+        let (kind, r0, r1) = if at < a {
+            ("firstRowStripe", start, start + a - 1)
+        } else {
+            ("secondRowStripe", start + a, start + a + b - 1)
+        };
+        apply.push((kind, [r0, r1.min(d1), r.first.col, r.last.col]));
+    }
+    let (first, last) = (col == r.first.col, col == r.last.col);
+    if info.show_last_column && last {
+        apply.push(("lastColumn", [r.first.row, r.last.row, col, col]));
+    }
+    if info.show_first_column && first {
+        apply.push(("firstColumn", [r.first.row, r.last.row, col, col]));
+    }
+    for (on, kind, corner_first, corner_last) in [
+        (is_header, "headerRow", "firstHeaderCell", "lastHeaderCell"),
+        (is_total, "totalRow", "firstTotalCell", "lastTotalCell"),
+    ] {
+        if !on {
+            continue;
+        }
+        apply.push((kind, [row, row, r.first.col, r.last.col]));
+        if info.show_first_column && first {
+            apply.push((corner_first, [row, row, col, col]));
+        }
+        if info.show_last_column && last {
+            apply.push((corner_last, [row, row, col, col]));
+        }
+    }
+    let mut l = Look::default();
+    for (kind, [r0, r1, c0, c1]) in apply {
+        let Some(d) = el(kind).and_then(|e| e.dxf.as_ref()) else {
+            continue;
+        };
+        if let Some(f) = &d.fill {
+            let c = match f {
+                bo_model::sheet::Fill::Pattern(p) => p.bg.as_ref().or(p.fg.as_ref()),
+                bo_model::sheet::Fill::Gradient(g) => g.stops.first().map(|s| &s.1),
+            };
+            if let Some(h) = c.and_then(|c| color_hex(c, theme)) {
+                l.fill = Some(h);
+            }
+        }
+        if let Some(f) = &d.font {
+            if let Some(h) = f.color.as_ref().and_then(|c| color_hex(c, theme)) {
+                l.font = Some(h);
+            }
+            l.bold |= f.bold;
+        }
+        if let Some(b) = &d.border {
+            let (inner_h, inner_v) = (b.horizontal.as_ref(), b.vertical.as_ref());
+            let sides = [
+                if row == r0 { Some(&b.top) } else { inner_h },
+                if row == r1 { Some(&b.bottom) } else { inner_h },
+                if col == c0 { Some(&b.left) } else { inner_v },
+                if col == c1 { Some(&b.right) } else { inner_v },
+            ];
+            for (mine, e) in l.borders.iter_mut().zip(sides) {
+                if let Some(e) = e.and_then(|e| edge_of(e, theme)) {
+                    *mine = Some(e);
+                }
+            }
+        }
+    }
+    (l != Look::default()).then_some(l)
+}
+
+/// The look of (`row`, `col`) of `t` in workbook `wb`: its custom style when the workbook
+/// defines one of that name, else the built-in style in the workbook's theme.
+#[must_use]
+pub fn look_in(wb: &Workbook, t: &Table, row: u32, col: u32) -> Option<Look> {
+    let name = t.style.as_ref()?.name.as_deref()?;
+    if let Some(s) = wb
+        .styles
+        .table_styles
+        .iter()
+        .find(|s| s.name.to_lowercase() == name.to_lowercase())
+    {
+        return custom_look(s, t, row, col, wb.theme.as_ref());
+    }
+    look(t, row, col).map(|l| themed(l, wb.theme.as_ref()))
+}
+
 /// A font colour that is the default one (automatic, text theme colour, black).
 fn automatic(c: Option<&SheetColor>) -> bool {
     c.is_none_or(|c| {
@@ -376,8 +604,9 @@ pub fn overlay<S: BuildHasher>(
         }
         for r in r0..=r1 {
             for c in c0..=c1 {
-                let Some(l) = look(t, r, c) else { continue };
-                let l = themed(l, wb.theme.as_ref());
+                let Some(l) = look_in(wb, t, r, c) else {
+                    continue;
+                };
                 let cell = ws.cells.get(&(r, c));
                 let own_fill = cell.is_some_and(|x| cell_fill_rgb(wb, x).is_some());
                 let own_font = cell.is_some_and(|x| {
@@ -408,8 +637,9 @@ pub fn bake(wb: &mut Workbook, sheet: usize, t: &Table) {
     for r in t.range.first.row..=t.range.last.row {
         let mut runs: Vec<(u32, u32, StylePatch)> = Vec::new();
         for c in t.range.first.col..=t.range.last.col {
-            let Some(l) = look(t, r, c) else { continue };
-            let l = themed(l, wb.theme.as_ref());
+            let Some(l) = look_in(wb, t, r, c) else {
+                continue;
+            };
             let own_fill = wb
                 .sheets
                 .get(sheet)
@@ -510,9 +740,9 @@ pub fn borders(
         }
         for r in r0..=r1 {
             for c in c0..=c1 {
-                if let Some(l) = look(t, r, c) {
+                if let Some(l) = look_in(wb, t, r, c) {
                     if l.borders.iter().any(Option::is_some) {
-                        out.push((r, c, themed(l, wb.theme.as_ref()).borders));
+                        out.push((r, c, l.borders));
                     }
                 }
             }
@@ -654,5 +884,74 @@ mod tests {
         assert_eq!(green.fill, Some(format!("{r:02X}{g:02X}{b:02X}")));
         // Without a theme of its own the measured colours stay.
         assert_eq!(themed(band.clone(), None), band);
+    }
+
+    #[test]
+    fn custom_styles_compose_their_elements() {
+        use bo_model::sheet::TableStyleElementParts;
+        let el = |kind: &str, size: u32, d: Option<Dxf>| TableStyleElementParts {
+            kind: kind.into(),
+            size,
+            dxf: d,
+        };
+        let style = TableStyleParts {
+            name: "Mine".into(),
+            pivot: false,
+            elements: vec![
+                el(
+                    "wholeTable",
+                    1,
+                    element_dxf(None, None, false, false, Some("#000080")),
+                ),
+                el(
+                    "headerRow",
+                    1,
+                    element_dxf(Some("#1F4E79"), Some("FFFFFF"), true, false, None),
+                ),
+                el(
+                    "firstRowStripe",
+                    2,
+                    element_dxf(Some("DDEBF7"), None, false, false, None),
+                ),
+                el("lastColumn", 1, element_dxf(None, None, true, false, None)),
+            ],
+        };
+        // B2:D6: header row 1, data rows 2–4, totals row 5; columns 1–3.
+        let t = table("Mine");
+        let h = custom_look(&style, &t, 1, 2, None).expect("header");
+        assert_eq!(
+            (h.fill.as_deref(), h.font.as_deref(), h.bold),
+            (Some("1F4E79"), Some("FFFFFF"), true)
+        );
+        // The whole table's frame: top edge on the header, inner lines between cells.
+        assert_eq!(
+            h.borders[0].as_ref().map(|e| e.color.as_str()),
+            Some("000080")
+        );
+        // A first stripe two rows high: rows 2 and 3 shaded, row 4 (second stripe) not.
+        assert_eq!(
+            custom_look(&style, &t, 2, 2, None)
+                .and_then(|l| l.fill)
+                .as_deref(),
+            Some("DDEBF7")
+        );
+        assert_eq!(
+            custom_look(&style, &t, 3, 2, None)
+                .and_then(|l| l.fill)
+                .as_deref(),
+            Some("DDEBF7")
+        );
+        assert_eq!(
+            custom_look(&style, &t, 4, 2, None).and_then(|l| l.fill),
+            None
+        );
+        // Last column bold (showLastColumn), the others not.
+        assert!(custom_look(&style, &t, 4, 3, None).expect("last").bold);
+        assert!(!custom_look(&style, &t, 4, 2, None).expect("inner").bold);
+        assert_eq!(custom_look(&style, &t, 9, 9, None), None);
+        // The workbook's own style wins over the name lookup of built-in styles.
+        let mut wb = Workbook::default();
+        wb.styles.table_styles.push(style);
+        assert_eq!(look_in(&wb, &t, 1, 2), Some(h));
     }
 }

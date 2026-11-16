@@ -1903,6 +1903,21 @@ pub enum SheetCommand {
         #[serde(default, flatten)]
         formats: super::slicer_cmd::FrameStyleFormats,
     },
+    /// A new custom table style of the workbook (New Table Style…): the formats of its
+    /// elements (§18.8.40 `tableStyle`, §18.18.83 element types), saved in the styles part;
+    /// `setDefault` makes it `tableStyles/@defaultTableStyle`. One undo step.
+    CreateTableStyle {
+        /// The sheet whose undo history records the change.
+        sheet: usize,
+        /// Style name (unique, not a built-in name).
+        name: String,
+        /// Element type → format (fill, text, bold, italic, border colours `#RRGGBB`).
+        #[serde(default)]
+        elements: std::collections::BTreeMap<String, super::slicer_cmd::ElementFormat>,
+        /// Make it the workbook's default table style.
+        #[serde(default, rename = "setDefault")]
+        set_default: bool,
+    },
     /// The first day the strip of a timeline shows (`timeline/@scrollPosition`): a view
     /// setting saved with the file, not an undo step.
     TimelineScroll {
@@ -3491,6 +3506,12 @@ impl SheetEngine {
                 timeline,
                 formats,
             } => self.frame_style_create(sheet, &name, timeline, &formats),
+            C::CreateTableStyle {
+                sheet,
+                name,
+                elements,
+                set_default,
+            } => self.table_style_create(sheet, &name, &elements, set_default),
             C::TimelineConnect {
                 sheet,
                 index,

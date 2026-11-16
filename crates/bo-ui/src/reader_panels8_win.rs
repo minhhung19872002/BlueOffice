@@ -494,6 +494,35 @@ impl ReaderWindow {
         }
     }
 
+    /// Full Screen's exit button (measured on the reference at 125 %: 31 x 29 px, 94 px from
+    /// the right edge, 10 px from the top; our own corner marks, grey on the black).
+    fn full_exit8(&self) -> [f32; 4] {
+        let (w, _) = self.size;
+        [w - self.q(125.0), self.q(10.0), self.q(31.0), self.q(29.0)]
+    }
+
+    pub(crate) fn paint_full_exit8(&self, p: &mut dyn Painter) {
+        if self.profile.is_some() {
+            return;
+        }
+        let b = self.full_exit8();
+        p.fill_rect(b[0], b[1], b[2], b[3], Rgba(20, 20, 20, 255));
+        let s = self.q(18.0);
+        let grey = Rgba(150, 150, 152, 255);
+        reader_icons::draw_weight(
+            p,
+            "exitFull",
+            b[0] + ((b[2] - s) / 2.0).round(),
+            b[1] + ((b[3] - s) / 2.0).round(),
+            s,
+            Ink {
+                ink: grey,
+                accent: grey,
+            },
+            2.2,
+        );
+    }
+
     /// Search options: (match case, whole words only).
     pub(crate) fn find_options8(&self) -> (bool, bool) {
         (self.panels8.find_case, self.panels8.find_word)
@@ -1114,6 +1143,10 @@ impl ReaderWindow {
     /// Input of the round 8 panels (tools, rows, search box, filter dialog).
     pub(crate) fn route_panels8(&mut self, input: &Input, m: &dyn TextMeasure) -> Option<bool> {
         if let Input::Press { x, y, .. } = input {
+            if self.profile.is_none() && self.full_screen8() && inside(self.full_exit8(), *x, *y) {
+                self.toggle_full_screen(m);
+                return Some(true);
+            }
             if self.profile.is_none()
                 && self.panels8.dialog.is_none()
                 && self.panels8.confirm.is_none()

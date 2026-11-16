@@ -75,6 +75,11 @@ impl ReaderWindow {
     }
 
     /// Full Screen or a dialog of the additions takes the whole window.
+    pub(crate) fn full_screen8(&self) -> bool {
+        self.extra.mode == Mode::Full
+    }
+
+    /// Full Screen or a dialog of the additions takes the whole window.
     pub(crate) fn extra_modal(&self) -> bool {
         self.extra.mode == Mode::Full
             || self.extra.print.is_some()
@@ -658,6 +663,7 @@ impl ReaderWindow {
         p.fill_rect(0.0, 1.0, 1.0, h - 1.0, self.look.edge);
         p.fill_rect(w - 1.0, 1.0, 1.0, h - 1.0, self.look.edge);
         p.fill_rect(0.0, h - 1.0, w, 1.0, self.look.edge);
+        self.paint_full_exit8(p);
         true
     }
 

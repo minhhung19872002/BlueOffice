@@ -465,7 +465,7 @@ Windows), About. Chú giải công cụ sau 0,5 s đứng yên trên một lện
 | Read Mode, Full Screen | Zoom In / Out | Actual Size, Fit Page, Fit Width (đánh dấu cái đang dùng) | Rotate Right |
 Reverse View | Print | Rulers, Guides | Hide Navigation Panels. Chữ đang chọn: Copy | Select All | Highlight,
 Strikeout, Underline, Squiggly Underline, Replace Text | Word Count. Chú thích: Reply | Delete | Set Status, Mark with
-Checkmark | Open Popup Note | Properties (các mục cửa sổ ghi chú bật lên của bản đối chiếu không làm).
+Checkmark | Open Popup Note, Reset Popup Note Location, Open All Popups, Close All Popups (`/Open` và `/Rect` của chú thích Popup, §12.5.6.14) | Properties, Set Current Properties as Default (màu của chú thích thành màu mặc định của loại đó); Set Status có mũi tên mở bốn trạng thái; chữ đang chọn thêm Look Up "<từ>" (mở trình duyệt tìm từ). Menu chuột phải hàng 28 px như bản đối chiếu (menu thả của ribbon vẫn 30 px).
 
 **Tìm kiếm nâng cao** (`reader-56`). Ngăn bên phải (Ctrl+Shift+F hoặc nút tuỳ chọn của ô tìm): tài liệu hiện tại hoặc mọi
 PDF trong một thư mục (Chọn... lấy thư mục của tệp được chọn), chỉ nguyên từ, phân biệt hoa thường, gồm dấu trang, gồm
@@ -485,7 +485,8 @@ Thumbnails | Print Pages, Properties — bản đối chiếu là trình đọc 
 **Hộp In** (`reader-58`). So lại với bản mới nhất: Scale (None / Fit to printer margins / Reduce to printer margins /
 Custom scale / Choose paper source by PDF page size), Tile Large Pages, Multiple Pages Per Sheet, Booklet đã khớp. Thêm:
 Bleed Marks (dấu góc ở mép mọi trang in, xem trước và in thật), Summarize Comments bật khi có chú thích (đóng hộp In, mở
-tóm tắt chú thích). Các nút chế độ in của bản đối chiếu bỏ qua nhấp đưa vào nên chỉ so được chế độ Scale.
+tóm tắt chú thích); ô Pages điền sẵn trang hiện tại như bản đối chiếu. Các nút chế độ in của bản đối chiếu bỏ qua nhấp đưa vào nên chỉ so được chế độ Scale.
 
-Còn lại: giao diện Tối của bản đối chiếu (registry), ngăn Tìm kiếm nâng cao của bản đối chiếu (cần thao tác thật), các
-mục cửa sổ ghi chú bật lên trong menu chú thích, thanh công cụ nổi khi chọn chữ, Dán (ảnh / chữ thành chú thích).
+Còn lại: giao diện Tối của bản đối chiếu (registry), ngăn Tìm kiếm nâng cao của bản đối chiếu (cần thao tác thật), cửa sổ
+ghi chú bật lên vẽ trên trang (mới ghi `/Open`), thanh công cụ nổi khi chọn chữ, Dán (ảnh / chữ thành chú thích), User Manual /
+Help Center (chưa có hướng dẫn / địa chỉ hỗ trợ đi kèm).

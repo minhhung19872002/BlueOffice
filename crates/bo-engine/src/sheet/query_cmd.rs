@@ -659,7 +659,9 @@ impl SheetEngine {
     }
 
     fn defs(&self) -> Result<Vec<Query>> {
-        Ok(read_defs(self.wb.as_ref().ok_or(EngineError::NoDocument)?))
+        Ok(read_defs(
+            self.wb.as_deref().ok_or(EngineError::NoDocument)?,
+        ))
     }
 
     /// Runs a query command.

@@ -296,14 +296,16 @@ fn print_errors_modes() {
 #[test]
 fn comments_at_end_page_and_pdf_page_count() {
     let mut e = filled(2, 1);
-    e.wb.as_mut().unwrap().sheets[0].comments.push(Comment {
-        cell: CellRef::new(1, 0),
-        author: "An".into(),
-        text: vec![TextRun {
-            text: "Kiểm tra lại".into(),
-            font: None,
-        }],
-    });
+    e.wb.as_deref_mut().unwrap().sheets[0]
+        .comments
+        .push(Comment {
+            cell: CellRef::new(1, 0),
+            author: "An".into(),
+            text: vec![TextRun {
+                text: "Kiểm tra lại".into(),
+                font: None,
+            }],
+        });
     assert_eq!(e.print_pages(0).unwrap().len(), 1);
     run(
         &mut e,
@@ -358,7 +360,7 @@ fn black_and_white_and_breaks() {
         &mut e,
         json!({ "cmd": "pageBreak", "sheet": 0, "row": 5, "col": 2 }),
     );
-    let ws = &e.wb.as_ref().unwrap().sheets[0];
+    let ws = &e.wb.as_deref().unwrap().sheets[0];
     assert_eq!(
         (
             ws.page_setup.row_breaks.clone(),

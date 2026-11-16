@@ -473,7 +473,7 @@ impl SheetEngine {
     /// (the clock serial is in the 1900 system; §18.17.4.1).
     pub(super) fn pivot_labels(&self, labels: Option<PivotLabels>) -> PivotLabels {
         let mut l = labels.unwrap_or_default();
-        let d1904 = self.wb.as_ref().is_some_and(|w| w.date1904);
+        let d1904 = self.wb.as_deref().is_some_and(|w| w.date1904);
         l.today = self.live.now().map(|t| if d1904 { t - 1462.0 } else { t });
         l.locale = Some(self.locale);
         l

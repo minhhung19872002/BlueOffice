@@ -105,7 +105,7 @@ impl SheetEngine {
         let (sheet, r) = bo_sheet::cells::resolve_ref(wb, 0, range.trim())
             .ok_or_else(|| EngineError::BadCommand("badRange".into()))?;
         let r = clamp(r);
-        let wb = self.wb.as_mut().ok_or(EngineError::NoDocument)?;
+        let wb = self.wb.as_deref_mut().ok_or(EngineError::NoDocument)?;
         for (i, ws) in wb.sheets.iter_mut().enumerate() {
             ws.print_area = (i == sheet).then(|| sheet_ref(&ws.name, r));
         }
@@ -121,7 +121,7 @@ impl SheetEngine {
         scale: f32,
     ) -> Result<RangePicture> {
         self.geometry(sheet)?;
-        let wb = self.wb.as_ref().ok_or(EngineError::NoDocument)?;
+        let wb = self.wb.as_deref().ok_or(EngineError::NoDocument)?;
         let geom = self
             .geometry
             .get(sheet)

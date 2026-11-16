@@ -417,7 +417,7 @@ impl SheetEngine {
         index: usize,
         day: Option<f64>,
     ) -> Result<Value> {
-        let wb = self.wb.as_mut().ok_or(EngineError::NoDocument)?;
+        let wb = self.wb.as_deref_mut().ok_or(EngineError::NoDocument)?;
         bo_sheet::timeline::set_scroll(wb, sheet, index, day).map_err(bad)?;
         bo_xlsx::timeline::patch_timeline(wb, sheet, index);
         Ok(json!({ "ok": true }))

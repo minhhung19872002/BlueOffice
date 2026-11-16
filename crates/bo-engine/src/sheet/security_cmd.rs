@@ -21,7 +21,7 @@ impl SheetEngine {
 
     /// Protected ranges of `sheet` unlocked in this session (range names).
     pub(crate) fn open_ranges(&self, sheet: usize) -> Vec<String> {
-        let Some(ws) = self.wb.as_ref().and_then(|wb| wb.sheets.get(sheet)) else {
+        let Some(ws) = self.wb.as_deref().and_then(|wb| wb.sheets.get(sheet)) else {
             return Vec::new();
         };
         self.open_ranges
@@ -36,7 +36,7 @@ impl SheetEngine {
         let mut sec = FileSecurity::read(bytes);
         let fs = self
             .wb
-            .as_ref()
+            .as_deref()
             .map(protect::file_sharing_info)
             .unwrap_or_default();
         sec.read_only = sec.opens_read_only(fs.read_only_recommended, fs.has_password);
@@ -47,7 +47,7 @@ impl SheetEngine {
     pub fn security_info(&self) -> SecurityInfo {
         let fs = self
             .wb
-            .as_ref()
+            .as_deref()
             .map(protect::file_sharing_info)
             .unwrap_or_default();
         SecurityInfo {
@@ -85,7 +85,7 @@ impl SheetEngine {
         if self.sec.read_only && !cmd.is_view() {
             error = Some(READ_ONLY.into());
         } else {
-            let attrs = self.wb.as_ref().and_then(|wb| {
+            let attrs = self.wb.as_deref().and_then(|wb| {
                 protect::find(&wb.unknown, "fileSharing")
                     .map(|i| protect::parse_attrs(&wb.unknown[i].xml))
             });

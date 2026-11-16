@@ -23,7 +23,7 @@ fn run(e: &mut SheetEngine, v: Value) -> Value {
 /// (720 ≤ 734 < 740): rows 1–36, 37–72, 73–100.
 fn hundred_rows() -> SheetEngine {
     let mut e = engine();
-    let wb = e.wb.as_mut().unwrap();
+    let wb = e.wb.as_deref_mut().unwrap();
     let ws = &mut wb.sheets[0];
     ws.format.default_row_height = Some(20.0);
     for r in 0..100 {

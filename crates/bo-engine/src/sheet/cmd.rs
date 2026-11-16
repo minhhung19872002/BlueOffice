@@ -1037,6 +1037,10 @@ pub enum SheetCommand {
         /// Paste without cell borders (§18.8.4 border).
         #[serde(default)]
         no_borders: bool,
+
+        /// Arithmetic with the destination (Paste Special › Operation).
+        #[serde(default)]
+        operation: super::paste_arith::PasteOp,
     },
     /// Page setup of a sheet (orientation, paper, scale, margins, print area).
     PageSetup {
@@ -2720,7 +2724,7 @@ impl SheetEngine {
     fn guard(&self, cmd: &SheetCommand) -> Result<()> {
         use super::protect::{check, check_range, Action as A};
         use SheetCommand as C;
-        let Some(wb) = self.wb.as_ref() else {
+        let Some(wb) = self.wb.as_deref() else {
             return Ok(());
         };
         let ws = |i: usize| wb.sheets.get(i).ok_or(EngineError::PageOutOfRange(i));
@@ -2847,7 +2851,7 @@ impl SheetEngine {
         recalc: Recalc,
         f: impl FnOnce(&mut Workbook, &bo_sheet::formula::BoFormula) -> Result<R>,
     ) -> Result<R> {
-        let wb = self.wb.as_mut().ok_or(EngineError::NoDocument)?;
+        let wb = self.wb.as_deref_mut().ok_or(EngineError::NoDocument)?;
         if sheet >= wb.sheets.len() {
             return Err(EngineError::PageOutOfRange(sheet));
         }
@@ -2900,7 +2904,7 @@ impl SheetEngine {
         ) -> Result<R>,
     ) -> Result<R> {
         use super::light_undo as lu;
-        let wb = self.wb.as_mut().ok_or(EngineError::NoDocument)?;
+        let wb = self.wb.as_deref_mut().ok_or(EngineError::NoDocument)?;
         if sheet >= wb.sheets.len() {
             return Err(EngineError::PageOutOfRange(sheet));
         }
@@ -4929,13 +4933,14 @@ impl SheetEngine {
                 range,
                 col_widths,
                 no_borders,
+                operation,
             } => {
                 let extras = self.paste_extras(sheet, col, transpose, col_widths, no_borders)?;
                 self.paste(
                     sheet,
                     row,
                     col,
-                    mode,
+                    (mode, operation),
                     transpose,
                     skip_blanks,
                     range,
@@ -4962,7 +4967,7 @@ impl SheetEngine {
                     "gridLines": p.print_grid_lines,
                     "extra": super::print_cmd::extra_json(
                         ws,
-                        self.wb.as_ref().map_or(&[][..], |wb| &wb.opaque.parts),
+                        self.wb.as_deref().map_or(&[][..], |wb| &wb.opaque.parts),
                     ),
                 }))
             }
@@ -5424,7 +5429,7 @@ impl SheetEngine {
     fn autofit(&mut self, sheet: usize, rows: bool, first: u32, last: u32) -> Result<Value> {
         let locale = self.locale;
         let metrics = self.geometry(sheet)?.metrics;
-        let wb = self.wb.as_ref().ok_or(EngineError::NoDocument)?;
+        let wb = self.wb.as_deref().ok_or(EngineError::NoDocument)?;
         let ws = wb
             .sheets
             .get(sheet)
@@ -5496,7 +5501,7 @@ impl SheetEngine {
             (Some(f), _) if !f.text.is_empty() => format!("={}", f.text),
             (_, CellValue::Number(n)) => self
                 .wb
-                .as_ref()
+                .as_deref()
                 .and_then(|wb| {
                     let fmt_id = wb.styles.xf(cell.style).map_or(0, |x| x.num_fmt_id);
                     date_input(*n, &wb.styles, fmt_id, &self.locale, wb.date1904)
@@ -5679,7 +5684,7 @@ impl SheetEngine {
         sheet: usize,
         row: u32,
         col: u32,
-        mode: PasteMode,
+        (mode, op): (PasteMode, super::paste_arith::PasteOp),
         transpose: bool,
         skip_blanks: bool,
         target: Option<Rng>,
@@ -5796,6 +5801,25 @@ impl SheetEngine {
                                     n.style = s.map_or(0, |c| c.style);
                                     Some(n)
                                 }
+                            };
+                            // Paste Special › Operation (formats are never combined).
+                            let new = if op == super::paste_arith::PasteOp::None
+                                || mode == PasteMode::Formats
+                            {
+                                new
+                            } else {
+                                let kept = old.as_ref().map_or(0, |c| c.style);
+                                let (style, formula) = match mode {
+                                    PasteMode::All => (
+                                        src.map_or(kept, |c| c.style),
+                                        src.and_then(moved_formula).map(|f| f.text),
+                                    ),
+                                    PasteMode::Formulas => {
+                                        (kept, src.and_then(moved_formula).map(|f| f.text))
+                                    }
+                                    _ => (kept, None),
+                                };
+                                super::paste_arith::combine(op, old.as_ref(), src, formula, style)
                             };
                             match new {
                                 Some(c) if non_empty(&c) || c.style != 0 => {
@@ -5985,7 +6009,7 @@ impl SheetEngine {
                 Ok(v) => out.push(v),
                 Err(e) => {
                     self.undo.truncate(depth);
-                    if let Some(wb) = self.wb.as_mut() {
+                    if let Some(wb) = self.wb.as_deref_mut() {
                         *wb = *before;
                         self.live.rebuild(wb);
                     }

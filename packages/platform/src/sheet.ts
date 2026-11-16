@@ -1049,6 +1049,8 @@ export type SheetCommand =
       colWidths?: boolean;
       /** Paste without cell borders. */
       noBorders?: boolean;
+      /** Paste Special › Operation with the destination cells. */
+      operation?: 'none' | 'add' | 'subtract' | 'multiply' | 'divide';
     }
   | { cmd: 'pageSetup'; sheet: number }
   | { cmd: 'pivotSource'; sheet: number; range: SheetRange }

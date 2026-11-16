@@ -164,7 +164,7 @@ impl SheetEngine {
         f: impl FnOnce(&mut Workbook) -> Result<String>,
     ) -> Result<String> {
         self.sheet(sheet)?;
-        let wb = self.wb.as_mut().ok_or(EngineError::NoDocument)?;
+        let wb = self.wb.as_deref_mut().ok_or(EngineError::NoDocument)?;
         let before = Box::new(wb.clone());
         let id = f(wb)?;
         self.push_undo(UndoEntry::Workbook(before));

@@ -53,7 +53,7 @@ impl SheetEngine {
             return Ok(false);
         };
         let at = self.theme_part()?;
-        let wb = self.wb.as_mut().ok_or(EngineError::NoDocument)?;
+        let wb = self.wb.as_deref_mut().ok_or(EngineError::NoDocument)?;
         let before = Box::new(wb.clone());
         if let Some(i) = at {
             wb.opaque.parts[i].data = xml;

@@ -71,6 +71,9 @@ pub struct RenderOptions {
     /// Pixel sizes / fetch states of pictures in cells, by media id
     /// ([`crate::cell_image`]); stored pictures missing here are measured from their bytes.
     pub images: std::sync::Arc<crate::cell_image::ImageStates>,
+    /// Page break preview: cells outside these ranges (the print areas) take the colour
+    /// as their background instead of [`RenderOptions::background`].
+    pub outside: Option<(Vec<CellRange>, Rgba)>,
 }
 
 /// Vector drawing of a SmartArt fallback ([MS-ODRAWXML] `dsp:drawing`), drawn
@@ -105,6 +108,7 @@ impl Default for RenderOptions {
             error_text: None,
             show_formulas: None,
             images: std::sync::Arc::default(),
+            outside: None,
         }
     }
 }
@@ -378,6 +382,14 @@ impl Renderer<'_> {
             h: f(s.h),
         });
         self.fill_rect(s, self.opts.background);
+        if let Some((areas, color)) = self.opts.outside.clone() {
+            // Page break preview: the cells outside the print areas are grey.
+            self.fill_rect(s, color);
+            for a in &areas {
+                let r = Self::screen_rect(p, self.geom.range_rect(*a));
+                self.fill_rect(r, self.opts.background);
+            }
+        }
         let merges: Vec<CellRange> = self
             .geom
             .merges()

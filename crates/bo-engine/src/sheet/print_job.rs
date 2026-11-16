@@ -59,7 +59,7 @@ fn titles(current: Option<&str>, rows: Option<&str>, cols: Option<&str>) -> Opti
 impl SheetEngine {
     /// Sets the job's overrides on `sheet`; returns what to put back.
     fn override_setup(&mut self, sheet: usize, o: &PrintOptions) -> Result<Saved> {
-        let wb = self.wb.as_mut().ok_or(EngineError::NoDocument)?;
+        let wb = self.wb.as_deref_mut().ok_or(EngineError::NoDocument)?;
         let ws = wb
             .sheets
             .get_mut(sheet)
@@ -93,7 +93,7 @@ impl SheetEngine {
     }
 
     fn restore_setup(&mut self, sheet: usize, saved: Saved) {
-        if let Some(ws) = self.wb.as_mut().and_then(|w| w.sheets.get_mut(sheet)) {
+        if let Some(ws) = self.wb.as_deref_mut().and_then(|w| w.sheets.get_mut(sheet)) {
             ws.print_area = saved.print_area;
             ws.print_titles = saved.print_titles;
             ws.page_setup.print_grid_lines = saved.gridlines;

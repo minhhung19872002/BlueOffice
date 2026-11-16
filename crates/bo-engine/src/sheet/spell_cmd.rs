@@ -189,7 +189,7 @@ impl SheetEngine {
 
     /// Text cells of the workbook in checking order with their language spans.
     fn text_cells(&self, lang: Option<&str>) -> Vec<TextCell> {
-        let Some(wb) = self.wb.as_ref() else {
+        let Some(wb) = self.wb.as_deref() else {
             return Vec::new();
         };
         let mut out = Vec::new();
@@ -248,7 +248,7 @@ impl SheetEngine {
         let style = proof_text::style_of(&mut self.spell, &texts);
         let names: Vec<String> = self
             .wb
-            .as_ref()
+            .as_deref()
             .map(|wb| wb.sheets.iter().map(|s| s.name.clone()).collect())
             .unwrap_or_default();
         let mut issues = Vec::new();
@@ -331,7 +331,7 @@ mod tests {
     }
 
     fn text(e: &SheetEngine, row: u32, col: u32) -> Option<String> {
-        e.wb.as_ref()?.sheets[0].cell(row, col)?.value.as_text()
+        e.wb.as_deref()?.sheets[0].cell(row, col)?.value.as_text()
     }
 
     // source: misspellings of common Vietnamese and English words written for this test; the
@@ -429,13 +429,14 @@ mod tests {
                 font: Some(bo_model::sheet::Font::default()),
             },
         ];
-        e.wb.as_mut().unwrap().sheets[0].set_cell(0, 0, Cell::new(CellValue::RichText(runs)));
+        e.wb.as_deref_mut().unwrap().sheets[0].set_cell(0, 0, Cell::new(CellValue::RichText(runs)));
         let r = run(
             &mut e,
             r#"{"cmd":"spellReplace","edits":[{"sheet":0,"row":0,"col":0,"start":4,"end":12,"text":"document"}]}"#,
         );
         assert_eq!(r["changed"], 1);
-        let CellValue::RichText(runs) = &e.wb.as_ref().unwrap().sheets[0].cell(0, 0).unwrap().value
+        let CellValue::RichText(runs) =
+            &e.wb.as_deref().unwrap().sheets[0].cell(0, 0).unwrap().value
         else {
             panic!("rich text expected");
         };

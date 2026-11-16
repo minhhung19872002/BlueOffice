@@ -249,7 +249,7 @@ impl SheetEngine {
                 row,
                 col,
             } => {
-                let wb = self.wb.as_ref().ok_or(EngineError::NoDocument)?;
+                let wb = self.wb.as_deref().ok_or(EngineError::NoDocument)?;
                 if !is_checkbox(wb, sheet, row, col) {
                     return Ok(Value::Null);
                 }
@@ -278,7 +278,7 @@ impl SheetEngine {
                 Ok(json!(on))
             }
             C::DeleteCheckboxes { sheet, range } => {
-                let wb = self.wb.as_ref().ok_or(EngineError::NoDocument)?;
+                let wb = self.wb.as_deref().ok_or(EngineError::NoDocument)?;
                 let cells: Vec<(u32, u32)> = cells_of(wb, sheet, range)
                     .into_iter()
                     .filter(|&(r, c)| is_checkbox(wb, sheet, r, c))
@@ -345,7 +345,7 @@ impl SheetEngine {
             } => {
                 let has = self
                     .wb
-                    .as_ref()
+                    .as_deref()
                     .and_then(|wb| wb.sheets.get(sheet))
                     .and_then(|ws| ws.cell(row, col))
                     .and_then(|c| c.image.as_deref())
@@ -373,7 +373,7 @@ impl SheetEngine {
             C::CellImageInfo { sheet, row, col } => {
                 let img = self
                     .wb
-                    .as_ref()
+                    .as_deref()
                     .and_then(|wb| wb.sheets.get(sheet))
                     .and_then(|ws| ws.cell(row, col))
                     .and_then(|c| c.image.as_deref());
@@ -404,7 +404,7 @@ impl SheetEngine {
                 }))
             }
             C::CellMediaState { sheet, row, col } => {
-                let wb = self.wb.as_ref().ok_or(EngineError::NoDocument)?;
+                let wb = self.wb.as_deref().ok_or(EngineError::NoDocument)?;
                 let checkbox = is_checkbox(wb, sheet, row, col);
                 let value = wb
                     .sheets
@@ -419,7 +419,7 @@ impl SheetEngine {
             }
             C::ImageRequests => {
                 let mut urls: Vec<String> = Vec::new();
-                if let Some(wb) = self.wb.as_ref() {
+                if let Some(wb) = self.wb.as_deref() {
                     for ws in &wb.sheets {
                         for c in ws.cells.values() {
                             if let Some(CellImageSource::Web { url, .. }) =
@@ -470,11 +470,11 @@ impl SheetEngine {
                 } else if id.starts_with('/') {
                     // An image part a diagram or a group of shapes shows.
                     self.wb
-                        .as_ref()
+                        .as_deref()
                         .and_then(|wb| super::smartart_cmd::image_bytes(wb, &id))
                         .map(<[u8]>::to_vec)
                 } else {
-                    self.wb.as_ref().and_then(|wb| {
+                    self.wb.as_deref().and_then(|wb| {
                         wb.sheets
                             .iter()
                             .flat_map(|ws| ws.cells.values())
@@ -544,7 +544,7 @@ impl SheetEngine {
     /// decodes.
     fn local_image(&self, sheet: usize, row: u32, col: u32) -> Result<Vec<u8>> {
         self.wb
-            .as_ref()
+            .as_deref()
             .and_then(|wb| wb.sheets.get(sheet))
             .and_then(|ws| ws.cell(row, col))
             .and_then(|c| c.image.as_deref())
@@ -568,11 +568,11 @@ impl SheetEngine {
                 self.web_images.bytes.get(image).map(|b| b.to_vec())
             } else if image.starts_with('/') {
                 self.wb
-                    .as_ref()
+                    .as_deref()
                     .and_then(|wb| super::smartart_cmd::image_bytes(wb, image))
                     .map(<[u8]>::to_vec)
             } else {
-                self.wb.as_ref().and_then(|wb| {
+                self.wb.as_deref().and_then(|wb| {
                     wb.sheets
                         .iter()
                         .flat_map(|ws| ws.cells.values())
@@ -617,7 +617,7 @@ impl SheetEngine {
         if let CellMediaCommand::InsertCheckbox { sheet, .. }
         | CellMediaCommand::RemoveCheckbox { sheet, .. } = &cmd
         {
-            if let Some(ws) = self.wb.as_ref().and_then(|wb| wb.sheets.get(*sheet)) {
+            if let Some(ws) = self.wb.as_deref().and_then(|wb| wb.sheets.get(*sheet)) {
                 super::protect::check(ws, super::protect::Action::FormatCells)?;
             }
         }

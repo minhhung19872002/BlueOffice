@@ -510,7 +510,7 @@ impl SheetEngine {
         opts: &RenderOptions,
     ) -> Result<PageList> {
         self.geometry(sheet)?;
-        let wb = self.wb.as_ref().ok_or(EngineError::NoDocument)?;
+        let wb = self.wb.as_deref().ok_or(EngineError::NoDocument)?;
         let geom = self
             .geometry
             .get(sheet)
@@ -531,7 +531,7 @@ impl SheetEngine {
 
     /// Default font (family, size) of the workbook (first `font` of the stylesheet).
     fn base_font(&self) -> (String, f64) {
-        let font = self.wb.as_ref().and_then(|w| w.styles.fonts.first());
+        let font = self.wb.as_deref().and_then(|w| w.styles.fonts.first());
         (
             font.and_then(|x| x.name.clone())
                 .unwrap_or_else(|| "Calibri".into()),
@@ -541,7 +541,7 @@ impl SheetEngine {
 
     /// Values for `&D` `&T` `&Z` `&F` `&A` (from the engine clock, file and sheet names).
     fn hf_context(&self, sheet: usize) -> HfContext {
-        let wb = self.wb.as_ref();
+        let wb = self.wb.as_deref();
         let opts = bo_sheet::numfmt::FormatOptions {
             locale: self.locale,
             date1904: wb.is_some_and(|w| w.date1904),
@@ -572,7 +572,7 @@ impl SheetEngine {
 
     /// Lines listed on the "comments at end" pages.
     fn comment_lines(&self, sheet: usize) -> Vec<String> {
-        let Some(ws) = self.wb.as_ref().and_then(|w| w.sheets.get(sheet)) else {
+        let Some(ws) = self.wb.as_deref().and_then(|w| w.sheets.get(sheet)) else {
             return Vec::new();
         };
         let mut items: Vec<(CellRef, String, String)> = ws
@@ -586,7 +586,7 @@ impl SheetEngine {
                 )
             })
             .collect();
-        let persons = self.wb.as_ref().map(|w| &w.persons);
+        let persons = self.wb.as_deref().map(|w| &w.persons);
         for t in &ws.threaded_comments {
             let who = persons
                 .and_then(|p| p.iter().find(|p| p.id == t.person_id))
@@ -824,7 +824,7 @@ impl SheetEngine {
         let [ml, mr, mt, mb, mh, mf] = st.margins;
         let (aw0, ah0) = ((pw - ml - mr).max(36.0), (ph - mt - mb).max(36.0));
         let (font, size) = self.base_font();
-        let theme = self.wb.as_ref().and_then(|w| w.theme.clone());
+        let theme = self.wb.as_deref().and_then(|w| w.theme.clone());
         let mut commands = Vec::new();
         let mut page_scale = 1.0;
         match frame {
@@ -1040,7 +1040,7 @@ impl SheetEngine {
         // `&G` pictures (§18.3.1.50 legacyDrawingHF): the section's VML shape.
         let pictures = self
             .wb
-            .as_ref()
+            .as_deref()
             .map(|wb| bo_xlsx::hfpicture::pictures(ws, &wb.opaque.parts))
             .unwrap_or_default();
         let suffix = hf_suffix(ws, index);

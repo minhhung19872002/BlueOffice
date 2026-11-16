@@ -166,3 +166,42 @@ fn legacy_and_dynamic_arrays_survive_saving() {
     assert_eq!(value(&again, "D4"), CellValue::Error(CellError::NA));
     assert_eq!(value(&again, "D3"), CellValue::Number(6.0));
 }
+
+/// The formula bar's array lookup is indexed (round 33): the index follows every edit.
+#[test]
+fn formula_bar_array_index_follows_edits() {
+    let mut e = engine();
+    let array = |e: &SheetEngine, r: u32, c: u32| e.cell(0, r, c).unwrap().array;
+    assert_eq!(array(&e, 1, 0), None);
+    exec(
+        &mut e,
+        &json!({"cmd": "setArrayFormula", "sheet": 0, "range": rng(0, 3, 2, 3), "formula": "=A1:A3*2"}),
+    )
+    .unwrap();
+    assert_eq!(array(&e, 1, 3).as_deref(), Some("D1:D3"));
+    assert_eq!(e.cell(0, 2, 3).unwrap().input, "{=A1:A3*2}");
+    // A second array elsewhere is found once added.
+    exec(
+        &mut e,
+        &json!({"cmd": "setArrayFormula", "sheet": 0, "range": rng(0, 5, 1, 6), "formula": "=1"}),
+    )
+    .unwrap();
+    assert_eq!(array(&e, 1, 6).as_deref(), Some("F1:G2"));
+    assert_eq!(array(&e, 1, 3).as_deref(), Some("D1:D3"));
+    // Clearing the first array removes it from the index; undo brings it back.
+    e.set_inputs(
+        0,
+        &[
+            (0, 3, String::new()),
+            (1, 3, String::new()),
+            (2, 3, String::new()),
+        ],
+    )
+    .unwrap();
+    e.set_inputs(0, &[(1, 3, "5".into())]).unwrap();
+    assert_eq!(array(&e, 1, 3), None);
+    assert_eq!(e.cell(0, 1, 3).unwrap().input, "5");
+    e.undo().unwrap();
+    e.undo().unwrap();
+    assert_eq!(array(&e, 1, 3).as_deref(), Some("D1:D3"));
+}

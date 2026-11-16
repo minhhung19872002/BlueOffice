@@ -249,7 +249,7 @@ impl SheetEngine {
                 if let Some(on) = outline_symbols {
                     let ws = self
                         .wb
-                        .as_mut()
+                        .as_deref_mut()
                         .ok_or(EngineError::NoDocument)?
                         .sheets
                         .get_mut(sheet)
@@ -336,7 +336,7 @@ impl SheetEngine {
                         .filter_map(Value::as_u64)
                         .filter_map(|v| usize::try_from(v).ok())
                         .collect();
-                    if let Some(wb) = self.wb.as_mut() {
+                    if let Some(wb) = self.wb.as_deref_mut() {
                         for s in sheets {
                             bo_sheet::filter::apply_auto_filter(wb, s, &locale);
                         }
@@ -366,7 +366,7 @@ impl SheetEngine {
         show_formulas: Option<bool>,
         zoom: Option<u32>,
     ) -> Result<Value> {
-        let wb = self.wb.as_mut().ok_or(EngineError::NoDocument)?;
+        let wb = self.wb.as_deref_mut().ok_or(EngineError::NoDocument)?;
         let ws = wb
             .sheets
             .get_mut(sheet)

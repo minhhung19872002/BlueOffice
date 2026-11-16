@@ -372,3 +372,65 @@ lúc nào rảnh (khoảng yên lặng dài nhất 0 s; 9–13 tiến trình bi�
 
 Còn lại: chữ gợi ý và thứ tự Tab của bản đối chiếu (cần thao tác thật), bộ nhớ còn ~1,5 × bản đối chiếu (nền D3D),
 mở 1 202 trang đo trên máy rảnh, Share / Skins.
+
+## Vòng 8 (2026-11-16)
+
+Phần thêm ở mô-đun riêng: `reader_panels8_win.rs` (cột Lớp, Tệp đính kèm, danh sách chú thích), `reader_skins8_win.rs`
+(Chia sẻ, Giao diện của trang File); lõi: `bo-pdfread/src/navdata.rs` (lớp, tệp đính kèm, trạng thái chú thích); host:
+`ReaderRequest::OpenAttachment`, `host.reveal:`, cắt bộ nhớ driver khi rảnh, `BO_READER_MEMSTEPS`. Ảnh so sánh:
+`scratchpad/show/reader-42…50-*.png` (bản đối chiếu trái).
+
+**Cột trái** (`reader-42` … `reader-48`, đo ở 125 %). Tệp đính kèm: công cụ mở / lưu / thêm, cột Tên / Mô tả / Cỡ rộng
+125 px, dải tiêu đề 24 px nền 245, 246, 250, hàng 21 px, cỡ làm tròn xuống KB; tài liệu có tệp nhúng mở sẵn cột này
+(như bản đối chiếu), chấm đỏ 226, 63, 54 trên biểu tượng. Mở tệp: PDF mở thành tab; tài liệu / ảnh hỏi trước rồi mở bản
+tạm bằng chương trình của Windows; chương trình / script chỉ được lưu. Biểu tượng cột đang chọn là "tab" màu nền cột
+(viền 199, 204, 217, cao 56 px từ x 15), cột có cạnh trái 1 px. Chú thích: công cụ mở / thu tất cả, trước / sau, sắp
+xếp (trang, loại, tác giả, ngày, trạng thái, đánh dấu, màu), công cụ thứ sáu mở nội dung; ô tìm, nút lọc (hộp Lọc: trạng
+thái, tác giả, loại, đánh dấu), "Total Amount", nhóm 34 px nền 230, 233, 240, thẻ viền 199, 204, 217; tác giả đậm 700,
+ngày canh phải (giờ nếu là hôm nay; thiếu `/M` thì dùng `/CreationDate`), bong bóng số trả lời; thẻ đang chọn: phần đầu
+xám, nút ⋮, ô Add Reply (Enter thêm trả lời). Đặt trạng thái (Accepted / Rejected / Cancelled / Completed) và đánh dấu
+kiểm là trả lời trạng thái ẩn (§12.5.6.3). Lớp: bản đối chiếu ẩn cột Lớp tới khi bật ở menu chuột phải của cột (menu này
+bỏ qua nhấp đưa bằng PostMessage, không chụp được); BlueReader hiện biểu tượng khi tệp có lớp, ô mắt bật / tắt lớp và vẽ
+lại trang. Thẻ cao bằng bản đối chiếu ±1 px (thẻ Bob 464–552 so với 463–553).
+
+**Chia sẻ, Giao diện** (trang File). Chia sẻ: e-mail (`mailto:` ghi tên tệp), chép đường dẫn, mở thư mục chứa (Explorer
+chọn sẵn tệp). Giao diện: Cổ điển (màu đo), Sáng, Xanh — lưu trong tuỳ chọn; Tối để mờ vì các ngăn / hộp thoại còn vẽ chữ
+màu tối cố định. Ô tìm trên thanh tiêu đề có nút tuỳ chọn: Chỉ nguyên từ, Phân biệt hoa thường.
+
+**Hành vi** (đưa sự kiện bằng PostMessage). F11 của bản đối chiếu nhận phím đưa vào: nền đen, trang vừa chiều cao, cùng
+vị trí với của ta (x 580–1339 so với 580–1340, `reader-49`); nút thoát là cửa sổ con riêng (31 × 29 px, 94 px từ mép
+phải), luôn hiện (kiểm 1 / 5 / 9 s và sau di chuột), chữ xám 180 không nền — của ta cùng chỗ, cùng cỡ, nền chỉ khi
+hover (`reader-50`). Ctrl + bánh xe / Ctrl+= / Ctrl+-, Alt và menu thả của bản đối chiếu vẫn bỏ qua thông điệp đưa vào
+(như các vòng trước) nên chưa so được; phím trang đã so ở vòng 5.
+
+**Bộ nhớ** (sổ tay 1 202 trang, bản release, bộ nhớ riêng):
+
+| Bước khởi động (`BO_READER_MEMSTEPS`) | Phần cứng | `D3D11_CREATE_DEVICE_SINGLETHREADED` | WARP (`BO_GPU_WARP=1`) |
+| --- | --- | --- | --- |
+| Cửa sổ | 4,2 MB | 4,1 MB | 4,0 MB |
+| Sau D3D11CreateDevice | 42,7 | 43,2 | 4,9 |
+| Sau thiết bị + ngữ cảnh D2D | 43,3 | 43,8 | 5,2 |
+| Sau DirectWrite (FaceCache) | 43,4 | 43,9 | 5,4 |
+| Sau swap chain (2 bộ đệm flip, cỡ client, không MSAA) | 43,5 | 44,0 | 5,6 |
+| Cửa sổ trống đã hiện | 49,5 | 49,9 | 10,8 |
+
+~38 MB là driver chế độ người dùng của hãng GPU nạp trong `D3D11CreateDevice` — ngoài tầm của ta; factory D2D vốn đơn
+luồng, không có WIC. Thử thêm: tắt font hệ thống −1 MB; ngân sách ảnh giải mã 64 → 16 MB không đổi (ảnh của sổ tay nhỏ).
+
+| Sổ tay 1 202 trang | Vòng 7 | Vòng 8 (phần cứng) | WARP | Bản đối chiếu |
+| --- | --- | --- | --- | --- |
+| Sau mở / sau End | 112 / 107 MB | 101–103 / 97–98 MB | 59–61 / 58 MB | 46 / 46 MB |
+| Sau 80 nấc bánh xe + 40 PgDn, rồi 6 s | — | 158 → 146 MB; bộ đệm trang 12 MB: 145 → 132 MB | 107 MB | — |
+| Độ trễ bánh xe / phím p50 (p95) | — | 1,4 (11) / 2,3 (17) ms | 1,8 (7,8) / 2,4 (16) ms | — |
+| Trang ảnh, 400 %, 40 nấc: CPU / bộ nhớ riêng | — | 1 % / 246 MB | 3 % / 199 MB | — |
+
+Giữ: cắt bộ nhớ driver 1 s sau khung cuối (−10 MB lúc mở), chỉ vẽ trước một trang theo hướng cuộn (−8 MB), bộ đệm trang
+32 → 12 MB (−14 MB sau cuộn dài, độ trễ như cũ). Phần còn giữ sau cuộn: ảnh trang trên GPU của trang đang thấy + trang
+kế, cộng bộ nhớ heap đã giải phóng nhưng chưa trả cho hệ điều hành. Thiết bị phần cứng vẫn là mặc định (chủ dự án duyệt);
+WARP bật bằng `BO_GPU_WARP=1`.
+
+**Mở tệp.** Chờ 15 phút một khoảng 60 s không có trình biên dịch: không có (9–12 tiến trình biên dịch của agent khác suốt
+lúc đo). 5 lần `--bench` (CPU 51–71 %): mở 34–55 ms, trang đầu 44–66 ms (vòng 7: 38–48 / 50–63 ms; mục tiêu ≤ 210 ms).
+
+Còn lại: giao diện Tối (cần màu chữ theo giao diện ở mọi ngăn), cột Lớp của bản đối chiếu (menu chuột phải không nhận
+nhấp đưa vào), so Ctrl + bánh xe / tìm với tuỳ chọn trên bản đối chiếu (cần thao tác thật), bộ nhớ nền của driver GPU.

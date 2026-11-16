@@ -219,3 +219,33 @@ sau trang hiện tại — một bước hoàn tác, xoá mẫu; mẫu giữ qua
 Protect › Secure › Batch Encrypt (chọn các tài liệu đang mở và thêm tệp, một mật khẩu mở / quyền, AES-256 hoặc
 128, lưu bản `-protected.pdf` cạnh nhau; tệp đã có mật khẩu bị bỏ qua và báo tên). Accounting Calculator,
 Preflight, Sensitivity không làm (theo yêu cầu); OCR vẫn xám.
+
+**Tốc độ sau bộ đọc lười** (bản release, máy đang chạy song song build của các agent khác):
+
+| Đo | Vòng 3–4 | Vòng 5 |
+| --- | --- | --- |
+| Mở sổ tay 1 202 trang / trang đầu (`--bench`, 3 lần) | 221 / 231 ms | 37–58 / 48–70 ms |
+| Cuộn 1 202 trang, mỗi nấc p50 / p95 (60 nấc) | 1,5 / 1,7 ms | 1,6 / 2,6 ms |
+| Gõ trong đoạn, tổng mỗi phím p50 / p95 (25 ký tự) | 6,6 / 8,9 ms | 8,0 / 18,0 ms (xử lý phím p50 1,7 ms) |
+| Xoá một trang rồi Lưu (ghi lại toàn bộ): 100 trang 6,8 MB / 1 202 trang 10 MB | 13,4 ms (100 trang) | 15,7 / 63,4 ms |
+| Bộ nhớ sau khi mở sổ tay (working set / private) | 126 / 148 MB | 90 / 129 MB |
+
+Lưu lần đầu sau khi sửa nạp `lopdf::Document` đầy đủ một lần (`DerefMut`), nằm trong 63 ms của tệp 1 202 trang.
+
+**Khung Format theo loại đối tượng** (`editor-35`, `editor-38`): chọn khối chữ bằng Edit Object hiện Text Style,
+Split (bốn nút, xám — chưa có tính năng), Arrange theo thứ tự và khoảng cách của bản đối chiếu (125 %: Split +467,
+Arrange +566 px từ đỉnh khung; tiêu đề mục x 27 có đường kẻ tới mép); khung cuộn bằng lăn chuột; ảnh / path chỉ hiện
+Arrange. Hàng Arrange: Page Center bước 90 px, Alignment / Distribute bước 60 px, tiêu đề phụ +26 / +119 / +201 px
+(lệch ≤ 1 px).
+
+**Portfolio** (`editor-39`): mở PDF portfolio hiện danh sách chi tiết như bản đối chiếu (đường dẫn “Home ▸”, hàng
+tiêu đề màu nhấn của ta, cột Name / Description / Modified / Size đo từ mép phải −358 / −210 / −85 px, hàng 46 px);
+nhấp đúp mở PDF thành tab hoặc lưu tệp khác; Convert › PDF Portfolio đổi sang trang bìa.
+
+**So từng tab** (`editor-40…47`, bản đối chiếu trên): cột nút hàng Organize Move / Split lệch ≤ 5 px (icon 457 / 558
+so với 459 / 558, nhãn 471 / 574 so với 476 / 576) nên giữ bố cục cột chung của BlueReader; Page Templates mở hộp
+Name / Add / Spawn / Delete / Go to / Close (bản đối chiếu: Add, Replace, Rename, Delete, Goto).
+
+Còn lại: Text Style trong khung Edit Object chưa hiện phông / cỡ của khối được chọn (bản đối chiếu hiện); mục ảnh
+của khung khi chọn ảnh; Split chưa làm; Rename / Replace mẫu trang; nút thả xuống của Select; Page Transitions,
+OCR, From Web Page, XFA, Accounting Calculator, Preflight vẫn xám.

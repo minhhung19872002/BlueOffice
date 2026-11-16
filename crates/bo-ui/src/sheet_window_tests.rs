@@ -2689,6 +2689,16 @@ fn page_layout_view_shows_pages_and_selects_on_them() {
         .query(serde_json::json!({ "cmd": "sheetViewState" }))
         .expect("state");
     assert_eq!(state["view"], "pageLayout");
+    // The status bar names the page of the active cell.
+    let (n, of) = w
+        .view()
+        .layout_page_of_active()
+        .expect("page of the active cell");
+    assert!(n >= 1 && of >= n, "{n} of {of}");
+    let mut rec = Rec::default();
+    w.paint(&mut rec);
+    let want = format!("Page: {n} of {of}");
+    assert!(rec.texts.iter().any(|t| t.0 == want), "{want}");
 }
 
 fn tab_xy(w: &SheetWindow, sheet: usize) -> (f32, f32) {
@@ -2779,6 +2789,16 @@ fn status_bar_statistics_are_chosen_in_its_menu() {
     assert!(w.action("status.sum", &Fixed));
     assert!(w.status_item_on("status.max"));
     assert!(!w.status_item_on("status.sum"));
+    // Shown in the reference's order with the workbook's decimal separator, right-aligned
+    // 41 px before the view buttons.
+    put(&mut w, &[(1, 0, "8,5")]);
+    w.view_mut().select((0, 0), (2, 0), (0, 0));
+    w.handle(Input::Blink, &Fixed);
+    let texts: Vec<&str> = w.stat_widths.iter().map(|t| t.0.as_str()).collect();
+    assert_eq!(texts, ["Average: 5,25", "Count: 3", "Maximum: 8,5"]);
+    let mut rec = Rec::default();
+    w.paint(&mut rec);
+    assert!(rec.texts.iter().any(|t| t.0 == "Maximum: 8,5"));
 }
 
 #[test]
@@ -2807,8 +2827,13 @@ fn totals_row_drop_down_picks_the_function() {
     w.view_mut().select((3, 1), (3, 1), (3, 1));
     let [x, y, bw, bh] = w.totals_button().expect("button beside the total");
     press(&mut w, (x + bw / 2.0, y + bh / 2.0), 1);
-    assert!(w.menu.is_some());
-    w.menu = None;
+    // A compact list: 20 px rows at 125 %.
+    let l = w.totals_list.clone().expect("function list");
+    assert_eq!(l.row, 20.0);
+    // Max is the fifth row.
+    press(&mut w, (l.rect[0] + 10.0, l.rect[1] + 1.0 + 4.5 * l.row), 1);
+    assert!(w.totals_list.is_none());
+    assert_eq!(shown(&w, 3, 1), "30");
     assert!(w.action("total.max", &Fixed));
     assert_eq!(shown(&w, 3, 1), "30");
     assert!(w.action("total.average", &Fixed));
@@ -2849,7 +2874,7 @@ fn new_table_style_dialog_makes_a_custom_style() {
     // Whole Table shows its own (empty) format; Header Row keeps its own.
     w.form.as_mut().expect("form").set_sel("elements", Some(0));
     w.tstyle_event(&Event::Changed("elements"));
-    assert_eq!(w.form.as_ref().expect("form").color("fill"), "");
+    assert_eq!(w.form.as_ref().expect("form").color("fill"), "-");
     assert_eq!(desc(&w), "");
     // The preview draws the header fill.
     w.form.as_mut().expect("form").set_sel("elements", Some(7));

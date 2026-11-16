@@ -300,7 +300,8 @@ impl SheetView {
 
     /// Bands above / left of the pages in page layout view (ruler and headers).
     fn layout_bands(&self) -> (f32, f32) {
-        (self.u(76.0), self.u(60.0))
+        // Top band measured on the reference at 125 %: 98 px from the frame to the first page.
+        (self.u(76.0), self.u(67.0))
     }
 
     /// Window position of the page area and of layout point (0, 0).
@@ -477,6 +478,15 @@ impl SheetView {
     }
 
     /// Scroll bar figures of the page layout view (position, content, view; points).
+    /// In the page layout view: the page the active cell is printed on (1-based) and the
+    /// number of pages, for the status bar's "Page: 1 of 6".
+    pub fn layout_page_of_active(&self) -> Option<(usize, usize)> {
+        let pl = self.layout.as_ref()?;
+        let at = CellRange::single(CellRef::new(self.active.0, self.active.1));
+        let i = (0..pl.pages.len()).find(|&i| pl.cells_rect(i, at).is_some())?;
+        Some((i + 1, pl.pages.len()))
+    }
+
     pub(crate) fn layout_scroll_info(&self, vertical: bool) -> (f64, f64, f64) {
         let k = f64::from(self.k());
         let (area, _) = self.layout_origin();
@@ -657,9 +667,9 @@ impl SheetView {
         let unit = if pl.inches { 72.0 } else { 72.0 / 2.54 };
         let ticks = if pl.inches { 8 } else { 4 };
         // Top ruler and column letters, one per page column.
-        let ry0 = fy + self.u(4.0);
+        let ry0 = fy + self.u(10.0);
         let rh = self.u(22.0);
-        let hy0 = fy + self.u(34.0);
+        let hy0 = fy + self.u(40.0);
         let hh = self.u(25.0);
         p.push_clip(area[0], fy, area[2], tb);
         let mut seen = Vec::new();

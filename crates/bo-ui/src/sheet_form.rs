@@ -103,6 +103,10 @@ pub(super) enum FormKind {
     TableStyle,
 }
 
+/// The value of a colour drop-down that has no colour (drawn as an empty swatch; `""` is
+/// the automatic colour).
+pub(super) const NO_COLOR: &str = "-";
+
 /// What a control is.
 #[derive(Debug, Clone, PartialEq)]
 pub(super) enum Kind {
@@ -1316,14 +1320,20 @@ impl Form {
                     );
                     p.fill_rect(r[0] + 1.0, r[1] + 1.0, r[2] - 2.0, r[3] - 2.0, WHITE);
                     let bw = (22.0 * self.k).round();
-                    let sw = rgba_hex(hex).unwrap_or(INK);
-                    p.fill_rect(
+                    let sr = [
                         r[0] + (5.0 * self.k).round(),
                         r[1] + (5.0 * self.k).round(),
                         r[2] - bw - (10.0 * self.k).round(),
                         r[3] - (10.0 * self.k).round(),
-                        sw,
-                    );
+                    ];
+                    if hex == NO_COLOR {
+                        // No colour: an empty swatch in a grey outline.
+                        p.fill_rect(sr[0], sr[1], sr[2], sr[3], EDIT_EDGE);
+                        p.fill_rect(sr[0] + 1.0, sr[1] + 1.0, sr[2] - 2.0, sr[3] - 2.0, WHITE);
+                    } else {
+                        let sw = rgba_hex(hex).unwrap_or(INK);
+                        p.fill_rect(sr[0], sr[1], sr[2], sr[3], sw);
+                    }
                     chevron(p, r[0] + r[2] - bw / 2.0 - 1.0, r[1] + r[3] / 2.0, self.k);
                 }
             }

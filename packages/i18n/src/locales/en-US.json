@@ -10766,7 +10766,8 @@
     "groupSortFilter": "Sort & Filter",
     "groupDataTools": "Data Tools",
     "groupFunctions": "Function Library",
-    "groupAuditing": "Formula Auditing"
+    "groupAuditing": "Formula Auditing",
+    "pageOf": "Page: {n} of {of}"
   },
   "sheetChart": {
     "tabDesign": "Chart Design",

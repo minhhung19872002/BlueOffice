@@ -324,6 +324,10 @@ pub struct SheetWindow {
     tab_palette: Vec<String>,
     /// New Table Style… being made.
     tstyle: Option<tstyle_impl::TStyleDraft>,
+    /// Open function list of the totals row drop-down.
+    totals_list: Option<totals_impl::TotalsList>,
+    /// Status bar statistics measured at input time (text, width), for painting.
+    stat_widths: Vec<(String, f32)>,
     zoom_drag: bool,
     /// Scroll bar drags: pointer offset from the thumb start (vertical, horizontal).
     vdrag: Option<f32>,
@@ -466,6 +470,8 @@ impl SheetWindow {
             unhide_list: Vec::new(),
             tab_palette: Vec::new(),
             tstyle: None,
+            totals_list: None,
+            stat_widths: Vec::new(),
             zoom_drag: false,
             vdrag: None,
             hdrag: None,
@@ -1326,6 +1332,15 @@ impl SheetWindow {
             d.layout(text, self.size, self.scale);
         }
         self.layout_form(text);
+        let style = self.ui_style();
+        self.stat_widths = self
+            .status_stat_parts()
+            .into_iter()
+            .map(|t| {
+                let w = text.measure(&t, style).0;
+                (t, w)
+            })
+            .collect();
         if let Some(e) = self.view.take_error() {
             self.status = e;
         }
@@ -1498,6 +1513,9 @@ impl SheetWindow {
             if k == Key::F(9) && !self.view.editing() {
                 return self.calculate(m.shift);
             }
+        }
+        if let Some(done) = self.totals_list_input(&input) {
+            return done;
         }
         if let Some(done) = self.tabs_input(&input, text) {
             return done;
@@ -1808,6 +1826,7 @@ impl SheetWindow {
         self.paint_scrollbars(p);
         self.paint_status(p);
         self.paint_totals_button(p);
+        self.paint_totals_list(p);
         self.paint_filter(p);
         self.paint_gallery(p);
         self.paint_cf_menu(p);
@@ -2226,6 +2245,45 @@ impl SheetWindow {
         );
     }
 
+    /// The selection statistics shown in the status bar ("Average: 11,5", "Count: 7", …),
+    /// in the reference's order; empty for a single cell.
+    fn status_stat_parts(&self) -> Vec<String> {
+        let st = self.view.stats();
+        if st.count <= 1 {
+            return Vec::new();
+        }
+        // The workbook's decimal separator, as the reference ("Average: 11,5" in vi-VN).
+        let decimal = self.view.engine().number_locale().decimal;
+        let num = |v: f64| {
+            let s = format!("{v:.10}");
+            let s = s.trim_end_matches('0').trim_end_matches('.').to_owned();
+            if s == "-0" {
+                "0".to_owned()
+            } else {
+                s.replace('.', &decimal.to_string())
+            }
+        };
+        // The statistics chosen in the status bar's menu, in the reference's order.
+        let mut parts = Vec::new();
+        for (id, key, fallback, _) in tabs_impl::STATUS_ITEMS {
+            if !self.status_item_on(id) {
+                continue;
+            }
+            let value = match id {
+                "status.average" => st.average.map(num),
+                "status.count" => Some(st.count.to_string()),
+                "status.numCount" => Some(st.numbers.to_string()),
+                "status.min" => st.min.filter(|_| st.numbers > 0).map(num),
+                "status.max" => st.max.filter(|_| st.numbers > 0).map(num),
+                _ => (st.numbers > 0).then(|| num(st.sum)),
+            };
+            if let Some(v) = value {
+                parts.push(format!("{}: {v}", self.t(key, fallback)));
+            }
+        }
+        parts
+    }
+
     fn paint_status(&self, p: &mut dyn Painter) {
         let (w, h) = self.size;
         let sh = self.status_h();
@@ -2253,45 +2311,22 @@ impl SheetWindow {
             self.t("sheetEditor.ready", "Ready")
         };
         p.text(&mode, self.px(11.2), ty - 1.0, style, STATUS_TEXT);
-        // Selection statistics, right-aligned before the zoom controls.
-        let st = self.view.stats();
-        if st.count > 1 {
-            let num = |v: f64| {
-                let s = format!("{v:.10}");
-                let s = s.trim_end_matches('0').trim_end_matches('.').to_owned();
-                if s == "-0" {
-                    "0".to_owned()
-                } else {
-                    s
-                }
-            };
-            // The statistics chosen in the status bar's menu, in the reference's order.
-            let mut parts = Vec::new();
-            for (id, key, fallback, _) in tabs_impl::STATUS_ITEMS {
-                if !self.status_item_on(id) {
-                    continue;
-                }
-                let value = match id {
-                    "status.average" => st.average.map(num),
-                    "status.count" => Some(st.count.to_string()),
-                    "status.numCount" => Some(st.numbers.to_string()),
-                    "status.min" => st.min.filter(|_| st.numbers > 0).map(num),
-                    "status.max" => st.max.filter(|_| st.numbers > 0).map(num),
-                    _ => (st.numbers > 0).then(|| num(st.sum)),
-                };
-                if let Some(v) = value {
-                    parts.push(format!("{}: {v}", self.t(key, fallback)));
-                }
-            }
-            let text = parts.join("      ");
-            let est = text.chars().count() as f32 * style.size * 0.52;
-            p.text(
-                &text,
-                (self.zoom_rects[0][0] - self.px(150.0) - est).round(),
-                ty,
-                style,
-                STATUS_TEXT,
-            );
+        // Page layout view: the page of the active cell, as the reference ("Page: 1 of 6").
+        if let Some((n, of)) = self.view.layout_page_of_active() {
+            let s = self
+                .t("sheetNative.pageOf", "Page: {n} of {of}")
+                .replace("{n}", &n.to_string())
+                .replace("{of}", &of.to_string());
+            p.text(&s, self.px(112.0), ty - 1.0, style, STATUS_TEXT);
+        }
+        // Selection statistics, right-aligned before the view buttons: measured on the
+        // reference at 125 %, the last one ends 41 px before the first view button and they
+        // are 28 px apart.
+        // (Computed and measured at input time: no engine query while painting.)
+        let mut right = w - self.px(353.6) - self.px(32.8);
+        for (part, width) in self.stat_widths.iter().rev() {
+            p.text(part, (right - width).round(), ty, style, STATUS_TEXT);
+            right -= width + self.px(22.4);
         }
         // Zoom: minus, track with the 100 % tick, thumb, plus, percentage.
         let [minus, track, plus, pct] = self.zoom_rects;

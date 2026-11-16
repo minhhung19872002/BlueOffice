@@ -10766,7 +10766,8 @@
     "groupSortFilter": "Sắp xếp & lọc",
     "groupDataTools": "Công cụ dữ liệu",
     "groupFunctions": "Thư viện hàm",
-    "groupAuditing": "Kiểm tra công thức"
+    "groupAuditing": "Kiểm tra công thức",
+    "pageOf": "Trang: {n} / {of}"
   },
   "sheetChart": {
     "tabDesign": "Thiết kế biểu đồ",

@@ -6,7 +6,7 @@
 //! OK writes the style with engine `createTableStyle` (a §18.8.40 `tableStyle` with its
 //! formats in §18.8.15 `dxfs`), and the Format as Table gallery lists it under Custom.
 
-use super::form_impl::{Event, Form, FormKind, Kind};
+use super::form_impl::{Event, Form, FormKind, Kind, NO_COLOR};
 use super::SheetWindow;
 use crate::Painter;
 use bo_model::sheet::{
@@ -183,7 +183,7 @@ impl SheetWindow {
                 None,
                 [116.0, y, 150.0, 26.0],
                 Kind::ColorPick {
-                    hex: String::new(),
+                    hex: NO_COLOR.to_owned(),
                     palette: palette.clone(),
                 },
             );
@@ -252,10 +252,11 @@ impl SheetWindow {
             return;
         };
         let fm = d.formats[d.current].clone();
+        let shown = |h: &str| if h.is_empty() { NO_COLOR } else { h }.to_owned();
         if let Some(f) = self.form.as_mut() {
-            f.set_color("fill", &fm.fill);
-            f.set_color("text", &fm.text);
-            f.set_color("border", &fm.border);
+            f.set_color("fill", &shown(&fm.fill));
+            f.set_color("text", &shown(&fm.text));
+            f.set_color("border", &shown(&fm.border));
             f.set_on("bold", fm.bold);
         }
         self.tstyle_sync_desc();
@@ -266,11 +267,20 @@ impl SheetWindow {
         let (Some(f), Some(d)) = (self.form.as_ref(), self.tstyle.as_mut()) else {
             return;
         };
+        // No colour and the automatic colour both leave the element's colour unset.
+        let got = |id: &str| {
+            let h = f.color(id);
+            if h == NO_COLOR {
+                String::new()
+            } else {
+                h
+            }
+        };
         d.formats[d.current] = ElementFmt {
-            fill: f.color("fill"),
-            text: f.color("text"),
+            fill: got("fill"),
+            text: got("text"),
             bold: f.on("bold"),
-            border: f.color("border"),
+            border: got("border"),
         };
         self.tstyle_sync_desc();
     }

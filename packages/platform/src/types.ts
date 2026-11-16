@@ -1886,6 +1886,8 @@ export interface SlideFormatState {
   /** Character spacing in points (`null` = normal). */
   spacing?: number | null;
   doubleStrike?: boolean;
+  /** Text shadow (sent only when on). */
+  shadow?: boolean;
 }
 
 /** Text being edited inside a shape (offsets in UTF-16 code units). */
@@ -1927,7 +1929,31 @@ export type SlideTextFormat =
   | { kind: 'spacing'; points: number }
   | { kind: 'doubleStrike'; value?: boolean }
   /** Reset the character formatting to what the placeholder gives (Ctrl+Space). */
-  | { kind: 'clearChar' };
+  | { kind: 'clearChar' }
+  /** Increase / Decrease Font Size along the reference's size list. */
+  | { kind: 'sizeStep'; up: boolean }
+  /** Paragraph dialog values in points (`firstLine` negative = hanging). */
+  | {
+      kind: 'paragraph';
+      values: {
+        beforeText: number;
+        firstLine: number;
+        spaceBefore: number | null;
+        spaceAfter: number | null;
+        lineExact: number | null;
+      };
+    }
+  /** Proofing language (BCP 47); `null` = do not check spelling. */
+  | { kind: 'lang'; lang: string | null }
+  /** Text Shadow (outer shadow in the run's effects); toggles without `value`. */
+  | { kind: 'shadow'; value?: boolean }
+  /** Text box options: Align Text (`t` | `ctr` | `b`), Text Direction, Columns (1–16). */
+  | {
+      kind: 'body';
+      anchor?: 't' | 'ctr' | 'b' | null;
+      vert?: 'horz' | 'vert' | 'vert270' | 'wordArtVert' | 'eaVert' | null;
+      columns?: number | null;
+    };
 
 /** Header and footer of slides (Insert › Header & Footer). */
 export interface SlideHfSpec {

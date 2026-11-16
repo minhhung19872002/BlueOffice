@@ -31,6 +31,8 @@ pub enum InsertFile {
     Audio,
     /// A picture replacing the selected one (Change Picture).
     ChangePicture,
+    /// A workbook to embed (Insert Object from a file).
+    Object,
 }
 
 /// Dialogs of these tabs.
@@ -48,6 +50,10 @@ pub(super) enum SlideDialog {
     Compress,
     /// Add Section (`None`) or Rename Section.
     Section(Option<usize>),
+    /// Keep the ink drawn in the show that ended?
+    KeepInk,
+    /// Paragraph indents and spacing.
+    Paragraph,
 }
 
 /// Which contextual tabs the selection shows.
@@ -58,10 +64,13 @@ pub(super) enum Context {
     Shape,
     Picture,
     Table,
+    /// A chart: Chart Design and Format.
+    Chart,
 }
 
 /// Commands of these tabs (always enabled unless [`needs_selection`]).
-pub const COMMANDS: [&str; 49] = [
+pub const COMMANDS: [&str; 50] = [
+    "sl.object",
     "sl.photoAlbum",
     "sl.model3d",
     "sl.smartart",
@@ -153,7 +162,9 @@ pub fn needs_selection(id: &str) -> bool {
 }
 
 /// Label key of each command (`slideNative.*`).
-pub const LABELS: [(&str, &str); 46] = [
+pub const LABELS: [(&str, &str); 48] = [
+    ("sl.screenshot", "screenshot"),
+    ("sl.object", "object"),
     ("sl.photoAlbum", "photoAlbum"),
     ("sl.model3d", "model3d"),
     ("sl.smartart", "smartart"),
@@ -230,7 +241,7 @@ pub(super) fn drawing_group() -> Group {
 /// Home tab: Editing group (one menu at this width on the reference).
 pub(super) fn editing_group() -> Group {
     Group {
-        label: "ribbon.groups.editing",
+        label: COLLAPSED,
         large: vec![Item::Large("sl.editing")],
         rows: vec![],
     }
@@ -256,7 +267,7 @@ pub(super) fn insert_tab() -> Tab {
                 label: "slideNative.images",
                 large: vec![L("sl.pictures")],
                 // Photo Album: each picture on a new slide.
-                rows: vec![vec![S("sl.photoAlbum")]],
+                rows: vec![vec![S("sl.screenshot")], vec![S("sl.photoAlbum")]],
             },
             Group {
                 label: "slideNative.illustrations",
@@ -268,7 +279,7 @@ pub(super) fn insert_tab() -> Tab {
                 ],
             },
             Group {
-                label: "slideNative.links",
+                label: COLLAPSED,
                 large: vec![L("sl.links")],
                 rows: vec![],
             },
@@ -280,15 +291,19 @@ pub(super) fn insert_tab() -> Tab {
             Group {
                 label: "slideNative.text",
                 large: vec![L("sl.textBox"), L("sl.headerFooter"), L("sl.textStyles")],
-                rows: vec![vec![B("sl.dateTime")], vec![B("sl.slideNumber")]],
+                rows: vec![
+                    vec![B("sl.dateTime")],
+                    vec![B("sl.slideNumber")],
+                    vec![B("sl.object")],
+                ],
             },
             Group {
-                label: "slideNative.symbols",
+                label: COLLAPSED,
                 large: vec![L("sl.symbols")],
                 rows: vec![],
             },
             Group {
-                label: "slideNative.media",
+                label: COLLAPSED,
                 large: vec![L("sl.media")],
                 rows: vec![],
             },
@@ -336,6 +351,7 @@ pub(super) fn context_tabs(c: Context) -> Vec<Tab> {
         Context::Shape => vec![super::fmt::shape_format_tab()],
         Context::Picture => vec![super::pic::picture_format_tab()],
         Context::Table => vec![super::fmt::table_design_tab(), table_layout_tab()],
+        Context::Chart => super::chart::chart_tabs(),
     }
 }
 
@@ -449,8 +465,13 @@ pub(super) fn install_icons(icons: &mut crate::icons::Icons) {
     icons.alias("sl.width", "sl.crop");
 }
 
+/// Label of a group the reference shrinks to its one button at this width: the button
+/// carries the group's name and the label row stays empty.
+pub(super) const COLLAPSED: &str = "slideNative.collapsedGroup";
+
 /// Name the commands of these tabs.
 pub(super) fn install_strings(s: &mut crate::strings::Strings) {
+    s.set(COLLAPSED, "");
     for (id, key) in LABELS {
         let v = s.get(&format!("slideNative.{key}")).to_owned();
         s.set(&format!("commands.{id}"), &v);
@@ -530,6 +551,7 @@ impl SlideWindow {
             None => Context::None,
             Some("picture") if sel.len() == 1 => Context::Picture,
             Some("table") if sel.len() == 1 => Context::Table,
+            Some(_) if self.chart_selected() => Context::Chart,
             Some(_) => Context::Shape,
         }
     }
@@ -819,18 +841,31 @@ impl SlideWindow {
             "sl.shading" => picker(self, PickKind::Fill, "sl.shading"),
             "sl.outline" => picker(self, PickKind::Outline, "sl.outline"),
             "sl.picBorder" => picker(self, PickKind::Outline, "sl.picBorder"),
-            "sl.pictures" => {
-                self.file_request = Some(InsertFile::Picture);
-                true
-            }
-            "sl.photoAlbum" => {
-                self.file_request = Some(InsertFile::AlbumPicture);
-                true
-            }
-            "sl.model3d" => {
-                self.file_request = Some(InsertFile::Model3d);
-                true
-            }
+            // Insert Picture From / Photo Album / 3D Models menus (reference).
+            "sl.pictures" => menu(
+                self,
+                vec![(self.label("fromDevice"), "ins:picture".into())],
+                "sl.pictures",
+            ),
+            "sl.photoAlbum" => menu(
+                self,
+                vec![(self.label("newPhotoAlbum"), "ins:album".into())],
+                "sl.photoAlbum",
+            ),
+            "sl.model3d" => menu(
+                self,
+                vec![(self.label("fromDevice"), "ins:model3d".into())],
+                "sl.model3d",
+            ),
+            // Insert Object: a new embedded workbook or one from a file.
+            "sl.object" => menu(
+                self,
+                vec![
+                    (self.label("newWorkbook"), "ins:workbook".into()),
+                    (self.label("objectFromFile"), "ins:object".into()),
+                ],
+                "sl.object",
+            ),
             "sl.smartart" => menu(
                 self,
                 [
@@ -1161,6 +1196,32 @@ impl SlideWindow {
                 self.insert_text_style(*fill, *outline)
             }
             "ins" => match v {
+                "picture" => {
+                    self.file_request = Some(InsertFile::Picture);
+                    true
+                }
+                "album" => {
+                    self.file_request = Some(InsertFile::AlbumPicture);
+                    true
+                }
+                "model3d" => {
+                    self.file_request = Some(InsertFile::Model3d);
+                    true
+                }
+                "object" => {
+                    self.file_request = Some(InsertFile::Object);
+                    true
+                }
+                "workbook" => {
+                    self.activate_context = true;
+                    self.view.run_ole(bo_engine::ole::OleCommand::OleInsert {
+                        data: None,
+                        range: None,
+                        cells: None,
+                        link: None,
+                        auto_update: false,
+                    })
+                }
                 "video" => {
                     self.file_request = Some(InsertFile::Video);
                     true
@@ -1418,6 +1479,10 @@ impl SlideWindow {
                 self.open_section_dialog(i);
                 return;
             }
+            SlideDialog::Paragraph => {
+                self.paragraph_action("format.paragraphSettings");
+                return;
+            }
             SlideDialog::HeaderFooter => {
                 let info = {
                     self.view.run(SlideCommand::HeaderFooterInfo);
@@ -1448,6 +1513,18 @@ impl SlideWindow {
                     (self.label("hfNotTitle"), not_title),
                 ])
             }
+            // A message box like the reference's after a show with ink: Keep / Discard.
+            SlideDialog::KeepInk => Dialog::new(
+                DialogKind::WordCount,
+                // The product name (ADR-0006), as the title-bar shows it.
+                "BlueSlide".to_owned(),
+                Vec::new(),
+                vec![
+                    (t(self, "showTools.keep"), DialogButton::Ok),
+                    (t(self, "showTools.discard"), DialogButton::Cancel),
+                ],
+                vec![t(self, "slideNative.keepInkQuestion")],
+            ),
             SlideDialog::Link => Dialog::new(
                 DialogKind::Link,
                 self.label("linkTitle"),
@@ -1558,13 +1635,20 @@ impl SlideWindow {
             self.show_dialog_button(k, b, values);
             return;
         }
+        if kind == SlideDialog::KeepInk {
+            let name = self.strings.get("showTools.inkName").to_owned();
+            self.view.resolve_pending_ink(b == DialogButton::Ok, &name);
+            self.dialog = None;
+            return;
+        }
         if b == DialogButton::Cancel {
             self.dialog = None;
             return;
         }
         let on = |i: usize| values.get(i).is_some_and(|v| v == "1");
         match kind {
-            SlideDialog::Show(_) => {}
+            SlideDialog::Show(_) | SlideDialog::KeepInk => {}
+            SlideDialog::Paragraph => self.paragraph_button(values),
             SlideDialog::Compress => self.compress_button(b, values),
             SlideDialog::Section(i) => self.section_button(i, b, values),
             SlideDialog::Link => {
@@ -1787,11 +1871,33 @@ impl SlideWindow {
         total
     }
 
-    /// Format Painter: give the next shape chosen the copied formatting.
-    pub(super) fn paste_format_painter(&mut self) -> bool {
+    /// Format Painter: give the next shape chosen the copied formatting; in text, the
+    /// characters selected next (a click takes the word under the pointer, as the
+    /// reference does). `release` is where the mouse button was let go, if it was.
+    pub(super) fn paste_format_painter(&mut self, release: Option<(f32, f32)>) -> bool {
         let Some(from) = self.fmt_painter.as_ref() else {
             return false;
         };
+        let c = self.view.canvas_rect();
+        let on_canvas = release
+            .filter(|(x, y)| *x >= c[0] && *x < c[0] + c[2] && *y >= c[1] && *y < c[1] + c[3]);
+        if let (Some((x, y)), Some(te)) = (on_canvas, self.view.text_edit().cloned()) {
+            if te.start == te.end {
+                // A click: the word under the pointer (double click selects it).
+                self.view.handle(Input::Press {
+                    x,
+                    y,
+                    count: 2,
+                    shift: false,
+                });
+                self.view.handle(Input::Release { x, y });
+            }
+            if self.view.text_edit().is_some_and(|t| t.start != t.end) {
+                self.fmt_painter = None;
+                return self.view.run(SlideCommand::PasteFormat);
+            }
+            return false;
+        }
         let ids: Vec<u32> = self.view.selection().iter().map(|s| s.id).collect();
         if ids.is_empty() || &ids == from {
             return false;

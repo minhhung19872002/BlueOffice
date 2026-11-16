@@ -15,6 +15,8 @@ mod audit_impl;
 mod cfmenu_impl;
 #[path = "sheet_chart.rs"]
 mod chart_impl;
+// BlueSlide's chart tabs reuse the menus and icons.
+pub(crate) use chart_impl::add_icons as add_chart_icons;
 #[path = "sheet_chartdata.rs"]
 mod chartdata_impl;
 #[path = "sheet_commands.rs"]

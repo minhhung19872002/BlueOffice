@@ -71,7 +71,7 @@ pub(super) struct ChartDrag {
 }
 
 /// Own drawings for the chart tabs' buttons (24-unit grid).
-pub(super) fn add_icons(icons: &mut crate::icons::Icons) {
+pub(crate) fn add_icons(icons: &mut crate::icons::Icons) {
     let blue = Rgba(0x2e, 0x75, 0xb6, 255);
     let orange = Rgba(0xed, 0x7d, 0x31, 255);
     let grey = Rgba(0x8a, 0x8a, 0x8a, 255);

@@ -975,6 +975,17 @@ impl SlideWindow {
         if kind == InsertFile::ChangePicture {
             return self.change_picture(&bytes, name);
         }
+        if kind == InsertFile::Object {
+            self.activate_context = true;
+            let data = base64::engine::general_purpose::STANDARD.encode(&bytes);
+            return self.view.run_ole(bo_engine::ole::OleCommand::OleInsert {
+                data: Some(data),
+                range: None,
+                cells: None,
+                link: None,
+                auto_update: false,
+            });
+        }
         self.insert_file_as(bytes, name, kind == InsertFile::AlbumPicture)
     }
 

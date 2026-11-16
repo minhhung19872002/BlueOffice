@@ -91,33 +91,45 @@ fn home() -> Tab {
                         SizeBox,
                         B("format.growStep"),
                         B("format.shrinkStep"),
+                        B("sl.clearFmt"),
                     ],
+                    // Reference row: B I U S abc AV▾ Aa▾ | highlight▾ colour▾.
                     vec![
                         B("format.bold"),
                         B("format.italic"),
                         B("format.underline"),
+                        B("sl.shadow"),
                         B("format.strike"),
-                        B("format.highlight"),
-                        B("format.color"),
+                        B("sl.charSpacing"),
+                        B("sl.changeCase"),
+                        B("sl.highlight"),
+                        B("sl.fontColor"),
                     ],
                 ],
             },
             Group {
                 label: "ribbon.groups.paragraph",
                 large: vec![],
+                // Two rows, then Text Direction / Align Text in a column on the right.
                 rows: vec![
                     vec![
                         B("format.bullets"),
                         B("format.numbering"),
                         B("format.outdent"),
                         B("format.indent"),
+                        B("format.lineSpacing"),
+                        B("sl.textDir"),
                     ],
                     vec![
                         B("format.alignLeft"),
                         B("format.alignCenter"),
                         B("format.alignRight"),
                         B("format.justify"),
+                        B("sl.columns"),
+                        B("sl.alignText"),
                     ],
+                    // Right-hand column, third button (reference).
+                    vec![B("sl.toSmartArt")],
                 ],
             },
             ins::drawing_group(),
@@ -134,7 +146,20 @@ fn ribbon_format(view: &SlideView, anim: bool) -> bo_edit::FormatState {
         flags.push_str("sel ");
     }
     if anim {
-        flags.push_str("anim");
+        flags.push_str("anim ");
+    }
+    // Preview (Transitions / Animations) and Delete comment are dimmed on the reference
+    // while the slide has nothing to play or delete.
+    if let Some(st) = view.state() {
+        if st.transition.is_some() {
+            flags.push_str("trans ");
+        }
+        if !st.animations.is_empty() {
+            flags.push_str("anims ");
+        }
+        if !st.comments.is_empty() {
+            flags.push_str("cmt ");
+        }
     }
     let (can_undo, can_redo) = view.history();
     bo_edit::FormatState {
@@ -257,6 +282,17 @@ pub struct SlideWindow {
     window_request: Option<WindowRequest>,
     /// Draw Table / Eraser in use.
     table_tool: tabletools::TableTool,
+    /// The spelling issue the open context menu corrects.
+    ctx_issue: Option<serde_json::Value>,
+    /// Where the next menu opens instead of under its ribbon button (a context menu's
+    /// sub-menu).
+    menu_anchor: Option<[f32; 4]>,
+    /// Where the last context menu opened.
+    ctx_at: [f32; 4],
+    /// The Spelling pane's walk through the deck.
+    spelling: spelling::SpellRun,
+    /// Text the host should read aloud.
+    speak: Option<String>,
 }
 
 #[path = "slide_controls.rs"]
@@ -288,6 +324,24 @@ mod showtab;
 
 #[path = "slide_viewtab.rs"]
 mod viewtab;
+
+#[path = "slide_paragraph.rs"]
+mod paragraph;
+
+#[path = "slide_chart.rs"]
+mod chart;
+
+#[path = "slide_context.rs"]
+mod context;
+
+#[path = "slide_spelling.rs"]
+mod spelling;
+
+#[path = "slide_insert_icons.rs"]
+mod insert_icons;
+
+#[path = "slide_review.rs"]
+mod review;
 pub use ins::InsertFile;
 pub use views5::WindowRequest;
 
@@ -394,7 +448,16 @@ fn slide_enabled(id: &str, f: &bo_edit::FormatState) -> bool {
     // Trigger and Animation Painter need an effect on the selection (dimmed otherwise, as
     // on the reference).
     if matches!(id, "anim.trigger" | "anim.painter") {
-        return flags.contains("anim");
+        return flags.contains("anim ");
+    }
+    match id {
+        "transition.preview" => return flags.contains("trans "),
+        "anim.preview" => return flags.contains("anims "),
+        "review.deleteComment" => return flags.contains("cmt "),
+        // Screenshot needs other windows' pictures from the host: not available yet.
+        "sl.screenshot" => return false,
+        id if review::GREYED.contains(&id) => return false,
+        _ => {}
     }
     crate::commands::enabled(id, f)
         || sr::is_command(id)
@@ -406,6 +469,9 @@ fn slide_enabled(id: &str, f: &bo_edit::FormatState) -> bool {
         || pic::BG_COMMANDS.contains(&id)
         || views5::COMMANDS.contains(&id)
         || sections::COMMANDS.contains(&id)
+        || paragraph::COMMANDS.contains(&id)
+        || chart::COMMANDS.contains(&id)
+        || review::COMMANDS.contains(&id)
 }
 
 impl SlideWindow {
@@ -420,6 +486,8 @@ impl SlideWindow {
         pic::install_strings(&mut strings);
         views5::install_strings(&mut strings);
         sections::install_strings(&mut strings);
+        paragraph::install_strings(&mut strings);
+        review::install_strings(&mut strings);
         let mut icons = Icons::load();
         sr::install_icons(&mut icons);
         ins::install_icons(&mut icons);
@@ -429,6 +497,10 @@ impl SlideWindow {
         pic::install_icons(&mut icons);
         views5::install_icons(&mut icons);
         sections::install_icons(&mut icons);
+        crate::sheet_window::add_chart_icons(&mut icons);
+        paragraph::install_icons(&mut icons);
+        insert_icons::install(&mut icons);
+        review::install_icons(&mut icons);
         view.set_labels(
             strings.get("slideEditor.notesPlaceholder"),
             strings.get("slideEditor.end"),
@@ -466,6 +538,8 @@ impl SlideWindow {
                 .with_row_widths(row_widths)
                 .with_two_line_labels()
                 .with_mark_on_own_line()
+                .with_large_dim()
+                .with_late_rows(paragraph::late_row)
                 // Reference at 125 %: font box 213 px, size box 67.
                 .with_box_widths(170.4, 53.6)
                 .with_enabled(slide_enabled)
@@ -522,6 +596,11 @@ impl SlideWindow {
             ruler: false,
             window_request: None,
             table_tool: tabletools::TableTool::Off,
+            ctx_issue: None,
+            menu_anchor: None,
+            ctx_at: [0.0; 4],
+            spelling: spelling::SpellRun::default(),
+            speak: None,
         }
     }
 
@@ -618,7 +697,12 @@ impl SlideWindow {
             || self.side.shown())
             && self.view.mode() != ViewMode::Reading
         {
-            CommentsPane::width(self.scale)
+            if self.side.kind == selpane::SideKind::Spelling {
+                // The reference's Spelling pane is wider: 437 device px at 125 %.
+                (349.6 * self.scale).round()
+            } else {
+                CommentsPane::width(self.scale)
+            }
         } else {
             0.0
         };
@@ -701,11 +785,19 @@ impl SlideWindow {
     pub fn handle(&mut self, input: Input, text: &dyn TextMeasure) -> bool {
         let showing = self.view.showing();
         let mode = self.view.mode();
+        let released = match input {
+            Input::Release { x, y } => Some((x, y)),
+            _ => None,
+        };
         let redraw = self.route(input, text)
             | self.paint_effect()
-            | self.paste_format_painter()
+            | self.paste_format_painter(released)
             | self.sync_context()
             | self.after_rehearsal();
+        // A show with ink ended: ask whether to keep it (reference message box).
+        if !self.view.showing() && self.view.has_pending_ink() && self.dialog.is_none() {
+            self.open_dialog(ins::SlideDialog::KeepInk);
+        }
         if std::mem::take(&mut self.dialog_layout) {
             if let Some((d, _)) = self.dialog.as_mut() {
                 d.layout(text, self.size, self.scale);
@@ -821,6 +913,9 @@ impl SlideWindow {
         if let Some(r) = self.table_tool_action(id) {
             return r;
         }
+        if let Some(r) = self.review_action(id) {
+            return r;
+        }
         if let Some(r) = self.sections_action(id) {
             return r;
         }
@@ -828,6 +923,12 @@ impl SlideWindow {
             return r;
         }
         if let Some(r) = self.format_action(id) {
+            return r;
+        }
+        if let Some(r) = self.paragraph_action(id) {
+            return r;
+        }
+        if let Some(r) = self.chart_action(id) {
             return r;
         }
         if let Some(r) = self.insert_action(id) {
@@ -903,6 +1004,7 @@ impl SlideWindow {
                     None => false,
                 }
             }
+            "review.spellingDialog" => self.start_spelling(),
             "review.prevComment" | "review.nextComment" => {
                 self.step_comment(id == "review.nextComment")
             }
@@ -1560,7 +1662,11 @@ impl SlideWindow {
     }
 
     fn open_menu(&mut self, kind: MenuKind, hit: RibbonHit) {
-        let anchor = self.ribbon.rect_of(hit).unwrap_or([0.0, 0.0, 1.0, 1.0]);
+        let anchor = self
+            .menu_anchor
+            .take()
+            .or_else(|| self.ribbon.rect_of(hit))
+            .unwrap_or([0.0, 0.0, 1.0, 1.0]);
         let f = self.view.format();
         let design = self.view.state().and_then(|s| s.design.clone());
         let items: Vec<MenuItem> = match kind {
@@ -1844,6 +1950,19 @@ impl SlideWindow {
                 color: (!v.is_empty()).then(|| v.to_owned()),
                 all: false,
             }),
+            "lspc" => self.choose_line_spacing(v),
+            "case" => self.change_case(v),
+            "chsp" => self.choose_spacing(v),
+            "tosmart" => self.convert_to_smartart(v),
+            "ctxsp" => self.choose_context(v),
+            "rv" if v == "closepane" => {
+                self.side.close();
+                self.relayout_pending = true;
+                true
+            }
+            "rv" => self.choose_review(v),
+            "hl" | "fc" | "body" => self.choose_home(kind, v),
+            "slchart" => self.chart_action(c).unwrap_or(false),
             "tdir" => self.set_transition(None, Some(v.to_owned()), None, false),
             "tdur" => self.set_transition(None, None, v.parse().ok(), false),
             "adir" => self.apply_effect(None, Some(v.to_owned())),
@@ -2061,6 +2180,14 @@ impl SlideWindow {
         if let Input::Key(Key::Letter('s'), Mods { ctrl: true, .. }) = input {
             return self.action("file.save");
         }
+        if let Some(r) = self.spelling_key(&input) {
+            return r;
+        }
+        if let Input::Key(Key::F(7), m) = input {
+            if !m.ctrl && !m.shift && !m.alt && !self.view.showing() {
+                return self.start_spelling();
+            }
+        }
         // Clipboard shortcuts outside text editing go to the engine's slide clipboard.
         if let Input::Key(Key::Letter(c @ ('c' | 'x' | 'v')), Mods { ctrl: true, .. }) = input {
             if self.view.text_edit().is_none() && self.view.focus() != Focus::Notes {
@@ -2162,7 +2289,7 @@ impl SlideWindow {
             Input::Press { x, y, .. } if y >= status_top => {
                 self.area_press = false;
                 match self.status_hit(x, y) {
-                    Some(0) => self.action("view.notes"),
+                    Some(0) if self.page_master.is_none() => self.action("view.notes"),
                     Some(1) => self.step_zoom(false),
                     Some(2) => {
                         self.zoom_drag = true;
@@ -2238,7 +2365,7 @@ impl SlideWindow {
                 // here; the view decides by its focus.
                 self.view.handle(Input::Wheel(dy))
             }
-            Input::Context { .. } => false,
+            Input::Context { x, y } => self.open_context(x, y),
             Input::Text(_)
             | Input::Key(..)
             | Input::Blink
@@ -2258,6 +2385,7 @@ impl SlideWindow {
         self.view.paint(p, self.text_size);
         self.paint_removal(p);
         self.paint_view_extras(p);
+        self.paint_review_extras(p);
         let format = ribbon_format(&self.view, self.anim_index().is_some());
         self.title.paint(
             p,
@@ -2328,6 +2456,9 @@ impl SlideWindow {
         }
         if self.fmt_painter.is_some() {
             on.push("sl.painter");
+        }
+        if self.view.format().shadow {
+            on.push("sl.shadow");
         }
         self.view_toggled(&mut on);
         self.picture_toggled(&mut on);
@@ -2625,15 +2756,20 @@ impl SlideWindow {
         let style = self.status_style();
         let ink = self.theme.text;
         let ty = (y + 1.0 + (sh - 1.0 - style.size * 1.33) / 2.0).round();
-        let counter = self
-            .strings
-            .get("slideEditor.slideOf")
-            // Reading view counts the slide it shows.
-            .replace(
-                "{{n}}",
-                &(self.view.show_slide().unwrap_or(self.view.current()) + 1).to_string(),
-            )
-            .replace("{{total}}", &self.view.slide_count().to_string());
+        // A master view names itself instead of counting slides (reference: "Handout
+        // Master", "Notes Master", "Slide Master").
+        let counter = match self.status_mode_text() {
+            Some(t) => t,
+            None => self
+                .strings
+                .get("slideEditor.slideOf")
+                // Reading view counts the slide it shows.
+                .replace(
+                    "{{n}}",
+                    &(self.view.show_slide().unwrap_or(self.view.current()) + 1).to_string(),
+                )
+                .replace("{{total}}", &self.view.slide_count().to_string()),
+        };
         p.text(&counter, self.px(11.0), ty, style, ink);
         let [notes, minus, track, plus, pct, fit, normal, ..] = self.status;
         let icon = self.px(16.0);
@@ -2677,7 +2813,7 @@ impl SlideWindow {
         }
         // The notes toggle is a plain icon and label (no band), as on the reference; the
         // sorter has no notes, so no toggle.
-        if self.view.mode() == ViewMode::Normal {
+        if self.view.mode() == ViewMode::Normal && self.page_master.is_none() {
             self.icons.draw(
                 p,
                 "format.lineSpacing",
@@ -2774,6 +2910,14 @@ impl SlideWindow {
 #[cfg(test)]
 #[path = "slide_window_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "slide_round7_tests.rs"]
+mod round7_tests;
+
+#[cfg(test)]
+#[path = "slide_round8_tests.rs"]
+mod round8_tests;
 
 #[cfg(test)]
 #[path = "slide_round5_tests.rs"]

@@ -797,6 +797,63 @@ fn shows_skip_hidden_slides_loop_and_rehearse() {
 }
 
 #[test]
+fn ending_a_show_with_ink_asks_to_keep_it() {
+    let shapes = |w: &SlideWindow| {
+        w.view()
+            .engine()
+            .presentation()
+            .map_or(0, |p| p.slides[0].data.shapes.len())
+    };
+    for keep in [false, true] {
+        let mut w = window();
+        let before = shapes(&w);
+        assert!(w.run_action("show.fromStart"));
+        let ctrl = Mods {
+            ctrl: true,
+            ..Mods::default()
+        };
+        w.handle(Input::Key(Key::Letter('p'), ctrl), &Fixed);
+        let (cx, cy) = (w.size.0 / 2.0, w.size.1 / 2.0);
+        w.handle(
+            Input::Press {
+                x: cx,
+                y: cy,
+                count: 1,
+                shift: false,
+            },
+            &Fixed,
+        );
+        w.handle(
+            Input::Drag {
+                x: cx + 80.0,
+                y: cy + 30.0,
+            },
+            &Fixed,
+        );
+        w.handle(
+            Input::Release {
+                x: cx + 80.0,
+                y: cy + 30.0,
+            },
+            &Fixed,
+        );
+        // Esc puts the pen down, a second Esc ends the show.
+        w.handle(Input::Key(Key::Escape, Mods::default()), &Fixed);
+        w.handle(Input::Key(Key::Escape, Mods::default()), &Fixed);
+        assert!(!w.view().showing());
+        assert_eq!(
+            w.dialog.as_ref().map(|(_, k)| *k),
+            Some(ins::SlideDialog::KeepInk)
+        );
+        let key = if keep { Key::Enter } else { Key::Escape };
+        w.handle(Input::Key(key, Mods::default()), &Fixed);
+        assert!(w.dialog.is_none());
+        assert!(!w.view().has_pending_ink());
+        assert_eq!(shapes(&w) > before, keep, "keep = {keep}");
+    }
+}
+
+#[test]
 #[allow(clippy::items_after_statements)] // the recording painter belongs to this test
 fn presenter_view_shows_the_slide_on_the_left() {
     let mut w = window();

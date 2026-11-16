@@ -515,6 +515,12 @@ pub struct EditorWindow {
     pub(crate) close_box: Option<crate::editor_close::CloseBox>,
     /// The Page Transitions dialog (`editor_trans7`).
     pub(crate) trans: Option<crate::editor_trans7::TransDlg>,
+    /// Round 8 classic dialogs (`editor_dlg8`), the top one last.
+    pub(crate) form8: Vec<(crate::editor_form8::Form, crate::editor_dlg8::FormWhat)>,
+    /// Password Protection permissions: print, copy, change, comment.
+    pub(crate) perm8: (bool, bool, bool, bool),
+    /// The Format pane shows a comment tool's properties (asked for with `cmt8.props`).
+    pub(crate) comment_pane8: bool,
     /// Form field tool.
     pub(crate) design: crate::editor_design::DesignState,
     /// Caret shown (blink phase).
@@ -590,6 +596,9 @@ impl EditorWindow {
             tw: None,
             close_after_save: None,
             trans: None,
+            form8: Vec::new(),
+            perm8: (true, true, false, true),
+            comment_pane8: false,
             close_box: None,
             design: crate::editor_design::DesignState::default(),
             caret_on: true,
@@ -648,7 +657,10 @@ impl EditorWindow {
 
     /// Whether one of the window's dialogs is open.
     pub(crate) fn dialog_open(&self) -> bool {
-        self.dialog.is_some() || self.dialog2.is_some() || self.trans.is_some()
+        self.dialog.is_some()
+            || self.dialog2.is_some()
+            || self.trans.is_some()
+            || !self.form8.is_empty()
     }
 
     /// Window title.
@@ -803,7 +815,7 @@ impl EditorWindow {
         self.r.menu_at(items, r, "field");
     }
 
-    fn doc_name(&self) -> String {
+    pub(crate) fn doc_name(&self) -> String {
         self.r.path().and_then(|p| p.file_stem()).map_or_else(
             || "document".to_owned(),
             |s| s.to_string_lossy().into_owned(),
@@ -818,7 +830,7 @@ impl EditorWindow {
         if self.dialog.is_some() || self.dialog2.is_some() {
             return self.dialog_input(&input, m);
         }
-        if self.close_box_input(&input) || self.trans_input(&input) {
+        if self.close_box_input(&input) || self.trans_input(&input) || self.form8_input(&input) {
             return true;
         }
         if self.tw_input(&input, m) {
@@ -991,7 +1003,7 @@ impl EditorWindow {
         }
     }
 
-    fn after_edit(&mut self) {
+    pub(crate) fn after_edit(&mut self) {
         self.r.document_changed();
         let n = self.r.view().map_or(0, ReaderView::page_count);
         self.org.clamp(n);
@@ -1023,11 +1035,11 @@ impl EditorWindow {
             .unwrap_or_default()
     }
 
-    fn insert_at(&self) -> usize {
+    pub(crate) fn insert_at(&self) -> usize {
         self.target_pages().last().map_or(0, |p| p + 1)
     }
 
-    fn edit_result(&mut self, r: Result<(), String>) {
+    pub(crate) fn edit_result(&mut self, r: Result<(), String>) {
         match r {
             Ok(()) => self.after_edit(),
             Err(e) => self.r.set_status(&e),
@@ -1051,7 +1063,8 @@ impl EditorWindow {
             }
             return;
         }
-        if self.action(cmd, m)
+        if self.dlg8_command(cmd)
+            || self.action(cmd, m)
             || self.search_command(cmd)
             || self.tools_command(cmd)
             || self.format_command(cmd)
@@ -1488,7 +1501,8 @@ impl EditorWindow {
             self.certificate_picked(bytes);
             return;
         }
-        if self.five_file_picked(purpose, &name, bytes)
+        if self.dlg8_file_picked(purpose, &name, bytes)
+            || self.five_file_picked(purpose, &name, bytes)
             || self.more_file_picked(purpose, bytes)
             || self.more2_file_picked(purpose, &name, bytes)
         {
@@ -1917,6 +1931,7 @@ impl EditorWindow {
             d.paint(p, self.r.theme(), self.r.window_size(), true);
         }
         self.paint_trans(p);
+        self.paint_form8(p);
         self.paint_close_box(p);
     }
 }

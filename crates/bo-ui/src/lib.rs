@@ -36,15 +36,20 @@ mod editor_convert;
 mod editor_design;
 #[cfg(test)]
 mod editor_design_tests;
+mod editor_dlg8;
+#[cfg(test)]
+mod editor_dlg8_tests;
 mod editor_edit;
 mod editor_file7;
 mod editor_five;
 #[cfg(test)]
 mod editor_five_tests;
+mod editor_form8;
 mod editor_format;
 #[cfg(test)]
 mod editor_format_tests;
 mod editor_icons;
+mod editor_join8;
 mod editor_more;
 mod editor_more2;
 #[cfg(test)]

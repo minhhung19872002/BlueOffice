@@ -261,12 +261,14 @@ fn page_commands_make_files_and_requests() {
             .map(|p| p.rotate),
         Some(90)
     );
+    // Extract Pages (round 8: the reference's dialog; not saved at once: a new tab).
     w.run("org.extract", &Fixed);
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
     let req = w.take_requests();
-    let Some(ReaderRequest::SaveBytes { name, bytes }) = req.first() else {
+    let Some(ReaderRequest::OpenDocument { name, bytes }) = req.first() else {
         panic!("{req:?}");
     };
-    assert_eq!(name, "document-p1.pdf");
+    assert_eq!(name, "document-1.pdf");
     let part = PdfDocument::open(bytes.clone(), bo_pdfread::standard_fonts()).expect("opens");
     assert_eq!(part.page_count(), 1);
     // Split asks how many pages per file, then writes the parts.
@@ -285,11 +287,13 @@ fn page_commands_make_files_and_requests() {
     let req = w.take_requests();
     assert!(matches!(&req[..], [ReaderRequest::PickFile { purpose, .. }] if purpose == "insert"));
     w.file_picked("insert", std::path::Path::new("two.pdf"), &pdf(2));
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
     assert_eq!(
         texts(&mut w),
         ["Page 4", "Page 1", "Page 2", "Page 3", "Page 2", "Page 1"]
     );
     w.run("org.insertBlank", &Fixed);
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
     assert_eq!(w.view().map(crate::ReaderView::page_count), Some(7));
     // Merging appends.
     w.file_picked("merge", std::path::Path::new("one.pdf"), &pdf(1));

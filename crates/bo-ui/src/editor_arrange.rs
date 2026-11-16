@@ -430,6 +430,7 @@ impl EditorWindow {
                 dim: false,
             },
         ];
+        items.extend(self.image_menu8());
         for (i, (_, buttons, _)) in ARRANGE_ROWS.iter().enumerate() {
             let need = [1, 2, 3, 1][i];
             for (cmd, icon) in *buttons {

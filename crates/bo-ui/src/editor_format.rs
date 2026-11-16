@@ -521,8 +521,10 @@ impl EditorWindow {
 
     /// Whether the Format pane is shown: Edit Text is on and it was not closed.
     fn format_shown(&self) -> bool {
+        // Round 8: a comment tool does not open the pane (nor shrink the page) by itself, as
+        // in the reference; its properties show when asked for (`cmt8.props`).
         (matches!(self.edit_tool(), Some(EditTool::Text | EditTool::Object))
-            || self.comment.tool.is_some())
+            || (self.comment.tool.is_some() && self.comment_pane8))
             && !self.format_closed
             && self.r.showing_doc()
     }
@@ -533,6 +535,7 @@ impl EditorWindow {
             && self.comment.tool.is_none()
         {
             self.format_closed = false;
+            self.comment_pane8 = false;
         }
         let w = if self.format_shown() { PANE_W } else { 0.0 };
         self.r.set_right_pane(w);

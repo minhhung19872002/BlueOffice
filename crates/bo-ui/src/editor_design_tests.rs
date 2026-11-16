@@ -90,7 +90,7 @@ fn field_tools_page_design_and_protection() {
     let mut rec = Rec::default();
     w.paint(&mut rec);
     assert!(
-        rec.texts.iter().any(|t| t == "Encrypt with AES 256-bit"),
+        rec.texts.iter().any(|t| t == "256-bit AES"),
         "{:?}",
         rec.texts
     );

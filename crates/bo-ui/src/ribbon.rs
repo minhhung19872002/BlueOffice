@@ -202,6 +202,8 @@ pub struct Ribbon {
     row_w: fn(&str) -> Option<f32>,
     /// One-word menu labels put their drop-down mark on a second line (BlueSlide).
     mark_line: bool,
+    /// Large buttons are dimmed by the enabled rule too (BlueSlide; BlueDoc's stay lit).
+    large_dim: bool,
     /// Font and size box widths (logical px) instead of BlueDoc's.
     box_w: Option<(f32, f32)>,
     /// Large button minimum width and label padding (logical px); BlueDoc's 52 / 14 unless a
@@ -569,6 +571,7 @@ impl Ribbon {
             large_lines: std::cell::RefCell::new(std::collections::HashMap::new()),
             row_w: |_| None,
             mark_line: false,
+            large_dim: false,
             box_w: None,
             large_metrics: (52.0, 14.0),
             enabled: commands::enabled,
@@ -703,6 +706,12 @@ impl Ribbon {
     /// Put the drop-down mark of one-word menu labels on its own line, under the label.
     pub(crate) fn with_mark_on_own_line(mut self) -> Self {
         self.mark_line = true;
+        self
+    }
+
+    /// Dim large buttons as well when the enabled rule says so.
+    pub(crate) fn with_large_dim(mut self) -> Self {
+        self.large_dim = true;
         self
     }
 
@@ -1775,7 +1784,9 @@ impl Ribbon {
                 }
                 Placed::Item(Item::Large(id), r) => {
                     let hit = RibbonHit::Command(id);
-                    if let Some(c) = tint(hit) {
+                    let enabled = !self.large_dim || (self.enabled)(id, format);
+                    let ink = if enabled { t.text } else { t.border };
+                    if let Some(c) = tint(hit).filter(|_| enabled) {
                         radius_rect(p, r, c);
                     } else if on_ids.contains(id) {
                         toggled_rect(p, r);
@@ -1788,10 +1799,10 @@ impl Ribbon {
                         r.y + self.px(4.0),
                         size,
                         IconColors {
-                            ink: t.text,
+                            ink,
                             accent: t.accent,
                             on: t.accent_on,
-                            tinted: true,
+                            tinted: enabled,
                         },
                     );
                     let mut label = strings.get(&format!("commands.{id}")).to_owned();
@@ -1811,7 +1822,7 @@ impl Ribbon {
                                 (r.x + (r.w - lw) / 2.0).round(),
                                 r.y + self.px(40.0) + i as f32 * self.px(19.2),
                                 style,
-                                t.text,
+                                ink,
                             );
                         }
                     } else {
@@ -1820,7 +1831,7 @@ impl Ribbon {
                             (r.x + (r.w - w) / 2.0).round(),
                             r.y + self.px(40.0),
                             style,
-                            t.text,
+                            ink,
                         );
                     }
                 }

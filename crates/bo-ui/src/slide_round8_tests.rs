@@ -215,3 +215,43 @@ fn preview_and_delete_comment_follow_the_slide() {
     let f = ribbon_format(&w.view, false);
     assert!(slide_enabled("transition.preview", &f));
 }
+
+#[test]
+fn large_buttons_dim_only_where_the_reference_does() {
+    use crate::ribbon::Item;
+    let w = window();
+    let f = ribbon_format(&w.view, false);
+    let mut tabs = w.fixed_tabs();
+    for c in [
+        ins::Context::Shape,
+        ins::Context::Picture,
+        ins::Context::Table,
+    ] {
+        tabs.extend(ins::context_tabs(c));
+    }
+    let mut dim: Vec<&str> = tabs
+        .iter()
+        .flat_map(|t| t.groups.iter())
+        .flat_map(|g| g.large.iter())
+        .filter_map(|i| match i {
+            Item::Large(id) if !slide_enabled(id, &f) => Some(*id),
+            _ => None,
+        })
+        .collect();
+    dim.sort_unstable();
+    dim.dedup();
+    // Quick Styles is dimmed on the reference without a selection too; the others of
+    // the list are on contextual tabs, shown only with a selection.
+    assert_eq!(
+        dim,
+        [
+            "anim.preview",
+            "review.deleteComment",
+            "sl.altText",
+            "sl.quickStyles",
+            "sl.textQuick",
+            "transition.preview"
+        ],
+        "large buttons dimmed with nothing selected"
+    );
+}

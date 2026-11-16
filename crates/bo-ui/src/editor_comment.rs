@@ -16,6 +16,8 @@ use bo_render::{PathSeg, Rgba};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CommentTool {
     Typewriter,
+    /// Comment › Text Box typed in place (`editor_textbox`).
+    TextBox,
     Callout,
     Rectangle,
     Ellipse,
@@ -70,6 +72,7 @@ impl Default for CommentState {
 fn tool_of(cmd: &str) -> Option<CommentTool> {
     Some(match cmd {
         "cm.typewriter" => CommentTool::Typewriter,
+        "tool.textbox" => CommentTool::TextBox,
         "cm.callout" => CommentTool::Callout,
         "cm.rect" => CommentTool::Rectangle,
         "cm.ellipse" => CommentTool::Ellipse,
@@ -87,6 +90,7 @@ fn tool_of(cmd: &str) -> Option<CommentTool> {
 pub(crate) fn tool_command(t: CommentTool) -> &'static str {
     match t {
         CommentTool::Typewriter => "cm.typewriter",
+        CommentTool::TextBox => "tool.textbox",
         CommentTool::Callout => "cm.callout",
         CommentTool::Rectangle
         | CommentTool::Ellipse
@@ -231,6 +235,7 @@ impl EditorWindow {
                     }
                     // Typed in place (`editor_typewriter`).
                     CommentTool::Typewriter => self.tw_start(page, p),
+                    CommentTool::TextBox => self.tb_start(page, p),
                     CommentTool::File => {
                         self.comment.file_at = Some((page, p));
                         self.push(ReaderRequest::PickFile {

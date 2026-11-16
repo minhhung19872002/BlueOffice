@@ -303,3 +303,44 @@ Skins (ta chưa có).
 
 Còn lại: đoạn gõ dài ra đè lên đoạn dưới khi Reflow Editing tắt; các mục File còn thiếu ở trên; Page Transitions, OCR, From Web Page, XFA,
 Accounting Calculator, Preflight vẫn xám; thanh tiêu đề hộp thoại chung của BlueEditor (Dialog) vẫn kiểu cũ.
+
+## Vòng 7 (2026-11-16)
+
+Ảnh so sánh (bản đối chiếu trái / trên, BlueEditor phải / dưới): `scratchpad/show/editor-56…*.png`.
+
+**Đoạn gõ dài ra khi Reflow Editing tắt** (`bo-pdfread::paragraph_push`). Đo trên bản sao: bản đối chiếu
+gom các đoạn liền nhau cùng cột (cách nhau dưới khoảng hai dòng) thành một khung Edit Text; gõ làm đoạn thêm dòng
+thì các đoạn sau trong khung bị đẩy xuống ngay khi gõ (bớt dòng thì kéo lên), còn đường kẻ, ảnh, đoạn ở xa sau một
+khoảng lớn đứng yên và bị đè (`editor-56`). BlueEditor làm như vậy: phiên sửa khối ghi lại các đoạn theo sau của
+khung (chữ chép lại cuối phần đầu nội dung như lệnh dời đối tượng), dời đúng số dòng × khoảng dòng mỗi khi số dòng
+đổi; Reflow Editing bật thì dời mọi thứ bên dưới (cả hình) — trước đây chỉ dời khi kết thúc phiên, lúc gõ vẫn đè.
+Một bước hoàn tác cho cả đoạn và những gì dời theo. Lối gõ nhanh (`typing_fast`) vẫn dùng được: phần đầu chỉ đổi khi
+số dòng đổi.
+
+**Comment › Text Box** (`editor_textbox.rs`, `bo-pdfread::textbox_annot`). Lỗi: lệnh đi vào công cụ của BlueReader,
+hộp hỏi chữ của nó chưa được đặt chỗ nên hiện ở góc trên trái cửa sổ (“Ex / Cancel”). Nay hộp hỏi của BlueReader
+được đặt chỗ ngay khi mở, và Text Box của BlueEditor gõ tại chỗ như bản đối chiếu: bấm lên trang là có khung
+trắng viền đỏ, dòng đầu canh giữa theo điểm bấm, chữ xuống dòng ở bề rộng cố định, khung dài ra theo chữ; bấm chỗ
+khác / Esc thì thành ghi chú. Mặc định đọc từ tệp bản đối chiếu lưu ra: FreeText `/Subj (Textbox)`, vùng chữ rộng
+100 pt, viền 1 pt `#FF0000` ngoài vùng chữ (`/Rect` 102 × 12,044 pt cho một dòng), nền trắng `/C [1 1 1]`,
+chữ Helvetica 9 pt `#0000FF` (`/RC`), dòng cách 1,116 em, đường chân chữ đầu 0,905 em dưới mép trên.
+
+**Trang File** (`editor_backstage.rs`, `editor_file7.rs`, `editor_skin7_win.rs`): đủ 16 mục theo thứ tự bản đối chiếu.
+Save / Revert xám khi chưa sửa (đã có). Batch Print: danh sách tài liệu đang mở có ô chọn, Add Files… mở thêm
+PDF vào tab, Print… mở hộp Print một lần rồi host in từng tài liệu đã chọn cả tệp (`take_batch` cho BlueEditor).
+Share và Skins dùng trang của BlueReader vòng 8; skin áp lên bảng màu riêng của BlueEditor (Classic giữ nguyên số đo).
+Action Wizard và Index xám, rê chuột hiện lý do; Open › Add a place bỏ qua.
+
+**Hộp thoại** (`dialog_caption7.rs`, tuỳ chọn `Dialog::with_caption`, BlueDoc không đổi). Đo hộp thoại thường của bản
+đối chiếu (Batch Encrypt, Page Transitions, 125 %): thanh tiêu đề 32 px `#F2F3F3`, tiêu đề chữ thường đen từ x 7,
+dấu ✕; thân trắng; nút Windows 11 cao 33 px, rộng tối thiểu 134 px, bo 4 px, mặt `#FDFDFD`, viền `#D0D0D0`, cạnh
+dưới `#BABABA`, nút mặc định viền `#0078D4`. Mọi hộp thoại của BlueEditor (Save As / mật khẩu / Optimize / Header &
+Footer / Watermark / Bates / Batch… — đều dựng bằng `Dialog`) nay vẽ kiểu này; trường danh sách (`with_choices`:
+bấm hoặc ↑↓ để chọn, có mũi tên thả) cho các hộp cần chọn.
+
+**Lệnh xám đã làm**: View › Page Transitions (hộp như bản đối chiếu: Transition — No Transition và 12 kiểu PDF
+Split / Blinds / Box / Wipe / Dissolve / Glitter / Push / Cover / Uncover / Fade / Replace / Fly —, Direction theo
+kiểu, Speed Slow / Medium / Fast = 2 / 1 / 0,5 s, trang: tất cả hoặc khoảng; ghi `/Trans` từng trang, ISO 32000-1
+§12.4.4, một bước hoàn tác). Form › XFA: biểu mẫu XFA tĩnh (có trường AcroForm) bỏ gói XFA thành biểu mẫu thường,
+giữ trường và giá trị; XFA động thì báo không làm được. From Web Page, Preflight bỏ qua (theo yêu cầu).
+

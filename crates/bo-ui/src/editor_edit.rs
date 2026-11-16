@@ -174,6 +174,9 @@ pub(crate) struct Editing {
     pub mods: Mods,
     /// Snapping guides of the current move, page points (x0, y0, x1, y1).
     pub guides: Vec<[f32; 4]>,
+    /// Reflow Editing is on: everything below a paragraph moves with it while typing
+    /// (otherwise only the paragraphs after it in its box, like the reference editor).
+    pub reflow: bool,
 }
 
 fn inside(r: [f32; 4], x: f32, y: f32) -> bool {
@@ -204,6 +207,15 @@ fn items(objs: &[PageObject]) -> Vec<Item> {
 }
 
 impl Editing {
+    /// What moves with a paragraph that gains or loses lines while typing.
+    fn push_mode(&self) -> bo_pdfread::PushMode {
+        if self.reflow {
+            bo_pdfread::PushMode::Below
+        } else {
+            bo_pdfread::PushMode::Box
+        }
+    }
+
     /// Forget everything (another document, tool off).
     pub fn reset(&mut self, v: Option<&mut ReaderView>) {
         self.finish_typing(v);
@@ -385,7 +397,11 @@ impl Editing {
         let Some(item) = item else { return };
         if tool == EditTool::Text || (count >= 2 && item.kind == ObjectKind::Text) {
             if let Some(b) = item.block {
-                match v.doc_mut().begin_block_edit(page, &b) {
+                let push = self.push_mode();
+                match v.doc_mut().begin_block_edit(page, &b).and_then(|mut blk| {
+                    v.doc_mut().block_edit_push(&mut blk, push)?;
+                    Ok(blk)
+                }) {
                     Ok(blk) => {
                         let caret = blk.hit(px, py);
                         let n = blk.text.len();
@@ -837,6 +853,7 @@ impl Editing {
             return false;
         };
         let page = t.page;
+        let push = self.push_mode();
         v.doc_mut().begin_group("add text");
         let r = v
             .doc_mut()
@@ -853,7 +870,8 @@ impl Editing {
                     .iter()
                     .rposition(|&r| r == id)
                     .map_or(b.text.chars().count(), |i| i + 1);
-                let blk = v.doc_mut().begin_block_edit(page, &b)?;
+                let mut blk = v.doc_mut().begin_block_edit(page, &b)?;
+                v.doc_mut().block_edit_push(&mut blk, push)?;
                 Ok((blk, caret))
             });
         v.invalidate_page(page);

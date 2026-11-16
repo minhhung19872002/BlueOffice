@@ -32,6 +32,7 @@ mod editor_design;
 #[cfg(test)]
 mod editor_design_tests;
 mod editor_edit;
+mod editor_file7;
 mod editor_five;
 #[cfg(test)]
 mod editor_five_tests;
@@ -51,12 +52,16 @@ mod editor_organize;
 mod editor_organize5_tests;
 mod editor_pages5;
 mod editor_portfolio;
+#[cfg(test)]
+mod editor_round7_tests;
 mod editor_sign;
 #[cfg(test)]
 mod editor_tests;
+mod editor_textbox;
 mod editor_tools;
 #[cfg(test)]
 mod editor_tools_tests;
+mod editor_trans7;
 mod editor_typewriter;
 mod editor_window;
 mod icons;

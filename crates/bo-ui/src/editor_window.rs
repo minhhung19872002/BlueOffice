@@ -724,6 +724,7 @@ impl EditorWindow {
             self.tools.tool = None;
         }
         self.r.run_command(cmd, m);
+        self.reflow_check();
         self.drain(m);
         self.sync();
     }
@@ -1340,6 +1341,10 @@ impl EditorWindow {
             }
             _ => None,
         };
+        self.transitions_changed();
+        let Some((d, _)) = self.dialog2.as_mut() else {
+            return true;
+        };
         d.layout(m, size, scale);
         if let Some(b) = done {
             if let Some((d, what)) = self.dialog2.take() {
@@ -1464,6 +1469,10 @@ impl EditorWindow {
             .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
         if purpose == "addImage" || purpose == "replaceImage" {
             self.picture_picked(purpose, bytes);
+            return;
+        }
+        if purpose == "batchPrintAdd" {
+            self.batch_print_picked(path, bytes);
             return;
         }
         if purpose == "pasteText" {
@@ -1885,6 +1894,20 @@ impl EditorWindow {
         self.paint_format(p);
         self.paint_more_tip(p);
         self.paint_backstage(p);
+        // Round 7: every BlueEditor dialog has the reference editor's caption and buttons.
+        let (size, scale) = (self.r.window_size(), self.r.ui_scale());
+        for d in [
+            self.dialog.as_mut().map(|d| &mut d.0),
+            self.dialog2.as_mut().map(|d| &mut d.0),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if !d.has_caption() {
+                d.set_caption();
+                d.layout(&Estimate, size, scale);
+            }
+        }
         if let Some((d, _)) = &self.dialog {
             d.paint(p, self.r.theme(), self.r.window_size(), true);
         }

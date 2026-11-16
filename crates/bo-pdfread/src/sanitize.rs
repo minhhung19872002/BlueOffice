@@ -79,7 +79,7 @@ pub struct HiddenCounts {
 }
 
 impl PdfDocument {
-    fn catalog_root(&self) -> Result<ObjectId, String> {
+    pub(crate) fn catalog_root(&self) -> Result<ObjectId, String> {
         self.doc
             .trailer
             .get(b"Root")
@@ -87,7 +87,7 @@ impl PdfDocument {
             .map_err(|e| e.to_string())
     }
 
-    fn catalog_dict(&self) -> Option<&Dictionary> {
+    pub(crate) fn catalog_dict(&self) -> Option<&Dictionary> {
         self.doc.catalog().ok()
     }
 

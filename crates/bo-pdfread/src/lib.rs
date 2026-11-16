@@ -51,6 +51,7 @@ mod objects;
 mod optimize;
 mod pages_edit;
 mod paragraph;
+mod paragraph_push;
 mod sanitize;
 mod sfnt;
 mod sigappear;
@@ -58,10 +59,13 @@ mod store;
 mod templates;
 mod text;
 mod text_ops;
+mod textbox_annot;
+mod transitions;
 mod type1;
 mod typing_fast;
 mod viewer;
 mod write;
+mod xfa;
 
 pub use annot::{Annot, AnnotKind, NewAnnot};
 pub use annot_draw::{
@@ -87,11 +91,15 @@ pub use objects::{image_size, text_lines, NewImage, ObjectKind, PageObject, Text
 pub use optimize::{JpegEncoder, OptimizeOptions, OptimizeReport};
 pub use pages_edit::{LabelRange, LabelStyle};
 pub use paragraph::{text_blocks, Align, BlockEdit, RunStyle, StyleChange, TextBlock};
+pub use paragraph_push::PushMode;
 pub use sanitize::{ButtonAction, HiddenCounts, HiddenData};
 pub use sigappear::{signature_appearance, SignatureLook};
 pub use templates::EmbeddedFile;
 pub use text::TextLayer;
+pub use textbox_annot::TextBoxLook;
+pub use transitions::{Transition, TransitionDirection, TransitionKind};
 pub use viewer::{DocInfo, FontInfo};
+pub use xfa::XfaKind;
 
 use crate::store::Document;
 use bo_render::{PageList, Rgba};
@@ -1197,6 +1205,8 @@ mod edit_tests;
 mod forms_tests;
 #[cfg(test)]
 mod objects_tests;
+#[cfg(test)]
+mod paragraph_push_tests;
 #[cfg(test)]
 mod paragraph_tests;
 #[cfg(test)]

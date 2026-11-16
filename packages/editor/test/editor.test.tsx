@@ -447,6 +447,10 @@ describe('BlueEditor digital signatures', () => {
                 direction: null,
                 wrap: false,
                 fixedLayout: false,
+                cellHAlign: 'Left' as const,
+                rowHeight: 0,
+                colWidth: 0,
+                cellMargin: [108, 108] as [number, number],
               }
             : null,
         pictureTools: at === 'picture',

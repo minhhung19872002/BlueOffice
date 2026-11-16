@@ -155,8 +155,12 @@ pub fn has_menu_mark(id: &str) -> bool {
             | "design.layout"
             | "design.slideSize"
             | "show.custom"
-            | "sl.smartart"
             | "sl.links"
+            | "sl.pictures"
+            | "sl.screenshot"
+            | "slide.new"
+            | "sl.photoAlbum"
+            | "sl.model3d"
             | "sl.textStyles"
             | "sl.textQuick"
             | "sl.textFill"
@@ -172,6 +176,17 @@ pub fn has_menu_mark(id: &str) -> bool {
             | "sl.picQuick"
             | "pm.orientation"
             | "pm.perPage"
+            | "sl.charSpacing"
+            | "sl.changeCase"
+            | "sl.highlight"
+            | "sl.fontColor"
+            | "sl.columns"
+            | "sl.textDir"
+            | "sl.alignText"
+            | "sl.toSmartArt"
+            | "sl.checkA11y"
+            | "sl.language"
+            | "sl.hideInk"
     )
 }
 
@@ -407,17 +422,40 @@ pub(crate) fn review_tab() -> Tab {
     use Item::Large as L;
     Tab {
         label: "ribbon.tabs.review",
-        groups: vec![Group {
-            label: "ribbon.groups.comments",
-            large: vec![
-                L("review.newComment"),
-                L("review.deleteComment"),
-                L("review.prevComment"),
-                L("review.nextComment"),
-                L("review.comments"),
-            ],
-            rows: vec![],
-        }],
+        groups: vec![
+            // Proofing: Spelling opens the Spelling pane (F7), as on the reference.
+            Group {
+                label: "ribbon.groups.proofing",
+                large: vec![L("review.spellingDialog"), L("sl.thesaurus")],
+                rows: vec![],
+            },
+            Group {
+                label: "slideNative.accessibilityGroup",
+                large: vec![L("sl.checkA11y")],
+                rows: vec![],
+            },
+            Group {
+                label: "slideNative.languageGroup",
+                large: vec![L("sl.translate"), L("sl.language")],
+                rows: vec![],
+            },
+            Group {
+                label: "ribbon.groups.comments",
+                large: vec![
+                    L("review.newComment"),
+                    L("review.deleteComment"),
+                    L("review.prevComment"),
+                    L("review.nextComment"),
+                    L("review.comments"),
+                ],
+                rows: vec![],
+            },
+            Group {
+                label: "slideNative.inkGroup",
+                large: vec![L("sl.hideInk")],
+                rows: vec![],
+            },
+        ],
     }
 }
 
@@ -493,7 +531,8 @@ pub(crate) fn install_strings(s: &mut Strings) {
         ("draw.blue", "slideNative.bluePen"),
         ("draw.green", "slideNative.greenPen"),
         ("draw.inkToShape", "slideNative.inkToShape"),
-        ("review.newComment", "slideEditor.comments.new"),
+        ("review.newComment", "slideNative.newComment"),
+        ("review.spellingDialog", "slideNative.spelling"),
         ("review.comments", "slideNative.showComments"),
         ("review.deleteComment", "slideEditor.comments.delete"),
         ("review.prevComment", "slideNative.previous"),

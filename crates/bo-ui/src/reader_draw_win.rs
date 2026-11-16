@@ -114,11 +114,42 @@ pub(crate) struct Draw {
     pub(crate) props: bool,
     prop_rects: Vec<(Prop, [f32; 4])>,
     panel: [f32; 4],
+    /// BlueReader: the reference reader's tool defaults when no style was chosen (round 10).
+    pub(crate) reader_defaults: bool,
 }
 
 impl Draw {
     fn style(&self) -> DrawStyle {
-        self.style.unwrap_or_default()
+        match self.style {
+            Some(s) => s,
+            None if self.reader_defaults => reader_default(self.tool),
+            None => DrawStyle::default(),
+        }
+    }
+}
+
+/// The reference reader's defaults measured at 125 % (round 10): shapes, pencil and lines pure
+/// red 2 pt; typewriter text blue 9 pt; the other tools red 1 pt.
+fn reader_default(tool: Option<DrawTool>) -> DrawStyle {
+    let base = DrawStyle {
+        color: [255, 0, 0],
+        ..DrawStyle::default()
+    };
+    match tool {
+        Some(DrawTool::Typewriter) => DrawStyle {
+            color: [0, 0, 255],
+            font_size: 9.0,
+            ..base
+        },
+        Some(
+            DrawTool::Pencil
+            | DrawTool::Line
+            | DrawTool::Arrow
+            | DrawTool::Oval
+            | DrawTool::Polygon
+            | DrawTool::Polyline,
+        ) => DrawStyle { width: 2.0, ..base },
+        _ => base,
     }
 }
 

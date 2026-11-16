@@ -286,6 +286,32 @@ pub enum TextFormat {
         /// Signed change (points).
         points: f64,
     },
+    /// Text Shadow (Home > Font): §20.1.8.49 outerShdw in the run's effectLst, as the
+    /// reference writes it (3 pt blur and distance at 45°, black at 43 %).
+    Shadow {
+        /// New state; toggles when absent.
+        value: Option<bool>,
+    },
+    /// Text box options of Home > Paragraph (§21.1.2.1.1 bodyPr): Align Text (`anchor`
+    /// t / ctr / b), Text Direction (`vert` horz / vert / vert270 / wordArtVert) and Columns
+    /// (`numCol`); `None` leaves one as it is.
+    Body {
+        /// §21.1.10.60 ST_TextAnchoringType.
+        #[serde(default)]
+        anchor: Option<String>,
+        /// §21.1.10.83 ST_TextVerticalType.
+        #[serde(default)]
+        vert: Option<String>,
+        /// 1–16 columns.
+        #[serde(default)]
+        columns: Option<i32>,
+    },
+    /// Increase / Decrease Font Size: each run to the next size of the reference
+    /// presentation app's list (see [`font_size_step`]).
+    SizeStep {
+        /// Larger (else smaller).
+        up: bool,
+    },
     /// Text colour (§20.1.2.3.32 srgbClr).
     Color {
         /// `RRGGBB`; `None` = inherit.
@@ -326,6 +352,12 @@ pub enum TextFormat {
         /// The multiple.
         value: f64,
     },
+    /// Paragraph dialog: indents and spacing in points (§21.1.2.2.7 pPr@marL / @indent,
+    /// §21.1.2.2.10 spcBef / spcAft / lnSpc spcPts); `line_exact` replaces a multiple.
+    Paragraph {
+        /// The values.
+        values: ParaValues,
+    },
     /// Superscript / subscript (§21.1.2.3.9 rPr@baseline, ST_Percentage): positive raises,
     /// negative lowers, 0 puts the text back on the line.
     Baseline {
@@ -347,6 +379,13 @@ pub enum TextFormat {
         /// New state; toggles when absent.
         value: Option<bool>,
     },
+    /// Review > Language: the proofing language of the text (§21.1.2.3.9 rPr@lang, a BCP 47
+    /// tag); `None` marks it not to be checked (rPr@noProof).
+    Lang {
+        /// Language tag (`en-US`, `vi-VN`, …).
+        #[serde(default)]
+        lang: Option<String>,
+    },
     /// Reset the character formatting (Ctrl+Space): the runs take what the placeholder,
     /// layout and master give them (§21.1.2.3.9 rPr attributes and fill / font children
     /// removed; language and links stay).
@@ -366,6 +405,8 @@ impl TextFormat {
                 | TextFormat::Numbering { .. }
                 | TextFormat::Level { .. }
                 | TextFormat::LineSpacing { .. }
+                | TextFormat::Paragraph { .. }
+                | TextFormat::Body { .. }
         )
     }
 }
@@ -444,6 +485,30 @@ pub struct FormatState {
     pub spacing: Option<f64>,
     /// Double strikethrough.
     pub double_strike: bool,
+    /// Text shadow (an outer shadow in the run's effectLst).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub shadow: bool,
+    /// Paragraph values the Paragraph dialog starts from (effective, points): left margin
+    /// (§21.1.2.2.7 pPr@marL), first-line indent (pPr@indent, negative = hanging), space
+    /// before / after (§21.1.2.2.10 spcBef / spcAft as points) and an exact line spacing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub paragraph: Option<ParaValues>,
+}
+
+/// Paragraph indents and spacing in points (Paragraph dialog).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ParaValues {
+    /// Before text (left margin).
+    pub before_text: f64,
+    /// First line: positive indents, negative hangs.
+    pub first_line: f64,
+    /// Space before; `None` when given as a percentage of the font size.
+    pub space_before: Option<f64>,
+    /// Space after; `None` when given as a percentage.
+    pub space_after: Option<f64>,
+    /// Exact line spacing (points); `None` for a multiple ([`FormatState::line_spacing`]).
+    pub line_exact: Option<f64>,
 }
 
 /// Parse `RRGGBB` (with or without `#`).
@@ -453,6 +518,77 @@ pub fn parse_hex(hex: &str) -> Option<u32> {
         return None;
     }
     u32::from_str_radix(h, 16).ok()
+}
+
+/// Font sizes Increase / Decrease Font Size step through (points), as measured on the
+/// reference presentation app; above the last one a step is 20 % (×1.2 rounded, 96 → 115 →
+/// 138 → 166 …; 100 → 120), below the first it stops at 1.
+const SIZE_STEPS: [f64; 31] = [
+    1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 10.5, 11.0, 12.0, 14.0, 16.0, 18.0, 20.0,
+    24.0, 28.0, 32.0, 36.0, 40.0, 44.0, 48.0, 54.0, 60.0, 66.0, 72.0, 80.0, 88.0, 96.0,
+];
+
+/// The next size up or down from `cur` points (Ctrl+Shift+> / Ctrl+Shift+<, Ctrl+] / Ctrl+[).
+pub fn font_size_step(cur: f64, up: bool) -> f64 {
+    let last = SIZE_STEPS[SIZE_STEPS.len() - 1];
+    let next = if up {
+        if cur >= last - 1e-6 {
+            (cur * 1.2).round()
+        } else {
+            SIZE_STEPS
+                .iter()
+                .copied()
+                .find(|s| *s > cur + 1e-6)
+                .unwrap_or(last)
+        }
+    } else if cur > last + 1e-6 {
+        (cur / 1.2).round().max(last)
+    } else {
+        SIZE_STEPS
+            .iter()
+            .rev()
+            .copied()
+            .find(|s| *s < cur - 1e-6)
+            .unwrap_or(1.0)
+    };
+    // ST_TextFontSize: 1–4000 pt.
+    next.clamp(1.0, 4000.0)
+}
+
+/// The run has an outer text shadow (§20.1.8.26 effectLst / §20.1.8.49 outerShdw).
+pub fn has_shadow(r: &RunProps) -> bool {
+    r.extra
+        .iter()
+        .any(|e| e.xml.local() == "effectLst" && e.xml.elements().any(|c| c.local() == "outerShdw"))
+}
+
+/// Give a run the Text Shadow the reference writes, or take its effects away.
+fn set_shadow(r: &mut RunProps, on: bool) {
+    use bo_drawingml::dom::El;
+    r.extra.retain(|e| e.xml.local() != "effectLst");
+    if on {
+        let xml = El::new("a:effectLst")
+            .child(
+                El::new("a:outerShdw")
+                    .a("blurRad", 38_100)
+                    .a("dist", 38_100)
+                    .a("dir", 2_700_000)
+                    .a("algn", "tl")
+                    .child(
+                        El::new("a:srgbClr")
+                            .a("val", "000000")
+                            .child(El::new("a:alpha").a("val", 43_137).0)
+                            .0,
+                    )
+                    .0,
+            )
+            .0;
+        r.extra.push(bo_model::slide::Extra {
+            key: bo_drawingml::text::rpr_key("a:effectLst"),
+            xml,
+        });
+        r.extra.sort_by_key(|e| e.key);
+    }
 }
 
 pub(super) type RunChange = Box<dyn Fn(&mut RunProps)>;
@@ -499,6 +635,18 @@ pub(super) fn run_change(
                 r.sz = Some(((cur + delta).clamp(1.0, 4000.0) * 100.0).round() as i32);
             }))
         }
+        TextFormat::Shadow { value } => {
+            let on = toggle(*value, state.shadow);
+            Some(Box::new(move |r: &mut RunProps| set_shadow(r, on)))
+        }
+        TextFormat::SizeStep { up } => {
+            let up = *up;
+            let base = state.size.unwrap_or(default_size);
+            Some(Box::new(move |r: &mut RunProps| {
+                let cur = r.sz.map_or(base, |s| f64::from(s) / 100.0);
+                r.sz = Some((font_size_step(cur, up) * 100.0).round() as i32);
+            }))
+        }
         TextFormat::Color { hex } => {
             let c = hex.as_deref().and_then(parse_hex);
             Some(Box::new(move |r: &mut RunProps| {
@@ -532,6 +680,16 @@ pub(super) fn run_change(
             // §21.1.10.79 ST_TextStrikeType: `dblStrike` / `noStrike`.
             Some(Box::new(move |r: &mut RunProps| {
                 r.strike = Some(if v { "dblStrike" } else { "noStrike" }.to_owned());
+            }))
+        }
+        TextFormat::Lang { lang } => {
+            let lang = lang.clone().filter(|l| !l.trim().is_empty());
+            Some(Box::new(move |r: &mut RunProps| {
+                r.attrs.retain(|(k, _)| k != "noProof");
+                match &lang {
+                    Some(l) => r.lang = Some(l.clone()),
+                    None => r.attrs.push(("noProof".into(), "1".into())),
+                }
             }))
         }
         TextFormat::ClearChar => Some(Box::new(|r: &mut RunProps| {
@@ -575,6 +733,15 @@ fn paint_run(to: &mut RunProps, from: &RunProps) {
     to.latin.clone_from(&from.latin);
     to.ea.clone_from(&from.ea);
     to.cs.clone_from(&from.cs);
+    // Text effects (shadow) follow too (§20.1.8.26 effectLst).
+    to.extra.retain(|e| e.xml.local() != "effectLst");
+    to.extra.extend(
+        from.extra
+            .iter()
+            .filter(|e| e.xml.local() == "effectLst")
+            .cloned(),
+    );
+    to.extra.sort_by_key(|e| e.key);
 }
 
 /// Hanging indent step of a list level (0.375 in).
@@ -639,6 +806,23 @@ fn para_change(p: &mut Paragraph, f: &TextFormat, state: &FormatState) {
             let pct = (value.clamp(0.1, 10.0) * 100_000.0).round() as i32;
             pp.ln_spc = Some(Spacing::Percent(pct));
         }
+        TextFormat::Paragraph { values: v } => {
+            // ST_Coordinate32 EMU for marL (0–51 206 400) / indent (±51 206 400).
+            let emu = |pt: f64| (pt * 12_700.0).round() as i64;
+            pp.mar_l = Some(emu(v.before_text).clamp(0, 51_206_400));
+            pp.indent = Some(emu(v.first_line).clamp(-51_206_400, 51_206_400));
+            // ST_TextSpacingPoint: 0–158 400 hundredths of a point.
+            let pts = |pt: f64| Spacing::Points((pt * 100.0).round().clamp(0.0, 158_400.0) as i32);
+            if let Some(b) = v.space_before {
+                pp.spc_bef = Some(pts(b));
+            }
+            if let Some(a) = v.space_after {
+                pp.spc_aft = Some(pts(a));
+            }
+            if let Some(l) = v.line_exact {
+                pp.ln_spc = Some(pts(l));
+            }
+        }
         _ => {}
     }
     if p.props
@@ -660,6 +844,9 @@ fn change_run(r: &mut TextRun, ch: &RunChange) {
 
 /// Apply a resolved formatting change to every run of a body.
 pub fn apply_format(tb: &mut TextBody, f: &TextFormat, state: &FormatState, default_size: f64) {
+    if body_change(tb, f) {
+        return;
+    }
     let rpr_change = run_change(f, state, default_size);
     for p in &mut tb.paragraphs {
         if let Some(ch) = &rpr_change {
@@ -672,6 +859,40 @@ pub fn apply_format(tb: &mut TextBody, f: &TextFormat, state: &FormatState, defa
             para_change(p, f, state);
         }
     }
+}
+
+/// Apply a [`TextFormat::Body`] to the text box; `false` for other formats.
+fn body_change(tb: &mut TextBody, f: &TextFormat) -> bool {
+    let TextFormat::Body {
+        anchor,
+        vert,
+        columns,
+    } = f
+    else {
+        return false;
+    };
+    let bp = &mut tb.body_pr;
+    if let Some(a) = anchor
+        .as_deref()
+        .filter(|a| matches!(*a, "t" | "ctr" | "b"))
+    {
+        bp.anchor = Some(a.to_owned());
+    }
+    if let Some(v) = vert
+        .as_deref()
+        .filter(|v| matches!(*v, "horz" | "vert" | "vert270" | "wordArtVert" | "eaVert"))
+    {
+        bp.vert = (v != "horz").then(|| v.to_owned());
+    }
+    if let Some(n) = columns {
+        let n = (*n).clamp(1, 16);
+        bp.num_col = (n > 1).then_some(n);
+        if n > 1 && bp.spc_col.is_none() {
+            // 0.1 in between columns.
+            bp.spc_col = Some(91_440);
+        }
+    }
+    true
 }
 
 /// Global character range of each paragraph in the editing text.
@@ -721,6 +942,9 @@ pub fn apply_format_range(
     start: usize,
     end: usize,
 ) {
+    if body_change(tb, f) {
+        return;
+    }
     let (start, end) = (start.min(end), start.max(end));
     let ranges = para_ranges(tb);
     if f.is_paragraph() {
@@ -927,6 +1151,134 @@ mod tests {
         assert_eq!(tb.paragraphs[0].runs[0], run("ab", false));
         assert!(matches!(tb.paragraphs[0].runs[1], TextRun::Break { .. }));
         assert!(matches!(tb.paragraphs[0].runs[2], TextRun::Field { .. }));
+    }
+
+    #[test]
+    fn proofing_language_and_no_proof() {
+        let mut tb = body(vec![vec![run("x", false)]]);
+        let st = FormatState::default();
+        let lang = |l: Option<&str>| TextFormat::Lang {
+            lang: l.map(str::to_owned),
+        };
+        apply_format(&mut tb, &lang(None), &st, 18.0);
+        let TextRun::Run { props, .. } = &tb.paragraphs[0].runs[0] else {
+            panic!()
+        };
+        assert!(props.attrs.iter().any(|(k, v)| k == "noProof" && v == "1"));
+        apply_format(&mut tb, &lang(Some("en-US")), &st, 18.0);
+        let TextRun::Run { props, .. } = &tb.paragraphs[0].runs[0] else {
+            panic!()
+        };
+        assert_eq!(props.lang.as_deref(), Some("en-US"));
+        assert!(!props.attrs.iter().any(|(k, _)| k == "noProof"));
+    }
+
+    #[test]
+    fn text_shadow_and_text_box_options() {
+        let mut tb = body(vec![vec![run("x", false)]]);
+        let st = FormatState::default();
+        apply_format(&mut tb, &TextFormat::Shadow { value: None }, &st, 18.0);
+        let TextRun::Run { props, .. } = &tb.paragraphs[0].runs[0] else {
+            panic!()
+        };
+        assert!(has_shadow(props));
+        let fx = &props.extra[0].xml;
+        assert_eq!(fx.name, "a:effectLst");
+        let sh = fx.elements().next().unwrap();
+        assert_eq!(
+            (sh.attr("dist"), sh.attr("dir"), sh.attr("blurRad")),
+            (Some("38100"), Some("2700000"), Some("38100"))
+        );
+        let on = FormatState {
+            shadow: true,
+            ..FormatState::default()
+        };
+        apply_format(&mut tb, &TextFormat::Shadow { value: None }, &on, 18.0);
+        let TextRun::Run { props, .. } = &tb.paragraphs[0].runs[0] else {
+            panic!()
+        };
+        assert!(!has_shadow(props));
+        let f = TextFormat::Body {
+            anchor: Some("ctr".into()),
+            vert: Some("vert".into()),
+            columns: Some(3),
+        };
+        apply_format(&mut tb, &f, &st, 18.0);
+        assert_eq!(tb.body_pr.anchor.as_deref(), Some("ctr"));
+        assert_eq!(tb.body_pr.vert.as_deref(), Some("vert"));
+        assert_eq!(
+            (tb.body_pr.num_col, tb.body_pr.spc_col),
+            (Some(3), Some(91_440))
+        );
+        let f = TextFormat::Body {
+            anchor: None,
+            vert: Some("horz".into()),
+            columns: Some(1),
+        };
+        apply_format(&mut tb, &f, &st, 18.0);
+        assert_eq!(
+            (tb.body_pr.vert.as_deref(), tb.body_pr.num_col),
+            (None, None)
+        );
+    }
+
+    #[test]
+    fn font_size_steps_like_the_reference() {
+        // Measured: Increase Font Size from 18, Decrease from 18, and single steps.
+        let mut s = 18.0;
+        let ups: Vec<f64> = (0..22)
+            .map(|_| {
+                s = font_size_step(s, true);
+                s
+            })
+            .collect();
+        assert_eq!(
+            ups,
+            [
+                20.0, 24.0, 28.0, 32.0, 36.0, 40.0, 44.0, 48.0, 54.0, 60.0, 66.0, 72.0, 80.0, 88.0,
+                96.0, 115.0, 138.0, 166.0, 199.0, 239.0, 287.0, 344.0
+            ]
+        );
+        let mut s = 18.0;
+        let downs: Vec<f64> = (0..14)
+            .map(|_| {
+                s = font_size_step(s, false);
+                s
+            })
+            .collect();
+        assert_eq!(
+            downs,
+            [16.0, 14.0, 12.0, 11.0, 10.5, 10.0, 9.0, 8.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0]
+        );
+        for (from, up, down) in [
+            (11.0, 12.0, 10.5),
+            (13.0, 14.0, 12.0),
+            (25.0, 28.0, 24.0),
+            (57.0, 60.0, 54.0),
+            (100.0, 120.0, 96.0),
+        ] {
+            assert_eq!(font_size_step(from, true), up, "{from} up");
+            assert_eq!(font_size_step(from, false), down, "{from} down");
+        }
+        // Each run steps from its own size (reference: 12 / 30 → 14 / 32).
+        let mut tb = body(vec![vec![run("a", false), run("b", false)]]);
+        if let TextRun::Run { props, .. } = &mut tb.paragraphs[0].runs[0] {
+            props.sz = Some(1200);
+        }
+        if let TextRun::Run { props, .. } = &mut tb.paragraphs[0].runs[1] {
+            props.sz = Some(3000);
+        }
+        let st = FormatState::default();
+        apply_format(&mut tb, &TextFormat::SizeStep { up: true }, &st, 18.0);
+        let sizes: Vec<Option<i32>> = tb.paragraphs[0]
+            .runs
+            .iter()
+            .map(|r| match r {
+                TextRun::Run { props, .. } => props.sz,
+                _ => None,
+            })
+            .collect();
+        assert_eq!(sizes, [Some(1400), Some(3200)]);
     }
 
     #[test]

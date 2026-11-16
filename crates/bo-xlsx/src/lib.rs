@@ -48,6 +48,7 @@ mod xml;
 pub mod xml2003;
 mod xmlpatch;
 
+pub use autofilter::{auto_filter_xml, parse_auto_filter_xml};
 pub use csv::{read_csv, write_csv, CsvOptions};
 pub use read::{read_xlsx, read_xlsx_with_limits, theme_colors};
 pub use styles::{

@@ -47,6 +47,24 @@ fn mem_step(step: &str) {
     std::thread::sleep(std::time::Duration::from_secs(2));
 }
 
+/// BO_READER_STARTUP=<file>: append <ms since start> <step> for each start-up step and the
+/// first frames (round 10 cold-start measurement; no waiting, unlike BO_READER_MEMSTEPS).
+fn boot_step(step: &str) {
+    static START: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+    let start = *START.get_or_init(Instant::now);
+    let Some(path) = std::env::var_os("BO_READER_STARTUP") else {
+        return;
+    };
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+    {
+        use std::io::Write as _;
+        let _ = writeln!(f, "{:.1} {step}", start.elapsed().as_secs_f64() * 1000.0);
+    }
+}
+
 fn ui_size(size: f32) -> f32 {
     (size * f32::from_bits(TEXT_SCALE.load(Ordering::Relaxed)) - 0.01).round()
 }
@@ -124,6 +142,7 @@ fn save_recent(app: &str, list: &[std::path::PathBuf]) {
 
 /// Open the PDFs named on the command line and run the window (BlueEditor when `editor`).
 pub fn run(editor: bool) -> Result<(), String> {
+    boot_step("start");
     let locale = std::env::var("BLUEOFFICE_LOCALE").unwrap_or_else(|_| "en-US".into());
     let mut window: Box<dyn PdfWindow> = if editor {
         Box::new(EditorWindow::new(&locale))
@@ -151,6 +170,7 @@ pub fn run(editor: bool) -> Result<(), String> {
             Err(e) => window.set_status(&e),
         }
     }
+    boot_step("opened");
     save_recent(app, window.recent());
     let title = window.title();
     let perf = std::env::var_os("BLUEOFFICE_NATIVE_PERF").and_then(|p| {
@@ -671,6 +691,18 @@ impl Shell {
                         );
                     }
                 }
+                // BlueReader's Paste on the page (round 10): a picture, else text.
+                ReaderRequest::Command(c) if c == "host.paste10" => {
+                    if let Some(dib) = clip::get_dib() {
+                        let p = std::path::Path::new("clipboard.bmp");
+                        self.window.file_picked("paste10img", p, &dib);
+                    } else {
+                        let (_, _, text) = win32::read_clipboard();
+                        let t = text.unwrap_or_default();
+                        let p = std::path::Path::new("clipboard.txt");
+                        self.window.file_picked("paste10txt", p, t.as_bytes());
+                    }
+                }
                 // Share › Show in Folder: Explorer with the file selected.
                 ReaderRequest::Command(c) if c.starts_with("host.reveal:") => {
                     let path = &c["host.reveal:".len()..];
@@ -773,6 +805,7 @@ impl Shell {
             painted = p0.elapsed();
         });
         self.last_frame = [t1 - t0, painted, t1.elapsed().saturating_sub(painted)];
+        boot_step(if self.more { "frame (more)" } else { "frame" });
         gpu.untrimmed = true;
         gpu.rendered = Instant::now();
         // Page images left the view: give the driver's freed memory back (at most once a
@@ -796,14 +829,17 @@ impl Handler for Shell {
         refresh_text_scale();
         self.hwnd = hwnd;
         mem_step("window");
+        boot_step("window");
         let device = Device::new()?;
         mem_step("device");
+        boot_step("device");
         if let Err(e) = device.update_window_monitor(hwnd) {
             eprintln!("monitor text settings: {e}");
         }
         device.set_text_rendering(page_text());
         let surface = WindowSurface::new(&device, hwnd, width, height)?;
         mem_step("swap chain");
+        boot_step("swap chain");
         self.gpu = Some(Gpu {
             device,
             surface,
@@ -1017,6 +1053,8 @@ fn print_job(
             for item in &mut sheet.items {
                 item.dest[0] += ml;
                 item.dest[1] += mt;
+                // Bleed Marks: corner marks at every page's edges.
+                item.cut_marks |= s.bleed;
             }
         }
         sheets
@@ -1109,6 +1147,7 @@ fn print_tool(args: &[String], doc: &mut PdfDocument, device: &Device) -> Result
         color: bo_ui::PrintColor::Color,
         paper: None,
         margins: [0.0; 4],
+        bleed: false,
     };
     let mut order = bo_ui::PageOrder::Horizontal;
     let mut border = false;

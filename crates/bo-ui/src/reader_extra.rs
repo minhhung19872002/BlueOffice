@@ -46,7 +46,7 @@ pub(crate) struct Extra {
     /// The selected existing comment.
     pub(crate) selected: Option<Annot>,
     /// Moving the selected comment: pointer start and now (window pixels).
-    moving: Option<(f32, f32, f32, f32)>,
+    pub(crate) moving: Option<(f32, f32, f32, f32)>,
     /// Text dialog for a comment: edit (`false`) or reply (`true`).
     text: Option<(Dialog, Annot, bool)>,
 }
@@ -69,6 +69,7 @@ impl ReaderWindow {
             d.set_view(current, r);
         }
         d.set_page_sizes((0..n).map(|i| t.view.page_size(i)).collect());
+        d.set_has_comments(!t.view.doc().comment_threads().is_empty());
         d.layout(m, self.size, self.scale);
         self.extra.print = Some(d);
         self.update_print_preview();
@@ -263,6 +264,14 @@ impl ReaderWindow {
     /// Input for the additions first: `Some(redraw)` when handled.
     #[allow(clippy::too_many_lines)]
     pub(crate) fn route_extra(&mut self, input: &Input, m: &dyn TextMeasure) -> Option<bool> {
+        if self.extra.print.is_none() && self.menu.is_none() && self.dialog.is_none() {
+            if let Some(r) = self.route_search9(input, m) {
+                return Some(r);
+            }
+            if let Some(r) = self.route_marks9(input, m) {
+                return Some(r);
+            }
+        }
         if self.extra.print.is_none() {
             if let Some(r) = self.route_panels8(input, m) {
                 return Some(r);
@@ -286,6 +295,12 @@ impl ReaderWindow {
             }
             if let Some(r) = self.route_viewx(input, m) {
                 return Some(r);
+            }
+            if self.extra.text.is_none() && self.menu.is_none() && self.dialog.is_none() {
+                // Pop-up notes, the selection toolbar (BlueReader round 10).
+                if let Some(r) = self.route_ten(input, m) {
+                    return Some(r);
+                }
             }
             if self.extra.text.is_none() {
                 if let Some(r) = self.route_draw(input, m) {
@@ -317,6 +332,11 @@ impl ReaderWindow {
                 Some(PrintAction::Cancel) => self.extra.print = None,
                 Some(PrintAction::Properties(name)) => {
                     self.requests.push(ReaderRequest::PrinterProperties(name));
+                }
+                Some(PrintAction::Summarize) => {
+                    self.extra.print = None;
+                    self.run_command("comment.summarize", m);
+                    return Some(true);
                 }
                 None => {}
             }
@@ -365,6 +385,9 @@ impl ReaderWindow {
         }
         if self.extra.mode == Mode::Full {
             return Some(self.full_screen_input(input, m));
+        }
+        if let Some(r) = self.route_menus9(input, m) {
+            return Some(r);
         }
         self.comment_input(input, m)
     }
@@ -416,7 +439,7 @@ impl ReaderWindow {
     }
 
     /// The comment of the active document under a window point (topmost first).
-    fn comment_at(&self, x: f32, y: f32) -> Option<Annot> {
+    pub(crate) fn comment_at(&self, x: f32, y: f32) -> Option<Annot> {
         let t = self.tabs.get(self.active)?;
         let (page, px, py) = t.view.page_at(x, y)?;
         let pad = 3.0 / t.view.px_per_pt().max(0.01);
@@ -538,6 +561,9 @@ impl ReaderWindow {
     /// Commands of the additions; `true` when handled.
     pub(crate) fn command_extra(&mut self, cmd: &str, m: &dyn TextMeasure) -> bool {
         if self.command_prefs6(cmd, m)
+            || self.command_menus9(cmd)
+            || self.command_tabs9(cmd)
+            || self.command_marks9(cmd)
             || self.command_panels8(cmd, m)
             || self.command_viewx(cmd, m)
             || self.command_view4(cmd, m)
@@ -680,7 +706,13 @@ impl ReaderWindow {
             self.paint_doc(p);
             self.paint_vbar(p);
         }
-        if let (Some(a), Some(t)) = (self.extra.selected.as_ref(), self.tabs.get(self.active)) {
+        // BlueReader draws its own handles (round 10, reader_handles10_win.rs).
+        let own = self.handles10_on();
+        if let (Some(a), Some(t), false) = (
+            self.extra.selected.as_ref(),
+            self.tabs.get(self.active),
+            own,
+        ) {
             if let Some(r) = t.view.page_rect(a.page) {
                 let s = t.view.px_per_pt();
                 let (dx, dy) = self

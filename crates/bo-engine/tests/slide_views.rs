@@ -580,6 +580,47 @@ fn handout_master_is_created_edited_and_round_trips() {
         .contains(r#"<p:notesSz cx="6858000" cy="9144000"/>"#));
 }
 
+#[test]
+fn handout_master_page_shows_date_number_placeholder_and_outlines() {
+    let mut e = open();
+    let r = run(
+        &mut e,
+        &json!({ "cmd": "pageMasterView", "kind": "handout", "on": true }),
+    );
+    // Every placeholder is outlined; the filled date and number boxes get no prompt.
+    let kinds: Vec<&str> = r["placeholderKinds"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(Value::as_str)
+        .collect();
+    assert_eq!(kinds, ["hdr", "filled", "ftr", "filled"]);
+    // The number field draws as "‹#›" on the master page; the date field holds today's
+    // date as MM/DD/YYYY (§21.1.2.2.4 datetimeFigureOut).
+    let page = e.page_json(0).unwrap();
+    assert!(page.contains("‹#›"), "{page}");
+    let p = pres(&e);
+    let date = p.slides[0]
+        .data
+        .shapes
+        .iter()
+        .find_map(|n| match n {
+            ShapeNode::Shape(s)
+                if s.nv.placeholder.as_ref().and_then(|x| x.kind.as_deref()) == Some("dt") =>
+            {
+                s.text.as_ref().map(bo_model::slide::TextBody::text)
+            }
+            _ => None,
+        })
+        .unwrap();
+    let parts: Vec<&str> = date.trim().split('/').collect();
+    assert_eq!(parts.len(), 3, "{date}");
+    assert_eq!((parts[0].len(), parts[1].len(), parts[2].len()), (2, 2, 4));
+    // Ordinary slides still number themselves.
+    run(&mut e, &json!({ "cmd": "pageMasterView", "on": false }));
+    assert!(!e.page_json(0).unwrap().contains("‹#›"));
+}
+
 // ---------------------------------------------------------------------------
 // Sections
 // ---------------------------------------------------------------------------

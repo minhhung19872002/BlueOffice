@@ -324,9 +324,29 @@ fn sheet_sys_key(vk: u16) -> Option<Key> {
     }
 }
 
+/// The presentation window's extra Ctrl keys: Ctrl+] / Ctrl+[ and Ctrl+Shift+> / < (font
+/// size steps), reported as `Key::Letter(']' | '[' | '.' | ',')`.
+static SLIDE_KEYS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Turn on [`SLIDE_KEYS`] for this process.
+#[allow(dead_code)] // BlueSlide only.
+pub fn enable_slide_keys() {
+    SLIDE_KEYS.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
 fn key(vk: u16, m: Mods) -> Option<Key> {
     if m.ctrl && vk == 0xBA && SHEET_KEYS.load(std::sync::atomic::Ordering::Relaxed) {
         return Some(Key::Letter(';'));
+    }
+    if m.ctrl && SLIDE_KEYS.load(std::sync::atomic::Ordering::Relaxed) {
+        // VK_OEM_6 ], VK_OEM_4 [, VK_OEM_PERIOD, VK_OEM_COMMA.
+        match vk {
+            0xDD => return Some(Key::Letter(']')),
+            0xDB => return Some(Key::Letter('[')),
+            0xBE => return Some(Key::Letter('.')),
+            0xBC => return Some(Key::Letter(',')),
+            _ => {}
+        }
     }
     let k = VIRTUAL_KEY(vk);
     Some(match k {

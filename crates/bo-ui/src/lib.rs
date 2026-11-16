@@ -42,14 +42,21 @@ mod editor_convert;
 mod editor_design;
 #[cfg(test)]
 mod editor_design_tests;
+mod editor_dlg8;
+#[cfg(test)]
+mod editor_dlg8_tests;
+mod editor_dlg8b;
 mod editor_edit;
+mod editor_file7;
 mod editor_five;
 #[cfg(test)]
 mod editor_five_tests;
+mod editor_form8;
 mod editor_format;
 #[cfg(test)]
 mod editor_format_tests;
 mod editor_icons;
+mod editor_join8;
 mod editor_more;
 mod editor_more2;
 #[cfg(test)]
@@ -62,12 +69,17 @@ mod editor_organize;
 mod editor_organize5_tests;
 mod editor_pages5;
 mod editor_portfolio;
+mod editor_rot8;
+#[cfg(test)]
+mod editor_round7_tests;
 mod editor_sign;
 #[cfg(test)]
 mod editor_tests;
+mod editor_textbox;
 mod editor_tools;
 #[cfg(test)]
 mod editor_tools_tests;
+mod editor_trans7;
 mod editor_typewriter;
 mod editor_window;
 mod icons;
@@ -266,5 +278,11 @@ pub trait Painter {
     /// End the layer started by [`Painter::layer_begin`] (its image goes on the frame).
     fn layer_end(&mut self, id: usize) {
         let _ = id;
+    }
+    /// Document content (page images, paper, their marks) follows until `raw_colours(false)`:
+    /// a painter that recolours the window for a skin (BlueReader's dark skin) draws it with
+    /// its own colours. Calls nest; other painters ignore them.
+    fn raw_colours(&mut self, on: bool) {
+        let _ = on;
     }
 }

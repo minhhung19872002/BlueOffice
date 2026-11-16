@@ -44,7 +44,7 @@ pub(crate) const REVIEW_STATES: [&str; 5] =
     ["None", "Accepted", "Rejected", "Cancelled", "Completed"];
 
 /// Local time offset from UTC in minutes (set by the host), for "today" in the comment list.
-static UTC_OFFSET: AtomicI32 = AtomicI32::new(0);
+pub(crate) static UTC_OFFSET: AtomicI32 = AtomicI32::new(0);
 
 /// File types an attachment may be opened as without saving it first (documents and pictures;
 /// programs and scripts are only saved).
@@ -1194,6 +1194,7 @@ impl ReaderWindow {
                 let items = vec![
                     item("find.word", "pdfPanels.wholeWords", self.panels8.find_word),
                     item("find.case", "pdfPanels.matchCase", self.panels8.find_case),
+                    item("search.advanced", "pdfSearch9.menu", false),
                 ];
                 let b = self.find_button8();
                 self.menu_at(items, b, "find");

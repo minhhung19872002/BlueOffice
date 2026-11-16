@@ -814,8 +814,12 @@ impl ReaderView {
             return true;
         }
         let opts = self.render_opts();
-        let Ok(page) = self.doc.render_extra(i, opts, self.render_extra()) else {
-            return false;
+        let page = match self.doc.render_extra(i, opts, self.render_extra()) {
+            Ok(p) => p,
+            Err(e) => {
+                draw_log(&format!("render page {i}: {e}"));
+                return false;
+            }
         };
         let list = rotate_list(page.list, self.rotation);
         let list = if self.night {
@@ -853,6 +857,7 @@ impl ReaderView {
                 paths: false,
             },
         );
+        self.lru.retain(|&k| k != i);
         self.lru.push_back(i);
         // At most 48 pages and the cache budget of display lists, text and images (the least
         // recently used go first; the pages on screen are always the most recent).
@@ -880,6 +885,9 @@ impl ReaderView {
     fn render_extra(&self) -> bo_pdfread::RenderExtra {
         bo_pdfread::RenderExtra {
             text_color: self.night.then_some(crate::reader_viewx::NIGHT_TEXT),
+            // Sticky notes keep one point per interface pixel whatever the zoom, as the
+            // reference reader draws them (16 pt note: 20 px at 125 %, round 10).
+            no_zoom: 1.0 / (self.zoom * PT).max(0.01),
             ..bo_pdfread::RenderExtra::default()
         }
     }
@@ -893,8 +901,12 @@ impl ReaderView {
     fn render_paths(&mut self, i: usize) -> bool {
         let mut opts = self.render_opts();
         opts.text_as_paths = true;
-        let Ok(page) = self.doc.render_extra(i, opts, self.render_extra()) else {
-            return false;
+        let page = match self.doc.render_extra(i, opts, self.render_extra()) {
+            Ok(p) => p,
+            Err(e) => {
+                draw_log(&format!("render page {i}: {e}"));
+                return false;
+            }
         };
         let night = self.night;
         if let Some(r) = self.cache.get_mut(&i) {
@@ -992,6 +1004,9 @@ impl ReaderView {
                 (None, _) => self.draw(store, i, i, scale),
                 (Some(c), _) => self.draw_part(store, i, scale, c),
             };
+            if let Err(e) = &drawn {
+                draw_log(&format!("draw page {i}: {e}"));
+            }
             if drawn.is_ok() {
                 self.drawn.insert(i, (scale, self.generation[i]));
                 match crop {
@@ -1470,7 +1485,11 @@ impl ReaderView {
 
     /// The page's content changed (a comment was added): draw it again.
     pub fn invalidate_page(&mut self, i: usize) {
-        self.cache.remove(&i);
+        // Out of the recently used list too: a page changed at every keystroke (BlueEditor's
+        // typing) otherwise filled the list with itself until the cache dropped it on render.
+        if self.cache.remove(&i).is_some() {
+            self.lru.retain(|&k| k != i);
+        }
         if let Some(g) = self.generation.get_mut(i) {
             *g += 1;
         }
@@ -1619,6 +1638,20 @@ pub const HIT: Rgba = Rgba(255, 214, 0, 110);
 pub const HIT_CURRENT: Rgba = Rgba(255, 140, 0, 130);
 /// Selected text.
 pub const SELECTION: Rgba = Rgba(0, 120, 215, 80);
+
+/// `BLUEOFFICE_DRAW_LOG=<file>`: append page render / draw failures (diagnostics).
+fn draw_log(line: &str) {
+    if let Ok(path) = std::env::var("BLUEOFFICE_DRAW_LOG") {
+        use std::io::Write as _;
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+        {
+            let _ = writeln!(f, "{line}");
+        }
+    }
+}
 
 #[cfg(test)]
 mod cache_tests {

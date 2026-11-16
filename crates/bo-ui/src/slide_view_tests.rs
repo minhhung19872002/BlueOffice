@@ -647,6 +647,108 @@ fn drag_px(v: &mut SlideView, a: (f32, f32), b: (f32, f32), shift: bool) {
 }
 
 #[test]
+fn resizing_draws_the_new_size_half_see_through_over_the_slide_without_it() {
+    use bo_engine::slide_edit::geom::Rect;
+    let mut v = open("slide-text-bullets.pptx");
+    let (sw, sh) = v.slide_points();
+    let (sw, sh) = (f64::from(sw), f64::from(sh));
+    assert!(v.run(SlideCommand::InsertShape {
+        preset: "rect".into(),
+        rect: Some(Rect {
+            x: sw / 2.0,
+            y: sh / 2.0,
+            w: 100.0,
+            h: 60.0,
+        }),
+    }));
+    let mut store = Store::default();
+    v.prepare(&mut store).unwrap();
+    // Bottom-right handle, dragged 40 pt out.
+    let a = v.to_px(sw / 2.0 + 100.0, sh / 2.0 + 60.0);
+    let b = v.to_px(sw / 2.0 + 140.0, sh / 2.0 + 100.0);
+    v.handle(Input::Press {
+        x: a.0,
+        y: a.1,
+        count: 1,
+        shift: false,
+    });
+    v.handle(Input::Drag { x: b.0, y: b.1 });
+    store.full.clear();
+    v.prepare(&mut store).unwrap();
+    assert!(store.full.contains(&GHOST_KEY), "{:?}", store.full);
+    assert!(v.ghost_shown());
+    let mut rec = Rec::default();
+    v.paint(&mut rec, 12.0);
+    let id = v.ids[v.current()];
+    assert!(rec
+        .parts
+        .iter()
+        .any(|(k, _, o)| *k == GHOST_KEY && *o == 1.0));
+    let part = rec
+        .parts
+        .iter()
+        .find(|(k, _, _)| *k == id)
+        .expect("the new size drawn over the slide");
+    assert!((part.2 - 0.6).abs() < 1e-6);
+    // The part covers the new box (140 × 100 pt from the old top-left corner).
+    let (l, t) = v.to_px(sw / 2.0, sh / 2.0);
+    assert!(part.1[0] <= l && part.1[1] <= t, "{part:?}");
+    assert!(part.1[0] + part.1[2] >= b.0 && part.1[1] + part.1[3] >= b.1);
+    v.handle(Input::Release { x: b.0, y: b.1 });
+    assert!(!v.ghost_shown());
+    v.prepare(&mut store).unwrap();
+    assert!(store.removed.contains(&GHOST_KEY));
+    // (Smart guides may snap the edge a little.)
+    assert!((v.selection()[0].rect.w - 140.0).abs() < 10.0);
+}
+
+#[test]
+fn tab_walks_table_cells_and_adds_a_row_at_the_end() {
+    let mut v = open("slide-text-bullets.pptx");
+    assert!(v.run(SlideCommand::InsertTable {
+        rows: 2,
+        cols: 2,
+        rect: None,
+    }));
+    let id = v.selection()[0].id;
+    assert!(v.run(SlideCommand::TextSelect {
+        id: Some(id),
+        start: 0,
+        end: 0,
+        cell: Some([0, 0]),
+    }));
+    v.focus = Focus::Canvas;
+    v.handle(Input::Text("a".into()));
+    let te = v.text_edit().cloned().unwrap();
+    assert_eq!((te.cell, te.text.as_str()), (Some([0, 0]), "a"), "{te:?}");
+    let cell = |v: &SlideView| v.text_edit().and_then(|t| t.cell);
+    v.handle(key(Key::Tab));
+    assert_eq!(cell(&v), Some([0, 1]));
+    v.handle(Input::Text("b".into()));
+    v.handle(Input::Key(
+        Key::Tab,
+        Mods {
+            shift: true,
+            ..Mods::default()
+        },
+    ));
+    // Back in the first cell, its text selected.
+    let te = v.text_edit().cloned().unwrap();
+    assert_eq!((te.cell, te.start, te.end), (Some([0, 0]), 0, 1), "{te:?}");
+    for _ in 0..3 {
+        v.handle(key(Key::Tab));
+    }
+    assert_eq!(cell(&v), Some([1, 1]));
+    // Tab in the last cell: a third row, its first cell.
+    v.handle(key(Key::Tab));
+    assert_eq!(cell(&v), Some([2, 0]));
+    assert_eq!(
+        v.state().and_then(|s| s.table.as_ref()).map(|t| t.rows),
+        Some(3)
+    );
+}
+
+#[test]
 fn marquee_constrained_move_and_ctrl_drag_copy() {
     use bo_engine::slide_edit::geom::Rect;
     let mut v = open("slide-text-bullets.pptx");

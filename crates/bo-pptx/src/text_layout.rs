@@ -21,7 +21,8 @@ const EMU_PT: f64 = 12_700.0;
 pub(crate) struct TextEnv<'a> {
     pub theme: Option<&'a Theme>,
     pub colors: ColorContext<'a>,
-    /// 1-based slide number for `slidenum` fields.
+    /// 1-based slide number for `slidenum` fields; 0 on a master page, where the field
+    /// shows its placeholder `‹#›`.
     pub slide_number: usize,
     /// Name of the part holding the text (hyperlink targets are relative to it).
     pub part: &'a str,
@@ -123,6 +124,65 @@ struct Style {
     baseline: f64,
     /// Gradient / pattern / picture fill or outline of the glyphs (WordArt, CORE-SHAPE-002).
     fx: Option<Arc<RunFx>>,
+    /// Text shadow (§20.1.8.49 outerShdw in the run's effectLst): offset (points) and colour.
+    shadow: Option<(f64, f64, Rgba)>,
+    /// Bold asked of a family without a bold face (`rPr@b` on Calibri Light, Gabriola…):
+    /// drawn emboldened on narrower advances, see [`SYNTH_BOLD_ADVANCE`].
+    synth_bold: bool,
+}
+
+/// Advance factor of simulated bold. Black-box measurement of the reference presentation
+/// app (2026-11-16, ten-glyph runs at 20 and 60 pt): Calibri Light `n` 31.125 → 30.625 pt,
+/// `W` 52.875 → 51.875, `a` 28.25 → 27.75; Gabriola `n` 25.75 → 25.25, `W` 42.625 → 41.75
+/// (0.980–0.984 of the regular advance; families with a bold face use its own widths).
+const SYNTH_BOLD_ADVANCE: f64 = 0.982;
+
+/// Horizontal smear of simulated bold, in ems (stems measured 4.4 → 7 px at 75 px per em).
+const SYNTH_BOLD_SMEAR: f64 = 0.032;
+
+impl Style {
+    /// Advance factor of this style's glyphs.
+    fn adv(&self) -> f64 {
+        if self.synth_bold {
+            SYNTH_BOLD_ADVANCE
+        } else {
+            1.0
+        }
+    }
+}
+
+/// The outer shadow of a run (§21.1.2.3.9 rPr / §20.1.8.26 effectLst / §20.1.8.49
+/// outerShdw): its offset from `dist` (EMU) and `dir` (60 000ths of a degree), and its
+/// colour (black at the alpha of the first colour child; 43 % as the Shadow button writes).
+fn run_shadow(rp: &RunProps, scale: f64) -> Option<(f64, f64, Rgba)> {
+    let sh = rp
+        .extra
+        .iter()
+        .find(|e| e.xml.local() == "effectLst")?
+        .xml
+        .elements()
+        .find(|e| e.local() == "outerShdw")?;
+    let num = |k: &str, d: f64| {
+        sh.attr(k)
+            .and_then(|v| v.trim().parse::<f64>().ok())
+            .unwrap_or(d)
+    };
+    let dist = num("dist", 0.0) / EMU_PT * scale;
+    let dir = num("dir", 0.0) / 60_000.0;
+    let alpha = sh
+        .elements()
+        .next()
+        .and_then(|c| c.elements().find(|e| e.local() == "alpha"))
+        .and_then(|a| a.attr("val"))
+        .and_then(|v| v.trim().parse::<f64>().ok())
+        .unwrap_or(100_000.0)
+        / 100_000.0;
+    let rad = dir.to_radians();
+    Some((
+        dist * rad.cos(),
+        dist * rad.sin(),
+        Rgba(0, 0, 0, (alpha.clamp(0.0, 1.0) * 255.0).round() as u8),
+    ))
 }
 
 /// Text fill and outline beyond a plain colour (§21.1.2.3.9 rPr: `a:ln`, `a:gradFill`,
@@ -264,6 +324,7 @@ fn style_for(
     let bold = rp.b.unwrap_or(false);
     let italic = rp.i.unwrap_or(false);
     let face = fonts.resolve(family, bold, italic)?;
+    let synth_bold = bold && !fonts.info(face).bold;
     let base = f64::from(rp.sz.unwrap_or(1800)) / 100.0;
     let baseline = f64::from(rp.baseline.unwrap_or(0)) / 100_000.0;
     // §21.1.2.3.9: super/subscript text is drawn smaller.
@@ -280,6 +341,8 @@ fn style_for(
         strike: rp.strike.as_deref().is_some_and(|s| s != "noStrike"),
         baseline: baseline * base * scale,
         fx: run_fx(rp),
+        shadow: run_shadow(rp, scale),
+        synth_bold,
     })
 }
 
@@ -312,7 +375,7 @@ fn measure(fonts: &mut FontManager, st: &Style, text: &str) -> f64 {
     for (range, face) in fonts.itemize(st.face, text) {
         w += f64::from(fonts.measure(face, &text[range], st.size as f32));
     }
-    w
+    w * st.adv()
 }
 
 fn spacing(s: Option<Spacing>, size: f64) -> f64 {
@@ -420,7 +483,11 @@ fn layout_paragraph(
                 let rp = TextStyleStack::run(ppr, props);
                 let text = match r {
                     TextRun::Field { kind: Some(k), .. } if k == "slidenum" => {
-                        env.slide_number.to_string()
+                        if env.slide_number == 0 {
+                            "‹#›".to_owned()
+                        } else {
+                            env.slide_number.to_string()
+                        }
                     }
                     _ => apply_caps(&rp, raw),
                 };
@@ -867,12 +934,19 @@ fn arrange(
     };
 
     let mut layout = layout_all(body, stack, col_w, wrap, scale, reduction, env, fonts);
-    // §21.1.2.1.3 normAutofit: shrink further while the text overflows.
+    // §21.1.2.1.3 normAutofit: shrink further while the text overflows, in the reference
+    // presentation app's steps (measured): line spacing −10 % then −20 %, then the font in
+    // 7.5 % steps (92.5, 85, 77.5, … %).
     if shrink {
         let mut guard = 0;
-        while columns_needed(&layout, box_h) > ncol && guard < 12 {
-            scale *= 0.9;
-            reduction = (reduction + 0.05).min(0.2);
+        while columns_needed(&layout, box_h) > ncol && guard < 16 {
+            if reduction < 0.2 - 1e-9 {
+                reduction = ((reduction * 10.0 + 1e-9).floor() + 1.0).min(2.0) / 10.0;
+            } else if scale > 0.1 + 1e-9 {
+                scale = (((scale - 0.075) * 1000.0).round() / 1000.0).max(0.1);
+            } else {
+                break;
+            }
             layout = layout_all(body, stack, col_w, wrap, scale, reduction, env, fonts);
             guard += 1;
         }
@@ -1291,7 +1365,7 @@ fn emit(
     for (range, face) in fonts.itemize(st.face, text) {
         let sub = &text[range.clone()];
         let upem = f64::from(fonts.info(face).units_per_em.max(1));
-        let k = st.size / upem;
+        let k = st.size / upem * st.adv();
         let shaped = fonts.shape(face, sub);
         let mut glyphs = Vec::with_capacity(shaped.len());
         let mut adv = 0.0_f64;
@@ -1316,6 +1390,29 @@ fn emit(
                 stroke: None,
             });
         } else if !sub.trim().is_empty() && st.color.3 > 0 {
+            if let Some((dx, dy, color)) = st.shadow {
+                out.push(Command::Glyphs {
+                    face: face.0,
+                    size: st.size as f32,
+                    x: (x + gx + dx) as f32,
+                    y: (y + dy) as f32,
+                    color,
+                    text: sub.to_owned(),
+                    glyphs: glyphs.clone(),
+                });
+            }
+            if st.synth_bold {
+                // Simulated bold: the run again, smeared to the right.
+                out.push(Command::Glyphs {
+                    face: face.0,
+                    size: st.size as f32,
+                    x: (x + gx + st.size * SYNTH_BOLD_SMEAR) as f32,
+                    y: y as f32,
+                    color: st.color,
+                    text: sub.to_owned(),
+                    glyphs: glyphs.clone(),
+                });
+            }
             out.push(Command::Glyphs {
                 face: face.0,
                 size: st.size as f32,

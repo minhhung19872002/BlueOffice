@@ -673,6 +673,18 @@ impl Engine {
         })
     }
 
+    /// Corrections as one undoable transaction, with the full slide result (the native
+    /// interface applies it like any other slide command: images, history, state).
+    ///
+    /// # Errors
+    /// No document is open.
+    pub fn slide_spell_fix(
+        &mut self,
+        edits: &[SlideReplace],
+    ) -> crate::Result<super::SlideEditResult> {
+        self.slide_spell_replace(edits)
+    }
+
     /// Corrections as one undoable transaction.
     fn slide_spell_replace(
         &mut self,

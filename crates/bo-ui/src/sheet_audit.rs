@@ -48,11 +48,20 @@ impl SheetWindow {
             }
             "sheet.showFormulas" => {
                 let on = !self.view.show_formulas();
+                // Kept in the sheet view (§18.3.1.87 showFormulas) as the reference does:
+                // the engine widens the columns while it is on.
+                if self
+                    .view
+                    .query(json!({ "cmd": "setSheetView", "showFormulas": on }))
+                    .is_some()
+                {
+                    self.view.reload();
+                }
                 self.view.set_show_formulas(on);
                 true
             }
             "sheet.errorCheck" => self.error_check(),
-            "sheet.evaluateFormula" => self.open_evaluate(),
+            "sheet.evaluateFormula" => self.open_evaluate_formula(),
             "sheet.sortDialog" => self.open_sort_dialog(),
             "sheet.dataValidation" => self.open_validation_dialog(),
             "sheet.goalSeek" => self.open_goal_seek(),
@@ -196,8 +205,9 @@ impl SheetWindow {
     /// Add one level of precedent (or dependent) arrows of the active cell.
     fn trace(&mut self, dependents: bool) -> bool {
         let (r, c) = self.view.active();
+        // Arrows of other cells stay (as the reference) until Remove Arrows; levels
+        // count per traced cell.
         if self.trace_cell != Some((r, c)) {
-            self.arrows.clear();
             self.trace_levels = (0, 0);
             self.trace_cell = Some((r, c));
         }
@@ -305,99 +315,6 @@ impl SheetWindow {
         true
     }
 
-    /// Evaluate Formula: the steps of the active cell's formula in a list.
-    fn open_evaluate(&mut self) -> bool {
-        let (r, c) = self.view.active();
-        let sheet = self.view.sheet();
-        let out = self
-            .view
-            .query(json!({ "cmd": "evaluateFormula", "sheet": sheet, "row": r, "col": c }))
-            .unwrap_or(Value::Null);
-        let t = |k: &str, d: &str| self.t(k, d);
-        let mut f = Form::new(
-            &t("sheetAudit.evaluate", "Evaluate Formula"),
-            (640.0, 420.0),
-            Vec::new(),
-        );
-        let s = |k: &str| out.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
-        f.add(
-            "refL",
-            None,
-            [20.0, 50.0, 0.0, 0.0],
-            Kind::Label(t("sheetAudit.reference", "Reference:")),
-        );
-        f.add("ref", None, [120.0, 50.0, 0.0, 0.0], Kind::Label(s("cell")));
-        f.add(
-            "evL",
-            None,
-            [260.0, 50.0, 0.0, 0.0],
-            Kind::Label(t("sheetAudit.evaluation", "Evaluation:")),
-        );
-        f.add(
-            "formula",
-            None,
-            [260.0, 72.0, 0.0, 0.0],
-            Kind::Label(s("formula")),
-        );
-        let steps: Vec<String> = out
-            .get("steps")
-            .and_then(Value::as_array)
-            .map(|a| {
-                a.iter()
-                    .map(|st| {
-                        let e = st
-                            .get("expr")
-                            .or_else(|| st.get("text"))
-                            .and_then(Value::as_str)
-                            .unwrap_or("");
-                        let v = st
-                            .get("value")
-                            .or_else(|| st.get("result"))
-                            .map(|v| v.as_str().map_or_else(|| v.to_string(), str::to_owned))
-                            .unwrap_or_default();
-                        format!("{e}  →  {v}")
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        let empty = steps.is_empty();
-        f.add(
-            "steps",
-            None,
-            [20.0, 100.0, 600.0, 230.0],
-            Kind::List {
-                items: if empty {
-                    vec![t("sheetAudit.noFormula", "The active cell has no formula.")]
-                } else {
-                    steps
-                },
-                sel: None,
-                top: 0,
-            },
-        );
-        let result = s("result");
-        f.add(
-            "result",
-            None,
-            [20.0, 342.0, 0.0, 0.0],
-            Kind::Label(format!("{} {result}", t("sheetAudit.result", "Result:"))),
-        );
-        f.add(
-            "cancel",
-            None,
-            [640.0 - 131.0, 420.0 - 48.0, 112.0, 28.0],
-            Kind::Button {
-                label: t("sheetNames.close", "Close"),
-                default: true,
-            },
-        );
-        self.form = Some(f);
-        self.form_kind = FormKind::Names;
-        // Close only: reuse the Name Manager's close handling without its list.
-        self.name_rows.clear();
-        true
-    }
-
     /// Auditing arrows over the grid (cells on screen only).
     pub(super) fn paint_arrows(&self, p: &mut dyn Painter) {
         if self.arrows.is_empty() {
@@ -411,7 +328,9 @@ impl SheetWindow {
             let Some(to) = self.view.cell_rect(a.to.0, a.to.1) else {
                 continue;
             };
-            let end = (to[0] + to[2] / 2.0, to[1] + to[3] / 2.0);
+            // Measured on the reference: arrows join points 22 % into the cells (18 px of an
+            // 80 px column at 125 %), at mid height.
+            let end = (to[0] + to[2] * 0.22, to[1] + to[3] / 2.0);
             let color = ARROW_BLUE;
             let start = if a.other_sheet {
                 // A small sheet mark above-left of the target.
@@ -450,7 +369,7 @@ impl SheetWindow {
                         p.fill_rect(x, y, w, h.max(k.round()), color);
                     }
                 }
-                (a0[0] + a0[2] / 2.0, a0[1] + a0[3] / 2.0)
+                (a0[0] + a0[2] * 0.22, a0[1] + a0[3] / 2.0)
             };
             let w = k.round().max(1.0);
             p.path(
@@ -460,12 +379,19 @@ impl SheetWindow {
             );
             // Dot at the source, head at the target.
             let d = 2.5 * k;
-            p.fill_rect(
-                (start.0 - d).round(),
-                (start.1 - d).round(),
-                (2.0 * d).round(),
-                (2.0 * d).round(),
-                color,
+            let kk = d * 0.552_284_8;
+            let (cx, cy) = start;
+            p.path(
+                &[
+                    PathSeg::M(cx + d, cy),
+                    PathSeg::C(cx + d, cy + kk, cx + kk, cy + d, cx, cy + d),
+                    PathSeg::C(cx - kk, cy + d, cx - d, cy + kk, cx - d, cy),
+                    PathSeg::C(cx - d, cy - kk, cx - kk, cy - d, cx, cy - d),
+                    PathSeg::C(cx + kk, cy - d, cx + d, cy - kk, cx + d, cy),
+                    PathSeg::Z,
+                ],
+                Some(color),
+                None,
             );
             let (dx, dy) = (end.0 - start.0, end.1 - start.1);
             let len = dx.hypot(dy).max(1.0);

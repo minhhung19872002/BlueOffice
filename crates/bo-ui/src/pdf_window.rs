@@ -160,7 +160,15 @@ impl PdfWindow for ReaderWindow {
     fn set_print_paper(&mut self, name: &str, paper: Option<crate::Paper>) {
         ReaderWindow::set_print_paper(self, name, paper);
     }
+    fn set_pointer_mods(&mut self, m: crate::Mods) {
+        ReaderWindow::set_pointer_mods10(self, m);
+    }
     fn file_picked(&mut self, purpose: &str, path: &Path, bytes: &[u8]) {
+        if ReaderWindow::file_picked9(self, purpose, path)
+            || ReaderWindow::file_picked10(self, purpose, bytes)
+        {
+            return;
+        }
         if !ReaderWindow::file_picked4(self, purpose, bytes) {
             ReaderWindow::file_picked5(self, purpose, path, bytes);
         }
@@ -233,5 +241,11 @@ impl PdfWindow for EditorWindow {
     }
     fn caret(&self) -> Option<[f32; 4]> {
         EditorWindow::caret(self)
+    }
+    fn take_batch(&mut self) -> Vec<usize> {
+        self.r.take_batch()
+    }
+    fn view_at_mut(&mut self, i: usize) -> Option<&mut ReaderView> {
+        self.r.view_at_mut(i)
     }
 }

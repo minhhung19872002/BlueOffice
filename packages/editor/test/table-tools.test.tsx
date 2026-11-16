@@ -34,6 +34,10 @@ const table = (patch: Partial<TableState> = {}): TableState => ({
   direction: null,
   wrap: false,
   fixedLayout: false,
+  cellHAlign: 'Left',
+  rowHeight: 0,
+  colWidth: 0,
+  cellMargin: [108, 108],
   ...patch,
 });
 

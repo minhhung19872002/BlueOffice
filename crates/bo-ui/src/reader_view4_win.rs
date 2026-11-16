@@ -516,6 +516,7 @@ impl ReaderWindow {
             }
             let scroll = self.view4.scrolls.get(k).copied().unwrap_or((0.0, 0.0));
             p.push_clip(r[0], r[1], r[2], r[3]);
+            p.raw_colours(true);
             for i in v.visible_pages_at(*r, scroll) {
                 let Some(pr) = v.page_rect_at(i, *r, scroll) else {
                     continue;
@@ -533,6 +534,7 @@ impl ReaderWindow {
                     p.page(t.key_base + i, (pr[0] + ox) as i32, (pr[1] + oy) as i32);
                 }
             }
+            p.raw_colours(false);
             p.pop_clip();
         }
     }

@@ -10,13 +10,12 @@ use bo_model::sheet::col_to_letters;
 use serde_json::{json, Value};
 
 /// Sort levels shown at most (ids of the level label, column, sort-on and order boxes).
-const LEVELS: [(&str, &str, &str, &str); 6] = [
+const LEVELS: [(&str, &str, &str, &str); 5] = [
     ("lv0", "col0", "on0", "ord0"),
     ("lv1", "col1", "on1", "ord1"),
     ("lv2", "col2", "on2", "ord2"),
     ("lv3", "col3", "on3", "ord3"),
     ("lv4", "col4", "on4", "ord4"),
-    ("lv5", "col5", "on5", "ord5"),
 ];
 
 /// Argument names of common functions for the Insert Function help (BlueOffice's own
@@ -152,55 +151,103 @@ impl SheetWindow {
             .and_then(Value::as_bool)
             .unwrap_or(false);
         let t = |k: &str, d: &str| self.t(k, d);
-        let mut f = Form::new(&t("sheetSort.title", "Sort"), (800.0, 420.0), Vec::new());
+        // Geometry measured on the reference's Sort dialog at 125 % (round 39, `sheet-31`):
+        // 767 × 344 px, a row of 34 px buttons at y 48 (icon buttons, a separator, ▲ ▼,
+        // Options…, the headers box), the level grid from y 88, combo boxes 28 px high,
+        // OK / Cancel 106 × 33 at y 291.
+        let mut f = Form::new(&t("sheetSort.title", "Sort"), (767.0, 344.0), Vec::new());
+        // The level grid: white, framed #828790, a header row with #E5E5E5 separators.
+        f.add("grid", None, [16.0, 88.0, 735.0, 197.0], Kind::Canvas);
         let bx = [
-            ("add", "sheetSort.add", "Add Level", 20.0, 130.0),
-            ("del", "sheetSort.delete", "Delete Level", 160.0, 130.0),
-            ("copy", "sheetSort.copy", "Copy Level", 300.0, 120.0),
+            ("add", "sheetSort.add", "Add Level", 18.0, 114.0),
+            ("del", "sheetSort.delete", "Delete Level", 138.0, 130.0),
+            ("copy", "sheetSort.copy", "Copy Level", 274.0, 120.0),
         ];
         for (id, k, d, x, w) in bx {
-            f.add(id, None, [x, 52.0, w, 28.0], Self::button(t(k, d)));
+            f.add(id, None, [x, 48.0, w, 34.0], Self::button(t(k, d)));
+            // Our own icon left of the label (drawn over the button), as the reference.
+            f.set_label_left(id, 36.0);
+            f.set_access(id, 0);
         }
+        f.add("tsep", None, [399.0, 48.0, 1.0, 34.0], Kind::Canvas);
+        f.add(
+            "up",
+            None,
+            [404.0, 48.0, 32.0, 34.0],
+            Self::button(String::new()),
+        );
+        f.add(
+            "down",
+            None,
+            [442.0, 48.0, 32.0, 34.0],
+            Self::button(String::new()),
+        );
+        f.add(
+            "opts",
+            None,
+            [480.0, 48.0, 84.0, 34.0],
+            Self::button(t("sheetNative.sortOptions", "Options...")),
+        );
+        f.set_access("opts", 0);
+        // Icons over their buttons (a press on one is the button's).
+        for (id, rect) in [
+            ("icAdd", [22.0, 53.0, 26.0, 24.0]),
+            ("icDel", [142.0, 53.0, 26.0, 24.0]),
+            ("icCopy", [278.0, 53.0, 26.0, 24.0]),
+            ("icUp", [405.0, 49.0, 30.0, 32.0]),
+            ("icDown", [443.0, 49.0, 30.0, 32.0]),
+        ] {
+            f.add(id, None, rect, Kind::Canvas);
+        }
+        let headers = t("sheetSort.headers", "My data has headers");
+        let h_at = headers
+            .to_lowercase()
+            .chars()
+            .collect::<Vec<_>>()
+            .iter()
+            .rposition(|c| *c == 'h')
+            .unwrap_or(0);
         f.add(
             "header",
             None,
-            [560.0, 56.0, 220.0, 20.0],
+            [582.0, 55.0, 175.0, 20.0],
             Kind::Check {
-                label: t("sheetSort.headers", "My data has headers"),
+                label: headers,
                 on: header,
             },
         );
+        f.set_access("header", h_at);
         f.add(
             "hCol",
             None,
-            [110.0, 96.0, 0.0, 0.0],
+            [23.0, 96.0, 0.0, 0.0],
             Kind::Label(t("sheetSort.column", "Column")),
         );
         f.add(
             "hOn",
             None,
-            [360.0, 96.0, 0.0, 0.0],
+            [289.0, 96.0, 0.0, 0.0],
             Kind::Label(t("sheetSort.sortOn", "Sort On")),
         );
         f.add(
             "hOrd",
             None,
-            [570.0, 96.0, 0.0, 0.0],
+            [555.0, 96.0, 0.0, 0.0],
             Kind::Label(t("sheetSort.order", "Order")),
         );
         let orders = vec![t("sheetSort.az", "A to Z"), t("sheetSort.za", "Z to A")];
         for (i, (lv, col, on, ord)) in LEVELS.iter().enumerate() {
-            let y = 120.0 + i as f32 * 34.0;
+            let y = 121.0 + i as f32 * 31.0;
             let label = if i == 0 {
                 t("sheetSort.sortBy", "Sort by")
             } else {
                 t("sheetSort.thenBy", "Then by")
             };
-            f.add(lv, None, [24.0, y + 5.0, 0.0, 0.0], Kind::Label(label));
+            f.add(lv, None, [20.0, y + 4.0, 0.0, 0.0], Kind::Label(label));
             f.add(
                 col,
                 None,
-                [110.0, y, 230.0, 26.0],
+                [90.0, y, 178.0, 28.0],
                 Kind::Combo {
                     items: Vec::new(),
                     sel: 0,
@@ -209,7 +256,7 @@ impl SheetWindow {
             f.add(
                 on,
                 None,
-                [360.0, y, 190.0, 26.0],
+                [285.0, y, 250.0, 28.0],
                 Kind::Combo {
                     items: vec![t("sheetSort.cellValues", "Cell Values")],
                     sel: 0,
@@ -218,7 +265,7 @@ impl SheetWindow {
             f.add(
                 ord,
                 None,
-                [570.0, y, 200.0, 26.0],
+                [551.0, y, 196.0, 28.0],
                 Kind::Combo {
                     items: orders.clone(),
                     sel: 0,
@@ -226,45 +273,72 @@ impl SheetWindow {
             );
         }
         f.ok_cancel(&t("common.ok", "OK"), &t("common.cancel", "Cancel"));
+        if let Some(c) = f.get_mut("ok") {
+            c.rect = [522.0, 291.0, 106.0, 33.0];
+        }
+        if let Some(c) = f.get_mut("cancel") {
+            c.rect = [645.0, 291.0, 106.0, 33.0];
+        }
         self.sort_range = Some(r);
         self.sort_levels = 1;
+        self.sort_sel = 0;
+        self.sort_case = false;
+        self.sort_ltr = false;
         self.form = Some(f);
         self.form_kind = FormKind::Sort;
         self.sort_refresh();
         true
     }
 
-    /// Column names of the sort range (header texts or "Column X") and level visibility.
+    /// Key names of the sort range: an empty first entry (no key chosen yet, as the
+    /// reference opens), then the header texts or "Column X" (rows: "Row N" when sorting
+    /// left to right); level visibility and button states.
     fn sort_refresh(&mut self) {
         let Some(r) = self.sort_range.clone() else {
             return;
         };
         let get = |k: &str| r.get(k).and_then(Value::as_u64).unwrap_or(0) as u32;
-        let (r0, c0, c1) = (get("r0"), get("c0"), get("c1"));
+        let (r0, c0, r1, c1) = (get("r0"), get("c0"), get("r1"), get("c1"));
         let header = self.form.as_ref().is_some_and(|f| f.on("header"));
-        let column = self.t("sheetSort.columnN", "Column");
-        let names: Vec<String> = (c0..=c1.min(c0 + 200))
-            .map(|c| {
-                let label = if header {
-                    self.view
-                        .engine()
-                        .cell(self.view.sheet(), r0, c)
-                        .map(|d| d.display)
-                        .unwrap_or_default()
-                } else {
-                    String::new()
-                };
-                if label.trim().is_empty() {
-                    format!("{column} {}", col_to_letters(c))
-                } else {
-                    label
-                }
-            })
-            .collect();
+        let names: Vec<String> = if self.sort_ltr {
+            let row = self.t("sheetNative.sortRowN", "Row");
+            std::iter::once(String::new())
+                .chain((r0..=r1.min(r0 + 200)).map(|r| format!("{row} {}", r + 1)))
+                .collect()
+        } else {
+            let column = self.t("sheetSort.columnN", "Column");
+            std::iter::once(String::new())
+                .chain((c0..=c1.min(c0 + 200)).map(|c| {
+                    let label = if header {
+                        self.view
+                            .engine()
+                            .cell(self.view.sheet(), r0, c)
+                            .map(|d| d.display)
+                            .unwrap_or_default()
+                    } else {
+                        String::new()
+                    };
+                    if label.trim().is_empty() {
+                        format!("{column} {}", col_to_letters(c))
+                    } else {
+                        label
+                    }
+                }))
+                .collect()
+        };
+        let col_head = if self.sort_ltr {
+            self.t("sheetNative.sortRow", "Row")
+        } else {
+            self.t("sheetSort.column", "Column")
+        };
         let levels = self.sort_levels;
+        let sel = self.sort_sel;
         let Some(f) = self.form.as_mut() else {
             return;
         };
+        if let Some(Kind::Label(l)) = f.get_mut("hCol").map(|c| &mut c.kind) {
+            *l = col_head;
+        }
         for (i, (lv, col, on, ord)) in LEVELS.iter().enumerate() {
             let shown = i < levels;
             for id in [lv, col, on, ord] {
@@ -272,62 +346,405 @@ impl SheetWindow {
             }
             let same = matches!(f.get(col).map(|c| &c.kind), Some(Kind::Combo { items, .. }) if *items == names);
             if !same {
-                let sel = f.sel(col).unwrap_or(0).min(names.len().saturating_sub(1));
-                f.set_items(col, names.clone(), Some(sel));
+                let s = f.sel(col).unwrap_or(0).min(names.len().saturating_sub(1));
+                f.set_items(col, names.clone(), Some(s));
             }
         }
-        f.enable("del", levels > 1);
+        f.enable("del", levels > 0);
         f.enable("add", levels < LEVELS.len());
-        f.enable("copy", levels < LEVELS.len());
+        f.enable("copy", levels > 0 && levels < LEVELS.len());
+        f.enable("up", sel > 0);
+        f.enable("down", sel + 1 < levels);
+    }
+
+    /// Swap sort levels `a` and `b` (their key, sort-on and order choices).
+    fn sort_swap(&mut self, a: usize, b: usize) {
+        let Some(f) = self.form.as_mut() else {
+            return;
+        };
+        let (_, ac, ao, ad) = LEVELS[a];
+        let (_, bc, bo, bd) = LEVELS[b];
+        for (x, y) in [(ac, bc), (ao, bo), (ad, bd)] {
+            let (sx, sy) = (f.sel(x), f.sel(y));
+            f.set_sel(x, sy);
+            f.set_sel(y, sx);
+        }
     }
 
     fn sort_event(&mut self, ev: &Event) {
+        // A press on an icon is a press on its button.
+        let ev = match ev {
+            Event::Canvas("icAdd", ..) => &Event::Clicked("add"),
+            Event::Canvas("icDel", ..) => &Event::Clicked("del"),
+            Event::Canvas("icCopy", ..) => &Event::Clicked("copy"),
+            Event::Canvas("icUp", ..) => &Event::Clicked("up"),
+            Event::Canvas("icDown", ..) => &Event::Clicked("down"),
+            other => other,
+        };
         match ev {
             Event::Clicked("add") if self.sort_levels < LEVELS.len() => {
+                if let Some(f) = self.form.as_mut() {
+                    let (_, c, o, d) = LEVELS[self.sort_levels];
+                    f.set_sel(c, Some(0));
+                    f.set_sel(o, Some(0));
+                    f.set_sel(d, Some(0));
+                }
+                self.sort_sel = self.sort_levels;
                 self.sort_levels += 1;
                 self.sort_refresh();
             }
             Event::Clicked("copy") if self.sort_levels < LEVELS.len() => {
+                // The copy goes right under the chosen level.
                 let n = self.sort_levels;
+                let at = self.sort_sel.min(n - 1);
                 if let Some(f) = self.form.as_mut() {
-                    let (_, pc, _, po) = LEVELS[n - 1];
-                    let (_, nc, _, no) = LEVELS[n];
-                    let (c, o) = (f.sel(pc), f.sel(po));
-                    f.set_sel(nc, c);
-                    f.set_sel(no, o);
+                    for k in (at + 1..n).rev() {
+                        let (_, pc, po, pd) = LEVELS[k];
+                        let (_, nc, no, nd) = LEVELS[k + 1];
+                        for (x, y) in [(pc, nc), (po, no), (pd, nd)] {
+                            let v = f.sel(x);
+                            f.set_sel(y, v);
+                        }
+                    }
+                    let (_, pc, po, pd) = LEVELS[at];
+                    let (_, nc, no, nd) = LEVELS[at + 1];
+                    for (x, y) in [(pc, nc), (po, no), (pd, nd)] {
+                        let v = f.sel(x);
+                        f.set_sel(y, v);
+                    }
                 }
                 self.sort_levels += 1;
+                self.sort_sel = at + 1;
                 self.sort_refresh();
             }
-            Event::Clicked("del") if self.sort_levels > 1 => {
+            Event::Clicked("del") if self.sort_levels > 0 => {
+                // The chosen level goes; the ones under it move up.
+                let n = self.sort_levels;
+                let at = self.sort_sel.min(n - 1);
+                if let Some(f) = self.form.as_mut() {
+                    for k in at..n - 1 {
+                        let (_, pc, po, pd) = LEVELS[k];
+                        let (_, nc, no, nd) = LEVELS[k + 1];
+                        for (x, y) in [(nc, pc), (no, po), (nd, pd)] {
+                            let v = f.sel(x);
+                            f.set_sel(y, v);
+                        }
+                    }
+                }
                 self.sort_levels -= 1;
+                self.sort_sel = at.min(self.sort_levels.saturating_sub(1));
                 self.sort_refresh();
+            }
+            Event::Clicked("up") if self.sort_sel > 0 => {
+                self.sort_swap(self.sort_sel, self.sort_sel - 1);
+                self.sort_sel -= 1;
+                self.sort_refresh();
+            }
+            Event::Clicked("down") if self.sort_sel + 1 < self.sort_levels => {
+                self.sort_swap(self.sort_sel, self.sort_sel + 1);
+                self.sort_sel += 1;
+                self.sort_refresh();
+            }
+            Event::Clicked("opts") => self.open_sort_options(),
+            Event::Canvas("grid", _, y) => {
+                // A press on a level's row chooses it.
+                let row = ((y - 33.0) / 31.0).floor();
+                if row >= 0.0 && (row as usize) < self.sort_levels {
+                    self.sort_sel = row as usize;
+                    self.sort_refresh();
+                }
+            }
+            Event::Changed(id)
+                if id.len() > 2
+                    && LEVELS
+                        .iter()
+                        .any(|l| l.1 == *id || l.2 == *id || l.3 == *id) =>
+            {
+                if let Some(i) = LEVELS
+                    .iter()
+                    .position(|l| l.1 == *id || l.2 == *id || l.3 == *id)
+                {
+                    self.sort_sel = i;
+                    self.sort_refresh();
+                }
             }
             Event::Changed("header") => self.sort_refresh(),
-            Event::Ok => {
+            Event::Ok | Event::Clicked("ok") => {
                 let Some(r) = self.sort_range.clone() else {
                     return;
                 };
-                let c0 = r.get("c0").and_then(Value::as_u64).unwrap_or(0) as u32;
+                let first = if self.sort_ltr {
+                    r.get("r0")
+                } else {
+                    r.get("c0")
+                }
+                .and_then(Value::as_u64)
+                .unwrap_or(0) as u32;
+                let case = self.sort_case;
+                // Levels without a key are skipped (the reference asks for one).
                 let keys: Vec<Value> = LEVELS
                     .iter()
                     .take(self.sort_levels)
                     .filter_map(|(_, col, _, ord)| {
                         let f = self.form.as_ref()?;
-                        Some(json!({
-                            "col": c0 + f.sel(col).unwrap_or(0) as u32,
-                            "descending": f.sel(ord) == Some(1),
-                        }))
+                        let k = f.sel(col).unwrap_or(0);
+                        (k > 0).then(|| {
+                            json!({
+                                "col": first + k as u32 - 1,
+                                "descending": f.sel(ord) == Some(1),
+                                "caseSensitive": case,
+                            })
+                        })
                     })
                     .collect();
+                if keys.is_empty() {
+                    self.status = self.t(
+                        "sheetNative.sortNoKey",
+                        "Choose a column to sort by in each level.",
+                    );
+                    return;
+                }
                 let header = self.form.as_ref().is_some_and(|f| f.on("header"));
                 let sheet = self.view.sheet();
                 self.view.run(json!({
-                    "cmd": "sort", "sheet": sheet, "range": r, "keys": keys, "hasHeader": header,
+                    "cmd": "sort", "sheet": sheet, "range": r, "keys": keys,
+                    "hasHeader": header && !self.sort_ltr, "leftToRight": self.sort_ltr,
                 }));
                 self.form = None;
             }
-            Event::Cancel => self.form = None,
+            Event::Cancel | Event::Clicked("cancel") => self.form = None,
+            _ => {}
+        }
+    }
+
+    /// Sort Options over the Sort dialog: case sensitive, top to bottom / left to right.
+    fn open_sort_options(&mut self) {
+        let t = |k: &str, d: &str| self.t(k, d);
+        let mut f = Form::new(
+            &t("sheetNative.sortOptionsTitle", "Sort Options"),
+            (300.0, 262.0),
+            Vec::new(),
+        );
+        f.add(
+            "case",
+            None,
+            [20.0, 52.0, 260.0, 24.0],
+            Kind::Check {
+                label: t("sheetNative.sortCase", "Case sensitive"),
+                on: self.sort_case,
+            },
+        );
+        f.set_access("case", 0);
+        f.add(
+            "orient",
+            None,
+            [20.0, 92.0, 260.0, 100.0],
+            Kind::Group(t("sheetNative.sortOrientation", "Orientation")),
+        );
+        f.add(
+            "ttb",
+            None,
+            [36.0, 120.0, 230.0, 24.0],
+            Kind::Check {
+                label: t("sheetNative.sortTopBottom", "Sort top to bottom"),
+                on: !self.sort_ltr,
+            },
+        );
+        f.add(
+            "ltr",
+            None,
+            [36.0, 150.0, 230.0, 24.0],
+            Kind::Check {
+                label: t("sheetNative.sortLeftRight", "Sort left to right"),
+                on: self.sort_ltr,
+            },
+        );
+        f.set_radios(&["ttb", "ltr"]);
+        f.set_access("ttb", 5);
+        f.set_access("ltr", 5);
+        f.ok_cancel(&t("common.ok", "OK"), &t("common.cancel", "Cancel"));
+        if let Some(c) = f.get_mut("ok") {
+            c.rect = [44.0, 212.0, 112.0, 30.0];
+        }
+        if let Some(c) = f.get_mut("cancel") {
+            c.rect = [168.0, 212.0, 112.0, 30.0];
+        }
+        if let Some(main) = self.form.replace(f) {
+            self.form_stash = Some((main, self.form_kind));
+        }
+        self.form_kind = FormKind::SortOptions;
+    }
+
+    /// Events of Sort Options.
+    pub(super) fn sort_options_event(&mut self, ev: &Event) {
+        match ev {
+            Event::Changed(id @ ("ttb" | "ltr")) => {
+                if let Some(f) = self.form.as_mut() {
+                    f.set_on("ttb", *id == "ttb");
+                    f.set_on("ltr", *id == "ltr");
+                }
+            }
+            Event::Ok | Event::Cancel | Event::Clicked("ok" | "cancel") => {
+                let apply = matches!(ev, Event::Ok | Event::Clicked("ok"));
+                if apply {
+                    if let Some(f) = self.form.as_ref() {
+                        let ltr = f.on("ltr");
+                        self.sort_case = f.on("case");
+                        if ltr != self.sort_ltr {
+                            self.sort_ltr = ltr;
+                            // Keys change meaning (columns ↔ rows): start over.
+                            if let Some((main, _)) = self.form_stash.as_mut() {
+                                for (_, c, _, _) in LEVELS {
+                                    main.set_sel(c, Some(0));
+                                }
+                            }
+                        }
+                    }
+                }
+                if let Some((f, k)) = self.form_stash.take() {
+                    self.form = Some(f);
+                    self.form_kind = k;
+                    self.sort_refresh();
+                } else {
+                    self.form = None;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Owner-drawn parts of the Sort dialog: the level grid with the chosen level's label
+    /// shaded, the toolbar separator and our own button icons.
+    pub(super) fn paint_sort_canvas(
+        &self,
+        f: &Form,
+        id: &str,
+        r: [f32; 4],
+        p: &mut dyn crate::Painter,
+    ) {
+        use bo_render::{PathSeg, Rgba};
+        let k = self.scale / 1.25;
+        let on = |b: &str| f.get(b).is_some_and(|c| c.enabled);
+        let ink = |enabled: bool| {
+            if enabled {
+                Rgba(0x30, 0x30, 0x30, 255)
+            } else {
+                Rgba(0xA0, 0xA0, 0xA0, 255)
+            }
+        };
+        let accent = Rgba(0x1E, 0x7B, 0xC4, 255);
+        match id {
+            "grid" => {
+                p.fill_rect(r[0], r[1], r[2], r[3], Rgba(0x82, 0x87, 0x90, 255));
+                p.fill_rect(
+                    r[0] + 1.0,
+                    r[1] + 1.0,
+                    r[2] - 2.0,
+                    r[3] - 2.0,
+                    Rgba(255, 255, 255, 255),
+                );
+                let hy = (r[1] + 32.0 * k).round();
+                p.fill_rect(r[0] + 1.0, hy, r[2] - 2.0, 1.0, Rgba(0xE0, 0xDF, 0xE3, 255));
+                for x in [267.0, 533.0] {
+                    p.fill_rect(
+                        (r[0] + x * k).round(),
+                        r[1] + 1.0,
+                        1.0,
+                        hy - r[1] - 1.0,
+                        Rgba(0xE5, 0xE5, 0xE5, 255),
+                    );
+                }
+                if self.sort_levels > 0 {
+                    p.fill_rect(
+                        r[0] + 1.0,
+                        (hy + 1.0 + self.sort_sel as f32 * 31.0 * k).round(),
+                        (72.0 * k).round(),
+                        (30.0 * k).round(),
+                        Rgba(0xE0, 0xDF, 0xE3, 255),
+                    );
+                }
+            }
+            "tsep" => p.fill_rect(
+                r[0],
+                r[1],
+                1.0_f32.max(k.round()),
+                r[3],
+                Rgba(0x40, 0x40, 0x40, 255),
+            ),
+            "icAdd" => {
+                // A small list with a plus.
+                let c = ink(on("add"));
+                for i in 0..3 {
+                    let y = r[1] + (6.0 + 5.0 * i as f32) * k;
+                    p.fill_rect(r[0] + 9.0 * k, y.round(), 13.0 * k, (1.5 * k).max(1.0), c);
+                }
+                p.fill_rect(
+                    r[0] + 2.0 * k,
+                    r[1] + 5.0 * k,
+                    6.0 * k,
+                    (1.5 * k).max(1.0),
+                    accent,
+                );
+                p.fill_rect(
+                    r[0] + 4.25 * k,
+                    r[1] + 2.75 * k,
+                    (1.5 * k).max(1.0),
+                    6.0 * k,
+                    accent,
+                );
+            }
+            "icDel" => {
+                // A cross.
+                let c = ink(on("del"));
+                let (x0, y0, s) = (r[0] + 5.0 * k, r[1] + 4.0 * k, 16.0 * k);
+                p.path(
+                    &[
+                        PathSeg::M(x0, y0),
+                        PathSeg::L(x0 + s, y0 + s),
+                        PathSeg::M(x0 + s, y0),
+                        PathSeg::L(x0, y0 + s),
+                    ],
+                    None,
+                    Some((c, 2.0 * k)),
+                );
+            }
+            "icCopy" => {
+                // Two overlapping sheets.
+                let c = ink(on("copy"));
+                for (dx, dy) in [(3.0, 3.0), (9.0, 8.0)] {
+                    let (x, y, w, h) = (r[0] + dx * k, r[1] + dy * k, 12.0 * k, 13.0 * k);
+                    p.fill_rect(x, y, w, h, c);
+                    p.fill_rect(
+                        x + 1.0,
+                        y + 1.0,
+                        w - 2.0,
+                        h - 2.0,
+                        Rgba(0xFD, 0xFD, 0xFD, 255),
+                    );
+                }
+                p.fill_rect(r[0] + 12.0 * k, r[1] + 13.0 * k, 6.0 * k, 1.0_f32.max(k), c);
+                p.fill_rect(r[0] + 12.0 * k, r[1] + 16.0 * k, 6.0 * k, 1.0_f32.max(k), c);
+            }
+            "icUp" | "icDown" => {
+                let c = ink(on(if id == "icUp" { "up" } else { "down" }));
+                let (cx, cy, h) = (r[0] + r[2] / 2.0, r[1] + r[3] / 2.0, 5.0 * k);
+                let segs = if id == "icUp" {
+                    [
+                        PathSeg::M(cx - h * 1.4, cy + h * 0.6),
+                        PathSeg::L(cx + h * 1.4, cy + h * 0.6),
+                        PathSeg::L(cx, cy - h * 0.8),
+                        PathSeg::Z,
+                    ]
+                } else {
+                    [
+                        PathSeg::M(cx - h * 1.4, cy - h * 0.6),
+                        PathSeg::L(cx + h * 1.4, cy - h * 0.6),
+                        PathSeg::L(cx, cy + h * 0.8),
+                        PathSeg::Z,
+                    ]
+                };
+                p.path(&segs, Some(c), None);
+            }
             _ => {}
         }
     }
@@ -723,230 +1140,43 @@ impl SheetWindow {
 
     // ---------------------------------------------------------------- Name Manager
 
-    /// Open the Name Manager (defined names, add / change / delete).
-    pub(super) fn open_name_manager(&mut self) -> bool {
-        if self.view.editing() {
-            self.view.commit();
-        }
-        let t = |k: &str, d: &str| self.t(k, d);
-        let mut f = Form::new(
-            &t("sheetNames.title", "Name Manager"),
-            (760.0, 500.0),
-            Vec::new(),
-        );
-        f.add(
-            "new",
-            None,
-            [20.0, 50.0, 100.0, 28.0],
-            Self::button(t("sheetNames.new", "New...")),
-        );
-        f.add(
-            "apply",
-            None,
-            [130.0, 50.0, 100.0, 28.0],
-            Self::button(t("sheetNames.edit", "Edit...")),
-        );
-        f.add(
-            "del",
-            None,
-            [240.0, 50.0, 100.0, 28.0],
-            Self::button(t("sheetNames.delete", "Delete")),
-        );
-        f.add(
-            "hName",
-            None,
-            [24.0, 90.0, 0.0, 0.0],
-            Kind::Label(t("sheetNames.name", "Name")),
-        );
-        f.add(
-            "hRef",
-            None,
-            [260.0, 90.0, 0.0, 0.0],
-            Kind::Label(t("sheetNames.refersTo", "Refers To")),
-        );
-        f.add(
-            "names",
-            None,
-            [20.0, 110.0, 720.0, 240.0],
-            Kind::List {
-                items: Vec::new(),
-                sel: None,
-                top: 0,
-            },
-        );
-        f.add(
-            "nameL",
-            None,
-            [20.0, 364.0, 0.0, 0.0],
-            Kind::Label(t("sheetNames.nameLabel", "Name:")),
-        );
-        f.add("name", None, [120.0, 360.0, 300.0, 24.0], Self::edit(""));
-        f.add(
-            "refL",
-            None,
-            [20.0, 398.0, 0.0, 0.0],
-            Kind::Label(t("sheetNames.refersToLabel", "Refers to:")),
-        );
-        let rng = {
-            let (r0, c0, r1, c1) = self.view.range_bounds();
-            let sheet = self
-                .view
-                .sheet_names()
-                .get(self.view.sheet())
-                .cloned()
-                .flatten()
-                .unwrap_or_default();
-            let a = |r: u32, c: u32| format!("${}${}", col_to_letters(c), r + 1);
-            if (r0, c0) == (r1, c1) {
-                format!("={sheet}!{}", a(r0, c0))
-            } else {
-                format!("={sheet}!{}:{}", a(r0, c0), a(r1, c1))
-            }
-        };
-        f.add("ref", None, [120.0, 394.0, 620.0, 24.0], Self::edit(&rng));
-        f.add(
-            "err",
-            None,
-            [20.0, 430.0, 0.0, 0.0],
-            Kind::Note(String::new()),
-        );
-        let close = t("sheetNames.close", "Close");
-        f.add(
-            "cancel",
-            None,
-            [760.0 - 131.0, 500.0 - 48.0, 112.0, 28.0],
-            Kind::Button {
-                label: close,
-                default: true,
-            },
-        );
-        self.form = Some(f);
-        self.form_kind = FormKind::Names;
-        self.names_refresh();
-        true
-    }
-
-    fn names_refresh(&mut self) {
-        let list = self
-            .view
-            .query(json!({ "cmd": "nameList" }))
-            .and_then(|v| v.as_array().cloned())
-            .unwrap_or_default();
-        let rows: Vec<(String, String)> = list
-            .iter()
-            .map(|n| {
-                (
-                    n.get("name")
-                        .and_then(Value::as_str)
-                        .unwrap_or("")
-                        .to_owned(),
-                    n.get("refersTo")
-                        .and_then(Value::as_str)
-                        .unwrap_or("")
-                        .to_owned(),
-                )
-            })
-            .collect();
-        self.name_rows.clone_from(&rows);
-        if let Some(f) = self.form.as_mut() {
-            let items = rows
-                .iter()
-                .map(|(n, r)| format!("{n:<28}\t{r}"))
-                .map(|s| s.replace('\t', "    "))
-                .collect();
-            f.set_items("names", items, None);
-        }
-    }
-
-    fn names_event(&mut self, ev: &Event) {
-        let set_err = |w: &mut Self, s: String| {
-            if let Some(Kind::Note(n)) = w
-                .form
-                .as_mut()
-                .and_then(|f| f.get_mut("err"))
-                .map(|c| &mut c.kind)
-            {
-                *n = s;
-            }
-        };
-        match ev {
-            Event::Changed("names") => {
-                let i = self.form.as_ref().and_then(|f| f.sel("names"));
-                if let Some((n, r)) = i.and_then(|i| self.name_rows.get(i).cloned()) {
-                    if let Some(f) = self.form.as_mut() {
-                        f.set_text("name", &n);
-                        f.set_text("ref", &r);
-                    }
-                }
-            }
-            Event::Clicked("new" | "apply") => {
-                let Some(f) = self.form.as_ref() else {
-                    return;
-                };
-                let (name, refers) = (f.text("name").trim().to_owned(), f.text("ref"));
-                let old = matches!(ev, Event::Clicked("apply"))
-                    .then(|| f.sel("names").and_then(|i| self.name_rows.get(i)))
-                    .flatten()
-                    .map(|(n, _)| n.clone());
-                let mut cmd = json!({ "cmd": "defineName", "name": name, "refersTo": refers });
-                if let Some(o) = old {
-                    cmd["old"] = json!({ "name": o });
-                }
-                let ok = self.view.query(cmd).is_some();
-                self.view.changed();
-                let msg = if ok {
-                    String::new()
-                } else {
-                    self.view
-                        .take_error()
-                        .unwrap_or_else(|| self.t("sheetNames.invalid", "The name is not valid."))
-                };
-                set_err(self, msg);
-                self.names_refresh();
-            }
-            Event::Clicked("del") => {
-                let i = self.form.as_ref().and_then(|f| f.sel("names"));
-                if let Some((n, _)) = i.and_then(|i| self.name_rows.get(i).cloned()) {
-                    self.view.query(json!({ "cmd": "deleteName", "name": n }));
-                    self.view.changed();
-                    self.names_refresh();
-                }
-            }
-            Event::Ok | Event::Cancel => self.form = None,
-            _ => {}
-        }
-    }
-
     // ---------------------------------------------------------------- Insert Function
 
     /// Open Insert Function: search, category, function list and its arguments.
     pub(super) fn open_insert_function(&mut self) -> bool {
         let t = |k: &str, d: &str| self.t(k, d);
+        // Geometry of the reference's Insert Function at 125 % (round 39, `sheet-35`):
+        // 645 × 483 px, a two-line search box, the category box right of its label, a
+        // 7-row function list, signature and description under it, OK / Cancel 111 × 30.
         let mut f = Form::new(
             &t("sheetFn.title", "Insert Function"),
-            (560.0, 520.0),
+            (645.0, 483.0),
             Vec::new(),
         );
         f.add(
             "searchL",
             None,
-            [20.0, 50.0, 0.0, 0.0],
+            [18.0, 48.0, 0.0, 0.0],
             Kind::Label(t("sheetFn.search", "Search for a function:")),
         );
-        f.add("search", None, [20.0, 70.0, 420.0, 24.0], Self::edit(""));
+        f.add("search", None, [32.0, 73.0, 467.0, 40.0], Self::edit(""));
         f.add(
             "go",
             None,
-            [452.0, 68.0, 88.0, 28.0],
+            [514.0, 73.0, 111.0, 29.0],
             Self::button(t("sheetFn.go", "Go")),
         );
         f.add(
             "catL",
             None,
-            [20.0, 110.0, 0.0, 0.0],
+            [32.0, 122.0, 0.0, 0.0],
             Kind::Label(t("sheetFn.category", "Or select a category:")),
         );
-        let mut cats = vec![t("sheetFn.all", "All")];
+        // Most Recently Used first (kept in the preferences), as the reference.
+        let mut cats = vec![
+            t("sheetNative.fnRecent", "Most Recently Used"),
+            t("sheetFn.all", "All"),
+        ];
         cats.extend(FUNCTION_CATEGORIES.iter().map(|(id, _)| {
             let key = format!("commands.{id}");
             t(&key, id.trim_start_matches("sheet.fn"))
@@ -954,7 +1184,7 @@ impl SheetWindow {
         f.add(
             "cat",
             None,
-            [200.0, 106.0, 240.0, 26.0],
+            [158.0, 118.0, 341.0, 27.0],
             Kind::Combo {
                 items: cats,
                 sel: 0,
@@ -963,13 +1193,13 @@ impl SheetWindow {
         f.add(
             "fnL",
             None,
-            [20.0, 144.0, 0.0, 0.0],
+            [18.0, 155.0, 0.0, 0.0],
             Kind::Label(t("sheetFn.select", "Select a function:")),
         );
         f.add(
             "fns",
             None,
-            [20.0, 164.0, 520.0, 208.0],
+            [32.0, 181.0, 595.0, 122.0],
             Kind::List {
                 items: Vec::new(),
                 sel: None,
@@ -979,16 +1209,41 @@ impl SheetWindow {
         f.add(
             "sig",
             None,
-            [20.0, 384.0, 0.0, 0.0],
+            [32.0, 309.0, 0.0, 0.0],
             Kind::Label(String::new()),
         );
         f.add(
             "help",
             None,
-            [20.0, 408.0, 0.0, 0.0],
+            [32.0, 330.0, 0.0, 0.0],
             Kind::Note(String::new()),
         );
+        f.set_placeholder(
+            "search",
+            &t(
+                "sheetNative.fnSearchHint",
+                "Type a brief description of what you want to do and then click Go",
+            ),
+        );
+        f.set_bold("sig");
+        f.add(
+            "helpLink",
+            None,
+            [18.0, 442.0, 250.0, 22.0],
+            Kind::Label(t("sheetNative.fnHelpLink", "Help on this function")),
+        );
+        // No per-function reference in BlueSheet yet: shown greyed.
+        f.enable("helpLink", false);
+        f.set_access("searchL", 0);
+        f.set_access("catL", 15);
+        f.set_access("fnL", 16);
         f.ok_cancel(&t("common.ok", "OK"), &t("common.cancel", "Cancel"));
+        if let Some(c) = f.get_mut("ok") {
+            c.rect = [387.0, 435.0, 111.0, 30.0];
+        }
+        if let Some(c) = f.get_mut("cancel") {
+            c.rect = [514.0, 435.0, 111.0, 30.0];
+        }
         self.form = Some(f);
         self.form_kind = FormKind::Function;
         self.function_refresh();
@@ -1003,18 +1258,32 @@ impl SheetWindow {
             return;
         };
         let cat = f.sel("cat").unwrap_or(0);
-        let query = f.text("search").trim().to_ascii_uppercase();
-        let mut names: Vec<String> = if cat == 0 {
-            self.functions.clone()
-        } else {
-            FUNCTION_CATEGORIES
-                .get(cat - 1)
+        let query = f.text("search").trim().to_owned();
+        let mut names: Vec<String> = match cat {
+            0 if query.is_empty() => self.prefs.recent_functions.clone(),
+            0 | 1 => self.functions.clone(),
+            _ => FUNCTION_CATEGORIES
+                .get(cat - 2)
                 .map(|(_, n)| n.iter().map(|s| (*s).to_owned()).collect())
-                .unwrap_or_default()
+                .unwrap_or_default(),
         };
         if !query.is_empty() {
-            names.retain(|n| n.contains(&query));
+            // Names and descriptions, every word of the query (Go).
+            let words: Vec<String> = query
+                .to_lowercase()
+                .split_whitespace()
+                .map(str::to_owned)
+                .collect();
+            names.retain(|n| {
+                let hay = format!(
+                    "{} {}",
+                    n.to_lowercase(),
+                    self.function_description(n).to_lowercase()
+                );
+                words.iter().all(|w| hay.contains(w.as_str()))
+            });
         }
+        let query = query.to_ascii_uppercase();
         let pick = names
             .iter()
             .position(|n| *n == query)
@@ -1040,8 +1309,11 @@ impl SheetWindow {
         } else {
             format!("{name}({})", args.clone().unwrap_or_else(|| "…".into()))
         };
+        let desc = self.function_description(&name);
         let help = if name.is_empty() {
             String::new()
+        } else if !desc.is_empty() {
+            desc
         } else if args.is_some() {
             self.t(
                 "sheetFn.helpArgs",
@@ -1063,6 +1335,27 @@ impl SheetWindow {
         }
     }
 
+    /// Our own one-line description of function `name` (`""` when there is none).
+    pub(super) fn function_description(&self, name: &str) -> String {
+        let key = format!("sheetNative.fnd{}", name.replace('.', "_"));
+        let d = self.t(&key, "");
+        if d == key {
+            String::new()
+        } else {
+            d
+        }
+    }
+
+    /// Put `name` first in the Most Recently Used list (ten names, stored in the
+    /// preferences).
+    fn note_recent_function(&mut self, name: &str) {
+        let mut p = self.prefs.clone();
+        p.recent_functions.retain(|n| n != name);
+        p.recent_functions.insert(0, name.to_owned());
+        p.recent_functions.truncate(10);
+        self.set_prefs(p);
+    }
+
     fn function_event(&mut self, ev: &Event, text: &dyn crate::TextMeasure) {
         match ev {
             Event::Changed("cat" | "search") | Event::Clicked("go") => self.function_refresh(),
@@ -1075,6 +1368,7 @@ impl SheetWindow {
                     .unwrap_or_default();
                 self.form = None;
                 if !name.is_empty() {
+                    self.note_recent_function(&name);
                     self.view.edit_with(&format!("={name}("), text);
                 }
             }
@@ -1129,9 +1423,11 @@ impl SheetWindow {
     ) -> bool {
         match kind {
             FormKind::Sort => self.sort_event(ev),
+            FormKind::SortOptions => self.sort_options_event(ev),
             FormKind::Validation => self.validation_event(ev),
             FormKind::GoalSeek => self.goal_event(ev),
             FormKind::Names => self.names_event(ev),
+            FormKind::NewName => self.new_name_event(ev),
             FormKind::Function => self.function_event(ev, text),
             FormKind::PrintTitles => self.print_titles_event(ev),
             FormKind::CreateTable
@@ -1168,6 +1464,14 @@ impl SheetWindow {
             FormKind::PasteSpecial => self.paste_special_event(ev),
             FormKind::Unhide | FormKind::TabColor => self.tabs_form_event(kind, ev),
             FormKind::TableStyle => self.tstyle_event(ev),
+            FormKind::Options => self.options_event(ev),
+            FormKind::Evaluate => {
+                self.evaluate_event(ev);
+                self.layout_form(text);
+            }
+            FormKind::Subtotal | FormKind::RemoveDups | FormKind::AdvancedFilter => {
+                self.datadlg_event(kind, ev);
+            }
             FormKind::FormatCells => {}
         }
         true

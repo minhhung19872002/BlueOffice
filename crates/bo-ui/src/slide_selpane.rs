@@ -31,6 +31,10 @@ pub enum SideKind {
     Selection,
     /// The Alt Text pane.
     AltText,
+    /// The Spelling pane (Review > Spelling, F7).
+    Spelling,
+    /// The Accessibility pane (Review > Check Accessibility).
+    Accessibility,
 }
 
 /// A shape listed by the Selection Pane.
@@ -69,6 +73,50 @@ pub enum SideHit {
     AltBox,
     /// "Mark as decorative".
     Decorative,
+    /// Spelling: skip this occurrence.
+    IgnoreOnce,
+    /// Spelling: skip the word everywhere.
+    IgnoreAll,
+    /// Spelling: add the word to the dictionary.
+    AddWord,
+    /// Spelling: replace by the chosen correction.
+    Change,
+    /// Spelling: replace every occurrence.
+    ChangeAll,
+    /// Spelling: choose correction `n`.
+    Suggestion(usize),
+    /// The pane's options button (the chevron left of the close button).
+    PaneMenu,
+    /// Spelling: read the chosen correction aloud.
+    Speak,
+    /// Accessibility: go to shape `id` (0: the slide itself) of slide `n`.
+    Goto(usize, u32),
+}
+
+/// An issue listed by the Accessibility pane.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct A11yRow {
+    /// Slide index.
+    pub slide: usize,
+    /// Shape id (0: the slide).
+    pub id: u32,
+    /// What is wrong, e.g. "Missing alternative text".
+    pub kind: String,
+    /// Where: "Picture 3 (Slide 2)".
+    pub what: String,
+}
+
+/// What the Spelling pane shows.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SpellShown {
+    /// The flagged text (`None`: the check is complete).
+    pub word: Option<String>,
+    /// A grammar or style issue rather than a misspelt word.
+    pub grammar: bool,
+    /// Corrections, best first.
+    pub suggestions: Vec<String>,
+    /// The chosen correction.
+    pub chosen: usize,
 }
 
 /// What typing in a pane asks for.
@@ -348,14 +396,22 @@ impl SidePane {
             [r[0] + 1.0, r[1] + 1.0, r[2] - 2.0, r[3] - 2.0],
             WHITE,
         ));
-        let (tw, th) = text.measure(label, style);
-        ops.push(Op::Text(
-            label.to_owned(),
+        // "&" marks the access key, drawn underlined.
+        let key = label.find('&');
+        let shown = label.replacen('&', "", 1);
+        let (tw, th) = text.measure(&shown, style);
+        let (tx, ty) = (
             (r[0] + (r[2] - tw) / 2.0).round(),
             (r[1] + (r[3] - th) / 2.0).round(),
-            style,
-            ink,
-        ));
+        );
+        if let Some(k) = key {
+            let ch = shown[k..].chars().next().map_or(0, char::len_utf8);
+            let x0 = tx + text.measure(&shown[..k], style).0;
+            let cw = text.measure(&shown[k..k + ch], style).0;
+            let base = (ty + th * 0.86).round();
+            ops.push(Op::Rect([x0, base, cw.max(1.0), 1.0], ink));
+        }
+        ops.push(Op::Text(shown, tx, ty, style, ink));
     }
 
     /// Lay out the Selection Pane for `rows` (front to back); `labels`: title, Show All,
@@ -593,6 +649,266 @@ impl SidePane {
                 ],
                 SideHit::Decorative,
             ));
+        }
+        self.ops = ops;
+        self.hits = hits;
+    }
+
+    /// Lay out the Spelling pane; `labels`: title, Ignore Once, Ignore All, Add, Change,
+    /// Change All, "complete" message, no suggestions.
+    pub fn record_spelling(
+        &mut self,
+        text: &dyn TextMeasure,
+        shown: &SpellShown,
+        labels: &[String; 8],
+        ink: Rgba,
+    ) {
+        let mut ops = Vec::new();
+        let mut hits = Vec::new();
+        self.header(&mut ops, &mut hits, &labels[0], ink);
+        let [x, y, w, _] = self.rect;
+        // Pane options (a chevron left of the close button, as on the reference).
+        let cs = self.px(22.0);
+        let opt = [
+            x + w - self.px(12.0) - 2.0 * cs - self.px(8.0),
+            y + self.px(12.0),
+            cs,
+            cs,
+        ];
+        let (cx, cy, k) = (opt[0] + cs / 2.0, opt[1] + cs / 2.0, self.px(5.0));
+        ops.push(Op::Path(
+            vec![
+                PathSeg::M(cx - k, cy - k / 2.0),
+                PathSeg::L(cx, cy + k / 2.0),
+                PathSeg::L(cx + k, cy - k / 2.0),
+            ],
+            None,
+            Some((ink, self.scale.max(1.0).round())),
+        ));
+        hits.push((opt, SideHit::PaneMenu));
+        let body = TextStyle {
+            size: self.px(12.8),
+            bold: false,
+        };
+        let left = x + self.px(12.0);
+        let width = w - self.px(24.0);
+        let line = text.measure("Ag", body).1.max(self.px(16.0));
+        let Some(word) = &shown.word else {
+            let mut ty = y + self.px(60.0);
+            for l in wrap(&labels[6], width, text, body) {
+                ops.push(Op::Text(l, left, ty, body, ink));
+                ty += line;
+            }
+            self.ops = ops;
+            self.hits = hits;
+            return;
+        };
+        // Measured on the reference at 125 % (device px from the pane's top): the flagged
+        // word bold 20 px at 61, buttons 35 px tall at 92 (15 px in, 14 apart, 10 px of
+        // padding), the corrections list at 144 (202 px tall, 148 frame, the chosen row 198
+        // framed 148, 40 px rows), Change / Change All 10 px under it.
+        let big = TextStyle {
+            size: self.px(16.0),
+            bold: true,
+        };
+        ops.push(Op::Text(word.clone(), left, y + self.px(48.8), big, ink));
+        let bh = self.px(28.0);
+        let gap = self.px(11.2);
+        let pad = self.px(8.0);
+        let mut bx = left;
+        let ty = y + self.px(73.6);
+        let buttons: &[(usize, SideHit)] = if shown.grammar {
+            &[(1, SideHit::IgnoreOnce)]
+        } else {
+            &[
+                (1, SideHit::IgnoreOnce),
+                (2, SideHit::IgnoreAll),
+                (3, SideHit::AddWord),
+            ]
+        };
+        for (i, hit) in buttons {
+            let bw = (text.measure(&labels[*i].replacen('&', "", 1), body).0 + 2.0 * pad).round();
+            let r = [bx, ty, bw, bh];
+            Self::button(&mut ops, r, &labels[*i], text, body, ink);
+            hits.push((r, hit.clone()));
+            bx += bw + gap;
+        }
+        // Corrections list.
+        let ty = y + self.px(115.2);
+        let row = self.px(32.0);
+        let lh = self.px(161.6);
+        let lr = [left, ty, width, lh];
+        ops.push(Op::Rect(lr, BUTTON_EDGE));
+        ops.push(Op::Rect(
+            [lr[0] + 1.0, lr[1] + 1.0, lr[2] - 2.0, lr[3] - 2.0],
+            WHITE,
+        ));
+        if shown.suggestions.is_empty() {
+            ops.push(Op::Text(
+                labels[7].clone(),
+                left + self.px(9.6),
+                ty + (row - line) / 2.0,
+                body,
+                DIM,
+            ));
+        }
+        let fits = ((lh - 2.0) / row).floor().max(1.0) as usize;
+        for (i, sug) in shown.suggestions.iter().take(fits).enumerate() {
+            let ry = ty + 1.0 + row * i as f32;
+            let rr = [left + 1.0, ry, width - 2.0, row];
+            if i == shown.chosen {
+                ops.push(Op::Rect(rr, BUTTON_EDGE));
+                ops.push(Op::Rect(
+                    [rr[0] + 1.0, rr[1] + 1.0, rr[2] - 2.0, rr[3] - 2.0],
+                    ROW_SEL,
+                ));
+            }
+            ops.push(Op::Text(
+                sug.clone(),
+                left + self.px(9.6),
+                ry + ((row - line) / 2.0).round(),
+                body,
+                ink,
+            ));
+            hits.push((rr, SideHit::Suggestion(i)));
+        }
+        // Change / Change All.
+        let enabled = !shown.suggestions.is_empty();
+        let ty = ty + lh + self.px(8.0);
+        let mut bx = left;
+        let changes: &[(usize, SideHit)] = if shown.grammar {
+            &[(4, SideHit::Change)]
+        } else {
+            &[(4, SideHit::Change), (5, SideHit::ChangeAll)]
+        };
+        for (i, hit) in changes {
+            let bw = (text.measure(&labels[*i].replacen('&', "", 1), body).0 + 2.0 * pad).round();
+            let r = [bx, ty, bw, bh];
+            Self::button(
+                &mut ops,
+                r,
+                &labels[*i],
+                text,
+                body,
+                if enabled { ink } else { DIM },
+            );
+            if enabled {
+                hits.push((r, hit.clone()));
+            }
+            bx += bw + gap;
+        }
+        // A rule under the buttons, then the chosen correction in bold with a speaker
+        // button that reads it aloud (the reference adds its meaning; not shown here).
+        let rule_y = ty + bh + self.px(16.0);
+        ops.push(Op::Rect([left, rule_y, width, 1.0], ROW_SEL));
+        if let Some(sug) = shown.suggestions.get(shown.chosen) {
+            let big = TextStyle {
+                size: self.px(16.0),
+                bold: true,
+            };
+            let wy = rule_y + self.px(18.4);
+            ops.push(Op::Text(sug.clone(), left, wy, big, ink));
+            let (sw, sh) = text.measure(sug, big);
+            let s = self.px(18.0);
+            let sx = left + sw + self.px(10.0);
+            let sy = wy + ((sh - s) / 2.0).round();
+            let u = s / 24.0;
+            let seg = |pts: &[(f32, f32)]| -> Vec<PathSeg> {
+                pts.iter()
+                    .enumerate()
+                    .map(|(i, (a, b))| {
+                        let (px, py) = (sx + a * u, sy + b * u);
+                        if i == 0 {
+                            PathSeg::M(px, py)
+                        } else {
+                            PathSeg::L(px, py)
+                        }
+                    })
+                    .collect()
+            };
+            let mut speaker = seg(&[
+                (3.0, 9.0),
+                (7.0, 9.0),
+                (12.0, 5.0),
+                (12.0, 19.0),
+                (7.0, 15.0),
+                (3.0, 15.0),
+                (3.0, 9.0),
+            ]);
+            speaker.extend(seg(&[(15.0, 9.0), (16.5, 12.0), (15.0, 15.0)]));
+            speaker.extend(seg(&[(18.0, 6.5), (20.5, 12.0), (18.0, 17.5)]));
+            ops.push(Op::Path(
+                speaker,
+                None,
+                Some((ink, self.scale.max(1.0).round())),
+            ));
+            hits.push(([sx - 2.0, sy - 2.0, s + 4.0, s + 4.0], SideHit::Speak));
+        }
+        self.ops = ops;
+        self.hits = hits;
+    }
+}
+
+impl SidePane {
+    /// Lay out the Accessibility pane: `labels` title, "no issues" text, Errors heading.
+    pub fn record_a11y(
+        &mut self,
+        text: &dyn TextMeasure,
+        rows: &[A11yRow],
+        labels: &[String; 3],
+        ink: Rgba,
+    ) {
+        let mut ops = Vec::new();
+        let mut hits = Vec::new();
+        self.header(&mut ops, &mut hits, &labels[0], ink);
+        let [x, y, w, h] = self.rect;
+        let body = TextStyle {
+            size: self.px(12.8),
+            bold: false,
+        };
+        let bold = TextStyle {
+            size: self.px(12.8),
+            bold: true,
+        };
+        let left = x + self.px(12.0);
+        let width = w - self.px(24.0);
+        let line = text.measure("Ag", body).1.max(self.px(16.0));
+        let mut ty = y + self.px(56.0);
+        if rows.is_empty() {
+            for l in wrap(&labels[1], width, text, body) {
+                ops.push(Op::Text(l, left, ty, body, ink));
+                ty += line;
+            }
+        } else {
+            ops.push(Op::Text(
+                format!("{} ({})", labels[2], rows.len()),
+                left,
+                ty,
+                bold,
+                ink,
+            ));
+            ty += line + self.px(8.0);
+            let mut kind = "";
+            for r in rows {
+                if ty + line > y + h {
+                    break;
+                }
+                if r.kind != kind {
+                    kind = &r.kind;
+                    ops.push(Op::Text(r.kind.clone(), left + self.px(8.0), ty, bold, ink));
+                    ty += line + self.px(4.0);
+                }
+                let rr = [left, ty - self.px(2.0), width, line + self.px(4.0)];
+                ops.push(Op::Text(
+                    r.what.clone(),
+                    left + self.px(24.0),
+                    ty,
+                    body,
+                    ink,
+                ));
+                hits.push((rr, SideHit::Goto(r.slide, r.id)));
+                ty += line + self.px(6.0);
+            }
         }
         self.ops = ops;
         self.hits = hits;

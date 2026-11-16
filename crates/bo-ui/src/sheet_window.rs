@@ -15,6 +15,8 @@ mod audit_impl;
 mod cfmenu_impl;
 #[path = "sheet_chart.rs"]
 mod chart_impl;
+// BlueSlide's chart tabs reuse the menus and icons.
+pub(crate) use chart_impl::add_icons as add_chart_icons;
 #[path = "sheet_chartdata.rs"]
 mod chartdata_impl;
 #[path = "sheet_commands.rs"]
@@ -23,8 +25,12 @@ mod commands_impl;
 mod comments_impl;
 #[path = "sheet_data.rs"]
 mod data_impl;
+#[path = "sheet_datadlg.rs"]
+mod datadlg_impl;
 #[path = "sheet_dataforms.rs"]
 mod dataforms_impl;
+#[path = "sheet_evaluate.rs"]
+mod evaluate_impl;
 #[path = "sheet_fbar.rs"]
 mod fbar_impl;
 #[path = "sheet_fcells.rs"]
@@ -39,6 +45,10 @@ mod gallery_impl;
 mod illus_impl;
 #[path = "sheet_insert.rs"]
 mod insert_impl;
+#[path = "sheet_names.rs"]
+mod names_impl;
+#[path = "sheet_options.rs"]
+mod options_impl;
 #[path = "sheet_pagelayout.rs"]
 mod pagelayout_impl;
 #[path = "sheet_paste.rs"]
@@ -200,7 +210,6 @@ fn sheet_enabled(id: &str, f: &FormatState) -> bool {
         | "sheet.queryProps"
         | "sheet.editLinks"
         | "sheet.filterReapply"
-        | "sheet.filterAdvanced"
         | "sheet.relationships"
         | "sheet.dataModel"
         | "sheet.forecastSheet"
@@ -373,8 +382,14 @@ pub struct SheetWindow {
     /// Sort dialog: the range sorted and the number of levels shown.
     sort_range: Option<serde_json::Value>,
     sort_levels: usize,
+    /// The chosen level of the Sort dialog, and its Options (case sensitive, left to right).
+    sort_sel: usize,
+    sort_case: bool,
+    sort_ltr: bool,
     /// Name Manager rows (name, refers to).
-    name_rows: Vec<(String, String)>,
+    /// Rows of the Name Manager, and the name the open Edit Name changes.
+    name_table: Vec<names_impl::NameRow>,
+    name_old: Option<(String, Option<usize>)>,
     /// Formula auditing arrows, the traced cell and its precedent / dependent levels.
     arrows: Vec<audit_impl::Arrow>,
     trace_cell: Option<(u32, u32)>,
@@ -389,6 +404,19 @@ pub struct SheetWindow {
     filter_labels: filter_impl::Labels,
     filter_col: u32,
     filter_status: bool,
+    /// The table range `[r0, c0, r1, c1]` (header to last data row) whose filter the open
+    /// drop-down edits; `None` for the sheet's AutoFilter.
+    pub(super) filter_table: Option<[u32; 4]>,
+    /// Application preferences (File › Options), and their text when changed and not yet
+    /// taken by the host.
+    prefs: options_impl::SheetPrefs,
+    prefs_out: Option<String>,
+    /// The Options dialog's category.
+    options_page: usize,
+    /// The list `[r0, c0, r1, c1]` the open Subtotal / Remove Duplicates dialog works on.
+    dd_list: Option<[u32; 4]>,
+    /// The open Evaluate Formula dialog's steps.
+    eval: Option<evaluate_impl::EvalState>,
     /// Create Sparklines: the kind chosen on the ribbon; Symbol: the selected grid cell.
     spark_kind: String,
     symbol: (usize, usize),
@@ -497,7 +525,11 @@ impl SheetWindow {
             fc: fcells_impl::FcState::default(),
             sort_range: None,
             sort_levels: 1,
-            name_rows: Vec::new(),
+            sort_sel: 0,
+            sort_case: false,
+            sort_ltr: false,
+            name_table: Vec::new(),
+            name_old: None,
             arrows: Vec::new(),
             trace_cell: None,
             trace_levels: (0, 0),
@@ -508,6 +540,12 @@ impl SheetWindow {
             filter_labels: filter_impl::Labels::default(),
             filter_col: 0,
             filter_status: false,
+            filter_table: None,
+            prefs: options_impl::SheetPrefs::default(),
+            prefs_out: None,
+            options_page: 0,
+            dd_list: None,
+            eval: None,
             spark_kind: String::new(),
             symbol: (0, 0),
             form_stash: None,
@@ -546,6 +584,44 @@ impl SheetWindow {
     /// The grid view (saving).
     pub fn view(&self) -> &SheetView {
         &self.view
+    }
+
+    /// Apply stored preferences (`key=value` lines of File › Options).
+    pub fn set_preferences(&mut self, text: &str) {
+        self.set_prefs(options_impl::SheetPrefs::from_text(text));
+        self.prefs_out = None;
+    }
+
+    /// Run a menu / ribbon command by id (`goto.<ref>` selects a range), as a choice of a
+    /// menu does.
+    pub fn run_command(&mut self, id: &str, text: &dyn TextMeasure) -> bool {
+        let done = self.choose(Choice::Command(id.to_owned()), text);
+        self.layout_form(text);
+        done
+    }
+
+    /// Start the new workbook with the preferences' default font, size and sheets (call once,
+    /// before the first frame, when no file was opened).
+    pub fn apply_new_workbook_prefs(&mut self, name: &str) -> bool {
+        self.new_book_with_prefs(name)
+    }
+
+    /// The preferences' text when File › Options changed them since the last call (the host
+    /// stores it).
+    pub fn take_preferences(&mut self) -> Option<String> {
+        self.prefs_out.take()
+    }
+
+    /// Default font (`""`: the theme's body font) and size of new workbooks, sheets in a new
+    /// workbook, AutoRecover interval in minutes (`None`: off).
+    pub fn new_workbook_prefs(&self) -> (String, f64, u32, Option<u32>) {
+        let p = &self.prefs;
+        (
+            p.font.clone(),
+            p.size,
+            p.sheets,
+            p.autosave.then_some(p.autosave_min),
+        )
     }
 
     /// The grid view, for the host's file operations.
@@ -970,6 +1046,7 @@ impl SheetWindow {
                 self.requests.push(Request::Close);
                 false
             }
+            "file.options" => self.open_options(),
             "edit.copy" | "edit.cut" => {
                 let text = self.view.copy(id == "edit.cut");
                 self.requests.push(Request::SetClipboard {
@@ -1198,6 +1275,7 @@ impl SheetWindow {
             ("file.save", "backstage.nav.save", "Save"),
             ("file.saveAs", "backstage.nav.saveAs", "Save As"),
             ("file.close", "backstage.nav.close", "Close"),
+            ("file.options", "sheetNative.optMenu", "Options"),
         ]
         .iter()
         .map(|(id, key, fb)| MenuItem {
@@ -1278,6 +1356,10 @@ impl SheetWindow {
         let Some(RibbonHit::Command(id)) = self.ribbon.hovered() else {
             return false;
         };
+        // File › Options › ScreenTip style: Don't show ScreenTips.
+        if self.prefs.screentips == 2 {
+            return false;
+        }
         self.rest += 1;
         if self.rest != 5
             || self.menu.is_some()
@@ -1669,11 +1751,11 @@ impl SheetWindow {
             }
             Input::Press { x, y, .. } if self.totals_press(x, y) => true,
             Input::Press { x, y, .. } if self.filter_button_at(x, y).is_some() => {
-                let col = self.filter_button_at(x, y).unwrap_or_default();
+                let (col, table) = self.filter_button_at(x, y).unwrap_or_default();
                 if self.view.editing() {
                     self.view.commit();
                 }
-                self.open_filter(col)
+                self.open_filter(col, table)
             }
             Input::Press { .. } => {
                 if std::mem::take(&mut self.filter_status) {
@@ -1859,6 +1941,8 @@ impl SheetWindow {
     fn layout_form(&mut self, text: &dyn TextMeasure) {
         let strings = match (self.form.is_some(), self.form_kind) {
             (true, form_impl::FormKind::FormatCells) => self.fc_strings(),
+            (true, form_impl::FormKind::Evaluate) => self.eval_strings(),
+            (true, form_impl::FormKind::Names) => self.names_strings(),
             (true, _) => Vec::new(),
             _ => return,
         };
@@ -1900,6 +1984,25 @@ impl SheetWindow {
     }
 
     fn paint_form_canvas(&self, f: &form_impl::Form, id: &str, r: [f32; 4], p: &mut dyn Painter) {
+        // Plain areas some dialogs share (round 39): a white face, a rule, a white list box
+        // framed #828790, a light grey box framed #949494.
+        let frame = |p: &mut dyn Painter, edge: Rgba, fill: Rgba| {
+            p.fill_rect(r[0], r[1], r[2], r[3], edge);
+            p.fill_rect(r[0] + 1.0, r[1] + 1.0, r[2] - 2.0, r[3] - 2.0, fill);
+        };
+        match id {
+            "face" => return p.fill_rect(r[0], r[1], r[2], r[3], Rgba(255, 255, 255, 255)),
+            "rule1" | "rule2" => {
+                return p.fill_rect(r[0], r[1], r[2], 1.0, Rgba(0xDC, 0xDC, 0xDC, 255));
+            }
+            "listbox" => {
+                return frame(p, Rgba(0x82, 0x87, 0x90, 255), Rgba(255, 255, 255, 255));
+            }
+            "greybox" => {
+                return frame(p, Rgba(0x94, 0x94, 0x94, 255), Rgba(0xF3, 0xF3, 0xF3, 255));
+            }
+            _ => {}
+        }
         if self.form_kind == form_impl::FormKind::FormatCells {
             self.fc_paint_canvas(f, id, r, p);
         } else if self.form_kind == form_impl::FormKind::Symbol {
@@ -1910,6 +2013,17 @@ impl SheetWindow {
             self.paint_cf_rules(r, p, self.scale / 1.25);
         } else if self.form_kind == form_impl::FormKind::TableStyle && id == "preview" {
             self.paint_tstyle_preview(r, p);
+        } else if self.form_kind == form_impl::FormKind::Options {
+            self.paint_options(id, r, p);
+        } else if matches!(
+            self.form_kind,
+            form_impl::FormKind::Names | form_impl::FormKind::NewName
+        ) {
+            self.paint_names(f, id, r, p);
+        } else if self.form_kind == form_impl::FormKind::Evaluate && id == "box" {
+            self.paint_evaluate(f, r, p);
+        } else if self.form_kind == form_impl::FormKind::Sort {
+            self.paint_sort_canvas(f, id, r, p);
         }
     }
 

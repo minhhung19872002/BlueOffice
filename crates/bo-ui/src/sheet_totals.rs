@@ -123,10 +123,14 @@ impl SheetWindow {
         let (row, w) = (self.px(16.0), self.px(112.0));
         let h = row * TOTALS.len() as f32 + 2.0;
         let left = (bx + bw - w).max(0.0);
+        // Every item shows (as the reference): under the button, else above it, else as
+        // low as the window allows.
         let top = if by + bh + h <= self.size.1 {
             by + bh
+        } else if by - h >= 0.0 {
+            by - h
         } else {
-            (by - h).max(0.0)
+            (self.size.1 - h).max(0.0)
         };
         self.totals_list = Some(TotalsList {
             rect: [left, top, w, h],
@@ -162,7 +166,10 @@ impl SheetWindow {
                     Some(i) if TOTALS[i].0 != "custom" => {
                         self.totals_action(&format!("total.{}", TOTALS[i].0));
                     }
-                    Some(_) => {}
+                    // More Functions…: the Insert Function dialog for the totals cell.
+                    Some(_) => {
+                        self.open_insert_function();
+                    }
                     // A press elsewhere closes the list and is handled as usual (a press on
                     // the button only closes it).
                     None => {
@@ -193,8 +200,14 @@ impl SheetWindow {
             Input::Key(Key::Enter, _) => {
                 let i = l.hot;
                 self.totals_list = None;
-                if let Some(i) = i.filter(|i| TOTALS[*i].0 != "custom") {
-                    self.totals_action(&format!("total.{}", TOTALS[i].0));
+                match i {
+                    Some(i) if TOTALS[i].0 != "custom" => {
+                        self.totals_action(&format!("total.{}", TOTALS[i].0));
+                    }
+                    Some(_) => {
+                        self.open_insert_function();
+                    }
+                    None => {}
                 }
                 true
             }
@@ -216,7 +229,7 @@ impl SheetWindow {
             size: self.px(12.0),
             bold: false,
         };
-        for (i, (f, key, fallback)) in TOTALS.iter().enumerate() {
+        for (i, (_, key, fallback)) in TOTALS.iter().enumerate() {
             let ry = y + 1.0 + i as f32 * l.row;
             let hot = l.hot == Some(i);
             if hot {
@@ -224,8 +237,6 @@ impl SheetWindow {
             }
             let ink = if hot {
                 Rgba(255, 255, 255, 255)
-            } else if *f == "custom" {
-                Rgba(0x6d, 0x6d, 0x6d, 255)
             } else {
                 Rgba(0, 0, 0, 255)
             };

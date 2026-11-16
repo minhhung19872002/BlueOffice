@@ -81,8 +81,6 @@ pub(crate) struct ToolsState {
     pub join: Vec<(usize, [f32; 4])>,
     /// Reflow Editing is on.
     pub reflow: bool,
-    /// Paragraph being edited with Reflow Editing on: page, top-left, bottom when it began.
-    pub reflow_from: Option<(usize, [f32; 2], f32)>,
     /// Words Check Spelling still has to show, the one shown first.
     pub spell: Vec<Misspelt>,
     /// Words to skip for the rest of the check.
@@ -285,6 +283,7 @@ impl EditorWindow {
             }
             "ed.reflow" => {
                 self.tools.reflow = !self.tools.reflow;
+                self.edit.reflow = self.tools.reflow;
                 if self.tools.reflow && self.edit_tool() != Some(crate::EditTool::Text) {
                     self.run_edit_text();
                 }
@@ -1100,61 +1099,18 @@ impl EditorWindow {
         self.next_misspelt();
     }
 
-    /// Reflow Editing: when a paragraph edit ends, what was below it moves by as much as
-    /// the paragraph grew or shrank. True when the page changed.
+    /// Reflow Editing: everything below a paragraph moves with it while typing (the block
+    /// edit's followers, `bo_pdfread::PushMode`); off, only the paragraphs after it in its box
+    /// do. Keeps the editing state in step with the toggle. Also hands the reader's Text Box
+    /// tool to the editor's own (typed in place, `editor_textbox`). True when that changed.
     pub(crate) fn reflow_check(&mut self) -> bool {
-        if !self.tools.reflow {
-            self.tools.reflow_from = None;
-            return false;
+        self.edit.reflow = self.tools.reflow;
+        if self.r.current_tool() == crate::reader_window::Tool::TextBox {
+            self.r.set_tool(crate::reader_window::Tool::Hand);
+            self.comment_command("tool.textbox");
+            return true;
         }
-        let now = self.edit.typing.as_ref().and_then(|t| {
-            let b = t.block.as_ref()?;
-            Some((t.page, [b.bbox[0], b.bbox[1]], b.bbox[3]))
-        });
-        match (self.tools.reflow_from, now) {
-            (None, Some(n)) => {
-                self.tools.reflow_from = Some(n);
-                false
-            }
-            (Some(_), Some(_)) | (None, None) => false,
-            (Some((page, tl, old_bottom)), None) => {
-                self.tools.reflow_from = None;
-                let r = self.doc_edit(|d| {
-                    let objs = d.page_objects(page)?;
-                    let Some(b) = bo_pdfread::text_blocks(&objs).into_iter().find(|b| {
-                        (b.bbox[0] - tl[0]).abs() < 2.0 && (b.bbox[1] - tl[1]).abs() < 2.0
-                    }) else {
-                        return Ok(false);
-                    };
-                    let dy = b.bbox[3] - old_bottom;
-                    if dy.abs() < 0.5 {
-                        return Ok(false);
-                    }
-                    let ids: Vec<usize> = objs
-                        .iter()
-                        .enumerate()
-                        .filter(|(i, o)| !b.ids.contains(i) && o.bbox[1] >= old_bottom - 1.0)
-                        .map(|(i, _)| i)
-                        .collect();
-                    if ids.is_empty() {
-                        return Ok(false);
-                    }
-                    d.transform_objects(page, &ids, [1.0, 0.0, 0.0, 1.0, 0.0, dy])?;
-                    Ok(true)
-                });
-                match r {
-                    Ok(true) => {
-                        self.page_done(page, Ok(()));
-                        true
-                    }
-                    Ok(false) => false,
-                    Err(e) => {
-                        self.set_status(&e);
-                        true
-                    }
-                }
-            }
-        }
+        false
     }
 
     // ---- Paragraph spacing ---------------------------------------------------------------

@@ -12,7 +12,8 @@ use bo_engine::slide_edit::page_master::{PageKind, PageMasterCommand};
 use bo_render::Rgba;
 
 /// Commands of this round's View tab additions.
-pub const COMMANDS: [&str; 19] = [
+pub const COMMANDS: [&str; 20] = [
+    "pm.themes",
     "win.new",
     "win.switch",
     "win.arrange",
@@ -100,7 +101,8 @@ pub enum WindowRequest {
 /// The Handout Master / Notes Master contextual tab.
 pub(super) fn page_master_tab(kind: PageKind) -> Tab {
     use Item::{Labeled as S, Large as L};
-    let mut setup = vec![L("pm.orientation")];
+    // Page Setup as the reference: orientation, Slide Size, then slides per page.
+    let mut setup = vec![L("pm.orientation"), L("design.slideSize")];
     if kind == PageKind::Handout {
         setup.push(L("pm.perPage"));
     }
@@ -133,6 +135,21 @@ pub(super) fn page_master_tab(kind: PageKind) -> Tab {
                 large: vec![],
                 rows,
             },
+            // Edit Theme and Background (reference), over the Design tab's commands.
+            Group {
+                label: "slideNative.editTheme",
+                large: vec![L("pm.themes")],
+                rows: vec![],
+            },
+            Group {
+                label: "slideNative.bgGroup",
+                large: vec![],
+                rows: vec![
+                    vec![S("design.colors"), S("design.background")],
+                    vec![S("design.fonts"), S("pm.hideBg")],
+                    vec![S("design.effects")],
+                ],
+            },
             Group {
                 label: "slideNative.close",
                 large: vec![L("view.closePageMaster")],
@@ -163,6 +180,8 @@ pub(super) fn install_strings(s: &mut crate::strings::Strings) {
         ("win.switch", "switchWindows"),
         ("win.arrange", "arrangeAll"),
         ("win.cascade", "cascade"),
+        ("pm.themes", "themes"),
+        ("pm.hideBg", "hideBgGraphics"),
     ] {
         let v = s.get(&format!("slideNative.{key}")).to_owned();
         s.set(&format!("commands.{id}"), &v);
@@ -193,6 +212,23 @@ pub(super) fn install_icons(icons: &mut crate::icons::Icons) {
         ],
     );
     icons.alias("view.closePageMaster", "view.closeMaster");
+    // Themes (Edit Theme): a page with a large and a small letter shape over a colour strip
+    // (own drawing).
+    icons.add_solid(
+        "pm.themes",
+        &[
+            ("M3 2h18v20h-18Z", Some(white)),
+            ("M3 2h18v20h-18Z", None),
+            (
+                "M6 14l3-9h1.6l3 9h-1.8l-0.7-2.2h-2.6l-0.7 2.2ZM8.8 10.4h1.8l-0.9-2.9Z",
+                Some(Rgba(0x40, 0x40, 0x40, 255)),
+            ),
+            ("M5 17h3v3h-3Z", Some(blue)),
+            ("M8 17h3v3h-3Z", Some(Rgba(0xed, 0x7d, 0x31, 255))),
+            ("M11 17h3v3h-3Z", Some(Rgba(0xa5, 0xa5, 0xa5, 255))),
+            ("M14 17h3v3h-3Z", Some(Rgba(0xff, 0xc0, 0x00, 255))),
+        ],
+    );
     // Window group: a new window, tiled / cascaded windows, a stack to switch (own drawings).
     let frame = |x: f32, y: f32, w: f32, h: f32| format!("M{x} {y}h{w}v{h}h-{w}Z");
     let a = frame(3.0, 5.0, 14.0, 12.0);
@@ -285,6 +321,18 @@ pub(super) fn install_icons(icons: &mut crate::icons::Icons) {
 }
 
 impl SlideWindow {
+    /// The status bar's text in a master view (the reference names the view where the
+    /// slide counter usually is); `None` outside them.
+    pub(super) fn status_mode_text(&self) -> Option<String> {
+        let (key, def) = match self.page_master {
+            Some(PageKind::Handout) => ("slideNative.handoutMaster", "Handout Master"),
+            Some(PageKind::Notes) => ("slideNative.notesMaster", "Notes Master"),
+            None if self.master_view => ("slideNative.slideMaster", "Slide Master"),
+            None => return None,
+        };
+        Some(self.t(key, def))
+    }
+
     /// The page master tab now shown, if any.
     pub(super) fn page_master_tab(&self) -> Option<Tab> {
         self.page_master.map(page_master_tab)
@@ -324,6 +372,14 @@ impl SlideWindow {
                     .view
                     .run_page_master(PageMasterCommand::PageMasterView { kind, on: true });
                 if done {
+                    // "Handout Orientation" / "Notes Page Orientation" (reference).
+                    let (key, def) = if kind == PageKind::Handout {
+                        ("slideNative.handoutOrientation", "Handout Orientation")
+                    } else {
+                        ("slideNative.notesOrientation", "Notes Page Orientation")
+                    };
+                    let label = self.t(key, def);
+                    self.strings.set("commands.pm.orientation", &label);
                     self.page_master = Some(kind);
                     self.pm_flags = [true; 6];
                     self.reset_fixed_tabs(true);
@@ -342,6 +398,10 @@ impl SlideWindow {
                     self.reset_fixed_tabs(false);
                 }
                 done
+            }
+            "pm.themes" => {
+                self.open_menu(super::MenuKind::Themes, RibbonHit::Command("pm.themes"));
+                true
             }
             "win.new" => self.window_req(WindowRequest::NewWindow),
             "win.arrange" => self.window_req(WindowRequest::Arrange),
@@ -475,18 +535,20 @@ impl SlideWindow {
 
     /// Check boxes: Ruler and the master placeholders.
     pub(super) fn paint_views5_checks(&self, p: &mut dyn Painter) {
-        let mut checks = vec![("view.ruler", self.ruler)];
+        let mut checks = vec![("view.ruler", self.ruler, true)];
         for (id, i) in PLACEHOLDERS {
-            checks.push((id, self.pm_flags[i]));
+            checks.push((id, self.pm_flags[i], true));
         }
-        for (id, on) in checks {
+        // Hide Background Graphics: greyed on the handout / notes master (reference).
+        checks.push(("pm.hideBg", false, false));
+        for (id, on, enabled) in checks {
             let Some(r) = self.ribbon.rect_of(RibbonHit::Command(id)) else {
                 continue;
             };
             let b = self.px(14.4);
             let (x, y) = (r[0] + self.px(4.0), (r[1] + (r[3] - b) / 2.0).round());
             p.fill_rect(r[0], r[1], self.px(24.0), r[3], Rgba(0xf3, 0xf3, 0xf3, 255));
-            paint_check(p, [x, y, b, b], on, true, self.theme.text);
+            paint_check(p, [x, y, b, b], on, enabled, self.theme.text);
         }
     }
 

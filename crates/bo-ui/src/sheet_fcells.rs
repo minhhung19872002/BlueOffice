@@ -1098,6 +1098,10 @@ impl SheetWindow {
     }
 
     /// Theme colours with their tints, then the standard colours (reference palette).
+    pub(super) fn palette_hexes(&self) -> Vec<String> {
+        self.fc_palette()
+    }
+
     fn fc_palette(&self) -> Vec<String> {
         let theme = self.view.engine().workbook().and_then(|w| w.theme.clone());
         let col = |i: u32, tint: f64| {

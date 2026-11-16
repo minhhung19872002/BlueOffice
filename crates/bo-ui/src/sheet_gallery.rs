@@ -75,7 +75,11 @@ pub(super) enum Tile {
         edges: [Option<(Line, Rgba)>; 4],
     },
     /// A table style (`TableStyleMedium2`), drawn as a small table in its look.
-    Table { name: String },
+    Table {
+        name: String,
+        /// The workbook's theme: the tile takes its colours (round 35).
+        theme: Option<bo_model::sheet::ThemeColors>,
+    },
 }
 
 /// A cell edge as the gallery draws it (§18.18.3 ST_BorderStyle, grouped by weight).
@@ -347,7 +351,7 @@ impl Gallery {
                 );
                 p.pop_clip();
             }
-            Tile::Table { name } => paint_table_tile(p, r, name),
+            Tile::Table { name, theme } => paint_table_tile(p, r, name, theme.as_ref()),
         }
     }
 }
@@ -355,7 +359,12 @@ impl Gallery {
 /// A style's preview as the reference draws it: a table of five rows (header and four
 /// banded rows) and five columns in the style's fills and lines, a dash in each cell in the
 /// style's text colour (77 × 56 px tiles at 125 %).
-fn paint_table_tile(p: &mut dyn Painter, r: [f32; 4], name: &str) {
+fn paint_table_tile(
+    p: &mut dyn Painter,
+    r: [f32; 4],
+    name: &str,
+    theme: Option<&bo_model::sheet::ThemeColors>,
+) {
     use bo_model::sheet::{CellRange, CellRef, Table, TableStyleInfo};
     let t = Table {
         range: CellRange::new(CellRef::new(0, 0), CellRef::new(4, 4)),
@@ -375,7 +384,12 @@ fn paint_table_tile(p: &mut dyn Painter, r: [f32; 4], name: &str) {
     let looks: Vec<Vec<bo_sheet::table_style::Look>> = (0..5)
         .map(|k| {
             (0..5)
-                .map(|c| bo_sheet::table_style::look(&t, k, c).unwrap_or_default())
+                .map(|c| {
+                    bo_sheet::table_style::themed(
+                        bo_sheet::table_style::look(&t, k, c).unwrap_or_default(),
+                        theme,
+                    )
+                })
                 .collect()
         })
         .collect();
@@ -680,6 +694,7 @@ impl SheetWindow {
     }
     fn table_gallery(&self) -> Gallery {
         let entries = bo_sheet::table_style::gallery();
+        let theme = self.view.engine().workbook().and_then(|w| w.theme.clone());
         let mut sections = Vec::new();
         for (family, key, fallback) in [
             ("light", "sheetGallery.light", "Light"),
@@ -694,6 +709,7 @@ impl SheetWindow {
                         format!("table.{}", e.name),
                         Tile::Table {
                             name: e.name.clone(),
+                            theme: theme.clone(),
                         },
                     )
                 })

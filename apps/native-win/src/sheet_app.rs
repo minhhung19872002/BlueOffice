@@ -83,6 +83,8 @@ pub fn run() -> Result<(), String> {
         "Book1.xlsx".into()
     };
     let mut view = SheetWindow::new(SheetView::new(engine), &locale, &name);
+    // Page layout ruler: inches when the region measures in US units (iMeasure = 1).
+    view.set_ruler_inches(win32::region_value("iMeasure").as_deref() == Some("1"));
     // BLUEOFFICE_SHEET_BANDS=0 lays out the whole viewport on each scroll (to compare).
     view.view_mut()
         .set_band_lists(std::env::var("BLUEOFFICE_SHEET_BANDS").as_deref() != Ok("0"));
@@ -657,6 +659,13 @@ impl Handler for Shell {
             Input::Preedit(_) => "preedit",
         };
         let start = Instant::now();
+        if kind == "release" {
+            // Ctrl while the fill handle is dropped toggles copy / series (MK_CONTROL of
+            // the mouse message, so posted input carries it too).
+            self.view
+                .view_mut()
+                .set_mouse_ctrl(win32::mouse_mods().ctrl);
+        }
         let m = Measure(self.gpu.as_ref().map(|g| &g.device));
         let mut redraw = self.view.handle(input, &m);
         redraw |= self.handle_requests();

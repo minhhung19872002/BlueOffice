@@ -96,6 +96,9 @@ pub(super) enum FormKind {
     CfManager,
     /// Paste Special.
     PasteSpecial,
+    /// Sheet tab menu: Unhide, Tab Color.
+    Unhide,
+    TabColor,
 }
 
 /// What a control is.

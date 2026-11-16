@@ -159,7 +159,6 @@ pub fn has_menu_mark(id: &str) -> bool {
             | "sl.pictures"
             | "sl.screenshot"
             | "slide.new"
-            | "sl.object"
             | "sl.photoAlbum"
             | "sl.model3d"
             | "sl.textStyles"

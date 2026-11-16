@@ -275,3 +275,41 @@ fn insert_object_embeds_a_new_workbook() {
     assert!(!slide_enabled("sl.screenshot", &f));
     assert!(slide_enabled("sl.object", &f));
 }
+
+struct Nothing;
+impl Painter for Nothing {
+    fn clear(&mut self, _: bo_render::Rgba) {}
+    fn fill_rect(&mut self, _: f32, _: f32, _: f32, _: f32, _: bo_render::Rgba) {}
+    fn page(&mut self, _: usize, _: i32, _: i32) {}
+    fn text(&mut self, _: &str, _: f32, _: f32, _: TextStyle, _: bo_render::Rgba) {}
+    fn path(
+        &mut self,
+        _: &[bo_render::PathSeg],
+        _: Option<bo_render::Rgba>,
+        _: Option<(bo_render::Rgba, f32)>,
+    ) {
+    }
+    fn push_clip(&mut self, _: f32, _: f32, _: f32, _: f32) {}
+    fn pop_clip(&mut self) {}
+}
+
+#[test]
+fn every_tab_paints() {
+    let mut w = window();
+    for i in 0..9 {
+        let [x, y, tw, th] = w.ribbon.rect_of(RibbonHit::Tab(i)).expect("tab");
+        let (x, y) = (x + tw / 2.0, y + th / 2.0);
+        w.handle(
+            Input::Press {
+                x,
+                y,
+                count: 1,
+                shift: false,
+            },
+            &Fixed,
+        );
+        w.handle(Input::Release { x, y }, &Fixed);
+        w.handle(Input::Move { x: 700.0, y: 900.0 }, &Fixed);
+        w.paint(&mut Nothing);
+    }
+}

@@ -440,3 +440,42 @@ lên thì swap chain bị *occluded* và `PrintWindow` trả khung cũ (vòng tr
   đầu 774 ms; cuộn ngăn hình thu nhỏ trung vị 2,4 ms / p95 3,2 ms mỗi nấc (không chặn, không cần luồng
   riêng); gõ chữ tiêu đề tổng trung vị 12,9 ms (chuẩn bị ảnh 8,9 ms) — bản vòng 14 đo cùng lúc 13,0 ms, nên
   không thụt lùi; số vòng 14 (5,3 ms) đo lúc máy rảnh.
+
+## Vòng 16 — menu chuột phải, ngăn Spelling, Insert / Review, chữ đậm giả lập (`slide-28…`, 1500 × 1102, 125 %)
+
+Chụp lại cả mười tab cạnh tham chiếu (`slide-28…30`). Cửa sổ của ta mở bằng `BLUEOFFICE_SHOW_NOACTIVATE`
+đôi khi nằm ở trạng thái thu nhỏ: kịch bản chụp khôi phục bằng `ShowWindow(SW_SHOWNOACTIVATE)` rồi đổi cỡ
+có `SWP_SHOWWINDOW | SWP_FRAMECHANGED` và `RedrawWindow` — không thì `PrintWindow` trả khung cũ cỡ thu nhỏ.
+
+| Đo (tham chiếu qua COM / UIA / PostMessage) | Tham chiếu | BlueSlide |
+|---|---|---|
+| Insert: nhóm thu về một nút (Links, Symbols, Media; Home > Editing) | không có nhãn nhóm | như vậy (trước: nhãn "Links", "Symbols"…) |
+| Insert: dấu thả xuống | Pictures▾, Photo Album▾, 3D Models▾; SmartArt không | như vậy, kèm menu This Device… / New Photo Album… |
+| Preview (Transitions / Animations), Delete comment | mờ khi trang không có hiệu ứng / bình luận | như vậy |
+| Ngăn Spelling (thiết bị px từ đỉnh ngăn) | từ in đậm 20 px ở 61; nút cao 35 ở 92, cách lề 15, cách nhau 14; danh sách ở 144, cao 202, viền 148, hàng chọn 198 viền 148, hàng 40 px; Change / Change All dưới 10 px | như vậy |
+| Chữ đậm giả lập (Calibri Light / Gabriola, b=1), bề rộng ký tự | 0,980–0,984 bề rộng thường (`n` 31,125 → 30,625 pt ở 60 pt; `W` 52,875 → 51,875) | ×0,982; nét dày thêm 0,032 em (thân chữ 4,4 → 7 px ở 75 px/em) |
+| Tiêu đề "Báo cáo quý IV – đã chỉnh sửa" (Calibri Light đậm 60 pt, khung trong 705,6 pt) | một dòng, rộng 704,3 pt | một dòng (trước: hai dòng, 717,4 pt theo bề rộng thường) |
+
+- Chuột phải: trên từ sai chính tả — tối đa năm gợi ý, Ignore All, Add to Dictionary, rồi Cut / Copy / Paste
+  (sửa là một bước hoàn tác, lệnh engine mới `Engine::slide_spell_fix`); trên vùng chọn — Group / Ungroup,
+  Bring to Front / Send to Back, New Comment; trên trang trống — Layout (menu mở tại con trỏ), Reset Slide,
+  Format Background…; trên hình thu nhỏ — New / Duplicate / Delete / Hide Slide. Cut / Copy mờ khi không
+  chọn gì. Trước vòng này BlueSlide không có menu chuột phải nào.
+- Review > Proofing > Spelling (F7): ngăn Spelling bên phải đi qua lỗi của cả bản trình bày từ trang hiện tại,
+  chọn từ bị đánh dấu trong hình của nó; Ignore Once / Ignore All / Add, danh sách gợi ý, Change / Change All
+  (mọi chỗ cùng từ, một bước hoàn tác); hết lỗi thì "Spell check complete. You're good to go!".
+- TypeScript: `SlideTextFormat` thêm `sizeStep`, `paragraph`, `shadow`, `body`; `SlideFormatState.shadow`.
+- Insert (góp ý vòng này): biểu tượng tab Insert vẽ lại kiểu tô màu đặc như BlueDoc (`icons.rs` SOLID: xanh
+  nhạt, vàng ấm, xanh, xanh lá; hình tự vẽ — đầu bảng xanh, dải đầu / chân trang vàng, chữ A xanh, dấu cộng
+  xanh lá trên New Slide và Comment); Screenshot▾ trên Photo Album▾ (mờ: host chưa có ảnh các cửa sổ); cột
+  nhỏ của nhóm Text có ba nút như tham chiếu — Date & Time, Slide Number (mở hộp Header and Footer), Object
+  (sổ làm việc nhúng mới hoặc từ tệp, lệnh engine `OleInsert`); New Slide có dấu ▾ ở dòng hai. Nhãn
+  Shapes / Icons / Comment cùng cách hàng nhãn nhóm 54 px như tham chiếu (lệch chung của cả dải là do thanh
+  tiêu đề, đo ở vòng 8).
+- Tốc độ (bản release, `deck-300.pptx`, máy đang chạy 5 tiến trình rustc của tác tử khác; đo cùng lúc với
+  bản vòng 15): mở 311 ms (vòng 15: 297), khung đầu 683 ms (686); cuộn ngăn hình thu nhỏ trung vị 3,2 ms /
+  p95 4,1 ms mỗi nấc (3,2 / 4,0); gõ chữ tiêu đề trung vị 15,3 ms, chuẩn bị ảnh 10,3 ms (15,9 / 10,9) — không
+  thụt lùi; hình thu nhỏ vẫn không chặn luồng giao diện nên chưa cần luồng riêng.
+- Còn lại: Screenshot cần host chụp các cửa sổ khác (đang mờ); menu chuột phải chưa có ảnh so với tham chiếu
+  (menu bật lên của tham chiếu là cửa sổ riêng, chưa chụp được bằng PrintWindow); nhóm Accessibility /
+  Language / Ink của Review; Draw: Undo, Ruler, Ink to Math, Ink Help.

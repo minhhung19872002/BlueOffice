@@ -11099,5 +11099,23 @@
     "open": "Open",
     "save": "Save",
     "add": "Add Attachment"
+  },
+  "pdfShare": {
+    "title": "Share",
+    "mail": "E-mail",
+    "mailHint": "A new message in your e-mail program naming this document",
+    "copy": "Copy File Path",
+    "copyHint": "The document's location, to paste in a message or a chat",
+    "folder": "Show in Folder",
+    "folderHint": "Open the folder with the document selected",
+    "copied": "File path copied"
+  },
+  "pdfSkins": {
+    "title": "Skins",
+    "classic": "Classic",
+    "light": "Light",
+    "blue": "Blue",
+    "dark": "Dark",
+    "darkNote": "Dark is not available yet: panels and dialogs still draw dark text."
   }
 }

@@ -118,6 +118,7 @@ fn shape(name: &str) -> &'static [Part] {
         "prevItem" => &[S("M4 4h16v16H4z"), A("M14 8l-4 4 4 4")],
         "nextItem" => &[S("M4 4h16v16H4z"), A("M10 8l4 4-4 4")],
         "sortAZ" => &[S("M3 6h11 M3 11h8 M3 16h5"), A("M18 4v16 M15 17l3 3 3-3")],
+        "mail" => &[S("M3 5.5h18v13H3z"), A("M3.5 6l8.5 7 8.5-7")],
         "funnel" => &[S("M3.5 4.5h17l-6.5 8v6.5l-4 2v-8.5z")],
         "first" => &[S("M12 6l-6 6 6 6 M18 6l-6 6 6 6")],
         "prev" => &[S("M15 5l-7 7 7 7")],

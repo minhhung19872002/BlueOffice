@@ -56,6 +56,8 @@ mod keys7;
 mod panels8;
 #[path = "reader_prefs6_win.rs"]
 mod prefs6;
+#[path = "reader_skins8_win.rs"]
+mod skins8;
 
 /// Measured greys of the reference reader at 125 %.
 const CHROME: Rgba = Rgba(251, 251, 253, 255);
@@ -753,6 +755,8 @@ impl ReaderWindow {
         // The reference shows bookmarks when the document asks (/PageMode /UseOutlines).
         let panel = (!outline.is_empty() && doc.page_mode().as_deref() == Some("UseOutlines"))
             .then_some(Panel::Bookmarks);
+        // ... and attachments when the document has embedded files (round 8, measured).
+        let panel = panel.or_else(|| self.first_panel8(&doc));
         let mut expanded = HashSet::new();
         tabs5::open_items(&outline, &mut Vec::new(), &mut expanded);
         let view = ReaderView::new(doc);
@@ -2747,7 +2751,10 @@ impl ReaderWindow {
                     };
                     let enabled = self.enabled(c.id);
                     let quick_band = band.is_some() && matches!(c.kind, Kind::Quick(_));
-                    if enabled && (on || down || hot) {
+                    let tab8 = on && matches!(c.kind, Kind::Nav(_)) && self.profile.is_none();
+                    if tab8 {
+                        self.paint_nav_tab8(p, r);
+                    } else if enabled && (on || down || hot) {
                         let fill = if quick_band {
                             title_hover
                         } else if on || down {
@@ -2796,6 +2803,9 @@ impl ReaderWindow {
                         ink2,
                         self.look.icon_stroke,
                     );
+                    if c.kind == Kind::Nav(Panel::Attachments) {
+                        self.paint_nav_badge8(p, r);
+                    }
                 }
                 Kind::Row(icon, label, dropdown) => {
                     let enabled = self.enabled(c.id);
@@ -3171,6 +3181,7 @@ impl ReaderWindow {
             return;
         }
         p.fill_rect(r[0], r[1], r[2], r[3], self.look.chrome);
+        self.paint_panel_edge8(p);
         let Some(panel) = self.panel_open() else {
             return;
         };

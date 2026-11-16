@@ -32,6 +32,10 @@ const SOFT: Rgba = Rgba(110, 110, 112, 255);
 const DIM: Rgba = Rgba(175, 175, 176, 255);
 /// Reply count mark.
 const RED: Rgba = Rgba(222, 41, 22, 255);
+/// Text of the comment cards (the reference draws them black).
+const INK: Rgba = Rgba(17, 17, 17, 255);
+/// Tool icons of the panels (measured stroke core 53, 53, 53).
+const TOOL: Rgba = Rgba(53, 53, 53, 255);
 /// Selected row of the Attachments / Layers panels.
 const SELECTED: Rgba = Rgba(222, 226, 236, 255);
 
@@ -304,6 +308,15 @@ impl ReaderWindow {
             && matches!(panel, Panel::Layers | Panel::Attachments | Panel::Comments)
     }
 
+    /// The panel a new document opens with: Attachments when it has embedded files or asks
+    /// for them (`/PageMode /UseAttachments`), as the reference reader does (BlueReader only).
+    pub(crate) fn first_panel8(&self, doc: &bo_pdfread::PdfDocument) -> Option<Panel> {
+        (self.profile.is_none()
+            && (doc.page_mode().as_deref() == Some("UseAttachments")
+                || !doc.embedded_files().is_empty()))
+        .then_some(Panel::Attachments)
+    }
+
     /// Navigation column icons the round 8 panels add after Comments.
     pub(crate) fn nav8(&self) -> Vec<(&'static str, Panel)> {
         if self.profile.is_some() {
@@ -384,15 +397,17 @@ impl ReaderWindow {
         if on && self.panels8.hover == Some(id) {
             p.path(&rounded(b[0], b[1], b[2], b[3], 2.0), Some(BAND), None);
         }
-        let is = b[2] - 4.0;
-        let ink = if on { TEXT } else { DIM };
-        reader_icons::draw(
+        // Measured on the reference: 19–20 px icons at 125 %, stroke core 53, 53, 53.
+        let is = b[2] - 2.0;
+        let ink = if on { TOOL } else { DIM };
+        reader_icons::draw_weight(
             p,
             icon,
-            b[0] + 2.0,
-            b[1] + 2.0,
+            b[0] + 1.0,
+            b[1] + 1.0,
             is,
             Ink { ink, accent: ink },
+            2.0,
         );
         self.panels8.tools.push((id, b, on));
     }
@@ -401,6 +416,73 @@ impl ReaderWindow {
     #[allow(clippy::unused_self)]
     fn line8(&self, p: &mut dyn Painter, s: &str, x: f32, cy: f32, st: TextStyle, c: Rgba) {
         p.text(s, x, (cy - st.size * 1.33 / 2.0).round(), st, c);
+    }
+
+    /// The selected navigation icon as the reference draws it (125 %): a tab 56 px high from
+    /// x 15 in the panel's colour, framed left / top / bottom in 199, 204, 217 and open
+    /// towards the panel.
+    pub(crate) fn paint_nav_tab8(&self, p: &mut dyn Painter, r: [f32; 4]) {
+        let t = self.nav_tab8(r);
+        p.path(
+            &rounded(
+                t[0] + 0.5,
+                t[1] + 0.5,
+                t[2] + self.q(8.0),
+                t[3] - 1.0,
+                self.q(3.0),
+            ),
+            Some(self.look.chrome),
+            Some((FRAME, 1.0)),
+        );
+    }
+
+    fn nav_tab8(&self, r: [f32; 4]) -> [f32; 4] {
+        let cy = r[1] + r[3] / 2.0;
+        let x = self.q(15.0);
+        let top = (cy - self.q(25.0)).round();
+        let right = self.nav_rect[0] + self.nav_rect[2];
+        [x, top, right - x, self.q(56.0)]
+    }
+
+    /// Red mark on the Attachments icon when the document has attachments (the reference's
+    /// badge: 7 px, 226, 63, 54, up and right of the icon centre).
+    pub(crate) fn paint_nav_badge8(&self, p: &mut dyn Painter, r: [f32; 4]) {
+        let has = self.tabs.get(self.active).is_some_and(|t| {
+            let d = t.view.doc();
+            !d.embedded_files().is_empty() || (d.page_count() <= 300 && !d.attachments().is_empty())
+        });
+        if self.profile.is_none() && has {
+            let (cx, cy) = (r[0] + r[2] / 2.0, r[1] + r[3] / 2.0);
+            p.path(
+                &circle(cx + self.q(11.5), cy - self.q(9.5), self.q(3.4)),
+                Some(Rgba(226, 63, 54, 255)),
+                None,
+            );
+        }
+    }
+
+    /// The panel's left edge (1 px, 199, 204, 217) except where the selected tab joins it.
+    pub(crate) fn paint_panel_edge8(&self, p: &mut dyn Painter) {
+        if self.profile.is_some() {
+            return;
+        }
+        let r = self.panel_rect;
+        let open = self.panel_open();
+        let t = self
+            .controls
+            .iter()
+            .find(|c| matches!(c.kind, super::Kind::Nav(n) if Some(n) == open))
+            .map_or([0.0; 4], |c| self.nav_tab8(c.r));
+        let x = r[0] - 1.0;
+        if t[3] > 0.0 && t[1] > r[1] {
+            p.fill_rect(x, r[1], 1.0, t[1] - r[1] + 1.0, FRAME);
+            let below = t[1] + t[3] - 1.0;
+            p.fill_rect(x, below, 1.0, r[1] + r[3] - below, FRAME);
+            // The tab's inside runs into the panel.
+            p.fill_rect(x, t[1] + 1.0, 1.0, t[3] - 2.0, self.look.chrome);
+        } else {
+            p.fill_rect(x, r[1], 1.0, r[3], FRAME);
+        }
     }
 
     /// Draw a round 8 panel below its title (panel rectangle `r`).
@@ -563,6 +645,7 @@ impl ReaderWindow {
             ("cm.prev", "prevItem", selected),
             ("cm.next", "nextItem", selected),
             ("cm.sort", "sortAZ", true),
+            ("cm.notes", "commentList", selected),
         ]
         .into_iter()
         .enumerate()
@@ -625,16 +708,17 @@ impl ReaderWindow {
         if filtering || self.panels8.hover == Some("cm.filter") {
             p.path(&rounded(fb[0], fb[1], fb[2], fb[3], 2.0), Some(BAND), None);
         }
-        reader_icons::draw(
+        reader_icons::draw_weight(
             p,
             "funnel",
-            fb[0] + 2.0,
-            fb[1] + 2.0,
-            fs - 4.0,
+            fb[0] + 1.0,
+            fb[1] + 1.0,
+            fs - 2.0,
             Ink {
-                ink: TEXT,
+                ink: TOOL,
                 accent: self.theme.accent,
             },
+            1.8,
         );
         self.panels8.funnel = fb;
         let small = self.style(13.0, false);
@@ -715,27 +799,48 @@ impl ReaderWindow {
                 let a = &th.comment;
                 let text_w = cw - self.q(24.0);
                 let per = body.size * 0.52;
-                let lines = if a.contents.is_empty() {
-                    Vec::new()
-                } else {
-                    wrap(&a.contents, per, text_w, 4)
-                };
-                let line_h = self.q(20.0);
-                let mut h = self.q(23.5) + self.q(27.0) + self.q(18.0);
-                h += line_h * lines.len().saturating_sub(1) as f32;
-                if !lines.is_empty() {
-                    h += self.q(22.5);
+                // Lines below the header row, laid out by content like the reference's cards
+                // (centres 125 %: text 27 under the author, 20 a line, date 22.5 under the text,
+                // reply author 37.5 under the date, its text 26.5, its date 23).
+                let mut items8: Vec<(f32, f32, String, u8)> = Vec::new();
+                let mut cur = self.q(23.5);
+                let text_x = cx0 + self.q(12.0);
+                let date_x = cx0 + cw - self.q(15.0);
+                let mut first = true;
+                for l in wrap(&a.contents, per, text_w, 4)
+                    .into_iter()
+                    .filter(|l| !l.is_empty())
+                {
+                    cur += if first { self.q(27.0) } else { self.q(20.0) };
+                    first = false;
+                    items8.push((cur, text_x, l, 1));
+                }
+                let d = shown_date(&a.modified);
+                if !d.is_empty() {
+                    cur += if first { self.q(27.0) } else { self.q(22.5) };
+                    items8.push((cur, date_x, d, 2));
                 }
                 let replies: Vec<Annot> = th.replies.clone();
                 for rp in &replies {
-                    let n = wrap(&rp.contents, per, text_w - self.q(25.0), 4)
-                        .len()
-                        .max(1);
-                    h += self.q(37.5)
-                        + self.q(26.5)
-                        + self.q(23.0)
-                        + line_h * (n.saturating_sub(1)) as f32;
+                    let rx = cx0 + self.q(37.0);
+                    cur += self.q(37.5);
+                    items8.push((cur, rx, rp.author.clone(), 0));
+                    let mut rfirst = true;
+                    for l in wrap(&rp.contents, per, text_w - self.q(25.0), 4)
+                        .into_iter()
+                        .filter(|l| !l.is_empty())
+                    {
+                        cur += if rfirst { self.q(26.5) } else { self.q(20.0) };
+                        rfirst = false;
+                        items8.push((cur, rx, l, 1));
+                    }
+                    let d = shown_date(&rp.modified);
+                    if !d.is_empty() {
+                        cur += self.q(23.0);
+                        items8.push((cur, date_x, d, 2));
+                    }
                 }
+                let h = cur + self.q(21.0);
                 let card = [cx0, y, cw, h];
                 if y < bottom && y + h > list_top {
                     let is_sel = self
@@ -758,16 +863,17 @@ impl ReaderWindow {
                     let ic = self.q(20.0);
                     let row1 = y + self.q(23.5);
                     let c = Rgba(a.color[0], a.color[1], a.color[2], 255);
-                    reader_icons::draw(
+                    reader_icons::draw_weight(
                         p,
                         kind_icon(a.kind),
                         cx0 + self.q(11.0),
                         (row1 - ic / 2.0).round(),
                         ic,
                         Ink {
-                            ink: TEXT,
+                            ink: INK,
                             accent: c,
                         },
+                        1.8,
                     );
                     let name = if a.author.is_empty() {
                         self.t(kind_label(a.kind))
@@ -775,7 +881,7 @@ impl ReaderWindow {
                         a.author.clone()
                     };
                     let ax = cx0 + self.q(36.0);
-                    self.line8(p, &name, ax, row1, author, TEXT);
+                    self.line8(p, &name, ax, row1, author, INK);
                     // Status and checkmark after the author.
                     let mut sx = ax + self.width_of(&name, author) + self.q(8.0);
                     if let Some(rv) = &state.review {
@@ -819,39 +925,13 @@ impl ReaderWindow {
                         let nw = self.width_of(&n, date);
                         self.line8(p, &n, bx + (bs - nw) / 2.0, row1, date, RED);
                     }
-                    let mut ly = row1 + self.q(27.0);
-                    for l in &lines {
-                        self.line8(p, l, cx0 + self.q(12.0), ly, body, TEXT);
-                        ly += line_h;
-                    }
-                    if !lines.is_empty() {
-                        ly -= line_h;
-                        ly += self.q(22.5);
-                    }
-                    let d = shown_date(&a.modified);
-                    let dw = self.width_of(&d, date);
-                    let dy = if lines.is_empty() {
-                        row1 + self.q(27.0)
-                    } else {
-                        ly
-                    };
-                    self.line8(p, &d, cx0 + cw - self.q(15.0) - dw, dy, date, TEXT);
-                    let mut ry = dy;
-                    for rp in &replies {
-                        ry += self.q(37.5);
-                        let rx = cx0 + self.q(37.0);
-                        self.line8(p, &rp.author, rx, ry, author, TEXT);
-                        ry += self.q(26.5);
-                        let rl = wrap(&rp.contents, per, text_w - self.q(25.0), 4);
-                        for l in &rl {
-                            self.line8(p, l, rx, ry, body, TEXT);
-                            ry += line_h;
-                        }
-                        ry -= line_h;
-                        ry += self.q(23.0);
-                        let d = shown_date(&rp.modified);
-                        let dw = self.width_of(&d, date);
-                        self.line8(p, &d, cx0 + cw - self.q(15.0) - dw, ry, date, TEXT);
+                    for (cy, x, text, kind) in &items8 {
+                        let (st, x) = match kind {
+                            0 => (author, *x),
+                            1 => (body, *x),
+                            _ => (date, *x - self.width_of(text, date)),
+                        };
+                        self.line8(p, text, x, y + cy, st, INK);
                     }
                 }
                 self.panels8.rows.push((card, Hit::Card(a.page, a.rect)));
@@ -1180,6 +1260,8 @@ impl ReaderWindow {
                 }
             }
             "att.add" => self.command("comment.file", m),
+            // Open the selected comment's text (the sixth tool of the reference's row).
+            "cm.notes" => self.command("comment.edit", m),
             _ => {}
         }
     }
@@ -1719,7 +1801,8 @@ mod tests {
         let mut w = window();
         let nav: Vec<&str> = w.nav8().into_iter().map(|n| n.0).collect();
         assert_eq!(nav, vec!["nav.layers", "nav.attachments"]);
-        w.run_command("nav.attachments", &Fixed);
+        // A document with embedded files opens with the Attachments panel.
+        assert_eq!(w.panel_open(), Some(Panel::Attachments));
         let texts = paint(&mut w);
         for s in [
             "Attachments",

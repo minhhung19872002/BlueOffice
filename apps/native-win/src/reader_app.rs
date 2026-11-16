@@ -639,6 +639,15 @@ impl Shell {
                         );
                     }
                 }
+                // Share › Show in Folder: Explorer with the file selected.
+                ReaderRequest::Command(c) if c.starts_with("host.reveal:") => {
+                    let path = &c["host.reveal:".len()..];
+                    if std::path::Path::new(path).is_file() {
+                        let _ = std::process::Command::new("explorer.exe")
+                            .arg(format!("/select,{path}"))
+                            .spawn();
+                    }
+                }
                 ReaderRequest::Command(_) => {}
                 ReaderRequest::PickFile { purpose, filters } => {
                     let f: Vec<(&str, &str)> = filters

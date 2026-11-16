@@ -59,6 +59,8 @@ pub(crate) struct Prefs {
     pub units: usize,
     /// Animate wheel scrolling.
     pub smooth: bool,
+    /// Window skin (index into `skins8::SKINS`).
+    pub skin: usize,
 }
 
 impl Prefs {
@@ -71,6 +73,10 @@ impl Prefs {
             self.author.replace(['\n', '\r'], " "),
             UNITS[self.units].1,
             u8::from(self.smooth)
+        ) + &format!(
+            "skin={}
+",
+            self.skin
         )
     }
 
@@ -88,6 +94,7 @@ impl Prefs {
                 "author" => p.author = v.to_owned(),
                 "units" => p.units = UNITS.iter().position(|z| z.1 == v).unwrap_or(0),
                 "smooth" => p.smooth = v == "1",
+                "skin" => p.skin = v.parse().unwrap_or(0),
                 _ => {}
             }
         }
@@ -141,6 +148,7 @@ impl ReaderWindow {
     pub fn set_preferences(&mut self, text: &str) {
         self.prefs6.prefs = Prefs::from_text(text);
         self.apply_author();
+        self.apply_skin(self.prefs6.prefs.skin);
     }
 
     /// The preferences as stored (`key=value` lines).
@@ -754,6 +762,7 @@ mod tests {
             author: "Nguyễn Văn A".into(),
             units: 1,
             smooth: true,
+            skin: 2,
         };
         let t = p.to_text();
         assert!(t.contains("zoom=width") && t.contains("units=mm"));

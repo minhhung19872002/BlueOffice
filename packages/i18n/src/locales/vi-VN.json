@@ -11099,5 +11099,23 @@
     "open": "Mở",
     "save": "Lưu",
     "add": "Thêm tệp đính kèm"
+  },
+  "pdfShare": {
+    "title": "Chia sẻ",
+    "mail": "E-mail",
+    "mailHint": "Thư mới trong chương trình e-mail, ghi tên tài liệu này",
+    "copy": "Chép đường dẫn tệp",
+    "copyHint": "Vị trí của tài liệu, để dán vào thư hoặc tin nhắn",
+    "folder": "Mở thư mục chứa",
+    "folderHint": "Mở thư mục với tài liệu được chọn",
+    "copied": "Đã chép đường dẫn tệp"
+  },
+  "pdfSkins": {
+    "title": "Giao diện",
+    "classic": "Cổ điển",
+    "light": "Sáng",
+    "blue": "Xanh",
+    "dark": "Tối",
+    "darkNote": "Giao diện tối chưa có: các ngăn và hộp thoại vẫn vẽ chữ màu tối."
   }
 }

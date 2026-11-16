@@ -433,11 +433,15 @@ impl OutlineView {
                 let label_w = self.label_w.get(i).copied().unwrap_or(0.0) * font.size
                     / self.px(12.0).max(1.0);
                 let stop = r.tab * 4.0 / 3.0 * self.scale;
-                let gap = if stop > label_w + self.px(2.0) {
+                let gap = if r.tab <= 0.0 {
+                    // A space suffix: a space after the label.
+                    label_w + font.size * 0.3
+                } else if stop > label_w + self.px(2.0) {
                     stop
                 } else {
-                    // Past the stop (or a space suffix): a space after the label.
-                    label_w + font.size * 0.3
+                    // Past the stop: the next default tab stop (0.5") after the label.
+                    let unit = 36.0 * 4.0 / 3.0 * self.scale;
+                    ((label_w + self.px(2.0)) / unit).ceil() * unit
                 };
                 p.text_font(&text, tx + gap, ty, &font, color);
                 text.clear();

@@ -315,8 +315,11 @@ impl Engine {
                     let hanging = props.indent_first_line.map_or(0, |t| (-t.0).max(0));
                     let gap = if suffix == "space" || suffix == "nothing" {
                         0.0
-                    } else {
+                    } else if hanging > 0 {
                         hanging as f32 / 20.0
+                    } else {
+                        // No hanging indent: the next default tab stop (§17.15.1.25, 0.5").
+                        36.0
                     };
                     out.insert(id, (label, gap));
                 }
@@ -708,8 +711,8 @@ mod tests {
         let mut e = Engine::with_bundled_fonts();
         e.open(&bytes, "h.docx").unwrap();
         let labels = e.list_labels();
-        let mut v: Vec<(usize, String)> = labels.into_iter().collect();
-        v.sort();
+        let mut v: Vec<(usize, (String, f32))> = labels.into_iter().collect();
+        v.sort_by_key(|(id, _)| *id);
         let texts: Vec<&str> = v.iter().map(|(_, l)| l.0.as_str()).collect();
         assert_eq!(texts, ["1.", "1.1.", "1.2.", "2.", "2.1."], "{v:?}");
     }

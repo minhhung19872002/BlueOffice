@@ -513,6 +513,8 @@ pub struct EditorWindow {
     pub(crate) close_after_save: Option<usize>,
     /// The save-changes question being shown.
     pub(crate) close_box: Option<crate::editor_close::CloseBox>,
+    /// The Page Transitions dialog (`editor_trans7`).
+    pub(crate) trans: Option<crate::editor_trans7::TransDlg>,
     /// Form field tool.
     pub(crate) design: crate::editor_design::DesignState,
     /// Caret shown (blink phase).
@@ -587,6 +589,7 @@ impl EditorWindow {
             comment: crate::editor_comment::CommentState::default(),
             tw: None,
             close_after_save: None,
+            trans: None,
             close_box: None,
             design: crate::editor_design::DesignState::default(),
             caret_on: true,
@@ -645,7 +648,7 @@ impl EditorWindow {
 
     /// Whether one of the window's dialogs is open.
     pub(crate) fn dialog_open(&self) -> bool {
-        self.dialog.is_some() || self.dialog2.is_some()
+        self.dialog.is_some() || self.dialog2.is_some() || self.trans.is_some()
     }
 
     /// Window title.
@@ -724,6 +727,7 @@ impl EditorWindow {
             self.tools.tool = None;
         }
         self.r.run_command(cmd, m);
+        self.reflow_check();
         self.drain(m);
         self.sync();
     }
@@ -814,7 +818,7 @@ impl EditorWindow {
         if self.dialog.is_some() || self.dialog2.is_some() {
             return self.dialog_input(&input, m);
         }
-        if self.close_box_input(&input) {
+        if self.close_box_input(&input) || self.trans_input(&input) {
             return true;
         }
         if self.tw_input(&input, m) {
@@ -1340,6 +1344,9 @@ impl EditorWindow {
             }
             _ => None,
         };
+        let Some((d, _)) = self.dialog2.as_mut() else {
+            return true;
+        };
         d.layout(m, size, scale);
         if let Some(b) = done {
             if let Some((d, what)) = self.dialog2.take() {
@@ -1464,6 +1471,10 @@ impl EditorWindow {
             .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
         if purpose == "addImage" || purpose == "replaceImage" {
             self.picture_picked(purpose, bytes);
+            return;
+        }
+        if purpose == "batchPrintAdd" {
+            self.batch_print_picked(path, bytes);
             return;
         }
         if purpose == "pasteText" {
@@ -1885,12 +1896,27 @@ impl EditorWindow {
         self.paint_format(p);
         self.paint_more_tip(p);
         self.paint_backstage(p);
+        // Round 7: every BlueEditor dialog has the reference editor's caption and buttons.
+        let (size, scale) = (self.r.window_size(), self.r.ui_scale());
+        for d in [
+            self.dialog.as_mut().map(|d| &mut d.0),
+            self.dialog2.as_mut().map(|d| &mut d.0),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if !d.has_caption() {
+                d.set_caption();
+                d.layout(&Estimate, size, scale);
+            }
+        }
         if let Some((d, _)) = &self.dialog {
             d.paint(p, self.r.theme(), self.r.window_size(), true);
         }
         if let Some((d, _)) = &self.dialog2 {
             d.paint(p, self.r.theme(), self.r.window_size(), true);
         }
+        self.paint_trans(p);
         self.paint_close_box(p);
     }
 }

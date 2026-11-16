@@ -490,3 +490,11 @@ tóm tắt chú thích); ô Pages điền sẵn trang hiện tại như bản đ
 Còn lại: giao diện Tối của bản đối chiếu (registry), ngăn Tìm kiếm nâng cao của bản đối chiếu (cần thao tác thật), cửa sổ
 ghi chú bật lên vẽ trên trang (mới ghi `/Open`), thanh công cụ nổi khi chọn chữ, Dán (ảnh / chữ thành chú thích), User Manual /
 Help Center (chưa có hướng dẫn / địa chỉ hỗ trợ đi kèm).
+## Ghi chú từ BlueEditor vòng 7 (2026-11-16)
+
+Bộ nhớ đệm trang (`reader_view.rs`, dùng chung): một trang được làm mới liên tục (gõ Typewriter / Text Box, kéo
+ghi chú, điền trường) bị đẩy vào danh sách dùng gần đây mỗi lần mà không bỏ bản cũ; quá 48 mục thì trang vừa dựng
+bị bỏ ngay (“not rendered”), cửa sổ đứng hình trang cũ. Đã sửa (làm mới trang thì bỏ khỏi danh sách, mỗi trang
+một mục); test `reader_window_draws_a_page_changed_sixty_times` (làm mới trang 60 lần trong cửa sổ BlueReader, lần
+nào cũng vẽ) và `two_hundred_typed_characters_are_all_drawn_and_saved` (BlueEditor). `BLUEOFFICE_DRAW_LOG=<tệp>` ghi
+lỗi dựng / vẽ trang.

@@ -898,8 +898,9 @@ export type SheetCommand =
       right?: boolean;
     }
   | { cmd: 'toggleFilter'; sheet: number; range: SheetRange }
-  | { cmd: 'filterValues'; sheet: number; col: number }
-  | { cmd: 'setFilter'; sheet: number; col: number; filter: FilterSpec | null }
+  /** `row`: a header or data row of a table with filter buttons filters that table (§18.5.1.2 table/autoFilter). */
+  | { cmd: 'filterValues'; sheet: number; col: number; row?: number | null }
+  | { cmd: 'setFilter'; sheet: number; col: number; filter: FilterSpec | null; row?: number | null }
   | {
       cmd: 'autofill';
       sheet: number;

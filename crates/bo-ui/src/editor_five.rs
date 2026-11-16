@@ -18,6 +18,8 @@ pub(crate) enum FiveAsk {
     Portfolio(Vec<String>),
     /// Batch Encrypt: open documents (tab indices) then picked files.
     Batch(Vec<usize>),
+    /// Batch Print (`editor_file7`): number of open documents listed.
+    BatchPrint(usize),
 }
 
 /// Files picked for Batch Encrypt (name, bytes) and the passwords typed so far.
@@ -48,6 +50,17 @@ fn stem(name: &str) -> &str {
 }
 
 impl EditorWindow {
+    /// A list dialog of another module with this module's answers.
+    pub(crate) fn ask_five(
+        &mut self,
+        what: FiveAsk,
+        title: &str,
+        checks: Vec<(String, bool)>,
+        buttons: Vec<(String, DialogButton)>,
+    ) {
+        self.five_dialog(what, title, Vec::new(), checks, buttons);
+    }
+
     fn five_dialog(
         &mut self,
         what: FiveAsk,
@@ -78,6 +91,8 @@ impl EditorWindow {
     pub(crate) fn five_command(&mut self, cmd: &str) -> bool {
         match cmd {
             "form.pageTemplates" => self.open_templates(),
+            "view.transitions" => self.open_transitions(),
+            "form.xfa" => self.static_xfa(),
             "conv.portfolio" => {
                 if !self.portfolio_toggle() {
                     self.open_portfolio();
@@ -205,6 +220,7 @@ impl EditorWindow {
                 .collect()
         };
         match what {
+            FiveAsk::BatchPrint(n) => self.batch_print_answer(n, b, v),
             FiveAsk::Templates(names) => {
                 let name = v.first().cloned().unwrap_or_default();
                 let picked: Vec<String> = ticked(1, names.len())

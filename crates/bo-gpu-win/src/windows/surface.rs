@@ -30,7 +30,7 @@ use windows::Win32::Graphics::Dxgi::Common::{
 };
 use windows::Win32::Graphics::Dxgi::{
     IDXGIDevice, IDXGIFactory2, IDXGISurface, IDXGISwapChain1, IDXGISwapChain2, DXGI_PRESENT,
-    DXGI_SCALING_NONE, DXGI_SWAP_CHAIN_DESC1, DXGI_SWAP_CHAIN_FLAG,
+    DXGI_SCALING_NONE, DXGI_SCALING_STRETCH, DXGI_SWAP_CHAIN_DESC1, DXGI_SWAP_CHAIN_FLAG,
     DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT, DXGI_SWAP_EFFECT_FLIP_DISCARD,
     DXGI_USAGE_RENDER_TARGET_OUTPUT,
 };
@@ -508,6 +508,13 @@ pub struct WindowSurface {
     /// presented; 0 hands it to the compositor at once (one refresh sooner on screen; the
     /// frame-latency wait still paces drawing).
     interval: u32,
+    /// DirectComposition device, target and visual holding the swap chain
+    /// ([`WindowSurface::new_composition`]); `None` for a swap chain of the window itself.
+    comp: Option<(
+        windows::Win32::Graphics::DirectComposition::IDCompositionDevice,
+        windows::Win32::Graphics::DirectComposition::IDCompositionTarget,
+        windows::Win32::Graphics::DirectComposition::IDCompositionVisual,
+    )>,
 }
 
 const FLAGS: DXGI_SWAP_CHAIN_FLAG = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
@@ -551,10 +558,80 @@ impl WindowSurface {
                 width,
                 height,
                 interval: 1,
+                comp: None,
             };
             surface.bind(device)?;
             Ok(surface)
         }
+    }
+
+    /// [`WindowSurface::new`] with the swap chain made for composition and shown through a
+    /// DirectComposition visual on the window (topmost), instead of a swap chain of the
+    /// window: the compositor takes the frame without the window's redirection surface.
+    pub fn new_composition(
+        device: &Device,
+        hwnd: isize,
+        width: u32,
+        height: u32,
+    ) -> Result<Self, String> {
+        use windows::Win32::Graphics::DirectComposition::{
+            DCompositionCreateDevice, IDCompositionDevice,
+        };
+        let (width, height) = (width.max(1), height.max(1));
+        // SAFETY: as in `new`; the composition objects are owned by the surface and released
+        // on drop, after the swap chain they show.
+        unsafe {
+            let dxgi: IDXGIDevice = device.d3d.cast().map_err(|e| e.to_string())?;
+            let adapter = dxgi.GetAdapter().map_err(|e| e.to_string())?;
+            let factory: IDXGIFactory2 = adapter.GetParent().map_err(|e| e.to_string())?;
+            let desc = DXGI_SWAP_CHAIN_DESC1 {
+                Width: width,
+                Height: height,
+                Format: DXGI_FORMAT_B8G8R8A8_UNORM,
+                SampleDesc: DXGI_SAMPLE_DESC {
+                    Count: 1,
+                    Quality: 0,
+                },
+                BufferUsage: DXGI_USAGE_RENDER_TARGET_OUTPUT,
+                BufferCount: 2,
+                Scaling: DXGI_SCALING_STRETCH,
+                SwapEffect: DXGI_SWAP_EFFECT_FLIP_DISCARD,
+                AlphaMode: DXGI_ALPHA_MODE_IGNORE,
+                Flags: FLAGS.0 as u32,
+                ..Default::default()
+            };
+            let swap = factory
+                .CreateSwapChainForComposition(&device.d3d, &desc, None)
+                .map_err(|e| e.to_string())?;
+            let swap2: IDXGISwapChain2 = swap.cast().map_err(|e| e.to_string())?;
+            swap2.SetMaximumFrameLatency(1).map_err(|e| e.to_string())?;
+            let waitable = swap2.GetFrameLatencyWaitableObject();
+            let dcomp: IDCompositionDevice =
+                DCompositionCreateDevice(&dxgi).map_err(|e| e.to_string())?;
+            let target = dcomp
+                .CreateTargetForHwnd(HWND(hwnd as _), true)
+                .map_err(|e| e.to_string())?;
+            let visual = dcomp.CreateVisual().map_err(|e| e.to_string())?;
+            visual.SetContent(&swap).map_err(|e| e.to_string())?;
+            target.SetRoot(&visual).map_err(|e| e.to_string())?;
+            dcomp.Commit().map_err(|e| e.to_string())?;
+            let mut surface = Self {
+                swap,
+                waitable,
+                target: None,
+                width,
+                height,
+                interval: 1,
+                comp: Some((dcomp, target, visual)),
+            };
+            surface.bind(device)?;
+            Ok(surface)
+        }
+    }
+
+    /// Whether the swap chain is shown through DirectComposition.
+    pub fn is_composition(&self) -> bool {
+        self.comp.is_some()
     }
 
     /// Present with sync interval `interval` (0 or 1; see the field).

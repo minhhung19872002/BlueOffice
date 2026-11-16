@@ -17,21 +17,32 @@ const RULE: Rgba = Rgba(0xE0, 0xE0, 0xE0, 255);
 const CHOSEN: Rgba = Rgba(0xD9, 0xD9, 0xD9, 255);
 const WHITE: Rgba = Rgba(255, 255, 255, 255);
 
-/// Entries of the left column: command, label key; `None` is a rule.
-/// The reference's order; its Action Wizard, Batch Print, Index, Share and Skins are not ours.
-const ITEMS: [Option<(&str, &str)>; 12] = [
+/// Entries of the left column: command, label key; `None` is a rule. The reference's order
+/// (round 7: Action Wizard, Batch Print, Index, Share and Skins added).
+const ITEMS: [Option<(&str, &str)>; 17] = [
     Some(("bs.properties", "pdfEditor.bsProperties")),
     Some(("bs.create", "pdfEditor.bsCreate")),
     Some(("bs.open", "pdfReader.open")),
     Some(("file.save", "pdfReader.save")),
     Some(("file.saveAs", "pdfReader.saveAs")),
     Some(("file.optimize", "pdfEditor.bsOptimizer")),
+    Some(("bs.actionWizard", "pdfEditor7.actionWizard")),
     Some(("bs.export", "pdfEditor.bsExport")),
     Some(("file.print", "pdfReader.print")),
+    Some(("bs.batch", "pdfBatch.menu")),
+    Some(("bs.index", "pdfEditor7.index")),
+    Some(("bs.share", "pdfShare.title")),
     Some(("bs.revert", "pdfEditor.bsRevert")),
     Some(("file.close", "pdfReader.close")),
     None,
     Some(("bs.preferences", "pdfEditor.bsPreferences")),
+    Some(("bs.skins", "pdfSkins.title")),
+];
+
+/// Entries shown grey with a tooltip saying why (command, tooltip key).
+pub(crate) const BS_NOT_OFFERED: [(&str, &str); 2] = [
+    ("bs.actionWizard", "pdfEditor7.tipActionWizard"),
+    ("bs.index", "pdfEditor7.tipIndex"),
 ];
 
 /// The backstage: shown, chosen page, hit boxes of the last paint.
@@ -40,6 +51,8 @@ pub(crate) struct Backstage {
     pub open: bool,
     pub page: &'static str,
     pub hits: Vec<([f32; 4], String)>,
+    /// Grey entries with a tooltip: box and tooltip key.
+    pub tips: Vec<([f32; 4], &'static str)>,
 }
 
 impl EditorWindow {
@@ -100,15 +113,29 @@ impl EditorWindow {
         }
     }
 
-    fn backstage_command(&mut self, cmd: &str) {
+    pub(crate) fn backstage_command(&mut self, cmd: &str) {
         match cmd {
-            "bs.properties" | "bs.create" | "bs.open" | "bs.export" => {
+            "bs.properties" | "bs.create" | "bs.open" | "bs.export" | "bs.share" | "bs.skins" => {
                 self.bs.page = match cmd {
                     "bs.properties" => "bs.properties",
                     "bs.create" => "bs.create",
                     "bs.export" => "bs.export",
+                    "bs.share" => "bs.share",
+                    "bs.skins" => "bs.skins",
                     _ => "bs.open",
                 };
+            }
+            c if c.starts_with("bs.share") => {
+                self.r.backstage_command8(c);
+            }
+            c if c.starts_with("bs.skin.") => {
+                if let Some(k) = c.strip_prefix("bs.skin.").and_then(|v| v.parse().ok()) {
+                    self.r.use_product_skin(k);
+                }
+            }
+            "bs.batch" => {
+                self.close_backstage();
+                self.open_batch_print();
             }
             "bs.back" => self.close_backstage(),
             "bs.revert" => {
@@ -154,16 +181,20 @@ impl EditorWindow {
         let modified = self.view().is_some_and(|v| v.doc().modified());
         let accent = self.accent();
         let mut y = top + px(11.2);
+        let mut tips = Vec::new();
         for it in ITEMS {
             let Some((cmd, key)) = it else {
-                y += px(4.0);
+                // The reference (125 %): rule 26 px below Close's label centre, Preferences 54.
+                y -= px(1.2);
                 p.fill_rect(px(20.0), y, cw - px(40.0), 1.0, Rgba(0xD4, 0xD4, 0xD4, 255));
-                y += px(8.0);
+                y += px(6.8);
                 continue;
             };
-            // Save is grey until the document changes, as in the reference.
-            let enabled = (doc && (!matches!(cmd, "file.save" | "bs.revert") || modified))
-                || matches!(cmd, "bs.create" | "bs.open" | "bs.preferences");
+            let tip = BS_NOT_OFFERED.iter().find(|t| t.0 == cmd).map(|t| t.1);
+            // Save and Revert are grey until the document changes, as in the reference.
+            let enabled = tip.is_none()
+                && ((doc && (!matches!(cmd, "file.save" | "bs.revert") || modified))
+                    || matches!(cmd, "bs.create" | "bs.open" | "bs.preferences" | "bs.skins"));
             let r = [px(10.4), y, cw - px(22.4), px(31.2)];
             let chosen = cmd == self.bs.page;
             if chosen {
@@ -185,6 +216,9 @@ impl EditorWindow {
             p.text(label.trim_end_matches(['.', '…']), px(25.6), ty, item, col);
             if enabled {
                 hits.push((r, cmd.to_owned()));
+            }
+            if let Some(t) = tip {
+                tips.push((r, t));
             }
             y += px(37.6);
         }
@@ -308,6 +342,11 @@ impl EditorWindow {
                     }
                 }
             }
+            "bs.share" | "bs.skins" => {
+                // BlueReader's Share and Skins pages (Skins over the editor's own look).
+                let page = self.bs.page;
+                self.r.paint_backstage8(p, page, mx, top, &mut hits);
+            }
             _ => {
                 // Properties of the document.
                 p.text(
@@ -327,6 +366,35 @@ impl EditorWindow {
             }
         }
         self.bs.hits = hits;
+        self.paint_bs_tip(p, &tips);
+        self.bs.tips = tips;
+    }
+
+    /// Tooltip of a grey entry under the pointer (as the ribbon's grey commands).
+    fn paint_bs_tip(&self, p: &mut dyn Painter, tips: &[([f32; 4], &'static str)]) {
+        let (x, y) = self.pointer();
+        let Some((r, key)) = tips.iter().find(|(r, _)| inside(*r, x, y)) else {
+            return;
+        };
+        let s = self.ui_scale();
+        let text = self.t(key);
+        let style = TextStyle {
+            size: 12.0 * s,
+            bold: false,
+        };
+        let w = text.chars().count() as f32 * style.size * 0.5 + 16.0 * s;
+        let h = 24.0 * s;
+        let tx = (r[0] + r[2] + 4.0 * s).round();
+        let ty = (r[1] + (r[3] - h) / 2.0).round();
+        p.fill_rect(tx, ty, w, h, Rgba(118, 118, 118, 255));
+        p.fill_rect(tx + 1.0, ty + 1.0, w - 2.0, h - 2.0, WHITE);
+        p.text(
+            &text,
+            tx + 8.0 * s,
+            ty + ((h - style.size * 1.33) / 2.0).round(),
+            style,
+            Rgba(51, 51, 51, 255),
+        );
     }
 
     /// Revert: drop every change since the document was opened or saved.

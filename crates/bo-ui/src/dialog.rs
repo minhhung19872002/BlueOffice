@@ -3,6 +3,10 @@ use crate::theme::Theme;
 use crate::{Key, Mods, Painter, TextMeasure, TextStyle};
 use bo_render::Rgba;
 
+// BlueEditor's dialogs drawn like the reference editor's (opt-in, `Dialog::with_caption`).
+#[path = "dialog_caption7.rs"]
+mod caption7;
+
 /// What a dialog is for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DialogKind {
@@ -61,6 +65,8 @@ struct Field {
     check: Option<bool>,
     /// Page of a tabbed dialog the field is on.
     tab: usize,
+    /// A drop-down list: its values (the value is one of them; `dialog_caption7`).
+    choices: Vec<String>,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -95,6 +101,8 @@ pub struct Dialog {
     tabs: Vec<(String, R)>,
     /// The page shown.
     tab: usize,
+    /// Drawn with a window caption and the reference editor's buttons (`dialog_caption7`).
+    caption: bool,
 }
 
 impl Dialog {
@@ -121,6 +129,7 @@ impl Dialog {
                         scroll_x: 0.0,
                         check: None,
                         tab: 0,
+                        choices: Vec::new(),
                     }
                 })
                 .collect(),
@@ -136,6 +145,7 @@ impl Dialog {
             scale: 1.0,
             tabs: Vec::new(),
             tab: 0,
+            caption: false,
         }
     }
 
@@ -184,6 +194,7 @@ impl Dialog {
                 scroll_x: 0.0,
                 check: Some(on),
                 tab: 0,
+                choices: Vec::new(),
             });
         }
         self
@@ -228,7 +239,11 @@ impl Dialog {
     /// Lay out centred in a window of `size`, and measure caret positions.
     pub fn layout(&mut self, m: &dyn TextMeasure, size: (f32, f32), scale: f32) {
         self.scale = scale;
-        let w = self.px(420.0);
+        let w = if self.caption {
+            self.caption_width(m, size)
+        } else {
+            self.px(420.0)
+        };
         let field_h = self.px(28.0);
         let check_h = self.px(26.0);
         let mut h = self.px(52.0);
@@ -320,6 +335,9 @@ impl Dialog {
             };
             bx -= (8.0 * scale).round();
         }
+        if self.caption {
+            self.caption_layout(m);
+        }
         // Caret offsets, keeping the caret inside the box.
         let inner = (w - self.px(40.0) - self.px(16.0)).max(1.0);
         for f in &mut self.fields {
@@ -336,6 +354,9 @@ impl Dialog {
     /// Typed text goes into the focused field.
     pub fn text(&mut self, s: &str) {
         if let Some(f) = self.fields.get_mut(self.focus) {
+            if !f.choices.is_empty() {
+                return;
+            }
             if let Some(on) = f.check.as_mut() {
                 if s == " " {
                     *on = !*on;
@@ -351,6 +372,9 @@ impl Dialog {
 
     /// A key; returns a button action (Enter: the first button, Escape: Cancel).
     pub fn key(&mut self, key: Key, m: Mods) -> Option<DialogButton> {
+        if self.choice_key(key) {
+            return None;
+        }
         let n = self.fields.len();
         if let Some(f) = self
             .fields
@@ -420,12 +444,18 @@ impl Dialog {
 
     /// Click: focuses a field (caret at the end) or returns a button action.
     pub fn press(&mut self, x: f32, y: f32) -> Option<DialogButton> {
+        if self.caption && self.caption_close(x, y) {
+            return Some(DialogButton::Cancel);
+        }
         if let Some(i) = self.tabs.iter().position(|(_, r)| r.contains(x, y)) {
             self.set_page(i);
             return None;
         }
         if let Some(i) = self.field_rects.iter().position(|r| r.contains(x, y)) {
             self.focus = i;
+            if self.choice_step(i, 1) {
+                return None;
+            }
             if let Some(f) = self.fields.get_mut(i) {
                 f.caret = f.value.len();
                 if let Some(on) = f.check.as_mut() {
@@ -454,20 +484,24 @@ impl Dialog {
                 Rgba(0, 0, 0, a),
             );
         }
-        p.fill_rect(f.x, f.y, f.w, f.h, t.border);
-        p.fill_rect(f.x + 1.0, f.y + 1.0, f.w - 2.0, f.h - 2.0, CTL_FACE);
         let style = self.style();
         let line = style.size * 1.33;
-        p.text(
-            &self.title,
-            f.x + self.px(20.0),
-            f.y + self.px(16.0),
-            TextStyle {
-                size: self.px(15.0),
-                bold: true,
-            },
-            t.text,
-        );
+        if self.caption {
+            self.paint_caption(p, t);
+        } else {
+            p.fill_rect(f.x, f.y, f.w, f.h, t.border);
+            p.fill_rect(f.x + 1.0, f.y + 1.0, f.w - 2.0, f.h - 2.0, CTL_FACE);
+            p.text(
+                &self.title,
+                f.x + self.px(20.0),
+                f.y + self.px(16.0),
+                TextStyle {
+                    size: self.px(15.0),
+                    bold: true,
+                },
+                t.text,
+            );
+        }
         if !self.tabs.is_empty() {
             // Tab strip: the shown page's tab joins the page (white, framed on three sides),
             // the others sit on the dialog face; a line under the strip.
@@ -551,7 +585,9 @@ impl Dialog {
                 style,
                 t.text,
             );
-            if focused && caret_on {
+            if !field.choices.is_empty() {
+                self.paint_choice_arrow(p, *r, t.text);
+            } else if focused && caret_on {
                 p.fill_rect(
                     (tx + field.caret_x - field.scroll_x).round(),
                     r.y + self.px(5.0),
@@ -613,6 +649,10 @@ impl Dialog {
         for m in &self.message {
             p.text(m, f.x + self.px(20.0), my, style, t.text);
             my += self.px(20.0);
+        }
+        if self.caption {
+            self.paint_caption_buttons(p, t);
+            return;
         }
         for (i, (label, _, r)) in self.buttons.iter().enumerate() {
             // Standard Windows push buttons, as in a desktop word processor's dialogs:

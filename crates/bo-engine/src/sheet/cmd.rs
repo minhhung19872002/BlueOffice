@@ -603,6 +603,10 @@ pub enum SheetCommand {
         sheet: usize,
         /// Absolute 0-based column of the AutoFilter range.
         col: u32,
+        /// A row of a table with filter buttons: the table's filter (§18.5.1.2
+        /// `table/autoFilter`) instead of the sheet's.
+        #[serde(default)]
+        row: Option<u32>,
     },
     /// Sets or clears (`None`) the filter criterion of an AutoFilter column.
     SetFilter {
@@ -613,6 +617,10 @@ pub enum SheetCommand {
         /// Criterion; `None` shows every row of the column.
         #[serde(default)]
         filter: Option<FilterSpec>,
+        /// A row of a table with filter buttons: the table's filter (§18.5.1.2
+        /// `table/autoFilter`) instead of the sheet's.
+        #[serde(default)]
+        row: Option<u32>,
     },
     /// Fill handle: extends the series / pattern of `source` over `target`.
     Autofill {
@@ -4158,13 +4166,11 @@ impl SheetEngine {
                     Ok(json!({ "active": true, "range": Rng::of(r) }))
                 })
             }
-            C::FilterValues { sheet, col } => {
+            C::FilterValues { sheet, col, row } => {
                 let wb = self.wb()?;
                 let ws = self.sheet(sheet)?;
-                let af = ws
-                    .auto_filter
-                    .as_ref()
-                    .ok_or_else(|| bad("no AutoFilter"))?;
+                let (_, af) = super::sortfilter_cmd::filter_of(ws, col, row)?;
+                let af = &af;
                 if col < af.range.first.col || col > af.range.last.col {
                     return Err(bad("column outside the AutoFilter"));
                 }
@@ -4242,15 +4248,18 @@ impl SheetEngine {
                     },
                 }))
             }
-            C::SetFilter { sheet, col, filter } => {
+            C::SetFilter {
+                sheet,
+                col,
+                filter,
+                row,
+            } => {
                 let now = self.live.now();
                 self.edit_light(sheet, &[], |wb, _, fx| {
                     fx.hidden.push(sheet);
-                    let range = wb.sheets[sheet]
-                        .auto_filter
-                        .as_ref()
-                        .ok_or_else(|| bad("no AutoFilter"))?
-                        .range;
+                    let (table, mut af) =
+                        super::sortfilter_cmd::filter_of(&wb.sheets[sheet], col, row)?;
+                    let range = af.range;
                     if col < range.first.col || col > range.last.col {
                         return Err(bad("column outside the AutoFilter"));
                     }
@@ -4364,20 +4373,30 @@ impl SheetEngine {
                         }),
                         _ => None,
                     };
-                    let Some(af) = wb.sheets[sheet].auto_filter.as_mut() else {
-                        return Err(bad("no AutoFilter"));
-                    };
+                    // A hidden button stays hidden when the criterion changes.
+                    let hidden_button = af
+                        .columns
+                        .iter()
+                        .any(|c| c.col_id == col_id && c.hidden_button);
                     af.columns.retain(|c| c.col_id != col_id);
-                    if let Some(filter) = crit {
+                    if crit.is_some() || hidden_button {
                         af.columns.push(FilterColumn {
                             col_id,
-                            hidden_button: false,
+                            hidden_button,
                             show_button: None,
-                            filter,
+                            filter: crit.unwrap_or(ColumnFilter::None),
                         });
                         af.columns.sort_by_key(|c| c.col_id);
                     }
-                    let hidden = bo_sheet::filter::apply_auto_filter_at(wb, sheet, &locale, now);
+                    let hidden = match table {
+                        None => {
+                            wb.sheets[sheet].auto_filter = Some(af);
+                            bo_sheet::filter::apply_auto_filter_at(wb, sheet, &locale, now)
+                        }
+                        Some(ti) => super::sortfilter_cmd::apply_table_filter(
+                            wb, sheet, ti, &af, &locale, now,
+                        ),
+                    };
                     // Records of the list (rows under the header): "x of y records found".
                     let total = range.rows().saturating_sub(1);
                     Ok(json!({ "hidden": hidden, "total": total }))

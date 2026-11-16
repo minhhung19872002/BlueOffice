@@ -539,8 +539,15 @@ hướng dẫn công khai của nó (test `paste_text_picture_and_comments`, `pa
 **Công cụ tab Comment** (`reader-64`, nhấp / kéo đưa vào trên bản sao). Mặc định đo được: Drawing (hình chữ nhật) và
 Pencil đỏ 255, 0, 0, nét 2 pt; Highlight 255, 255, 0; Typewriter chữ xanh 0, 0, 255 cỡ 9 pt; Note mở ngay ghi chú để gõ
 (kèm ngăn Format bên phải). Ta trước: đỏ 229, 57, 53 nét 1 pt, highlight 255, 230, 0, máy chữ đỏ 12 pt → nay như bản
-đối chiếu (chỉ BlueReader). Khác còn lại: tay nắm của bản đối chiếu là chấm tròn xanh 12 px (51, 142, 244) có tay xoay, của
-ta ô vuông; Area Highlight / Measure / Stamp của bản đối chiếu không nhận kéo đưa vào nên chưa so.
+đối chiếu (chỉ BlueReader). Area Highlight / Measure / Stamp của bản đối chiếu không nhận kéo đưa vào nên chưa so.
+
+**Tay nắm của chú thích đang chọn** (`reader-66`, `reader_handles10_win.rs`). Bản đối chiếu: viền chấm, tám chấm tròn
+12 px (51, 142, 244, mép trắng) ở góc và giữa cạnh, tay xoay trên cuống 2 px (38, 128, 235) cách cạnh trên 28 px; đường
+thẳng chỉ có hai chấm ở hai đầu. Ta vẽ như vậy (hình mũi tên xoay của ta) thay cho ô vuông cũ: kéo tay nắm đổi cỡ (Shift
+giữ tỉ lệ, góc đối diện đứng yên), kéo đầu đường thẳng / đo khoảng cách, kéo tay xoay để xoay quanh tâm (Shift: bước
+15°) — nét chì, đường gấp khúc, đa giác, số đo giữ loại; hình chữ nhật / elip thành đa giác (`rotate_drawing`, vì
+`/Square` `/Circle` luôn đứng thẳng); hộp chữ, chú thích gọi ra, dấu không xoay (không có tay xoay). Mỗi thao tác một
+bước hoàn tác, File › Save ghi lại (test `handles_resize_turn_and_move_line_ends`, `corners_keep_the_ratio_with_shift`).
 
 **Khởi động lạnh tới trang đầu** (PDF 100 trang, `startup.py`: chạy exe, dò cửa sổ mỗi 15 ms rồi PrintWindow tới khi giữa
 trang có chữ; 5–6 lần, lần đầu sau khi chép exe bị quét nên bỏ):
@@ -554,5 +561,5 @@ Mốc của ta (`BO_READER_STARTUP`): mở tài liệu 41–53 ms, cửa sổ 50
 chain 5 ms, khung đầu 20–25 ms. Thử tạo thiết bị trước trên luồng phụ (nạp driver song song khi mở tài liệu): thiết bị
 của cửa sổ vẫn mất 136 ms, trang đầu chậm hơn (435–507 ms) → bỏ.
 
-Còn lại: tay nắm tròn + tay xoay, ngăn Format khi gõ ghi chú, vùng nhấp của chú thích NoZoom, Area Highlight / Measure /
+Còn lại: ngăn Format khi gõ ghi chú, vùng nhấp của chú thích NoZoom, Area Highlight / Measure /
 Stamp của bản đối chiếu (không nhận thao tác đưa vào), tạo thiết bị D3D chiếm ~60 % thời gian tới trang đầu.

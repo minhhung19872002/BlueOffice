@@ -94,7 +94,8 @@ impl EditorWindow {
         d.widths = d
             .text
             .split('\n')
-            .map(|l| m.measure_font(l, &font(TW_SIZE)).0)
+            // Measured large and scaled: small sizes round each advance to whole pixels.
+            .map(|l| m.measure_font(l, &font(100.0)).0 * TW_SIZE / 100.0)
             .collect();
         self.caret_on = true;
         true

@@ -131,7 +131,8 @@ impl EditorWindow {
     /// bottom right. Measured at 125 % (pixels / 1.25 here): 634 x 154, caption 25.6, mark 25.6
     /// at (28, 50), text from x 70.4, buttons 80 x 28 radius 14, 10.4 apart and from the edges.
     pub(crate) fn paint_close_box(&mut self, p: &mut dyn Painter) {
-        let k = self.r.ui_scale() / 1.1;
+        // Display scale; the host scales UI text by the Windows text size on top.
+        let k = self.r.ui_scale();
         let accent = self.r.theme().accent_strong;
         let (ww, wh) = self.r.window_size();
         let Some(b) = self.close_box.as_mut() else {
@@ -186,7 +187,7 @@ impl EditorWindow {
         p.text(
             &b.text,
             x + px(70.4),
-            my + d / 2.0 - px(8.4),
+            (my + d / 2.0 - body.size * 0.66).round(),
             body,
             Rgba(34, 34, 34, 255),
         );

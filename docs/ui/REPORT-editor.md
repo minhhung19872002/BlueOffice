@@ -249,3 +249,53 @@ Name / Add / Spawn / Delete / Go to / Close (bản đối chiếu: Add, Replace,
 Còn lại: Text Style trong khung Edit Object chưa hiện phông / cỡ của khối được chọn (bản đối chiếu hiện); mục ảnh
 của khung khi chọn ảnh; Split chưa làm; Rename / Replace mẫu trang; nút thả xuống của Select; Page Transitions,
 OCR, From Web Page, XFA, Accounting Calculator, Preflight vẫn xám.
+
+## Vòng 6 (2026-11-16)
+
+Ảnh so sánh (bản đối chiếu trái / trên, BlueEditor phải / dưới): `scratchpad/show/editor-50…*.png`.
+Gộp `work/desktop-performance` (BlueReader vòng 7: giới hạn bộ nhớ, khung cửa sổ `enable_full_client`).
+
+**Khung Format khi Edit Object** (`editor_objtext.rs`, lõi `bo-pdfread::text_ops`): mục Text Style hiện phông, cỡ,
+màu, đậm / nghiêng, co giãn, giãn ký tự của khối chữ được chọn như bản đối chiếu và thay đổi áp cho cả khối; các
+điều khiển bản đối chiếu không cho dùng ở chế độ này vẽ xám (`#B1B1B1`, giá trị `#6D6D6D`). Mục Split: Merge
+Text (nối các khối theo thứ tự đọc), Split Text (mỗi dòng một khối), Remove Kerning (bỏ số kern trong `TJ`),
+Convert to Shapes (chữ thành path) — nút xám khi không áp dụng được. Chọn ảnh / path hiện Arrange rồi Effect
+(thay ảnh, xoay, lật, độ mờ qua `/ExtGState /ca`).
+
+**Mẫu trang**: Replace (mẫu được chọn chỉ sang trang hiện tại), Rename — đủ Add / Replace / Rename / Spawn / Delete /
+Go to như bản đối chiếu.
+
+**Select**: menu thả xuống có đúng hai mục như bản đối chiếu (Select Text and Image, Select Annotation); lệnh
+riêng `ed.selectMenu` của Editor (lệnh `tool.select` của Reader không có menu).
+
+**Typewriter gõ tại chỗ** (`editor_typewriter.rs`): bấm công cụ rồi bấm lên trang là có con trỏ, gõ thẳng (Enter
+xuống dòng, Backspace), bấm chỗ khác hoặc Esc thì thành ghi chú — như bản đối chiếu (trước đây hỏi qua hộp
+thoại). Mặc định lấy từ tệp bản đối chiếu lưu ra (`/DA (/Helvetica 9 Tf)`, chữ `#0000FF`, không viền), khung
+khi gõ 1 px `#759DB8`, chữ lùi 3 px. Typewriter ở tab Home và tab Comment là cùng một công cụ.
+
+**Hỏi lưu khi đóng** (`editor_close.rs`): đóng tài liệu đã sửa (nút ✕ của tab, Ctrl+W, File › Close, nút đóng
+cửa sổ — host thêm `Handler::close_requested`) hiện hộp “Do you want to save changes to '…' before closing?”
+như bản đối chiếu: Yes lưu rồi đóng, No đóng không lưu, Cancel. Hộp vẽ theo số đo hộp thông báo của bản đối
+chiếu ở 125 %: 793 × 193 px, thanh tiêu đề 32 px `#F3F3F3` (tên ứng dụng xám `#919191`, ✕), dấu thông tin
+32 px (hình của ta, màu nhấn của ta) ở x 35, chữ `#222222` từ x 88, nút viên thuốc 100 × 35 px cách 13 px, Yes
+tô màu nhấn chữ trắng, No / Cancel nền trắng viền `#D5D5D5`. Nhiều tài liệu sửa: hỏi lần lượt từng cái.
+
+**Khung cửa sổ**: vùng client phủ tới mép cửa sổ như bản đối chiếu (PrintWindow: màu thanh tiêu đề từ x = 0),
+dùng `win32::enable_full_client` của BlueReader.
+
+**Tốc độ gõ** (bản release, cùng tệp mẫu, 67 ký tự, máy vẫn đang build song song; lấy lần tốt nhất của 3 lần):
+
+| Đo | Vòng 5 | Vòng 6 trước sửa | Vòng 6 |
+| --- | --- | --- | --- |
+| Gõ trong đoạn, tổng mỗi phím p50 / p95 | 8,0 / 18,0 ms | 9,6 / 12,0 ms | 5,3 / 8,0 ms |
+| — xử lý phím (handle) p50 | 1,7 ms | 2,2 ms | 1,6 ms |
+| — chuẩn bị trang (prepare) p50 / p95 | — | 5,5 / 7,1 ms | 2,1 / 3,5 ms |
+| Cuộn 1 202 trang, mỗi nấc p50 / p95 | 1,6 / 2,6 ms | — | 1,8 / 2,6 ms (vẽ khung 1,5 ms, prepare 0,01 ms) |
+
+Nguyên nhân: mỗi phím diễn giải lại cả trang (3,1 ms trên trang mẫu, đo bằng test `typing_cost`). Nay
+`bo-pdfread::typing_fast` giữ display list của phần trang ngoài đoạn đang gõ (prefix của phiên sửa khối, kiểm
+tra trạng thái đồ hoạ trở về như đầu) và mỗi phím chỉ diễn giải đoạn đó; test so khớp với diễn giải cả trang.
+Cuộn: không còn chênh so với vòng 5 — phần lớn là vẽ khung cửa sổ.
+
+Còn lại: đoạn gõ dài ra đè lên đoạn dưới khi Reflow Editing tắt; Page Transitions, OCR, From Web Page, XFA,
+Accounting Calculator, Preflight vẫn xám; thanh tiêu đề hộp thoại chung của BlueEditor (Dialog) vẫn kiểu cũ.

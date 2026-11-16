@@ -571,6 +571,9 @@ pub(crate) fn enabled(id: &str, f: &FormatState) -> Option<bool> {
         _ if id.starts_with("design.styleSet.") => true,
         _ if crate::doc_design::UNAVAILABLE.contains(&id) => false,
         _ if crate::doc_r3_menus::static_id(id).is_some() => true,
+        _ if crate::doc_r4_menus::enabled(id).is_some() => {
+            crate::doc_r4_menus::enabled(id).unwrap_or(false)
+        }
         _ => return None,
     })
 }

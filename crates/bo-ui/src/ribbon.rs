@@ -308,24 +308,33 @@ fn home() -> Tab {
 fn insert_tab() -> Tab {
     #[allow(unused_imports)]
     use Item::{Labeled as S, Large as L};
+    // The reference's Insert tab at full width (round 4): Pages, Tables, Illustrations,
+    // Links, Comments, Header & Footer, Text, Symbols.
     Tab {
         label: "ribbon.tabs.insert",
         groups: vec![
             Group {
-                // Small labelled rows, as the reference's Pages group (room for Pictures).
                 label: "ribbon.groups.pages",
                 large: vec![],
-                rows: vec![vec![S("insert.pageBreak")], vec![S("layout.breaks")]],
+                rows: vec![
+                    vec![S("insert.coverPage")],
+                    vec![S("insert.blankPage")],
+                    vec![S("insert.pageBreak")],
+                ],
             },
             Group {
-                label: "ribbon.groups.insertObjects",
+                label: "docR4.groupTables",
                 large: vec![L("insert.table")],
                 rows: vec![],
             },
             Group {
                 label: "ribbon.groups.illustrations",
-                large: vec![L("insert.picture"), L("insert.shapes")],
-                rows: vec![],
+                large: vec![L("insert.picture")],
+                rows: vec![
+                    vec![S("insert.shapes"), S("insert.smartArt")],
+                    vec![S("insert.icons"), S("insert.chart")],
+                    vec![S("insert.models3d"), S("insert.screenshot")],
+                ],
             },
             Group {
                 label: "ribbon.groups.links",
@@ -339,16 +348,20 @@ fn insert_tab() -> Tab {
             },
             Group {
                 label: "ribbon.groups.headerFooter",
-                large: vec![L("insert.header"), L("insert.footer")],
-                rows: vec![vec![S("insert.pageNumber")]],
+                large: vec![],
+                rows: vec![
+                    vec![S("insert.header")],
+                    vec![S("insert.footer")],
+                    vec![S("insert.pageNumber")],
+                ],
             },
             Group {
-                label: "ribbon.groups.text",
+                label: "docR4.groupText",
                 large: vec![L("insert.textBox")],
                 rows: vec![
-                    vec![S("insert.dropCap")],
-                    vec![S("insert.dateTime")],
-                    vec![S("insert.signatureLine")],
+                    vec![S("insert.quickParts"), S("insert.signatureMenu")],
+                    vec![S("insert.wordArt"), S("insert.dateTime")],
+                    vec![S("insert.dropCap"), S("insert.object")],
                 ],
             },
             Group {
@@ -404,22 +417,49 @@ fn design_tab() -> Tab {
 fn layout_tab() -> Tab {
     #[allow(unused_imports)]
     use Item::{Labeled as S, Large as L};
+    // The reference's Layout tab (round 4): Page Setup, Paragraph (Indent / Spacing boxes),
+    // Arrange.
     Tab {
         label: "ribbon.tabs.layout",
-        groups: vec![Group {
-            label: "ribbon.groups.pageSetup",
-            large: vec![
-                L("layout.margins"),
-                L("layout.orientation"),
-                L("layout.size"),
-                L("layout.columns"),
-            ],
-            rows: vec![
-                vec![S("layout.breaks")],
-                vec![S("layout.lineNumbers")],
-                vec![S("layout.hyphenation")],
-            ],
-        }],
+        groups: vec![
+            Group {
+                label: "ribbon.groups.pageSetup",
+                large: vec![
+                    L("layout.margins"),
+                    L("layout.orientation"),
+                    L("layout.size"),
+                    L("layout.columns"),
+                ],
+                rows: vec![
+                    vec![S("layout.breaks")],
+                    vec![S("layout.lineNumbers")],
+                    vec![S("layout.hyphenation")],
+                ],
+            },
+            Group {
+                label: "docR4.groupParagraph",
+                large: vec![],
+                rows: vec![
+                    vec![S("layout.indentLeft"), S("layout.spaceBefore")],
+                    vec![S("layout.indentRight"), S("layout.spaceAfter")],
+                ],
+            },
+            Group {
+                label: "docR4.groupArrange",
+                large: vec![
+                    L("layout.position"),
+                    L("layout.wrapText"),
+                    L("layout.bringForward"),
+                    L("layout.sendBackward"),
+                    L("layout.selectionPane"),
+                ],
+                rows: vec![
+                    vec![S("layout.align")],
+                    vec![S("layout.group")],
+                    vec![S("layout.rotate")],
+                ],
+            },
+        ],
     }
 }
 
@@ -584,11 +624,11 @@ fn review_tab() -> Tab {
 fn view_tab() -> Tab {
     #[allow(unused_imports)]
     use Item::{Labeled as S, Large as L};
+    // The reference's View tab (round 4): Views, Immersive, Page Movement, Show, Zoom,
+    // Window, Macros.
     Tab {
         label: "ribbon.tabs.view",
         groups: vec![
-            // Views and zoom as the reference's View tab: one large button per layout,
-            // 100 % with One Page and Page Width.
             Group {
                 label: "ribbon.groups.views",
                 large: vec![
@@ -599,27 +639,46 @@ fn view_tab() -> Tab {
                 rows: vec![vec![S("view.outline")], vec![S("view.draft")]],
             },
             Group {
+                label: "docR4.groupImmersive",
+                large: vec![L("view.focus"), L("view.immersiveReader")],
+                rows: vec![],
+            },
+            Group {
+                label: "docR4.groupPageMovement",
+                large: vec![L("view.vertical"), L("view.sideToSide")],
+                rows: vec![],
+            },
+            Group {
                 label: "ribbon.groups.show",
                 large: vec![],
                 rows: vec![
                     vec![S("view.ruler")],
-                    vec![S("view.formattingMarks")],
+                    vec![S("view.gridlines")],
                     vec![S("view.navigationPane")],
                 ],
             },
             Group {
-                label: "docR3.groupPanes",
-                large: vec![L("view.stylesPane")],
-                rows: vec![],
-            },
-            Group {
                 label: "ribbon.groups.zoom",
-                large: vec![L("view.zoomReset")],
+                large: vec![L("view.zoomDialog"), L("view.zoomReset")],
                 rows: vec![
                     vec![S("view.onePage")],
+                    vec![S("view.multiplePages")],
                     vec![S("view.pageWidth")],
-                    vec![S("view.zoomIn"), S("view.zoomOut")],
                 ],
+            },
+            Group {
+                label: "docR4.groupWindow",
+                large: vec![],
+                rows: vec![
+                    vec![S("view.newWindow"), S("view.sideBySide")],
+                    vec![S("view.arrangeAll"), S("view.stylesPane")],
+                    vec![S("view.split")],
+                ],
+            },
+            Group {
+                label: "docR4.groupMacros",
+                large: vec![L("view.macros")],
+                rows: vec![],
             },
         ],
     }
@@ -2726,6 +2785,7 @@ mod tests {
         let mut icons = Icons::load();
         crate::doc_tools::install_icons(&mut icons);
         crate::doc_r3_menus::install_icons(&mut icons);
+        crate::doc_r4_menus::install_icons(&mut icons);
         let format = FormatState {
             section: bo_edit::SectionState {
                 width: 11906,
@@ -2742,6 +2802,7 @@ mod tests {
         let mut strings = Strings::load("en-US");
         crate::doc_tools::install_strings(&mut strings);
         crate::doc_r3_menus::install_strings(&mut strings);
+        crate::doc_r4_menus::install_strings(&mut strings);
         for tab in &ribbon.tabs {
             assert!(!tab.groups.is_empty(), "{} is empty", tab.label);
             for g in &tab.groups {
@@ -2750,7 +2811,8 @@ mod tests {
                     if let Item::Button(id) | Item::Large(id) | Item::Labeled(id) = item {
                         assert!(
                             commands::enabled(id, &format)
-                                || crate::doc_design::UNAVAILABLE.contains(id),
+                                || crate::doc_design::UNAVAILABLE.contains(id)
+                                || crate::doc_r4_menus::UNAVAILABLE.contains(id),
                             "{id} has no action"
                         );
                         let glyph = GLYPH_BUTTONS.iter().any(|(g, _)| g == id);

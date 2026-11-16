@@ -254,7 +254,7 @@ pub(crate) fn menu(id: &str) -> Vec<Entry> {
             e("outline.level.9", "docR3.level9"),
             e("outline.level.all", "docR3.allLevels"),
         ],
-        _ => Vec::new(),
+        _ => crate::doc_r4_menus::menu(id),
     }
 }
 

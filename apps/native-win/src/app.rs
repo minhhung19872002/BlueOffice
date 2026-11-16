@@ -74,6 +74,7 @@ pub fn run() -> Result<(), String> {
     let locale = std::env::var("BLUEOFFICE_LOCALE").unwrap_or_else(|_| "en-US".into());
     let new_document = file.is_none();
     let mut view = DocWindow::new(DocView::new(engine)?, &locale, &name);
+    view.set_utc_offset_minutes(win32::utc_offset_minutes());
     // A new document takes the theme, style set and effects set as the default.
     if new_document {
         if let Some(v) = defaults_path().and_then(|p| std::fs::read_to_string(p).ok()) {
@@ -588,6 +589,10 @@ impl Handler for Shell {
             Input::Preedit(_) => "preedit",
         };
         let start = Instant::now();
+        // BLUEOFFICE_INPUT_LOG=1 (measurement scripts): each pointer input on stderr.
+        if std::env::var_os("BLUEOFFICE_INPUT_LOG").is_some() && !matches!(kind, "blink" | "tick") {
+            eprintln!("input {input:?}");
+        }
         let m = Measure(self.gpu.as_ref().map(|g| &g.device));
         let mut redraw = self.view.handle(input, &m);
         redraw |= self.handle_requests();

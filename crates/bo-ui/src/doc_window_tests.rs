@@ -161,7 +161,7 @@ fn table_design_shading_and_borders_reach_the_saved_document() {
 fn header_and_footer_tab_while_editing_a_header() {
     let mut w = window();
     w.handle(Input::Text("Body".into()), &Fixed);
-    act(&mut w, "insert.header");
+    act(&mut w, "insert.header.edit");
     assert_eq!(w.view.story().map(|s| s.kind), Some("header"));
     assert_eq!(w.ribbon.active_label(), doc_tools::HEADER_FOOTER);
     w.handle(Input::Text("Head".into()), &Fixed);
@@ -226,7 +226,7 @@ fn insert_pictures_asks_the_host_and_shows_picture_format() {
 fn every_contextual_button_has_a_label_an_icon_and_a_command() {
     let mut w = window();
     act(&mut w, "insert.table.3x3");
-    act(&mut w, "insert.header");
+    act(&mut w, "insert.header.edit");
     let story = w.story_options();
     assert!(story.is_some());
     let format = w.view.format().clone();

@@ -300,6 +300,17 @@ impl DocView {
             self.engine.doc_style_command(c).ok()?
         } else if let Some(c) = bo_engine::picture_tools::PictureCommand::parse(v) {
             self.engine.doc_picture_command(c).ok()?
+        } else if bo_engine::doc_chart::DocChartCommand::parse(v).is_some()
+            || bo_engine::doc_smartart::DocSmartArtCommand::parse(v).is_some()
+        {
+            // Charts and SmartArt answer JSON of their own: take the view's state after them
+            // and draw every page again.
+            let out = self.engine.command_json(&v.to_string()).ok()?;
+            let r = self.engine.command(Command::State).ok()?;
+            self.apply(&r);
+            self.invalidate_page_images();
+            self.caret_on = true;
+            return serde_json::from_str(&out).ok();
         } else {
             let cmd: Command = serde_json::from_value(v.clone()).ok()?;
             self.engine.command(cmd).ok()?

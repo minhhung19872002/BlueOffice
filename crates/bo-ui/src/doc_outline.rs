@@ -63,14 +63,29 @@ pub(crate) struct OutlineView {
     collapsed: std::collections::HashSet<usize>,
 }
 
-/// Row height at 100 % per level (Heading 1 is the tallest).
+/// Row height at 100 % per level when the style's size is unknown (Heading 1 is the tallest).
 fn row_h(level: Option<u8>) -> f32 {
     match level {
-        Some(0) => 30.0,
-        Some(1) => 26.0,
-        Some(_) => 23.0,
-        None => 21.0,
+        Some(0) => 24.0,
+        Some(1) => 21.0,
+        Some(_) => 19.0,
+        None => 17.0,
     }
+}
+
+/// One outline level step and the default tab interval: 0.5" (36 pt) at 100 %, as measured on
+/// the reference (level symbols 60 px apart at 125 %).
+const STEP: f32 = 48.0;
+
+/// Where the text after a list label starts, from the outline's left edge: the first default
+/// tab stop (every 0.5" from that edge, §17.15.1.25 defaultTabStop) past the label's end —
+/// the reference drops the paragraph indents in Outline view, so the level's own hanging stop
+/// does not apply (measured: "1." → 12 px gap, "1.1." past the stop → next stop, 125 %).
+pub(crate) fn text_stop(label_end: f32, unit: f32) -> f32 {
+    if unit <= 0.0 {
+        return label_end;
+    }
+    ((label_end + 1.0) / unit).ceil() * unit
 }
 
 impl OutlineView {
@@ -105,7 +120,13 @@ impl OutlineView {
 
     fn line_h(&self, level: Option<u8>) -> f32 {
         let pt = self.look(level).map_or(0.0, |l| l.size);
-        (pt * 4.0 / 3.0 * 1.35).max(row_h(level))
+        // One text line of the style's font, no paragraph spacing (reference: 27 px between a
+        // 16 pt and a 14 pt heading at 125 %).
+        if pt > 0.0 {
+            (pt * 4.0 / 3.0 * 1.1).max(16.0)
+        } else {
+            row_h(level)
+        }
     }
 
     /// Take the document's outline; select the row of `caret` (body paragraph id).
@@ -195,7 +216,7 @@ impl OutlineView {
 
     /// Visible rows with their top (content coordinates) and height.
     fn placed(&self) -> Vec<(usize, f32, f32)> {
-        let mut y = self.px(12.0);
+        let mut y = self.px(15.0);
         let mut out = Vec::new();
         let hidden = self.hidden();
         for (i, r) in self.rows.iter().enumerate() {
@@ -341,8 +362,8 @@ impl OutlineView {
         }
         p.push_clip(x, y, w, h);
         p.fill_rect(x, y, w, h, WHITE);
-        let indent = self.px(24.0);
-        let left = x + self.px(28.0);
+        let indent = self.px(STEP);
+        let left = x + self.px(24.0);
         for (i, top, rh) in self.placed() {
             let ry = y + top - self.scroll;
             if ry + rh < y || ry > y + h {
@@ -358,11 +379,17 @@ impl OutlineView {
                 lx
             };
             let cy = ry + rh / 2.0;
-            let k = self.px(5.0);
+            // Heading symbols 18 px across at 125 % as the reference.
+            let k = self.px(7.0);
+            let sx = if r.level.is_some() {
+                lx + k
+            } else {
+                lx - self.px(17.0)
+            };
             if i == self.selected {
-                circle(p, lx + k, cy, k + self.px(3.0), SELECTED);
+                circle(p, sx, cy, k + self.px(3.0), SELECTED);
             } else if self.hover == Some(i) {
-                circle(p, lx + k, cy, k + self.px(3.0), HOVER);
+                circle(p, sx, cy, k + self.px(3.0), HOVER);
             }
             if r.level.is_some() {
                 circle(p, lx + k, cy, k, SYMBOL);
@@ -385,8 +412,9 @@ impl OutlineView {
                     );
                 }
             } else {
-                circle(p, lx + k, cy, self.px(3.0), SYMBOL);
-                circle(p, lx + k, cy, self.px(3.0) - self.scale.max(1.0), WHITE);
+                // The body text's small circle sits 17 px (100 %) before its text.
+                circle(p, sx, cy, self.px(3.0), SYMBOL);
+                circle(p, sx, cy, self.px(3.0) - self.scale.max(1.0), WHITE);
             }
             let (size, weight, color) = match r.level {
                 Some(0) => (16.0, 400, HEADING),
@@ -426,22 +454,22 @@ impl OutlineView {
             } else {
                 r.text.clone()
             };
-            let tx = lx + self.px(18.0);
+            // Headings: the label 32 px (125 %) after the symbol's left; body text at its level.
+            let tx = if r.level.is_some() {
+                lx + self.px(25.6)
+            } else {
+                lx
+            };
             let ty = (cy - font.size * 0.68).round();
             if !r.label.is_empty() {
                 p.text_font(&r.label, tx, ty, &font, color);
                 let label_w = self.label_w.get(i).copied().unwrap_or(0.0) * font.size
                     / self.px(12.0).max(1.0);
-                let stop = r.tab * 4.0 / 3.0 * self.scale;
                 let gap = if r.tab <= 0.0 {
                     // A space suffix: a space after the label.
                     label_w + font.size * 0.3
-                } else if stop > label_w + self.px(2.0) {
-                    stop
                 } else {
-                    // Past the stop: the next default tab stop (0.5") after the label.
-                    let unit = 36.0 * 4.0 / 3.0 * self.scale;
-                    ((label_w + self.px(2.0)) / unit).ceil() * unit
+                    text_stop(tx - left + label_w, self.px(STEP)) - (tx - left)
                 };
                 p.text_font(&text, tx + gap, ty, &font, color);
                 text.clear();
@@ -477,4 +505,18 @@ fn circle(p: &mut dyn Painter, cx: f32, cy: f32, r: f32, c: Rgba) {
     }
     v.push(PathSeg::Z);
     p.path(&v, Some(c), None);
+}
+
+#[cfg(test)]
+mod stop_tests {
+    use super::text_stop;
+
+    #[test]
+    fn label_text_goes_to_the_next_half_inch_stop() {
+        // 125 %: stops every 60 px from the outline's left edge (measured on the reference).
+        // "1." ends at 48 -> text at 60; "1.1." of level 2 ends at 124 (past 120) -> 180.
+        assert!((text_stop(48.0, 60.0) - 60.0).abs() < 0.01);
+        assert!((text_stop(124.0, 60.0) - 180.0).abs() < 0.01);
+        assert!((text_stop(10.0, 0.0) - 10.0).abs() < 0.01);
+    }
 }

@@ -30,7 +30,7 @@ pub(super) struct R3 {
     pub(super) form: Option<DocForm>,
     styles_pane: Option<StylesPane>,
     restrict: Option<RestrictPane>,
-    tiles: Option<TileMenu>,
+    pub(super) tiles: Option<TileMenu>,
     pub(super) outline: Option<OutlineView>,
     /// Align › Align to Page (else to the margin).
     align_page: bool,
@@ -271,6 +271,8 @@ impl DocWindow {
             selection,
             paste_defaults: self.r3.paste_defaults,
             recipients,
+            now: self.r4_now(),
+            zoom: self.view.zoom(),
         }
     }
 
@@ -346,6 +348,14 @@ impl DocWindow {
             FormOut::Run(cmds, close) => {
                 if close {
                     self.r3.form = None;
+                }
+                // Interface commands of round-4 dialogs (View › Zoom).
+                let (ui, cmds): (Vec<Value>, Vec<Value>) =
+                    cmds.into_iter().partition(|c| c["cmd"] == "ui.action");
+                for c in ui {
+                    if let Some(id) = c["id"].as_str() {
+                        self.action(id);
+                    }
                 }
                 self.r3_run(cmds);
                 if let Some(rp) = self.r3.restrict.as_mut() {
@@ -1498,7 +1508,7 @@ impl DocWindow {
     fn action_by_id(&mut self, id: &str) -> bool {
         match id {
             "picture.layoutOptions" => false,
-            _ => self.r3_action(id).unwrap_or(false),
+            _ => self.r3_action(id).unwrap_or_else(|| self.action(id)),
         }
     }
 

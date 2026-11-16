@@ -48,6 +48,15 @@ impl SheetWindow {
             }
             "sheet.showFormulas" => {
                 let on = !self.view.show_formulas();
+                // Kept in the sheet view (§18.3.1.87 showFormulas) as the reference does:
+                // the engine widens the columns while it is on.
+                if self
+                    .view
+                    .query(json!({ "cmd": "setSheetView", "showFormulas": on }))
+                    .is_some()
+                {
+                    self.view.reload();
+                }
                 self.view.set_show_formulas(on);
                 true
             }
@@ -196,8 +205,9 @@ impl SheetWindow {
     /// Add one level of precedent (or dependent) arrows of the active cell.
     fn trace(&mut self, dependents: bool) -> bool {
         let (r, c) = self.view.active();
+        // Arrows of other cells stay (as the reference) until Remove Arrows; levels
+        // count per traced cell.
         if self.trace_cell != Some((r, c)) {
-            self.arrows.clear();
             self.trace_levels = (0, 0);
             self.trace_cell = Some((r, c));
         }
@@ -318,7 +328,9 @@ impl SheetWindow {
             let Some(to) = self.view.cell_rect(a.to.0, a.to.1) else {
                 continue;
             };
-            let end = (to[0] + to[2] / 2.0, to[1] + to[3] / 2.0);
+            // Measured on the reference: arrows join points 22 % into the cells (18 px of an
+            // 80 px column at 125 %), at mid height.
+            let end = (to[0] + to[2] * 0.22, to[1] + to[3] / 2.0);
             let color = ARROW_BLUE;
             let start = if a.other_sheet {
                 // A small sheet mark above-left of the target.
@@ -357,7 +369,7 @@ impl SheetWindow {
                         p.fill_rect(x, y, w, h.max(k.round()), color);
                     }
                 }
-                (a0[0] + a0[2] / 2.0, a0[1] + a0[3] / 2.0)
+                (a0[0] + a0[2] * 0.22, a0[1] + a0[3] / 2.0)
             };
             let w = k.round().max(1.0);
             p.path(
@@ -367,12 +379,19 @@ impl SheetWindow {
             );
             // Dot at the source, head at the target.
             let d = 2.5 * k;
-            p.fill_rect(
-                (start.0 - d).round(),
-                (start.1 - d).round(),
-                (2.0 * d).round(),
-                (2.0 * d).round(),
-                color,
+            let kk = d * 0.552_284_8;
+            let (cx, cy) = start;
+            p.path(
+                &[
+                    PathSeg::M(cx + d, cy),
+                    PathSeg::C(cx + d, cy + kk, cx + kk, cy + d, cx, cy + d),
+                    PathSeg::C(cx - kk, cy + d, cx - d, cy + kk, cx - d, cy),
+                    PathSeg::C(cx - d, cy - kk, cx - kk, cy - d, cx, cy - d),
+                    PathSeg::C(cx + kk, cy - d, cx + d, cy - kk, cx + d, cy),
+                    PathSeg::Z,
+                ],
+                Some(color),
+                None,
             );
             let (dx, dy) = (end.0 - start.0, end.1 - start.1);
             let len = dx.hypot(dy).max(1.0);

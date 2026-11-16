@@ -192,6 +192,16 @@ impl SheetWindow {
                 },
             );
         }
+        for (id, at) in [
+            ("groupL", 0),
+            ("fnL", 0),
+            ("addL", 1),
+            ("replace", 8),
+            ("breaks", 0),
+            ("below", 0),
+        ] {
+            f.set_access(id, at);
+        }
         f.add(
             "removeAll",
             None,
@@ -202,8 +212,22 @@ impl SheetWindow {
             },
         );
         f.ok_cancel(&t("common.ok", "OK"), &t("common.cancel", "Cancel"));
+        f.set_access("removeAll", 0);
         if let Some(c) = f.get_mut("ok") {
             c.rect = [153.0, 553.0, 110.0, 35.0];
+        }
+        // As the reference: Count when the ticked (last) column holds text, else Sum.
+        let numeric = {
+            let sheet = self.view.sheet();
+            let wb = self.view.engine().workbook();
+            (r[0] + 1..=r[2]).any(|row| {
+                wb.and_then(|w| w.sheets.get(sheet))
+                    .and_then(|ws| ws.cell(row, r[3]))
+                    .is_some_and(|c| matches!(c.value, bo_model::sheet::CellValue::Number(_)))
+            })
+        };
+        if !numeric {
+            f.set_sel("fn", Some(1));
         }
         if let Some(c) = f.get_mut("cancel") {
             c.rect = [276.0, 553.0, 110.0, 35.0];

@@ -43,6 +43,8 @@ mod gallery_impl;
 mod illus_impl;
 #[path = "sheet_insert.rs"]
 mod insert_impl;
+#[path = "sheet_names.rs"]
+mod names_impl;
 #[path = "sheet_options.rs"]
 mod options_impl;
 #[path = "sheet_pagelayout.rs"]
@@ -383,9 +385,9 @@ pub struct SheetWindow {
     sort_case: bool,
     sort_ltr: bool,
     /// Name Manager rows (name, refers to).
-    name_rows: Vec<(String, String)>,
-    /// Scope of each Name Manager row (the workbook or a sheet's name).
-    name_scopes: Vec<String>,
+    /// Rows of the Name Manager, and the name the open Edit Name changes.
+    name_table: Vec<names_impl::NameRow>,
+    name_old: Option<(String, Option<usize>)>,
     /// Formula auditing arrows, the traced cell and its precedent / dependent levels.
     arrows: Vec<audit_impl::Arrow>,
     trace_cell: Option<(u32, u32)>,
@@ -524,8 +526,8 @@ impl SheetWindow {
             sort_sel: 0,
             sort_case: false,
             sort_ltr: false,
-            name_rows: Vec::new(),
-            name_scopes: Vec::new(),
+            name_table: Vec::new(),
+            name_old: None,
             arrows: Vec::new(),
             trace_cell: None,
             trace_levels: (0, 0),
@@ -1352,6 +1354,10 @@ impl SheetWindow {
         let Some(RibbonHit::Command(id)) = self.ribbon.hovered() else {
             return false;
         };
+        // File › Options › ScreenTip style: Don't show ScreenTips.
+        if self.prefs.screentips == 2 {
+            return false;
+        }
         self.rest += 1;
         if self.rest != 5
             || self.menu.is_some()
@@ -1934,6 +1940,7 @@ impl SheetWindow {
         let strings = match (self.form.is_some(), self.form_kind) {
             (true, form_impl::FormKind::FormatCells) => self.fc_strings(),
             (true, form_impl::FormKind::Evaluate) => self.eval_strings(),
+            (true, form_impl::FormKind::Names) => self.names_strings(),
             (true, _) => Vec::new(),
             _ => return,
         };
@@ -2006,8 +2013,11 @@ impl SheetWindow {
             self.paint_tstyle_preview(r, p);
         } else if self.form_kind == form_impl::FormKind::Options {
             self.paint_options(id, r, p);
-        } else if self.form_kind == form_impl::FormKind::Names && id == "ntable" {
-            self.paint_name_table(f, r, p);
+        } else if matches!(
+            self.form_kind,
+            form_impl::FormKind::Names | form_impl::FormKind::NewName
+        ) {
+            self.paint_names(f, id, r, p);
         } else if self.form_kind == form_impl::FormKind::Evaluate && id == "box" {
             self.paint_evaluate(f, r, p);
         } else if self.form_kind == form_impl::FormKind::Sort {

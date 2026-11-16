@@ -1554,7 +1554,8 @@ impl Renderer<'_> {
             Some("left" | "fill" | "justify" | "distributed") => HAlign::Left,
             Some("center" | "centerContinuous") => HAlign::Center,
             Some("right") => HAlign::Right,
-            _ if as_formula => HAlign::Left,
+            // Show formulas: constants are left aligned too, as the reference shows them.
+            _ if as_formula || self.show_formulas => HAlign::Left,
             _ => match cell.value {
                 CellValue::Number(_) | CellValue::Date(_) => HAlign::Right,
                 CellValue::Bool(_) | CellValue::Error(_) => HAlign::Center,

@@ -1140,280 +1140,6 @@ impl SheetWindow {
 
     // ---------------------------------------------------------------- Name Manager
 
-    /// Open the Name Manager (defined names, add / change / delete).
-    pub(super) fn open_name_manager(&mut self) -> bool {
-        if self.view.editing() {
-            self.view.commit();
-        }
-        let t = |k: &str, d: &str| self.t(k, d);
-        // Geometry of the reference's Name Manager at 125 % (round 39, `sheet-36`): 705 × 547
-        // px, New / Edit / Delete 111 × 29 at y 48, the names in a table with Name, Value,
-        // Refers To, Scope and Comment columns, Refers to under it, Close at the bottom.
-        let mut f = Form::new(
-            &t("sheetNames.title", "Name Manager"),
-            (705.0, 547.0),
-            Vec::new(),
-        );
-        f.add(
-            "new",
-            None,
-            [18.0, 48.0, 111.0, 29.0],
-            Self::button(t("sheetNames.new", "New...")),
-        );
-        f.add(
-            "apply",
-            None,
-            [145.0, 48.0, 111.0, 29.0],
-            Self::button(t("sheetNames.edit", "Edit...")),
-        );
-        f.add(
-            "del",
-            None,
-            [272.0, 48.0, 111.0, 29.0],
-            Self::button(t("sheetNames.delete", "Delete")),
-        );
-        // The list the events read (hidden) and the table drawn over its place.
-        f.add(
-            "names",
-            None,
-            [18.0, 82.0, 668.0, 320.0],
-            Kind::List {
-                items: Vec::new(),
-                sel: None,
-                top: 0,
-            },
-        );
-        f.show("names", false);
-        f.add("ntable", None, [18.0, 82.0, 668.0, 320.0], Kind::Canvas);
-        f.add(
-            "nameL",
-            None,
-            [18.0, 414.0, 0.0, 0.0],
-            Kind::Label(t("sheetNames.nameLabel", "Name:")),
-        );
-        f.add("name", None, [100.0, 410.0, 300.0, 26.0], Self::edit(""));
-        f.add(
-            "refL",
-            None,
-            [18.0, 448.0, 0.0, 0.0],
-            Kind::Label(t("sheetNames.refersToLabel", "Refers to:")),
-        );
-        let rng = {
-            let (r0, c0, r1, c1) = self.view.range_bounds();
-            let sheet = self
-                .view
-                .sheet_names()
-                .get(self.view.sheet())
-                .cloned()
-                .flatten()
-                .unwrap_or_default();
-            let a = |r: u32, c: u32| format!("${}${}", col_to_letters(c), r + 1);
-            if (r0, c0) == (r1, c1) {
-                format!("={sheet}!{}", a(r0, c0))
-            } else {
-                format!("={sheet}!{}:{}", a(r0, c0), a(r1, c1))
-            }
-        };
-        f.add("ref", None, [100.0, 444.0, 586.0, 26.0], Self::edit(&rng));
-        f.add(
-            "err",
-            None,
-            [18.0, 478.0, 0.0, 0.0],
-            Kind::Note(String::new()),
-        );
-        let close = t("sheetNames.close", "Close");
-        f.add(
-            "cancel",
-            None,
-            [575.0, 500.0, 111.0, 29.0],
-            Kind::Button {
-                label: close,
-                default: true,
-            },
-        );
-        self.form = Some(f);
-        self.form_kind = FormKind::Names;
-        self.names_refresh();
-        true
-    }
-
-    fn names_refresh(&mut self) {
-        let list = self
-            .view
-            .query(json!({ "cmd": "nameList" }))
-            .and_then(|v| v.as_array().cloned())
-            .unwrap_or_default();
-        let rows: Vec<(String, String)> = list
-            .iter()
-            .map(|n| {
-                (
-                    n.get("name")
-                        .and_then(Value::as_str)
-                        .unwrap_or("")
-                        .to_owned(),
-                    n.get("refersTo")
-                        .and_then(Value::as_str)
-                        .unwrap_or("")
-                        .to_owned(),
-                )
-            })
-            .collect();
-        self.name_rows.clone_from(&rows);
-        let workbook = self.t("sheetNames.workbook", "Workbook");
-        let sheets = self.view.sheet_names();
-        self.name_scopes = list
-            .iter()
-            .map(|n| {
-                n.get("scope")
-                    .and_then(Value::as_u64)
-                    .and_then(|s| sheets.get(s as usize).cloned().flatten())
-                    .unwrap_or_else(|| workbook.clone())
-            })
-            .collect();
-        if let Some(f) = self.form.as_mut() {
-            let items = rows
-                .iter()
-                .map(|(n, r)| format!("{n:<28}\t{r}"))
-                .map(|s| s.replace('\t', "    "))
-                .collect();
-            f.set_items("names", items, None);
-        }
-    }
-
-    fn names_event(&mut self, ev: &Event) {
-        let set_err = |w: &mut Self, s: String| {
-            if let Some(Kind::Note(n)) = w
-                .form
-                .as_mut()
-                .and_then(|f| f.get_mut("err"))
-                .map(|c| &mut c.kind)
-            {
-                *n = s;
-            }
-        };
-        match ev {
-            Event::Changed("names") => {
-                let i = self.form.as_ref().and_then(|f| f.sel("names"));
-                if let Some((n, r)) = i.and_then(|i| self.name_rows.get(i).cloned()) {
-                    if let Some(f) = self.form.as_mut() {
-                        f.set_text("name", &n);
-                        f.set_text("ref", &r);
-                    }
-                }
-            }
-            Event::Clicked("new" | "apply") => {
-                let Some(f) = self.form.as_ref() else {
-                    return;
-                };
-                let (name, refers) = (f.text("name").trim().to_owned(), f.text("ref"));
-                let old = matches!(ev, Event::Clicked("apply"))
-                    .then(|| f.sel("names").and_then(|i| self.name_rows.get(i)))
-                    .flatten()
-                    .map(|(n, _)| n.clone());
-                let mut cmd = json!({ "cmd": "defineName", "name": name, "refersTo": refers });
-                if let Some(o) = old {
-                    cmd["old"] = json!({ "name": o });
-                }
-                let ok = self.view.query(cmd).is_some();
-                self.view.changed();
-                let msg = if ok {
-                    String::new()
-                } else {
-                    self.view
-                        .take_error()
-                        .unwrap_or_else(|| self.t("sheetNames.invalid", "The name is not valid."))
-                };
-                set_err(self, msg);
-                self.names_refresh();
-            }
-            Event::Clicked("del") => {
-                let i = self.form.as_ref().and_then(|f| f.sel("names"));
-                if let Some((n, _)) = i.and_then(|i| self.name_rows.get(i).cloned()) {
-                    self.view.query(json!({ "cmd": "deleteName", "name": n }));
-                    self.view.changed();
-                    self.names_refresh();
-                }
-            }
-            Event::Canvas("ntable", _, y) => {
-                // Rows of 22 px under the 26 px header.
-                let row = ((y - 26.0) / 22.0).floor();
-                if row >= 0.0 && (row as usize) < self.name_rows.len() {
-                    if let Some(f) = self.form.as_mut() {
-                        f.set_sel("names", Some(row as usize));
-                    }
-                    self.names_event(&Event::Changed("names"));
-                }
-            }
-            Event::Ok | Event::Cancel => self.form = None,
-            _ => {}
-        }
-    }
-
-    /// The Name Manager's table: header (Name, Value, Refers To, Scope, Comment) with
-    /// #E5E5E5 separators, one 22 px row per name, the chosen row in the selection blue.
-    pub(super) fn paint_name_table(&self, f: &Form, r: [f32; 4], p: &mut dyn crate::Painter) {
-        use bo_render::Rgba;
-        let k = self.scale / 1.25;
-        p.fill_rect(r[0], r[1], r[2], r[3], Rgba(0x82, 0x87, 0x90, 255));
-        p.fill_rect(
-            r[0] + 1.0,
-            r[1] + 1.0,
-            r[2] - 2.0,
-            r[3] - 2.0,
-            Rgba(255, 255, 255, 255),
-        );
-        let font = f.font();
-        let line = font.size * 1.33;
-        let cols = [
-            (8.0, "sheetNames.name", "Name"),
-            (150.0, "sheetNative.nmValue", "Value"),
-            (300.0, "sheetNative.nmRefersTo", "Refers To"),
-            (450.0, "sheetNames.scope", "Scope"),
-            (532.0, "sheetNames.comment", "Comment"),
-        ];
-        let hh = (26.0 * k).round();
-        for (i, (x, key, fb)) in cols.iter().enumerate() {
-            if i > 0 {
-                p.fill_rect(
-                    (r[0] + (x - 7.0) * k).round(),
-                    r[1] + 1.0,
-                    1.0,
-                    hh - 1.0,
-                    Rgba(0xE5, 0xE5, 0xE5, 255),
-                );
-            }
-            p.text_font(
-                &self.t(key, fb),
-                r[0] + x * k,
-                (r[1] + (hh - line) / 2.0).round(),
-                &font,
-                Rgba(0, 0, 0, 255),
-            );
-        }
-        let sel = f.sel("names");
-        let rh = (22.0 * k).round();
-        for (i, (name, refers)) in self.name_rows.iter().enumerate() {
-            let y = r[1] + hh + i as f32 * rh;
-            if y + rh > r[1] + r[3] {
-                break;
-            }
-            let chosen = sel == Some(i);
-            let ink = if chosen {
-                p.fill_rect(r[0] + 2.0, y, r[2] - 4.0, rh, Rgba(0x00, 0x78, 0xD7, 255));
-                Rgba(255, 255, 255, 255)
-            } else {
-                Rgba(0, 0, 0, 255)
-            };
-            let ty = (y + (rh - line) / 2.0).round();
-            let scope = self.name_scopes.get(i).cloned().unwrap_or_default();
-            p.push_clip(r[0] + 1.0, y, r[2] - 2.0, rh);
-            for (x, text) in [(cols[0].0, name), (cols[2].0, refers), (cols[3].0, &scope)] {
-                p.text_font(text, r[0] + x * k, ty, &font, ink);
-            }
-            p.pop_clip();
-        }
-    }
-
     // ---------------------------------------------------------------- Insert Function
 
     /// Open Insert Function: search, category, function list and its arguments.
@@ -1446,7 +1172,11 @@ impl SheetWindow {
             [32.0, 122.0, 0.0, 0.0],
             Kind::Label(t("sheetFn.category", "Or select a category:")),
         );
-        let mut cats = vec![t("sheetFn.all", "All")];
+        // Most Recently Used first (kept in the preferences), as the reference.
+        let mut cats = vec![
+            t("sheetNative.fnRecent", "Most Recently Used"),
+            t("sheetFn.all", "All"),
+        ];
         cats.extend(FUNCTION_CATEGORIES.iter().map(|(id, _)| {
             let key = format!("commands.{id}");
             t(&key, id.trim_start_matches("sheet.fn"))
@@ -1488,6 +1218,25 @@ impl SheetWindow {
             [32.0, 330.0, 0.0, 0.0],
             Kind::Note(String::new()),
         );
+        f.set_placeholder(
+            "search",
+            &t(
+                "sheetNative.fnSearchHint",
+                "Type a brief description of what you want to do and then click Go",
+            ),
+        );
+        f.set_bold("sig");
+        f.add(
+            "helpLink",
+            None,
+            [18.0, 442.0, 250.0, 22.0],
+            Kind::Label(t("sheetNative.fnHelpLink", "Help on this function")),
+        );
+        // No per-function reference in BlueSheet yet: shown greyed.
+        f.enable("helpLink", false);
+        f.set_access("searchL", 0);
+        f.set_access("catL", 15);
+        f.set_access("fnL", 16);
         f.ok_cancel(&t("common.ok", "OK"), &t("common.cancel", "Cancel"));
         if let Some(c) = f.get_mut("ok") {
             c.rect = [387.0, 435.0, 111.0, 30.0];
@@ -1509,18 +1258,32 @@ impl SheetWindow {
             return;
         };
         let cat = f.sel("cat").unwrap_or(0);
-        let query = f.text("search").trim().to_ascii_uppercase();
-        let mut names: Vec<String> = if cat == 0 {
-            self.functions.clone()
-        } else {
-            FUNCTION_CATEGORIES
-                .get(cat - 1)
+        let query = f.text("search").trim().to_owned();
+        let mut names: Vec<String> = match cat {
+            0 if query.is_empty() => self.prefs.recent_functions.clone(),
+            0 | 1 => self.functions.clone(),
+            _ => FUNCTION_CATEGORIES
+                .get(cat - 2)
                 .map(|(_, n)| n.iter().map(|s| (*s).to_owned()).collect())
-                .unwrap_or_default()
+                .unwrap_or_default(),
         };
         if !query.is_empty() {
-            names.retain(|n| n.contains(&query));
+            // Names and descriptions, every word of the query (Go).
+            let words: Vec<String> = query
+                .to_lowercase()
+                .split_whitespace()
+                .map(str::to_owned)
+                .collect();
+            names.retain(|n| {
+                let hay = format!(
+                    "{} {}",
+                    n.to_lowercase(),
+                    self.function_description(n).to_lowercase()
+                );
+                words.iter().all(|w| hay.contains(w.as_str()))
+            });
         }
+        let query = query.to_ascii_uppercase();
         let pick = names
             .iter()
             .position(|n| *n == query)
@@ -1546,8 +1309,11 @@ impl SheetWindow {
         } else {
             format!("{name}({})", args.clone().unwrap_or_else(|| "…".into()))
         };
+        let desc = self.function_description(&name);
         let help = if name.is_empty() {
             String::new()
+        } else if !desc.is_empty() {
+            desc
         } else if args.is_some() {
             self.t(
                 "sheetFn.helpArgs",
@@ -1569,6 +1335,27 @@ impl SheetWindow {
         }
     }
 
+    /// Our own one-line description of function `name` (`""` when there is none).
+    pub(super) fn function_description(&self, name: &str) -> String {
+        let key = format!("sheetNative.fnd{}", name.replace('.', "_"));
+        let d = self.t(&key, "");
+        if d == key {
+            String::new()
+        } else {
+            d
+        }
+    }
+
+    /// Put `name` first in the Most Recently Used list (ten names, stored in the
+    /// preferences).
+    fn note_recent_function(&mut self, name: &str) {
+        let mut p = self.prefs.clone();
+        p.recent_functions.retain(|n| n != name);
+        p.recent_functions.insert(0, name.to_owned());
+        p.recent_functions.truncate(10);
+        self.set_prefs(p);
+    }
+
     fn function_event(&mut self, ev: &Event, text: &dyn crate::TextMeasure) {
         match ev {
             Event::Changed("cat" | "search") | Event::Clicked("go") => self.function_refresh(),
@@ -1581,6 +1368,7 @@ impl SheetWindow {
                     .unwrap_or_default();
                 self.form = None;
                 if !name.is_empty() {
+                    self.note_recent_function(&name);
                     self.view.edit_with(&format!("={name}("), text);
                 }
             }
@@ -1639,6 +1427,7 @@ impl SheetWindow {
             FormKind::Validation => self.validation_event(ev),
             FormKind::GoalSeek => self.goal_event(ev),
             FormKind::Names => self.names_event(ev),
+            FormKind::NewName => self.new_name_event(ev),
             FormKind::Function => self.function_event(ev, text),
             FormKind::PrintTitles => self.print_titles_event(ev),
             FormKind::CreateTable

@@ -1434,15 +1434,23 @@ fn data_and_formulas_dialogs_sort_validate_seek_name_and_trace() {
     w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
     assert!(w.form.is_none());
     assert_eq!(shown(&w, 6, 1), "5");
-    // Name Manager: define Rate = 0,1.
+    // Name Manager: New… opens New Name; define Rate = 0,1.
     assert!(w.action("sheet.nameManager", &Fixed));
+    click_form(&mut w, "new", 10.0, 10.0);
+    assert_eq!(w.form_kind, form_impl::FormKind::NewName);
     {
-        let f = w.form.as_mut().expect("names form");
+        let f = w.form.as_mut().expect("new name form");
         f.set_text("name", "Rate");
         f.set_text("ref", "=0,1");
     }
-    click_form(&mut w, "new", 10.0, 10.0);
-    assert!(w.name_rows.iter().any(|(n, _)| n == "Rate"));
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert_eq!(w.form_kind, form_impl::FormKind::Names);
+    let rate = w
+        .name_table
+        .iter()
+        .find(|r| r.name == "Rate")
+        .expect("Rate");
+    assert_eq!(rate.value, "0.1");
     w.handle(Input::Key(Key::Escape, Mods::default()), &Fixed);
     // Insert Function: search IF, pick it, OK starts the formula.
     w.view_mut().select((9, 0), (9, 0), (9, 0));
@@ -3226,4 +3234,61 @@ fn sort_dialog_moves_levels_and_sorts_with_options() {
     let names: Vec<String> = (1..4).map(|r| input(&w, r, 0)).collect();
     // Score, then Name case sensitive: lower case before upper case.
     assert_eq!(names, ["a", "b", "B"]);
+}
+
+#[test]
+fn insert_function_recent_list_descriptions_and_search() {
+    let mut w = window();
+    assert!(w.action("sheet.insertFunction", &Fixed));
+    {
+        let f = w.form.as_ref().expect("insert function");
+        // Most Recently Used, seeded as the reference.
+        assert_eq!(f.sel("cat"), Some(0));
+        assert_eq!(f.text("fns"), "SUM");
+    }
+    let help = |w: &SheetWindow| match w
+        .form
+        .as_ref()
+        .and_then(|f| f.get("help"))
+        .map(|c| c.kind.clone())
+    {
+        Some(form_impl::Kind::Note(s)) => s,
+        _ => String::new(),
+    };
+    assert_eq!(help(&w), w.function_description("SUM"));
+    assert_ne!(help(&w), String::new());
+    // Go searches the descriptions too.
+    if let Some(f) = w.form.as_mut() {
+        f.set_text("search", "remainder");
+    }
+    w.form_event(
+        form_impl::FormKind::Function,
+        &form_impl::Event::Clicked("go"),
+        &Fixed,
+    );
+    assert_eq!(w.form.as_ref().expect("form").text("fns"), "MOD");
+    w.form_event(form_impl::FormKind::Function, &form_impl::Event::Ok, &Fixed);
+    assert_eq!(
+        w.prefs.recent_functions.first().map(String::as_str),
+        Some("MOD")
+    );
+}
+
+#[test]
+fn subtotal_defaults_to_count_for_a_text_column() {
+    let mut w = window();
+    put(
+        &mut w,
+        &[
+            (0, 0, "Region"),
+            (0, 1, "Note"),
+            (1, 0, "N"),
+            (1, 1, "x"),
+            (2, 0, "S"),
+            (2, 1, "y"),
+        ],
+    );
+    w.view.select((1, 0), (1, 0), (1, 0));
+    assert!(w.action("outline.subtotal", &Fixed));
+    assert_eq!(w.form.as_ref().and_then(|f| f.sel("fn")), Some(1));
 }

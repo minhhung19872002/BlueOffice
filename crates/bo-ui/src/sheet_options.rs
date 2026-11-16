@@ -42,7 +42,16 @@ pub struct SheetPrefs {
     pub autosave: bool,
     /// AutoRecover interval (minutes).
     pub autosave_min: u32,
+    /// Insert Function's Most Recently Used list.
+    pub recent_functions: Vec<String>,
+    /// ScreenTip style: 0 with descriptions, 1 without, 2 none.
+    pub screentips: u8,
+    /// Default view of new sheets: 0 Normal, 1 Page Break Preview, 2 Page Layout.
+    pub new_view: u8,
 }
+
+/// The reference's starting Most Recently Used functions.
+const RECENT: [&str; 7] = ["SUM", "AVERAGE", "IF", "HYPERLINK", "COUNT", "MAX", "SIN"];
 
 impl Default for SheetPrefs {
     fn default() -> Self {
@@ -55,6 +64,9 @@ impl Default for SheetPrefs {
             r1c1: false,
             autosave: true,
             autosave_min: 10,
+            recent_functions: RECENT.iter().map(|s| (*s).to_owned()).collect(),
+            screentips: 0,
+            new_view: 0,
         }
     }
 }
@@ -78,6 +90,16 @@ impl SheetPrefs {
                 "r1c1" => p.r1c1 = v == "1",
                 "autosave" => p.autosave = v == "1",
                 "autosaveMin" => p.autosave_min = v.parse().unwrap_or(10).clamp(1, 120),
+                "recentFunctions" => {
+                    p.recent_functions = v
+                        .split(',')
+                        .map(|s| s.trim().to_ascii_uppercase())
+                        .filter(|s| !s.is_empty())
+                        .take(10)
+                        .collect();
+                }
+                "screentips" => p.screentips = v.parse().unwrap_or(0).min(2),
+                "newView" => p.new_view = v.parse().unwrap_or(0).min(2),
                 _ => {}
             }
         }
@@ -89,7 +111,7 @@ impl SheetPrefs {
     pub fn to_text(&self) -> String {
         let b = |v: bool| if v { "1" } else { "0" };
         format!(
-            "enterMove={}\nenterDir={}\nfont={}\nsize={}\nsheets={}\nr1c1={}\nautosave={}\nautosaveMin={}\n",
+            "enterMove={}\nenterDir={}\nfont={}\nsize={}\nsheets={}\nr1c1={}\nautosave={}\nautosaveMin={}\nrecentFunctions={}\nscreentips={}\nnewView={}\n",
             b(self.enter_move),
             self.enter_dir,
             self.font,
@@ -98,6 +120,9 @@ impl SheetPrefs {
             b(self.r1c1),
             b(self.autosave),
             self.autosave_min,
+            self.recent_functions.join(","),
+            self.screentips,
+            self.new_view,
         )
     }
 
@@ -185,7 +210,7 @@ impl SheetWindow {
         // "Show Mini Toolbar on selection" 246 px against 190 px), headings bold over a rule.
         f.set_font_scale(1.3);
         f.set_headings(true);
-        f.set_radios(&["fAuto", "fAutoNoTable", "fManual"]);
+        f.set_radios(&["fAuto", "fAutoNoTable", "fManual", "gBest", "gCompat"]);
         // White face and the category list, drawn by the owner.
         f.add("bg", None, [1.0, 38.0, 1038.0, 809.0], Kind::Canvas);
         f.add("cats", None, LIST, Kind::Canvas);
@@ -246,11 +271,83 @@ impl SheetWindow {
             f.add(
                 id,
                 Some(0),
-                [257.0, 170.0 + 36.0 * i as f32, 480.0, 24.0],
+                [257.0, 278.0 + 36.0 * i as f32, 480.0, 24.0],
                 check(t(key, fb), on),
             );
             f.enable(id, false);
         }
+        // When using multiple displays (greyed: BlueSheet always draws for the display it
+        // is on), ScreenTip style (live).
+        f.add(
+            "gDisplaysL",
+            Some(0),
+            [257.0, 176.0, 400.0, 24.0],
+            label(t(
+                "sheetNative.optDisplays",
+                "When using multiple displays:",
+            )),
+        );
+        for (i, (id, key, fb, on)) in [
+            (
+                "gBest",
+                "sheetNative.optBest",
+                "Optimize for best appearance",
+                true,
+            ),
+            (
+                "gCompat",
+                "sheetNative.optCompat",
+                "Optimize for compatibility (application restart required)",
+                false,
+            ),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            f.add(
+                id,
+                Some(0),
+                [281.0, 206.0 + 36.0 * i as f32, 520.0, 24.0],
+                check(t(key, fb), on),
+            );
+            f.enable(id, false);
+        }
+        f.add(
+            "gTipsL",
+            Some(0),
+            [257.0, 428.0, 140.0, 24.0],
+            label(t("sheetNative.optTips", "ScreenTip style:")),
+        );
+        f.add(
+            "gTips",
+            Some(0),
+            [397.0, 422.0, 390.0, 30.0],
+            Kind::Combo {
+                items: vec![
+                    t(
+                        "sheetNative.optTipsFull",
+                        "Show feature descriptions in ScreenTips",
+                    ),
+                    t(
+                        "sheetNative.optTipsShort",
+                        "Don't show feature descriptions in ScreenTips",
+                    ),
+                    t("sheetNative.optTipsNone", "Don't show ScreenTips"),
+                ],
+                sel: usize::from(p.screentips.min(2)),
+            },
+        );
+        // Our own small info marks after the labels the reference explains, and the page
+        // icon left of the intro line.
+        for (id, x, y) in [
+            ("info1", 502.0, 177.0),
+            ("info2", 532.0, 279.0),
+            ("info3", 438.0, 351.0),
+            ("info4", 550.0, 387.0),
+        ] {
+            f.add(id, Some(0), [x, y, 22.0, 22.0], Kind::Canvas);
+        }
+        f.add("hdrIcon", Some(0), [258.0, 56.0, 40.0, 46.0], Kind::Canvas);
         heading(
             &mut f,
             "gNew",
@@ -325,10 +422,9 @@ impl SheetWindow {
                     t("sheetNative.optPageBreak", "Page Break Preview"),
                     t("sheetNative.optPageLayout", "Page Layout View"),
                 ],
-                sel: 0,
+                sel: usize::from(p.new_view.min(2)),
             },
         );
-        f.enable("gView", false);
         f.add(
             "gSheets",
             Some(0),
@@ -717,6 +813,8 @@ impl SheetWindow {
         p.font = FONTS[f.sel("gFont").unwrap_or(0).min(FONTS.len() - 1)].to_owned();
         p.size = SIZES[f.sel("gSize").unwrap_or(3).min(SIZES.len() - 1)];
         p.sheets = f.num("gSheets").clamp(1, 255) as u32;
+        p.new_view = f.sel("gView").unwrap_or(0).min(2) as u8;
+        p.screentips = f.sel("gTips").unwrap_or(0).min(2) as u8;
         p.r1c1 = f.on("fR1c1");
         p.autosave = f.on("sAuto");
         p.autosave_min = f.num("sMinutes").clamp(1, 120) as u32;
@@ -779,7 +877,7 @@ impl SheetWindow {
     /// none is chosen) and the number of sheets. `false` when the defaults apply.
     pub(super) fn new_book_with_prefs(&mut self, name: &str) -> bool {
         let p = self.prefs.clone();
-        if p.font.is_empty() && (p.size - 11.0).abs() < 0.01 && p.sheets <= 1 {
+        if p.font.is_empty() && (p.size - 11.0).abs() < 0.01 && p.sheets <= 1 && p.new_view == 0 {
             return false;
         }
         let mut wb = bo_model::sheet::Workbook::new();
@@ -789,6 +887,22 @@ impl SheetWindow {
         for i in wb.sheets.len()..p.sheets as usize {
             wb.sheets
                 .push(bo_model::sheet::Worksheet::new(&format!("Sheet{}", i + 1)));
+        }
+        // Default view for new sheets (§18.3.1.87 sheetView/@view).
+        let view = match p.new_view {
+            1 => Some(bo_model::sheet::SheetViewType::PageBreakPreview),
+            2 => Some(bo_model::sheet::SheetViewType::PageLayout),
+            _ => None,
+        };
+        if let Some(v) = view {
+            for ws in &mut wb.sheets {
+                if ws.views.is_empty() {
+                    ws.views.push(bo_model::sheet::SheetView::default());
+                }
+                if let Some(sv) = ws.views.first_mut() {
+                    sv.set_view_type(v);
+                }
+            }
         }
         if let Some(f) = wb.styles.fonts.get_mut(0) {
             if !p.font.is_empty() {
@@ -810,6 +924,66 @@ impl SheetWindow {
         let k = self.scale / 1.25;
         match id {
             "bg" => p.fill_rect(r[0], r[1], r[2], r[3], Rgba(255, 255, 255, 255)),
+            "info1" | "info2" | "info3" | "info4" => {
+                // A small ring with an "i" in BlueSheet's link blue.
+                let blue = Rgba(0x1E, 0x6F, 0xC6, 255);
+                let (cx, cy, rr) = (r[0] + r[2] / 2.0, r[1] + r[3] / 2.0, 7.0 * k);
+                let c = rr * 0.552_284_8;
+                p.path(
+                    &[
+                        bo_render::PathSeg::M(cx + rr, cy),
+                        bo_render::PathSeg::C(cx + rr, cy + c, cx + c, cy + rr, cx, cy + rr),
+                        bo_render::PathSeg::C(cx - c, cy + rr, cx - rr, cy + c, cx - rr, cy),
+                        bo_render::PathSeg::C(cx - rr, cy - c, cx - c, cy - rr, cx, cy - rr),
+                        bo_render::PathSeg::C(cx + c, cy - rr, cx + rr, cy - c, cx + rr, cy),
+                        bo_render::PathSeg::Z,
+                    ],
+                    None,
+                    Some((blue, 1.0_f32.max(k))),
+                );
+                p.fill_rect(
+                    (cx - 0.75 * k).round(),
+                    (cy - 4.0 * k).round(),
+                    (1.5 * k).max(1.0),
+                    (1.5 * k).max(1.0),
+                    blue,
+                );
+                p.fill_rect(
+                    (cx - 0.75 * k).round(),
+                    (cy - 1.5 * k).round(),
+                    (1.5 * k).max(1.0),
+                    (5.0 * k).round(),
+                    blue,
+                );
+            }
+            "hdrIcon" => {
+                // Our page icon: a sheet with two slider lines and a person mark.
+                let ink = Rgba(0x55, 0x55, 0x55, 255);
+                let (x, y) = (r[0] + 4.0 * k, r[1] + 4.0 * k);
+                let (w, h) = (24.0 * k, 30.0 * k);
+                p.fill_rect(x, y, w, h, ink);
+                p.fill_rect(x + 1.0, y + 1.0, w - 2.0, h - 2.0, Rgba(255, 255, 255, 255));
+                for (i, kx) in [(0.0, 0.35), (1.0, 0.65), (2.0, 0.45)] {
+                    let ly = y + (8.0 + 7.0 * i) * k;
+                    p.fill_rect(x + 4.0 * k, ly, w - 8.0 * k, 1.0_f32.max(k), ink);
+                    p.fill_rect(
+                        x + 4.0 * k + (w - 10.0 * k) * kx,
+                        ly - 2.0 * k,
+                        3.0 * k,
+                        5.0 * k,
+                        Rgba(0x21, 0x73, 0x46, 255),
+                    );
+                }
+                let (px, py) = (x + w - 2.0 * k, y + h - 6.0 * k);
+                p.fill_rect(px, py, 10.0 * k, 8.0 * k, Rgba(0x1E, 0x6F, 0xC6, 255));
+                p.fill_rect(
+                    px + 3.0 * k,
+                    py - 5.0 * k,
+                    4.0 * k,
+                    4.0 * k,
+                    Rgba(0x1E, 0x6F, 0xC6, 255),
+                );
+            }
             "cats" => {
                 p.fill_rect(r[0], r[1], r[2], r[3], Rgba(0x94, 0x94, 0x94, 255));
                 p.fill_rect(
@@ -820,9 +994,9 @@ impl SheetWindow {
                     Rgba(0xF3, 0xF3, 0xF3, 255),
                 );
                 let base = self.form.as_ref().map_or(15.0, |f| f.font().size);
-                // The category list is a little smaller than the page text.
+                // The category list in the page text size.
                 let font = Font {
-                    size: (base * 0.93).round(),
+                    size: base.round(),
                     ..crate::Font {
                         family: "Segoe UI",
                         size: base,

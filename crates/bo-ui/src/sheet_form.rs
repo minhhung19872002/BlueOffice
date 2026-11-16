@@ -107,6 +107,8 @@ pub(super) enum FormKind {
     Evaluate,
     /// Options… of the Sort dialog (over the stashed Sort form).
     SortOptions,
+    /// New / Edit Name over the stashed Name Manager.
+    NewName,
     /// Data tab: Subtotal, Remove Duplicates, Advanced Filter.
     Subtotal,
     RemoveDups,
@@ -228,6 +230,10 @@ pub(super) struct Form {
     /// Buttons whose label starts `pad` reference pixels from the left edge (an icon the
     /// owner draws sits before it) instead of being centred.
     left_labels: Vec<(&'static str, f32)>,
+    /// Text shown selected in an empty edit box until something is typed.
+    placeholders: Vec<(&'static str, String)>,
+    /// Labels drawn bold.
+    bold: Vec<&'static str>,
 }
 
 /// An entry of an open colour palette.
@@ -293,6 +299,8 @@ impl Form {
             radios: Vec::new(),
             access: Vec::new(),
             left_labels: Vec::new(),
+            placeholders: Vec::new(),
+            bold: Vec::new(),
         }
     }
 
@@ -306,6 +314,19 @@ impl Form {
     pub fn set_access(&mut self, id: &'static str, at: usize) {
         self.access.retain(|(i, _)| *i != id);
         self.access.push((id, at));
+    }
+
+    /// Show `text` selected in edit box `id` while it is empty (the reference's search hint).
+    pub fn set_placeholder(&mut self, id: &'static str, text: &str) {
+        self.placeholders.retain(|(i, _)| *i != id);
+        self.placeholders.push((id, text.to_owned()));
+    }
+
+    /// Draw label `id` bold.
+    pub fn set_bold(&mut self, id: &'static str) {
+        if !self.bold.contains(&id) {
+            self.bold.push(id);
+        }
     }
 
     /// Start button `id`'s label `pad` reference pixels from its left edge.
@@ -634,8 +655,10 @@ impl Form {
             .filter_map(|i| self.access_parts(i))
             .flat_map(|(a, b)| [a, b])
             .collect();
+        let hints: Vec<String> = self.placeholders.iter().map(|(_, t)| t.clone()).collect();
         self.measure(m, &strings);
         self.measure(m, &parts);
+        self.measure(m, &hints);
         let font = self.font();
         self.wrapped = self
             .ctls
@@ -1213,7 +1236,18 @@ impl Form {
             let ink = if c.enabled { INK } else { GREY_INK };
             let focused = self.focus == Some(i);
             match &c.kind {
-                Kind::Label(s) => p.text_font(s, r[0], r[1], &font, ink),
+                Kind::Label(s) => {
+                    if self.bold.contains(&c.id) {
+                        let b = Font {
+                            weight: 700,
+                            ..font
+                        };
+                        p.text_font(s, r[0], r[1], &b, ink);
+                    } else {
+                        p.text_font(s, r[0], r[1], &font, ink);
+                    }
+                    self.paint_access(p, i, r[0], r[1], ink);
+                }
                 Kind::Note(s) => match self.wrapped.iter().find(|(k, _)| *k == i) {
                     Some((_, lines)) => {
                         for (n, l) in lines.iter().enumerate() {
@@ -1271,7 +1305,21 @@ impl Form {
                     p.push_clip(r[0] + 1.0, r[1] + 1.0, r[2] - 2.0, r[3] - 2.0);
                     let s: String = value.iter().collect();
                     let tx = r[0] + 5.0 * self.k;
-                    p.text_font(&s, tx, text_y(r), &font, ink);
+                    match self.placeholders.iter().find(|(id, _)| *id == c.id) {
+                        Some((_, hint)) if s.is_empty() => {
+                            // Shown selected, as the reference's search box opens.
+                            let w = self.width(hint);
+                            p.fill_rect(
+                                tx,
+                                text_y(r),
+                                w,
+                                font.size * 1.33,
+                                Rgba(0xc8, 0xc8, 0xc8, 255),
+                            );
+                            p.text_font(hint, tx, text_y(r), &font, ink);
+                        }
+                        _ => p.text_font(&s, tx, text_y(r), &font, ink),
+                    }
                     if focused && caret_on {
                         let cx = (tx + self.caret_w).round();
                         p.fill_rect(cx, r[1] + 4.0 * self.k, 1.0, r[3] - 8.0 * self.k, INK);
@@ -1281,32 +1329,32 @@ impl Form {
                 Kind::Check { label, on } if self.radios.contains(&c.id) => {
                     // Option button: a ring, filled in the accent with a white dot when on
                     // (the reference's Windows 11 controls).
-                    let b = (15.0 * self.k).round();
+                    let b = (13.0 * self.k * self.font_k * 1.12).round();
                     let (bx, by) = (r[0], (r[1] + (r[3] - b) / 2.0).round());
                     let (cx, cy, rr) = (bx + b / 2.0, by + b / 2.0, b / 2.0);
-                    let accent = if c.enabled {
-                        Rgba(0x00, 0x5f, 0xb8, 255)
-                    } else {
-                        GREY_INK
-                    };
+                    let accent = if c.enabled { ACCENT } else { GREY_INK };
                     if *on {
                         p.path(&ring(cx, cy, rr), Some(accent), None);
                         p.path(&ring(cx, cy, rr * 0.42), Some(WHITE), None);
                     } else {
-                        p.path(
-                            &ring(cx, cy, rr - 0.5),
-                            Some(WHITE),
-                            Some((Rgba(0x33, 0x33, 0x33, 255), 1.0)),
-                        );
+                        let edge = if c.enabled {
+                            Rgba(0x80, 0x80, 0x80, 255)
+                        } else {
+                            Rgba(0xc6, 0xc6, 0xc6, 255)
+                        };
+                        p.path(&ring(cx, cy, rr - 0.5), Some(WHITE), Some((edge, 1.0)));
                     }
                     p.text_font(label, bx + b + 7.0 * self.k, text_y(r), &font, ink);
+                    self.paint_access(p, i, bx + b + 7.0 * self.k, text_y(r), ink);
                 }
                 Kind::Check { label, on } => {
-                    let b = (13.0 * self.k).round();
+                    // Windows 11 boxes as the reference's dialogs: 19 px at its larger text,
+                    // 15 px in the classic dialogs.
+                    let b = (13.0 * self.k * self.font_k * 1.12).round();
                     let (bx, by) = (r[0], (r[1] + (r[3] - b) / 2.0).round());
-                    paint_check(p, [bx, by, b, b], *on, c.enabled, focused, self.k);
-                    p.text_font(label, bx + b + 8.0 * self.k, text_y(r), &font, ink);
-                    self.paint_access(p, i, bx + b + 8.0 * self.k, text_y(r), ink);
+                    paint_check_box(p, [bx, by, b, b], *on, c.enabled, focused, self.k);
+                    p.text_font(label, bx + b + 7.0 * self.k, text_y(r), &font, ink);
+                    self.paint_access(p, i, bx + b + 7.0 * self.k, text_y(r), ink);
                 }
                 Kind::List { items, sel, top } => {
                     p.fill_rect(r[0], r[1], r[2], r[3], LIST_EDGE);
@@ -1620,6 +1668,59 @@ fn swatch_at(
         let s = swatch_rect(r, *k, cols, breaks);
         in_rect([s[0] - 2.0, s[1] - 2.0, s[2] + 4.0, s[3] + 4.0], x, y)
     })
+}
+
+/// BlueSheet's accent (the selection green), for checked boxes and option buttons.
+const ACCENT: Rgba = Rgba(0x21, 0x73, 0x46, 255);
+
+/// A Windows 11 style check box as the reference's dialogs draw it (measured at 125 %):
+/// unchecked white framed #808080; checked filled with the accent, framed a darker shade,
+/// a white tick; greyed #C6C6C6. A focused box gets an outer focus line.
+fn paint_check_box(
+    p: &mut dyn Painter,
+    b: [f32; 4],
+    on: bool,
+    enabled: bool,
+    focused: bool,
+    k: f32,
+) {
+    let grey = Rgba(0xc6, 0xc6, 0xc6, 255);
+    if focused {
+        p.fill_rect(b[0] - 2.0, b[1] - 2.0, b[2] + 4.0, b[3] + 4.0, INK);
+        p.fill_rect(b[0] - 1.0, b[1] - 1.0, b[2] + 2.0, b[3] + 2.0, WHITE);
+    }
+    if on {
+        let (edge, fill) = if enabled {
+            (Rgba(0x0e, 0x5c, 0x2f, 255), ACCENT)
+        } else {
+            (grey, grey)
+        };
+        p.fill_rect(b[0], b[1], b[2], b[3], edge);
+        p.fill_rect(b[0] + 1.0, b[1] + 1.0, b[2] - 2.0, b[3] - 2.0, fill);
+        let (x, y, s) = (b[0], b[1], b[2]);
+        p.path(
+            &[
+                PathSeg::M(x + s * 0.22, y + s * 0.45),
+                PathSeg::L(x + s * 0.42, y + s * 0.65),
+                PathSeg::L(x + s * 0.76, y + s * 0.27),
+            ],
+            None,
+            Some((WHITE, (1.6 * k).max(1.4))),
+        );
+    } else {
+        p.fill_rect(
+            b[0],
+            b[1],
+            b[2],
+            b[3],
+            if enabled {
+                Rgba(0x80, 0x80, 0x80, 255)
+            } else {
+                grey
+            },
+        );
+        p.fill_rect(b[0] + 1.0, b[1] + 1.0, b[2] - 2.0, b[3] - 2.0, WHITE);
+    }
 }
 
 /// A check box (white, framed #333333, blue when focused; a dark tick).

@@ -175,7 +175,11 @@ impl EditorWindow {
         // Information mark (our own drawing: a filled circle with an "i").
         let d = px(25.6);
         let (mx, my) = (x + px(28.0), y + px(50.0));
-        p.path(&rounded(mx, my, d, d, d / 2.0), Some(accent), None);
+        p.path(
+            &circle(mx + d / 2.0, my + d / 2.0, d / 2.0),
+            Some(accent),
+            None,
+        );
         let white = Rgba(255, 255, 255, 255);
         let sw = px(2.6);
         p.fill_rect(mx + (d - sw) / 2.0, my + px(6.0), sw, sw, white);
@@ -268,4 +272,17 @@ impl EditorWindow {
         self.edit.typing = None;
         self.edit.page = None;
     }
+}
+
+/// A circle of radius `r` around (`cx`, `cy`) as four cubic arcs.
+fn circle(cx: f32, cy: f32, r: f32) -> Vec<PathSeg> {
+    let k = r * 0.552_285;
+    vec![
+        PathSeg::M(cx + r, cy),
+        PathSeg::C(cx + r, cy + k, cx + k, cy + r, cx, cy + r),
+        PathSeg::C(cx - k, cy + r, cx - r, cy + k, cx - r, cy),
+        PathSeg::C(cx - r, cy - k, cx - k, cy - r, cx, cy - r),
+        PathSeg::C(cx + k, cy - r, cx + r, cy - k, cx + r, cy),
+        PathSeg::Z,
+    ]
 }

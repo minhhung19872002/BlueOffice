@@ -98,6 +98,14 @@ impl Typing {
         self.block.as_ref().map_or(self.bbox, |b| b.bbox)
     }
 
+    /// The frame drawn while typing: the paragraph's box joined with the paragraphs after it
+    /// (`BlockEdit::frame`), as the reference editor frames its text box.
+    fn frame(&self) -> [f32; 4] {
+        self.block
+            .as_ref()
+            .map_or(self.bbox, bo_pdfread::BlockEdit::frame)
+    }
+
     fn snap(&self) -> Option<Snap> {
         let b = self.block.as_ref()?;
         Some(Snap {
@@ -157,6 +165,8 @@ pub(crate) enum Drag {
     Resize { corner: usize, to: (f32, f32) },
     /// Selecting the items a rectangle touches, from a document point.
     Marquee { from: (f32, f32), to: (f32, f32) },
+    /// Dragging the right side of the paragraph's frame: its lines wrap at `to` (page x).
+    Wrap { to: f32 },
 }
 
 /// Editing state of the active document.
@@ -328,6 +338,19 @@ impl Editing {
                 return;
             }
         }
+        // The right side of the frame (its handles): the lines wrap where it is dropped.
+        if let Some(t) = self
+            .typing
+            .as_ref()
+            .filter(|t| t.page == page && t.block.is_some())
+        {
+            let f = t.frame();
+            let tol = 5.0 / v.scale().max(0.01);
+            if (px - f[2]).abs() <= tol && py >= f[1] - tol && py <= f[3] + tol {
+                self.drag = Some(Drag::Wrap { to: px });
+                return;
+            }
+        }
         // A press inside the paragraph being typed into moves the caret or selects.
         if let Some(t) = self.typing.as_mut() {
             let b = t.bbox();
@@ -468,6 +491,12 @@ impl Editing {
 
     /// Button down and moving.
     pub fn drag(&mut self, v: &ReaderView, x: f32, y: f32) -> bool {
+        if let Some(Drag::Wrap { to }) = self.drag.as_mut() {
+            if let Some(pr) = self.page.and_then(|p| v.page_rect(p)) {
+                *to = (x - pr[0]) / v.scale().max(0.01);
+            }
+            return true;
+        }
         if let Some(t) = self.typing.as_mut().filter(|t| t.selecting) {
             let Some(pr) = v.page_rect(t.page) else {
                 return false;
@@ -545,6 +574,7 @@ impl Editing {
                 self.drag = Some(Drag::Marquee { from, to: pointer });
                 true
             }
+            Some(Drag::Wrap { .. }) => true,
             None => false,
         }
     }
@@ -599,6 +629,13 @@ impl Editing {
         let Some(page) = self.page else { return false };
         self.guides.clear();
         match self.drag.take() {
+            Some(Drag::Wrap { to }) => {
+                if let Some(b) = self.typing.as_mut().and_then(|t| t.block.as_mut()) {
+                    let left = b.bbox[0];
+                    b.set_wrap_width(to - left);
+                }
+                self.write(v)
+            }
             Some(Drag::Move { from, to, copy }) => {
                 let (dx, dy) = (to.0 - from.0, to.1 - from.1);
                 if dx.abs() < 0.5 && dy.abs() < 0.5 {
@@ -1288,13 +1325,34 @@ impl Editing {
             }
         }
         if let Some(t) = &self.typing {
-            if let Some(r) = v.doc_rect_to_window(t.page, t.bbox()) {
-                outline(
-                    p,
-                    [r[0] - 2.0, r[1] - 1.0, r[2] + 4.0, r[3] + 2.0],
-                    accent,
-                    1.0,
-                );
+            // The reference's text box frame: 1 px #99C1DA around the joined paragraphs with
+            // eight square handles (white, #B3D1E4 edge) at the corners and side middles.
+            let mut f = t.frame();
+            if let Some(Drag::Wrap { to }) = self.drag {
+                f[2] = to.max(f[0] + 12.0);
+            }
+            if let Some(r) = v.doc_rect_to_window(t.page, f) {
+                let r = [r[0] - 2.0, r[1] - 1.0, r[2] + 4.0, r[3] + 2.0];
+                let edge = Rgba(0x99, 0xC1, 0xDA, 255);
+                outline(p, r, edge, 1.0);
+                if t.block.is_some() {
+                    let (x0, y0) = (r[0].round(), r[1].round());
+                    let (x1, y1) = ((r[0] + r[2]).round(), (r[1] + r[3]).round());
+                    let (xm, ym) = (f32::midpoint(x0, x1).round(), f32::midpoint(y0, y1).round());
+                    for (cx, cy) in [
+                        (x0, y0),
+                        (xm, y0),
+                        (x1, y0),
+                        (x0, ym),
+                        (x1, ym),
+                        (x0, y1),
+                        (xm, y1),
+                        (x1, y1),
+                    ] {
+                        p.fill_rect(cx - 4.0, cy - 4.0, 8.0, 8.0, Rgba(0xB3, 0xD1, 0xE4, 255));
+                        p.fill_rect(cx - 3.0, cy - 3.0, 6.0, 6.0, Rgba(255, 255, 255, 255));
+                    }
+                }
             }
             if let (Some((a, e)), Some(b)) = (t.selection(), &t.block) {
                 for s in b.selection_rects(a, e) {

@@ -403,7 +403,7 @@ pub struct BlockEdit {
     /// Top-left of the first line's baseline (page points).
     origin: (f32, f32),
     /// Width the text wraps at.
-    width: f32,
+    pub(crate) width: f32,
     /// First-line indent of each paragraph (along the baseline).
     indent: f32,
     /// Unit vectors along the baseline and across lines (downwards) in page points.

@@ -47,6 +47,8 @@ pub(crate) struct Push {
     lines0: usize,
     /// Shift now applied to the followers (page points, along the block's line direction).
     applied: f32,
+    /// Box of the paragraphs after it in its box where they were (Box mode, page points).
+    group: Option<[f32; 4]>,
 }
 
 impl Push {
@@ -126,6 +128,38 @@ impl BlockEdit {
     pub fn follower_shift(&self) -> f32 {
         self.push.as_ref().map_or(0.0, |p| p.applied)
     }
+
+    /// The editing frame (page points): the paragraph and the paragraphs after it in its box
+    /// where they are now — the reference editor frames the whole box.
+    #[must_use]
+    pub fn frame(&self) -> [f32; 4] {
+        let b = self.bbox;
+        let Some((g, d)) = self.push.as_ref().and_then(|p| Some((p.group?, p.applied))) else {
+            return b;
+        };
+        let (vx, vy) = self.across();
+        let g = [g[0] + vx * d, g[1] + vy * d, g[2] + vx * d, g[3] + vy * d];
+        [
+            b[0].min(g[0]),
+            b[1].min(g[1]),
+            b[2].max(g[2]),
+            b[3].max(g[3]),
+        ]
+    }
+
+    /// Width the paragraph's lines wrap at (points).
+    #[must_use]
+    pub fn wrap_width(&self) -> f32 {
+        self.width
+    }
+
+    /// Wrap the lines at `w` points (dragging the frame's side; at least 12 points). Lay out
+    /// again with [`PdfDocument::block_edit_update`].
+    pub fn set_wrap_width(&mut self, w: f32) {
+        if w.is_finite() {
+            self.width = w.max(12.0);
+        }
+    }
 }
 
 impl PdfDocument {
@@ -135,7 +169,20 @@ impl PdfDocument {
         let (base, inv_base) = self.bases(e.page)?;
         let objs = self.objects_in(e.page, Some(&e.prefix))?;
         let size = e.styles.first().map_or(10.0, |s| s.size).max(1.0);
-        let followers = followers_of(&objs, e.bbox, size, mode)
+        let ids = followers_of(&objs, e.bbox, size, mode);
+        let group = (mode == PushMode::Box)
+            .then(|| {
+                ids.iter().map(|&i| objs[i].bbox).reduce(|a, b| {
+                    [
+                        a[0].min(b[0]),
+                        a[1].min(b[1]),
+                        a[2].max(b[2]),
+                        a[3].max(b[3]),
+                    ]
+                })
+            })
+            .flatten();
+        let followers = ids
             .into_iter()
             .filter_map(|i| {
                 let rec = &objs[i].rec;
@@ -163,6 +210,7 @@ impl PdfDocument {
             inv_base,
             lines0: e.lines,
             applied: 0.0,
+            group,
         });
         Ok(())
     }

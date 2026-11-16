@@ -255,6 +255,62 @@ fn reader_window_draws_a_page_changed_sixty_times() {
     }
 }
 
+/// The typing frame encloses the paragraph and the ones after it in its box (as the reference
+/// editor's text box), and dragging its right side makes the lines wrap there.
+#[test]
+fn typing_frame_joins_the_box_and_its_side_rewraps() {
+    let mut w = window_with(paragraphs_pdf());
+    type_at_end(&mut w, " more");
+    let (frame, lines) = {
+        let b = w
+            .edit
+            .typing
+            .as_ref()
+            .and_then(|t| t.block.as_ref())
+            .expect("block");
+        (b.frame(), b.lines)
+    };
+    let second_bottom = {
+        let v = w.view_mut().expect("view");
+        let objs = v.doc_mut().page_objects(0).expect("objects");
+        let second = bo_pdfread::text_blocks(&objs)
+            .into_iter()
+            .find(|x| x.text.starts_with("The second"))
+            .expect("second");
+        second.bbox[3]
+    };
+    assert!(
+        (frame[3] - second_bottom).abs() < 1.0,
+        "{frame:?} vs {second_bottom}"
+    );
+    // Drag the right side to half the width: more lines.
+    let r = w
+        .view()
+        .and_then(|v| v.doc_rect_to_window(0, frame))
+        .expect("on screen");
+    let (x, y) = (r[0] + r[2], r[1] + r[3] / 2.0);
+    w.handle(
+        Input::Press {
+            x,
+            y,
+            count: 1,
+            shift: false,
+        },
+        &Fixed,
+    );
+    let to = r[0] + r[2] / 2.0;
+    w.handle(Input::Drag { x: to, y }, &Fixed);
+    w.handle(Input::Release { x: to, y }, &Fixed);
+    let b = w
+        .edit
+        .typing
+        .as_ref()
+        .and_then(|t| t.block.as_ref())
+        .expect("still typing");
+    assert!(b.lines > lines, "{} lines, was {lines}", b.lines);
+    assert!(b.bbox[2] < frame[2] - 20.0);
+}
+
 /// A window still tiny when its first frame is drawn (seen at start-up) paints without the
 /// scroll bar's thumb panicking on an empty track.
 #[test]

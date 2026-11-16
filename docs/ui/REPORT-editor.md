@@ -315,7 +315,9 @@ khoảng lớn đứng yên và bị đè (`editor-56`). BlueEditor làm như v�
 khung (chữ chép lại cuối phần đầu nội dung như lệnh dời đối tượng), dời đúng số dòng × khoảng dòng mỗi khi số dòng
 đổi; Reflow Editing bật thì dời mọi thứ bên dưới (cả hình) — trước đây chỉ dời khi kết thúc phiên, lúc gõ vẫn đè.
 Một bước hoàn tác cho cả đoạn và những gì dời theo. Lối gõ nhanh (`typing_fast`) vẫn dùng được: phần đầu chỉ đổi khi
-số dòng đổi.
+số dòng đổi. Khung khi gõ như khung hộp chữ của bản đối chiếu: bao cả đoạn và các đoạn theo sau trong khung (vị trí
+hiện tại), nét 1 px `#99C1DA`, tám ô vuông 8 px (nền trắng, viền `#B3D1E4`) ở góc và giữa cạnh; kéo cạnh phải đặt
+lại bề rộng xuống dòng (`BlockEdit::set_wrap_width`).
 
 **Comment › Text Box** (`editor_textbox.rs`, `bo-pdfread::textbox_annot`). Lỗi: lệnh đi vào công cụ của BlueReader,
 hộp hỏi chữ của nó chưa được đặt chỗ nên hiện ở góc trên trái cửa sổ (“Ex / Cancel”). Nay hộp hỏi của BlueReader

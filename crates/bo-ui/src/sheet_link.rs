@@ -143,6 +143,8 @@ impl SheetWindow {
         f.add("upDir", p, [662.0, 93.0, 28.0, 28.0], Kind::Canvas);
         f.add("web", p, [717.0, 93.0, 28.0, 28.0], Kind::Canvas);
         f.add("file", p, [752.0, 93.0, 28.0, 28.0], Kind::Canvas);
+        f.add("folder", p, [789.0, 93.0, 28.0, 28.0], Kind::Canvas);
+        f.enable("folder", false);
         f.enable("web", false);
         f.enable("file", false);
         f.add("ltabs", p, [151.0, 124.0, 96.0, 207.0], Kind::Canvas);
@@ -766,7 +768,7 @@ impl SheetWindow {
             }
             return;
         }
-        if matches!(id, "upDir" | "web" | "file") {
+        if matches!(id, "upDir" | "web" | "file" | "folder") {
             let on = f.get(id).is_some_and(|c| c.enabled);
             let ink = if on {
                 Rgba(0x40, 0x40, 0x40, 255)
@@ -785,6 +787,15 @@ impl SheetWindow {
             let a = (6.0 * k).round();
             match id {
                 // A folder with an arrow up.
+                "folder" => {
+                    let c = if on {
+                        Rgba(0xE8, 0xB8, 0x4A, 255)
+                    } else {
+                        Rgba(0xD8, 0xD0, 0xB8, 255)
+                    };
+                    p.fill_rect(cx - a, cy - a * 0.6, a, a * 0.4, c);
+                    p.fill_rect(cx - a, cy - a * 0.3, 2.0 * a, a * 1.3, c);
+                }
                 "upDir" => {
                     p.fill_rect(
                         cx - a,

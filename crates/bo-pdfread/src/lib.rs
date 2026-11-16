@@ -18,6 +18,7 @@ mod annot_caret;
 mod annot_draw;
 mod annot_edit;
 mod annot_image;
+mod annot_paste;
 mod annot_popup;
 mod arrange;
 mod cmap;
@@ -70,6 +71,7 @@ pub use annot_draw::{
     Style as DrawStyle,
 };
 pub use annot_edit::CommentThread;
+pub use annot_popup::PopupNote;
 pub use arrange::{flip_about, rotation_about};
 
 pub use convert::{StyledBlock, StyledRun};

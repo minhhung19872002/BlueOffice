@@ -11506,5 +11506,13 @@
   "pdfTip": {
     "help.manual": "User Manual: not included in this build",
     "help.center": "Help Center: no support address is set in this build"
+  },
+  "pdfTen": {
+    "options": "Options",
+    "closePopup": "Close Popup Note",
+    "cut": "Cut",
+    "copy": "Copy",
+    "paste": "Paste",
+    "nothingToPaste": "The clipboard has no text or picture to paste."
   }
 }

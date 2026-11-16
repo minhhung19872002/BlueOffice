@@ -11506,5 +11506,13 @@
   "pdfTip": {
     "help.manual": "Hướng dẫn sử dụng: chưa có trong bản này",
     "help.center": "Trung tâm trợ giúp: bản này chưa đặt địa chỉ hỗ trợ"
+  },
+  "pdfTen": {
+    "options": "Tùy chọn",
+    "closePopup": "Đóng ghi chú bật lên",
+    "cut": "Cắt",
+    "copy": "Sao chép",
+    "paste": "Dán",
+    "nothingToPaste": "Bộ nhớ tạm không có chữ hoặc hình để dán."
   }
 }

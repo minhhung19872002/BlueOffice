@@ -671,6 +671,18 @@ impl Shell {
                         );
                     }
                 }
+                // BlueReader's Paste on the page (round 10): a picture, else text.
+                ReaderRequest::Command(c) if c == "host.paste10" => {
+                    if let Some(dib) = clip::get_dib() {
+                        let p = std::path::Path::new("clipboard.bmp");
+                        self.window.file_picked("paste10img", p, &dib);
+                    } else {
+                        let (_, _, text) = win32::read_clipboard();
+                        let t = text.unwrap_or_default();
+                        let p = std::path::Path::new("clipboard.txt");
+                        self.window.file_picked("paste10txt", p, t.as_bytes());
+                    }
+                }
                 // Share › Show in Folder: Explorer with the file selected.
                 ReaderRequest::Command(c) if c.starts_with("host.reveal:") => {
                     let path = &c["host.reveal:".len()..];

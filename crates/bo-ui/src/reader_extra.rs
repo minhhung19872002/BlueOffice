@@ -296,6 +296,12 @@ impl ReaderWindow {
             if let Some(r) = self.route_viewx(input, m) {
                 return Some(r);
             }
+            if self.extra.text.is_none() && self.menu.is_none() && self.dialog.is_none() {
+                // Pop-up notes, the selection toolbar (BlueReader round 10).
+                if let Some(r) = self.route_ten(input, m) {
+                    return Some(r);
+                }
+            }
             if self.extra.text.is_none() {
                 if let Some(r) = self.route_draw(input, m) {
                     return Some(r);

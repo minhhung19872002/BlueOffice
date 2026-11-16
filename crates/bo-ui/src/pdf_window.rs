@@ -161,7 +161,9 @@ impl PdfWindow for ReaderWindow {
         ReaderWindow::set_print_paper(self, name, paper);
     }
     fn file_picked(&mut self, purpose: &str, path: &Path, bytes: &[u8]) {
-        if ReaderWindow::file_picked9(self, purpose, path) {
+        if ReaderWindow::file_picked9(self, purpose, path)
+            || ReaderWindow::file_picked10(self, purpose, bytes)
+        {
             return;
         }
         if !ReaderWindow::file_picked4(self, purpose, bytes) {

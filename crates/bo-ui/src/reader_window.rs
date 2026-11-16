@@ -58,8 +58,11 @@ mod keys7;
 mod marks9;
 #[path = "reader_menus9_win.rs"]
 mod menus9;
+// Pop-up notes on the page, the selection toolbar, Paste (BlueReader round 10).
 #[path = "reader_panels8_win.rs"]
 mod panels8;
+#[path = "reader_popups10_win.rs"]
+mod popups10;
 #[path = "reader_prefs6_win.rs"]
 mod prefs6;
 #[path = "reader_search9_win.rs"]
@@ -529,6 +532,8 @@ pub struct ReaderWindow {
     search9: search9::Search9,
     /// Bookmark editing and thumbnail size of round 9.
     marks9: marks9::Marks9,
+    /// Pop-up notes, the selection toolbar and Paste of round 10.
+    ten: popups10::Ten,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -614,6 +619,7 @@ impl ReaderWindow {
             nine: dark9::Nine::default(),
             search9: search9::Search9::default(),
             marks9: marks9::Marks9::default(),
+            ten: popups10::Ten::default(),
         }
     }
 
@@ -1436,6 +1442,7 @@ impl ReaderWindow {
         let redraw = self.handle_input(input, m);
         // Reflowed text follows the page and the window width.
         self.reflow_layout(m);
+        self.measure10(m);
         redraw
     }
 
@@ -2991,6 +2998,8 @@ impl ReaderWindow {
         self.paint_extra(p);
         self.paint_search9(p);
         self.paint_marks9(p);
+        self.paint_popups10(p);
+        self.paint_bar10(p);
         if let Some((menu, _)) = &self.menu {
             menu.paint(p, &self.theme, &self.icons);
         }

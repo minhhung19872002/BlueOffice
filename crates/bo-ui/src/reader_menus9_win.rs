@@ -37,15 +37,51 @@ impl ReaderWindow {
         {
             return None;
         }
-        let (rows, seps) = if let Some(a) = self.comment_at(x, y) {
+        // Paste goes where the menu opened (round 10).
+        self.ten.ctx_point = Some((x, y));
+        let note = self.popup_hit(x, y).map(|(n, _)| n.comment);
+        let (rows, seps) = if let Some(a) = note.or_else(|| self.comment_at(x, y)) {
             let popup = self.view().is_some_and(|v| v.doc().has_popup(&a));
+            let open = self.note_open10(&a);
             self.extra.selected = Some(a);
-            comment_rows(popup)
+            comment_rows(popup, open, self.can_paste_in_place10())
         } else if self.over_selection9(x, y) {
             selection_rows()
         } else {
             self.view_rows9()
         };
+        self.open_rows9(&rows, seps, [x, y, 0.0, 0.0], m);
+        Some(true)
+    }
+
+    /// The menu of comment `a` at `anchor` (a pop-up note's Options, round 10).
+    pub(crate) fn open_comment_menu9(
+        &mut self,
+        a: &bo_pdfread::Annot,
+        anchor: [f32; 4],
+        m: &dyn TextMeasure,
+    ) {
+        let popup = self.view().is_some_and(|v| v.doc().has_popup(a));
+        let open = self.note_open10(a);
+        self.extra.selected = Some(a.clone());
+        let (rows, seps) = comment_rows(popup, open, self.can_paste_in_place10());
+        self.open_rows9(&rows, seps, anchor, m);
+    }
+
+    /// The menu of selected text at `anchor` (the selection toolbar's More, round 10).
+    pub(crate) fn open_selection_menu9(&mut self, anchor: [f32; 4], m: &dyn TextMeasure) {
+        let (rows, seps) = selection_rows();
+        self.open_rows9(&rows, seps, anchor, m);
+    }
+
+    fn open_rows9(
+        &mut self,
+        rows: &[Row],
+        seps: Vec<usize>,
+        anchor: [f32; 4],
+        m: &dyn TextMeasure,
+    ) {
+        let (x, y) = (anchor[0], anchor[1]);
         let word = self.lookup_word9();
         let items: Vec<MenuItem> = rows
             .iter()
@@ -69,7 +105,6 @@ impl ReaderWindow {
             .keyed_menu9(menu, &keys, m)
             .with_icon_fn(crate::reader_icons::menu_icon);
         self.menu = Some((menu, "context9"));
-        Some(true)
     }
 
     /// A context menu: the reference's rows are 28 px at 125 % (its drop-down menus 30 px).
@@ -165,13 +200,13 @@ impl ReaderWindow {
         let tick = |f: Fit| (fit == Some(f)).then_some("check");
         (
             vec![
-                ("ctx.paste", "pdfCtx.paste", "Ctrl+V", None, true),
+                ("ctx.paste", "pdfCtx.paste", "Ctrl+V", None, false),
                 (
                     "ctx.pasteInPlace",
                     "pdfCtx.pasteInPlace",
                     "Ctrl+Alt+V",
                     None,
-                    true,
+                    !self.can_paste_in_place10(),
                 ),
                 (
                     "view.readMode",
@@ -230,7 +265,24 @@ impl ReaderWindow {
     /// Commands of the context menus; true when handled.
     pub(crate) fn command_menus9(&mut self, cmd: &str) -> bool {
         let kind = match cmd {
-            "ctx.paste" | "ctx.pasteInPlace" => return true,
+            "ctx.paste" | "ctx.pasteInPlace" => {
+                self.paste10(cmd == "ctx.pasteInPlace");
+                return true;
+            }
+            "ctx.cut" | "ctx.copyComment" => {
+                self.copy_comment10(cmd == "ctx.cut");
+                return true;
+            }
+            "ctx.togglePopup" => {
+                if let Some(a) = self.extra.selected.clone() {
+                    if self.note_open10(&a) {
+                        self.close_note10(&a);
+                    } else {
+                        self.open_note10(&a, false);
+                    }
+                }
+                return true;
+            }
             "ctx.lookup" => {
                 let w = self.lookup_word9();
                 if !w.is_empty() {
@@ -338,11 +390,21 @@ fn selection_rows() -> (Vec<Row>, Vec<usize>) {
     )
 }
 
-/// The menu of a comment.
-fn comment_rows(popup: bool) -> (Vec<Row>, Vec<usize>) {
+/// The menu of a comment: Cut / Copy / Paste and an Open or Close Popup Note row as the
+/// reference's (round 10).
+fn comment_rows(popup: bool, open: bool, paste: bool) -> (Vec<Row>, Vec<usize>) {
     (
         vec![
             ("comment.reply", "pdfCtx.reply", "", None, false),
+            ("ctx.cut", "pdfTen.cut", "", Some("cut"), false),
+            ("ctx.copyComment", "pdfTen.copy", "", Some("copy"), false),
+            (
+                "ctx.pasteInPlace",
+                "pdfTen.paste",
+                "",
+                Some("paste"),
+                !paste,
+            ),
             ("comment.delete", "pdfCtx.delete", "", None, false),
             // Opens the four review states beside it, like the reference's submenu.
             (
@@ -353,14 +415,24 @@ fn comment_rows(popup: bool) -> (Vec<Row>, Vec<usize>) {
                 false,
             ),
             ("comment.mark", "pdfCtx.mark", "", None, false),
-            ("comment.edit", "pdfCtx.openPopup", "", None, false),
+            (
+                "ctx.togglePopup",
+                if open {
+                    "pdfTen.closePopup"
+                } else {
+                    "pdfCtx.openPopup"
+                },
+                "",
+                None,
+                false,
+            ),
             ("ctx.resetPopup", "pdfCtx.resetPopup", "", None, !popup),
             ("ctx.openPopups", "pdfCtx.openPopups", "", None, false),
             ("ctx.closePopups", "pdfCtx.closePopups", "", None, false),
             ("draw.props", "pdfCtx.properties", "", None, false),
             ("ctx.setDefault", "pdfCtx.setDefault", "", None, false),
         ],
-        vec![1, 2, 4, 8],
+        vec![1, 4, 5, 7, 11],
     )
 }
 

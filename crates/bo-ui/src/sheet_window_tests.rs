@@ -1360,8 +1360,9 @@ fn data_and_formulas_dialogs_sort_validate_seek_name_and_trace() {
     {
         let f = w.form.as_mut().expect("sort form");
         assert!(f.on("header"), "header row guessed");
-        assert_eq!(f.text("col0"), "Name");
-        f.set_sel("col0", Some(1));
+        // No key chosen yet, as the reference opens.
+        assert_eq!(f.text("col0"), "");
+        f.set_sel("col0", Some(2));
         f.set_sel("ord0", Some(1));
     }
     click_form(&mut w, "add", 10.0, 10.0);
@@ -1370,6 +1371,9 @@ fn data_and_formulas_dialogs_sort_validate_seek_name_and_trace() {
         .as_ref()
         .and_then(|f| f.get("col1"))
         .is_some_and(|c| c.visible));
+    if let Some(f) = w.form.as_mut() {
+        f.set_sel("col1", Some(1));
+    }
     let ok = w.fc_ok_point();
     w.handle(
         Input::Press {
@@ -3141,4 +3145,85 @@ fn evaluate_formula_steps_like_the_reference() {
         &Fixed,
     );
     assert!(w.form.is_none());
+}
+
+#[test]
+fn sort_dialog_moves_levels_and_sorts_with_options() {
+    let mut w = window();
+    put(
+        &mut w,
+        &[
+            (0, 0, "Name"),
+            (0, 1, "Score"),
+            (1, 0, "B"),
+            (1, 1, "2"),
+            (2, 0, "b"),
+            (2, 1, "2"),
+            (3, 0, "a"),
+            (3, 1, "1"),
+        ],
+    );
+    w.view_mut().select((1, 0), (1, 0), (1, 0));
+    assert!(w.action("sheet.sortDialog", &Fixed));
+    // Level 1: Score; level 2: Name; then move Name up: Name first, Score second.
+    w.form.as_mut().expect("sort").set_sel("col0", Some(2));
+    w.form_event(
+        form_impl::FormKind::Sort,
+        &form_impl::Event::Clicked("add"),
+        &Fixed,
+    );
+    w.form.as_mut().expect("sort").set_sel("col1", Some(1));
+    assert_eq!(w.sort_sel, 1);
+    w.form_event(
+        form_impl::FormKind::Sort,
+        &form_impl::Event::Clicked("up"),
+        &Fixed,
+    );
+    {
+        let f = w.form.as_ref().expect("sort");
+        assert_eq!(
+            (f.text("col0").as_str(), f.text("col1").as_str()),
+            ("Name", "Score")
+        );
+    }
+    assert_eq!(w.sort_sel, 0);
+    // Options: case sensitive (lower case first, as the reference sorts).
+    w.form_event(
+        form_impl::FormKind::Sort,
+        &form_impl::Event::Clicked("opts"),
+        &Fixed,
+    );
+    assert_eq!(w.form_kind, form_impl::FormKind::SortOptions);
+    w.form.as_mut().expect("options").set_on("case", true);
+    w.form_event(
+        form_impl::FormKind::SortOptions,
+        &form_impl::Event::Ok,
+        &Fixed,
+    );
+    assert_eq!(w.form_kind, form_impl::FormKind::Sort);
+    assert!(w.sort_case);
+    // Alt+D deletes the chosen level (Name): Score stays.
+    w.handle(
+        Input::Key(
+            Key::Letter('d'),
+            Mods {
+                alt: true,
+                ..Mods::default()
+            },
+        ),
+        &Fixed,
+    );
+    assert_eq!(w.sort_levels, 1);
+    assert_eq!(w.form.as_ref().expect("sort").text("col0"), "Score");
+    w.form_event(
+        form_impl::FormKind::Sort,
+        &form_impl::Event::Clicked("add"),
+        &Fixed,
+    );
+    w.form.as_mut().expect("sort").set_sel("col1", Some(1));
+    w.form_event(form_impl::FormKind::Sort, &form_impl::Event::Ok, &Fixed);
+    assert!(w.form.is_none());
+    let names: Vec<String> = (1..4).map(|r| input(&w, r, 0)).collect();
+    // Score, then Name case sensitive: lower case before upper case.
+    assert_eq!(names, ["a", "b", "B"]);
 }

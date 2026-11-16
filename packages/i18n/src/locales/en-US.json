@@ -10737,6 +10737,15 @@
     "magnification": "Magnification"
   },
   "sheetNative": {
+    "sortOptions": "Options...",
+    "sortRowN": "Row",
+    "sortRow": "Row",
+    "sortNoKey": "Choose a column to sort by in each level.",
+    "sortOptionsTitle": "Sort Options",
+    "sortCase": "Case sensitive",
+    "sortOrientation": "Orientation",
+    "sortTopBottom": "Sort top to bottom",
+    "sortLeftRight": "Sort left to right",
     "nmValue": "Value",
     "nmRefersTo": "Refers To",
     "evalNote": "To show the result of the underlined expression, click Evaluate.  The most recent result appears italicized.",

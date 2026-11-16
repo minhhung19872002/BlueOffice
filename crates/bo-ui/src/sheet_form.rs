@@ -105,6 +105,8 @@ pub(super) enum FormKind {
     Options,
     /// Formulas › Evaluate Formula.
     Evaluate,
+    /// Options… of the Sort dialog (over the stashed Sort form).
+    SortOptions,
     /// Data tab: Subtotal, Remove Duplicates, Advanced Filter.
     Subtotal,
     RemoveDups,
@@ -220,6 +222,12 @@ pub(super) struct Form {
     headings: bool,
     /// Check boxes drawn as option buttons (round; the owner keeps one of a group on).
     radios: Vec<&'static str>,
+    /// Access keys: control id and the char index of its label's underlined letter
+    /// (Alt+letter presses the button / toggles the box).
+    access: Vec<(&'static str, usize)>,
+    /// Buttons whose label starts `pad` reference pixels from the left edge (an icon the
+    /// owner draws sits before it) instead of being centred.
+    left_labels: Vec<(&'static str, f32)>,
 }
 
 /// An entry of an open colour palette.
@@ -283,12 +291,55 @@ impl Form {
             font_k: 1.0,
             headings: false,
             radios: Vec::new(),
+            access: Vec::new(),
+            left_labels: Vec::new(),
         }
     }
 
     /// Controls' text `k` times the classic dialogs' size (the title keeps its size).
     pub fn set_font_scale(&mut self, k: f32) {
         self.font_k = k;
+    }
+
+    /// Underline letter `at` (char index) of control `id`'s label; Alt+that letter presses
+    /// it.
+    pub fn set_access(&mut self, id: &'static str, at: usize) {
+        self.access.retain(|(i, _)| *i != id);
+        self.access.push((id, at));
+    }
+
+    /// Start button `id`'s label `pad` reference pixels from its left edge.
+    pub fn set_label_left(&mut self, id: &'static str, pad: f32) {
+        self.left_labels.retain(|(i, _)| *i != id);
+        self.left_labels.push((id, pad));
+    }
+
+    /// The label prefix before the access letter and the letter, of control `i`.
+    fn access_parts(&self, i: usize) -> Option<(String, String)> {
+        let c = self.ctls.get(i)?;
+        let at = self.access.iter().find(|(id, _)| *id == c.id)?.1;
+        let (Kind::Button { label, .. } | Kind::Check { label, .. } | Kind::Label(label)) = &c.kind
+        else {
+            return None;
+        };
+        let pre: String = label.chars().take(at).collect();
+        let ch: String = label.chars().skip(at).take(1).collect();
+        (!ch.is_empty()).then_some((pre, ch))
+    }
+
+    /// Draw the access-key underline of control `i` whose label starts at `x`, `y`.
+    fn paint_access(&self, p: &mut dyn Painter, i: usize, x: f32, y: f32, ink: Rgba) {
+        if let Some((pre, ch)) = self.access_parts(i) {
+            let line = self.font().size * 1.33;
+            let ux = x + self.width(&pre);
+            p.fill_rect(
+                ux.round(),
+                (y + line - 2.0 * self.k).round(),
+                self.width(&ch).max(1.0),
+                1.0,
+                ink,
+            );
+        }
     }
 
     /// Draw the check boxes `ids` as option buttons.
@@ -579,7 +630,12 @@ impl Form {
                 _ => {}
             }
         }
+        let parts: Vec<String> = (0..self.ctls.len())
+            .filter_map(|i| self.access_parts(i))
+            .flat_map(|(a, b)| [a, b])
+            .collect();
         self.measure(m, &strings);
+        self.measure(m, &parts);
         let font = self.font();
         self.wrapped = self
             .ctls
@@ -912,6 +968,29 @@ impl Form {
             }
             return Event::None;
         }
+        if let (Key::Letter(ch), true) = (key, m.alt) {
+            let want = ch.to_lowercase().next().unwrap_or(ch);
+            let hit = (0..self.ctls.len()).find(|&i| {
+                let c = &self.ctls[i];
+                self.shown(c)
+                    && c.enabled
+                    && self
+                        .access_parts(i)
+                        .is_some_and(|(_, l)| l.to_lowercase().starts_with(want))
+            });
+            if let Some(i) = hit {
+                let id = self.ctls[i].id;
+                self.focus = Some(i);
+                return match &mut self.ctls[i].kind {
+                    Kind::Button { .. } => Event::Clicked(id),
+                    Kind::Check { on, .. } => {
+                        *on = !*on;
+                        Event::Changed(id)
+                    }
+                    _ => Event::None,
+                };
+            }
+        }
         let pages = self.tabs.len();
         match key {
             Key::Tab | Key::PageDown | Key::PageUp if m.ctrl && pages > 1 => {
@@ -1227,6 +1306,7 @@ impl Form {
                     let (bx, by) = (r[0], (r[1] + (r[3] - b) / 2.0).round());
                     paint_check(p, [bx, by, b, b], *on, c.enabled, focused, self.k);
                     p.text_font(label, bx + b + 8.0 * self.k, text_y(r), &font, ink);
+                    self.paint_access(p, i, bx + b + 8.0 * self.k, text_y(r), ink);
                 }
                 Kind::List { items, sel, top } => {
                     p.fill_rect(r[0], r[1], r[2], r[3], LIST_EDGE);
@@ -1359,13 +1439,12 @@ impl Form {
                         if hover { HOVER } else { BUTTON },
                     );
                     let tw = self.width(label);
-                    p.text_font(
-                        label,
-                        (r[0] + (r[2] - tw) / 2.0).round(),
-                        text_y(r),
-                        &font,
-                        ink,
-                    );
+                    let tx = match self.left_labels.iter().find(|(id, _)| *id == c.id) {
+                        Some((_, pad)) => (r[0] + pad * self.k).round(),
+                        None => (r[0] + (r[2] - tw) / 2.0).round(),
+                    };
+                    p.text_font(label, tx, text_y(r), &font, ink);
+                    self.paint_access(p, i, tx, text_y(r), ink);
                 }
                 Kind::Swatches {
                     colors,

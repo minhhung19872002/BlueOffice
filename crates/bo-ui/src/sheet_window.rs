@@ -378,6 +378,10 @@ pub struct SheetWindow {
     /// Sort dialog: the range sorted and the number of levels shown.
     sort_range: Option<serde_json::Value>,
     sort_levels: usize,
+    /// The chosen level of the Sort dialog, and its Options (case sensitive, left to right).
+    sort_sel: usize,
+    sort_case: bool,
+    sort_ltr: bool,
     /// Name Manager rows (name, refers to).
     name_rows: Vec<(String, String)>,
     /// Scope of each Name Manager row (the workbook or a sheet's name).
@@ -517,6 +521,9 @@ impl SheetWindow {
             fc: fcells_impl::FcState::default(),
             sort_range: None,
             sort_levels: 1,
+            sort_sel: 0,
+            sort_case: false,
+            sort_ltr: false,
             name_rows: Vec::new(),
             name_scopes: Vec::new(),
             arrows: Vec::new(),
@@ -2003,36 +2010,8 @@ impl SheetWindow {
             self.paint_name_table(f, r, p);
         } else if self.form_kind == form_impl::FormKind::Evaluate && id == "box" {
             self.paint_evaluate(f, r, p);
-        } else if self.form_kind == form_impl::FormKind::Sort && id == "grid" {
-            // The Sort dialog's level grid (measured on the reference, round 39).
-            let k = self.scale / 1.25;
-            p.fill_rect(r[0], r[1], r[2], r[3], Rgba(0x82, 0x87, 0x90, 255));
-            p.fill_rect(
-                r[0] + 1.0,
-                r[1] + 1.0,
-                r[2] - 2.0,
-                r[3] - 2.0,
-                Rgba(255, 255, 255, 255),
-            );
-            let hy = (r[1] + 32.0 * k).round();
-            p.fill_rect(r[0] + 1.0, hy, r[2] - 2.0, 1.0, Rgba(0xE0, 0xDF, 0xE3, 255));
-            for x in [267.0, 533.0] {
-                p.fill_rect(
-                    (r[0] + x * k).round(),
-                    r[1] + 1.0,
-                    1.0,
-                    hy - r[1] - 1.0,
-                    Rgba(0xE5, 0xE5, 0xE5, 255),
-                );
-            }
-            // The chosen level's label cell.
-            p.fill_rect(
-                r[0] + 1.0,
-                hy + 1.0,
-                (72.0 * k).round(),
-                (30.0 * k).round(),
-                Rgba(0xE0, 0xDF, 0xE3, 255),
-            );
+        } else if self.form_kind == form_impl::FormKind::Sort {
+            self.paint_sort_canvas(f, id, r, p);
         }
     }
 

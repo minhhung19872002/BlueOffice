@@ -649,6 +649,8 @@ impl SheetWindow {
             vec![],
         );
         f.set_font_scale(1.3);
+        // The reference's newer dialogs have a white face.
+        f.add("face", None, [1.0, 38.0, 225.0, 366.0], Kind::Canvas);
         f.add(
             "magLabel",
             None,

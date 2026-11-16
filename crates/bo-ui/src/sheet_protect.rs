@@ -107,6 +107,8 @@ impl SheetWindow {
             vec![],
         );
         f.set_font_scale(1.3);
+        // The reference's newer dialogs have a white face.
+        f.add("face", None, [1.0, 38.0, 425.0, 495.0], Kind::Canvas);
         f.add(
             "pwL",
             None,
@@ -151,18 +153,12 @@ impl SheetWindow {
             )),
         );
         f.set_access("allowL", 1);
-        f.add(
-            "listbox",
-            None,
-            [17.0, LIST_TOP, 393.0, 290.0],
-            Kind::Canvas,
-        );
         for (i, (key, lk, fb, acc)) in PERMS.iter().enumerate() {
             let on = allow.get(*key).and_then(Value::as_bool).unwrap_or(i < 2);
             f.add(
                 IDS[i],
                 None,
-                [21.0, LIST_TOP + 2.0 + PITCH * i as f32, 360.0, 28.0],
+                [17.0, LIST_TOP - 3.0 + PITCH * i as f32, 360.0, 28.0],
                 Kind::Check {
                     label: t(lk, fb),
                     on,
@@ -204,7 +200,7 @@ impl SheetWindow {
             let shown = (top..top + ROWS).contains(&i);
             f.show(id, shown);
             if let Some(c) = f.get_mut(id) {
-                c.rect[1] = LIST_TOP + 2.0 + PITCH * (i as f32 - top as f32);
+                c.rect[1] = LIST_TOP - 3.0 + PITCH * (i as f32 - top as f32);
             }
         }
     }

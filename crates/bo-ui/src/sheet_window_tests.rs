@@ -1182,9 +1182,10 @@ fn text_to_columns_wizard_previews_then_splits() {
         .as_ref()
         .is_some_and(|f| f.on("delimited") && !f.on("fixed")));
     click_form(&mut w, "next", 10.0, 10.0);
-    // Step 2: Tab and the semicolon found in the text are ticked.
+    // Step 2: Tab only, as the reference; tick Semicolon.
     let f = w.form.as_ref().expect("step 2");
-    assert!(f.on("dTab") && f.on("dSemi") && !f.on("dComma"));
+    assert!(f.on("dTab") && !f.on("dSemi") && !f.on("dComma"));
+    click_form(&mut w, "dSemi", 5.0, 10.0);
     click_form(&mut w, "next", 10.0, 10.0);
     // Step 3: second column as text, then pick the destination C1 on the sheet.
     assert_eq!(w.ttc.as_ref().map(|t| t.step), Some(2));
@@ -3533,4 +3534,21 @@ fn review_tab_spelling_changes_words_and_greys_what_is_missing() {
     w.form = None;
     assert!(w.action("sheet.checkAccessibility", &Fixed));
     assert!(w.form.is_some());
+}
+
+#[test]
+fn scripted_form_clicks_tick_wizard_delimiters() {
+    let mut w = window();
+    put(&mut w, &[(0, 0, "a,b"), (1, 0, "c,d")]);
+    for id in [
+        "goto.A1:A2",
+        "sheet.textToColumns",
+        "form.click.next",
+        "form.click.dComma",
+    ] {
+        w.run_command(id, &Fixed);
+    }
+    let f = w.form.as_ref().expect("wizard");
+    assert!(f.on("dComma"));
+    assert!(w.ttc.as_ref().is_some_and(|t| t.delims[2]));
 }

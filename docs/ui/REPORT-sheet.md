@@ -909,3 +909,93 @@ vẫn trùng lúc lưới dựng dải mới.
 - Name Manager: nút thu hộp thoại để chọn vùng trên trang (đang mờ).
 - Bánh xe: DirectComposition không giúp; thử tiếp Present1 với vùng bẩn.
 - Danh sách lọc và danh sách hàm của đối chứng không mở được bằng input gửi vào (chỉ có ảnh BlueSheet).
+
+## Vòng 10 — Text to Columns, Data Validation, chọn vùng, Review / View / Insert
+
+Nhánh `worktree-agent-a3dd2af1a2210b69a` (từ `work/desktop-performance` sau "Merge BlueSheet round 9"). Ảnh so sánh
+`show/sheet-40…` của thư mục scratch phiên (đối chứng trái/trên, BlueSheet phải/dưới). Các bước của trình hướng dẫn
+đối chứng chụp được bằng phím gửi vào cửa sổ hộp thoại (`PostMessage` WM_KEYDOWN Enter / WM_SYSKEYDOWN Alt+chữ, không
+phải input thật; `xdlg2.ps1 -Keys "13;a67;13;_"`), mở qua `Dialogs(422).Show` (Text to Columns), `Dialogs(28)` (Protect
+Sheet). Phía BlueSheet: lệnh kịch bản mới `form.click.<control>[@x,y]` / `form.dclick.…` (nhấp vào điều khiển của
+form đang mở) trong `BLUEOFFICE_SHEET_ACTIONS`.
+
+### Vòng 45 — Text to Columns: trình hướng dẫn 3 bước
+
+- Đo trên đối chứng (cửa sổ 771 × 546 px): nút Cancel / < Back / Next > / Finish 111 × 28 ở y 498 (x 259, 386, 513,
+  640); khung "Original data type" y 111–202; khung "Data preview" y 299–480; ô xem trước x 32–718, y 349–453, viền lõm
+  (đen trên/trái, trắng dưới/phải), chữ Courier New ô 8 × 16 px; bước 1 nền xám #F0F0F0 với cột số hàng 16 px; bước 2
+  cố định: thước ở y 322–338 (vạch mỗi 8 px, số mỗi 10 ký tự, mũi tên + đường ngắt đen); bước 3: hàng tiêu đề định dạng
+  y 333–349 nền xám, cột đang chọn nền đen chữ trắng (`sheet-40…44`).
+- Engine: `textToColumnsGuess` (đoán Delimited khi có tab / ; / , — các ký tự gặp được đánh dấu sẵn —, Fixed width khi
+  các dòng thẳng cột với ngắt ở chỗ mọi dòng có dấu cách ngay trước: "Alice     Hanoi     2024" → 10, 20 như đối
+  chứng); `textToColumns` nhận `decimal`, `thousands`, `trailingMinus` (Advanced…). Test
+  `text_to_columns_guesses_the_data_type`, `text_to_columns_reads_numbers_with_the_advanced_separators`.
+- Giao diện (`sheet_ttc.rs`): bước 1 kiểu dữ liệu (nút tuỳ chọn), bước 2 ký tự phân cách / dấu bao văn bản / coi liền
+  nhau là một với xem trước tách cột tức thì, hoặc thước ngắt (nhấp thêm, kéo di chuyển, nhấp đúp xoá); bước 3 định dạng
+  từng cột (General / Text / Date + thứ tự / bỏ qua) bằng nhấp vào cột xem trước, Destination có nút chọn vùng, Advanced
+  Text Import Settings (dấu thập phân / hàng nghìn, dấu trừ đứng sau, Reset). Thay hộp thoại cũ hai bước. Test
+  `text_to_columns_wizard_previews_then_splits`, `text_to_columns_fixed_width_breaks_click_drag_and_double_click`.
+
+### Vòng 46 — Data Validation, Circle Invalid Data
+
+- Đo (604 × 420 px, `sheet-45`): trang thẻ x 18–586 y 74–359, "Validation criteria" với vạch #DCDCDC, Allow / Data hộp
+  thả 185 × 28 ở x 46 (y 134 / 187), Minimum / Maximum 352 × 26 ở y 240 / 291 kèm nút chọn vùng 26 px, "Apply these
+  changes…" y 327, Clear All / OK / Cancel 111 × 28 ở y 372.
+- Any value: ô Data vẫn hiện nhưng mờ ("between"), Ignore blank mờ; List: Source ở chỗ Data + In-cell dropdown; nhãn
+  ô giá trị theo kiểu (Start date / End date, Start time…, Length, Value, Formula); "Apply these changes to all other
+  cells with the same settings" chỉ bật khi ô có quy tắc — engine `setValidation` nhận `also` (các vùng khác của quy
+  tắc, cùng một bước hoàn tác). Truy vấn `validation` nay trả đủ trường (operator, formula1/2, allowBlank, showInput,
+  showError, inCellDropdown, errorStyle, errorTitle, error, sqref) — trước đây hộp thoại mở lại không có giá trị cũ.
+  `ValidationSpec` thêm promptTitle, showInput, showError, inCellDropdown; Any value có thông báo nhập giữ quy tắc type
+  none (§18.18.21).
+- Input Message / Error Alert theo bố cục đối chứng (tiêu đề nhóm, Title / message), biểu tượng kiểu lỗi tự vẽ.
+- Data Validation thành nút menu: Data Validation…, Circle Invalid Data (engine `invalidCells`: elip đỏ quanh ô sai),
+  Clear Validation Circles. Test `data_validation_dialog_greys_data_applies_to_all_and_circles_invalid_cells`.
+
+### Vòng 47 — Review tab
+
+- Ribbon như đối chứng ở 1500 px: Proofing (Spelling, Thesaurus mờ, Workbook Statistics), Accessibility (Check
+  Accessibility), Language (Translate mờ), Comments (New / Delete / Previous / Next, Show/Hide Comment, Show All
+  Comments), Protect (Protect Sheet, Protect Workbook, Allow Edit Ranges mờ, Unshare Workbook mờ), Ink (Hide Ink mờ);
+  biểu tượng tự vẽ.
+- Spelling (673 × 398 px, F7): Not in Dictionary / Suggestions / Dictionary language, Ignore Once / All, Add to
+  Dictionary, Change / Change All (ghi qua `setInputs`), duyệt các ô chữ từ ô hiện hành rồi vòng lại; bộ kiểm `bo-spell`
+  (tiếng Anh đóng gói + quy tắc tiếng Việt). Workbook Statistics, Check Accessibility (ô gộp, tên trang mặc định, biểu
+  đồ thiếu tiêu đề, bảng không hàng tiêu đề) là hộp thoại.
+- Protect Sheet (427 × 534 px): chữ lớn ×1,3, ô mật khẩu che bằng ●, "Protect worksheet and contents of locked cells",
+  danh sách 15 quyền cuộn được (31 px/dòng, bánh xe / mũi tên), Confirm Password, Unprotect Sheet hỏi mật khẩu (sai:
+  thông báo như đối chứng); Protect Structure and Windows (Structure, Windows mờ, mật khẩu). Test
+  `protect_sheet_dialog_permissions_password_and_unprotect`,
+  `review_tab_spelling_changes_words_and_greys_what_is_missing`.
+
+### Vòng 48 — View tab
+
+- Zoom (227 × 405 px): "Magnification" đậm, 7 nút tuỳ chọn cách 35 px chữ ×1,3, Custom với ô phần trăm, OK 69 × 33 /
+  Cancel 70 × 33 (trước đây là danh sách).
+- Freeze Panes (menu), Split, Gridlines / Headings / Formula Bar, Zoom to Selection, Page Break Preview / Page Layout
+  đã có từ các vòng trước.
+
+### Vòng 49 — Insert tab
+
+- Insert Hyperlink (964 × 432 px, Ctrl+K): thanh "Link to" (Existing File or Web Page / Place in This Document / Create
+  New Document mờ / E-mail Address, hình tự vẽ), Text to display, ScreenTip…, trang theo loại (địa chỉ + các địa chỉ
+  đã dùng; tham chiếu ô + danh sách trang tính và tên; e-mail + chủ đề). Engine mới `setHyperlink` / `hyperlink`
+  (§18.3.1.47: liên kết ô thật thay công thức HYPERLINK; kiểm quyền insertHyperlinks), Edit Hyperlink mở từ liên kết
+  của ô. Test `hyperlinks_are_set_read_and_removed`.
+- Create Sparklines (476 × 279 px) với nút chọn vùng cho Data Range / Location Range.
+- Create PivotTable của đối chứng không mở được qua COM (`PivotTableInsert` E_FAIL) nên chưa so.
+
+### Vòng 50 — nút chọn vùng
+
+Nút ở cuối ô tham chiếu (Name Manager, New Name, Advanced Filter, Data Validation, Text to Columns, Create Sparklines)
+thu hộp thoại thành dải chỉ còn ô đó ở góc trên trái của hộp thoại (không làm mờ cửa sổ); nhấp / kéo trên lưới ghi
+tham chiếu tuyệt đối theo kiểu của ô (`$A$1:$B$4`, `Sheet1!…`, `=Sheet1!…`, `=$A$1…`); nút mở rộng / Enter trả hộp
+thoại về với tham chiếu, Escape giữ chữ cũ (`sheet_rangepick.rs`).
+
+## Còn lại (sau vòng 10)
+
+- Text to Columns: chưa hỏi "Do you want to replace the contents of the destination cells?"; thanh cuộn xem trước chỉ
+  có mũi tên (không kéo).
+- Review: Thesaurus, Translate, Allow Edit Ranges, Hide Ink mờ; Accessibility là hộp thoại (đối chứng là ngăn bên phải);
+  ngăn bình luận dạng luồng chưa có (bản đối chứng cài đặt dùng chú thích kiểu cũ).
+- Insert Hyperlink: không có trình duyệt tệp (Look in / Current Folder); Create PivotTable chưa so được.

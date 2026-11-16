@@ -224,15 +224,6 @@ impl SheetWindow {
             .query(json!({ "cmd": "textToColumnsGuess", "range": range }))
             .unwrap_or(Value::Null);
         let fixed = guess.get("mode").and_then(Value::as_str) == Some("fixed");
-        let found: Vec<char> = guess
-            .get("delimiters")
-            .and_then(Value::as_array)
-            .map(|a| {
-                a.iter()
-                    .filter_map(|d| d.as_str()?.chars().next())
-                    .collect()
-            })
-            .unwrap_or_default();
         let breaks = guess
             .get("breaks")
             .and_then(Value::as_array)
@@ -242,11 +233,8 @@ impl SheetWindow {
                     .collect()
             })
             .unwrap_or_default();
-        // The reference starts step 2 with Tab only; we tick what the guess found too.
-        let mut delims = [true, false, false, false, false];
-        for (i, ch) in [';', ','].into_iter().enumerate() {
-            delims[i + 1] = found.contains(&ch);
-        }
+        // Step 2 starts with Tab only, as the reference's (the guess only picks the type).
+        let delims = [true, false, false, false, false];
         let ui = self.ui_locale_numbers();
         self.ttc = Some(Ttc {
             sheet,
@@ -568,7 +556,6 @@ impl SheetWindow {
                         sel: order,
                     },
                 );
-                f.enable("order", matches!(fmt, ColFmt::Date(_)));
                 f.add(
                     "generalN",
                     None,
@@ -638,6 +625,9 @@ impl SheetWindow {
         }
         f.enable("back", st.step > 0);
         f.enable("next", st.step < 2);
+        if st.step > 0 {
+            f.focus(if st.step == 2 { "finish" } else { "next" });
+        }
         self.form = Some(f);
         self.form_kind = FormKind::TextToColumns;
     }
@@ -791,7 +781,6 @@ impl SheetWindow {
         if let ColFmt::Date(o) = fmt {
             f.set_sel("order", Some(o));
         }
-        f.enable("order", matches!(fmt, ColFmt::Date(_)));
         f.show("generalN", fmt == ColFmt::General);
         f.show("advanced", fmt == ColFmt::General);
     }
@@ -1182,7 +1171,7 @@ impl SheetWindow {
             p.fill_rect(x0, base, bx[2] - 1.0, 2.0, INK);
             let small = Font {
                 family: "Segoe UI",
-                size: (11.0 * k).round(),
+                size: (12.5 * k).round(),
                 ..mono
             };
             let mut i = st.left;
@@ -1200,7 +1189,10 @@ impl SheetWindow {
                 };
                 p.fill_rect(tx, base - px(tall), 1.0, px(tall), INK);
                 if i % 10 == 0 && i > 0 {
-                    p.text_font(&i.to_string(), tx - px(2.0), base - px(17.0), &small, INK);
+                    // Centred over its tick, as the reference's.
+                    let label = i.to_string();
+                    let w = label.len() as f32 * small.size * 0.55;
+                    p.text_font(&label, (tx - w / 2.0).round(), base - px(18.0), &small, INK);
                 }
                 i += 1;
             }
@@ -1324,28 +1316,33 @@ fn column_widths(fields: &[Vec<String>], fixed: bool, breaks: &[usize]) -> Vec<u
 /// The range-picker button at the right of a reference box (a box with an arrow up out of
 /// it: collapse the dialog to pick cells). Own drawing.
 pub(super) fn paint_pick_button(p: &mut dyn Painter, r: [f32; 4], k: f32) {
+    // The box's edge continues round it; inside, a small push button (#D0D0D0 frame, #FDFDFD
+    // face, measured on the reference) with a bold arrow up over a bar.
     let edge = Rgba(0x7a, 0x7a, 0x7a, 255);
     p.fill_rect(r[0], r[1], r[2], r[3], edge);
     p.fill_rect(r[0], r[1] + 1.0, r[2] - 1.0, r[3] - 2.0, WHITE);
-    let (cx, cy) = ((r[0] + r[2] / 2.0).round(), (r[1] + r[3] / 2.0).round());
-    let a = (4.0 * k).round();
-    // Arrow pointing up over a short bar.
+    let b = [r[0] + 1.0, r[1] + 1.0, r[2] - 3.0, r[3] - 3.0];
+    p.fill_rect(b[0], b[1], b[2], b[3], Rgba(0xd0, 0xd0, 0xd0, 255));
+    p.fill_rect(
+        b[0] + 1.0,
+        b[1] + 1.0,
+        b[2] - 2.0,
+        b[3] - 2.0,
+        Rgba(0xfd, 0xfd, 0xfd, 255),
+    );
+    let (cx, cy) = ((b[0] + b[2] / 2.0).round(), (b[1] + b[3] / 2.0).round());
+    let a = (4.5 * k).round();
+    let stem = (2.5 * k).round().max(2.0);
     p.path(
         &[
             PathSeg::M(cx, cy - a - 1.0),
-            PathSeg::L(cx + a, cy),
-            PathSeg::L(cx - a, cy),
+            PathSeg::L(cx + a, cy - 1.0),
+            PathSeg::L(cx - a, cy - 1.0),
             PathSeg::Z,
         ],
         Some(INK),
         None,
     );
-    p.fill_rect(cx - (1.0 * k).round(), cy, (2.0 * k).round(), a, INK);
-    p.fill_rect(
-        cx - a,
-        cy + a + (1.0 * k).round(),
-        2.0 * a,
-        (1.0 * k).round().max(1.0),
-        INK,
-    );
+    p.fill_rect(cx - (stem / 2.0).round(), cy - 1.0, stem, a * 0.8, INK);
+    p.fill_rect(cx - a, cy + a, 2.0 * a, (1.5 * k).round().max(1.0), INK);
 }

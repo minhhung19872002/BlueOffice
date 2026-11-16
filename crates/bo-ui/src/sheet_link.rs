@@ -432,8 +432,8 @@ impl SheetWindow {
                 Rgba(0, 0, 0, 255)
             };
             // Icon: a page with a globe / a sheet with an arrow / a new page / an envelope.
-            let (cx, cy) = ((r[0] + r[2] / 2.0).round(), y + (18.0 * k).round());
-            let a = (7.0 * k).round();
+            let (cx, cy) = ((r[0] + r[2] / 2.0).round(), y + (20.0 * k).round());
+            let a = (9.0 * k).round();
             let accent = Rgba(0x2E, 0x75, 0xB6, 255);
             if i == 3 {
                 {

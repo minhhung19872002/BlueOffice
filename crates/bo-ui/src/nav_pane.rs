@@ -185,16 +185,17 @@ impl NavPane {
         }
     }
 
-    /// Size of a page thumbnail (device px): two to a row, as the pane shows pages.
+    /// Size of a page thumbnail (device px): about 150 px wide at 125 % as measured on
+    /// the reference, two to a row.
     pub(crate) fn thumb_size(&self) -> (f32, f32) {
         let gap = self.px(16.0);
-        let w = ((self.rect[2] - gap * (THUMB_COLS as f32 + 1.0)) / THUMB_COLS as f32)
-            .floor()
-            .max(1.0);
+        let room = ((self.rect[2] - gap * (THUMB_COLS as f32 + 1.0)) / THUMB_COLS as f32).floor();
+        let w = self.px(120.0).min(room).max(1.0);
         (w, (w * self.aspect).floor())
     }
 
-    /// The page thumbnails in view: page index and rectangle (device px).
+    /// The page thumbnails in view: page index and rectangle (device px). The columns
+    /// are centred in the pane; a last page alone in its row is centred too.
     pub(crate) fn thumb_rects(&self) -> Vec<(usize, [f32; 4])> {
         if self.tab != NavTab::Pages || self.rect[3] <= 0.0 {
             return Vec::new();
@@ -204,10 +205,17 @@ impl NavPane {
         let top = self.list_top();
         let bottom = self.rect[1] + self.rect[3];
         let rh = self.row_h();
+        let cols = THUMB_COLS as f32;
+        let left = ((self.rect[2] - cols * w - (cols - 1.0) * gap) / 2.0).max(0.0);
         (0..self.pages)
             .filter_map(|i| {
                 let (r, c) = (i / THUMB_COLS, i % THUMB_COLS);
-                let x = (gap + c as f32 * (w + gap)).round();
+                let alone = c == 0 && i + 1 == self.pages && THUMB_COLS > 1;
+                let x = if alone {
+                    ((self.rect[2] - w) / 2.0).round()
+                } else {
+                    (left + c as f32 * (w + gap)).round()
+                };
                 let y = (top + r as f32 * rh - self.scroll + self.px(6.0)).round();
                 (y + h > top && y < bottom).then_some((i, [x, y, w, h]))
             })

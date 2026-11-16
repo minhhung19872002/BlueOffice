@@ -191,7 +191,7 @@ fn parse_num(s: &str) -> Option<f64> {
 /// Read Mode zoom (the reference reads at 140 %).
 const READ_ZOOM: f32 = 1.4;
 /// Text margin either side in Read Mode (points at 100 %).
-const READ_MARGIN_PT: f32 = 36.0;
+const READ_MARGIN_PT: f32 = 4.0;
 
 /// Status bar view buttons: view layout and its icon (Bluestar's own drawings).
 const VIEW_MODES: [(&str, &str); 3] = [
@@ -445,6 +445,24 @@ impl DocWindow {
 
     /// Status bar texts: page, word count.
     fn status_texts(&self) -> (String, String) {
+        // Read Mode counts screens, as the reference's status bar.
+        if self.read_mode.is_some() {
+            let (scroll, content, viewport) = self.view.scroll_info();
+            let total = (content / viewport.max(1.0)).ceil().max(1.0) as usize;
+            let current = ((scroll / viewport.max(1.0)).floor() as usize + 1).min(total);
+            let page = self.strings.fmt(
+                "docTable.screen",
+                &[
+                    ("current", &current.to_string()),
+                    ("total", &total.to_string()),
+                ],
+            );
+            let words = self.strings.fmt(
+                "status.words",
+                &[("count", &self.view.word_count().to_string())],
+            );
+            return (page, words);
+        }
         let page = self.strings.fmt(
             "status.page",
             &[
@@ -1728,7 +1746,75 @@ impl DocWindow {
 
     /// Width of the vertical scroll bar (as on a desktop word processor).
     fn sb_w(&self) -> f32 {
-        (15.0 * self.scale).round()
+        // Read Mode turns screens with its arrows instead of a scroll bar.
+        if self.read_mode.is_some() {
+            0.0
+        } else {
+            (15.0 * self.scale).round()
+        }
+    }
+
+    /// Read Mode's page-turn arrows at mid-height of the view: (previous, next).
+    fn read_arrows(&self) -> Option<[[f32; 4]; 2]> {
+        self.read_mode?;
+        let d = (40.0 * self.scale).round();
+        let top = self.view_top();
+        let bottom = self.size.1 - self.status_h();
+        let y = (top.midpoint(bottom) - d / 2.0).round();
+        let m = (14.0 * self.scale).round();
+        Some([[m, y, d, d], [self.size.0 - m - d, y, d, d]])
+    }
+
+    /// Turn a screen in Read Mode (`forward`: the next one).
+    fn read_turn(&mut self, forward: bool) -> bool {
+        let (scroll, _, viewport) = self.view.scroll_info();
+        let step = (viewport * 0.95).round();
+        self.view.scroll_to(if forward {
+            scroll + step
+        } else {
+            scroll - step
+        })
+    }
+
+    /// Draw Read Mode's round page-turn arrows (own drawing: white disc, grey ring and
+    /// chevron, as the reference's light arrows).
+    fn paint_read_arrows(&self, p: &mut dyn Painter) {
+        let Some(arrows) = self.read_arrows() else {
+            return;
+        };
+        let ring = Rgba(200, 200, 200, 255);
+        let ink = Rgba(150, 150, 150, 255);
+        for (i, [x, y, d, _]) in arrows.into_iter().enumerate() {
+            let (cx, cy, r) = (x + d / 2.0, y + d / 2.0, d / 2.0);
+            // A circle as a 16-sided path.
+            let mut segs = Vec::with_capacity(18);
+            for k in 0..=16 {
+                let a = k as f32 / 16.0 * std::f32::consts::TAU;
+                let pt = (cx + r * a.cos(), cy + r * a.sin());
+                segs.push(if k == 0 {
+                    PathSeg::M(pt.0, pt.1)
+                } else {
+                    PathSeg::L(pt.0, pt.1)
+                });
+            }
+            segs.push(PathSeg::Z);
+            p.path(
+                &segs,
+                Some(Rgba(255, 255, 255, 255)),
+                Some((ring, self.scale.max(1.0) * 1.5)),
+            );
+            let k = d * 0.16;
+            let dir = if i == 0 { -1.0 } else { 1.0 };
+            p.path(
+                &[
+                    PathSeg::M(cx - dir * k * 0.5, cy - k),
+                    PathSeg::L(cx + dir * k * 0.5, cy),
+                    PathSeg::L(cx - dir * k * 0.5, cy + k),
+                ],
+                None,
+                Some((ink, self.scale.max(1.0) * 1.5)),
+            );
+        }
     }
 
     /// Scroll bar parts: (bar, up button, down button, thumb) as [x, y, w, h].
@@ -1894,6 +1980,9 @@ impl DocWindow {
             return false;
         }
         self.read_mode = Some((self.view.zoom(), self.show_ruler));
+        // No proofing marks while reading, as the reference; white screen pages.
+        self.view.set_hide_spelling(true);
+        self.view.set_plain(true);
         self.view_mode = "read";
         self.show_ruler = false;
         self.menu = None;
@@ -1909,6 +1998,8 @@ impl DocWindow {
                 self.view.run_command(c);
             }
             self.view.set_zoom(zoom);
+            self.view.set_hide_spelling(false);
+            self.view.set_plain(false);
             self.show_ruler = ruler;
             self.view_mode = "print";
             self.relayout_pending = true;
@@ -2219,6 +2310,23 @@ impl DocWindow {
                 _ => "insert.link",
             };
             return self.action(id);
+        }
+        // Read Mode: the arrows and the left / right keys turn screens.
+        if self.read_mode.is_some() {
+            match input {
+                Input::Press { x, y, .. } => {
+                    if let Some(arrows) = self.read_arrows() {
+                        for (i, r) in arrows.iter().enumerate() {
+                            if x >= r[0] && x < r[0] + r[2] && y >= r[1] && y < r[1] + r[3] {
+                                return self.read_turn(i == 1);
+                            }
+                        }
+                    }
+                }
+                Input::Key(Key::Right | Key::PageDown, _) => return self.read_turn(true),
+                Input::Key(Key::Left | Key::PageUp, _) => return self.read_turn(false),
+                _ => {}
+            }
         }
         if let Input::Key(Key::Escape, _) = input {
             if self.read_mode.is_some() {
@@ -2665,6 +2773,7 @@ impl DocWindow {
     pub fn paint(&self, p: &mut dyn Painter) {
         p.clear(self.theme.bg);
         self.view.paint(p);
+        self.paint_read_arrows(p);
         self.paint_story_frame(p);
         // Title bar and ribbon: one cached layer, redrawn only when what it shows changes
         // (typing changes the document, not the ribbon).
@@ -2756,7 +2865,7 @@ impl DocWindow {
         // Vertical scroll bar: light track, white buttons and thumb framed in grey, dark
         // arrows (measured on a desktop word processor: 243 / 255 / 148 / 38).
         let [bar, up, down, thumb] = self.sb_rects();
-        if bar[3] > 0.0 {
+        if bar[3] > 0.0 && bar[2] > 0.0 {
             let edge = Rgba(0x94, 0x94, 0x94, 255);
             p.fill_rect(bar[0], bar[1], bar[2], bar[3], Rgba(0xf3, 0xf3, 0xf3, 255));
             let boxed = |p: &mut dyn Painter, r: [f32; 4]| {

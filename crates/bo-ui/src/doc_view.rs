@@ -116,8 +116,12 @@ pub struct DocView {
     spell: Vec<bo_engine::spell::SpellMark>,
     /// Pages the marks were checked on (those in view and one either side).
     spell_pages: Vec<usize>,
-    /// Pages side by side in a row (2 in Read Mode).
+    /// Pages side by side in a row.
     columns: usize,
+    /// Proofing marks are hidden (Read Mode shows none, as the reference).
+    hide_spelling: bool,
+    /// White canvas without page edges (Read Mode's screen pages).
+    plain: bool,
     /// Page thumbnails the navigation pane shows: wanted pages and width (device px),
     /// the scale each stored thumbnail was drawn at, and those changed since (redrawn
     /// at rest, not while typing).
@@ -164,6 +168,8 @@ impl DocView {
             spell_pages: Vec::new(),
             sweep: Sweep::default(),
             columns: 1,
+            hide_spelling: false,
+            plain: false,
             thumbs: (Vec::new(), 0.0),
             thumbs_shown: std::collections::HashMap::new(),
             thumbs_stale: std::collections::BTreeSet::new(),
@@ -519,9 +525,11 @@ impl DocView {
 
     /// Some page in view was not checked yet (after scrolling).
     pub fn spelling_out_of_view(&self) -> bool {
-        self.visible()
-            .iter()
-            .any(|s| !self.spell_pages.contains(&s.index))
+        !self.hide_spelling
+            && self
+                .visible()
+                .iter()
+                .any(|s| !self.spell_pages.contains(&s.index))
     }
 
     /// Wavy-line marks of the last spelling check.
@@ -841,6 +849,20 @@ impl DocView {
             drawn += 1;
         }
         Ok(())
+    }
+
+    /// Draw the pages on a white canvas without their edges (Read Mode).
+    pub fn set_plain(&mut self, on: bool) {
+        self.plain = on;
+    }
+
+    /// Hide or show the wavy proofing marks (and drop the ones laid out before).
+    pub fn set_hide_spelling(&mut self, hide: bool) {
+        self.hide_spelling = hide;
+        if hide {
+            self.spell.clear();
+            self.spell_pages.clear();
+        }
     }
 
     /// Pages side by side in a row.
@@ -1228,11 +1250,20 @@ impl DocView {
         let (ox, oy) = self.origin;
         let (vw, vh) = self.viewport;
         p.push_clip(ox, oy, vw, vh);
-        p.fill_rect(ox, oy, vw, vh, CANVAS_BG);
+        let canvas = if self.plain {
+            Rgba(255, 255, 255, 255)
+        } else {
+            CANVAS_BG
+        };
+        p.fill_rect(ox, oy, vw, vh, canvas);
         let s = self.scale();
         let visible = self.visible();
         for slot in &visible {
-            let edge = self.display_scale.round().max(1.0);
+            let edge = if self.plain {
+                0.0
+            } else {
+                self.display_scale.round().max(1.0)
+            };
             p.fill_rect(
                 slot.x as f32 - edge,
                 slot.y as f32 - edge,
@@ -1245,7 +1276,12 @@ impl DocView {
             }
             // Wavy lines under misspelt words (red) and grammar issues (blue), as a desktop
             // word processor checks as you type.
-            for m in self.spell.iter().filter(|m| m.page == slot.index) {
+            let marks = if self.hide_spelling {
+                &[][..]
+            } else {
+                &self.spell[..]
+            };
+            for m in marks.iter().filter(|m| m.page == slot.index) {
                 let color = if m.grammar { SPELL_GRAMMAR } else { SPELL_RED };
                 wavy(
                     p,

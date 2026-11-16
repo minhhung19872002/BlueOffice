@@ -263,7 +263,7 @@ fn every_contextual_button_has_a_label_an_icon_and_a_command() {
                 );
                 assert!(
                     catalog::is_menu(id)
-                        || crate::doc_table::DIALOGS.contains(&id)
+                        || crate::doc_table::DIALOGS.contains(id)
                         || doc_tools::command(
                             id,
                             &format,
@@ -674,6 +674,11 @@ fn read_mode_shows_two_pages_without_the_ribbon() {
     assert!((w.view.zoom() - 1.4).abs() < 1e-3, "reading zoom");
     assert!((w.view_top() - w.title.height()).abs() < 0.5, "no ribbon");
     assert!(w.on_ids().contains(&"view.readMode"));
+    assert!(
+        w.view.spell_marks().is_empty(),
+        "no proofing marks while reading"
+    );
+    assert!(!w.view.spelling_out_of_view());
     w.handle(Input::Key(Key::Escape, Mods::default()), &Fixed);
     assert!((w.view.zoom() - zoom).abs() < 1e-3);
     assert!(w.view_top() > w.title.height() + 10.0, "ribbon back");
@@ -754,7 +759,7 @@ fn pages_tab_shows_page_thumbnails() {
         "{:?}",
         store.0
     );
-    let rects = w.nav.as_ref().map(|n| n.thumb_rects()).unwrap_or_default();
+    let rects = w.nav.as_ref().map(NavPane::thumb_rects).unwrap_or_default();
     assert_eq!(rects.len(), 1);
     let mut rec = Rects::default();
     w.paint(&mut rec);

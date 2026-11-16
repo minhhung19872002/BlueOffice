@@ -881,13 +881,31 @@ vẫn trùng lúc lưới dựng dải mới.
 - Evaluate Formula (781 × 349 px): như đối chứng — tham chiếu tuyệt đối bên trái, công thức trong hộp trắng với phần sắp
   tính gạch chân, Evaluate tính từng bước (`before` / `part` / `after` / `shown` của engine), giá trị vừa tính in nghiêng,
   hết bước thành Restart; Step In / Step Out mờ (`sheet-37`). Trước đây là danh sách các bước (đọc sai trường).
-- Trace Precedents / Dependents, Show Formulas: chụp so sánh (`sheet-38`).
+- Trace Precedents / Dependents, Show Formulas (`sheet-38`): mũi tên của nhiều lần dò giữ lại tới Remove Arrows, nối
+  điểm cách mép trái ô 22 % (18 px của cột 80 px), chấm tròn ở nguồn; Show Formulas ghi vào `sheetView/@showFormulas`
+  (engine nới cột gấp đôi như đối chứng), hằng số canh trái.
+
+### Vòng 44 — chi tiết hộp thoại (sau góp ý)
+
+- Ô đánh dấu / nút tuỳ chọn kiểu Windows 11 như đối chứng (đo `xsub`: ô 19 px ở cỡ chữ lớn, viền #808080 khi chưa chọn,
+  nền màu nhấn viền đậm hơn + dấu trắng khi chọn) với màu xanh của BlueSheet; 15 px ở hộp thoại cổ điển. Gạch chân
+  phím tắt cho nhãn (Subtotal: At each change in, Use function, Add subtotal to, Replace, Page break, Summary, Remove
+  All). Chỉ trong form của BlueSheet; BlueDoc không đổi.
+- Options › General: thêm "When using multiple displays" (mờ), ScreenTip style (tắt thì không hiện mẹo ribbon), dấu
+  (i) và biểu tượng trang (tự vẽ); Default view for new sheets hoạt động (sổ mới mở ở Page Break Preview / Page Layout).
+- Insert Function: danh mục "Most Recently Used" mặc định (lưu trong tuỳ chọn, khởi tạo SUM, AVERAGE, IF, HYPERLINK,
+  COUNT, MAX, SIN như đối chứng), mô tả một dòng của 64 hàm thông dụng (tự viết, en + vi), Go tìm theo tên và mô tả,
+  dòng cú pháp đậm, chữ gợi ý được chọn sẵn trong ô tìm, "Help on this function" mờ (chưa có tài liệu từng hàm).
+- Name Manager: cột Value tính giá trị (`{"120";"80";…}`, cắt bằng "…"), Filter (phạm vi trang / sổ, có / không lỗi,
+  tên định nghĩa / tên bảng), dấu tên / bảng ở đầu hàng, ô Refers to sửa tại chỗ với ✗ / ✓; New… / Edit… mở hộp New
+  Name (393 × 297 px: Name, Scope, Comment, Refers to; tên đề xuất từ nhãn trên vùng chọn).
+- Subtotal: hàm mặc định Count khi cột được đánh dấu (cột cuối) là chữ, Sum khi là số.
 
 ## Còn lại (sau vòng 9)
 
 - Text to Columns vẫn là hộp thoại cũ (chưa phải trình hướng dẫn 3 bước 771 × 546 px của đối chứng); Data Validation
   thiếu ô Data mờ khi Any value và "Apply these changes…".
-- Insert Function: danh mục "Most Recently Used", chữ gợi ý trong ô tìm; Name Manager: New… / Edit… mở hộp New Name
-  riêng như đối chứng (BlueSheet sửa ngay dưới bảng), cột Value.
+- Insert Function: mô tả cho các hàm ngoài 64 hàm thông dụng; tài liệu từng hàm cho "Help on this function".
+- Name Manager: nút thu hộp thoại để chọn vùng trên trang (đang mờ).
 - Bánh xe: DirectComposition không giúp; thử tiếp Present1 với vùng bẩn.
 - Danh sách lọc và danh sách hàm của đối chứng không mở được bằng input gửi vào (chỉ có ảnh BlueSheet).

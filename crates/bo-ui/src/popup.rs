@@ -91,6 +91,12 @@ pub struct Menu {
     look: MenuLook,
     /// An app's own icon drawing (`painter, name, x, y, size, dim`) in place of the shared set.
     icon_fn: Option<IconFn>,
+    /// Shortcut of each item, drawn left-aligned in a column `key_x` device pixels from the
+    /// menu's left edge (context menus of BlueReader); empty: none.
+    keys: Vec<String>,
+    key_x: f32,
+    /// Extra device pixels a separator adds above its item (0: the line sits on the row).
+    sep_gap: f32,
 }
 
 /// Draws icon `name` into a `size`-pixel square at (`x`, `y`), greyed when `dim`.
@@ -158,6 +164,9 @@ impl Menu {
             separators: Vec::new(),
             look,
             icon_fn: None,
+            keys: Vec::new(),
+            key_x: 0.0,
+            sep_gap: 0.0,
         };
         // Show the current value in the middle of the list.
         if let Some(i) = current {
@@ -189,6 +198,49 @@ impl Menu {
         self
     }
 
+    /// Shortcuts in a column at `key_x` logical pixels and separators `sep_gap` logical pixels
+    /// tall (as a desktop PDF reader's context menus); the menu grows to fit and stays inside
+    /// `viewport`.
+    #[must_use]
+    pub fn with_keys(
+        mut self,
+        keys: Vec<String>,
+        key_x: f32,
+        sep_gap: f32,
+        viewport: (f32, f32),
+    ) -> Self {
+        let s = self.scale;
+        self.key_x = (key_x * s).round();
+        self.sep_gap = (sep_gap * s).round();
+        let longest = keys.iter().map(|k| k.chars().count()).max().unwrap_or(0) as f32;
+        if longest > 0.0 {
+            let need = self.key_x
+                + (longest * self.look.char_w * self.look.text / 13.0 * s).round()
+                + (16.0 * s).round();
+            self.w = self.w.max(need).min(viewport.0.max(0.0));
+        }
+        self.keys = keys;
+        let gaps = self
+            .separators
+            .iter()
+            .filter(|&&i| i > 0 && i < self.items.len())
+            .count() as f32;
+        self.h = (self.h + gaps * self.sep_gap).min(viewport.1.max(0.0));
+        self.x = self.x.min((viewport.0 - self.w).max(0.0));
+        self.y = self.y.min((viewport.1 - self.h).max(0.0));
+        self
+    }
+
+    /// Top of row `i` from the first row (separators may add space).
+    fn row_top(&self, i: usize) -> f32 {
+        let gaps = if self.sep_gap > 0.0 {
+            self.separators.iter().filter(|&&k| k > 0 && k <= i).count() as f32
+        } else {
+            0.0
+        };
+        i as f32 * self.item_h + gaps * self.sep_gap
+    }
+
     fn pad(&self) -> f32 {
         (self.look.pad * self.scale).round()
     }
@@ -206,6 +258,11 @@ impl Menu {
     fn index_at(&self, x: f32, y: f32) -> Option<usize> {
         if !self.contains(x, y) {
             return None;
+        }
+        if self.sep_gap > 0.0 {
+            let dy = y - self.y - self.pad() + self.scroll;
+            return (0..self.items.len())
+                .find(|&i| dy >= self.row_top(i) && dy < self.row_top(i) + self.item_h);
         }
         let i = ((y - self.y - self.pad() + self.scroll) / self.item_h).floor();
         (i >= 0.0 && (i as usize) < self.items.len()).then_some(i as usize)
@@ -298,11 +355,17 @@ impl Menu {
             bold: false,
         };
         let line = style.size * 1.33;
-        let first = (self.scroll / self.item_h).floor() as usize;
-        let last = ((self.scroll + self.h) / self.item_h).ceil() as usize;
+        let (first, last) = if self.sep_gap > 0.0 {
+            (0, self.items.len())
+        } else {
+            (
+                (self.scroll / self.item_h).floor() as usize,
+                ((self.scroll + self.h) / self.item_h).ceil() as usize,
+            )
+        };
         for i in first..last.min(self.items.len()) {
             let item = &self.items[i];
-            let y = self.y + self.pad() + i as f32 * self.item_h - self.scroll;
+            let y = self.y + self.pad() + self.row_top(i) - self.scroll;
             if self.hover == Some(i) {
                 p.fill_rect(
                     self.x + self.pad(),
@@ -340,10 +403,19 @@ impl Menu {
             if self.separators.contains(&i) && i > 0 {
                 p.fill_rect(
                     self.x + (28.0 * s).round(),
-                    y.round(),
+                    (y - (self.sep_gap / 2.0).ceil()).round(),
                     self.w - (32.0 * s).round(),
                     1.0,
                     Rgba(0xe1, 0xe1, 0xe1, 255),
+                );
+            }
+            if let Some(k) = self.keys.get(i).filter(|k| !k.is_empty()) {
+                p.text(
+                    k,
+                    self.x + self.key_x,
+                    y + (self.item_h - line) / 2.0,
+                    style,
+                    if item.dim { t.text_muted } else { t.text },
                 );
             }
             if let Some(Some(name)) = self.icons.get(i) {

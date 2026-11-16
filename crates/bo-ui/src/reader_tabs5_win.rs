@@ -14,7 +14,7 @@ use bo_render::{PathSeg, Rgba};
 use std::cell::Cell;
 
 /// Index of the Fill & Sign contextual tab (after Help).
-pub(crate) const FILL_TAB: usize = 6;
+pub(crate) const FILL_TAB: usize = 7;
 
 /// Paths of the outline items marked open (`/Count` > 0), to start expanded.
 pub(crate) fn open_items(

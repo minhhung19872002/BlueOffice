@@ -248,4 +248,10 @@ pub trait Painter {
     fn layer_end(&mut self, id: usize) {
         let _ = id;
     }
+    /// Document content (page images, paper, their marks) follows until `raw_colours(false)`:
+    /// a painter that recolours the window for a skin (BlueReader's dark skin) draws it with
+    /// its own colours. Calls nest; other painters ignore them.
+    fn raw_colours(&mut self, on: bool) {
+        let _ = on;
+    }
 }

@@ -1686,6 +1686,7 @@ impl PrintDialog {
             pr[3] + 2.0 * fw,
             PAGE_FRAME,
         );
+        p.raw_colours(true);
         p.fill_rect(pr[0], pr[1], pr[2], pr[3], WHITE);
         p.push_clip(pr[0], pr[1], pr[2], pr[3]);
         let requests = self.preview_requests();
@@ -1748,6 +1749,7 @@ impl PrintDialog {
             }
         }
         p.pop_clip();
+        p.raw_colours(false);
         // Page buttons, slider and position.
         let n = self.sheet_count();
         let at_n = self.preview_at.min(n - 1) + 1;

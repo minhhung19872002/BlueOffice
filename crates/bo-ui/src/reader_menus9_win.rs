@@ -10,6 +10,8 @@ use crate::{Input, TextMeasure};
 /// px; the reference: 21 / 8 device px at 125 %).
 pub(crate) const KEY_RIGHT: f32 = 16.8;
 pub(crate) const SEP_GAP: f32 = 6.4;
+/// Least space between a label and its shortcut (logical px; 40 device px at 125 %).
+const KEY_GAP: f32 = 32.0;
 
 /// One row: command, label key, shortcut, icon, dimmed.
 type Row = (
@@ -73,12 +75,7 @@ impl ReaderWindow {
             size: (super::READER_MENU.text * self.scale).round(),
             bold: false,
         };
-        let label_w = menu
-            .items()
-            .iter()
-            .map(|i| m.measure(&i.label, st).0)
-            .fold(0.0_f32, f32::max);
-        let keys = keys
+        let keys: Vec<(String, f32)> = keys
             .iter()
             .map(|k| {
                 (
@@ -91,7 +88,18 @@ impl ReaderWindow {
                 )
             })
             .collect();
-        menu.with_keys(keys, label_w, KEY_RIGHT, SEP_GAP, self.size)
+        // Widest row: its label, then (with a shortcut) the gap and the shortcut.
+        let gap = (KEY_GAP * self.scale).round();
+        let content = menu
+            .items()
+            .iter()
+            .enumerate()
+            .map(|(i, it)| {
+                let kw = keys.get(i).map_or(0.0, |k| k.1);
+                m.measure(&it.label, st).0 + if kw > 0.0 { gap + kw } else { 0.0 }
+            })
+            .fold(0.0_f32, f32::max);
+        menu.with_keys(keys, content, KEY_RIGHT, SEP_GAP, self.size)
     }
 
     /// The point is over the current text selection.

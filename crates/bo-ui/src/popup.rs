@@ -199,13 +199,13 @@ impl Menu {
 
     /// Shortcuts (text, measured width in device pixels) right-aligned `right` logical pixels
     /// from the menu's right edge, and separators `sep_gap` logical pixels tall (as a desktop
-    /// PDF reader's context menus). `label_w` is the widest label (device pixels); the menu
-    /// grows to fit labels, a gap and the shortcuts, and stays inside `viewport`.
+    /// PDF reader's context menus). `content_w` is the widest row's label, gap and shortcut
+    /// (device pixels); the menu grows to fit it and stays inside `viewport`.
     #[must_use]
     pub fn with_keys(
         mut self,
         keys: Vec<(String, f32)>,
-        label_w: f32,
+        content_w: f32,
         right: f32,
         sep_gap: f32,
         viewport: (f32, f32),
@@ -218,9 +218,7 @@ impl Menu {
         };
         self.key_right = (right * s).round();
         self.sep_gap = (sep_gap * s).round();
-        let key_w = keys.iter().map(|k| k.1).fold(0.0_f32, f32::max);
-        let gap = if key_w > 0.0 { 32.0 * s } else { 0.0 };
-        let need = (text_x * s + label_w + gap + key_w + self.key_right).round();
+        let need = (text_x * s + content_w + self.key_right).round();
         self.w = self.w.max(need).min(viewport.0.max(0.0));
         self.keys = keys;
         let gaps = self

@@ -383,7 +383,8 @@ trong Page Transitions.
 - Header & Footer: phông, cỡ, màu, kiểu chữ (gạch chân), lề trên / dưới / trái / phải (inch), sáu ô chữ, Macros +
   Insert, liên kết Appearance Options (dời phải / lên), Page number and date format (5 dạng số trang, 4 dạng ngày, số
   bắt đầu), Page Range Options (tất cả / từ–đến, chẵn / lẻ), xem trước có đường lề nét đứt; Save Settings / Delete lưu
-  bộ thiết lập có tên vào Saved Settings (trong phiên).
+  bộ thiết lập có tên vào Saved Settings, ghi ra `%LOCALAPPDATA%/BlueOffice/editor-presets.txt` (cả policy của
+  Password Protection) và đọc lại ở phiên sau.
 - Watermark: chữ hoặc ảnh (File: Browse chọn ảnh, Absolute Scale hoặc theo bề rộng trang), phông / cỡ (Auto) / màu /
   kiểu chữ, xoay −45 / 0 / 45 / tuỳ chỉnh, độ mờ (thanh trượt + ô số), co theo trang, lặp nhiều dòng với khoảng hàng /
   cột, sau / trên trang, vị trí (khoảng dọc / ngang, đơn vị, tính từ), Page Range Options, ba nút biểu tượng lưu / nạp /
@@ -428,4 +429,4 @@ Organize che (trước bị cắt ở dải tab).
 XFA tĩnh → biểu mẫu thường đã làm ở vòng 7; OCR vẫn xám (cần mô hình nhận dạng).
 
 Còn lại: tay cầm xoay và Clip Path của Edit Object; vùng chọn chữ của bản đối chiếu là nền `#1B3471` chữ trắng (ta vẫn
-phủ xanh trong); bộ thiết lập đã lưu chưa ghi ra tệp tuỳ chọn; Optimize / Save As chưa đối chiếu.
+phủ xanh trong); Optimize / Save As chưa đối chiếu.

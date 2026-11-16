@@ -3293,7 +3293,8 @@ impl ReaderWindow {
                     }
                     if y + hh > list_top {
                         let x = (r[0] + (r[2] - tw) / 2.0).round();
-                        if i == cur {
+                        // BlueReader marks the current page by its visible area (round 9).
+                        if i == cur && self.profile.is_some() {
                             p.fill_rect(x - 4.0, y - 4.0, tw + 8.0, hh + 8.0, self.theme.accent);
                             p.fill_rect(x - 2.0, y - 2.0, tw + 4.0, hh + 4.0, WHITE);
                         }

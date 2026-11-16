@@ -196,11 +196,56 @@ fn change_case_and_clear_formatting() {
     assert_eq!((te.start, te.end), (0, 5));
     w.handle(ctrl('b', false), &Fixed);
     assert!(w.view.format().bold);
-    assert!(w.action("format.clear"));
+    assert!(w.action("sl.clearFmt"));
     assert!(!w.view.format().bold);
     // Character Spacing: Loose = +3 pt.
     assert!(w.choose(Choice::Command("chsp:3".into())));
     assert_eq!(w.view.format().spacing, Some(3.0));
+    // Text Shadow toggles, shown as on.
+    assert!(w.action("sl.shadow"));
+    assert!(w.view.format().shadow);
+    assert!(w.toggled().contains(&"sl.shadow"));
+    assert!(w.action("sl.shadow"));
+    assert!(!w.view.format().shadow);
+    // Highlight and font colour menus.
+    assert!(w.action("sl.highlight"));
+    assert!(w.menu.is_some());
+    assert!(w.choose(Choice::Command("hl:00FF00".into())));
+    assert_eq!(w.view.format().highlight.as_deref(), Some("00FF00"));
+    assert!(w.choose(Choice::Command("fc:FF0000".into())));
+    assert_eq!(w.view.format().color.as_deref(), Some("FF0000"));
+}
+
+#[test]
+fn text_box_options_of_the_paragraph_group() {
+    let mut w = window();
+    let id = text_box(&mut w, "One two three");
+    // Text Direction / Align Text sit in a column right of the two rows.
+    let a = w.command_rect("sl.textDir").expect("Text Direction");
+    let b = w.command_rect("sl.alignText").expect("Align Text");
+    let j = w.command_rect("format.justify").expect("Justify");
+    assert!(
+        (a[0] - b[0]).abs() < 1.0 && a[0] > j[0],
+        "{a:?} {b:?} {j:?}"
+    );
+    for c in ["body:anchor:b", "body:cols:2", "body:vert:vert270"] {
+        assert!(w.choose(Choice::Command(c.into())), "{c}");
+    }
+    let p = w.view.engine().presentation().unwrap();
+    let bp = p.slides[w.view.current()]
+        .data
+        .shapes
+        .iter()
+        .find_map(|n| match n {
+            bo_model::slide::ShapeNode::Shape(s) if s.nv.id == id => {
+                s.text.as_ref().map(|t| t.body_pr.clone())
+            }
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(bp.anchor.as_deref(), Some("b"));
+    assert_eq!(bp.num_col, Some(2));
+    assert_eq!(bp.vert.as_deref(), Some("vert270"));
 }
 
 #[test]

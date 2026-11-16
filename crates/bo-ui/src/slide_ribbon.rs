@@ -172,6 +172,13 @@ pub fn has_menu_mark(id: &str) -> bool {
             | "sl.picQuick"
             | "pm.orientation"
             | "pm.perPage"
+            | "sl.charSpacing"
+            | "sl.changeCase"
+            | "sl.highlight"
+            | "sl.fontColor"
+            | "sl.columns"
+            | "sl.textDir"
+            | "sl.alignText"
     )
 }
 

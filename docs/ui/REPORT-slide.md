@@ -432,3 +432,11 @@ lên thì swap chain bị *occluded* và `PrintWindow` trả khung cũ (vòng tr
   `setChart` của engine.
 - Bảng: Tab sang ô kế (chọn hết chữ), Shift+Tab ô trước, Tab ở ô cuối thêm hàng mới; gõ chữ trong ô giờ ghi
   vào ô (trước: lệnh `setText` thiếu `cell`, chữ không vào ô).
+- Home > Font / Paragraph như bố cục tham chiếu: hàng 2 B I U S abc AV▾ Aa▾ | tô sáng▾ màu chữ▾; Text Shadow
+  (`a:effectLst/a:outerShdw` blurRad 38 100, dist 38 100, dir 45°, đen 43 % như tham chiếu ghi; engine vẽ bản
+  bóng lệch dưới chữ); Paragraph thêm Columns▾ (1–3 cột, `bodyPr@numCol`), cột phải Text Direction▾ (`vert`)
+  và Align Text▾ (`anchor`) — lệnh engine `TextFormat::Body`. Biểu tượng Clear Formatting là tẩy hồng tự vẽ.
+- Tốc độ (bản release, `deck-300.pptx`, máy đang biên dịch song song 6 tiến trình rustc): mở 297 ms, khung
+  đầu 774 ms; cuộn ngăn hình thu nhỏ trung vị 2,4 ms / p95 3,2 ms mỗi nấc (không chặn, không cần luồng
+  riêng); gõ chữ tiêu đề tổng trung vị 12,9 ms (chuẩn bị ảnh 8,9 ms) — bản vòng 14 đo cùng lúc 13,0 ms, nên
+  không thụt lùi; số vòng 14 (5,3 ms) đo lúc máy rảnh.

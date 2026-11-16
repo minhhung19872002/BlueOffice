@@ -2100,6 +2100,8 @@ fn format_state_at(
         caps: r.cap.clone().filter(|c| c != "none"),
         spacing: r.spc.map(|s| f64::from(s) / 100.0),
         double_strike: r.strike.as_deref() == Some("dblStrike"),
+        // Effects are not merged by the style stack: the run's own properties.
+        shadow: text::has_shadow(&rpr),
         paragraph: Some(para_values(&ppr)),
     }
 }

@@ -91,23 +91,26 @@ fn home() -> Tab {
                         SizeBox,
                         B("format.growStep"),
                         B("format.shrinkStep"),
-                        B("format.clear"),
+                        B("sl.clearFmt"),
                     ],
+                    // Reference row: B I U S abc AV▾ Aa▾ | highlight▾ colour▾.
                     vec![
                         B("format.bold"),
                         B("format.italic"),
                         B("format.underline"),
+                        B("sl.shadow"),
                         B("format.strike"),
-                        B("format.charSpacing"),
-                        B("format.changeCase"),
-                        B("format.highlight"),
-                        B("format.color"),
+                        B("sl.charSpacing"),
+                        B("sl.changeCase"),
+                        B("sl.highlight"),
+                        B("sl.fontColor"),
                     ],
                 ],
             },
             Group {
                 label: "ribbon.groups.paragraph",
                 large: vec![],
+                // Two rows, then Text Direction / Align Text in a column on the right.
                 rows: vec![
                     vec![
                         B("format.bullets"),
@@ -115,12 +118,15 @@ fn home() -> Tab {
                         B("format.outdent"),
                         B("format.indent"),
                         B("format.lineSpacing"),
+                        B("sl.textDir"),
                     ],
                     vec![
                         B("format.alignLeft"),
                         B("format.alignCenter"),
                         B("format.alignRight"),
                         B("format.justify"),
+                        B("sl.columns"),
+                        B("sl.alignText"),
                     ],
                 ],
             },
@@ -481,6 +487,7 @@ impl SlideWindow {
                 .with_row_widths(row_widths)
                 .with_two_line_labels()
                 .with_mark_on_own_line()
+                .with_late_rows(paragraph::late_row)
                 // Reference at 125 %: font box 213 px, size box 67.
                 .with_box_widths(170.4, 53.6)
                 .with_enabled(slide_enabled)
@@ -1876,6 +1883,7 @@ impl SlideWindow {
             "lspc" => self.choose_line_spacing(v),
             "case" => self.change_case(v),
             "chsp" => self.choose_spacing(v),
+            "hl" | "fc" | "body" => self.choose_home(kind, v),
             "slchart" => self.chart_action(c).unwrap_or(false),
             "tdir" => self.set_transition(None, Some(v.to_owned()), None, false),
             "tdur" => self.set_transition(None, None, v.parse().ok(), false),
@@ -2361,6 +2369,9 @@ impl SlideWindow {
         }
         if self.fmt_painter.is_some() {
             on.push("sl.painter");
+        }
+        if self.view.format().shadow {
+            on.push("sl.shadow");
         }
         self.view_toggled(&mut on);
         self.picture_toggled(&mut on);

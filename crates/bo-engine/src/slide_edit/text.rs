@@ -286,6 +286,26 @@ pub enum TextFormat {
         /// Signed change (points).
         points: f64,
     },
+    /// Text Shadow (Home > Font): §20.1.8.49 outerShdw in the run's effectLst, as the
+    /// reference writes it (3 pt blur and distance at 45°, black at 43 %).
+    Shadow {
+        /// New state; toggles when absent.
+        value: Option<bool>,
+    },
+    /// Text box options of Home > Paragraph (§21.1.2.1.1 bodyPr): Align Text (`anchor`
+    /// t / ctr / b), Text Direction (`vert` horz / vert / vert270 / wordArtVert) and Columns
+    /// (`numCol`); `None` leaves one as it is.
+    Body {
+        /// §21.1.10.60 ST_TextAnchoringType.
+        #[serde(default)]
+        anchor: Option<String>,
+        /// §21.1.10.83 ST_TextVerticalType.
+        #[serde(default)]
+        vert: Option<String>,
+        /// 1–16 columns.
+        #[serde(default)]
+        columns: Option<i32>,
+    },
     /// Increase / Decrease Font Size: each run to the next size of the reference
     /// presentation app's list (see [`font_size_step`]).
     SizeStep {
@@ -379,6 +399,7 @@ impl TextFormat {
                 | TextFormat::Level { .. }
                 | TextFormat::LineSpacing { .. }
                 | TextFormat::Paragraph { .. }
+                | TextFormat::Body { .. }
         )
     }
 }
@@ -457,6 +478,9 @@ pub struct FormatState {
     pub spacing: Option<f64>,
     /// Double strikethrough.
     pub double_strike: bool,
+    /// Text shadow (an outer shadow in the run's effectLst).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub shadow: bool,
     /// Paragraph values the Paragraph dialog starts from (effective, points): left margin
     /// (§21.1.2.2.7 pPr@marL), first-line indent (pPr@indent, negative = hanging), space
     /// before / after (§21.1.2.2.10 spcBef / spcAft as points) and an exact line spacing.
@@ -524,6 +548,42 @@ pub fn font_size_step(cur: f64, up: bool) -> f64 {
     next.clamp(1.0, 4000.0)
 }
 
+/// The run has an outer text shadow (§20.1.8.26 effectLst / §20.1.8.49 outerShdw).
+pub fn has_shadow(r: &RunProps) -> bool {
+    r.extra
+        .iter()
+        .any(|e| e.xml.local() == "effectLst" && e.xml.elements().any(|c| c.local() == "outerShdw"))
+}
+
+/// Give a run the Text Shadow the reference writes, or take its effects away.
+fn set_shadow(r: &mut RunProps, on: bool) {
+    use bo_drawingml::dom::El;
+    r.extra.retain(|e| e.xml.local() != "effectLst");
+    if on {
+        let xml = El::new("a:effectLst")
+            .child(
+                El::new("a:outerShdw")
+                    .a("blurRad", 38_100)
+                    .a("dist", 38_100)
+                    .a("dir", 2_700_000)
+                    .a("algn", "tl")
+                    .child(
+                        El::new("a:srgbClr")
+                            .a("val", "000000")
+                            .child(El::new("a:alpha").a("val", 43_137).0)
+                            .0,
+                    )
+                    .0,
+            )
+            .0;
+        r.extra.push(bo_model::slide::Extra {
+            key: bo_drawingml::text::rpr_key("a:effectLst"),
+            xml,
+        });
+        r.extra.sort_by_key(|e| e.key);
+    }
+}
+
 pub(super) type RunChange = Box<dyn Fn(&mut RunProps)>;
 
 /// The run-property change of a character format (`None` for paragraph formats).
@@ -567,6 +627,10 @@ pub(super) fn run_change(
                 let cur = r.sz.map_or(base, |s| f64::from(s) / 100.0);
                 r.sz = Some(((cur + delta).clamp(1.0, 4000.0) * 100.0).round() as i32);
             }))
+        }
+        TextFormat::Shadow { value } => {
+            let on = toggle(*value, state.shadow);
+            Some(Box::new(move |r: &mut RunProps| set_shadow(r, on)))
         }
         TextFormat::SizeStep { up } => {
             let up = *up;
@@ -652,6 +716,15 @@ fn paint_run(to: &mut RunProps, from: &RunProps) {
     to.latin.clone_from(&from.latin);
     to.ea.clone_from(&from.ea);
     to.cs.clone_from(&from.cs);
+    // Text effects (shadow) follow too (§20.1.8.26 effectLst).
+    to.extra.retain(|e| e.xml.local() != "effectLst");
+    to.extra.extend(
+        from.extra
+            .iter()
+            .filter(|e| e.xml.local() == "effectLst")
+            .cloned(),
+    );
+    to.extra.sort_by_key(|e| e.key);
 }
 
 /// Hanging indent step of a list level (0.375 in).
@@ -754,6 +827,9 @@ fn change_run(r: &mut TextRun, ch: &RunChange) {
 
 /// Apply a resolved formatting change to every run of a body.
 pub fn apply_format(tb: &mut TextBody, f: &TextFormat, state: &FormatState, default_size: f64) {
+    if body_change(tb, f) {
+        return;
+    }
     let rpr_change = run_change(f, state, default_size);
     for p in &mut tb.paragraphs {
         if let Some(ch) = &rpr_change {
@@ -766,6 +842,40 @@ pub fn apply_format(tb: &mut TextBody, f: &TextFormat, state: &FormatState, defa
             para_change(p, f, state);
         }
     }
+}
+
+/// Apply a [`TextFormat::Body`] to the text box; `false` for other formats.
+fn body_change(tb: &mut TextBody, f: &TextFormat) -> bool {
+    let TextFormat::Body {
+        anchor,
+        vert,
+        columns,
+    } = f
+    else {
+        return false;
+    };
+    let bp = &mut tb.body_pr;
+    if let Some(a) = anchor
+        .as_deref()
+        .filter(|a| matches!(*a, "t" | "ctr" | "b"))
+    {
+        bp.anchor = Some(a.to_owned());
+    }
+    if let Some(v) = vert
+        .as_deref()
+        .filter(|v| matches!(*v, "horz" | "vert" | "vert270" | "wordArtVert" | "eaVert"))
+    {
+        bp.vert = (v != "horz").then(|| v.to_owned());
+    }
+    if let Some(n) = columns {
+        let n = (*n).clamp(1, 16);
+        bp.num_col = (n > 1).then_some(n);
+        if n > 1 && bp.spc_col.is_none() {
+            // 0.1 in between columns.
+            bp.spc_col = Some(91_440);
+        }
+    }
+    true
 }
 
 /// Global character range of each paragraph in the editing text.
@@ -815,6 +925,9 @@ pub fn apply_format_range(
     start: usize,
     end: usize,
 ) {
+    if body_change(tb, f) {
+        return;
+    }
     let (start, end) = (start.min(end), start.max(end));
     let ranges = para_ranges(tb);
     if f.is_paragraph() {
@@ -1021,6 +1134,55 @@ mod tests {
         assert_eq!(tb.paragraphs[0].runs[0], run("ab", false));
         assert!(matches!(tb.paragraphs[0].runs[1], TextRun::Break { .. }));
         assert!(matches!(tb.paragraphs[0].runs[2], TextRun::Field { .. }));
+    }
+
+    #[test]
+    fn text_shadow_and_text_box_options() {
+        let mut tb = body(vec![vec![run("x", false)]]);
+        let st = FormatState::default();
+        apply_format(&mut tb, &TextFormat::Shadow { value: None }, &st, 18.0);
+        let TextRun::Run { props, .. } = &tb.paragraphs[0].runs[0] else {
+            panic!()
+        };
+        assert!(has_shadow(props));
+        let fx = &props.extra[0].xml;
+        assert_eq!(fx.name, "a:effectLst");
+        let sh = fx.elements().next().unwrap();
+        assert_eq!(
+            (sh.attr("dist"), sh.attr("dir"), sh.attr("blurRad")),
+            (Some("38100"), Some("2700000"), Some("38100"))
+        );
+        let on = FormatState {
+            shadow: true,
+            ..FormatState::default()
+        };
+        apply_format(&mut tb, &TextFormat::Shadow { value: None }, &on, 18.0);
+        let TextRun::Run { props, .. } = &tb.paragraphs[0].runs[0] else {
+            panic!()
+        };
+        assert!(!has_shadow(props));
+        let f = TextFormat::Body {
+            anchor: Some("ctr".into()),
+            vert: Some("vert".into()),
+            columns: Some(3),
+        };
+        apply_format(&mut tb, &f, &st, 18.0);
+        assert_eq!(tb.body_pr.anchor.as_deref(), Some("ctr"));
+        assert_eq!(tb.body_pr.vert.as_deref(), Some("vert"));
+        assert_eq!(
+            (tb.body_pr.num_col, tb.body_pr.spc_col),
+            (Some(3), Some(91_440))
+        );
+        let f = TextFormat::Body {
+            anchor: None,
+            vert: Some("horz".into()),
+            columns: Some(1),
+        };
+        apply_format(&mut tb, &f, &st, 18.0);
+        assert_eq!(
+            (tb.body_pr.vert.as_deref(), tb.body_pr.num_col),
+            (None, None)
+        );
     }
 
     #[test]

@@ -124,6 +124,42 @@ struct Style {
     baseline: f64,
     /// Gradient / pattern / picture fill or outline of the glyphs (WordArt, CORE-SHAPE-002).
     fx: Option<Arc<RunFx>>,
+    /// Text shadow (§20.1.8.49 outerShdw in the run's effectLst): offset (points) and colour.
+    shadow: Option<(f64, f64, Rgba)>,
+}
+
+/// The outer shadow of a run (§21.1.2.3.9 rPr / §20.1.8.26 effectLst / §20.1.8.49
+/// outerShdw): its offset from `dist` (EMU) and `dir` (60 000ths of a degree), and its
+/// colour (black at the alpha of the first colour child; 43 % as the Shadow button writes).
+fn run_shadow(rp: &RunProps, scale: f64) -> Option<(f64, f64, Rgba)> {
+    let sh = rp
+        .extra
+        .iter()
+        .find(|e| e.xml.local() == "effectLst")?
+        .xml
+        .elements()
+        .find(|e| e.local() == "outerShdw")?;
+    let num = |k: &str, d: f64| {
+        sh.attr(k)
+            .and_then(|v| v.trim().parse::<f64>().ok())
+            .unwrap_or(d)
+    };
+    let dist = num("dist", 0.0) / EMU_PT * scale;
+    let dir = num("dir", 0.0) / 60_000.0;
+    let alpha = sh
+        .elements()
+        .next()
+        .and_then(|c| c.elements().find(|e| e.local() == "alpha"))
+        .and_then(|a| a.attr("val"))
+        .and_then(|v| v.trim().parse::<f64>().ok())
+        .unwrap_or(100_000.0)
+        / 100_000.0;
+    let rad = dir.to_radians();
+    Some((
+        dist * rad.cos(),
+        dist * rad.sin(),
+        Rgba(0, 0, 0, (alpha.clamp(0.0, 1.0) * 255.0).round() as u8),
+    ))
 }
 
 /// Text fill and outline beyond a plain colour (§21.1.2.3.9 rPr: `a:ln`, `a:gradFill`,
@@ -281,6 +317,7 @@ fn style_for(
         strike: rp.strike.as_deref().is_some_and(|s| s != "noStrike"),
         baseline: baseline * base * scale,
         fx: run_fx(rp),
+        shadow: run_shadow(rp, scale),
     })
 }
 
@@ -1328,6 +1365,17 @@ fn emit(
                 stroke: None,
             });
         } else if !sub.trim().is_empty() && st.color.3 > 0 {
+            if let Some((dx, dy, color)) = st.shadow {
+                out.push(Command::Glyphs {
+                    face: face.0,
+                    size: st.size as f32,
+                    x: (x + gx + dx) as f32,
+                    y: (y + dy) as f32,
+                    color,
+                    text: sub.to_owned(),
+                    glyphs: glyphs.clone(),
+                });
+            }
             out.push(Command::Glyphs {
                 face: face.0,
                 size: st.size as f32,

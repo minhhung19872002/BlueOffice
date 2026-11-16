@@ -202,6 +202,8 @@ pub struct ReaderView {
     previews_drawn: Vec<Option<(usize, f32, u64)>>,
     /// Other panes of a split window (frame, scroll): their pages are kept drawn too.
     extra_views: Vec<([f32; 4], (f32, f32))>,
+    /// Form fields drawn on this background (Highlight Fields, BlueReader round 11).
+    field_tint: Option<bo_render::Rgba>,
 }
 
 /// Largest page image side and area (device pixels) drawn whole; larger pages at high zoom
@@ -246,6 +248,7 @@ impl ReaderView {
             gap: 6.0,
             cover: true,
             night: false,
+            field_tint: None,
             prepared_y: 0.0,
             scrolled_up: false,
             reverse: false,
@@ -888,6 +891,7 @@ impl ReaderView {
             // Sticky notes keep one point per interface pixel whatever the zoom, as the
             // reference reader draws them (16 pt note: 20 px at 125 %, round 10).
             no_zoom: 1.0 / (self.zoom * PT).max(0.01),
+            field_tint: self.field_tint,
             ..bo_pdfread::RenderExtra::default()
         }
     }
@@ -1537,6 +1541,24 @@ impl ReaderView {
         for g in &mut self.generation {
             *g += 1;
         }
+    }
+
+    /// Form fields drawn on `tint` (Highlight Fields) or as they are; pages are drawn again.
+    pub fn set_field_tint(&mut self, tint: Option<bo_render::Rgba>) {
+        if self.field_tint == tint {
+            return;
+        }
+        self.field_tint = tint;
+        self.cache.clear();
+        self.lru.clear();
+        for g in &mut self.generation {
+            *g += 1;
+        }
+    }
+
+    /// The form field tint in use.
+    pub fn field_tint(&self) -> Option<bo_render::Rgba> {
+        self.field_tint
     }
 
     /// Whether Night Mode is on.

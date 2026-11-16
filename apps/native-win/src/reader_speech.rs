@@ -51,6 +51,21 @@ impl Speech {
         }
     }
 
+    /// The word being spoken: its UTF-16 offset in the text and its length (BlueReader round
+    /// 11 highlights it on the page); `None` when nothing is being read.
+    pub fn word(&self) -> Option<(usize, usize)> {
+        let v = self.voice.as_ref()?;
+        let mut st = windows::Win32::Media::Speech::SPVOICESTATUS::default();
+        // SAFETY: the status is a plain struct written by the call; no bookmark is asked for
+        // (a null pointer), so nothing is allocated for us to free.
+        unsafe {
+            v.GetStatus(&raw mut st, std::ptr::null_mut()).ok()?;
+        }
+        // SPRS_IS_SPEAKING (2): running.
+        (st.dwRunningState & 2 != 0)
+            .then_some((st.ulInputWordPos as usize, st.ulInputWordLen as usize))
+    }
+
     /// 0 stop, 1 pause, 2 resume, 10 ± n: rate n.
     pub fn control(&mut self, what: i32) {
         let Some(v) = self.voice.as_ref() else {

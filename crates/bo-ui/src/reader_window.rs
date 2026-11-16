@@ -74,6 +74,9 @@ mod search9;
 mod skins8;
 #[path = "reader_tabs9_win.rs"]
 mod tabs9;
+// Forms, Fill & Sign, comment tool behaviour, accessibility (BlueReader round 11).
+#[path = "reader_fill11_win.rs"]
+mod fill11;
 
 /// Measured greys of the reference reader at 125 %.
 const CHROME: Rgba = Rgba(251, 251, 253, 255);
@@ -537,6 +540,8 @@ pub struct ReaderWindow {
     marks9: marks9::Marks9,
     /// Pop-up notes, the selection toolbar and Paste of round 10.
     ten: popups10::Ten,
+    /// Forms, Fill & Sign, Read Aloud of round 11.
+    eleven: fill11::Eleven,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -623,6 +628,7 @@ impl ReaderWindow {
             search9: search9::Search9::default(),
             marks9: marks9::Marks9::default(),
             ten: popups10::Ten::default(),
+            eleven: fill11::Eleven::default(),
         }
     }
 
@@ -811,6 +817,8 @@ impl ReaderWindow {
             self.recent.insert(0, p);
             self.recent.truncate(12);
         }
+        // Form fields highlighted as the reference shows them (round 11).
+        self.opened11();
         self.layout_doc();
     }
 
@@ -1353,6 +1361,8 @@ impl ReaderWindow {
         for n in names {
             self.measure(m, &n, ds);
         }
+        // Fill & Sign's signature gallery is wider than a button (round 11).
+        self.relayout11();
         self.layout_doc();
     }
 
@@ -1911,7 +1921,10 @@ impl ReaderWindow {
                         .nine
                         .default_color(AnnotKind::Square)
                         .unwrap_or(COLOR_MARK);
-                    self.add_annot(AnnotKind::Square, page, vec![rect], color, String::new());
+                    // Round 11: a 2 pt rectangle selected once drawn (BlueReader), as measured.
+                    if !self.add_rect11(page, rect, color) {
+                        self.add_annot(AnnotKind::Square, page, vec![rect], color, String::new());
+                    }
                 }
                 true
             }
@@ -3008,6 +3021,7 @@ impl ReaderWindow {
         self.paint_marks9(p);
         self.paint_popups10(p);
         self.paint_bar10(p);
+        self.paint_eleven(p);
         if let Some((menu, _)) = &self.menu {
             menu.paint(p, &self.theme, &self.icons);
         }

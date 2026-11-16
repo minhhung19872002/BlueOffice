@@ -101,7 +101,7 @@ impl ReaderWindow {
     /// Window box of the selected comment (x, y, w, h).
     fn sel_box10(&self, a: &Annot) -> Option<[f32; 4]> {
         let t = self.tabs.get(self.active)?;
-        let w = t.view.doc_rect_to_window(a.page, a.rect)?;
+        let w = t.view.doc_rect_to_window(a.page, self.shown_rect11(a))?;
         Some(w.map(f32::round))
     }
 
@@ -126,6 +126,14 @@ impl ReaderWindow {
         let Some(b) = self.sel_box10(a) else {
             return Vec::new();
         };
+        // Round 11: NoZoom notes have no handles; Fill & Sign marks one corner (ratio kept).
+        match self.grip_mode11(a) {
+            super::super::fill11::GripMode::Frame => return Vec::new(),
+            super::super::fill11::GripMode::Corner => {
+                return vec![(Grip::Box(4), (b[0] + b[2], b[1] + b[3]))];
+            }
+            super::super::fill11::GripMode::Full => {}
+        }
         let (l, t, r, bo) = (b[0], b[1], b[0] + b[2], b[1] + b[3]);
         let (cx, cy) = (l.midpoint(r), t.midpoint(bo));
         let mut v: Vec<(Grip, (f32, f32))> = [
@@ -232,7 +240,8 @@ impl ReaderWindow {
         let s = t.view.px_per_pt().max(0.01);
         let to_page = |x: f32, y: f32| [(x - pr[0]) / s, (y - pr[1]) / s];
         let (dx, dy) = (d.to.0 - d.from.0, d.to.1 - d.from.1);
-        let shift = self.ten.shift;
+        let shift =
+            self.ten.shift || self.grip_mode11(&d.a) == super::super::fill11::GripMode::Corner;
         let target = match d.grip {
             Grip::Box(i) => {
                 let Some(b) = self.sel_box10(&d.a) else {
@@ -387,9 +396,15 @@ impl ReaderWindow {
                 to,
                 ..
             }) => {
-                b = resized_box(b, *i, to.0 - from.0, to.1 - from.1, self.ten.shift);
+                let ratio =
+                    self.ten.shift || self.grip_mode11(a) == super::super::fill11::GripMode::Corner;
+                b = resized_box(b, *i, to.0 - from.0, to.1 - from.1, ratio);
             }
             _ => {}
+        }
+        if self.paint_grips11(p, a, b) {
+            p.pop_clip();
+            return;
         }
         Self::paint_dotted10(p, b);
         let (l, t, r, bo) = (b[0], b[1], b[0] + b[2], b[1] + b[3]);

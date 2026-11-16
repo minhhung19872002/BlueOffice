@@ -247,7 +247,7 @@ impl ReaderWindow {
 
     /// Tooltip text of ribbon control `id` (labelled commands; small icons with a
     /// `pdfTip.<id>` string).
-    fn tip_text9(&self, id: &str) -> Option<String> {
+    pub(crate) fn tip_text9(&self, id: &str) -> Option<String> {
         let c = self.controls.iter().find(|c| c.id == id)?;
         // A `pdfTip.<id>` string wins (greyed commands say why).
         let tip = format!("pdfTip.{id}");

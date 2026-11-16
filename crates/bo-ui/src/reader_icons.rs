@@ -231,6 +231,23 @@ fn shape(name: &str) -> &'static [Part] {
         "resetForm" => &[S("M5 2.5h10l4 4v15H5z M15 2.5v4h4"), A("M8.5 15a3.5 3.5 0 1 0 1-2.5 M8.5 10.5v2.5H11")],
         "formFields" => &[S("M3 5h18v5H3z M3 14h18v5H3z"), FA("M5 6.5h7v2H5z M5 15.5h4v2H5z")],
         "organize" => &[S("M3 3h7v8H3z M14 3h7v8h-7z M3 13h7v8H3z"), A("M14 13h7v8h-7z")],
+        // Fill & Sign, round 11 (ours: a signature card with a gear dot, a person badge over a
+        // text line, an open square mark, a calendar page, two initials strokes).
+        "manageSig" => &[
+            S("M2.5 5.5h19v11h-19z"),
+            A("M5 13c1.5-4 3-5.5 3.5-4.5s-1.5 4 0 4.5 2-2.5 3-2.5 .5 1.5 2.5 1.5"),
+            S("M16 19.5a2.5 2.5 0 1 0 .01 0z M18.5 19.5h3"),
+        ],
+        "predefText" => &[
+            S("M9 4a3 3 0 1 0 .01 0z M3.5 15c0-3 2.5-5 5.5-5s5.5 2 5.5 5"),
+            A("M12 19.5h9.5 M16.5 15.5l4 4-4 4"),
+        ],
+        "box" => &[S("M5.5 5.5h13v13h-13z")],
+        "fillDate" => &[
+            S("M3.5 5.5h17v15h-17z M3.5 9.5h17 M8 3v4 M16 3v4"),
+            FA("M7 12.5h3v2.5H7z M11 12.5h3v2.5h-3z M15 12.5h3v2.5h-3z M7 16h3v2.5H7z"),
+        ],
+        "initials" => &[S("M3 20.5h18"), A("M5 16l2.5-10 2.5 10 M6 12.5h3 M14 6v10c0 2-3 2-3 0")],
         _ => crate::editor_icons::shape(name),
     }
 }
@@ -445,6 +462,11 @@ mod tests {
             "resetForm",
             "formFields",
             "organize",
+            "manageSig",
+            "predefText",
+            "box",
+            "fillDate",
+            "initials",
             "check",
             "cross",
             "dot",

@@ -127,6 +127,15 @@ fn prefs_file(app: &str) -> Option<std::path::PathBuf> {
         .map(|d| std::path::PathBuf::from(d).join("BlueOffice").join(name))
 }
 
+/// BlueReader's saved Fill & Sign signatures (round 11).
+fn sigs_file() -> Option<std::path::PathBuf> {
+    std::env::var_os("LOCALAPPDATA").map(|d| {
+        std::path::PathBuf::from(d)
+            .join("BlueOffice")
+            .join("reader-signatures.txt")
+    })
+}
+
 fn save_recent(app: &str, list: &[std::path::PathBuf]) {
     if let Some(f) = recent_file(app) {
         if let Some(dir) = f.parent() {
@@ -153,6 +162,11 @@ pub fn run(editor: bool) -> Result<(), String> {
     window.set_recent(load_recent(app));
     if let Some(text) = prefs_file(app).and_then(|f| std::fs::read_to_string(f).ok()) {
         window.set_preferences(&text);
+    }
+    if app == "BlueReader" {
+        if let Some((f, bytes)) = sigs_file().and_then(|f| std::fs::read(&f).ok().map(|b| (f, b))) {
+            window.file_picked("sigs11", &f, &bytes);
+        }
     }
     for arg in std::env::args_os().skip(1) {
         let path = std::path::PathBuf::from(arg);
@@ -703,6 +717,17 @@ impl Shell {
                         self.window.file_picked("paste10txt", p, t.as_bytes());
                     }
                 }
+                // Fill & Sign's saved signatures (round 11).
+                ReaderRequest::Command(c) if c.starts_with("host.sigs11:") => {
+                    if let Some(f) = sigs_file() {
+                        if let Some(dir) = f.parent() {
+                            let _ = std::fs::create_dir_all(dir);
+                        }
+                        if let Err(e) = std::fs::write(&f, &c["host.sigs11:".len()..]) {
+                            self.window.set_status(&format!("{}: {e}", f.display()));
+                        }
+                    }
+                }
                 // Share › Show in Folder: Explorer with the file selected.
                 ReaderRequest::Command(c) if c.starts_with("host.reveal:") => {
                     let path = &c["host.reveal:".len()..];
@@ -900,6 +925,12 @@ impl Handler for Shell {
         }
         let m = Measure(self.gpu.as_ref().map(|g| &g.device));
         let mut redraw = self.window.handle(input, &m);
+        // Read Aloud follows the voice: the word being spoken is highlighted (round 11).
+        if kind == "tick" && self.window.reading() {
+            if let Some((pos, len)) = self.speech.word() {
+                redraw |= self.window.speech_word(pos, len);
+            }
+        }
         redraw |= self.handle_requests();
         if !redraw {
             return;

@@ -543,7 +543,7 @@ impl ReaderWindow {
         })
     }
 
-    fn fill_field(&mut self, f: FormField, m: &dyn TextMeasure) {
+    pub(crate) fn fill_field(&mut self, f: FormField, m: &dyn TextMeasure) {
         match f.kind {
             FieldKind::Text => {
                 let mut d = Dialog::new(
@@ -601,16 +601,21 @@ impl ReaderWindow {
         true
     }
 
-    fn set_field(&mut self, f: &FormField, text: Option<&str>, checked: Option<bool>) {
+    pub(crate) fn set_field(&mut self, f: &FormField, text: Option<&str>, checked: Option<bool>) {
         let Some(t) = self.tabs.get_mut(self.active) else {
             return;
         };
         let doc = t.view.doc_mut();
+        // The new value and the calculated fields it changes are one undo step (round 11:
+        // AFSimple_Calculate in `/CO` order).
+        doc.begin_group("fill field");
         let r = match (text, checked) {
             (Some(v), _) => doc.set_field_text(f, v),
             (None, Some(on)) => doc.set_field_checked(f, on),
             _ => Ok(()),
-        };
+        }
+        .and_then(|()| doc.calculate_fields().map(|_| ()));
+        doc.end_group();
         if let Err(e) = r {
             self.status = e;
         }
@@ -755,7 +760,8 @@ impl ReaderWindow {
     pub(crate) fn paint_tabs4(&self, p: &mut dyn Painter) {
         let d = self.doc_rect;
         if let Some(t) = self.tabs.get(self.active) {
-            if self.tabs4.highlight_fields {
+            // BlueReader draws the highlight under the fields with the page (round 11).
+            if self.tabs4.highlight_fields && !self.tint11_on() {
                 p.push_clip(d[0], d[1], d[2], d[3]);
                 let shown = t.view.visible_pages();
                 for f in t.view.doc().form_fields() {

@@ -41,6 +41,7 @@ mod field_detect;
 mod filters;
 mod font;
 mod forms;
+mod forms11;
 mod function;
 mod image;
 mod interp;
@@ -87,6 +88,9 @@ pub use exchange::SummaryLabels;
 pub use exchange_data::ImportReport;
 pub use extract::ExtractedImage;
 pub use forms::{FieldKind, FormField};
+pub use forms11::{
+    calc_text, parse_simple_calculate, typed_outline, typed_width, Calculation, SignatureInk,
+};
 pub use image::Image;
 pub use links_edit::{find_web_addresses, FoundLink};
 pub use markup::{Markup, MarkupKind};
@@ -153,6 +157,9 @@ pub struct RenderExtra {
     /// keep a fixed size, their rectangle scaled by this about its top left corner (the viewer
     /// passes the inverse of its zoom); 0 draws them at their rectangle.
     pub no_zoom: f32,
+    /// On screen: form field widgets get this background under their appearance (a viewer's
+    /// Highlight Fields, BlueReader round 11); `None` draws them as they are.
+    pub field_tint: Option<Rgba>,
 }
 
 /// Parts of a page printed (the reference reader's Print What choices).
@@ -757,6 +764,10 @@ impl PdfDocument {
                     && (!extra.printing || print_flag)
                 {
                     let rect = no_zoom_rect(d, rect, extra.no_zoom);
+                    if let (Some(c), false, b"Widget") = (extra.field_tint, extra.printing, subtype)
+                    {
+                        field_tint(&mut it, d, rect, c);
+                    }
                     draw_annotation(&mut it, doc, d, rect);
                 }
             }
@@ -914,6 +925,29 @@ fn no_zoom_rect(d: &Dictionary, rect: [f32; 4], k: f32) -> [f32; 4] {
         rect[1].max(rect[3]),
     );
     [x0, y1 - (y1 - y0) * k, x0 + (x1 - x0) * k, y1]
+}
+
+/// A viewer's field highlight behind a widget (not for hidden widgets, push buttons or
+/// signature fields, like the reference reader's Highlight Fields).
+fn field_tint(it: &mut Interp<'_, '_>, d: &Dictionary, rect: [f32; 4], c: Rgba) {
+    let flags = d.get(b"F").ok().and_then(|o| o.as_i64().ok()).unwrap_or(0);
+    let ff = d.get(b"Ff").ok().and_then(|o| o.as_i64().ok()).unwrap_or(0);
+    let ft = d.get(b"FT").and_then(Object::as_name).unwrap_or(b"");
+    if flags & 2 != 0 || ft == b"Sig" || (ft == b"Btn" && ff & (1 << 16) != 0) {
+        return;
+    }
+    let f = |v: u8| f32::from(v) / 255.0;
+    let content = format!(
+        "{} {} {} rg {} {} {} {} re f",
+        f(c.0),
+        f(c.1),
+        f(c.2),
+        rect[0],
+        rect[1],
+        rect[2] - rect[0],
+        rect[3] - rect[1]
+    );
+    it.run_form(content.as_bytes(), interp::IDENTITY, None, None);
 }
 
 fn draw_annotation<'a>(

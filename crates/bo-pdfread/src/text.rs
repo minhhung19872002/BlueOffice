@@ -222,6 +222,12 @@ impl TextLayer {
         &self.chars
     }
 
+    /// For each character of [`TextLayer::text`], the index of its character on the page
+    /// (`usize::MAX` for an added space or line break): Read Aloud's word highlight.
+    pub fn reading_chars(&self) -> Vec<usize> {
+        self.seq.iter().map(|s| s.1).collect()
+    }
+
     /// All text of the page.
     pub fn text(&self) -> String {
         self.seq.iter().map(|s| s.0).collect()

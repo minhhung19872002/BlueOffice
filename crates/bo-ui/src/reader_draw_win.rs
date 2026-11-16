@@ -596,7 +596,11 @@ impl ReaderWindow {
             .doc_mut()
             .add_drawing_in(page, shape, &style, &author, text, &unit)
         {
-            Ok(()) => self.document_changed(),
+            Ok(()) => {
+                self.document_changed();
+                // Round 11: the new shape is selected, like the reference's.
+                self.select_new11(page);
+            }
             Err(e) => self.status = e,
         }
     }

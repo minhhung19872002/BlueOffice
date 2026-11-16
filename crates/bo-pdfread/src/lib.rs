@@ -20,6 +20,7 @@ mod annot_edit;
 mod annot_image;
 mod annot_paste;
 mod annot_popup;
+mod annot_rotate;
 mod arrange;
 mod cmap;
 mod cmyk;
@@ -76,6 +77,7 @@ pub use annot_draw::{
 };
 pub use annot_edit::CommentThread;
 pub use annot_popup::PopupNote;
+pub use annot_rotate::rotated_shape;
 pub use arrange::{flip_about, rotation_about};
 
 pub use convert::{StyledBlock, StyledRun};

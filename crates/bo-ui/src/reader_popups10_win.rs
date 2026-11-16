@@ -13,6 +13,10 @@ use bo_pdfread::{Annot, AnnotKind, PopupNote};
 use bo_render::{PathSeg, Rgba};
 use std::collections::HashMap;
 
+// Handles of the selected comment (round 10).
+#[path = "reader_handles10_win.rs"]
+mod handles;
+
 /// Header rows (date, author) and where the text area starts.
 const ROW_H: f32 = 20.0;
 const BODY_TOP: f32 = 40.8;
@@ -108,6 +112,9 @@ pub(crate) struct Ten {
     paste: Option<(usize, [f32; 2])>,
     /// When the document was read (D: date): notes without a date show it, as the reference.
     read_at: String,
+    /// A handle of the selected comment being dragged, and Shift on the pointer.
+    handle: Option<handles::HandleDrag>,
+    shift: bool,
 }
 
 fn tint(c: [u8; 3], f: f32, base: f32) -> Rgba {
@@ -411,6 +418,15 @@ impl ReaderWindow {
         if let Some(r) = self.route_bar10(input, m) {
             return Some(r);
         }
+        let over_note = match *input {
+            Input::Press { x, y, .. } | Input::Move { x, y } => self.popup_hit(x, y).is_some(),
+            _ => false,
+        };
+        if !over_note {
+            if let Some(r) = self.route_handles10(input) {
+                return Some(r);
+            }
+        }
         match *input {
             Input::Press { x, y, count, .. } => {
                 if !inside(self.doc_rect, x, y) {
@@ -648,6 +664,7 @@ impl ReaderWindow {
         if !self.ten_on() {
             return;
         }
+        self.paint_handles10(p);
         self.refresh10();
         let open: Vec<PopupNote> = self.ten.notes.iter().filter(|n| n.open).cloned().collect();
         if open.is_empty() {
@@ -964,6 +981,12 @@ impl ReaderWindow {
             self.extra.selected = None;
             self.document_changed();
         }
+    }
+
+    /// The selected comment (tests).
+    #[cfg(test)]
+    pub(crate) fn extra_selected(&self) -> Option<Annot> {
+        self.extra.selected.clone()
     }
 
     /// Select comment `a` (tests).

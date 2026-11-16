@@ -296,6 +296,7 @@ impl DocWindow {
                 .with_two_line_labels()
                 .with_labeled_widths(crate::doc_table::labeled_w)
                 .with_large_widths(crate::doc_table::large_w)
+                .with_label_drop(4.0)
                 .with_trailing(crate::doc_table::trailing),
             theme: Theme::light("doc"),
             icons,
@@ -1298,7 +1299,17 @@ impl DocWindow {
     fn open_find_dialog(&mut self, tab: usize) -> bool {
         let sel = self.find.as_ref().map(|f| f.0.clone()).unwrap_or_default();
         self.menu = None;
-        self.find_dialog = Some(FindDialog::new(tab, &sel, self.find_history.clone()));
+        let mut fd = FindDialog::new(tab, &sel, self.find_history.clone());
+        fd.bookmarks = self
+            .view
+            .engine()
+            .document()
+            .map(bo_edit::fields::bookmarks)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|b| b.name)
+            .collect();
+        self.find_dialog = Some(fd);
         self.relayout_pending = true;
         true
     }
@@ -1353,7 +1364,10 @@ impl DocWindow {
                         .replace("{{count}}", &n.to_string());
                 }
             }
-            FindAction::GoTo(typed) => {
+            FindAction::GoTo(what, typed) if what != 0 => {
+                self.go_to_target(what, &typed);
+            }
+            FindAction::GoTo(_, typed) => {
                 // Page numbers count from 1; "+n" / "-n" move from the current page.
                 let t = typed.trim();
                 let current = self.view.current_page() as i64;
@@ -1371,6 +1385,101 @@ impl DocWindow {
             }
         }
         true
+    }
+
+    /// Go To for a target other than Page: section, line, bookmark, comment or heading
+    /// number `typed` (1-based), "+n" / "-n" from the caret, or a bookmark's name.
+    fn go_to_target(&mut self, what: usize, typed: &str) -> bool {
+        let t = typed.trim();
+        let relative = |t: &str| -> Option<i64> {
+            if let Some(n) = t.strip_prefix('+') {
+                n.trim().parse::<i64>().ok()
+            } else if let Some(n) = t.strip_prefix('-').or_else(|| t.strip_prefix('\u{2013}')) {
+                n.trim().parse::<i64>().ok().map(|n| -n)
+            } else {
+                None
+            }
+        };
+        if what == 2 {
+            // Lines through the layout: from the document start (absolute) or the caret.
+            let (from_start, count) = match relative(t) {
+                Some(n) => (false, n),
+                None => (true, t.parse::<i64>().unwrap_or(1) - 1),
+            };
+            if from_start {
+                let ctrl = Mods {
+                    ctrl: true,
+                    ..Mods::default()
+                };
+                self.view.handle(Input::Key(Key::Home, ctrl));
+            }
+            let key = if count < 0 { Key::Up } else { Key::Down };
+            for _ in 0..count.unsigned_abs().min(100_000) {
+                self.view.handle(Input::Key(key, Mods::default()));
+            }
+            return true;
+        }
+        // Targets in document order: (paragraph, offset).
+        let mut names: Vec<String> = Vec::new();
+        let targets: Vec<(usize, usize)> = match what {
+            1 => {
+                let mut last = None;
+                self.view
+                    .outline()
+                    .into_iter()
+                    .filter(|i| last.replace(i.entry.section) != Some(i.entry.section))
+                    .map(|i| (i.entry.para, 0))
+                    .collect()
+            }
+            crate::doc_find::GO_BOOKMARK => self
+                .view
+                .engine()
+                .document()
+                .map(bo_edit::fields::bookmarks)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|b| {
+                    names.push(b.name);
+                    (b.para, 0)
+                })
+                .collect(),
+            4 => self
+                .view
+                .comments()
+                .iter()
+                .filter(|c| c.parent.is_none())
+                .filter_map(|c| c.start.map(|p| (p.para, p.offset)))
+                .collect(),
+            12 => self
+                .view
+                .outline()
+                .into_iter()
+                .filter(|i| i.entry.level.is_some())
+                .map(|i| (i.entry.para, 0))
+                .collect(),
+            _ => return false,
+        };
+        if targets.is_empty() {
+            return false;
+        }
+        let caret = self.view.caret_para().unwrap_or(0);
+        let current = targets.iter().rposition(|(p, _)| *p <= caret);
+        let index = if let Some(n) = relative(t) {
+            match current {
+                Some(c) => c as i64 + n,
+                None if n > 0 => n - 1,
+                None => return false,
+            }
+        } else if let Ok(n) = t.parse::<i64>() {
+            n - 1
+        } else if let Some(i) = names.iter().position(|n| n.eq_ignore_ascii_case(t)) {
+            i as i64
+        } else {
+            return false;
+        };
+        let last = targets.len() as i64 - 1;
+        let (para, offset) = targets[index.clamp(0, last) as usize];
+        self.view.select_range(para, offset, offset)
     }
 
     /// Find the next match of `query` with search `options` (JSON) and select it.

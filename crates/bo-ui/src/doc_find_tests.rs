@@ -184,3 +184,134 @@ fn go_to_list_clips_and_scrolls() {
     w.handle(Input::Wheel(120.0), &Fixed);
     assert_eq!(w.find_dialog.as_ref().map(|d| d.go_scroll), Some(7));
 }
+
+/// A two-section document: headings, two bookmarks, a comment.
+fn targets_window() -> DocWindow {
+    use bo_model::{
+        Block, Document, ParaProps, Paragraph, Raw, Run, RunContent, RunProps, Section,
+    };
+    let para = |text: &str, heading: bool| {
+        let props = ParaProps {
+            outline_level: heading.then_some(0),
+            ..ParaProps::default()
+        };
+        Block::Paragraph(Paragraph::new(
+            props,
+            vec![Run::text(text, RunProps::default())],
+        ))
+    };
+    let marked = |text: &str, id: i64, name: &str| {
+        Block::Paragraph(Paragraph::new(
+            ParaProps::default(),
+            vec![Run {
+                props: RunProps::default(),
+                content: vec![
+                    RunContent::Markup(Raw::new(
+                        format!("<w:bookmarkStart w:id=\"{id}\" w:name=\"{name}\"/>"),
+                        0,
+                    )),
+                    RunContent::Text(text.into()),
+                    RunContent::Markup(Raw::new(format!("<w:bookmarkEnd w:id=\"{id}\"/>"), 0)),
+                ],
+            }],
+        ))
+    };
+    let doc = Document {
+        sections: vec![
+            Section {
+                blocks: vec![
+                    para("Intro", false),
+                    para("Alpha", true),
+                    marked("first mark", 1, "MarkOne"),
+                    para("Beta", true),
+                ],
+                ..Section::default()
+            },
+            Section {
+                blocks: vec![
+                    para("Second section", false),
+                    para("Gamma", true),
+                    marked("second mark", 2, "MarkTwo"),
+                    para("End", false),
+                ],
+                ..Section::default()
+            },
+        ],
+        ..Document::default()
+    };
+    let mut engine = Engine::with_bundled_fonts();
+    engine.load(doc, "t.docx").unwrap();
+    let mut w = DocWindow::new(DocView::new(engine).unwrap(), "en-US", "t.docx");
+    w.handle(
+        Input::Resize {
+            width: 1800.0,
+            height: 900.0,
+        },
+        &Fixed,
+    );
+    w
+}
+
+/// Go To `what` with `typed` through the dialog; the caret's paragraph after it.
+fn go(w: &mut DocWindow, what: usize, typed: &str) -> Option<usize> {
+    w.handle(ctrl('g'), &Fixed);
+    if let Some(d) = w.find_dialog.as_mut() {
+        d.set_go_what(what);
+    }
+    w.handle(Input::Text(typed.into()), &Fixed);
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    w.handle(Input::Key(Key::Escape, Mods::default()), &Fixed);
+    w.view.caret_para()
+}
+
+#[test]
+fn go_to_section() {
+    let mut w = targets_window();
+    assert_eq!(go(&mut w, 1, "2"), Some(4));
+    assert_eq!(go(&mut w, 1, "-1"), Some(0));
+    assert_eq!(go(&mut w, 1, "+1"), Some(4));
+}
+
+#[test]
+fn go_to_heading() {
+    let mut w = targets_window();
+    assert_eq!(go(&mut w, 12, "3"), Some(5));
+    assert_eq!(go(&mut w, 12, "-1"), Some(3));
+    assert_eq!(go(&mut w, 12, "1"), Some(1));
+    assert_eq!(go(&mut w, 12, "+2"), Some(5));
+}
+
+#[test]
+fn go_to_bookmark_by_name_or_number() {
+    let mut w = targets_window();
+    w.handle(ctrl('g'), &Fixed);
+    assert_eq!(
+        w.find_dialog.as_ref().map(|d| d.bookmarks.clone()),
+        Some(vec!["MarkOne".to_owned(), "MarkTwo".to_owned()]),
+        "the name list"
+    );
+    w.handle(Input::Key(Key::Escape, Mods::default()), &Fixed);
+    assert_eq!(go(&mut w, 3, "marktwo"), Some(6));
+    assert_eq!(go(&mut w, 3, "1"), Some(2));
+    assert_eq!(go(&mut w, 3, "+1"), Some(6));
+}
+
+#[test]
+fn go_to_comment() {
+    let mut w = targets_window();
+    w.view.select_range(3, 0, 4);
+    let c = catalog::from_json(json!({ "cmd": "addComment", "text": "Why?" })).expect("comment");
+    w.view.run_command(c);
+    w.view.select_range(0, 0, 0);
+    assert_eq!(go(&mut w, 4, "1"), Some(3));
+    w.view.select_range(7, 0, 0);
+    assert_eq!(go(&mut w, 4, "-1"), Some(3));
+}
+
+#[test]
+fn go_to_line() {
+    let mut w = targets_window();
+    assert_eq!(go(&mut w, 2, "3"), Some(2));
+    assert_eq!(go(&mut w, 2, "+2"), Some(4));
+    assert_eq!(go(&mut w, 2, "-1"), Some(3));
+}

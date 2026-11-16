@@ -10801,6 +10801,11 @@
     "chartSheetPrefix": "Chart"
   },
   "findDlg": {
+    "enterSection": "&Enter section number:",
+    "enterLine": "&Enter line number:",
+    "enterBookmark": "&Enter bookmark name:",
+    "enterComment": "&Enter comment number:",
+    "enterHeading": "&Enter heading number:",
     "footnote": "Footnote",
     "endnote": "Endnote",
     "field": "Field",

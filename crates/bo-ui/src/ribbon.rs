@@ -13,10 +13,6 @@ fn mix(a: Rgba, b: Rgba, k: f32) -> Rgba {
     let m = |x: u8, y: u8| (f32::from(x) * k + f32::from(y) * (1.0 - k)).round() as u8;
     Rgba(m(a.0, b.0), m(a.1, b.1), m(a.2, b.2), m(a.3, b.3))
 }
-/// Group labels sit this much (logical px) below the middle of their row: measured at
-/// 125 % the reference's label ink ends 2 px above the ribbon body's bottom edge.
-const LABEL_DROP: f32 = 4.0;
-
 /// One control of a group row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Item {
@@ -187,6 +183,9 @@ pub struct Ribbon {
     band_extra: f32,
     /// Fixed width (logical px) of some large buttons (gallery-like tiles), by command id.
     large_w: fn(&str) -> Option<f32>,
+    /// Group labels sit this much (logical px) below the middle of their row (per app:
+    /// each was measured against its own reference).
+    label_drop: f32,
     /// Fixed width (logical px) of some labeled items (BlueSheet's number format box).
     labeled_w: fn(&str) -> Option<f32>,
     /// Large buttons placed after the group's rows instead of before them.
@@ -597,6 +596,7 @@ impl Ribbon {
             label_row: 0.0,
             band_extra: 0.0,
             large_w: |_| None,
+            label_drop: 0.0,
             labeled_w: |_| None,
             trailing: |_| false,
             late: |_| false,
@@ -761,6 +761,14 @@ impl Ribbon {
     }
 
     /// Give some large buttons a fixed width (logical px), as gallery tiles.
+    /// Move the group labels down by `drop` logical px (BlueDoc: measured at 125 % the
+    /// reference's label ink ends 2 px above the ribbon body's bottom edge).
+    #[must_use]
+    pub(crate) fn with_label_drop(mut self, drop: f32) -> Self {
+        self.label_drop = drop;
+        self
+    }
+
     pub(crate) fn with_large_widths(mut self, rule: fn(&str) -> Option<f32>) -> Self {
         self.large_w = rule;
         self
@@ -2055,7 +2063,7 @@ impl Ribbon {
                     p.text(
                         label,
                         (r.x + ((r.w - w) / 2.0).max(0.0)).round(),
-                        r.y + (r.h - line) / 2.0 + self.px(LABEL_DROP),
+                        r.y + (r.h - line) / 2.0 + self.px(self.label_drop),
                         style,
                         // Near the body text: muted labels read faded next to desktop ribbons.
                         mix(t.text, t.text_muted, 0.8),

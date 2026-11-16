@@ -10801,6 +10801,11 @@
     "chartSheetPrefix": "Biểu đồ"
   },
   "findDlg": {
+    "enterSection": "&Nhập số phần:",
+    "enterLine": "&Nhập số dòng:",
+    "enterBookmark": "&Nhập tên dấu trang:",
+    "enterComment": "&Nhập số chú thích:",
+    "enterHeading": "&Nhập số đề mục:",
     "footnote": "Chú thích cuối trang",
     "endnote": "Chú thích cuối bài",
     "field": "Trường",

@@ -42,7 +42,7 @@ const WITH_Y: f32 = 132.8;
 pub(crate) const HISTORY: usize = 20;
 
 /// Labels: key and en-US fallback (`&` marks the access key, underlined).
-const LABELS: [(&str, &str); 41] = [
+const LABELS: [(&str, &str); 46] = [
     ("findDlg.title", "Find and Replace"),
     ("findDlg.tabFind", "Fin&d"),
     ("findDlg.tabReplace", "Re&place"),
@@ -87,6 +87,11 @@ const LABELS: [(&str, &str); 41] = [
     ("findDlg.notFound", "The search item was not found."),
     ("findDlg.replaced", "{{count}} replacements made."),
     ("findDlg.found", "Match {{n}} of {{total}}."),
+    ("findDlg.enterSection", "&Enter section number:"),
+    ("findDlg.enterLine", "&Enter line number:"),
+    ("findDlg.enterBookmark", "&Enter bookmark name:"),
+    ("findDlg.enterComment", "&Enter comment number:"),
+    ("findDlg.enterHeading", "&Enter heading number:"),
 ];
 const L_TITLE: usize = 0;
 const L_TABS: usize = 1;
@@ -141,9 +146,24 @@ const GO_WHAT: [(&str, &str); 13] = [
 const GO_ROWS: usize = 5;
 const GO_BAR: f32 = 16.0;
 
-/// Go to what entries BlueDoc carries out.
-fn go_supported(i: usize) -> bool {
-    i == 0
+/// Go to what entries BlueDoc carries out: Page, Section, Line, Bookmark, Comment, Heading.
+pub(crate) fn go_supported(i: usize) -> bool {
+    matches!(i, 0..=4 | 12)
+}
+
+/// Go to what entry of Bookmark (its box lists the bookmark names).
+pub(crate) const GO_BOOKMARK: usize = 3;
+
+/// Label of the number box for Go to what entry `i`.
+fn enter_label(i: usize) -> usize {
+    match i {
+        1 => 41,
+        2 => 42,
+        GO_BOOKMARK => 43,
+        4 => 44,
+        12 => 45,
+        _ => L_ENTER,
+    }
 }
 
 /// Special ▾ entries: label and the code typed into the box (the engine's search codes).
@@ -207,7 +227,7 @@ pub(crate) enum FindAction {
     Replace,
     ReplaceAll,
     /// Go to the page typed (`3`, `+2`, `-1`).
-    GoTo(String),
+    GoTo(usize, String),
 }
 
 /// An open drop-down list under a combo box or the Special button.
@@ -280,6 +300,8 @@ pub(crate) struct FindDialog {
     page: Edit,
     focus: Field,
     go_what: usize,
+    /// Bookmark names, for the Bookmark target's ▾ list.
+    pub(crate) bookmarks: Vec<String>,
     /// First Go to what row shown (the list scrolls).
     pub(crate) go_scroll: usize,
     /// Last pointer position (the wheel scrolls the list under it).
@@ -337,6 +359,7 @@ impl FindDialog {
             focus: if tab == 2 { Field::Page } else { Field::Find },
             go_what: 0,
             go_scroll: 0,
+            bookmarks: Vec::new(),
             pointer: (-1.0, -1.0),
             history,
             drop: None,
@@ -642,6 +665,17 @@ impl FindDialog {
             .collect()
     }
 
+    /// The box has a ▾ list: the search boxes (history) and Go To's for Bookmark (names).
+    fn has_drop(&self, f: Field) -> bool {
+        f != Field::Page || self.go_what == GO_BOOKMARK
+    }
+
+    /// Choose Go to what entry `i` (tests).
+    #[cfg(test)]
+    pub(crate) fn set_go_what(&mut self, i: usize) {
+        self.go_what = i;
+    }
+
     fn go_box(&self) -> [f32; 4] {
         self.r(19.0, 86.0, 174.0, 82.0)
     }
@@ -685,7 +719,7 @@ impl FindDialog {
             return Some(Hit::Tab(i));
         }
         for f in self.fields() {
-            if f != Field::Page && inside(self.drop_rect(f), x, y) {
+            if self.has_drop(f) && inside(self.drop_rect(f), x, y) {
                 return Some(Hit::Drop(f));
             }
             if inside(self.field_rect(f), x, y) {
@@ -760,7 +794,12 @@ impl FindDialog {
 
     fn open_drop(&mut self, field: Option<Field>) {
         let (items, anchor) = if let Some(f) = field {
-            (self.history.clone(), self.field_rect(f))
+            let items = if f == Field::Page {
+                self.bookmarks.clone()
+            } else {
+                self.history.clone()
+            };
+            (items, self.field_rect(f))
         } else {
             let r = self
                 .buttons()
@@ -795,12 +834,15 @@ impl FindDialog {
             Button::Replace => FindAction::Replace,
             Button::ReplaceAll => FindAction::ReplaceAll,
             Button::Cancel => FindAction::Close,
-            Button::Next => FindAction::GoTo(if self.page.text.is_empty() {
-                "+1".into()
-            } else {
-                self.page.value()
-            }),
-            Button::Previous => FindAction::GoTo("-1".into()),
+            Button::Next => FindAction::GoTo(
+                self.go_what,
+                if self.page.text.is_empty() {
+                    "+1".into()
+                } else {
+                    self.page.value()
+                },
+            ),
+            Button::Previous => FindAction::GoTo(self.go_what, "-1".into()),
             Button::Special => {
                 self.open_drop(None);
                 FindAction::Redraw
@@ -1188,7 +1230,7 @@ impl FindDialog {
         let field_labels: Vec<(Field, usize)> = match self.tab {
             0 => vec![(Field::Find, L_FIND_WHAT)],
             1 => vec![(Field::Find, L_FIND_WHAT), (Field::With, L_WITH)],
-            _ => vec![(Field::Page, L_ENTER)],
+            _ => vec![(Field::Page, enter_label(self.go_what))],
         };
         for (f, l) in field_labels {
             let r = self.field_rect(f);
@@ -1232,7 +1274,7 @@ impl FindDialog {
                     INK,
                 );
             }
-            if f != Field::Page {
+            if self.has_drop(f) {
                 let d = self.drop_rect(f);
                 let on = self.hover == Some(Hit::Drop(f));
                 p.fill_rect(d[0], d[1], 1.0, d[3], Rgba(210, 210, 210, 255));

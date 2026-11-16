@@ -36,8 +36,10 @@ pub trait PdfStore {
     fn remove(&mut self, key: usize);
 }
 
-/// Page cache budget (display lists, text, decoded images), bytes.
-const CACHE_BYTES: usize = 32 * 1024 * 1024;
+/// Page cache budget (display lists, text, decoded images), bytes. 12 MB since round 8: after
+/// 80 wheel notches and 40 × PgDn through the 1 202-page manual 14 MB less private memory than
+/// 32 MB, same latency.
+const CACHE_BYTES: usize = 12 * 1024 * 1024;
 
 /// Memory settings for measuring (round 8): `BO_READER_CACHE_MB` (page cache budget) and
 /// `BO_READER_NEIGHBOURS` (0: none, 1: the next page only, 2: one each way; default 3: the
@@ -852,7 +854,7 @@ impl ReaderView {
             },
         );
         self.lru.push_back(i);
-        // At most 48 pages and about 32 MB of display lists, text and images (the least
+        // At most 48 pages and the cache budget of display lists, text and images (the least
         // recently used go first; the pages on screen are always the most recent).
         while self.lru.len() > 48 || (self.lru.len() > 6 && self.cache_bytes() > cache_budget()) {
             if let Some(old) = self.lru.pop_front() {

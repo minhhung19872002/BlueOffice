@@ -35,6 +35,7 @@ const BODY_TEXT_Y: f32 = 3.9;
 const MIN_W: f32 = 90.0;
 const MIN_H: f32 = 60.0;
 const FRAME: Rgba = Rgba(133, 133, 133, 255);
+const FRAME_ACTIVE: Rgba = Rgba(80, 80, 80, 255);
 const INK: Rgba = Rgba(0, 0, 0, 255);
 const FAMILY: &str = "Arial";
 
@@ -613,10 +614,24 @@ impl ReaderWindow {
 
     fn paint_note10(&self, p: &mut dyn Painter, n: &PopupNote, b: [f32; 4]) {
         let [x, y, w, h] = b;
-        let head = head_colour(n.comment.color);
-        let body = body_colour(head);
-        let edge = edge_colour(head);
-        p.fill_rect(x, y, w, h, FRAME);
+        // The selected note shows its comment's own colour in a darker frame, the text area
+        // grey while typing (measured: 255, 255, 0 / 80 / 240 against 255, 255, 77 / 133).
+        let typing = self.ten.editing.as_ref().is_some_and(|(e, _)| e.id == n.id);
+        let active = typing || self.extra.selected.as_ref() == Some(&n.comment);
+        let tinted = head_colour(n.comment.color);
+        let head = if active {
+            let c = n.comment.color;
+            Rgba(c[0], c[1], c[2], 255)
+        } else {
+            tinted
+        };
+        let body = if typing {
+            Rgba(240, 240, 240, 255)
+        } else {
+            body_colour(tinted)
+        };
+        let edge = edge_colour(tinted);
+        p.fill_rect(x, y, w, h, if active { FRAME_ACTIVE } else { FRAME });
         p.fill_rect(x + 1.0, y + 1.0, w - 2.0, h - 2.0, head);
         let side = self.px(BODY_SIDE);
         let top = self.px(BODY_TOP);

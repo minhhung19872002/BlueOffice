@@ -140,13 +140,21 @@ pub struct DocWindow {
     table_look: crate::doc_table::TableLook,
     /// Read Mode: zoom and ruler to restore when it ends.
     read_mode: Option<(f32, bool)>,
-    /// Read Mode fits two pages to the window at the next layout.
+    /// Read Mode lays the text out for the window at the next layout.
     read_fit: bool,
+    /// Width the Read Mode text was laid out for (device px).
+    read_w: f32,
     /// A Cell Size box being typed in, and the width of its text (caret position).
     cell_spin: Option<crate::spin_box::SpinEdit>,
     cell_spin_w: f32,
     /// The box's value is selected: the first character typed replaces it.
     cell_spin_fresh: bool,
+    /// Measurement unit and decimal separator of the region (set by the host).
+    units: crate::doc_table::Units,
+    /// Measured height of the caret's row (twips) while the Cell Size box shows it, and
+    /// whether it must be measured again (at the next rest).
+    row_measured: Option<i32>,
+    row_measure_due: bool,
     /// Proofing pane (Review › Spelling & Grammar, F7), when shown.
     spell_pane: Option<SpellPane>,
     /// Insert › Table size picker, when open.
@@ -179,6 +187,11 @@ fn parse_num(s: &str) -> Option<f64> {
     }
     t.parse::<f64>().ok().filter(|v| v.is_finite())
 }
+
+/// Read Mode zoom (the reference reads at 140 %).
+const READ_ZOOM: f32 = 1.4;
+/// Text margin either side in Read Mode (points at 100 %).
+const READ_MARGIN_PT: f32 = 36.0;
 
 /// Status bar view buttons: view layout and its icon (Bluestar's own drawings).
 const VIEW_MODES: [(&str, &str); 3] = [
@@ -241,6 +254,7 @@ impl DocWindow {
             name: name.to_owned(),
             requests: Vec::new(),
             ribbon: Ribbon::new()
+                .with_two_line_labels()
                 .with_labeled_widths(crate::doc_table::labeled_w)
                 .with_large_widths(crate::doc_table::large_w)
                 .with_trailing(crate::doc_table::trailing),
@@ -285,9 +299,13 @@ impl DocWindow {
             table_look: crate::doc_table::TableLook::default(),
             read_mode: None,
             read_fit: false,
+            read_w: 0.0,
             cell_spin: None,
             cell_spin_w: 0.0,
             cell_spin_fresh: false,
+            units: crate::doc_table::Units::default(),
+            row_measured: None,
+            row_measure_due: true,
             spell_pane: None,
             table_grid: None,
             painter_lock: false,
@@ -521,7 +539,9 @@ impl DocWindow {
         let pages = self.view.page_count();
         let caret = self.view.caret_para();
         let current_page = self.view.current_page();
+        let aspect = self.view.page_aspect();
         if let Some(nav) = self.nav.as_mut() {
+            nav.aspect = aspect;
             nav.headings = items
                 .into_iter()
                 .filter_map(|i| {
@@ -739,6 +759,12 @@ impl DocWindow {
         }
     }
 
+    /// Measurement unit of the region (inches in the US system, else centimetres) and its
+    /// decimal separator, as the reference shows sizes.
+    pub fn set_units(&mut self, inches: bool, decimal: char) {
+        self.units = crate::doc_table::Units { inches, decimal };
+    }
+
     /// The document now has this file name (after Save As).
     pub fn set_name(&mut self, name: &str) {
         self.name = name.to_owned();
@@ -860,14 +886,12 @@ impl DocWindow {
                 let Some(t) = self.view.format().table.clone() else {
                     return false;
                 };
-                let cm = |twips: i32| {
-                    format!("{:.2}", f64::from(twips) * 2.54 / 1440.0)
-                        .trim_end_matches('0')
-                        .trim_end_matches('.')
-                        .replace('.', ",")
-                };
+                // In the region's unit, as the reference's table dialogs.
+                let units = self.units;
+                let cm = |twips: i32| units.number(twips);
+                let unit = if units.inches { "in" } else { "cm" };
                 let f = |key: &str, fallback: &str, v: String| {
-                    (format!("{} (cm)", self.t(key, fallback)), v)
+                    (format!("{} ({unit})", self.t(key, fallback)), v)
                 };
                 let (title, fields) = if kind == DialogKind::TableProperties {
                     let width = match (t.width_pct, t.width) {
@@ -1120,8 +1144,8 @@ impl DocWindow {
             }
             (DialogKind::TableProperties, DialogButton::Ok) => {
                 self.dialog = None;
-                let twips =
-                    |i: usize| parse_num(&v(i)).map(|cm| (cm * 1440.0 / 2.54).round() as i32);
+                let units = self.units;
+                let twips = |i: usize| units.parse(&v(i));
                 let edits = [
                     json!({ "kind": "properties", "width": twips(0).filter(|w| *w > 0) }),
                     json!({ "kind": "rowHeight", "twips": twips(1).filter(|h| *h > 0) }),
@@ -1146,9 +1170,7 @@ impl DocWindow {
                     .table
                     .as_ref()
                     .map_or((108, 108), |t| t.cell_margin);
-                let twips = |i: usize, old: i32| {
-                    parse_num(&v(i)).map_or(old, |cm| (cm * 1440.0 / 2.54).round() as i32)
-                };
+                let twips = |i: usize, old: i32| self.units.parse(&v(i)).unwrap_or(old);
                 let e =
                     json!({ "kind": "cellMargins", "left": twips(0, t.0), "right": twips(1, t.1) });
                 if let Some(c) = catalog::from_json(json!({ "cmd": "tableEdit", "edit": e })) {
@@ -1447,6 +1469,9 @@ impl DocWindow {
             return self.view.run_command(Command::FormatParagraph { format });
         }
         if let Some(mode) = id.strip_prefix("view.layout.") {
+            // The text moves: spelling marks are checked again at the next tick.
+            self.spell_pending = true;
+            self.spell_idle = 3;
             if mode == "read" {
                 return self.enter_read_mode();
             }
@@ -1475,8 +1500,10 @@ impl DocWindow {
             "review.spellingDialog" => self.open_spelling(),
             "layout.pageSetup" => self.open_dialog(DialogKind::PageSetup),
             "edit.goTo" => self.open_dialog(DialogKind::GoTo),
-            "table.properties" => self.open_dialog(DialogKind::TableProperties),
-            "table.cellMargins" => self.open_dialog(DialogKind::CellMargins),
+            id if id == crate::doc_table::DIALOGS[0] => {
+                self.open_dialog(DialogKind::TableProperties)
+            }
+            id if id == crate::doc_table::DIALOGS[1] => self.open_dialog(DialogKind::CellMargins),
             "view.printLayout" => self.action("view.layout.print"),
             "view.readMode" => self.action("view.layout.read"),
             "view.webLayout" => self.action("view.layout.web"),
@@ -1490,6 +1517,15 @@ impl DocWindow {
             "view.navigationPane" => {
                 let show = self.nav.is_none();
                 self.toggle_nav(show, false)
+            }
+            // The pane on its Pages tab (scripted comparisons).
+            "view.navigationPane.pages" => {
+                self.toggle_nav(true, false);
+                if let Some(nav) = self.nav.as_mut() {
+                    nav.show(NavTab::Pages);
+                }
+                self.refresh_nav();
+                true
             }
             "edit.replace" => self.open_dialog(DialogKind::Replace),
             "insert.link" => self.open_dialog(DialogKind::Link),
@@ -1582,13 +1618,9 @@ impl DocWindow {
                 let Some(r) = self.ribbon.rect_of(RibbonHit::Command(sid)) else {
                     return false;
                 };
-                match crate::doc_table::spin_press(
-                    sid,
-                    r,
-                    self.view.format(),
-                    self.scale,
-                    self.pointer,
-                ) {
+                let v = crate::doc_table::spin_value(sid, self.view.format(), self.row_measured);
+                match crate::doc_table::spin_press(sid, r, v, self.units, self.scale, self.pointer)
+                {
                     Ok(Some(cmd)) => self.view.run_command(cmd),
                     Ok(None) => false,
                     Err(edit) => {
@@ -1782,10 +1814,21 @@ impl DocWindow {
             h,
         );
         // Read Mode: two whole pages in the window.
-        if self.read_fit {
-            self.read_fit = false;
-            let z = self.view.fit_zoom(true);
-            self.view.set_zoom(z);
+        // Read Mode: the text reflows to the window at 140 % (the reference's reading
+        // zoom), with a margin either side; again when the window width changes.
+        if self.read_mode.is_some() {
+            let width = (right - self.sb_w() - vr - left).max(1.0);
+            if self.read_fit || (width - self.read_w).abs() > 0.5 {
+                self.read_fit = false;
+                self.read_w = width;
+                self.view.set_zoom(READ_ZOOM);
+                let pt = (width / self.view.scale() - 2.0 * READ_MARGIN_PT).max(144.0);
+                if let Some(c) = catalog::from_json(
+                    json!({ "cmd": "setViewLayout", "mode": "web", "width": pt }),
+                ) {
+                    self.view.run_command(c);
+                }
+            }
         }
         let (sp_top, sp_bottom, sp_right, scale) = (
             self.chrome_bottom(),
@@ -1850,15 +1893,10 @@ impl DocWindow {
         if self.read_mode.is_some() {
             return false;
         }
-        // Pages as printed (Web Layout and Draft have none).
-        if self.view_mode != "print" {
-            self.action("view.layout.print");
-        }
         self.read_mode = Some((self.view.zoom(), self.show_ruler));
         self.view_mode = "read";
         self.show_ruler = false;
         self.menu = None;
-        self.view.set_columns(2);
         self.read_fit = true;
         self.relayout_pending = true;
         true
@@ -1866,11 +1904,16 @@ impl DocWindow {
 
     fn leave_read_mode(&mut self) {
         if let Some((zoom, ruler)) = self.read_mode.take() {
-            self.view.set_columns(1);
+            if let Some(c) = catalog::from_json(json!({ "cmd": "setViewLayout", "mode": "print" }))
+            {
+                self.view.run_command(c);
+            }
             self.view.set_zoom(zoom);
             self.show_ruler = ruler;
             self.view_mode = "print";
             self.relayout_pending = true;
+            self.spell_pending = true;
+            self.spell_idle = 3;
         }
     }
 
@@ -1910,6 +1953,16 @@ impl DocWindow {
         if let Some(sp) = self.spell_pane.as_mut() {
             sp.measure(text);
         }
+        // The Pages tab of the navigation pane shows thumbnails of the pages in view there.
+        let thumbs = match &self.nav {
+            Some(nav) => {
+                let rects = nav.thumb_rects();
+                let w = nav.thumb_size().0;
+                (rects.into_iter().map(|(i, _)| i).collect(), w)
+            }
+            None => (Vec::new(), 0.0),
+        };
+        self.view.set_thumbnails(thumbs.0, thumbs.1);
         if let Some(e) = &self.cell_spin {
             let style = TextStyle {
                 size: (12.0 * self.scale).round(),
@@ -1938,7 +1991,9 @@ impl DocWindow {
                 match action {
                     crate::spin_box::SpinKey::Commit => {
                         self.cell_spin = None;
-                        if let Some(c) = crate::doc_table::parse_cm(&typed)
+                        if let Some(c) = self
+                            .units
+                            .parse(&typed)
                             .and_then(|tw| crate::doc_table::spin_command(id, tw))
                         {
                             self.view.run_command(c);
@@ -1947,13 +2002,12 @@ impl DocWindow {
                     crate::spin_box::SpinKey::Cancel => self.cell_spin = None,
                     crate::spin_box::SpinKey::Up | crate::spin_box::SpinKey::Down => {
                         let up = action == crate::spin_box::SpinKey::Up;
-                        if let Some(c) = crate::doc_table::spin_step(id, &typed, up) {
+                        let units = self.units;
+                        if let Some(c) = crate::doc_table::spin_step(id, &typed, up, units) {
                             self.view.run_command(c);
-                            let v = crate::doc_table::spin_value(id, self.view.format());
+                            let v = crate::doc_table::spin_value(id, self.view.format(), None);
                             if let Some(e) = self.cell_spin.as_mut() {
-                                e.text = crate::doc_table::fmt_cm(v)
-                                    .trim_end_matches(" cm")
-                                    .to_owned();
+                                e.text = units.number(v);
                             }
                         }
                     }
@@ -1966,7 +2020,9 @@ impl DocWindow {
             Input::Press { .. } => {
                 let (id, typed) = (edit.id, edit.text.clone());
                 self.cell_spin = None;
-                if let Some(c) = crate::doc_table::parse_cm(&typed)
+                if let Some(c) = self
+                    .units
+                    .parse(&typed)
                     .and_then(|tw| crate::doc_table::spin_command(id, tw))
                 {
                     self.view.run_command(c);
@@ -2055,6 +2111,7 @@ impl DocWindow {
             Input::Text(_) | Input::Key(..) | Input::Release { .. } => {
                 self.spell_pending = true;
                 self.spell_idle = 0;
+                self.row_measure_due = true;
             }
             Input::Tick if self.spell_pending => {
                 self.spell_idle += 1;
@@ -2064,6 +2121,19 @@ impl DocWindow {
                         return true;
                     }
                 }
+            }
+            // The Cell Size box shows the caret row's laid-out height, measured at rest.
+            Input::Tick if self.row_measure_due && self.context.table => {
+                self.row_measure_due = false;
+                let m = self.view.caret_row_height();
+                if m != self.row_measured {
+                    self.row_measured = m;
+                    return true;
+                }
+            }
+            // Thumbnails of edited pages are redrawn at rest.
+            Input::Tick if self.nav.is_some() && self.view.refresh_thumbnails() => {
+                return true;
             }
             // Pages scrolled into view are checked at the next tick.
             Input::Tick if self.view.spelling_out_of_view() => {
@@ -2573,7 +2643,7 @@ impl DocWindow {
 
     /// Whether an animation needs more frames.
     pub fn animating(&self) -> bool {
-        self.view.animating()
+        self.view.animating() || self.view.thumbnails_pending()
     }
 
     /// Advance animations to the host clock (ms); `true` while frames are still needed.
@@ -2641,6 +2711,7 @@ impl DocWindow {
                     p,
                     &self.ribbon,
                     self.view.format(),
+                    (self.units, self.row_measured),
                     self.cell_spin.as_ref(),
                     &self.theme,
                     &|_| caret,

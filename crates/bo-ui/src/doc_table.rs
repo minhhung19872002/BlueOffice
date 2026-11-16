@@ -97,20 +97,67 @@ pub(crate) const ALIGN: [(&str, &str, &str, &str); 9] = [
 /// Cell Size number boxes: row height, column width (centimetres).
 pub(crate) const SPINS: [&str; 2] = ["table.rowHeight", "table.colWidth"];
 
-/// One step of the Cell Size arrows: 0.1 cm in twips.
-const SPIN_STEP: i32 = 57;
-
-/// Twips as the boxes show them: centimetres, two decimals, decimal comma, unit.
-pub(crate) fn fmt_cm(twips: i32) -> String {
-    let cm = format!("{:.2}", f64::from(twips) * 2.54 / 1440.0).replace('.', ",");
-    format!("{cm} cm")
+/// Measurement unit of the interface, as the reference follows the region's system:
+/// inches (US) or centimetres, with the region's decimal separator.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Units {
+    /// Inches (else centimetres).
+    pub inches: bool,
+    /// Decimal separator.
+    pub decimal: char,
 }
 
-/// Centimetres typed in a box (decimal comma or point, unit optional) as twips.
-pub(crate) fn parse_cm(text: &str) -> Option<i32> {
-    let t = text.trim().trim_end_matches("cm").trim().replace(',', ".");
-    let v: f64 = t.parse().ok()?;
-    (v.is_finite() && (0.0..56.0).contains(&v)).then(|| (v * 1440.0 / 2.54).round() as i32)
+impl Default for Units {
+    fn default() -> Self {
+        Units {
+            inches: false,
+            decimal: ',',
+        }
+    }
+}
+
+impl Units {
+    fn per_unit(self) -> f64 {
+        if self.inches {
+            1440.0
+        } else {
+            1440.0 / 2.54
+        }
+    }
+
+    /// One step of the arrows: 0.1 of the unit, in twips.
+    pub(crate) fn step(self) -> i32 {
+        (self.per_unit() / 10.0).round() as i32
+    }
+
+    /// The number alone, two decimals (`0.35`, `1,27`).
+    pub(crate) fn number(self, twips: i32) -> String {
+        format!("{:.2}", f64::from(twips) / self.per_unit()).replace('.', &self.decimal.to_string())
+    }
+
+    /// As the boxes show it: `0.35"` or `1,27 cm`.
+    pub(crate) fn fmt(self, twips: i32) -> String {
+        let n = self.number(twips);
+        if self.inches {
+            format!("{n}\"")
+        } else {
+            format!("{n} cm")
+        }
+    }
+
+    /// A typed value (either separator, unit optional) in twips.
+    pub(crate) fn parse(self, text: &str) -> Option<i32> {
+        let t = text
+            .trim()
+            .trim_end_matches("cm")
+            .trim_end_matches('"')
+            .trim_end_matches("in")
+            .trim()
+            .replace(',', ".");
+        let v: f64 = t.parse().ok()?;
+        let tw = v * self.per_unit();
+        (v.is_finite() && (0.0..31_680.0).contains(&tw)).then(|| tw.round() as i32)
+    }
 }
 
 /// The value box of Cell Size item `r` (right of its icon).
@@ -125,11 +172,16 @@ pub(crate) fn spin_rect(r: [f32; 4], scale: f32) -> [f32; 4] {
     ]
 }
 
-/// Current value (twips) of Cell Size box `id`.
-pub(crate) fn spin_value(id: &str, f: &FormatState) -> i32 {
+/// Current value (twips) of Cell Size box `id`; an automatic row shows its measured
+/// height (`measured`), as the reference does.
+pub(crate) fn spin_value(id: &str, f: &FormatState, measured: Option<i32>) -> i32 {
     let Some(t) = f.table.as_ref() else { return 0 };
     if id == SPINS[0] {
-        t.row_height
+        if t.row_height > 0 {
+            t.row_height
+        } else {
+            measured.unwrap_or(0)
+        }
     } else {
         t.col_width
     }
@@ -150,40 +202,37 @@ pub(crate) fn spin_command(id: &str, twips: i32) -> Option<Command> {
 pub(crate) fn spin_press(
     id: &'static str,
     r: [f32; 4],
-    f: &FormatState,
+    v: i32,
+    units: Units,
     scale: f32,
     (x, y): (f32, f32),
 ) -> Result<Option<Command>, crate::spin_box::SpinEdit> {
-    let v = spin_value(id, f);
+    let step = units.step();
     match crate::spin_box::spin_hit(spin_rect(r, scale), scale, x, y) {
-        Some(crate::spin_box::SpinHit::Up) => Ok(spin_command(id, v + SPIN_STEP)),
-        Some(crate::spin_box::SpinHit::Down) => Ok(spin_command(id, (v - SPIN_STEP).max(0))),
+        Some(crate::spin_box::SpinHit::Up) => Ok(spin_command(id, v + step)),
+        Some(crate::spin_box::SpinHit::Down) => Ok(spin_command(id, (v - step).max(0))),
         _ => Err(crate::spin_box::SpinEdit {
             id,
-            text: fmt_cm(v).trim_end_matches(" cm").to_owned(),
+            text: units.number(v),
         }),
     }
 }
 
 /// Step a value being typed (Up / Down keys).
-pub(crate) fn spin_step(id: &str, text: &str, up: bool) -> Option<Command> {
-    let v = parse_cm(text)?;
-    spin_command(
-        id,
-        if up {
-            v + SPIN_STEP
-        } else {
-            (v - SPIN_STEP).max(0)
-        },
-    )
+pub(crate) fn spin_step(id: &str, text: &str, up: bool, units: Units) -> Option<Command> {
+    let v = units.parse(text)?;
+    let step = units.step();
+    spin_command(id, if up { v + step } else { (v - step).max(0) })
 }
 
 /// Draw the Cell Size boxes over their placeholders: a small icon, then the value (or
 /// the text being typed with a caret).
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn paint_spins(
     p: &mut dyn Painter,
     ribbon: &Ribbon,
     f: &FormatState,
+    (units, measured): (Units, Option<i32>),
     edit: Option<&crate::spin_box::SpinEdit>,
     t: &Theme,
     text: &dyn Fn(&str) -> f32,
@@ -225,7 +274,7 @@ pub(crate) fn paint_spins(
         let editing = edit.filter(|e| e.id == *id);
         let shown = match editing {
             Some(e) => e.text.clone(),
-            None => fmt_cm(spin_value(id, f)),
+            None => units.fmt(spin_value(id, f, measured)),
         };
         let style = TextStyle {
             size: px(12.0),

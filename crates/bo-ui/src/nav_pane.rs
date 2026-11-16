@@ -22,6 +22,9 @@ pub(crate) enum NavTab {
     Results,
 }
 
+/// Page thumbnails side by side in the Pages tab.
+const THUMB_COLS: usize = 2;
+
 const TABS: [(NavTab, &str); 3] = [
     (NavTab::Headings, "views.nav.headings"),
     (NavTab::Pages, "views.nav.pages"),
@@ -64,6 +67,8 @@ pub(crate) struct NavPane {
     pub(crate) results: Vec<(String, String, String)>,
     /// Number of pages (Pages tab).
     pub(crate) pages: usize,
+    /// Height / width of the pages (thumbnail shape).
+    pub(crate) aspect: f32,
     pub(crate) query: String,
     pub(crate) tab: NavTab,
     /// The search box has the keyboard.
@@ -88,6 +93,7 @@ impl NavPane {
             headings: Vec::new(),
             results: Vec::new(),
             pages: 0,
+            aspect: 1.414,
             query: String::new(),
             tab: NavTab::Headings,
             focus: false,
@@ -164,15 +170,56 @@ impl NavPane {
     }
 
     fn row_h(&self) -> f32 {
-        self.px(22.0)
+        if self.tab == NavTab::Pages {
+            self.thumb_size().1 + self.px(30.0)
+        } else {
+            self.px(22.0)
+        }
     }
 
     fn rows(&self) -> usize {
         match self.tab {
             NavTab::Headings => self.headings.len(),
-            NavTab::Pages => self.pages,
+            NavTab::Pages => self.pages.div_ceil(THUMB_COLS),
             NavTab::Results => self.results.len(),
         }
+    }
+
+    /// Size of a page thumbnail (device px): two to a row, as the pane shows pages.
+    pub(crate) fn thumb_size(&self) -> (f32, f32) {
+        let gap = self.px(16.0);
+        let w = ((self.rect[2] - gap * (THUMB_COLS as f32 + 1.0)) / THUMB_COLS as f32)
+            .floor()
+            .max(1.0);
+        (w, (w * self.aspect).floor())
+    }
+
+    /// The page thumbnails in view: page index and rectangle (device px).
+    pub(crate) fn thumb_rects(&self) -> Vec<(usize, [f32; 4])> {
+        if self.tab != NavTab::Pages || self.rect[3] <= 0.0 {
+            return Vec::new();
+        }
+        let (w, h) = self.thumb_size();
+        let gap = self.px(16.0);
+        let top = self.list_top();
+        let bottom = self.rect[1] + self.rect[3];
+        let rh = self.row_h();
+        (0..self.pages)
+            .filter_map(|i| {
+                let (r, c) = (i / THUMB_COLS, i % THUMB_COLS);
+                let x = (gap + c as f32 * (w + gap)).round();
+                let y = (top + r as f32 * rh - self.scroll + self.px(6.0)).round();
+                (y + h > top && y < bottom).then_some((i, [x, y, w, h]))
+            })
+            .collect()
+    }
+
+    /// The page whose thumbnail is at (`x`, `y`).
+    fn thumb_at(&self, x: f32, y: f32) -> Option<usize> {
+        self.thumb_rects()
+            .into_iter()
+            .find(|(_, r)| inside([r[0], r[1], r[2], r[3] + self.px(24.0)], x, y))
+            .map(|(i, _)| i)
     }
 
     fn clamp(&mut self) {
@@ -218,7 +265,11 @@ impl NavPane {
     }
 
     pub(crate) fn hover(&mut self, x: f32, y: f32) -> bool {
-        let h = self.row_at(x, y);
+        let h = if self.tab == NavTab::Pages {
+            self.thumb_at(x, y)
+        } else {
+            self.row_at(x, y)
+        };
         let changed = h != self.hover;
         self.hover = h;
         changed
@@ -248,7 +299,12 @@ impl NavPane {
                 return NavAction::Redraw;
             }
         }
-        match self.row_at(x, y) {
+        let at = if self.tab == NavTab::Pages {
+            self.thumb_at(x, y)
+        } else {
+            self.row_at(x, y)
+        };
+        match at {
             Some(i) => {
                 self.current = Some(i);
                 match self.tab {
@@ -426,6 +482,35 @@ impl NavPane {
                 style,
                 MUTED,
             );
+        }
+        // Pages: thumbnails two to a row, the page shown framed in the accent colour,
+        // its number under it (the page images come from the host's thumbnail store).
+        if self.tab == NavTab::Pages {
+            for (i, r) in self.thumb_rects() {
+                let [tx, ty0, tw, th] = r;
+                let (frame, k) = if self.current == Some(i) {
+                    (t.accent, self.px(2.0).max(1.0))
+                } else if self.hover == Some(i) {
+                    (mix(t.accent, 0.42), 1.0)
+                } else {
+                    (Rgba(200, 200, 200, 255), 1.0)
+                };
+                p.fill_rect(tx - k, ty0 - k, tw + 2.0 * k, th + 2.0 * k, frame);
+                p.fill_rect(tx, ty0, tw, th, Rgba(255, 255, 255, 255));
+                p.page(crate::THUMB_KEY + i, tx as i32, ty0 as i32);
+                let label = (i + 1).to_string();
+                let lw = label.chars().count() as f32 * style.size * 0.55;
+                p.text(
+                    &label,
+                    (tx + (tw - lw) / 2.0).round(),
+                    ty0 + th + self.px(4.0),
+                    style,
+                    ROW_TEXT,
+                );
+            }
+            p.pop_clip();
+            p.pop_clip();
+            return;
         }
         for i in 0..self.rows() {
             let ry = top + i as f32 * rh - self.scroll;

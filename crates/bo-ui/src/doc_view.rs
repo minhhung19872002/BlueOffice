@@ -118,6 +118,13 @@ pub struct DocView {
     spell_pages: Vec<usize>,
     /// Pages side by side in a row (2 in Read Mode).
     columns: usize,
+    /// Page thumbnails the navigation pane shows: wanted pages and width (device px),
+    /// the scale each stored thumbnail was drawn at, and those changed since (redrawn
+    /// at rest, not while typing).
+    thumbs: (Vec<usize>, f32),
+    thumbs_shown: std::collections::HashMap<usize, f32>,
+    thumbs_stale: std::collections::BTreeSet<usize>,
+    thumbs_refresh: bool,
     /// The rest of the document checked in the background, a few pages at a time.
     sweep: Sweep,
     /// How tracked changes and comments are shown.
@@ -157,6 +164,10 @@ impl DocView {
             spell_pages: Vec::new(),
             sweep: Sweep::default(),
             columns: 1,
+            thumbs: (Vec::new(), 0.0),
+            thumbs_shown: std::collections::HashMap::new(),
+            thumbs_stale: std::collections::BTreeSet::new(),
+            thumbs_refresh: false,
             markup: bo_engine::markup::MarkupOptions::default(),
         };
         view.apply(&state);
@@ -501,6 +512,11 @@ impl DocView {
         !self.spell.is_empty() || !self.sweep.found.is_empty()
     }
 
+    /// Laid-out height (twips) of the row holding the caret, for the Cell Size box.
+    pub fn caret_row_height(&mut self) -> Option<i32> {
+        self.engine.caret_row_height()
+    }
+
     /// Some page in view was not checked yet (after scrolling).
     pub fn spelling_out_of_view(&self) -> bool {
         self.visible()
@@ -751,6 +767,80 @@ impl DocView {
         self.glide = None;
         self.clamp_scroll();
         true
+    }
+
+    /// Height / width of the first page (thumbnail shape).
+    pub fn page_aspect(&self) -> f32 {
+        self.pages
+            .first()
+            .map_or(1.414, |p| p.height / p.width.max(1.0))
+    }
+
+    /// Show thumbnails of `pages`, `width` device pixels wide (the navigation pane's Pages
+    /// tab); an empty list frees them.
+    pub fn set_thumbnails(&mut self, pages: Vec<usize>, width: f32) {
+        self.thumbs = (pages, width);
+    }
+
+    /// Redraw the thumbnails of edited pages at the next frame (called at rest).
+    pub fn refresh_thumbnails(&mut self) -> bool {
+        let due = self
+            .thumbs
+            .0
+            .iter()
+            .any(|i| self.thumbs_stale.contains(i) && self.thumbs_shown.contains_key(i));
+        self.thumbs_refresh |= due;
+        due
+    }
+
+    /// Thumbnails still to draw (the host asks for another frame).
+    pub fn thumbnails_pending(&self) -> bool {
+        self.thumbs
+            .0
+            .iter()
+            .any(|i| !self.thumbs_shown.contains_key(i))
+    }
+
+    /// Bring the wanted thumbnails up to date: at most `MAX_THUMBS_PER_FRAME` new ones per
+    /// frame, edited ones only when asked at rest; others are freed.
+    fn prepare_thumbnails(&mut self, store: &mut dyn PageStore) -> Result<(), String> {
+        const MAX_THUMBS_PER_FRAME: usize = 4;
+        let wanted: std::collections::BTreeSet<usize> = self.thumbs.0.iter().copied().collect();
+        let gone: Vec<usize> = self
+            .thumbs_shown
+            .keys()
+            .copied()
+            .filter(|i| !wanted.contains(i))
+            .collect();
+        for i in gone {
+            store.remove(crate::THUMB_KEY + i);
+            self.thumbs_shown.remove(&i);
+        }
+        let refresh = std::mem::take(&mut self.thumbs_refresh);
+        let mut drawn = 0;
+        for &i in &wanted {
+            let Some(size) = self.pages.get(i) else {
+                continue;
+            };
+            let scale = (self.thumbs.1 / size.width.max(1.0)).max(0.01);
+            let current = self
+                .thumbs_shown
+                .get(&i)
+                .is_some_and(|s| (s - scale).abs() < 1e-4);
+            let stale = self.thumbs_stale.contains(&i);
+            if current && !(stale && refresh) {
+                continue;
+            }
+            if drawn >= MAX_THUMBS_PER_FRAME {
+                break;
+            }
+            let list = self.engine.page(i).map_err(|e| e.to_string())?;
+            store.update(crate::THUMB_KEY + i, list, &self.engine, scale, None)?;
+            self.thumbs_shown.insert(i, scale);
+            self.thumbs_stale.remove(&i);
+            drawn += 1;
+        }
+        Ok(())
     }
 
     /// Pages side by side in a row.
@@ -1014,6 +1104,7 @@ impl DocView {
             self.clamp_scroll();
         }
         self.stale.extend(r.dirty.iter().copied());
+        self.thumbs_stale.extend(r.dirty.iter().copied());
         // The document changed: check every page again in the background (the cache
         // keeps unchanged paragraphs cheap); pages found so far stay until re-checked.
         if !r.dirty.is_empty() {
@@ -1129,7 +1220,7 @@ impl DocView {
             self.stale.remove(&index);
         }
         self.repaint_all = false;
-        Ok(())
+        self.prepare_thumbnails(store)
     }
 
     /// Paint a frame: background, pages, selection and caret.

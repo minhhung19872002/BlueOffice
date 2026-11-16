@@ -671,11 +671,10 @@ fn read_mode_shows_two_pages_without_the_ribbon() {
     let mut w = window();
     let zoom = w.view.zoom();
     act(&mut w, "view.readMode");
-    assert_eq!(w.view.columns(), 2);
+    assert!((w.view.zoom() - 1.4).abs() < 1e-3, "reading zoom");
     assert!((w.view_top() - w.title.height()).abs() < 0.5, "no ribbon");
     assert!(w.on_ids().contains(&"view.readMode"));
     w.handle(Input::Key(Key::Escape, Mods::default()), &Fixed);
-    assert_eq!(w.view.columns(), 1);
     assert!((w.view.zoom() - zoom).abs() < 1e-3);
     assert!(w.view_top() > w.title.height() + 10.0, "ribbon back");
     // The status bar's first view button is Read Mode, as on the reference.
@@ -720,4 +719,71 @@ impl Painter for Rects {
     fn path(&mut self, _: &[PathSeg], _: Option<Rgba>, _: Option<(Rgba, f32)>) {}
     fn push_clip(&mut self, _: f32, _: f32, _: f32, _: f32) {}
     fn pop_clip(&mut self) {}
+}
+
+/// The navigation pane's Pages tab shows page thumbnails drawn by the host's page store.
+#[test]
+fn pages_tab_shows_page_thumbnails() {
+    #[derive(Default)]
+    struct Keys(Vec<(usize, f32)>);
+    impl crate::PageStore for Keys {
+        fn update(
+            &mut self,
+            index: usize,
+            _: &bo_render::PageList,
+            _: &Engine,
+            scale: f32,
+            _: Option<[u32; 4]>,
+        ) -> Result<(), String> {
+            self.0.push((index, scale));
+            Ok(())
+        }
+        fn remove(&mut self, _: usize) {}
+    }
+    let mut w = window();
+    act(&mut w, "view.navigationPane");
+    if let Some(nav) = w.nav.as_mut() {
+        nav.show(crate::nav_pane::NavTab::Pages);
+    }
+    w.handle(Input::Tick, &Fixed);
+    let mut store = Keys::default();
+    w.prepare(&mut store).unwrap();
+    let thumb = store.0.iter().find(|(k, _)| *k == crate::THUMB_KEY);
+    assert!(
+        thumb.is_some_and(|(_, s)| *s > 0.05 && *s < 0.5),
+        "{:?}",
+        store.0
+    );
+    let rects = w.nav.as_ref().map(|n| n.thumb_rects()).unwrap_or_default();
+    assert_eq!(rects.len(), 1);
+    let mut rec = Rects::default();
+    w.paint(&mut rec);
+}
+
+/// Sizes follow the region's unit as the reference does: inches with a point in the US
+/// system (0.35" for a 504-twip row), centimetres elsewhere.
+#[test]
+fn sizes_in_the_region_unit() {
+    let us = crate::doc_table::Units {
+        inches: true,
+        decimal: '.',
+    };
+    assert_eq!(us.fmt(504), "0.35\"");
+    assert_eq!(us.parse("1.63\""), Some(2347));
+    assert_eq!(us.step(), 144);
+    let vn = crate::doc_table::Units::default();
+    assert_eq!(vn.fmt(567), "1,00 cm");
+    assert_eq!(vn.parse("1,5"), Some(850));
+    // An automatic row shows its laid-out height.
+    let mut w = window();
+    act(&mut w, "insert.table.2x2");
+    w.handle(Input::Tick, &Fixed);
+    for _ in 0..6 {
+        w.handle(Input::Tick, &Fixed);
+    }
+    assert!(
+        w.row_measured.is_some_and(|h| h > 200),
+        "{:?}",
+        w.row_measured
+    );
 }

@@ -739,62 +739,56 @@ impl SheetWindow {
             self.view.commit();
         }
         let t = |k: &str, d: &str| self.t(k, d);
+        // Geometry of the reference's Name Manager at 125 % (round 39, `sheet-36`): 705 × 547
+        // px, New / Edit / Delete 111 × 29 at y 48, the names in a table with Name, Value,
+        // Refers To, Scope and Comment columns, Refers to under it, Close at the bottom.
         let mut f = Form::new(
             &t("sheetNames.title", "Name Manager"),
-            (760.0, 500.0),
+            (705.0, 547.0),
             Vec::new(),
         );
         f.add(
             "new",
             None,
-            [20.0, 50.0, 100.0, 28.0],
+            [18.0, 48.0, 111.0, 29.0],
             Self::button(t("sheetNames.new", "New...")),
         );
         f.add(
             "apply",
             None,
-            [130.0, 50.0, 100.0, 28.0],
+            [145.0, 48.0, 111.0, 29.0],
             Self::button(t("sheetNames.edit", "Edit...")),
         );
         f.add(
             "del",
             None,
-            [240.0, 50.0, 100.0, 28.0],
+            [272.0, 48.0, 111.0, 29.0],
             Self::button(t("sheetNames.delete", "Delete")),
         );
-        f.add(
-            "hName",
-            None,
-            [24.0, 90.0, 0.0, 0.0],
-            Kind::Label(t("sheetNames.name", "Name")),
-        );
-        f.add(
-            "hRef",
-            None,
-            [260.0, 90.0, 0.0, 0.0],
-            Kind::Label(t("sheetNames.refersTo", "Refers To")),
-        );
+        // The list the events read (hidden) and the table drawn over its place.
         f.add(
             "names",
             None,
-            [20.0, 110.0, 720.0, 240.0],
+            [18.0, 82.0, 668.0, 320.0],
             Kind::List {
                 items: Vec::new(),
                 sel: None,
                 top: 0,
             },
         );
+        f.show("names", false);
+        f.add("ntable", None, [18.0, 82.0, 668.0, 320.0], Kind::Canvas);
         f.add(
             "nameL",
             None,
-            [20.0, 364.0, 0.0, 0.0],
+            [18.0, 414.0, 0.0, 0.0],
             Kind::Label(t("sheetNames.nameLabel", "Name:")),
         );
-        f.add("name", None, [120.0, 360.0, 300.0, 24.0], Self::edit(""));
+        f.add("name", None, [100.0, 410.0, 300.0, 26.0], Self::edit(""));
         f.add(
             "refL",
             None,
-            [20.0, 398.0, 0.0, 0.0],
+            [18.0, 448.0, 0.0, 0.0],
             Kind::Label(t("sheetNames.refersToLabel", "Refers to:")),
         );
         let rng = {
@@ -813,18 +807,18 @@ impl SheetWindow {
                 format!("={sheet}!{}:{}", a(r0, c0), a(r1, c1))
             }
         };
-        f.add("ref", None, [120.0, 394.0, 620.0, 24.0], Self::edit(&rng));
+        f.add("ref", None, [100.0, 444.0, 586.0, 26.0], Self::edit(&rng));
         f.add(
             "err",
             None,
-            [20.0, 430.0, 0.0, 0.0],
+            [18.0, 478.0, 0.0, 0.0],
             Kind::Note(String::new()),
         );
         let close = t("sheetNames.close", "Close");
         f.add(
             "cancel",
             None,
-            [760.0 - 131.0, 500.0 - 48.0, 112.0, 28.0],
+            [575.0, 500.0, 111.0, 29.0],
             Kind::Button {
                 label: close,
                 default: true,
@@ -858,6 +852,17 @@ impl SheetWindow {
             })
             .collect();
         self.name_rows.clone_from(&rows);
+        let workbook = self.t("sheetNames.workbook", "Workbook");
+        let sheets = self.view.sheet_names();
+        self.name_scopes = list
+            .iter()
+            .map(|n| {
+                n.get("scope")
+                    .and_then(Value::as_u64)
+                    .and_then(|s| sheets.get(s as usize).cloned().flatten())
+                    .unwrap_or_else(|| workbook.clone())
+            })
+            .collect();
         if let Some(f) = self.form.as_mut() {
             let items = rows
                 .iter()
@@ -922,8 +927,83 @@ impl SheetWindow {
                     self.names_refresh();
                 }
             }
+            Event::Canvas("ntable", _, y) => {
+                // Rows of 22 px under the 26 px header.
+                let row = ((y - 26.0) / 22.0).floor();
+                if row >= 0.0 && (row as usize) < self.name_rows.len() {
+                    if let Some(f) = self.form.as_mut() {
+                        f.set_sel("names", Some(row as usize));
+                    }
+                    self.names_event(&Event::Changed("names"));
+                }
+            }
             Event::Ok | Event::Cancel => self.form = None,
             _ => {}
+        }
+    }
+
+    /// The Name Manager's table: header (Name, Value, Refers To, Scope, Comment) with
+    /// #E5E5E5 separators, one 22 px row per name, the chosen row in the selection blue.
+    pub(super) fn paint_name_table(&self, f: &Form, r: [f32; 4], p: &mut dyn crate::Painter) {
+        use bo_render::Rgba;
+        let k = self.scale / 1.25;
+        p.fill_rect(r[0], r[1], r[2], r[3], Rgba(0x82, 0x87, 0x90, 255));
+        p.fill_rect(
+            r[0] + 1.0,
+            r[1] + 1.0,
+            r[2] - 2.0,
+            r[3] - 2.0,
+            Rgba(255, 255, 255, 255),
+        );
+        let font = f.font();
+        let line = font.size * 1.33;
+        let cols = [
+            (8.0, "sheetNames.name", "Name"),
+            (150.0, "sheetNative.nmValue", "Value"),
+            (300.0, "sheetNative.nmRefersTo", "Refers To"),
+            (450.0, "sheetNames.scope", "Scope"),
+            (532.0, "sheetNames.comment", "Comment"),
+        ];
+        let hh = (26.0 * k).round();
+        for (i, (x, key, fb)) in cols.iter().enumerate() {
+            if i > 0 {
+                p.fill_rect(
+                    (r[0] + (x - 7.0) * k).round(),
+                    r[1] + 1.0,
+                    1.0,
+                    hh - 1.0,
+                    Rgba(0xE5, 0xE5, 0xE5, 255),
+                );
+            }
+            p.text_font(
+                &self.t(key, fb),
+                r[0] + x * k,
+                (r[1] + (hh - line) / 2.0).round(),
+                &font,
+                Rgba(0, 0, 0, 255),
+            );
+        }
+        let sel = f.sel("names");
+        let rh = (22.0 * k).round();
+        for (i, (name, refers)) in self.name_rows.iter().enumerate() {
+            let y = r[1] + hh + i as f32 * rh;
+            if y + rh > r[1] + r[3] {
+                break;
+            }
+            let chosen = sel == Some(i);
+            let ink = if chosen {
+                p.fill_rect(r[0] + 2.0, y, r[2] - 4.0, rh, Rgba(0x00, 0x78, 0xD7, 255));
+                Rgba(255, 255, 255, 255)
+            } else {
+                Rgba(0, 0, 0, 255)
+            };
+            let ty = (y + (rh - line) / 2.0).round();
+            let scope = self.name_scopes.get(i).cloned().unwrap_or_default();
+            p.push_clip(r[0] + 1.0, y, r[2] - 2.0, rh);
+            for (x, text) in [(cols[0].0, name), (cols[2].0, refers), (cols[3].0, &scope)] {
+                p.text_font(text, r[0] + x * k, ty, &font, ink);
+            }
+            p.pop_clip();
         }
     }
 

@@ -181,6 +181,11 @@ impl SheetWindow {
             (1040.0, 848.0),
             vec![],
         );
+        // The reference's Options text is about 1.3 times the classic dialogs' (measured:
+        // "Show Mini Toolbar on selection" 246 px against 190 px), headings bold over a rule.
+        f.set_font_scale(1.3);
+        f.set_headings(true);
+        f.set_radios(&["fAuto", "fAutoNoTable", "fManual"]);
         // White face and the category list, drawn by the owner.
         f.add("bg", None, [1.0, 38.0, 1038.0, 809.0], Kind::Canvas);
         f.add("cats", None, LIST, Kind::Canvas);
@@ -815,9 +820,9 @@ impl SheetWindow {
                     Rgba(0xF3, 0xF3, 0xF3, 255),
                 );
                 let base = self.form.as_ref().map_or(15.0, |f| f.font().size);
-                // The reference's category list is in a larger size than the page.
+                // The category list is a little smaller than the page text.
                 let font = Font {
-                    size: (base * 1.2).round(),
+                    size: (base * 0.93).round(),
                     ..crate::Font {
                         family: "Segoe UI",
                         size: base,

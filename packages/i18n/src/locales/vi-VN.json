@@ -10737,6 +10737,8 @@
     "magnification": "Độ phóng"
   },
   "sheetNative": {
+    "nmValue": "Giá trị",
+    "nmRefersTo": "Tham chiếu tới",
     "evalNote": "Để xem kết quả của biểu thức được gạch dưới, bấm Tính.  Kết quả gần nhất hiện ở dạng nghiêng.",
     "evalEvaluate": "Tính",
     "evalStepIn": "Vào trong",

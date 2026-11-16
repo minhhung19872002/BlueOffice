@@ -214,6 +214,12 @@ pub(super) struct Form {
     pub more_for: Option<&'static str>,
     /// Palette texts: Automatic, Theme Colors, Standard Colors, More Colors….
     pub palette_labels: Vec<String>,
+    /// Text size of the controls relative to the classic dialogs (File › Options is larger).
+    font_k: f32,
+    /// Group captions drawn as bold section headings over a full-width rule (File › Options).
+    headings: bool,
+    /// Check boxes drawn as option buttons (round; the owner keeps one of a group on).
+    radios: Vec<&'static str>,
 }
 
 /// An entry of an open colour palette.
@@ -274,7 +280,25 @@ impl Form {
             palette: None,
             more_for: None,
             palette_labels: Vec::new(),
+            font_k: 1.0,
+            headings: false,
+            radios: Vec::new(),
         }
+    }
+
+    /// Controls' text `k` times the classic dialogs' size (the title keeps its size).
+    pub fn set_font_scale(&mut self, k: f32) {
+        self.font_k = k;
+    }
+
+    /// Draw the check boxes `ids` as option buttons.
+    pub fn set_radios(&mut self, ids: &[&'static str]) {
+        self.radios = ids.to_vec();
+    }
+
+    /// Draw group captions as bold section headings with a rule under them.
+    pub fn set_headings(&mut self, on: bool) {
+        self.headings = on;
     }
 
     /// Measured width of `s` in the dialog font (device pixels; measured at layout time).
@@ -594,7 +618,7 @@ impl Form {
     pub fn font(&self) -> Font<'static> {
         Font {
             family: "Segoe UI",
-            size: 10.8 * REF_SCALE * self.k,
+            size: 10.8 * REF_SCALE * self.k * self.font_k,
             weight: 400,
             italic: false,
             underline: false,
@@ -1035,7 +1059,18 @@ impl Form {
         let font = self.font();
         let line = font.size * 1.33;
         let text_y = |r: [f32; 4]| (r[1] + (r[3] - line) / 2.0).round();
-        p.text_font(&self.title, t[0] + 19.0 * self.k, text_y(t), &font, INK);
+        let title_font = Font {
+            size: font.size / self.font_k,
+            ..font
+        };
+        let title_line = title_font.size * 1.33;
+        p.text_font(
+            &self.title,
+            t[0] + 19.0 * self.k,
+            (t[1] + (t[3] - title_line) / 2.0).round(),
+            &title_font,
+            INK,
+        );
         // Close (×).
         let c = self.dev([self.size.0 - 30.0, 13.0, 11.0, 11.0]);
         p.path(
@@ -1108,6 +1143,15 @@ impl Form {
                     }
                     None => p.text_font(s, r[0], r[1], &font, ink),
                 },
+                Kind::Group(s) if self.headings => {
+                    let bold = Font {
+                        weight: 700,
+                        ..font
+                    };
+                    p.text_font(s, r[0], r[1], &bold, ink);
+                    let ly = (r[1] + line + 6.0 * self.k).round();
+                    p.fill_rect(r[0], ly, r[2], 1.0, Rgba(0xe6, 0xe6, 0xe6, 255));
+                }
                 Kind::Group(s) => {
                     let tw = self.width(s);
 
@@ -1154,6 +1198,29 @@ impl Form {
                         p.fill_rect(cx, r[1] + 4.0 * self.k, 1.0, r[3] - 8.0 * self.k, INK);
                     }
                     p.pop_clip();
+                }
+                Kind::Check { label, on } if self.radios.contains(&c.id) => {
+                    // Option button: a ring, filled in the accent with a white dot when on
+                    // (the reference's Windows 11 controls).
+                    let b = (15.0 * self.k).round();
+                    let (bx, by) = (r[0], (r[1] + (r[3] - b) / 2.0).round());
+                    let (cx, cy, rr) = (bx + b / 2.0, by + b / 2.0, b / 2.0);
+                    let accent = if c.enabled {
+                        Rgba(0x00, 0x5f, 0xb8, 255)
+                    } else {
+                        GREY_INK
+                    };
+                    if *on {
+                        p.path(&ring(cx, cy, rr), Some(accent), None);
+                        p.path(&ring(cx, cy, rr * 0.42), Some(WHITE), None);
+                    } else {
+                        p.path(
+                            &ring(cx, cy, rr - 0.5),
+                            Some(WHITE),
+                            Some((Rgba(0x33, 0x33, 0x33, 255), 1.0)),
+                        );
+                    }
+                    p.text_font(label, bx + b + 7.0 * self.k, text_y(r), &font, ink);
                 }
                 Kind::Check { label, on } => {
                     let b = (13.0 * self.k).round();
@@ -1541,6 +1608,19 @@ fn chevron(p: &mut dyn Painter, x: f32, y: f32, k: f32) {
         None,
         Some((ARROW, 1.0)),
     );
+}
+
+/// A circle of radius `r` around (`cx`, `cy`) as four cubic Béziers.
+fn ring(cx: f32, cy: f32, r: f32) -> Vec<PathSeg> {
+    let k = r * 0.552_284_8;
+    vec![
+        PathSeg::M(cx + r, cy),
+        PathSeg::C(cx + r, cy + k, cx + k, cy + r, cx, cy + r),
+        PathSeg::C(cx - k, cy + r, cx - r, cy + k, cx - r, cy),
+        PathSeg::C(cx - r, cy - k, cx - k, cy - r, cx, cy - r),
+        PathSeg::C(cx + k, cy - r, cx + r, cy - k, cx + r, cy),
+        PathSeg::Z,
+    ]
 }
 
 #[cfg(test)]

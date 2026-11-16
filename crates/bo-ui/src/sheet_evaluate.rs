@@ -103,7 +103,7 @@ impl SheetWindow {
             "ref",
             None,
             [18.0, 73.0, 215.0, 22.0],
-            Kind::Label(s(&out, "cell")),
+            Kind::Label(absolute(&s(&out, "cell"))),
         );
         f.add(
             "eq",
@@ -121,7 +121,7 @@ impl SheetWindow {
         f.add(
             "note",
             None,
-            [18.0, 258.0, 745.0, 22.0],
+            [32.0, 258.0, 731.0, 22.0],
             Kind::Label(if formula.is_empty() {
                 t("sheetAudit.noFormula", "The active cell has no formula.")
             } else {
@@ -256,5 +256,32 @@ impl SheetWindow {
         );
         x += w;
         p.text_font(&after, x, y, &font, ink);
+    }
+}
+
+/// `Sheet!H3` as the reference shows it: `Sheet!$H$3`.
+fn absolute(label: &str) -> String {
+    let (sheet, cell) = label.rsplit_once('!').map_or(("", label), |(s, c)| (s, c));
+    let digits = cell
+        .find(|ch: char| ch.is_ascii_digit())
+        .unwrap_or(cell.len());
+    let (col, row) = cell.split_at(digits);
+    if col.is_empty() || row.is_empty() || !col.chars().all(|c| c.is_ascii_alphabetic()) {
+        return label.to_owned();
+    }
+    if sheet.is_empty() {
+        format!("${col}${row}")
+    } else {
+        format!("{sheet}!${col}${row}")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn absolute_reference_label() {
+        assert_eq!(super::absolute("Sheet!H3"), "Sheet!$H$3");
+        assert_eq!(super::absolute("'My Sheet'!AB12"), "'My Sheet'!$AB$12");
+        assert_eq!(super::absolute("Name"), "Name");
     }
 }

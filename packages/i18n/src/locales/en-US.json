@@ -10737,6 +10737,8 @@
     "magnification": "Magnification"
   },
   "sheetNative": {
+    "nmValue": "Value",
+    "nmRefersTo": "Refers To",
     "evalNote": "To show the result of the underlined expression, click Evaluate.  The most recent result appears italicized.",
     "evalEvaluate": "Evaluate",
     "evalStepIn": "Step In",

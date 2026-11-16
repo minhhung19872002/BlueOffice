@@ -380,6 +380,8 @@ pub struct SheetWindow {
     sort_levels: usize,
     /// Name Manager rows (name, refers to).
     name_rows: Vec<(String, String)>,
+    /// Scope of each Name Manager row (the workbook or a sheet's name).
+    name_scopes: Vec<String>,
     /// Formula auditing arrows, the traced cell and its precedent / dependent levels.
     arrows: Vec<audit_impl::Arrow>,
     trace_cell: Option<(u32, u32)>,
@@ -516,6 +518,7 @@ impl SheetWindow {
             sort_range: None,
             sort_levels: 1,
             name_rows: Vec::new(),
+            name_scopes: Vec::new(),
             arrows: Vec::new(),
             trace_cell: None,
             trace_levels: (0, 0),
@@ -1965,6 +1968,25 @@ impl SheetWindow {
     }
 
     fn paint_form_canvas(&self, f: &form_impl::Form, id: &str, r: [f32; 4], p: &mut dyn Painter) {
+        // Plain areas some dialogs share (round 39): a white face, a rule, a white list box
+        // framed #828790, a light grey box framed #949494.
+        let frame = |p: &mut dyn Painter, edge: Rgba, fill: Rgba| {
+            p.fill_rect(r[0], r[1], r[2], r[3], edge);
+            p.fill_rect(r[0] + 1.0, r[1] + 1.0, r[2] - 2.0, r[3] - 2.0, fill);
+        };
+        match id {
+            "face" => return p.fill_rect(r[0], r[1], r[2], r[3], Rgba(255, 255, 255, 255)),
+            "rule1" | "rule2" => {
+                return p.fill_rect(r[0], r[1], r[2], 1.0, Rgba(0xDC, 0xDC, 0xDC, 255));
+            }
+            "listbox" => {
+                return frame(p, Rgba(0x82, 0x87, 0x90, 255), Rgba(255, 255, 255, 255));
+            }
+            "greybox" => {
+                return frame(p, Rgba(0x94, 0x94, 0x94, 255), Rgba(0xF3, 0xF3, 0xF3, 255));
+            }
+            _ => {}
+        }
         if self.form_kind == form_impl::FormKind::FormatCells {
             self.fc_paint_canvas(f, id, r, p);
         } else if self.form_kind == form_impl::FormKind::Symbol {
@@ -1977,6 +1999,8 @@ impl SheetWindow {
             self.paint_tstyle_preview(r, p);
         } else if self.form_kind == form_impl::FormKind::Options {
             self.paint_options(id, r, p);
+        } else if self.form_kind == form_impl::FormKind::Names && id == "ntable" {
+            self.paint_name_table(f, r, p);
         } else if self.form_kind == form_impl::FormKind::Evaluate && id == "box" {
             self.paint_evaluate(f, r, p);
         } else if self.form_kind == form_impl::FormKind::Sort && id == "grid" {

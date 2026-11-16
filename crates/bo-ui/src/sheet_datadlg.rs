@@ -104,6 +104,9 @@ impl SheetWindow {
             (401.0, 606.0),
             vec![],
         );
+        // The reference's Subtotal: white face, text about 1.3 times the classic dialogs'.
+        f.set_font_scale(1.3);
+        f.add("face", None, [1.0, 38.0, 399.0, 567.0], Kind::Canvas);
         f.add(
             "groupL",
             None,
@@ -142,12 +145,7 @@ impl SheetWindow {
         );
         // The column list: a framed box with one check box per column (41 px rows as the
         // reference while five fit, tighter beyond).
-        f.add(
-            "box",
-            None,
-            [17.0, 209.0, 368.0, 231.0],
-            Kind::Group(String::new()),
-        );
+        f.add("greybox", None, [17.0, 209.0, 368.0, 231.0], Kind::Canvas);
         let n = names.len().min(COLS.len());
         let pitch = if n <= 5 { 41.0 } else { 220.0 / n as f32 };
         for (i, name) in names.iter().take(n).enumerate() {
@@ -227,11 +225,13 @@ impl SheetWindow {
             (501.0, 415.0),
             vec![],
         );
+        // The reference's text is about 1.15 times the classic dialogs'.
+        f.set_font_scale(1.15);
         f.add(
             "note",
             None,
             [17.0, 48.0, 470.0, 44.0],
-            Kind::Label(t(
+            Kind::Note(t(
                 "sheetNative.ddDupsNote",
                 "To delete duplicate values, select one or more columns that contain duplicates.",
             )),
@@ -263,12 +263,9 @@ impl SheetWindow {
                 on: header,
             },
         );
-        f.add(
-            "box",
-            None,
-            [17.0, 166.0, 467.0, 175.0],
-            Kind::Group(String::new()),
-        );
+        f.add("rule1", None, [0.0, 95.0, 501.0, 1.0], Kind::Canvas);
+        f.add("rule2", None, [0.0, 151.0, 501.0, 1.0], Kind::Canvas);
+        f.add("listbox", None, [17.0, 166.0, 467.0, 175.0], Kind::Canvas);
         f.add(
             "colsL",
             None,
@@ -395,6 +392,7 @@ impl SheetWindow {
         if let Some(c) = f.get_mut("cancel") {
             c.rect = [200.0, 265.0, 113.0, 33.0];
         }
+        f.set_radios(&["inPlace", "copy"]);
         f.focus("crit");
         self.form = Some(f);
         self.form_kind = FormKind::AdvancedFilter;

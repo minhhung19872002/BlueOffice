@@ -3130,7 +3130,11 @@
     "changeAll": "Change All",
     "spellDone": "Spell check complete. You're good to go!",
     "newComment": "New Comment",
-    "resetSlideMenu": "Reset Slide"
+    "resetSlideMenu": "Reset Slide",
+    "screenshot": "Screenshot",
+    "object": "Object",
+    "newWorkbook": "New Workbook",
+    "objectFromFile": "Create from File..."
   },
   "slideEditor": {
     "open": "Open",

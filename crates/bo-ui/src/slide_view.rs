@@ -1059,6 +1059,32 @@ impl SlideView {
         }
     }
 
+    /// Run an embedded-workbook command (Insert Object); `false` when the engine refused it.
+    pub fn run_ole(&mut self, cmd: bo_engine::ole::OleCommand) -> bool {
+        let Ok(v) = self.engine.slide_ole_command(cmd) else {
+            return false;
+        };
+        let ok = v.get("error").is_none_or(serde_json::Value::is_null);
+        let dirty: Vec<usize> = v
+            .get("dirty")
+            .and_then(serde_json::Value::as_array)
+            .map(|a| {
+                a.iter()
+                    .filter_map(serde_json::Value::as_u64)
+                    .filter_map(|i| usize::try_from(i).ok())
+                    .collect()
+            })
+            .unwrap_or_default();
+        for i in dirty {
+            if let Some(&id) = self.ids.get(i) {
+                self.stale.extend([id, THUMB_KEY + id, SHOW_KEY + id]);
+            }
+        }
+        // The selection and state follow the inserted object.
+        self.run(SlideCommand::HistoryLen);
+        ok
+    }
+
     /// The engine's last answer for the current slide (selection, transition, effects, design).
     pub fn state(&self) -> Option<&SlideEditResult> {
         self.state.as_ref()

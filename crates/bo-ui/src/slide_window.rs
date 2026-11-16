@@ -332,6 +332,9 @@ mod context;
 
 #[path = "slide_spelling.rs"]
 mod spelling;
+
+#[path = "slide_insert_icons.rs"]
+mod insert_icons;
 pub use ins::InsertFile;
 pub use views5::WindowRequest;
 
@@ -444,6 +447,8 @@ fn slide_enabled(id: &str, f: &bo_edit::FormatState) -> bool {
         "transition.preview" => return flags.contains("trans "),
         "anim.preview" => return flags.contains("anims "),
         "review.deleteComment" => return flags.contains("cmt "),
+        // Screenshot needs other windows' pictures from the host: not available yet.
+        "sl.screenshot" => return false,
         _ => {}
     }
     crate::commands::enabled(id, f)
@@ -484,6 +489,7 @@ impl SlideWindow {
         sections::install_icons(&mut icons);
         crate::sheet_window::add_chart_icons(&mut icons);
         paragraph::install_icons(&mut icons);
+        insert_icons::install(&mut icons);
         view.set_labels(
             strings.get("slideEditor.notesPlaceholder"),
             strings.get("slideEditor.end"),

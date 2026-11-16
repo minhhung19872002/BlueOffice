@@ -3130,7 +3130,11 @@
     "changeAll": "Thay đổi tất cả",
     "spellDone": "Đã kiểm tra chính tả xong. Bạn có thể tiếp tục!",
     "newComment": "Bình luận mới",
-    "resetSlideMenu": "Đặt lại trang chiếu"
+    "resetSlideMenu": "Đặt lại trang chiếu",
+    "screenshot": "Ảnh chụp màn hình",
+    "object": "Đối tượng",
+    "newWorkbook": "Sổ làm việc mới",
+    "objectFromFile": "Tạo từ tệp..."
   },
   "slideEditor": {
     "open": "Mở",

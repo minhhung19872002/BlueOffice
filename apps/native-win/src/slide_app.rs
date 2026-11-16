@@ -357,6 +357,10 @@ impl Shell {
                 ("3-D models (*.glb;*.gltf)", "*.glb;*.gltf"),
                 ("All files", "*.*"),
             ],
+            InsertFile::Object => &[
+                ("Workbooks (*.xlsx;*.xlsm)", "*.xlsx;*.xlsm"),
+                ("All files", "*.*"),
+            ],
             InsertFile::Audio => &[
                 ("Audio (*.mp3;*.m4a;*.wav;*.wma)", "*.mp3;*.m4a;*.wav;*.wma"),
                 ("All files", "*.*"),

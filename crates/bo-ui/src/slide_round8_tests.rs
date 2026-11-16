@@ -255,3 +255,23 @@ fn large_buttons_dim_only_where_the_reference_does() {
         "large buttons dimmed with nothing selected"
     );
 }
+
+#[test]
+fn insert_object_embeds_a_new_workbook() {
+    let mut w = window();
+    let n = w
+        .view
+        .engine()
+        .presentation()
+        .map_or(0, |p| p.slides[w.view.current()].data.shapes.len());
+    assert!(w.choose(Choice::Command("ins:workbook".into())));
+    let p = w.view.engine().presentation().expect("deck");
+    assert_eq!(p.slides[w.view.current()].data.shapes.len(), n + 1);
+    assert_eq!(w.view.selection().len(), 1);
+    assert!(w.choose(Choice::Command("ins:object".into())));
+    assert_eq!(w.file_request, Some(InsertFile::Object));
+    // Screenshot is shown, greyed (the host has no window pictures for it yet).
+    let f = ribbon_format(&w.view, false);
+    assert!(!slide_enabled("sl.screenshot", &f));
+    assert!(slide_enabled("sl.object", &f));
+}

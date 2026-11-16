@@ -31,6 +31,8 @@ pub enum InsertFile {
     Audio,
     /// A picture replacing the selected one (Change Picture).
     ChangePicture,
+    /// A workbook to embed (Insert Object from a file).
+    Object,
 }
 
 /// Dialogs of these tabs.
@@ -67,7 +69,8 @@ pub(super) enum Context {
 }
 
 /// Commands of these tabs (always enabled unless [`needs_selection`]).
-pub const COMMANDS: [&str; 49] = [
+pub const COMMANDS: [&str; 50] = [
+    "sl.object",
     "sl.photoAlbum",
     "sl.model3d",
     "sl.smartart",
@@ -159,7 +162,9 @@ pub fn needs_selection(id: &str) -> bool {
 }
 
 /// Label key of each command (`slideNative.*`).
-pub const LABELS: [(&str, &str); 46] = [
+pub const LABELS: [(&str, &str); 48] = [
+    ("sl.screenshot", "screenshot"),
+    ("sl.object", "object"),
     ("sl.photoAlbum", "photoAlbum"),
     ("sl.model3d", "model3d"),
     ("sl.smartart", "smartart"),
@@ -262,7 +267,7 @@ pub(super) fn insert_tab() -> Tab {
                 label: "slideNative.images",
                 large: vec![L("sl.pictures")],
                 // Photo Album: each picture on a new slide.
-                rows: vec![vec![S("sl.photoAlbum")]],
+                rows: vec![vec![S("sl.screenshot")], vec![S("sl.photoAlbum")]],
             },
             Group {
                 label: "slideNative.illustrations",
@@ -286,7 +291,11 @@ pub(super) fn insert_tab() -> Tab {
             Group {
                 label: "slideNative.text",
                 large: vec![L("sl.textBox"), L("sl.headerFooter"), L("sl.textStyles")],
-                rows: vec![vec![B("sl.dateTime")], vec![B("sl.slideNumber")]],
+                rows: vec![
+                    vec![B("sl.dateTime")],
+                    vec![B("sl.slideNumber")],
+                    vec![B("sl.object")],
+                ],
             },
             Group {
                 label: COLLAPSED,
@@ -848,6 +857,15 @@ impl SlideWindow {
                 vec![(self.label("fromDevice"), "ins:model3d".into())],
                 "sl.model3d",
             ),
+            // Insert Object: a new embedded workbook or one from a file.
+            "sl.object" => menu(
+                self,
+                vec![
+                    (self.label("newWorkbook"), "ins:workbook".into()),
+                    (self.label("objectFromFile"), "ins:object".into()),
+                ],
+                "sl.object",
+            ),
             "sl.smartart" => menu(
                 self,
                 [
@@ -1189,6 +1207,20 @@ impl SlideWindow {
                 "model3d" => {
                     self.file_request = Some(InsertFile::Model3d);
                     true
+                }
+                "object" => {
+                    self.file_request = Some(InsertFile::Object);
+                    true
+                }
+                "workbook" => {
+                    self.activate_context = true;
+                    self.view.run_ole(bo_engine::ole::OleCommand::OleInsert {
+                        data: None,
+                        range: None,
+                        cells: None,
+                        link: None,
+                        auto_update: false,
+                    })
                 }
                 "video" => {
                     self.file_request = Some(InsertFile::Video);

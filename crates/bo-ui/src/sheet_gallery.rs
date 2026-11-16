@@ -79,6 +79,8 @@ pub(super) enum Tile {
         name: String,
         /// The workbook's theme: the tile takes its colours (round 35).
         theme: Option<bo_model::sheet::ThemeColors>,
+        /// The workbook's own style of that name (Custom section, round 38).
+        custom: Option<Box<bo_model::sheet::TableStyleParts>>,
     },
 }
 
@@ -351,7 +353,11 @@ impl Gallery {
                 );
                 p.pop_clip();
             }
-            Tile::Table { name, theme } => paint_table_tile(p, r, name, theme.as_ref()),
+            Tile::Table {
+                name,
+                theme,
+                custom,
+            } => paint_table_tile(p, r, name, theme.as_ref(), custom.as_deref()),
         }
     }
 }
@@ -364,6 +370,7 @@ fn paint_table_tile(
     r: [f32; 4],
     name: &str,
     theme: Option<&bo_model::sheet::ThemeColors>,
+    custom: Option<&bo_model::sheet::TableStyleParts>,
 ) {
     use bo_model::sheet::{CellRange, CellRef, Table, TableStyleInfo};
     let t = Table {
@@ -384,11 +391,14 @@ fn paint_table_tile(
     let looks: Vec<Vec<bo_sheet::table_style::Look>> = (0..5)
         .map(|k| {
             (0..5)
-                .map(|c| {
-                    bo_sheet::table_style::themed(
+                .map(|c| match custom {
+                    Some(s) => {
+                        bo_sheet::table_style::custom_look(s, &t, k, c, theme).unwrap_or_default()
+                    }
+                    None => bo_sheet::table_style::themed(
                         bo_sheet::table_style::look(&t, k, c).unwrap_or_default(),
                         theme,
-                    )
+                    ),
                 })
                 .collect()
         })
@@ -696,6 +706,29 @@ impl SheetWindow {
         let entries = bo_sheet::table_style::gallery();
         let theme = self.view.engine().workbook().and_then(|w| w.theme.clone());
         let mut sections = Vec::new();
+        // The workbook's own styles first, under Custom (as the reference).
+        let custom: Vec<(String, Tile)> = self
+            .view
+            .engine()
+            .workbook()
+            .map(|w| w.styles.table_styles.clone())
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|s| !s.pivot)
+            .map(|s| {
+                (
+                    format!("table.{}", s.name),
+                    Tile::Table {
+                        name: s.name.clone(),
+                        theme: theme.clone(),
+                        custom: Some(Box::new(s)),
+                    },
+                )
+            })
+            .collect();
+        if !custom.is_empty() {
+            sections.push((self.t("sheetGallery.custom", "Custom"), custom));
+        }
         for (family, key, fallback) in [
             ("light", "sheetGallery.light", "Light"),
             ("medium", "sheetGallery.medium", "Medium"),
@@ -710,6 +743,7 @@ impl SheetWindow {
                         Tile::Table {
                             name: e.name.clone(),
                             theme: theme.clone(),
+                            custom: None,
                         },
                     )
                 })
@@ -787,7 +821,8 @@ impl SheetWindow {
     pub(super) fn gallery_action(&mut self, id: &str) -> Option<bool> {
         Some(match id {
             "sheet.newCellStyle" => self.open_cell_style_form(),
-            "sheet.newTableStyle" | "sheet.newPivotStyle" => {
+            "sheet.newTableStyle" => self.open_table_style_form(),
+            "sheet.newPivotStyle" => {
                 self.status = self.t(
                     "sheetGallery.newStyleLater",
                     "Custom table styles are not available yet.",

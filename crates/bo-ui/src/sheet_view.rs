@@ -463,6 +463,12 @@ pub struct SheetView {
     show_headings: bool,
     /// Cells the fill handle drag would fill (bounds), while dragging.
     fill_to: Option<(u32, u32, u32, u32)>,
+    /// Where Enter moves the active cell (the reference's "After pressing Enter, move
+    /// selection", down by default); `None` stays.
+    enter_move: Option<(i64, i64)>,
+    /// Column the last run of Tab presses started on: Enter goes back to it on the next row
+    /// (as the reference).
+    tab_start: Option<u32>,
     /// Ctrl held when the mouse button is released (set by the host).
     mouse_ctrl: bool,
     /// Page layout view (pages instead of the grid), when shown.
@@ -539,6 +545,8 @@ impl SheetView {
             show_formulas: false,
             show_headings: true,
             fill_to: None,
+            enter_move: Some((1, 0)),
+            tab_start: None,
             mouse_ctrl: false,
             layout: None,
             breaks: None,
@@ -1218,6 +1226,8 @@ impl SheetView {
         self.anchor = clamp(anchor);
         self.extent = clamp(extent);
         self.active = clamp(active);
+        // Any other move ends a run of Tab presses.
+        self.tab_start = None;
         self.reveal(self.extent);
         self.refresh();
     }
@@ -2122,15 +2132,29 @@ impl SheetView {
             Key::Left => self.move_active(0, -1, ext),
             Key::Right => self.move_active(0, 1, ext),
             Key::Enter | Key::Tab => {
-                let (dr, dc) = match (k, mods.shift) {
-                    (Key::Enter, false) => (1, 0),
-                    (Key::Enter, true) => (-1, 0),
-                    (_, false) => (0, 1),
-                    (_, true) => (0, -1),
+                let Some(down) = (if k == Key::Enter {
+                    self.enter_move
+                } else {
+                    Some((0, 1))
+                }) else {
+                    return true;
                 };
+                let (dr, dc) = if mods.shift { (-down.0, -down.1) } else { down };
                 let (r0, c0, r1, c1) = self.range_bounds();
                 if (r0, c0) == (r1, c1) {
-                    self.move_active(dr, dc, false);
+                    let start = self.tab_start.take();
+                    let col = self.active.1;
+                    match start {
+                        // Tab, Tab, Enter: the next row of the column the Tabs began on.
+                        Some(c) if k == Key::Enter && (dr, dc) == (1, 0) => {
+                            let r = (self.active.0 + 1).min(MAX_ROWS - 1);
+                            self.select((r, c), (r, c), (r, c));
+                        }
+                        _ => self.move_active(dr, dc, false),
+                    }
+                    if k == Key::Tab {
+                        self.tab_start = Some(start.unwrap_or(col));
+                    }
                 } else {
                     // Inside a selected range the active cell cycles through it.
                     let (mut r, mut c) = self.active;
@@ -2779,6 +2803,12 @@ impl SheetView {
         bands.push(rect(band, n));
         let shift = (fixed == 0).then_some([dx, dy]);
         Some((moves, bands, shift))
+    }
+
+    /// Where Enter moves the active cell: (rows, columns) per press, `None` to stay
+    /// (the reference's Advanced option "After pressing Enter, move selection").
+    pub fn set_enter_move(&mut self, dir: Option<(i64, i64)>) {
+        self.enter_move = dir;
     }
 
     /// Whether Ctrl is held with the next mouse release (the host reads the key state).

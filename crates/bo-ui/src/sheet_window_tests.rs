@@ -2814,3 +2814,102 @@ fn totals_row_drop_down_picks_the_function() {
     assert!(w.action("total.average", &Fixed));
     assert_eq!(shown(&w, 3, 1), "20");
 }
+
+#[test]
+fn new_table_style_dialog_makes_a_custom_style() {
+    use form_impl::Event;
+    let mut w = window();
+    put(
+        &mut w,
+        &[(0, 0, "Item"), (0, 1, "Price"), (1, 0, "a"), (1, 1, "10")],
+    );
+    assert!(w.view_mut().run(serde_json::json!({
+        "cmd": "createTable", "range": { "r0": 0, "c0": 0, "r1": 1, "c1": 1 },
+    })));
+    assert!(w.action("sheet.newTableStyle", &Fixed));
+    assert_eq!(w.form_kind, form_impl::FormKind::TableStyle);
+    assert_eq!(w.form.as_ref().expect("form").text("name"), "Table Style 1");
+    // Header Row: a dark fill, white bold text.
+    w.form.as_mut().expect("form").set_sel("elements", Some(7));
+    w.tstyle_event(&Event::Changed("elements"));
+    {
+        let f = w.form.as_mut().expect("form");
+        f.set_color("fill", "1F4E79");
+        f.set_color("text", "FFFFFF");
+        f.set_on("bold", true);
+    }
+    w.tstyle_event(&Event::Changed("fill"));
+    w.tstyle_event(&Event::Changed("bold"));
+    let desc = |w: &SheetWindow| match w.form.as_ref().and_then(|f| f.get("desc")).map(|c| &c.kind)
+    {
+        Some(form_impl::Kind::Note(s)) => s.clone(),
+        _ => String::new(),
+    };
+    assert_eq!(desc(&w), "Shaded; Bold; Font color");
+    // Whole Table shows its own (empty) format; Header Row keeps its own.
+    w.form.as_mut().expect("form").set_sel("elements", Some(0));
+    w.tstyle_event(&Event::Changed("elements"));
+    assert_eq!(w.form.as_ref().expect("form").color("fill"), "");
+    assert_eq!(desc(&w), "");
+    // The preview draws the header fill.
+    w.form.as_mut().expect("form").set_sel("elements", Some(7));
+    w.tstyle_event(&Event::Changed("elements"));
+    w.handle(Input::Blink, &Fixed);
+    let mut rec = Rec::default();
+    w.paint(&mut rec);
+    assert!(rec.rects.iter().any(|r| r.1 == Rgba(0x1F, 0x4E, 0x79, 255)));
+    w.tstyle_event(&Event::Ok);
+    assert!(w.form.is_none(), "{}", w.status);
+    let wb = w.view().engine().workbook().expect("wb");
+    assert_eq!(wb.styles.table_styles.len(), 1);
+    assert_eq!(wb.styles.table_styles[0].elements[0].kind, "headerRow");
+    // The gallery lists it under Custom, and choosing it styles the table.
+    assert!(w.action("table.Table Style 1", &Fixed));
+    let wb = w.view().engine().workbook().expect("wb");
+    let t = &wb.sheets[0].tables[0];
+    let l = bo_sheet::table_style::look_in(wb, t, 0, 0).expect("header look");
+    assert_eq!(
+        (l.fill.as_deref(), l.font.as_deref(), l.bold),
+        (Some("1F4E79"), Some("FFFFFF"), true)
+    );
+    // A second style gets the next name.
+    assert!(w.action("sheet.newTableStyle", &Fixed));
+    assert_eq!(w.form.as_ref().expect("form").text("name"), "Table Style 2");
+}
+
+#[test]
+fn tab_then_enter_returns_to_the_first_column_and_enter_direction_is_an_option() {
+    let mut w = window();
+    let key = |w: &mut SheetWindow, k: Key| {
+        w.handle(Input::Key(k, Mods::default()), &Fixed);
+    };
+    w.view_mut().select((0, 1), (0, 1), (0, 1));
+    for s in ["a", "b", "c"] {
+        type_in(&mut w, s);
+        key(&mut w, Key::Tab);
+    }
+    assert_eq!(w.view().active(), (0, 4));
+    type_in(&mut w, "d");
+    key(&mut w, Key::Enter);
+    // Measured on the reference: Tab, Tab, …, Enter goes to the next row of the first column.
+    assert_eq!(w.view().active(), (1, 1));
+    assert_eq!(shown(&w, 0, 3), "c");
+    // An arrow ends the run: Enter then goes straight down.
+    key(&mut w, Key::Tab);
+    key(&mut w, Key::Right);
+    key(&mut w, Key::Enter);
+    assert_eq!(w.view().active(), (2, 3));
+    // "After pressing Enter, move selection": right, or not at all.
+    w.view_mut().set_enter_move(Some((0, 1)));
+    key(&mut w, Key::Enter);
+    assert_eq!(w.view().active(), (2, 4));
+    w.view_mut().set_enter_move(None);
+    type_in(&mut w, "5");
+    key(&mut w, Key::Enter);
+    assert_eq!(w.view().active(), (2, 4));
+    assert_eq!(shown(&w, 2, 4), "5");
+    // Each entry is one undo step, as the reference.
+    w.view_mut().undo();
+    assert_eq!(shown(&w, 2, 4), "");
+    assert_eq!(shown(&w, 0, 4), "d");
+}

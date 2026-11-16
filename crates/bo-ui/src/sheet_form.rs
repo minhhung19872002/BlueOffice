@@ -99,6 +99,8 @@ pub(super) enum FormKind {
     /// Sheet tab menu: Unhide, Tab Color.
     Unhide,
     TabColor,
+    /// New Table Style….
+    TableStyle,
 }
 
 /// What a control is.

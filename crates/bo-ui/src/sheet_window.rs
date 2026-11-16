@@ -51,6 +51,8 @@ mod tabledesign_impl;
 mod tabs_impl;
 #[path = "sheet_totals.rs"]
 mod totals_impl;
+#[path = "sheet_tstyle.rs"]
+mod tstyle_impl;
 #[path = "sheet_viewmode.rs"]
 mod viewmode_impl;
 use crate::strings::Strings;
@@ -320,6 +322,8 @@ pub struct SheetWindow {
     /// Hidden sheets listed by Unhide, and the colours of Tab Color.
     unhide_list: Vec<usize>,
     tab_palette: Vec<String>,
+    /// New Table Style… being made.
+    tstyle: Option<tstyle_impl::TStyleDraft>,
     zoom_drag: bool,
     /// Scroll bar drags: pointer offset from the thumb start (vertical, horizontal).
     vdrag: Option<f32>,
@@ -461,6 +465,7 @@ impl SheetWindow {
             status_items: tabs_impl::STATUS_ITEMS.map(|s| s.3),
             unhide_list: Vec::new(),
             tab_palette: Vec::new(),
+            tstyle: None,
             zoom_drag: false,
             vdrag: None,
             hdrag: None,
@@ -1884,6 +1889,8 @@ impl SheetWindow {
             self.paint_more_colors(r, p);
         } else if self.form_kind == form_impl::FormKind::CfManager {
             self.paint_cf_rules(r, p, self.scale / 1.25);
+        } else if self.form_kind == form_impl::FormKind::TableStyle && id == "preview" {
+            self.paint_tstyle_preview(r, p);
         }
     }
 

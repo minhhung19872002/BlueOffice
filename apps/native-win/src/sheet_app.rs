@@ -85,6 +85,16 @@ pub fn run() -> Result<(), String> {
     let mut view = SheetWindow::new(SheetView::new(engine), &locale, &name);
     // Page layout ruler: inches when the region measures in US units (iMeasure = 1).
     view.set_ruler_inches(win32::region_value("iMeasure").as_deref() == Some("1"));
+    // BLUEOFFICE_SHEET_ENTER=down|right|up|left|none: where Enter moves the active cell.
+    if let Ok(dir) = std::env::var("BLUEOFFICE_SHEET_ENTER") {
+        view.view_mut().set_enter_move(match dir.as_str() {
+            "right" => Some((0, 1)),
+            "up" => Some((-1, 0)),
+            "left" => Some((0, -1)),
+            "none" => None,
+            _ => Some((1, 0)),
+        });
+    }
     // BLUEOFFICE_SHEET_BANDS=0 lays out the whole viewport on each scroll (to compare).
     view.view_mut()
         .set_band_lists(std::env::var("BLUEOFFICE_SHEET_BANDS").as_deref() != Ok("0"));

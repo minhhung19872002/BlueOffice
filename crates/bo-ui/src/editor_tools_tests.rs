@@ -489,3 +489,74 @@ fn revert_and_preferences() {
     let a = w.view().expect("v").doc().annotations();
     assert_eq!(a.last().map(|a| a.author.as_str()), Some("Kiểm thử"));
 }
+
+/// CPU cost per keystroke typing into a paragraph of a real PDF (`BO_TYPING_PDF`): the
+/// editor's input handling, the page's preparation (band draw into a recording store) and
+/// the window paint into a recorder. `cargo test --release -p bo-ui typing_cost_split --
+/// --ignored --nocapture`.
+#[test]
+#[ignore = "timing"]
+fn typing_cost_split() {
+    let Ok(path) = std::env::var("BO_TYPING_PDF") else {
+        return;
+    };
+    let bytes = std::fs::read(path).expect("pdf");
+    let doc = bo_pdfread::PdfDocument::open(bytes, bo_pdfread::standard_fonts()).expect("pdf");
+    let mut w = crate::editor_window::EditorWindow::new("en-US");
+    w.handle(Input::Scale(1.25), &Fixed);
+    w.handle(
+        Input::Resize {
+            width: 1536.0,
+            height: 1054.0,
+        },
+        &Fixed,
+    );
+    w.open(doc, "type.pdf", None);
+    let mut store = BandStore::default();
+    while w.prepare(&mut store) {}
+    w.run("ed.editText", &Fixed);
+    while w.prepare(&mut store) {}
+    let (x, y) = {
+        let v = w.view_mut().expect("view");
+        let objs = v.doc_mut().page_objects(0).expect("objects");
+        let b = bo_pdfread::text_blocks(&objs)
+            .into_iter()
+            .find(|b| b.lines > 2)
+            .expect("paragraph");
+        let r = v.doc_rect_to_window(0, b.bbox).expect("on screen");
+        (r[0] + 30.0, r[1] + 6.0)
+    };
+    w.handle(
+        Input::Press {
+            x,
+            y,
+            count: 1,
+            shift: false,
+        },
+        &Fixed,
+    );
+    w.handle(Input::Release { x, y }, &Fixed);
+    let (mut h, mut pr, mut pa) = (Vec::new(), Vec::new(), Vec::new());
+    for c in "nhanh hon nua di, go thu them mot doan dai hon".chars() {
+        let t = std::time::Instant::now();
+        w.handle(Input::Text(c.to_string()), &Fixed);
+        h.push(t.elapsed().as_secs_f64() * 1e3);
+        let t = std::time::Instant::now();
+        while w.prepare(&mut store) {}
+        pr.push(t.elapsed().as_secs_f64() * 1e3);
+        let t = std::time::Instant::now();
+        w.paint(&mut Rec::default());
+        pa.push(t.elapsed().as_secs_f64() * 1e3);
+    }
+    let q = |v: &mut Vec<f64>| {
+        v.sort_by(f64::total_cmp);
+        (v[v.len() / 2], v[v.len() * 95 / 100])
+    };
+    eprintln!(
+        "handle {:?} prepare {:?} paint {:?} (p50, p95 ms; full draws {})",
+        q(&mut h),
+        q(&mut pr),
+        q(&mut pa),
+        store.full
+    );
+}

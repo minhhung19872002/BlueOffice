@@ -86,6 +86,11 @@ pub trait Handler {
     fn cursor(&self) -> Option<u8> {
         None
     }
+    /// The window is asked to close (title-bar button, Alt+F4): false keeps it open (the
+    /// application asks first, e.g. to save changes).
+    fn close_requested(&mut self) -> bool {
+        true
+    }
 }
 
 thread_local! {
@@ -930,6 +935,14 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                 };
                 window_request(hwnd, &r);
             }
+            LRESULT(0)
+        }
+        WM_CLOSE if with_handler(|h| h.close_requested()) == Some(false) => {
+            let requests = with_handler(|h| h.window_requests()).unwrap_or_default();
+            for r in requests {
+                window_request(hwnd, &r);
+            }
+            // The handler asks for a frame (`wants_frame`) to show its question.
             LRESULT(0)
         }
         WM_DESTROY => {

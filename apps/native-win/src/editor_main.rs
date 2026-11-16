@@ -27,6 +27,9 @@ fn main() {
         }
         return;
     }
+    // The client area reaches the window edge: the reference editor's frame has no invisible
+    // resize borders, like the reference reader's (PrintWindow: title colour from x = 0).
+    win32::enable_full_client();
     let ui = std::thread::Builder::new()
         .name("ui".into())
         .stack_size(64 * 1024 * 1024)

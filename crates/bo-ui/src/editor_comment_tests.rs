@@ -1,9 +1,8 @@
 //! Headless tests of the editor's comment tools.
-use crate::editor_actions::Ask2;
 use crate::editor_tests::{window, Fixed, Rec};
 use crate::editor_window::EditorWindow;
 use crate::reader_window::ReaderRequest;
-use crate::Input;
+use crate::{Input, Key, Mods};
 use bo_pdfread::AnnotKind;
 
 fn at(w: &EditorWindow, x: f32, y: f32) -> (f32, f32) {
@@ -115,17 +114,38 @@ fn comment_tools_add_comments() {
             AnnotKind::Stamp
         ]
     );
-    // Typewriter text comes from a dialog.
+    // Typewriter text is typed in place (Enter: new line, Backspace) and becomes a comment
+    // when a click or Escape ends it; nothing typed, no comment.
     w.run("cm.typewriter", &Fixed);
     let q = at(&w, 72.0, 470.0);
     press(&mut w, q, 1);
-    assert!(matches!(w.dialog2, Some((_, Ask2::Typewriter(0, _)))));
-    w.dialog2 = None;
-    w.answer2(
-        Ask2::Typewriter(0, [72.0, 650.0]),
-        &["Ghi chú nhanh".into()],
+    assert!(w.dialog2.is_none() && w.tw.is_some());
+    let before = kinds(&w).len();
+    for s in ["Ghi chú", "x"] {
+        w.handle(Input::Text(s.into()), &Fixed);
+    }
+    w.handle(Input::Key(Key::Backspace, Mods::default()), &Fixed);
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    w.handle(Input::Text("nhanh".into()), &Fixed);
+    // Shortcuts do not reach the document while typing.
+    w.handle(Input::Key(Key::Delete, Mods::default()), &Fixed);
+    assert_eq!(
+        w.tw.as_ref().map(|d| d.text.as_str()),
+        Some(
+            "Ghi chú
+nhanh"
+        )
     );
+    assert_eq!(kinds(&w).len(), before);
+    w.handle(Input::Key(Key::Escape, Mods::default()), &Fixed);
+    assert!(w.tw.is_none());
     assert_eq!(kinds(&w).last(), Some(&AnnotKind::TextBox));
+    let n = kinds(&w).len();
+    let q = at(&w, 300.0, 470.0);
+    press(&mut w, q, 1);
+    press(&mut w, q, 1);
+    assert_eq!(kinds(&w).len(), n, "an empty typewriter adds nothing");
+    w.handle(Input::Key(Key::Escape, Mods::default()), &Fixed);
     // A file attachment asks for the file, then goes where it was clicked.
     w.run("cm.file", &Fixed);
     let q = at(&w, 500.0, 470.0);

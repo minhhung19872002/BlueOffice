@@ -8309,7 +8309,10 @@
     "templateRename": "Đổi tên",
     "selTextImage": "Chọn chữ và ảnh",
     "selAnnot": "Chọn ghi chú",
-    "selArea": "Chọn vùng"
+    "saveChangesQ": "Bạn có muốn lưu các thay đổi của '{name}' trước khi đóng không?",
+    "yes": "Có",
+    "no": "Không",
+    "cancel": "Hủy"
   },
   "taskPane": {
     "dockLeft": "Gắn bên trái",

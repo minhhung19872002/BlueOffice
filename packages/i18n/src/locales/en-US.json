@@ -8309,7 +8309,10 @@
     "templateRename": "Rename",
     "selTextImage": "Select Text and Image",
     "selAnnot": "Select Annotation",
-    "selArea": "Select Area"
+    "saveChangesQ": "Do you want to save changes to '{name}' before closing?",
+    "yes": "Yes",
+    "no": "No",
+    "cancel": "Cancel"
   },
   "taskPane": {
     "dockLeft": "Dock left",

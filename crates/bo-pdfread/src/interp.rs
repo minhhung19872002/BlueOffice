@@ -518,8 +518,14 @@ impl<'s, 'a> Interp<'s, 'a> {
         self.path.push(PathSeg::M(a, b));
     }
 
+    /// No open subpath: the path is empty or its last subpath was closed (`h`), after which
+    /// the current point is the closed subpath's start (ISO 32000-1 §8.5.2.1).
+    fn needs_move(&self) -> bool {
+        matches!(self.path.last(), None | Some(PathSeg::Z))
+    }
+
     fn line_to(&mut self, x: f32, y: f32) {
-        if self.path.is_empty() {
+        if self.needs_move() {
             self.move_to(self.cur.0, self.cur.1);
         }
         self.cur = (x, y);
@@ -528,7 +534,7 @@ impl<'s, 'a> Interp<'s, 'a> {
     }
 
     fn curve_to(&mut self, p: [f32; 6]) {
-        if self.path.is_empty() {
+        if self.needs_move() {
             self.move_to(self.cur.0, self.cur.1);
         }
         self.cur = (p[4], p[5]);
@@ -540,7 +546,7 @@ impl<'s, 'a> Interp<'s, 'a> {
     }
 
     fn close(&mut self) {
-        if !self.path.is_empty() {
+        if !self.needs_move() {
             self.path.push(PathSeg::Z);
             self.cur = self.start;
         }

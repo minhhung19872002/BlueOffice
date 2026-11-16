@@ -107,6 +107,41 @@ fn page_geometry_paths_and_text() {
 }
 
 #[test]
+fn segments_after_closepath_start_a_new_subpath() {
+    // `h` then `l` (and a doubled `h`): the line continues from the closed subpath's start
+    // (ISO 32000-1 §8.5.2.1), so every subpath of the display list begins with a move.
+    let mut doc = open(simple_pdf(
+        "10 10 m 50 10 l 50 50 l h 90 90 l 90 10 l h h 20 20 m 30 30 40 40 50 20 c h \
+         60 60 70 70 80 60 c f",
+        &[],
+    ));
+    let page = doc.render(0, RenderOptions::default()).expect("renders");
+    let segs = page
+        .list
+        .commands
+        .iter()
+        .find_map(|c| match c {
+            Command::Path { segs, .. } => Some(segs.clone()),
+            _ => None,
+        })
+        .expect("path");
+    let mut open_path = false;
+    for s in &segs {
+        match s {
+            bo_render::PathSeg::M(..) => open_path = true,
+            bo_render::PathSeg::Z => {
+                assert!(open_path, "{segs:?}");
+                open_path = false;
+            }
+            _ => assert!(open_path, "{segs:?}"),
+        }
+    }
+    // The line after the first `h` starts at (10, 10) → (10, 90) in page points.
+    assert_eq!(segs[3], bo_render::PathSeg::Z);
+    assert_eq!(segs[4], bo_render::PathSeg::M(10.0, 90.0));
+}
+
+#[test]
 fn rotation_crop_labels_and_outline() {
     let objs = [
         "<< /Type /Catalog /Pages 2 0 R /Outlines 6 0 R /PageLabels << /Nums [0 << /S /r >> 1 << /S /D /P (A-) >>] >> >>",

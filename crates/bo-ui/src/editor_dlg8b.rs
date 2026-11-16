@@ -13,6 +13,9 @@ use std::collections::BTreeMap;
 /// Values of a dialog kept as a preset.
 pub(crate) type Vals = BTreeMap<&'static str, Val>;
 
+/// Named presets of each dialog kind.
+pub(crate) type Presets = BTreeMap<&'static str, Vec<(String, Vals)>>;
+
 /// Page number formats (label, macro text).
 pub(crate) const NUMBER_FORMATS: [(&str, &str); 5] = [
     ("1", "<<page>>"),
@@ -299,6 +302,7 @@ impl EditorWindow {
                             list.remove(k - 1);
                         }
                     }
+                    self.store_presets8();
                     let names = self.preset_names(kind);
                     if let Some((f, _)) = self.form8.last_mut() {
                         f.set_items("saved", &names);
@@ -336,6 +340,7 @@ impl EditorWindow {
         list.retain(|(n, _)| *n != name);
         list.push((name.clone(), vals));
         let at = list.len();
+        self.store_presets8();
         let names = self.preset_names(kind);
         if let Some((p, _)) = self.form8.last_mut() {
             p.set_items("saved", &names);
@@ -375,6 +380,40 @@ impl EditorWindow {
             .map(|(k, v)| (*k, v.clone()))
             .collect();
         self.policy8 = Some(keep);
+        self.store_presets8();
+    }
+
+    /// Read the saved presets and policy once (from the file of the previous sessions).
+    pub(crate) fn ensure_presets8(&mut self) {
+        if self.presets_loaded8 {
+            return;
+        }
+        self.presets_loaded8 = true;
+        let Some(text) = presets_file().and_then(|f| std::fs::read_to_string(f).ok()) else {
+            return;
+        };
+        let (presets, policy) = parse_presets(&text);
+        for (kind, list) in presets {
+            let mine = self.presets8.entry(kind).or_default();
+            for (n, v) in list {
+                if !mine.iter().any(|m| m.0 == n) {
+                    mine.push((n, v));
+                }
+            }
+        }
+        if self.policy8.is_none() {
+            self.policy8 = policy;
+        }
+    }
+
+    /// Write the presets and policy so the next session has them (like the reference's
+    /// Saved Settings).
+    fn store_presets8(&self) {
+        let Some(f) = presets_file() else { return };
+        if let Some(dir) = f.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let _ = std::fs::write(f, presets_text(&self.presets8, self.policy8.as_ref()));
     }
 
     /// A picture picked for the watermark's File source.
@@ -478,4 +517,143 @@ impl EditorWindow {
             (ph * s).round(),
         ))
     }
+}
+
+/// The presets file: `%LOCALAPPDATA%/BlueOffice/editor-presets.txt` (beside the editor's
+/// preferences); `BO_EDITOR_PRESETS` names another one (tests use a temporary file and
+/// never touch the user's).
+pub(crate) fn presets_file() -> Option<std::path::PathBuf> {
+    if let Some(p) = std::env::var_os("BO_EDITOR_PRESETS") {
+        return Some(p.into());
+    }
+    if cfg!(test) {
+        return None;
+    }
+    std::env::var_os("LOCALAPPDATA").map(|d| {
+        std::path::PathBuf::from(d)
+            .join("BlueOffice")
+            .join("editor-presets.txt")
+    })
+}
+
+fn esc(s: &str) -> String {
+    s.replace('\\', "\\\\")
+        .replace('\t', "\\t")
+        .replace('\n', "\\n")
+}
+
+fn unesc(s: &str) -> String {
+    let mut out = String::new();
+    let mut it = s.chars();
+    while let Some(c) = it.next() {
+        if c == '\\' {
+            match it.next() {
+                Some('t') => out.push('\t'),
+                Some('n') => out.push('\n'),
+                Some(o) => out.push(o),
+                None => {}
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+fn val_text(v: &Val) -> String {
+    match v {
+        Val::Text(t) => format!("T{}", esc(t)),
+        Val::Pick(k) => format!("P{k}"),
+        Val::Color(c) => format!("C{},{},{}", c[0], c[1], c[2]),
+    }
+}
+
+fn text_val(s: &str) -> Option<Val> {
+    let (k, rest) = s.split_at(s.char_indices().nth(1).map_or(s.len(), |c| c.0));
+    match k {
+        "T" => Some(Val::Text(unesc(rest))),
+        "P" => rest.parse().ok().map(Val::Pick),
+        "C" => {
+            let c: Vec<u8> = rest.split(',').filter_map(|x| x.parse().ok()).collect();
+            (c.len() == 3).then(|| Val::Color([c[0], c[1], c[2]]))
+        }
+        _ => None,
+    }
+}
+
+/// One line per preset: kind, name, then key=value fields, tab-separated; the policy is
+/// kind `policy`.
+pub(crate) fn presets_text(presets: &Presets, policy: Option<&Vals>) -> String {
+    let mut out = String::from("# BlueEditor saved settings (round 8)\n");
+    let line = |out: &mut String, kind: &str, name: &str, vals: &Vals| {
+        out.push_str(kind);
+        out.push('\t');
+        out.push_str(&esc(name));
+        for (k, v) in vals {
+            out.push('\t');
+            out.push_str(k);
+            out.push('=');
+            out.push_str(&val_text(v));
+        }
+        out.push('\n');
+    };
+    for (kind, list) in presets {
+        for (name, vals) in list {
+            line(&mut out, kind, name, vals);
+        }
+    }
+    if let Some(p) = policy {
+        line(&mut out, "policy", "", p);
+    }
+    out
+}
+
+/// Keys are the dialogs' control ids (static strings): read keys become static once.
+fn intern(k: &str) -> &'static str {
+    use std::sync::{Mutex, OnceLock};
+    static KEYS: OnceLock<Mutex<Vec<&'static str>>> = OnceLock::new();
+    let m = KEYS.get_or_init(|| Mutex::new(Vec::new()));
+    let Ok(mut keys) = m.lock() else {
+        return "";
+    };
+    if let Some(s) = keys.iter().find(|s| **s == k) {
+        return s;
+    }
+    let s: &'static str = Box::leak(k.to_owned().into_boxed_str());
+    keys.push(s);
+    s
+}
+
+/// Presets and policy read back from [`presets_text`].
+pub(crate) fn parse_presets(text: &str) -> (Presets, Option<Vals>) {
+    let mut presets: Presets = BTreeMap::new();
+    let mut policy = None;
+    for l in text
+        .lines()
+        .filter(|l| !l.starts_with('#') && !l.is_empty())
+    {
+        let mut parts = l.split('\t');
+        let (Some(kind), Some(name)) = (parts.next(), parts.next()) else {
+            continue;
+        };
+        let vals: Vals = parts
+            .filter_map(|f| {
+                let (k, v) = f.split_once('=')?;
+                Some((intern(k), text_val(v)?))
+            })
+            .collect();
+        match kind {
+            "policy" => policy = Some(vals),
+            "hf" | "wm" | "bg" => {
+                let kind: &'static str = match kind {
+                    "hf" => "hf",
+                    "wm" => "wm",
+                    _ => "bg",
+                };
+                presets.entry(kind).or_default().push((unesc(name), vals));
+            }
+            _ => {}
+        }
+    }
+    (presets, policy)
 }

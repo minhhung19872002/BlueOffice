@@ -95,6 +95,9 @@ impl EditorWindow {
 
     /// Round 8 commands; false when `cmd` is not one.
     pub(crate) fn dlg8_command(&mut self, cmd: &str) -> bool {
+        if cmd.starts_with("org8.add.") || cmd == "prot.password" {
+            self.ensure_presets8();
+        }
         match cmd {
             "org.headerFooter" | "org.watermark" | "org.background" | "org.bates" => {
                 let k = cmd.trim_start_matches("org.");

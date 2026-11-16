@@ -695,7 +695,8 @@ impl Form {
                     } else if *multi {
                         Rgba(0x64, 0x64, 0x64, 255)
                     } else {
-                        Rgba(0xD9, 0xD9, 0xD9, 255)
+                        // The reference's single-line boxes: a light #ECECEC frame.
+                        Rgba(0xEC, 0xEC, 0xEC, 255)
                     };
                     p.fill_rect(b[0], b[1], b[2], b[3], edge);
                     p.fill_rect(
@@ -709,15 +710,6 @@ impl Form {
                             Rgba(0xFB, 0xFB, 0xFB, 255)
                         },
                     );
-                    if on && !*multi && !focused {
-                        p.fill_rect(
-                            b[0],
-                            b[1] + b[3] - 1.0,
-                            b[2],
-                            1.0,
-                            Rgba(0x86, 0x86, 0x86, 255),
-                        );
-                    }
                     let v = self.text(id);
                     p.push_clip(b[0] + 1.0, b[1] + 1.0, b[2] - 2.0, b[3] - 2.0);
                     let lines: Vec<&str> = v.split('\n').collect();

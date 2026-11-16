@@ -530,6 +530,8 @@ pub struct EditorWindow {
     pub(crate) policy8: Option<crate::editor_dlg8b::Vals>,
     /// Picture picked as the watermark (File source).
     pub(crate) wm_image8: Option<Vec<u8>>,
+    /// The presets file was read (`editor_dlg8b::presets_file`).
+    pub(crate) presets_loaded8: bool,
     /// Form field tool.
     pub(crate) design: crate::editor_design::DesignState,
     /// Caret shown (blink phase).
@@ -606,12 +608,13 @@ impl EditorWindow {
             close_after_save: None,
             trans: None,
             form8: Vec::new(),
-            perm8: (true, true, false, true),
+            perm8: (true, true, true, true),
             comment_pane8: false,
             format_open8: false,
             presets8: std::collections::BTreeMap::new(),
             policy8: None,
             wm_image8: None,
+            presets_loaded8: false,
             close_box: None,
             design: crate::editor_design::DesignState::default(),
             caret_on: true,

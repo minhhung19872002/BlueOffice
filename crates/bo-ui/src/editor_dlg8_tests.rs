@@ -516,3 +516,20 @@ fn picture_watermark_and_tiling() {
     enter(&mut w);
     assert!(cmds(&mut w) > before);
 }
+
+#[test]
+fn presets_and_policy_survive_the_file() {
+    use crate::editor_dlg8b::{parse_presets, presets_text, Vals};
+    let mut vals: Vals = std::collections::BTreeMap::new();
+    vals.insert("fc", Val::Text("Page <<page>>\tof\nall \\ x".into()));
+    vals.insert("size", Val::Pick(4));
+    vals.insert("color", Val::Color([1, 2, 3]));
+    let mut presets = std::collections::BTreeMap::new();
+    presets.insert("hf", vec![("Mine".to_owned(), vals.clone())]);
+    let mut policy: Vals = std::collections::BTreeMap::new();
+    policy.insert("alg", Val::Pick(2));
+    let text = presets_text(&presets, Some(&policy));
+    let (back, pol) = parse_presets(&text);
+    assert_eq!(back.get("hf"), Some(&vec![("Mine".to_owned(), vals)]));
+    assert_eq!(pol, Some(policy));
+}

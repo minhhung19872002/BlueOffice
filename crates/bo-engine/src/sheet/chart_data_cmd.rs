@@ -412,10 +412,10 @@ impl SheetEngine {
         // A new sheet shifts the others: the formula engine and the geometry follow.
         let added = self
             .wb
-            .as_ref()
+            .as_deref()
             .is_some_and(|wb| wb.sheets.len() != self.geometry.len());
         if added {
-            if let Some(wb) = self.wb.as_mut() {
+            if let Some(wb) = self.wb.as_deref_mut() {
                 self.live.rebuild(wb);
             }
             self.invalidate(None);

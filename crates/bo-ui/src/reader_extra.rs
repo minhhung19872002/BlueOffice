@@ -69,6 +69,7 @@ impl ReaderWindow {
             d.set_view(current, r);
         }
         d.set_page_sizes((0..n).map(|i| t.view.page_size(i)).collect());
+        d.set_has_comments(!t.view.doc().comment_threads().is_empty());
         d.layout(m, self.size, self.scale);
         self.extra.print = Some(d);
         self.update_print_preview();
@@ -263,6 +264,14 @@ impl ReaderWindow {
     /// Input for the additions first: `Some(redraw)` when handled.
     #[allow(clippy::too_many_lines)]
     pub(crate) fn route_extra(&mut self, input: &Input, m: &dyn TextMeasure) -> Option<bool> {
+        if self.extra.print.is_none() && self.menu.is_none() && self.dialog.is_none() {
+            if let Some(r) = self.route_search9(input, m) {
+                return Some(r);
+            }
+            if let Some(r) = self.route_marks9(input, m) {
+                return Some(r);
+            }
+        }
         if self.extra.print.is_none() {
             if let Some(r) = self.route_panels8(input, m) {
                 return Some(r);
@@ -318,6 +327,11 @@ impl ReaderWindow {
                 Some(PrintAction::Properties(name)) => {
                     self.requests.push(ReaderRequest::PrinterProperties(name));
                 }
+                Some(PrintAction::Summarize) => {
+                    self.extra.print = None;
+                    self.run_command("comment.summarize", m);
+                    return Some(true);
+                }
                 None => {}
             }
             if let Some(d) = self.extra.print.as_mut() {
@@ -365,6 +379,9 @@ impl ReaderWindow {
         }
         if self.extra.mode == Mode::Full {
             return Some(self.full_screen_input(input, m));
+        }
+        if let Some(r) = self.route_menus9(input, m) {
+            return Some(r);
         }
         self.comment_input(input, m)
     }
@@ -416,7 +433,7 @@ impl ReaderWindow {
     }
 
     /// The comment of the active document under a window point (topmost first).
-    fn comment_at(&self, x: f32, y: f32) -> Option<Annot> {
+    pub(crate) fn comment_at(&self, x: f32, y: f32) -> Option<Annot> {
         let t = self.tabs.get(self.active)?;
         let (page, px, py) = t.view.page_at(x, y)?;
         let pad = 3.0 / t.view.px_per_pt().max(0.01);
@@ -538,6 +555,9 @@ impl ReaderWindow {
     /// Commands of the additions; `true` when handled.
     pub(crate) fn command_extra(&mut self, cmd: &str, m: &dyn TextMeasure) -> bool {
         if self.command_prefs6(cmd, m)
+            || self.command_menus9(cmd)
+            || self.command_tabs9(cmd)
+            || self.command_marks9(cmd)
             || self.command_panels8(cmd, m)
             || self.command_viewx(cmd, m)
             || self.command_view4(cmd, m)

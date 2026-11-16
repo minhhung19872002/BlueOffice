@@ -43,9 +43,9 @@ impl PdfStore for Store {
 }
 
 #[derive(Default)]
-struct Rec {
+pub(crate) struct Rec {
     pages: Vec<(usize, i32, i32)>,
-    texts: Vec<String>,
+    pub(crate) texts: Vec<String>,
 }
 
 impl Painter for Rec {

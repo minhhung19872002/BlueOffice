@@ -198,6 +198,13 @@ fn shape(name: &str) -> &'static [Part] {
         "properties" => &[S("M5 2.5h10l4 4v15H5z M15 2.5v4h4"), S("M8 11h8 M8 14.5h8 M8 18h5")],
         "bell" => &[S("M6 17V11a6 6 0 0 1 12 0v6l2 2H4z M10 21h4")],
         "info" => &[S("M12 2.5a9.5 9.5 0 1 0 0.01 0z M12 10.5v7"), F("M12 6.5a1.1 1.1 0 1 0 .01 0z")],
+        // Pages panel tools (round 9): a page with a plus / minus badge.
+        "thumbLarger" => &[S("M4.5 2.5h9l3 3v8 M4.5 2.5v17h7"), A("M17.5 13.5v8 M13.5 17.5h8")],
+        "thumbSmaller" => &[S("M4.5 2.5h9l3 3v8 M4.5 2.5v17h7"), A("M13.5 17.5h8")],
+        // Help tab (round 9): an open book; a console window with a prompt; a page with a star.
+        "userManual" => &[S("M12 6c-2.5-1.8-5.5-2.3-8.5-1.8v14c3-.5 6 0 8.5 1.8 2.5-1.8 5.5-2.3 8.5-1.8v-14c-3-.5-6 0-8.5 1.8z M12 6v14")],
+        "cmdLine" => &[S("M2.5 4.5h19v15h-19z M2.5 8h19"), A("M6 11.5l3 2.5-3 2.5 M11 16.5h5")],
+        "defaultApp" => &[S("M5 2.5h10l4 4v15H5z M15 2.5v4h4"), A("M12 9.5l1.5 3 3.2.4-2.4 2.2.7 3.2-3-1.7-3 1.7.7-3.2-2.4-2.2 3.2-.4z")],
         "app" | "appEditor" => &[],
         "editText" => &[A("M3 4.5h18v15H3z"), S("M7.5 8.5h9 M12 8.5v8 M10 16.5h4")],
         "editObject" => &[S("M3.5 3.5h11v11h-11z"), A("M12 12l8.5 3.5-3.5 1.2 3.5 3.5-1.4 1.4-3.5-3.5-1.2 3.5z")],

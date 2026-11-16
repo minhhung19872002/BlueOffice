@@ -1017,6 +1017,8 @@ fn print_job(
             for item in &mut sheet.items {
                 item.dest[0] += ml;
                 item.dest[1] += mt;
+                // Bleed Marks: corner marks at every page's edges.
+                item.cut_marks |= s.bleed;
             }
         }
         sheets
@@ -1109,6 +1111,7 @@ fn print_tool(args: &[String], doc: &mut PdfDocument, device: &Device) -> Result
         color: bo_ui::PrintColor::Color,
         paper: None,
         margins: [0.0; 4],
+        bleed: false,
     };
     let mut order = bo_ui::PageOrder::Horizontal;
     let mut border = false;

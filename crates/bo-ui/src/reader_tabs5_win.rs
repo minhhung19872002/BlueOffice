@@ -14,7 +14,7 @@ use bo_render::{PathSeg, Rgba};
 use std::cell::Cell;
 
 /// Index of the Fill & Sign contextual tab (after Help).
-pub(crate) const FILL_TAB: usize = 6;
+pub(crate) const FILL_TAB: usize = 7;
 
 /// Paths of the outline items marked open (`/Count` > 0), to start expanded.
 pub(crate) fn open_items(
@@ -182,6 +182,10 @@ impl ReaderWindow {
     }
 
     /// The document has form fields (worked out once per document state).
+    pub(crate) fn has_form9(&self) -> bool {
+        self.has_form()
+    }
+
     fn has_form(&self) -> bool {
         let Some(t) = self.tabs.get(self.active) else {
             return false;

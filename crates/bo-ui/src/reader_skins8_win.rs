@@ -1,8 +1,8 @@
 //! BlueReader round 8 (a child of `reader_window`): the File page's Share and Skins, done with
 //! our own code. Share: send by e-mail (a `mailto:` message naming the file), copy the file's
 //! path, show it in its folder. Skins: our own palettes of the window's greys (Classic, the
-//! measured greys; Light; Blue); a dark skin needs every panel's text colour to follow the
-//! skin, so it is shown greyed with the reason.
+//! measured greys; Light; Blue; Dark, round 9: the whole window painted through the dark
+//! skin's palette function, `dark9`).
 use super::{rounded, Look, ReaderRequest, ReaderWindow};
 use crate::reader_icons::{self, Ink};
 use crate::{Painter, TextStyle};
@@ -45,8 +45,8 @@ pub(crate) const SKINS: [(&str, Option<Palette>); 4] = [
     ("pdfSkins.dark", None),
 ];
 
-/// Skin index of the dark skin (greyed).
-const DARK: usize = 3;
+/// Skin index of the dark skin, and its palette function.
+use super::dark9::{dark_ink, DARK};
 
 /// Look of skin `k` over the measured BlueReader look.
 pub(crate) fn skin_look(k: usize) -> Look {
@@ -80,7 +80,7 @@ fn mail_escape(s: &str) -> String {
 impl ReaderWindow {
     /// Use skin `k` (BlueReader only).
     pub(crate) fn apply_skin(&mut self, k: usize) {
-        if self.profile.is_some() || k == DARK || k >= SKINS.len() {
+        if self.profile.is_some() || k >= SKINS.len() {
             return;
         }
         self.look = skin_look(k);
@@ -98,7 +98,7 @@ impl ReaderWindow {
             .strip_prefix("bs.skin.")
             .and_then(|v| v.parse::<usize>().ok())
         {
-            if k != DARK && k < SKINS.len() {
+            if k < SKINS.len() {
                 self.prefs6.prefs.skin = k;
                 self.apply_skin(k);
                 self.requests
@@ -226,9 +226,8 @@ impl ReaderWindow {
         let mut x = mx - px(9.6);
         let y = top + px(85.6);
         let current = self.prefs6.prefs.skin;
-        for (k, (key, pal)) in SKINS.iter().enumerate() {
+        for (k, (key, _)) in SKINS.iter().enumerate() {
             let r = [x, y, px(150.0), px(132.0)];
-            let on = k != DARK;
             let edge = if k == current {
                 self.theme.accent
             } else {
@@ -241,16 +240,17 @@ impl ReaderWindow {
             );
             // A small window in the skin's greys.
             let look = skin_look(k);
-            let (chrome, nav, canvas) = match (k, pal) {
-                (DARK, _) => (
-                    Rgba(43, 43, 46, 255),
-                    Rgba(52, 52, 56, 255),
-                    Rgba(30, 30, 32, 255),
-                ),
-                _ => (look.chrome, look.nav_bg, look.canvas),
-            };
+            let ink = |c: Rgba| if k == DARK { dark_ink(c) } else { c };
+            let (edge_c, chrome, nav, canvas) = (
+                ink(look.edge),
+                ink(look.chrome),
+                ink(look.nav_bg),
+                ink(look.canvas),
+            );
             let (ix, iy, iw, ih) = (r[0] + px(10.0), r[1] + px(10.0), r[2] - px(20.0), px(80.0));
-            p.fill_rect(ix, iy, iw, ih, look.edge);
+            // The swatch shows the skin's own colours whatever skin paints the page.
+            p.raw_colours(true);
+            p.fill_rect(ix, iy, iw, ih, edge_c);
             p.fill_rect(ix + 1.0, iy + 1.0, iw - 2.0, px(18.0), chrome);
             p.fill_rect(ix + 1.0, iy + px(19.0), px(16.0), ih - px(20.0), nav);
             p.fill_rect(
@@ -274,26 +274,12 @@ impl ReaderWindow {
                 px(4.0),
                 self.theme.accent,
             );
+            p.raw_colours(false);
             let label = self.t(key);
-            p.text(
-                &label,
-                r[0] + px(10.0),
-                r[1] + px(98.0),
-                item,
-                if on { TEXT } else { GREY },
-            );
-            if on {
-                hits.push((r, format!("bs.skin.{k}")));
-            }
+            p.text(&label, r[0] + px(10.0), r[1] + px(98.0), item, TEXT);
+            hits.push((r, format!("bs.skin.{k}")));
             x += r[2] + px(16.0);
         }
-        p.text(
-            &self.t("pdfSkins.darkNote"),
-            mx - px(9.6),
-            y + px(150.0),
-            small,
-            MUTED,
-        );
     }
 }
 

@@ -1194,6 +1194,7 @@ impl ReaderWindow {
                 let items = vec![
                     item("find.word", "pdfPanels.wholeWords", self.panels8.find_word),
                     item("find.case", "pdfPanels.matchCase", self.panels8.find_case),
+                    item("search.advanced", "pdfSearch9.menu", false),
                 ];
                 let b = self.find_button8();
                 self.menu_at(items, b, "find");

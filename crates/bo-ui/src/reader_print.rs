@@ -60,6 +60,8 @@ pub struct PrintSettings {
     pub paper: Option<(f32, f32)>,
     /// Margins kept free in points: top, bottom, left, right (Page Setting).
     pub margins: [f32; 4],
+    /// Bleed Marks: corner marks at each page's edges (round 9).
+    pub bleed: bool,
 }
 
 /// Paper orientation (the reference's Orientation box).
@@ -103,6 +105,8 @@ pub enum PrintAction {
     Cancel,
     /// Show the printer driver's settings of this printer (the host keeps what is chosen).
     Properties(String),
+    /// Close and summarize the comments (the reference's Summarize Comments button).
+    Summarize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -296,6 +300,9 @@ pub struct PrintDialog {
     cut_marks: bool,
     labels: bool,
     paper_by_page: bool,
+    /// Bleed Marks, and whether the document has comments to summarize (round 9).
+    bleed: bool,
+    has_comments: bool,
     /// Size of every page (points).
     sizes: Vec<(f32, f32)>,
     /// Paper of each printer, when the host knows it.
@@ -344,7 +351,11 @@ impl PrintDialog {
             collate: true,
             gray: false,
             range: Range::All,
-            pages_text: format!("1 - {}", count.max(1)).chars().collect(),
+            // The reference fills Pages with the current page.
+            pages_text: (current.min(count.saturating_sub(1)) + 1)
+                .to_string()
+                .chars()
+                .collect(),
             subset: 0,
             reverse: false,
             scaling: PrintScaling::Fit,
@@ -374,6 +385,8 @@ impl PrintDialog {
             cut_marks: false,
             labels: false,
             paper_by_page: false,
+            bleed: false,
+            has_comments: false,
             sizes: Vec::new(),
             papers: Vec::new(),
             preview_keys: Vec::new(),
@@ -502,13 +515,17 @@ impl PrintDialog {
             copies: 1,
             collate: true,
         };
-        crate::reader_impose::plan(
+        let mut sheets = crate::reader_impose::plan(
             &self.pages(),
             &|i| self.size_of(i),
             view,
             (area[2], area[3]),
             &o,
-        )
+        );
+        if self.bleed {
+            bleed_marks(&mut sheets);
+        }
+        sheets
     }
 
     /// The printable area inside Page Setting's margins (top, bottom, left, right), as the host
@@ -731,7 +748,13 @@ impl PrintDialog {
             color: self.sub.color,
             paper: self.sub.paper_pt(),
             margins: self.sub.margins_pt(),
+            bleed: self.bleed,
         })
+    }
+
+    /// The document has comments (Summarize Comments is offered).
+    pub fn set_has_comments(&mut self, on: bool) {
+        self.has_comments = on;
     }
 
     /// The Print Handling choice as a layout.
@@ -1028,7 +1051,13 @@ impl PrintDialog {
             // Not offered (drawn disabled).
             Part::Advanced => self.open_sub(sub6::Panel::Advanced),
             Part::PageSetting => self.open_sub(sub6::Panel::PageSetting),
-            Part::Item(_) | Part::Bleed | Part::Summarize => {}
+            Part::Item(_) => {}
+            Part::Bleed => self.bleed = !self.bleed,
+            Part::Summarize => {
+                if self.has_comments {
+                    return Some(PrintAction::Summarize);
+                }
+            }
             Part::AsImage => self.as_image = !self.as_image,
             Part::Overprint => self.overprint = !self.overprint,
             Part::CutMarks => self.cut_marks = !self.cut_marks,
@@ -1420,7 +1449,12 @@ impl PrintDialog {
             self.as_image,
             s.get("pdfPrint.asImage"),
         );
-        self.check_off(p, self.rect(Part::Bleed), s.get("pdfPrint.bleed"));
+        self.check(
+            p,
+            self.rect(Part::Bleed),
+            self.bleed,
+            s.get("pdfPrint.bleed"),
+        );
         let cp = self.rect(Part::Copies);
         self.text_in(
             p,
@@ -1597,7 +1631,11 @@ impl PrintDialog {
             &what,
             self.drop == Some(Part::What),
         );
-        self.button_off(p, Part::Summarize, s.get("pdfPrint.summarize"));
+        if self.has_comments {
+            self.button(p, Part::Summarize, s.get("pdfPrint.summarize"), false);
+        } else {
+            self.button_off(p, Part::Summarize, s.get("pdfPrint.summarize"));
+        }
         self.group(p, s.get("pdfPrint.output"), [479.2, 580.0, 316.0, 68.0]);
         self.check(
             p,
@@ -1686,6 +1724,7 @@ impl PrintDialog {
             pr[3] + 2.0 * fw,
             PAGE_FRAME,
         );
+        p.raw_colours(true);
         p.fill_rect(pr[0], pr[1], pr[2], pr[3], WHITE);
         p.push_clip(pr[0], pr[1], pr[2], pr[3]);
         let requests = self.preview_requests();
@@ -1748,6 +1787,7 @@ impl PrintDialog {
             }
         }
         p.pop_clip();
+        p.raw_colours(false);
         // Page buttons, slider and position.
         let n = self.sheet_count();
         let at_n = self.preview_at.min(n - 1) + 1;
@@ -2050,6 +2090,13 @@ impl PrintDialog {
     }
 }
 
+/// Bleed Marks: corner marks at the edges of every page printed.
+fn bleed_marks(sheets: &mut [crate::reader_impose::Sheet]) {
+    for it in sheets.iter_mut().flat_map(|s| s.items.iter_mut()) {
+        it.cut_marks = true;
+    }
+}
+
 fn circle(cx: f32, cy: f32, r: f32) -> Vec<PathSeg> {
     let k = 0.552_284_8 * r;
     vec![
@@ -2238,8 +2285,20 @@ mod tests {
         assert_eq!(order.first(), Some(&Part::Printer));
         assert_eq!(&order[order.len() - 2..], &[Part::Ok, Part::Cancel]);
         let pos = |p: Part| order.iter().position(|q| *q == p).expect("part");
-        // Greyed controls are not tab stops.
-        assert!(!order.contains(&Part::Bleed) && !order.contains(&Part::Collate));
+        // Greyed controls are not tab stops (Bleed Marks is offered since round 9; Summarize
+        // only with comments).
+        assert!(!order.contains(&Part::Summarize) && !order.contains(&Part::Collate));
+        assert!(order.contains(&Part::Bleed));
+        // Bleed Marks marks every page printed; Summarize Comments closes the dialog.
+        let (x, y) = centre(&d, Part::Bleed);
+        d.press(x, y);
+        assert!(d
+            .sheets()
+            .iter()
+            .all(|s| s.items.iter().all(|i| i.cut_marks)));
+        d.set_has_comments(true);
+        let (x, y) = centre(&d, Part::Summarize);
+        assert_eq!(d.press(x, y), Some(PrintAction::Summarize));
         assert!(pos(Part::Copies) < pos(Part::Range(Range::All)));
         assert!(pos(Part::Range(Range::All)) < pos(Part::Duplex));
         assert!(pos(Part::Duplex) < pos(Part::PageSetting));
@@ -2333,6 +2392,7 @@ mod tests {
                 color: PrintColor::Color,
                 paper: None,
                 margins: [0.0; 4],
+                bleed: false,
             }))
         );
         // Advanced: 300 dpi, black and white; Page Setting: A4, 10 mm top margin.

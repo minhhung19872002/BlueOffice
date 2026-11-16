@@ -1493,7 +1493,7 @@ impl SheetEngine {
     /// the whole workbook as the change to publish. `client` is the replica
     /// client id (ids of new rows, columns and sheets).
     pub fn collab_start(&mut self, seed: bool, client: u64) -> Result<CollabChange> {
-        let wb = self.wb.as_ref().ok_or(EngineError::NoDocument)?;
+        let wb = self.wb.as_deref().ok_or(EngineError::NoDocument)?;
         let mut c = SheetCollab::new(wb, seed, client);
         let ch = if seed {
             c.local_change(wb, true)
@@ -1517,7 +1517,7 @@ impl SheetEngine {
     /// What the local edits since the last call changed (call after every
     /// mutating command while collaborating).
     pub fn collab_local(&mut self) -> Result<CollabChange> {
-        let wb = self.wb.as_ref().ok_or(EngineError::NoDocument)?;
+        let wb = self.wb.as_deref().ok_or(EngineError::NoDocument)?;
         Ok(match self.collab.as_mut() {
             Some(c) => c.local_change(wb, false),
             None => CollabChange::default(),
@@ -1599,7 +1599,7 @@ impl SheetEngine {
             cell_keys.insert(k.clone());
         }
         let adjuster = self.adjuster;
-        let wb = self.wb.as_mut().ok_or(EngineError::NoDocument)?;
+        let wb = self.wb.as_deref_mut().ok_or(EngineError::NoDocument)?;
         // Pictures of cells and preserved parts (before the cells that use them).
         for (k, v) in &change.blobs {
             let Some((ct, data)) = v.as_deref().and_then(Blob::decode) else {
@@ -2014,7 +2014,7 @@ impl SheetEngine {
         // Everything now shown counts as shared.
         let _ = c.local_change(wb, false);
         // Recalculate (structure may have changed: rebuild) and redraw.
-        let wb = self.wb.as_mut().ok_or(EngineError::NoDocument)?;
+        let wb = self.wb.as_deref_mut().ok_or(EngineError::NoDocument)?;
         if joining || !structural.is_empty() || !touched_sheets.is_empty() {
             self.live.rebuild(wb);
         } else {

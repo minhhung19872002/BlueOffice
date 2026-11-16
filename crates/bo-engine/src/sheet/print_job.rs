@@ -59,7 +59,7 @@ fn titles(current: Option<&str>, rows: Option<&str>, cols: Option<&str>) -> Opti
 impl SheetEngine {
     /// Sets the job's overrides on `sheet`; returns what to put back.
     fn override_setup(&mut self, sheet: usize, o: &PrintOptions) -> Result<Saved> {
-        let wb = self.wb.as_mut().ok_or(EngineError::NoDocument)?;
+        let wb = self.wb.as_deref_mut().ok_or(EngineError::NoDocument)?;
         let ws = wb
             .sheets
             .get_mut(sheet)
@@ -93,7 +93,7 @@ impl SheetEngine {
     }
 
     fn restore_setup(&mut self, sheet: usize, saved: Saved) {
-        if let Some(ws) = self.wb.as_mut().and_then(|w| w.sheets.get_mut(sheet)) {
+        if let Some(ws) = self.wb.as_deref_mut().and_then(|w| w.sheets.get_mut(sheet)) {
             ws.print_area = saved.print_area;
             ws.print_titles = saved.print_titles;
             ws.page_setup.print_grid_lines = saved.gridlines;
@@ -142,7 +142,7 @@ impl SheetEngine {
 
     /// The sheets of paper of one copy of a print job.
     pub fn print_sheets(&mut self, o: &PrintOptions) -> Result<Vec<PageList>> {
-        let pages = self.job_pages(o)?;
+        let pages = self.printing(|e| e.job_pages(o))?;
         let chosen = choose(o, pages.len(), None)?;
         let logical: Vec<Logical> =
             if chosen.len() == pages.len() && chosen.iter().enumerate().all(|(k, &i)| k == i) {

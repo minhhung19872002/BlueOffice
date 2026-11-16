@@ -192,7 +192,9 @@ impl SheetEngine {
     pub(super) fn tables_after_input(&mut self, sheet: usize, cells: &[(u32, u32)]) {
         self.table_auto.last = None;
         let locale = self.locale;
-        let Some(wb) = self.wb.as_mut() else { return };
+        let Some(wb) = self.wb.as_deref_mut() else {
+            return;
+        };
         let Some(ws) = wb.sheets.get(sheet) else {
             return;
         };
@@ -247,7 +249,7 @@ impl SheetEngine {
         if renamed {
             self.invalidate(Some(sheet));
         }
-        let Some(wb) = self.wb.as_ref() else { return };
+        let Some(wb) = self.wb.as_deref() else { return };
         if self.table_auto.expand {
             if let Some((ti, range)) = tb::expansion_for(wb, sheet, cells) {
                 let done = self.edit(sheet, Recalc::All, |wb, _| {
@@ -258,7 +260,7 @@ impl SheetEngine {
                 }
             }
         }
-        let Some(wb) = self.wb.as_ref() else { return };
+        let Some(wb) = self.wb.as_deref() else { return };
         if self.table_auto.calc && cells.len() == 1 {
             if let Some((ti, k, base)) = tb::calculated_for(wb, sheet, cells[0]) {
                 let done = self.edit(sheet, Recalc::All, |wb, _| {

@@ -39,6 +39,7 @@ mod links_cmd;
 pub mod model_cmd;
 mod names_cmd;
 mod ole_cmd;
+mod paste_arith;
 mod paste_opts;
 mod pivot_cmd;
 mod png;
@@ -59,6 +60,7 @@ mod spell_cmd;
 mod table_cmd;
 mod theme_file;
 mod view_cmd;
+mod wb_slot;
 
 pub use cmd::{Clip, PasteMode, SheetCommand};
 
@@ -502,11 +504,18 @@ pub struct SheetEngine {
     pub(crate) name: String,
     /// Screen scale of the geometry ([`SheetEngine::set_display_scale`]).
     display_ppp: Option<f64>,
+    /// Screen scale without the view's zoom, for printing ([`SheetEngine::set_print_scale`]),
+    /// and the geometry laid out at it.
+    print_ppp: Option<f64>,
+    print_geometry: Vec<Option<SheetGeometry>>,
     /// Calculate every formula when a file is opened ([`SheetEngine::set_recalc_on_open`]).
     recalc_on_open: bool,
-    wb: Option<Workbook>,
+    wb: Option<wb_slot::WbSlot>,
     geometry: Vec<Option<SheetGeometry>>,
     locale: Locale,
+    /// Paper of sheets whose page setup names none (§18.3.1.63 `paperSize` absent): the
+    /// system's default paper ([`SheetEngine::set_default_paper`]); A4 when unset.
+    pub(crate) default_paper: Option<u32>,
     undo: Vec<UndoEntry>,
     redo: Vec<UndoEntry>,
     /// Persistent formula engine: edits recalculate only their dependents.
@@ -1045,10 +1054,13 @@ impl SheetEngine {
             fonts: FontManager::new(),
             name: String::new(),
             display_ppp: None,
+            print_ppp: None,
+            print_geometry: Vec::new(),
             recalc_on_open: false,
             wb: None,
             geometry: Vec::new(),
             locale: Locale::VI_VN,
+            default_paper: None,
             undo: Vec::new(),
             redo: Vec::new(),
             live: LiveCalc::new(),
@@ -1114,7 +1126,7 @@ impl SheetEngine {
     pub fn set_now_ms(&mut self, unix_ms: u64) {
         // 1970-01-01 is serial 25569 in the 1900 date system.
         let mut serial = unix_ms as f64 / 86_400_000.0 + 25_569.0;
-        if self.wb.as_ref().is_some_and(|w| w.date1904) {
+        if self.wb.as_deref().is_some_and(|w| w.date1904) {
             serial -= 1_462.0;
         }
         self.adjuster.now = Some(serial);
@@ -1129,6 +1141,13 @@ impl SheetEngine {
     /// Takes effect at the next recalculation (the function is volatile).
     pub fn set_web_provider(&mut self, provider: Option<Arc<dyn bo_formula::WebProvider>>) {
         self.live.set_web_provider(provider);
+    }
+
+    /// The paper (`paperSize` code, 1 = Letter, 9 = A4) sheets without a paper size of their
+    /// own are printed and paginated on: the reference takes the default printer's paper,
+    /// which follows the region (the desktop host passes the region's paper).
+    pub fn set_default_paper(&mut self, size: Option<u32>) {
+        self.default_paper = size;
     }
 
     /// Number locale (separators, month names) values are shown with.
@@ -1260,7 +1279,7 @@ impl SheetEngine {
     /// ([`bo_encoding::convert_workbook`]); one undo step. Returns the number
     /// of cells converted (also reported as `legacyConverted`).
     pub fn convert_legacy_text(&mut self) -> Result<usize> {
-        let wb = self.wb.as_mut().ok_or(EngineError::NoDocument)?;
+        let wb = self.wb.as_deref_mut().ok_or(EngineError::NoDocument)?;
         if !bo_encoding::workbook_has_legacy_fonts(wb) {
             // Nothing to convert: no undo snapshot (a full copy of the workbook).
             self.legacy_converted = 0;
@@ -1299,7 +1318,7 @@ impl SheetEngine {
     /// Calculate every formula of the open workbook again (Calculate Now). Not an undo
     /// step: only formula results change.
     pub fn recalculate(&mut self) -> Result<()> {
-        let wb = self.wb.as_mut().ok_or(EngineError::NoDocument)?;
+        let wb = self.wb.as_deref_mut().ok_or(EngineError::NoDocument)?;
         self.live.rebuild(wb);
         self.invalidate(None);
         Ok(())
@@ -1348,7 +1367,7 @@ impl SheetEngine {
         self.clip = None;
         self.collab = None;
         self.geometry = (0..wb.sheets.len()).map(|_| None).collect();
-        self.wb = Some(wb);
+        self.wb = Some(wb.into());
         self.name = name.to_owned();
         self.undo.clear();
         self.redo.clear();
@@ -1361,11 +1380,11 @@ impl SheetEngine {
     /// The open workbook, if any.
     #[must_use]
     pub fn workbook(&self) -> Option<&Workbook> {
-        self.wb.as_ref()
+        self.wb.as_deref()
     }
 
     fn wb(&self) -> Result<&Workbook> {
-        self.wb.as_ref().ok_or(EngineError::NoDocument)
+        self.wb.as_deref().ok_or(EngineError::NoDocument)
     }
 
     fn sheet(&self, i: usize) -> Result<&Worksheet> {
@@ -1429,7 +1448,7 @@ impl SheetEngine {
 
     /// Geometry of a sheet, cached until the sheet changes.
     fn geometry(&mut self, sheet: usize) -> Result<&SheetGeometry> {
-        let wb = self.wb.as_ref().ok_or(EngineError::NoDocument)?;
+        let wb = self.wb.as_deref().ok_or(EngineError::NoDocument)?;
         let ws = wb
             .sheets
             .get(sheet)
@@ -1451,6 +1470,38 @@ impl SheetEngine {
         slot.as_ref().ok_or(EngineError::NoDocument)
     }
 
+    /// The screen scale at 100 % zoom (device pixels per point): pages are laid out with
+    /// the row heights the sheet has at that scale whatever the view's zoom, as the
+    /// reference (its row heights in points do not follow the zoom). `None`: the display
+    /// geometry.
+    pub fn set_print_scale(&mut self, ppp: Option<f64>) {
+        if self.print_ppp != ppp {
+            self.print_ppp = ppp;
+            self.print_geometry.clear();
+        }
+    }
+
+    /// Runs `f` with the geometry laid out at the print scale (pagination, page views,
+    /// printing); the display geometry is kept for after.
+    pub(crate) fn printing<R>(&mut self, f: impl FnOnce(&mut Self) -> R) -> R {
+        if self.print_ppp.is_none() || self.print_ppp == self.display_ppp {
+            return f(self);
+        }
+        let n = self.wb.as_deref().map_or(0, |w| w.sheets.len());
+        std::mem::swap(&mut self.geometry, &mut self.print_geometry);
+        self.geometry.resize_with(n, || None);
+        let display = std::mem::replace(&mut self.display_ppp, self.print_ppp);
+        let r = f(self);
+        self.display_ppp = display;
+        std::mem::swap(&mut self.geometry, &mut self.print_geometry);
+        // A change inside `f` cleared the print cache only: the display cache is stale
+        // when the sheet count no longer matches.
+        if self.geometry.len() != n {
+            self.invalidate(None);
+        }
+        r
+    }
+
     /// Lay sheets out for a screen at `ppp` device pixels per point (zoom × dpi / 72), with
     /// row heights in whole pixels as a desktop spreadsheet shows them
     /// ([`SheetGeometry::for_display`]); `None` restores the file's point sizes. Native
@@ -1463,12 +1514,14 @@ impl SheetEngine {
     }
 
     fn invalidate(&mut self, sheet: Option<usize>) {
+        // The print layout follows every change of the display one.
+        self.print_geometry.clear();
         if let Some(i) = sheet {
             if let Some(g) = self.geometry.get_mut(i) {
                 *g = None;
             }
         } else {
-            let n = self.wb.as_ref().map_or(0, |w| w.sheets.len());
+            let n = self.wb.as_deref().map_or(0, |w| w.sheets.len());
             self.geometry = (0..n).map(|_| None).collect();
         }
     }
@@ -1476,7 +1529,7 @@ impl SheetEngine {
     /// Draw the SmartArt diagrams again when one was inserted, edited, moved or deleted (or such
     /// an edit was undone).
     fn refresh_drawings(&mut self) {
-        let Some(wb) = self.wb.as_ref() else { return };
+        let Some(wb) = self.wb.as_deref() else { return };
         let key = diagrams_key(wb);
         if key != self.drawings_key {
             self.drawings = Arc::new(diagram_overlays(wb, &mut self.fonts));
@@ -1488,7 +1541,7 @@ impl SheetEngine {
     pub fn render(&mut self, req: &ViewRequest) -> Result<PageList> {
         self.refresh_drawings();
         self.geometry(req.sheet)?;
-        let wb = self.wb.as_ref().ok_or(EngineError::NoDocument)?;
+        let wb = self.wb.as_deref().ok_or(EngineError::NoDocument)?;
         let geom = self
             .geometry
             .get(req.sheet)
@@ -1522,7 +1575,7 @@ impl SheetEngine {
     ) -> Result<PageList> {
         self.refresh_drawings();
         self.geometry(sheet)?;
-        let wb = self.wb.as_ref().ok_or(EngineError::NoDocument)?;
+        let wb = self.wb.as_deref().ok_or(EngineError::NoDocument)?;
         let geom = self
             .geometry
             .get(sheet)
@@ -1549,7 +1602,7 @@ impl SheetEngine {
         self.geometry(sheet)?;
         let ws = self
             .wb
-            .as_ref()
+            .as_deref()
             .and_then(|w| w.sheets.get(sheet))
             .ok_or(EngineError::NoDocument)?;
         let geom = self
@@ -1575,7 +1628,7 @@ impl SheetEngine {
         self.geometry(req.sheet)?;
         let ws = self
             .wb
-            .as_ref()
+            .as_deref()
             .and_then(|w| w.sheets.get(req.sheet))
             .ok_or(EngineError::NoDocument)?;
         let geom = self
@@ -1755,8 +1808,10 @@ impl SheetEngine {
                 array: None,
             });
         };
-        // A cell of a legacy array formula shows the array's formula in braces.
-        if let Some(((ar, ac), range)) = legacy_array_at(ws, row, col) {
+        // A cell of a legacy array formula shows the array's formula in braces (indexed:
+        // scanning the sheet cost over a millisecond per arrow key on a large sheet).
+        let slot = self.wb.as_ref().ok_or(EngineError::NoDocument)?;
+        if let Some(((ar, ac), range)) = slot.legacy_array_at(sheet, row, col) {
             let text = ws
                 .cell(ar, ac)
                 .and_then(|c| c.formula.as_ref())
@@ -1867,7 +1922,7 @@ impl SheetEngine {
                 ));
             }
         }
-        let wb = self.wb.as_mut().ok_or(EngineError::NoDocument)?;
+        let wb = self.wb.as_deref_mut().ok_or(EngineError::NoDocument)?;
         let ws = &mut wb.sheets[sheet];
         let mut old = Vec::with_capacity(coords.len());
         for &(r, c) in &coords {
@@ -1919,7 +1974,7 @@ impl SheetEngine {
         self.writable()?;
         // Linked workbooks typed by file name (`'[Prices.xlsx]P'!A1`) become link numbers.
         let mapped: Vec<(u32, u32, String)>;
-        let cells = match self.wb.as_ref() {
+        let cells = match self.wb.as_deref() {
             Some(wb) if !wb.external_links.is_empty() => {
                 mapped = cells
                     .iter()
@@ -1979,7 +2034,7 @@ impl SheetEngine {
             protect::check_cells(wb, ws, &open, cells.iter().map(|(r, c, _)| (*r, *c)))?;
             check_array_parts(ws, cells.iter().map(|(r, c, _)| (*r, *c)))?;
         }
-        let wb = self.wb.as_mut().ok_or(EngineError::NoDocument)?;
+        let wb = self.wb.as_deref_mut().ok_or(EngineError::NoDocument)?;
         if sheet >= wb.sheets.len() {
             return Err(EngineError::PageOutOfRange(sheet));
         }
@@ -2043,7 +2098,7 @@ impl SheetEngine {
         delete: bool,
     ) -> Result<()> {
         self.writable()?;
-        let wb = self.wb.as_mut().ok_or(EngineError::NoDocument)?;
+        let wb = self.wb.as_deref_mut().ok_or(EngineError::NoDocument)?;
         if sheet >= wb.sheets.len() || count == 0 {
             return Ok(());
         }
@@ -2089,7 +2144,7 @@ impl SheetEngine {
                 return Ok(UndoEntry::Group(inv));
             }
             UndoEntry::Light(step) => {
-                let wb = self.wb.as_mut().ok_or(EngineError::NoDocument)?;
+                let wb = self.wb.as_deref_mut().ok_or(EngineError::NoDocument)?;
                 let before = wb.sheets.len();
                 let inv = step.apply(wb, &self.adjuster);
                 self.invalidate(None);
@@ -2098,7 +2153,7 @@ impl SheetEngine {
             }
             e => e,
         };
-        let wb = self.wb.as_mut().ok_or(EngineError::NoDocument)?;
+        let wb = self.wb.as_deref_mut().ok_or(EngineError::NoDocument)?;
         let mut touched: Option<(usize, Vec<(u32, u32)>)> = None;
         let inverse = match e {
             UndoEntry::Cells { sheet, cells } => {
@@ -2126,7 +2181,7 @@ impl SheetEngine {
                 return Err(EngineError::Sheet("nested undo group".into()))
             }
         };
-        if let Some(wb) = self.wb.as_mut() {
+        if let Some(wb) = self.wb.as_deref_mut() {
             match touched {
                 Some((sheet, cells)) => self.live.update(wb, sheet, &cells),
                 None => self.live.rebuild(wb),
@@ -2164,7 +2219,7 @@ impl SheetEngine {
     /// The watched cells of each sheet (by name): the watch window is not part of
     /// the undo history, so undo / redo of a whole-workbook step keeps them.
     fn watches_by_sheet(&self) -> Vec<(String, Vec<bo_model::sheet::CellRef>)> {
-        self.wb.as_ref().map_or_else(Vec::new, |wb| {
+        self.wb.as_deref().map_or_else(Vec::new, |wb| {
             wb.sheets
                 .iter()
                 .map(|ws| (ws.name.clone(), bo_sheet::errcheck::cell_watches(ws)))
@@ -2173,7 +2228,7 @@ impl SheetEngine {
     }
 
     fn restore_watches(&mut self, watches: Vec<(String, Vec<bo_model::sheet::CellRef>)>) {
-        if let Some(wb) = self.wb.as_mut() {
+        if let Some(wb) = self.wb.as_deref_mut() {
             for (name, cells) in watches {
                 if let Some(ws) = wb.sheets.iter_mut().find(|s| s.name == name) {
                     bo_sheet::errcheck::set_cell_watches(ws, &cells);
@@ -2212,7 +2267,7 @@ impl SheetEngine {
     /// Adds a sheet at the end; returns its index.
     pub fn add_sheet(&mut self, name: Option<&str>) -> Result<usize> {
         self.writable()?;
-        let wb = self.wb.as_mut().ok_or(EngineError::NoDocument)?;
+        let wb = self.wb.as_deref_mut().ok_or(EngineError::NoDocument)?;
         protect::check_structure(wb)?;
         let before = Box::new(wb.clone());
         let mut n = wb.sheets.len() + 1;
@@ -2253,7 +2308,7 @@ impl SheetEngine {
         {
             return Err(EngineError::Sheet(format!("invalid sheet name '{name}'")));
         }
-        let wb = self.wb.as_mut().ok_or(EngineError::NoDocument)?;
+        let wb = self.wb.as_deref_mut().ok_or(EngineError::NoDocument)?;
         protect::check_structure(wb)?;
         if wb
             .sheets
@@ -2286,7 +2341,7 @@ impl SheetEngine {
     /// Deletes a sheet (a workbook keeps at least one).
     pub fn delete_sheet(&mut self, sheet: usize) -> Result<()> {
         self.writable()?;
-        let wb = self.wb.as_mut().ok_or(EngineError::NoDocument)?;
+        let wb = self.wb.as_deref_mut().ok_or(EngineError::NoDocument)?;
         protect::check_structure(wb)?;
         if wb.sheets.len() <= 1 || sheet >= wb.sheets.len() {
             return Err(EngineError::Sheet("cannot delete the last sheet".into()));
@@ -2308,7 +2363,7 @@ impl SheetEngine {
     pub fn save(&mut self, format: &str, sheet: usize) -> Result<Vec<u8>> {
         let locale = self.locale;
         if matches!(format, "xlsx" | "xml") {
-            if let Some(wb) = self.wb.as_mut() {
+            if let Some(wb) = self.wb.as_deref_mut() {
                 if wb
                     .sheets
                     .iter()

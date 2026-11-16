@@ -200,9 +200,11 @@ pub(super) struct PageBox {
     pub cells: Option<PageCells>,
 }
 
-pub(super) fn settings(ws: &Worksheet) -> Settings {
+/// Print settings of `ws`; `default_paper` for a page setup without a paper size (A4 when
+/// `None`).
+pub(super) fn settings_on(ws: &Worksheet, default_paper: Option<u32>) -> Settings {
     let ps = &ws.page_setup;
-    let (mut pw, mut ph) = paper(ps.paper_size);
+    let (mut pw, mut ph) = paper(ps.paper_size.or(default_paper));
     if ps.orientation.as_deref() == Some("landscape") {
         std::mem::swap(&mut pw, &mut ph);
     }
@@ -254,6 +256,7 @@ pub(super) fn spans(
     last: u32,
     avail: f64,
     breaks: &[u32],
+    slack: f64,
 ) -> Vec<(u32, u32)> {
     let mut out = Vec::new();
     let mut start = first;
@@ -261,7 +264,7 @@ pub(super) fn spans(
     let mut i = first;
     while i <= last {
         let s = sizes(i);
-        if acc > 0.0 && acc + s > avail + 0.01 {
+        if acc > 0.0 && acc + s > avail + slack {
             out.push((start, i - 1));
             start = i;
             acc = 0.0;
@@ -334,8 +337,12 @@ pub(super) fn paginate(p: &PageInput<'_>) -> Pagination {
     };
     let aw = (aw0 / scale - p.fixed.0).max(10.0);
     let ah = (ah0 / scale - p.fixed.1).max(10.0);
-    let cols = spans(p.col_w, a.first.col, a.last.col, aw, p.col_breaks);
-    let rows = spans(p.row_h, a.first.row, a.last.row, ah, p.row_breaks);
+    // Measured on the reference: at a set scale, rows that fill the page exactly (45 ×
+    // 14.4 pt on 648 pt) do not fit and the last one starts the next page; a scale
+    // fitted to the pages fills them to the edge.
+    let slack = if p.fit.is_some() { 0.01 } else { -0.01 };
+    let cols = spans(p.col_w, a.first.col, a.last.col, aw, p.col_breaks, slack);
+    let rows = spans(p.row_h, a.first.row, a.last.row, ah, p.row_breaks, slack);
     let mut order = Vec::with_capacity(cols.len() * rows.len());
     if p.over_then_down {
         for r in 0..rows.len() {
@@ -510,7 +517,7 @@ impl SheetEngine {
         opts: &RenderOptions,
     ) -> Result<PageList> {
         self.geometry(sheet)?;
-        let wb = self.wb.as_ref().ok_or(EngineError::NoDocument)?;
+        let wb = self.wb.as_deref().ok_or(EngineError::NoDocument)?;
         let geom = self
             .geometry
             .get(sheet)
@@ -531,7 +538,7 @@ impl SheetEngine {
 
     /// Default font (family, size) of the workbook (first `font` of the stylesheet).
     fn base_font(&self) -> (String, f64) {
-        let font = self.wb.as_ref().and_then(|w| w.styles.fonts.first());
+        let font = self.wb.as_deref().and_then(|w| w.styles.fonts.first());
         (
             font.and_then(|x| x.name.clone())
                 .unwrap_or_else(|| "Calibri".into()),
@@ -541,7 +548,7 @@ impl SheetEngine {
 
     /// Values for `&D` `&T` `&Z` `&F` `&A` (from the engine clock, file and sheet names).
     fn hf_context(&self, sheet: usize) -> HfContext {
-        let wb = self.wb.as_ref();
+        let wb = self.wb.as_deref();
         let opts = bo_sheet::numfmt::FormatOptions {
             locale: self.locale,
             date1904: wb.is_some_and(|w| w.date1904),
@@ -572,7 +579,7 @@ impl SheetEngine {
 
     /// Lines listed on the "comments at end" pages.
     fn comment_lines(&self, sheet: usize) -> Vec<String> {
-        let Some(ws) = self.wb.as_ref().and_then(|w| w.sheets.get(sheet)) else {
+        let Some(ws) = self.wb.as_deref().and_then(|w| w.sheets.get(sheet)) else {
             return Vec::new();
         };
         let mut items: Vec<(CellRef, String, String)> = ws
@@ -586,7 +593,7 @@ impl SheetEngine {
                 )
             })
             .collect();
-        let persons = self.wb.as_ref().map(|w| &w.persons);
+        let persons = self.wb.as_deref().map(|w| &w.persons);
         for t in &ws.threaded_comments {
             let who = persons
                 .and_then(|p| p.iter().find(|p| p.id == t.person_id))
@@ -784,7 +791,7 @@ impl SheetEngine {
     /// margins and, for pages of cells, the cell spans, the scale and the page
     /// position of the first body cell.
     pub(super) fn page_layout(&mut self, sheet: usize) -> Result<Vec<PageBox>> {
-        let st = settings(self.sheet(sheet)?);
+        let st = settings_on(self.sheet(sheet)?, self.default_paper);
         let frames = self.frames_for(sheet, &st, true)?;
         let mut out = Vec::with_capacity(frames.len());
         for fr in &frames {
@@ -824,7 +831,7 @@ impl SheetEngine {
         let [ml, mr, mt, mb, mh, mf] = st.margins;
         let (aw0, ah0) = ((pw - ml - mr).max(36.0), (ph - mt - mb).max(36.0));
         let (font, size) = self.base_font();
-        let theme = self.wb.as_ref().and_then(|w| w.theme.clone());
+        let theme = self.wb.as_deref().and_then(|w| w.theme.clone());
         let mut commands = Vec::new();
         let mut page_scale = 1.0;
         match frame {
@@ -1040,7 +1047,7 @@ impl SheetEngine {
         // `&G` pictures (§18.3.1.50 legacyDrawingHF): the section's VML shape.
         let pictures = self
             .wb
-            .as_ref()
+            .as_deref()
             .map(|wb| bo_xlsx::hfpicture::pictures(ws, &wb.opaque.parts))
             .unwrap_or_default();
         let suffix = hf_suffix(ws, index);
@@ -1125,7 +1132,7 @@ impl SheetEngine {
 
     /// The printed pages of one sheet (empty when there is nothing to print).
     pub(crate) fn print_pages(&mut self, sheet: usize) -> Result<Vec<PageList>> {
-        let st = settings(self.sheet(sheet)?);
+        let st = settings_on(self.sheet(sheet)?, self.default_paper);
         let frames = self.frames(sheet, &st)?;
         let opts = self.print_options(&st);
         let n = frames.len();
@@ -1167,7 +1174,7 @@ impl SheetEngine {
         page: usize,
         layout: bool,
     ) -> Result<serde_json::Value> {
-        let st = settings(self.sheet(sheet)?);
+        let st = settings_on(self.sheet(sheet)?, self.default_paper);
         let frames = self.frames_for(sheet, &st, layout)?;
         let n = frames.len();
         let mut opts = self.print_options(&st);
@@ -1180,6 +1187,37 @@ impl SheetEngine {
             None => None,
         };
         Ok(serde_json::json!({ "pages": n, "page": p }))
+    }
+
+    /// Display lists of pages `pages` of `sheet` in the page layout view (the native page
+    /// layout view draws only the pages it shows; see [`SheetEngine::print_preview`]).
+    pub fn page_layout_lists(
+        &mut self,
+        sheet: usize,
+        pages: &[usize],
+    ) -> Result<Vec<(usize, PageList)>> {
+        self.printing(|e| e.page_layout_lists_at(sheet, pages))
+    }
+
+    fn page_layout_lists_at(
+        &mut self,
+        sheet: usize,
+        pages: &[usize],
+    ) -> Result<Vec<(usize, PageList)>> {
+        let st = settings_on(self.sheet(sheet)?, self.default_paper);
+        let frames = self.frames_for(sheet, &st, true)?;
+        let n = frames.len();
+        let mut opts = self.print_options(&st);
+        if !st.gridlines {
+            opts.gridlines = None;
+        }
+        let mut out = Vec::with_capacity(pages.len());
+        for &i in pages {
+            if let Some(fr) = frames.get(i) {
+                out.push((i, self.draw_frame(sheet, &st, fr, i, n, &opts)?));
+            }
+        }
+        Ok(out)
     }
 
     /// Printed pages of every visible sheet, with each sheet's name and first

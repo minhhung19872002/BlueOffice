@@ -1049,6 +1049,8 @@ export type SheetCommand =
       colWidths?: boolean;
       /** Paste without cell borders. */
       noBorders?: boolean;
+      /** Paste Special › Operation with the destination cells. */
+      operation?: 'none' | 'add' | 'subtract' | 'multiply' | 'divide';
     }
   | { cmd: 'pageSetup'; sheet: number }
   | { cmd: 'pivotSource'; sheet: number; range: SheetRange }
@@ -1156,6 +1158,7 @@ export type SheetCommand =
   | { cmd: 'unprotectWorkbook'; password?: string }
   | { cmd: 'moveSheet'; from: number; to: number }
   | { cmd: 'setTabColor'; sheet: number; color?: string | null }
+  | { cmd: 'setSheetHidden'; sheet: number; hidden: boolean }
   | { cmd: 'batch'; cmds: SheetCommand[] }
   /** Undo history length → `{ history }`; join the steps after `since` into one (BlueScript, CORE-SCRIPT-001). */
   | { cmd: 'historyLen' }
@@ -1256,6 +1259,18 @@ export type SheetCommand =
       header?: FrameElementFormat;
       selected?: FrameElementFormat;
       unselected?: FrameElementFormat;
+    }
+  /**
+   * New Table Style: a custom table style (ECMA-376 §18.8.40) with a format per element type
+   * (`wholeTable`, `headerRow`, `firstRowStripe`, …); `setDefault` makes it the default table
+   * style. One undo step.
+   */
+  | {
+      cmd: 'createTableStyle';
+      sheet: number;
+      name: string;
+      elements?: Record<string, FrameElementFormat>;
+      setDefault?: boolean;
     }
   /** The pivot tables a timeline filters. */
   | {

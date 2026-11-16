@@ -1037,6 +1037,10 @@ pub enum SheetCommand {
         /// Paste without cell borders (§18.8.4 border).
         #[serde(default)]
         no_borders: bool,
+
+        /// Arithmetic with the destination (Paste Special › Operation).
+        #[serde(default)]
+        operation: super::paste_arith::PasteOp,
     },
     /// Page setup of a sheet (orientation, paper, scale, margins, print area).
     PageSetup {
@@ -1413,6 +1417,14 @@ pub enum SheetCommand {
         from: usize,
         /// 0-based index the sheet ends up at.
         to: usize,
+    },
+    /// Hides or shows a sheet (§18.2.19 sheet/@state `hidden`); the last visible sheet
+    /// cannot be hidden. One undo step.
+    SetSheetHidden {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// Hide (`true`) or show.
+        hidden: bool,
     },
     /// `sheetPr/tabColor` (§18.3.1.93) as `RRGGBB`; `None`/empty removes it.
     SetTabColor {
@@ -1890,6 +1902,21 @@ pub enum SheetCommand {
         /// Formats of the elements (absent: the element keeps the default look).
         #[serde(default, flatten)]
         formats: super::slicer_cmd::FrameStyleFormats,
+    },
+    /// A new custom table style of the workbook (New Table Style…): the formats of its
+    /// elements (§18.8.40 `tableStyle`, §18.18.83 element types), saved in the styles part;
+    /// `setDefault` makes it `tableStyles/@defaultTableStyle`. One undo step.
+    CreateTableStyle {
+        /// The sheet whose undo history records the change.
+        sheet: usize,
+        /// Style name (unique, not a built-in name).
+        name: String,
+        /// Element type → format (fill, text, bold, italic, border colours `#RRGGBB`).
+        #[serde(default)]
+        elements: std::collections::BTreeMap<String, super::slicer_cmd::ElementFormat>,
+        /// Make it the workbook's default table style.
+        #[serde(default, rename = "setDefault")]
+        set_default: bool,
     },
     /// The first day the strip of a timeline shows (`timeline/@scrollPosition`): a view
     /// setting saved with the file, not an undo step.
@@ -2720,7 +2747,7 @@ impl SheetEngine {
     fn guard(&self, cmd: &SheetCommand) -> Result<()> {
         use super::protect::{check, check_range, Action as A};
         use SheetCommand as C;
-        let Some(wb) = self.wb.as_ref() else {
+        let Some(wb) = self.wb.as_deref() else {
             return Ok(());
         };
         let ws = |i: usize| wb.sheets.get(i).ok_or(EngineError::PageOutOfRange(i));
@@ -2822,7 +2849,7 @@ impl SheetEngine {
             | C::PivotMove { sheet, .. }
             | C::PivotChangeSource { sheet, .. }
             | C::PivotRefresh { sheet, .. } => check(ws(*sheet)?, A::PivotTables),
-            C::MoveSheet { .. } => super::protect::check_structure(wb),
+            C::MoveSheet { .. } | C::SetSheetHidden { .. } => super::protect::check_structure(wb),
             C::Subtotal { sheet, .. } | C::RemoveSubtotals { sheet, .. } => {
                 let w = ws(*sheet)?;
                 check(w, A::InsertRows)?;
@@ -2847,7 +2874,7 @@ impl SheetEngine {
         recalc: Recalc,
         f: impl FnOnce(&mut Workbook, &bo_sheet::formula::BoFormula) -> Result<R>,
     ) -> Result<R> {
-        let wb = self.wb.as_mut().ok_or(EngineError::NoDocument)?;
+        let wb = self.wb.as_deref_mut().ok_or(EngineError::NoDocument)?;
         if sheet >= wb.sheets.len() {
             return Err(EngineError::PageOutOfRange(sheet));
         }
@@ -2900,7 +2927,7 @@ impl SheetEngine {
         ) -> Result<R>,
     ) -> Result<R> {
         use super::light_undo as lu;
-        let wb = self.wb.as_mut().ok_or(EngineError::NoDocument)?;
+        let wb = self.wb.as_deref_mut().ok_or(EngineError::NoDocument)?;
         if sheet >= wb.sheets.len() {
             return Err(EngineError::PageOutOfRange(sheet));
         }
@@ -3116,6 +3143,29 @@ impl SheetEngine {
                 })?;
                 self.invalidate(None);
                 Ok(out)
+            }
+            C::SetSheetHidden { sheet, hidden } => {
+                use bo_model::sheet::SheetState;
+                let wb = self.wb()?;
+                if sheet >= wb.sheets.len() {
+                    return Err(EngineError::PageOutOfRange(sheet));
+                }
+                let visible = wb
+                    .sheets
+                    .iter()
+                    .filter(|w| w.state == SheetState::Visible)
+                    .count();
+                if hidden && visible <= 1 && wb.sheets[sheet].state == SheetState::Visible {
+                    return Err(bad("a workbook must keep at least one visible sheet"));
+                }
+                self.edit(sheet, Recalc::No, |wb, _| {
+                    wb.sheets[sheet].state = if hidden {
+                        SheetState::Hidden
+                    } else {
+                        SheetState::Visible
+                    };
+                    Ok(json!({ "ok": true }))
+                })
             }
             C::SetTabColor { sheet, color } => self.edit(sheet, Recalc::No, |wb, _| {
                 let hex = color
@@ -3456,6 +3506,12 @@ impl SheetEngine {
                 timeline,
                 formats,
             } => self.frame_style_create(sheet, &name, timeline, &formats),
+            C::CreateTableStyle {
+                sheet,
+                name,
+                elements,
+                set_default,
+            } => self.table_style_create(sheet, &name, &elements, set_default),
             C::TimelineConnect {
                 sheet,
                 index,
@@ -4929,13 +4985,14 @@ impl SheetEngine {
                 range,
                 col_widths,
                 no_borders,
+                operation,
             } => {
                 let extras = self.paste_extras(sheet, col, transpose, col_widths, no_borders)?;
                 self.paste(
                     sheet,
                     row,
                     col,
-                    mode,
+                    (mode, operation),
                     transpose,
                     skip_blanks,
                     range,
@@ -4952,7 +5009,7 @@ impl SheetEngine {
                     .map_or((None, None), super::print::parse_titles);
                 Ok(json!({
                     "orientation": p.orientation.clone().unwrap_or_else(|| "portrait".into()),
-                    "paperSize": p.paper_size.unwrap_or(9),
+                    "paperSize": p.paper_size.or(self.default_paper).unwrap_or(9),
                     "scale": p.scale.unwrap_or(100),
                     "fit": (ws.props.fit_to_page == Some(true))
                         .then(|| [p.fit_to_width.unwrap_or(1), p.fit_to_height.unwrap_or(1)]),
@@ -4962,7 +5019,7 @@ impl SheetEngine {
                     "gridLines": p.print_grid_lines,
                     "extra": super::print_cmd::extra_json(
                         ws,
-                        self.wb.as_ref().map_or(&[][..], |wb| &wb.opaque.parts),
+                        self.wb.as_deref().map_or(&[][..], |wb| &wb.opaque.parts),
                     ),
                 }))
             }
@@ -4970,7 +5027,7 @@ impl SheetEngine {
                 sheet,
                 page,
                 layout,
-            } => self.print_preview(sheet, page, layout),
+            } => self.printing(|e| e.print_preview(sheet, page, layout)),
             C::HeaderFooterPicture {
                 sheet,
                 section,
@@ -5424,7 +5481,7 @@ impl SheetEngine {
     fn autofit(&mut self, sheet: usize, rows: bool, first: u32, last: u32) -> Result<Value> {
         let locale = self.locale;
         let metrics = self.geometry(sheet)?.metrics;
-        let wb = self.wb.as_ref().ok_or(EngineError::NoDocument)?;
+        let wb = self.wb.as_deref().ok_or(EngineError::NoDocument)?;
         let ws = wb
             .sheets
             .get(sheet)
@@ -5496,7 +5553,7 @@ impl SheetEngine {
             (Some(f), _) if !f.text.is_empty() => format!("={}", f.text),
             (_, CellValue::Number(n)) => self
                 .wb
-                .as_ref()
+                .as_deref()
                 .and_then(|wb| {
                     let fmt_id = wb.styles.xf(cell.style).map_or(0, |x| x.num_fmt_id);
                     date_input(*n, &wb.styles, fmt_id, &self.locale, wb.date1904)
@@ -5679,7 +5736,7 @@ impl SheetEngine {
         sheet: usize,
         row: u32,
         col: u32,
-        mode: PasteMode,
+        (mode, op): (PasteMode, super::paste_arith::PasteOp),
         transpose: bool,
         skip_blanks: bool,
         target: Option<Rng>,
@@ -5796,6 +5853,25 @@ impl SheetEngine {
                                     n.style = s.map_or(0, |c| c.style);
                                     Some(n)
                                 }
+                            };
+                            // Paste Special › Operation (formats are never combined).
+                            let new = if op == super::paste_arith::PasteOp::None
+                                || mode == PasteMode::Formats
+                            {
+                                new
+                            } else {
+                                let kept = old.as_ref().map_or(0, |c| c.style);
+                                let (style, formula) = match mode {
+                                    PasteMode::All => (
+                                        src.map_or(kept, |c| c.style),
+                                        src.and_then(moved_formula).map(|f| f.text),
+                                    ),
+                                    PasteMode::Formulas => {
+                                        (kept, src.and_then(moved_formula).map(|f| f.text))
+                                    }
+                                    _ => (kept, None),
+                                };
+                                super::paste_arith::combine(op, old.as_ref(), src, formula, style)
                             };
                             match new {
                                 Some(c) if non_empty(&c) || c.style != 0 => {
@@ -5985,7 +6061,7 @@ impl SheetEngine {
                 Ok(v) => out.push(v),
                 Err(e) => {
                     self.undo.truncate(depth);
-                    if let Some(wb) = self.wb.as_mut() {
+                    if let Some(wb) = self.wb.as_deref_mut() {
                         *wb = *before;
                         self.live.rebuild(wb);
                     }

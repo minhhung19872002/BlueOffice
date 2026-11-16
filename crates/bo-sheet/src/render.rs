@@ -71,6 +71,9 @@ pub struct RenderOptions {
     /// Pixel sizes / fetch states of pictures in cells, by media id
     /// ([`crate::cell_image`]); stored pictures missing here are measured from their bytes.
     pub images: std::sync::Arc<crate::cell_image::ImageStates>,
+    /// Page break preview: cells outside these ranges (the print areas) take the colour
+    /// as their background instead of [`RenderOptions::background`].
+    pub outside: Option<(Vec<CellRange>, Rgba)>,
 }
 
 /// Vector drawing of a SmartArt fallback ([MS-ODRAWXML] `dsp:drawing`), drawn
@@ -105,6 +108,7 @@ impl Default for RenderOptions {
             error_text: None,
             show_formulas: None,
             images: std::sync::Arc::default(),
+            outside: None,
         }
     }
 }
@@ -378,6 +382,14 @@ impl Renderer<'_> {
             h: f(s.h),
         });
         self.fill_rect(s, self.opts.background);
+        if let Some((areas, color)) = self.opts.outside.clone() {
+            // Page break preview: the cells outside the print areas are grey.
+            self.fill_rect(s, color);
+            for a in &areas {
+                let r = Self::screen_rect(p, self.geom.range_rect(*a));
+                self.fill_rect(r, self.opts.background);
+            }
+        }
         let merges: Vec<CellRange> = self
             .geom
             .merges()
@@ -763,26 +775,55 @@ impl Renderer<'_> {
     /// AutoFilter dropdown buttons on the header row (§18.3.1.2 `autoFilter`,
     /// §18.3.2.7 `filterColumn/@hiddenButton`).
     fn filter_buttons(&mut self, p: &PaneRegion) {
-        let Some(af) = &self.ws.auto_filter else {
-            return;
-        };
-        let row = af.range.first.row;
-        if !p.rows.contains(&row) || self.geom.row_height(row) <= 0.0 {
-            return;
+        // (header row, column, filtered) of the sheet's AutoFilter and of the tables whose
+        // header row shows filter buttons (§18.5.1.2 table/autoFilter, ECMA-376 Part 1).
+        let mut buttons: Vec<(u32, u32, bool)> = Vec::new();
+        if let Some(af) = &self.ws.auto_filter {
+            for col in af.range.first.col..=af.range.last.col {
+                let fc = af
+                    .columns
+                    .iter()
+                    .find(|c| af.range.first.col + c.col_id == col);
+                if fc.is_some_and(|c| c.hidden_button || c.show_button == Some(false)) {
+                    continue;
+                }
+                let active =
+                    fc.is_some_and(|c| !matches!(c.filter, bo_model::sheet::ColumnFilter::None));
+                buttons.push((af.range.first.row, col, active));
+            }
         }
-        for col in af.range.first.col..=af.range.last.col {
-            if !p.cols.contains(&col) || self.geom.col_width(col) <= 0.0 {
+        for t in &self.ws.tables {
+            if t.auto_filter.is_none() || !crate::table::has_header(t) {
                 continue;
             }
-            let fc = af
-                .columns
-                .iter()
-                .find(|c| af.range.first.col + c.col_id == col);
-            if fc.is_some_and(|c| c.hidden_button || c.show_button == Some(false)) {
+            let xml = t.auto_filter.as_deref().unwrap_or_default();
+            for col in t.range.first.col..=t.range.last.col {
+                // §18.3.2.7 filterColumn colId with hiddenButton / a criterion.
+                let id = format!("colId=\"{}\"", col - t.range.first.col);
+                let fc = xml.split("<filterColumn").skip(1).find(|f| f.contains(&id));
+                if fc.is_some_and(|f| {
+                    f.contains("hiddenButton=\"1\"") || f.contains("showButton=\"0\"")
+                }) {
+                    continue;
+                }
+                let active = fc.is_some_and(|f| {
+                    f.contains("<filters")
+                        || f.contains("<custom")
+                        || f.contains("<top10")
+                        || f.contains("<dynamic")
+                        || f.contains("<color")
+                });
+                buttons.push((t.range.first.row, col, active));
+            }
+        }
+        for (row, col, active) in buttons {
+            if !p.rows.contains(&row)
+                || self.geom.row_height(row) <= 0.0
+                || !p.cols.contains(&col)
+                || self.geom.col_width(col) <= 0.0
+            {
                 continue;
             }
-            let active =
-                fc.is_some_and(|c| !matches!(c.filter, bo_model::sheet::ColumnFilter::None));
             let r = Self::screen_rect(p, self.geom.cell_rect(row, col));
             let s = (r.h - 3.0).clamp(6.0, 12.0);
             let b = Rect {
@@ -1995,6 +2036,35 @@ mod tests {
         ws.merges.push(CellRange::parse("D1:E2").unwrap());
         ws.set_cell(0, 3, Cell::new(CellValue::Text("merged".into())));
         wb
+    }
+
+    #[test]
+    fn table_headers_show_filter_buttons() {
+        let mut wb = workbook();
+        wb.sheets[0].tables.push(bo_model::sheet::Table {
+            range: CellRange::parse("F1:H4").unwrap(),
+            auto_filter: Some(
+                r#"<autoFilter ref="F1:H4"><filterColumn colId="1" hiddenButton="1"/></autoFilter>"#
+                    .into(),
+            ),
+            ..bo_model::sheet::Table::default()
+        });
+        let buttons = |wb: &Workbook| {
+            let geom = SheetGeometry::with_metrics(&wb.sheets[0], SheetMetrics::default());
+            let vp = Viewport::new(800.0, 300.0);
+            render_viewport(wb, 0, &geom, &vp, &RenderOptions::default(), &mut fonts())
+                .commands
+                .iter()
+                .filter(|c| {
+                    matches!(c, Command::Path { fill: Some(bo_render::Paint::Solid { color }), .. }
+                        if *color == Rgba(0x3C, 0x40, 0x43, 255))
+                })
+                .count()
+        };
+        // F and H have buttons; G's is hidden (§18.3.2.7 hiddenButton).
+        assert_eq!(buttons(&wb), 2);
+        wb.sheets[0].tables[0].auto_filter = None;
+        assert_eq!(buttons(&wb), 0);
     }
 
     #[test]

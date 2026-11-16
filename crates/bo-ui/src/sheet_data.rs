@@ -390,7 +390,9 @@ impl SheetWindow {
             })),
             "outline.auto" => self.view.run(json!({ "cmd": "autoOutline" })),
             "outline.clear" => self.view.run(json!({ "cmd": "clearOutline" })),
-            "sheet.viewNormal" => true,
+            "sheet.viewNormal" => self.set_view_mode(super::ViewMode::Normal, text),
+            "sheet.viewPageBreak" => self.set_view_mode(super::ViewMode::PageBreak, text),
+            "sheet.viewPageLayout" => self.set_view_mode(super::ViewMode::PageLayout, text),
             "sheet.customViews" => self.open_custom_views(),
             "sheet.zoomDialog" => self.open_zoom(),
             _ => {

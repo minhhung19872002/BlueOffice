@@ -238,7 +238,7 @@ impl SheetEngine {
             self.writable()?;
         }
         if self.live.engine().is_none() {
-            if let Some(wb) = self.wb.as_mut() {
+            if let Some(wb) = self.wb.as_deref_mut() {
                 self.live.rebuild(wb);
             }
         }
@@ -302,7 +302,7 @@ impl SheetEngine {
                 Ok(Value::Array(out))
             }
             AuditCommand::SetCellWatches { cells } => {
-                let wb = self.wb.as_mut().ok_or(EngineError::NoDocument)?;
+                let wb = self.wb.as_deref_mut().ok_or(EngineError::NoDocument)?;
                 let mut changed = false;
                 for (i, ws) in wb.sheets.iter_mut().enumerate() {
                     let mine: Vec<CellRef> = cells
@@ -336,7 +336,7 @@ impl SheetEngine {
                 self.calc_state()
             }
             AuditCommand::Calculate { sheet, full } => {
-                let wb = self.wb.as_mut().ok_or(EngineError::NoDocument)?;
+                let wb = self.wb.as_deref_mut().ok_or(EngineError::NoDocument)?;
                 if full {
                     self.live.rebuild(wb);
                 } else {
@@ -872,7 +872,7 @@ mod tests {
         // A4 = A1 + A2 (+ A3).
         let mut e = engine(&[(0, "A4", "=A1+A2+A3")], &["Sheet1"]);
         {
-            let wb = e.wb.as_mut().unwrap();
+            let wb = e.wb.as_deref_mut().unwrap();
             for (r, v) in [(0, 1.236), (1, 2.5), (2, 0.123_456)] {
                 wb.sheets[0].set_cell(r, 0, bo_model::sheet::Cell::new(CellValue::Number(v)));
             }

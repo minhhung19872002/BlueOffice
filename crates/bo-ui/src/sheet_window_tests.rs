@@ -727,6 +727,23 @@ fn fill_handle_drag_fills_a_series() {
 }
 
 #[test]
+fn fill_handle_with_ctrl_toggles_copy_and_series() {
+    // One number: a plain drag copies it, with Ctrl it counts up (and the reverse for two).
+    for (ctrl, want) in [(false, "7"), (true, "10")] {
+        let mut w = window();
+        put(&mut w, &[(0, 0, "7")]);
+        w.view_mut().select((0, 0), (0, 0), (0, 0));
+        let [_, _, r, b] = w.view().sel_rect_for_test().expect("selection on screen");
+        press(&mut w, (r, b), 1);
+        let to = cell_xy(&w, 3, 0);
+        w.handle(Input::Drag { x: to.0, y: to.1 }, &Fixed);
+        w.view_mut().set_mouse_ctrl(ctrl);
+        release(&mut w, to);
+        assert_eq!(input(&w, 3, 0), want, "ctrl {ctrl}");
+    }
+}
+
+#[test]
 fn double_click_on_a_column_edge_fits_it_and_context_menu_opens() {
     let mut w = window();
     put(&mut w, &[(0, 1, "a rather long text that does not fit")]);
@@ -2423,6 +2440,27 @@ fn paste_special_values_and_transpose() {
 }
 
 #[test]
+fn paste_special_operation_multiplies() {
+    let mut w = window();
+    put(&mut w, &[(0, 0, "2"), (0, 2, "5"), (1, 2, "7")]);
+    w.view_mut().select((0, 0), (0, 0), (0, 0));
+    assert!(w.action("edit.copy", &Fixed));
+    w.view_mut().select((0, 2), (1, 2), (0, 2));
+    assert!(w.action("sheet.pasteSpecial", &Fixed));
+    w.paste_special_event(&form_impl::Event::Changed("pValues"));
+    w.paste_special_event(&form_impl::Event::Changed("oMultiply"));
+    if let Some(f) = w.form.as_mut() {
+        f.set_on("pValues", true);
+        f.set_on("oMultiply", true);
+    }
+    assert!(w.form.as_ref().is_some_and(|f| !f.on("oNone")));
+    w.paste_special_event(&form_impl::Event::Ok);
+    // One copied cell fills the two selected cells, each multiplied.
+    assert_eq!(input(&w, 0, 2), "10");
+    assert_eq!(input(&w, 1, 2), "14");
+}
+
+#[test]
 fn page_layout_themes_apply_and_save() {
     let mut w = window();
     assert_eq!(
@@ -2524,4 +2562,394 @@ fn band_display_lists_give_the_same_image_as_a_full_layout() {
         off * 20_000 < shown.len() / 4 && worst <= 32,
         "band image: {off} pixels differ (by up to {worst})"
     );
+}
+
+/// A grid store keeping only the last full image's list (page views).
+#[derive(Default)]
+struct ListStore {
+    lists: usize,
+    commands: usize,
+}
+
+impl GridStore for ListStore {
+    fn update(
+        &mut self,
+        list: &bo_render::PageList,
+        _: &SheetEngine,
+        _: f32,
+    ) -> Result<(), String> {
+        self.lists += 1;
+        self.commands = list.commands.len();
+        Ok(())
+    }
+}
+
+fn long_sheet(w: &mut SheetWindow) {
+    let cells: Vec<(u32, u32, String)> = (0..120)
+        .flat_map(|r| (0..14).map(move |c| (r, c, format!("{}", r * 14 + c))))
+        .collect();
+    w.view_mut()
+        .engine_mut()
+        .set_inputs(0, &cells)
+        .expect("cells");
+    w.view_mut().changed();
+}
+
+#[test]
+fn page_break_preview_from_the_status_bar() {
+    let mut w = window();
+    long_sheet(&mut w);
+    assert_eq!(w.view_mode(), ViewMode::Normal);
+    // Third status bar view button: Page Break Preview at 60 %, kept in the sheet.
+    let [_, _, pbp] = w.view_button_rects();
+    press(&mut w, (pbp[0] + 5.0, pbp[1] + 5.0), 1);
+    assert_eq!(w.view_mode(), ViewMode::PageBreak);
+    assert!((w.view().zoom() - 0.6).abs() < 1e-3);
+    // The breaks are those of the sheet at 100 % (the zoom does not move them).
+    let at_60 = w
+        .view_mut()
+        .query(serde_json::json!({ "cmd": "pageBreakPreview" }))
+        .expect("breaks");
+    assert!(w.view_mut().set_zoom(1.0));
+    let at_100 = w
+        .view_mut()
+        .query(serde_json::json!({ "cmd": "pageBreakPreview" }))
+        .expect("breaks");
+    assert_eq!(
+        at_60["areas"][0]["rowBreaks"],
+        at_100["areas"][0]["rowBreaks"]
+    );
+    assert!(w.view_mut().set_zoom(0.6));
+    let state = w
+        .view_mut()
+        .query(serde_json::json!({ "cmd": "sheetViewState" }))
+        .expect("state");
+    assert_eq!(state["view"], "pageBreakPreview");
+    let mut store = ListStore::default();
+    w.prepare(&mut store).expect("grid");
+    assert!(store.lists >= 1);
+    // A horizontal automatic break lies on screen; dragging it up makes it manual there.
+    let breaks = w
+        .view_mut()
+        .query(serde_json::json!({ "cmd": "pageBreakPreview" }))
+        .expect("breaks");
+    let first = breaks["areas"][0]["rowBreaks"][0]["at"]
+        .as_u64()
+        .expect("a row break") as u32;
+    w.view_mut().scroll_rows(i64::from(first) - 10);
+    let x = w.view().frame_for_test()[0] + 45.0;
+    let (row, y0) = w
+        .view()
+        .rows_for_test()
+        .iter()
+        .find_map(|&(r, y0, _)| {
+            w.view()
+                .break_at(x, y0 - 1.0)
+                .filter(|b| b.1)
+                .map(|_| (r, y0))
+        })
+        .expect("a row break on screen");
+    let target = w
+        .view()
+        .rows_for_test()
+        .iter()
+        .find(|s| s.0 == row - 5)
+        .map(|s| s.1)
+        .expect("row above");
+    press(&mut w, (x, y0 - 1.0), 1);
+    w.handle(Input::Drag { x, y: target }, &Fixed);
+    release(&mut w, (x, target));
+    let err = w.view_mut().take_error();
+    let ws = &w.view().engine().workbook().expect("wb").sheets[0];
+    assert!(
+        // The model keeps the last row before a break (§18.3.1.14 brk/@id, 0-based here).
+        ws.page_setup.row_breaks.contains(&(row - 6)),
+        "{:?} row {row} error {err:?}",
+        ws.page_setup.row_breaks
+    );
+    // Back to Normal with the View tab.
+    assert!(w.action("sheet.viewNormal", &Fixed));
+    assert_eq!(w.view_mode(), ViewMode::Normal);
+    assert!((w.view().zoom() - 1.0).abs() < 1e-3);
+}
+
+#[test]
+fn page_layout_view_shows_pages_and_selects_on_them() {
+    let mut w = window();
+    long_sheet(&mut w);
+    assert!(w.action("sheet.viewPageLayout", &Fixed));
+    assert_eq!(w.view_mode(), ViewMode::PageLayout);
+    let mut store = ListStore::default();
+    w.prepare(&mut store).expect("grid");
+    assert_eq!(store.lists, 1);
+    assert!(store.commands > 100, "pages drawn: {}", store.commands);
+    // Cell B3 of the first page: press on it.
+    let (x, y) = w.view().layout_cell_center(2, 1).expect("B3 on screen");
+    press(&mut w, (x, y), 1);
+    assert_eq!(w.view().active(), (2, 1));
+    // Moving far down scrolls the pages.
+    let before = w.view_mut().scroll_info(true).0;
+    for _ in 0..60 {
+        w.handle(Input::Key(Key::Down, Mods::default()), &Fixed);
+    }
+    assert_eq!(w.view().active(), (62, 1));
+    assert!(w.view_mut().scroll_info(true).0 > before);
+    // The wheel scrolls too.
+    let s = w.view_mut().scroll_info(true).0;
+    w.handle(Input::Wheel(120.0), &Fixed);
+    assert!(w.view_mut().scroll_info(true).0 > s);
+    // The view is kept in the file's sheet view.
+    let state = w
+        .view_mut()
+        .query(serde_json::json!({ "cmd": "sheetViewState" }))
+        .expect("state");
+    assert_eq!(state["view"], "pageLayout");
+    // The status bar names the page of the active cell.
+    let (n, of) = w
+        .view()
+        .layout_page_of_active()
+        .expect("page of the active cell");
+    assert!(n >= 1 && of >= n, "{n} of {of}");
+    let mut rec = Rec::default();
+    w.paint(&mut rec);
+    let want = format!("Page: {n} of {of}");
+    assert!(rec.texts.iter().any(|t| t.0 == want), "{want}");
+}
+
+fn tab_xy(w: &SheetWindow, sheet: usize) -> (f32, f32) {
+    let (_, x, tw) = *w
+        .tab_rects
+        .iter()
+        .find(|t| t.0 == sheet)
+        .expect("tab shown");
+    let y = w.size.1 - w.status_h() - w.tabs_h() / 2.0;
+    (x + tw / 2.0, y)
+}
+
+#[test]
+fn sheet_tabs_rename_move_colour_hide() {
+    let mut w = window();
+    assert!(w.action("tab.insert", &Fixed));
+    assert!(w.action("tab.insert", &Fixed));
+    let names = |w: &SheetWindow| -> Vec<String> {
+        w.view()
+            .engine()
+            .workbook()
+            .expect("wb")
+            .sheets
+            .iter()
+            .map(|s| s.name.clone())
+            .collect()
+    };
+    assert_eq!(names(&w).len(), 3);
+    // Double-click renames in place: the name is selected, typing replaces it.
+    let at = tab_xy(&w, 0);
+    press(&mut w, at, 1);
+    release(&mut w, at);
+    press(&mut w, at, 2);
+    release(&mut w, at);
+    assert!(w.tab_edit.is_some());
+    w.handle(Input::Text("Data".into()), &Fixed);
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert_eq!(names(&w)[0], "Data");
+    // Drag the first tab past the last one.
+    let from = tab_xy(&w, 0);
+    let (lx, ly) = tab_xy(&w, 2);
+    press(&mut w, from, 1);
+    w.handle(
+        Input::Drag {
+            x: lx + 30.0,
+            y: ly,
+        },
+        &Fixed,
+    );
+    release(&mut w, (lx + 30.0, ly));
+    assert_eq!(names(&w)[2], "Data", "{:?}", names(&w));
+    assert_eq!(w.view().sheet(), 2);
+    // Tab colour from the palette.
+    assert!(w.action("tab.color", &Fixed));
+    assert_eq!(w.form_kind, form_impl::FormKind::TabColor);
+    if let Some(f) = w.form.as_mut() {
+        f.set_sel("swatches", Some(5));
+    }
+    w.tabs_form_event(
+        form_impl::FormKind::TabColor,
+        &form_impl::Event::Changed("swatches"),
+    );
+    assert!(w.form.is_none());
+    assert!(w.tab_color(2).is_some());
+    // Hide, then Unhide from the list.
+    assert!(w.action("tab.hide", &Fixed));
+    assert_eq!(w.view().sheet_names().iter().flatten().count(), 2);
+    assert!(w.action("tab.unhide", &Fixed));
+    w.tabs_form_event(form_impl::FormKind::Unhide, &form_impl::Event::Ok);
+    assert_eq!(w.view().sheet_names().iter().flatten().count(), 3);
+    assert_eq!(w.view().sheet(), 2);
+}
+
+#[test]
+fn status_bar_statistics_are_chosen_in_its_menu() {
+    let mut w = window();
+    put(&mut w, &[(0, 0, "2"), (1, 0, "8"), (2, 0, "x")]);
+    w.view_mut().select((0, 0), (2, 0), (0, 0));
+    let st = w.view().stats();
+    assert_eq!((st.min, st.max), (Some(2.0), Some(8.0)));
+    assert!(w.status_item_on("status.sum"));
+    assert!(!w.status_item_on("status.max"));
+    let y = w.size.1 - w.status_h() / 2.0;
+    w.handle(Input::Context { x: 600.0, y }, &Fixed);
+    assert!(w.menu.is_some());
+    w.menu = None;
+    assert!(w.action("status.max", &Fixed));
+    assert!(w.action("status.sum", &Fixed));
+    assert!(w.status_item_on("status.max"));
+    assert!(!w.status_item_on("status.sum"));
+    // Shown in the reference's order with the workbook's decimal separator, right-aligned
+    // 41 px before the view buttons.
+    put(&mut w, &[(1, 0, "8,5")]);
+    w.view_mut().select((0, 0), (2, 0), (0, 0));
+    w.handle(Input::Blink, &Fixed);
+    let texts: Vec<&str> = w.stat_widths.iter().map(|t| t.0.as_str()).collect();
+    assert_eq!(texts, ["Average: 5,25", "Count: 3", "Maximum: 8,5"]);
+    let mut rec = Rec::default();
+    w.paint(&mut rec);
+    assert!(rec.texts.iter().any(|t| t.0 == "Maximum: 8,5"));
+}
+
+#[test]
+fn totals_row_drop_down_picks_the_function() {
+    let mut w = window();
+    put(
+        &mut w,
+        &[
+            (0, 0, "Item"),
+            (0, 1, "Price"),
+            (1, 0, "a"),
+            (1, 1, "10"),
+            (2, 0, "b"),
+            (2, 1, "30"),
+        ],
+    );
+    assert!(w.view_mut().run(serde_json::json!({
+        "cmd": "createTable", "range": { "r0": 0, "c0": 0, "r1": 2, "c1": 1 },
+    })));
+    assert!(w.view_mut().run(serde_json::json!({
+        "cmd": "tableUpdate", "table": 0, "totalsRow": true,
+    })));
+    // No button outside the totals row.
+    w.view_mut().select((1, 1), (1, 1), (1, 1));
+    assert!(w.totals_button().is_none());
+    w.view_mut().select((3, 1), (3, 1), (3, 1));
+    let [x, y, bw, bh] = w.totals_button().expect("button beside the total");
+    press(&mut w, (x + bw / 2.0, y + bh / 2.0), 1);
+    // A compact list: 20 px rows at 125 %.
+    let l = w.totals_list.clone().expect("function list");
+    assert_eq!(l.row, 20.0);
+    // Max is the fifth row.
+    press(&mut w, (l.rect[0] + 10.0, l.rect[1] + 1.0 + 4.5 * l.row), 1);
+    assert!(w.totals_list.is_none());
+    assert_eq!(shown(&w, 3, 1), "30");
+    assert!(w.action("total.max", &Fixed));
+    assert_eq!(shown(&w, 3, 1), "30");
+    assert!(w.action("total.average", &Fixed));
+    assert_eq!(shown(&w, 3, 1), "20");
+}
+
+#[test]
+fn new_table_style_dialog_makes_a_custom_style() {
+    use form_impl::Event;
+    let mut w = window();
+    put(
+        &mut w,
+        &[(0, 0, "Item"), (0, 1, "Price"), (1, 0, "a"), (1, 1, "10")],
+    );
+    assert!(w.view_mut().run(serde_json::json!({
+        "cmd": "createTable", "range": { "r0": 0, "c0": 0, "r1": 1, "c1": 1 },
+    })));
+    assert!(w.action("sheet.newTableStyle", &Fixed));
+    assert_eq!(w.form_kind, form_impl::FormKind::TableStyle);
+    assert_eq!(w.form.as_ref().expect("form").text("name"), "Table Style 1");
+    // Header Row: a dark fill, white bold text.
+    w.form.as_mut().expect("form").set_sel("elements", Some(7));
+    w.tstyle_event(&Event::Changed("elements"));
+    {
+        let f = w.form.as_mut().expect("form");
+        f.set_color("fill", "1F4E79");
+        f.set_color("text", "FFFFFF");
+        f.set_on("bold", true);
+    }
+    w.tstyle_event(&Event::Changed("fill"));
+    w.tstyle_event(&Event::Changed("bold"));
+    let desc = |w: &SheetWindow| match w.form.as_ref().and_then(|f| f.get("desc")).map(|c| &c.kind)
+    {
+        Some(form_impl::Kind::Note(s)) => s.clone(),
+        _ => String::new(),
+    };
+    assert_eq!(desc(&w), "Shaded; Bold; Font color");
+    // Whole Table shows its own (empty) format; Header Row keeps its own.
+    w.form.as_mut().expect("form").set_sel("elements", Some(0));
+    w.tstyle_event(&Event::Changed("elements"));
+    assert_eq!(w.form.as_ref().expect("form").color("fill"), "-");
+    assert_eq!(desc(&w), "");
+    // The preview draws the header fill.
+    w.form.as_mut().expect("form").set_sel("elements", Some(7));
+    w.tstyle_event(&Event::Changed("elements"));
+    w.handle(Input::Blink, &Fixed);
+    let mut rec = Rec::default();
+    w.paint(&mut rec);
+    assert!(rec.rects.iter().any(|r| r.1 == Rgba(0x1F, 0x4E, 0x79, 255)));
+    w.tstyle_event(&Event::Ok);
+    assert!(w.form.is_none(), "{}", w.status);
+    let wb = w.view().engine().workbook().expect("wb");
+    assert_eq!(wb.styles.table_styles.len(), 1);
+    assert_eq!(wb.styles.table_styles[0].elements[0].kind, "headerRow");
+    // The gallery lists it under Custom, and choosing it styles the table.
+    assert!(w.action("table.Table Style 1", &Fixed));
+    let wb = w.view().engine().workbook().expect("wb");
+    let t = &wb.sheets[0].tables[0];
+    let l = bo_sheet::table_style::look_in(wb, t, 0, 0).expect("header look");
+    assert_eq!(
+        (l.fill.as_deref(), l.font.as_deref(), l.bold),
+        (Some("1F4E79"), Some("FFFFFF"), true)
+    );
+    // A second style gets the next name.
+    assert!(w.action("sheet.newTableStyle", &Fixed));
+    assert_eq!(w.form.as_ref().expect("form").text("name"), "Table Style 2");
+}
+
+#[test]
+fn tab_then_enter_returns_to_the_first_column_and_enter_direction_is_an_option() {
+    let mut w = window();
+    let key = |w: &mut SheetWindow, k: Key| {
+        w.handle(Input::Key(k, Mods::default()), &Fixed);
+    };
+    w.view_mut().select((0, 1), (0, 1), (0, 1));
+    for s in ["a", "b", "c"] {
+        type_in(&mut w, s);
+        key(&mut w, Key::Tab);
+    }
+    assert_eq!(w.view().active(), (0, 4));
+    type_in(&mut w, "d");
+    key(&mut w, Key::Enter);
+    // Measured on the reference: Tab, Tab, …, Enter goes to the next row of the first column.
+    assert_eq!(w.view().active(), (1, 1));
+    assert_eq!(shown(&w, 0, 3), "c");
+    // An arrow ends the run: Enter then goes straight down.
+    key(&mut w, Key::Tab);
+    key(&mut w, Key::Right);
+    key(&mut w, Key::Enter);
+    assert_eq!(w.view().active(), (2, 3));
+    // "After pressing Enter, move selection": right, or not at all.
+    w.view_mut().set_enter_move(Some((0, 1)));
+    key(&mut w, Key::Enter);
+    assert_eq!(w.view().active(), (2, 4));
+    w.view_mut().set_enter_move(None);
+    type_in(&mut w, "5");
+    key(&mut w, Key::Enter);
+    assert_eq!(w.view().active(), (2, 4));
+    assert_eq!(shown(&w, 2, 4), "5");
+    // Each entry is one undo step, as the reference.
+    w.view_mut().undo();
+    assert_eq!(shown(&w, 2, 4), "");
+    assert_eq!(shown(&w, 0, 4), "d");
 }

@@ -75,7 +75,13 @@ pub(super) enum Tile {
         edges: [Option<(Line, Rgba)>; 4],
     },
     /// A table style (`TableStyleMedium2`), drawn as a small table in its look.
-    Table { name: String },
+    Table {
+        name: String,
+        /// The workbook's theme: the tile takes its colours (round 35).
+        theme: Option<bo_model::sheet::ThemeColors>,
+        /// The workbook's own style of that name (Custom section, round 38).
+        custom: Option<Box<bo_model::sheet::TableStyleParts>>,
+    },
 }
 
 /// A cell edge as the gallery draws it (§18.18.3 ST_BorderStyle, grouped by weight).
@@ -347,7 +353,11 @@ impl Gallery {
                 );
                 p.pop_clip();
             }
-            Tile::Table { name } => paint_table_tile(p, r, name),
+            Tile::Table {
+                name,
+                theme,
+                custom,
+            } => paint_table_tile(p, r, name, theme.as_ref(), custom.as_deref()),
         }
     }
 }
@@ -355,7 +365,13 @@ impl Gallery {
 /// A style's preview as the reference draws it: a table of five rows (header and four
 /// banded rows) and five columns in the style's fills and lines, a dash in each cell in the
 /// style's text colour (77 × 56 px tiles at 125 %).
-fn paint_table_tile(p: &mut dyn Painter, r: [f32; 4], name: &str) {
+fn paint_table_tile(
+    p: &mut dyn Painter,
+    r: [f32; 4],
+    name: &str,
+    theme: Option<&bo_model::sheet::ThemeColors>,
+    custom: Option<&bo_model::sheet::TableStyleParts>,
+) {
     use bo_model::sheet::{CellRange, CellRef, Table, TableStyleInfo};
     let t = Table {
         range: CellRange::new(CellRef::new(0, 0), CellRef::new(4, 4)),
@@ -375,7 +391,15 @@ fn paint_table_tile(p: &mut dyn Painter, r: [f32; 4], name: &str) {
     let looks: Vec<Vec<bo_sheet::table_style::Look>> = (0..5)
         .map(|k| {
             (0..5)
-                .map(|c| bo_sheet::table_style::look(&t, k, c).unwrap_or_default())
+                .map(|c| match custom {
+                    Some(s) => {
+                        bo_sheet::table_style::custom_look(s, &t, k, c, theme).unwrap_or_default()
+                    }
+                    None => bo_sheet::table_style::themed(
+                        bo_sheet::table_style::look(&t, k, c).unwrap_or_default(),
+                        theme,
+                    ),
+                })
                 .collect()
         })
         .collect();
@@ -680,7 +704,31 @@ impl SheetWindow {
     }
     fn table_gallery(&self) -> Gallery {
         let entries = bo_sheet::table_style::gallery();
+        let theme = self.view.engine().workbook().and_then(|w| w.theme.clone());
         let mut sections = Vec::new();
+        // The workbook's own styles first, under Custom (as the reference).
+        let custom: Vec<(String, Tile)> = self
+            .view
+            .engine()
+            .workbook()
+            .map(|w| w.styles.table_styles.clone())
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|s| !s.pivot)
+            .map(|s| {
+                (
+                    format!("table.{}", s.name),
+                    Tile::Table {
+                        name: s.name.clone(),
+                        theme: theme.clone(),
+                        custom: Some(Box::new(s)),
+                    },
+                )
+            })
+            .collect();
+        if !custom.is_empty() {
+            sections.push((self.t("sheetGallery.custom", "Custom"), custom));
+        }
         for (family, key, fallback) in [
             ("light", "sheetGallery.light", "Light"),
             ("medium", "sheetGallery.medium", "Medium"),
@@ -694,6 +742,8 @@ impl SheetWindow {
                         format!("table.{}", e.name),
                         Tile::Table {
                             name: e.name.clone(),
+                            theme: theme.clone(),
+                            custom: None,
                         },
                     )
                 })
@@ -771,7 +821,8 @@ impl SheetWindow {
     pub(super) fn gallery_action(&mut self, id: &str) -> Option<bool> {
         Some(match id {
             "sheet.newCellStyle" => self.open_cell_style_form(),
-            "sheet.newTableStyle" | "sheet.newPivotStyle" => {
+            "sheet.newTableStyle" => self.open_table_style_form(),
+            "sheet.newPivotStyle" => {
                 self.status = self.t(
                     "sheetGallery.newStyleLater",
                     "Custom table styles are not available yet.",

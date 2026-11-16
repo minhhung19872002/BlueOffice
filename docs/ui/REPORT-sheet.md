@@ -705,3 +705,96 @@ Formatting Rules Manager (vùng chọn / cả trang, New / Edit / Delete, ▲▼
 - Kiểu bảng theo chủ đề; tạo kiểu bảng riêng; hàm hàng tổng chọn từ ô (engine có `tableTotal`).
 - Paste Special phép toán; Ctrl khi kéo tay nắm; hộp thoại của đối chứng cho Select Data / Move Chart / Paste Special
   chưa chụp được để so.
+
+## Vòng 8 — phím / bánh xe, Page Break Preview, Page Layout, kiểu bảng, thanh trạng thái, thẻ trang tính
+
+Nhánh `worktree-agent-a37eb65ddcdb44eeb` (từ `work/desktop-performance`, có gộp lại sau "Merge BlueSheet round 7").
+Ảnh so sánh `show/sheet-22…28` của thư mục scratch phiên (đối chứng trái, BlueSheet phải).
+
+### Vòng 33 — phím mũi tên, bánh xe
+
+Engine: `WbSlot` bọc sổ đang mở, chỉ mục các công thức mảng cũ của từng trang dựng lần đọc đầu và bỏ khi có truy cập
+sửa (`DerefMut`), nên đọc chi tiết ô hiện hành (`SheetEngine::cell`) không còn duyệt mọi ô. Bản release, `big10k.xlsx`,
+30 lần, `BLUEOFFICE_NATIVE_PERF`:
+
+| | trung vị / p95 |
+|---|---|
+| Phím mũi tên, `handle` (vòng 7: 1,3–1,8 ms) | 0,07 / 0,08 ms |
+| Phím mũi tên, input → present | 0,98 / 1,27 ms |
+| Nấc bánh xe, `handle` | 0,04 / 0,09 ms |
+| Nấc bánh xe, input → present (lưới 1,7 ms) | 2,5 / 5,3 ms |
+
+Trên màn hình (`thumb.ps1`, 900 × 700, 30 nấc, 144 Hz): BlueSheet 7,4 / 14,9 ms, 22/30 nấc hiện sau một khung (đối chứng
+vòng 7: 7,7 / 14,0 ms, 26/30). DirectComposition chưa thử: swap chain flip + waitable đã bắt kịp khung ghép ở đa số nấc;
+các nấc lỡ khung trùng lúc lưới dựng dải mới (lưới 4,4 ms ở p95).
+
+### Vòng 34 — Page Break Preview, Page Layout
+
+- View › Normal / Page Layout / Page Break Preview và ba nút xem trên thanh trạng thái; kiểu xem và zoom lưu theo trang
+  (`sheetView/@view`, `zoomScaleNormal` / `zoomScalePageLayoutView` / `zoomScaleSheetLayoutView`, §18.3.1.87), Page
+  Break Preview mở 60 % lần đầu như đối chứng.
+- Page Break Preview: ô ngoài vùng in xám #A0A0A0, khung vùng in xanh #0000D0 3 px, ngắt tự động nét đứt 9/3 px, ngắt
+  tay nét liền, chữ "Page N" xám lớn; kéo ngắt bằng chuột (`movePageBreak`, một bước hoàn tác) (`sheet-25`).
+- Phân trang: đo đối chứng qua `HPageBreaks` / `VPageBreaks` (`xbrk.ps1`) trên `pb-pbp.xlsx` (không có `paperSize`,
+  lề 0,75 / 1 in, hàng 14,4 pt): đối chứng ngắt trước hàng 45 và 89, cột K. BlueSheet ngắt trước hàng 47 vì (1) tệp
+  không ghi khổ giấy thì engine dùng A4, còn đối chứng dùng khổ của máy in mặc định (theo vùng: Letter); (2) 45 hàng
+  × 14,4 = 648 pt lấp đúng chiều cao in được, đối chứng không nhận hàng lấp vừa khít. Sửa: `SheetEngine::set_default_paper`
+  (host đọc `iPaperSize` của vùng), khi tỷ lệ cố định thì hàng/cột lấp vừa khít sang trang sau (khi co cho vừa N trang
+  vẫn lấp tới mép). Test `breaks_match_the_reference_on_letter`. Còn (3): Page Break Preview mở ở 60 %, chiều cao hàng
+  của lưới làm tròn theo pixel ở zoom đó (15 pt thay vì 14,4 pt) nên ngắt lệch; đối chứng giữ chiều cao hàng theo point
+  bất kể zoom. Engine có hình học riêng cho trang ở tỷ lệ màn hình 100 % (`set_print_scale`, `printing`): phân trang,
+  khung nhìn trang, xem trước, in đều dùng nó; test `zoom_does_not_move_page_breaks`. Sau sửa: ngắt trước hàng 45 và
+  89, cột K, như đối chứng.
+- Page Layout view: các trang trên nền #E6E6E6, thước trên/trái (lề #F2F2F2, inch theo `iMeasure` của vùng), chữ cột /
+  số hàng từng trang, vùng đầu trang "Add header", chọn ô trên trang; thanh trạng thái ghi "Page: 1 of 6" như đối chứng.
+  Dải trên đo lại: từ khung tới mép trang 98 px ở 125 % (trước 91 px) (`sheet-26`).
+
+### Vòng 35 — kiểu bảng theo chủ đề, hàng tổng
+
+- Màu đo của 60 kiểu dựng sẵn được quy về (màu chủ đề, tint) của chủ đề mặc định (`table_style::themed`); sổ có chủ đề
+  riêng thì bảng, ô thư viện và viền lấy màu của chủ đề đó. Đo trên đối chứng với Theme Colors › Green
+  (`xth.ps1`): tiêu đề 549E39, dải DBEFD3 — khớp (`sheet-22`).
+- Nút thả xuống bên phải ô hàng tổng khi ô hiện hành ở hàng tổng; danh sách hàm (None, Average, Count, Count Numbers,
+  Max, Min, Sum, StdDev, Var, More Functions…) là hộp danh sách gọn như đối chứng: hàng 20 px ở 125 %, chữ cỡ giao diện,
+  viền 1 px, hàng đang chọn nền #0078D7 chữ trắng; ghi bằng `tableTotal` (`sheet-23`).
+- Nút lọc ▾ trên hàng tiêu đề của bảng có `autoFilter` (cùng cỡ, vị trí với AutoFilter của trang; `hiddenButton` ẩn).
+  Mở danh sách lọc của cột bảng chưa làm (engine `filterValues` chỉ cho AutoFilter của trang).
+
+### Vòng 36 — Paste Special phép toán, Ctrl khi kéo tay nắm
+
+- Engine `paste` với `operation` add / subtract / multiply / divide, `skipBlanks`, `transpose`; quy tắc đo qua mô hình
+  đối tượng của đối chứng (ô trống = 0, đích là chữ / logic giữ nguyên, `=(công thức)+3`, nguồn công thức thành
+  `=5+(công thức)`). Hộp Paste Special bật nhóm Operation.
+- Ctrl khi thả tay nắm điền: host đọc `MK_CONTROL` của thông điệp chuột lúc thả (input gửi vào cũng mang), engine
+  `autofill` `mode: toggle` (một số → chuỗi, còn lại → chép).
+- Hoàn tác: mỗi lần nhập ô, dán, điền là một bước như đối chứng (test). Enter: Tab, Tab, … rồi Enter về cột bắt đầu ở hàng
+  dưới (như đối chứng); hướng Enter là tuỳ chọn (`set_enter_move`, `BLUEOFFICE_SHEET_ENTER=down|right|up|left|none`,
+  chưa có hộp Options).
+
+### Vòng 37 — thanh trạng thái, thẻ trang tính
+
+- Thống kê vùng chọn (Average / Count / Numerical Count / Minimum / Maximum / Sum; mặc định Average, Count, Sum) chọn
+  bằng menu chuột phải của thanh trạng thái. Đo đối chứng ở 125 %: mục cuối kết thúc 41 px trước nút xem đầu tiên, các
+  mục cách nhau 28 px; số theo dấu thập phân của sổ ("Average: 11,5"). Chuỗi đo lúc xử lý input, khi vẽ không hỏi engine
+  (`sheet-24`). Mục Accessibility của đối chứng không làm.
+- Thẻ trang: màu thẻ (thẻ không chọn tô màu, thẻ đang chọn nhạt dần xuống 47 % màu), nhấp đúp đổi tên tại chỗ, kéo để
+  đổi chỗ (dấu đen nơi thả), menu chuột phải Insert / Delete / Rename / Move or Copy… / View Code / Protect Sheet… / Tab
+  Color / Hide / Unhide… / Select All Sheets; engine `setSheetHidden` (§18.2.19, giữ ít nhất một trang hiện).
+
+### Vòng 38 — kiểu bảng riêng
+
+- Engine `createTableStyle`: §18.8.40 `tableStyle` (pivot="0") với định dạng các thành phần trong `dxfs`, tên không trùng
+  (không phân biệt hoa thường ở mọi chữ viết), không trùng tên dựng sẵn; `setDefault` ghi `defaultTableStyle` và bảng mới
+  (Ctrl+T, Format as Table) lấy kiểu mặc định của sổ. Đọc lại từ tệp (`Stylesheet::table_styles`). Vẽ: các thành phần
+  chồng theo thứ tự ưu tiên (toàn bảng, dải cột, dải hàng có kích thước, cột cuối / đầu, hàng tiêu đề / tổng, ô góc), viền
+  ngoài theo vùng của thành phần, đường trong (`horizontal` / `vertical`) bên trong.
+- Hộp New Table Style…: tên, 13 thành phần (§18.18.83), định dạng ngay trong hộp (tô nền, màu chữ, đậm, viền một màu)
+  thay cho hộp Format Cells thứ hai, Clear, xem trước, dòng "Element Formatting", đặt làm mặc định (`sheet-27`).
+  Thư viện Format as Table có mục Custom ở đầu.
+
+## Còn lại (sau vòng 8)
+
+- Danh sách lọc của nút lọc trên tiêu đề bảng (engine lọc theo bảng).
+- Bánh xe: 8/30 nấc lỡ một khung khi lưới dựng dải mới; DirectComposition chưa thử.
+- Hộp Options (hướng Enter, …); thanh trạng thái: mục Accessibility, giá trị bên phải trong menu thống kê.
+- Hộp New Table Style của đối chứng không mở được bằng input gửi vào (chỉ có ảnh BlueSheet).

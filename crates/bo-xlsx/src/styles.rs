@@ -128,6 +128,8 @@ pub(crate) fn read_styles(data: &[u8], part: &str) -> Result<Stylesheet> {
         Ok(())
     })?;
     ss.frame_styles = frame_styles(&ss);
+    ss.table_styles = table_styles(&ss);
+    ss.default_table_style = default_table_style(&ss);
     Ok(ss)
 }
 
@@ -893,6 +895,181 @@ fn set_count(xml: &str, local: &str, n: usize) -> String {
     format!("{}{new_tag}{}", &xml[..start], &xml[end..])
 }
 
+/// The custom table styles of a stylesheet: each §18.8.40 `tableStyle` of §18.8.41
+/// `tableStyles` usable for tables (`table` not 0) with its §18.8.85 elements, formats from
+/// §18.8.15 `dxfs`.
+#[must_use]
+pub fn table_styles(ss: &Stylesheet) -> Vec<bo_model::sheet::TableStyleParts> {
+    use crate::chart::parse_dom;
+    use bo_model::sheet::{TableStyleElementParts, TableStyleParts};
+    let mut out = Vec::new();
+    for u in &ss.unknown {
+        if !u.xml.trim_start().starts_with("<tableStyles") {
+            continue;
+        }
+        let Some(dom) = parse_dom(u.xml.as_bytes(), "styles") else {
+            continue;
+        };
+        let mut found = Vec::new();
+        dom.descendants("tableStyle", &mut found);
+        for t in found {
+            let Some(name) = t.attr("name") else { continue };
+            if t.attr("table") == Some("0") {
+                continue;
+            }
+            let elements = t
+                .children
+                .iter()
+                .filter(|c| c.name == "tableStyleElement")
+                .filter_map(|el| {
+                    Some(TableStyleElementParts {
+                        kind: el.attr("type")?.to_owned(),
+                        size: el
+                            .attr("size")
+                            .and_then(|v| v.parse().ok())
+                            .unwrap_or(1)
+                            .max(1),
+                        dxf: el
+                            .attr("dxfId")
+                            .and_then(|v| v.parse::<usize>().ok())
+                            .and_then(|i| ss.dxfs.get(i).cloned()),
+                    })
+                })
+                .collect();
+            out.push(TableStyleParts {
+                name: name.to_owned(),
+                pivot: t.attr("pivot") != Some("0"),
+                elements,
+            });
+        }
+    }
+    out
+}
+
+/// Adds a custom table style (§18.8.40 `tableStyle` with `pivot="0"`, its element formats
+/// appended to §18.8.15 `dxfs`) to §18.8.41 `tableStyles`; `default` also makes it the
+/// `defaultTableStyle`. [`Stylesheet::table_styles`] is read again.
+///
+/// # Errors
+/// An empty name, a built-in table style name or a name the workbook uses already.
+pub fn add_table_style(
+    ss: &mut Stylesheet,
+    style: &bo_model::sheet::TableStyleParts,
+    default: bool,
+) -> std::result::Result<(), &'static str> {
+    let name = style.name.trim();
+    if name.is_empty() {
+        return Err("empty style name");
+    }
+    let builtin = ["TableStyleLight", "TableStyleMedium", "TableStyleDark"]
+        .iter()
+        .any(|p| {
+            name.strip_prefix(p)
+                .is_some_and(|d| !d.is_empty() && d.chars().all(|c| c.is_ascii_digit()))
+        });
+    let taken = builtin
+        || ss
+            .frame_styles
+            .iter()
+            .any(|s| s.name.to_lowercase() == name.to_lowercase())
+        || ss
+            .table_styles
+            .iter()
+            .any(|s| s.name.to_lowercase() == name.to_lowercase());
+    if taken {
+        return Err("style name in use");
+    }
+    let name = escape(name);
+    let mut elements = String::new();
+    for el in &style.elements {
+        let size = if el.size > 1 {
+            format!(" size=\"{}\"", el.size)
+        } else {
+            String::new()
+        };
+        let dxf = el.dxf.as_ref().map_or_else(String::new, |d| {
+            ss.dxfs.push(d.clone());
+            format!(" dxfId=\"{}\"", ss.dxfs.len() - 1)
+        });
+        let _ = write!(
+            elements,
+            "<tableStyleElement type=\"{}\"{size}{dxf}/>",
+            escape(&el.kind)
+        );
+    }
+    let count = style.elements.len();
+    let table = |p: &str| {
+        format!(
+            "<{p}tableStyle name=\"{name}\" pivot=\"0\" count=\"{count}\">{}</{p}tableStyle>",
+            elements.replace("<tableStyleElement", &format!("<{p}tableStyleElement"))
+        )
+    };
+    let found = ss
+        .unknown
+        .iter()
+        .position(|u| u.xml.trim_start().starts_with("<tableStyles"));
+    let i = if let Some(i) = found {
+        if let Some(x) = append_child(&ss.unknown[i].xml, "tableStyles", table) {
+            let n = x.matches("tableStyle ").count();
+            ss.unknown[i].xml = set_count(&x, "tableStyles", n);
+        }
+        i
+    } else {
+        ss.unknown.push(bo_model::sheet::RawXml {
+            after: "tableStyles".into(),
+            xml: format!(
+                "<tableStyles count=\"1\" defaultTableStyle=\"TableStyleMedium2\" defaultPivotStyle=\"PivotStyleLight16\">{}</tableStyles>",
+                table("")
+            ),
+        });
+        ss.unknown.len() - 1
+    };
+    if default {
+        ss.unknown[i].xml = set_attr(
+            &ss.unknown[i].xml,
+            "tableStyles",
+            "defaultTableStyle",
+            &name,
+        );
+    }
+    ss.table_styles = table_styles(ss);
+    ss.default_table_style = default_table_style(ss);
+    Ok(())
+}
+
+/// Sets attribute `attr` of the first element named `local` in `xml` (added when missing);
+/// `value` is already escaped.
+fn set_attr(xml: &str, local: &str, attr: &str, value: &str) -> String {
+    let Some((start, end, _, closed)) = find_element(xml, local) else {
+        return xml.to_owned();
+    };
+    let tag = &xml[start..end];
+    let key = format!(" {attr}=\"");
+    let new_tag = if let Some(k) = tag.find(&key) {
+        let v = k + key.len();
+        let close = tag[v..].find('"').map_or(tag.len(), |e| v + e);
+        format!("{}{value}{}", &tag[..v], &tag[close..])
+    } else {
+        let cut = tag.len() - if closed { 2 } else { 1 };
+        format!("{}{key}{value}\"{}", &tag[..cut], &tag[cut..])
+    };
+    format!("{}{new_tag}{}", &xml[..start], &xml[end..])
+}
+
+/// The `defaultTableStyle` of §18.8.41 `tableStyles`, when the stylesheet has one.
+#[must_use]
+pub fn default_table_style(ss: &Stylesheet) -> Option<String> {
+    let u = ss
+        .unknown
+        .iter()
+        .find(|u| u.xml.trim_start().starts_with("<tableStyles"))?;
+    let (start, end, _, _) = find_element(&u.xml, "tableStyles")?;
+    let tag = &u.xml[start..end];
+    let k = tag.find(" defaultTableStyle=\"")? + 20;
+    let e = tag[k..].find('"')?;
+    Some(bo_opc::xml::unescape(&tag[k..k + e]))
+}
+
 /// Is `name` one of the built-in slicer or timeline style names (`SlicerStyleLight1`,
 /// `TimeSlicerStyleDark6`, …)?
 fn builtin_frame_style(name: &str) -> bool {
@@ -1092,6 +1269,47 @@ mod frame_style_tests {
 
     /// A new slicer style and a new timeline style in a styles part that has no table styles and
     /// no extensions: written as [MS-XLSX] lays them out and read back with their formats.
+    #[test]
+    fn new_table_styles_are_written_and_read_back() {
+        use bo_model::sheet::{TableStyleElementParts, TableStyleParts};
+        let mut ss = read_styles(PLAIN.as_bytes(), "styles.xml").unwrap();
+        let style = TableStyleParts {
+            name: "Bảng & xanh".into(),
+            pivot: false,
+            elements: vec![
+                TableStyleElementParts {
+                    kind: "headerRow".into(),
+                    size: 1,
+                    dxf: Some(fill("1F4E79")),
+                },
+                TableStyleElementParts {
+                    kind: "firstRowStripe".into(),
+                    size: 2,
+                    dxf: Some(fill("DDEBF7")),
+                },
+            ],
+        };
+        add_table_style(&mut ss, &style, true).unwrap();
+        assert_eq!(
+            add_table_style(&mut ss, &style, false),
+            Err("style name in use")
+        );
+        let builtin = TableStyleParts {
+            name: "TableStyleMedium2".into(),
+            ..TableStyleParts::default()
+        };
+        assert!(add_table_style(&mut ss, &builtin, false).is_err());
+        let xml = write_styles(&ss);
+        assert!(
+            xml.contains(r#"<tableStyle name="Bảng &amp; xanh" pivot="0" count="2"><tableStyleElement type="headerRow" dxfId="0"/><tableStyleElement type="firstRowStripe" size="2" dxfId="1"/></tableStyle>"#),
+            "{xml}"
+        );
+        let back = read_styles(xml.as_bytes(), "styles.xml").unwrap();
+        assert_eq!(back.table_styles, vec![style]);
+        assert_eq!(default_table_style(&back).as_deref(), Some("Bảng & xanh"));
+        assert_eq!(back.default_table_style.as_deref(), Some("Bảng & xanh"));
+    }
+
     #[test]
     fn new_frame_styles_are_written_and_read_back() {
         let mut ss = read_styles(PLAIN.as_bytes(), "styles.xml").unwrap();

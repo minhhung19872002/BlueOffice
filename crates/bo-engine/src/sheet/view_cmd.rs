@@ -18,7 +18,7 @@
 //!   AutoFilter instead.
 
 use super::cmd::Recalc;
-use super::print::{settings, PageBox, Pagination};
+use super::print::{settings_on, PageBox, Pagination};
 use super::SheetEngine;
 use crate::{EngineError, Result};
 use bo_model::sheet::{
@@ -234,6 +234,11 @@ fn sel_cell(text: Option<&str>) -> Option<[u32; 2]> {
 impl SheetEngine {
     /// Runs a view command.
     pub fn view_command(&mut self, cmd: ViewCommand) -> Result<Value> {
+        // Pages are laid out at the print scale (row heights at 100 % zoom).
+        self.printing(|e| e.view_command_at(cmd))
+    }
+
+    fn view_command_at(&mut self, cmd: ViewCommand) -> Result<Value> {
         if cmd.edits() {
             self.writable()?;
         }
@@ -249,7 +254,7 @@ impl SheetEngine {
                 if let Some(on) = outline_symbols {
                     let ws = self
                         .wb
-                        .as_mut()
+                        .as_deref_mut()
                         .ok_or(EngineError::NoDocument)?
                         .sheets
                         .get_mut(sheet)
@@ -336,7 +341,7 @@ impl SheetEngine {
                         .filter_map(Value::as_u64)
                         .filter_map(|v| usize::try_from(v).ok())
                         .collect();
-                    if let Some(wb) = self.wb.as_mut() {
+                    if let Some(wb) = self.wb.as_deref_mut() {
                         for s in sheets {
                             bo_sheet::filter::apply_auto_filter(wb, s, &locale);
                         }
@@ -366,7 +371,7 @@ impl SheetEngine {
         show_formulas: Option<bool>,
         zoom: Option<u32>,
     ) -> Result<Value> {
-        let wb = self.wb.as_mut().ok_or(EngineError::NoDocument)?;
+        let wb = self.wb.as_deref_mut().ok_or(EngineError::NoDocument)?;
         let ws = wb
             .sheets
             .get_mut(sheet)
@@ -401,7 +406,7 @@ impl SheetEngine {
 
     fn break_preview(&mut self, sheet: usize) -> Result<Value> {
         let ws = self.sheet(sheet)?;
-        let st = settings(ws);
+        let st = settings_on(ws, self.default_paper);
         let manual_rows = ws.page_setup.row_breaks.clone();
         let manual_cols = ws.page_setup.col_breaks.clone();
         let mut number = st.first_page;
@@ -441,7 +446,7 @@ impl SheetEngine {
         from: Option<u32>,
         to: u32,
     ) -> Result<Value> {
-        let st = settings(self.sheet(sheet)?);
+        let st = settings_on(self.sheet(sheet)?, self.default_paper);
         let pags = self.paginations(sheet, &st)?;
         let (range, p): &(bo_model::sheet::CellRange, Pagination) =
             pags.get(area).ok_or_else(|| bad("no such print area"))?;

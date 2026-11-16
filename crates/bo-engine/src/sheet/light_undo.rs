@@ -491,7 +491,7 @@ impl SheetEngine {
     /// formulas, the hidden rows, the defined names and the sheets added or removed
     /// at the end only; a reload when the step says so (rows inserted / deleted).
     pub(crate) fn sync_light(&mut self, step: &Light, sheets_before: usize) {
-        let Some(wb) = self.wb.as_mut() else {
+        let Some(wb) = self.wb.as_deref_mut() else {
             return;
         };
         if step.fx.reload {

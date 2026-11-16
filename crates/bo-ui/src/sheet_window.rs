@@ -47,6 +47,14 @@ mod paste_impl;
 mod review_impl;
 #[path = "sheet_tabledesign.rs"]
 mod tabledesign_impl;
+#[path = "sheet_tabs.rs"]
+mod tabs_impl;
+#[path = "sheet_totals.rs"]
+mod totals_impl;
+#[path = "sheet_tstyle.rs"]
+mod tstyle_impl;
+#[path = "sheet_viewmode.rs"]
+mod viewmode_impl;
 use crate::strings::Strings;
 use crate::theme::Theme;
 use crate::titlebar::{NcHit, TitleBar};
@@ -55,6 +63,7 @@ use bo_edit::FormatState;
 use bo_model::Alignment;
 use bo_render::{PathSeg, Rgba};
 use serde_json::json;
+pub use viewmode_impl::ViewMode;
 
 /// Menus of the chart tabs.
 pub(crate) fn chart_menu(id: &str) -> Vec<(String, String)> {
@@ -196,8 +205,6 @@ fn sheet_enabled(id: &str, f: &FormatState) -> bool {
         | "sheet.dataModel"
         | "sheet.forecastSheet"
         | "sheet.watchWindow"
-        | "sheet.viewPageBreak"
-        | "sheet.viewPageLayout"
         | "sheet.ruler"
         | "sheet.newWindow"
         | "sheet.split"
@@ -303,6 +310,24 @@ pub struct SheetWindow {
     add_rect: [f32; 4],
     /// Zoom controls: minus, slider track, plus, percentage.
     zoom_rects: [[f32; 4]; 4],
+    /// Page layout view ruler in inches (the region's measurement system).
+    ruler_inches: bool,
+    /// The sheet's saved view (Page Layout / Page Break Preview) was applied.
+    view_synced: bool,
+    /// Sheet tab renamed in place / dragged.
+    tab_edit: Option<tabs_impl::TabEdit>,
+    tab_drag: Option<tabs_impl::TabDrag>,
+    /// Status bar statistics shown ([`tabs_impl::STATUS_ITEMS`]).
+    status_items: [bool; 6],
+    /// Hidden sheets listed by Unhide, and the colours of Tab Color.
+    unhide_list: Vec<usize>,
+    tab_palette: Vec<String>,
+    /// New Table Style… being made.
+    tstyle: Option<tstyle_impl::TStyleDraft>,
+    /// Open function list of the totals row drop-down.
+    totals_list: Option<totals_impl::TotalsList>,
+    /// Status bar statistics measured at input time (text, width), for painting.
+    stat_widths: Vec<(String, f32)>,
     zoom_drag: bool,
     /// Scroll bar drags: pointer offset from the thumb start (vertical, horizontal).
     vdrag: Option<f32>,
@@ -437,6 +462,16 @@ impl SheetWindow {
             tab_label_widths: Vec::new(),
             add_rect: [0.0; 4],
             zoom_rects: [[0.0; 4]; 4],
+            ruler_inches: false,
+            view_synced: false,
+            tab_edit: None,
+            tab_drag: None,
+            status_items: tabs_impl::STATUS_ITEMS.map(|s| s.3),
+            unhide_list: Vec::new(),
+            tab_palette: Vec::new(),
+            tstyle: None,
+            totals_list: None,
+            stat_widths: Vec::new(),
             zoom_drag: false,
             vdrag: None,
             hdrag: None,
@@ -676,6 +711,10 @@ impl SheetWindow {
         self.zoom_rects = [minus, track, plus, pct];
         self.update_bars();
         self.view.measure_labels(text);
+        if !self.view_synced && self.size.0 > 1.0 {
+            self.view_synced = true;
+            self.sync_view_mode(text);
+        }
     }
 
     fn layout_tabs(&mut self, text: &dyn TextMeasure) {
@@ -898,6 +937,12 @@ impl SheetWindow {
     /// Run window command `id`; `true` when the window changed.
     fn action(&mut self, id: &str, text: &dyn TextMeasure) -> bool {
         if let Some(done) = self.sheet_action(id, text) {
+            return done;
+        }
+        if let Some(done) = self.tabs_action(id, text) {
+            return done;
+        }
+        if let Some(done) = self.totals_action(id) {
             return done;
         }
         let f = self.view.format().clone();
@@ -1287,6 +1332,15 @@ impl SheetWindow {
             d.layout(text, self.size, self.scale);
         }
         self.layout_form(text);
+        let style = self.ui_style();
+        self.stat_widths = self
+            .status_stat_parts()
+            .into_iter()
+            .map(|t| {
+                let w = text.measure(&t, style).0;
+                (t, w)
+            })
+            .collect();
         if let Some(e) = self.view.take_error() {
             self.status = e;
         }
@@ -1460,6 +1514,12 @@ impl SheetWindow {
                 return self.calculate(m.shift);
             }
         }
+        if let Some(done) = self.totals_list_input(&input) {
+            return done;
+        }
+        if let Some(done) = self.tabs_input(&input, text) {
+            return done;
+        }
         if let Input::Context { x, y } = input {
             if self.view.context_at(x, y).is_some() {
                 self.context_menu(x, y);
@@ -1510,6 +1570,9 @@ impl SheetWindow {
         // Status bar zoom.
         match input {
             Input::Press { x, y, .. } if y >= status_top => {
+                if let Some(done) = self.view_button_press(x, y, text) {
+                    return done;
+                }
                 let hit = self.zoom_rects.iter().position(|r| Self::in_rect(*r, x, y));
                 return match hit {
                     Some(0) => self.zoom_to(((self.view.zoom() - 0.1) * 10.0).round() / 10.0, text),
@@ -1547,7 +1610,11 @@ impl SheetWindow {
                     .find(|(_, tx, tw)| x >= *tx && x < tx + tw)
                 {
                     let i = *i;
-                    return self.view.set_sheet(i);
+                    let done = self.view.set_sheet(i);
+                    if done {
+                        self.sync_view_mode(text);
+                    }
+                    return done;
                 }
                 return false;
             }
@@ -1600,6 +1667,7 @@ impl SheetWindow {
                 }
                 self.ribbon.press(x, y)
             }
+            Input::Press { x, y, .. } if self.totals_press(x, y) => true,
             Input::Press { x, y, .. } if self.filter_button_at(x, y).is_some() => {
                 let col = self.filter_button_at(x, y).unwrap_or_default();
                 if self.view.editing() {
@@ -1754,8 +1822,11 @@ impl SheetWindow {
             self.paint_formula_bar(p);
         }
         self.paint_tabs(p);
+        self.paint_tab_extras(p);
         self.paint_scrollbars(p);
         self.paint_status(p);
+        self.paint_totals_button(p);
+        self.paint_totals_list(p);
         self.paint_filter(p);
         self.paint_gallery(p);
         self.paint_cf_menu(p);
@@ -1837,6 +1908,8 @@ impl SheetWindow {
             self.paint_more_colors(r, p);
         } else if self.form_kind == form_impl::FormKind::CfManager {
             self.paint_cf_rules(r, p, self.scale / 1.25);
+        } else if self.form_kind == form_impl::FormKind::TableStyle && id == "preview" {
+            self.paint_tstyle_preview(r, p);
         }
     }
 
@@ -2101,8 +2174,12 @@ impl SheetWindow {
             // Measured: white tab from the strip's top edge to 3 px above its bottom, #999999
             // sides, a 2 px green bar 2 px above the tab's bottom, bold green label.
             let tab_h = h - self.px(2.4);
+            if !active {
+                self.paint_tab_fill(p, *i, [*x, y, *tw, tab_h], false);
+            }
             if active {
                 p.fill_rect(*x, y, *tw, tab_h, WHITE);
+                self.paint_tab_fill(p, *i, [*x, y, *tw, tab_h], true);
                 p.fill_rect(*x, y, 1.0, tab_h, TABS_EDGE);
                 p.fill_rect(x + tw - 1.0, y, 1.0, tab_h, TABS_EDGE);
                 let bar = self.px(1.6).max(2.0);
@@ -2124,6 +2201,8 @@ impl SheetWindow {
             }
             let ink = if active {
                 SEL_GREEN
+            } else if self.tab_color(*i).is_some() {
+                Rgba(0, 0, 0, 255)
             } else {
                 Rgba(0x44, 0x44, 0x44, 255)
             };
@@ -2166,6 +2245,45 @@ impl SheetWindow {
         );
     }
 
+    /// The selection statistics shown in the status bar ("Average: 11,5", "Count: 7", …),
+    /// in the reference's order; empty for a single cell.
+    fn status_stat_parts(&self) -> Vec<String> {
+        let st = self.view.stats();
+        if st.count <= 1 {
+            return Vec::new();
+        }
+        // The workbook's decimal separator, as the reference ("Average: 11,5" in vi-VN).
+        let decimal = self.view.engine().number_locale().decimal;
+        let num = |v: f64| {
+            let s = format!("{v:.10}");
+            let s = s.trim_end_matches('0').trim_end_matches('.').to_owned();
+            if s == "-0" {
+                "0".to_owned()
+            } else {
+                s.replace('.', &decimal.to_string())
+            }
+        };
+        // The statistics chosen in the status bar's menu, in the reference's order.
+        let mut parts = Vec::new();
+        for (id, key, fallback, _) in tabs_impl::STATUS_ITEMS {
+            if !self.status_item_on(id) {
+                continue;
+            }
+            let value = match id {
+                "status.average" => st.average.map(num),
+                "status.count" => Some(st.count.to_string()),
+                "status.numCount" => Some(st.numbers.to_string()),
+                "status.min" => st.min.filter(|_| st.numbers > 0).map(num),
+                "status.max" => st.max.filter(|_| st.numbers > 0).map(num),
+                _ => (st.numbers > 0).then(|| num(st.sum)),
+            };
+            if let Some(v) = value {
+                parts.push(format!("{}: {v}", self.t(key, fallback)));
+            }
+        }
+        parts
+    }
+
     fn paint_status(&self, p: &mut dyn Painter) {
         let (w, h) = self.size;
         let sh = self.status_h();
@@ -2193,47 +2311,22 @@ impl SheetWindow {
             self.t("sheetEditor.ready", "Ready")
         };
         p.text(&mode, self.px(11.2), ty - 1.0, style, STATUS_TEXT);
-        // Selection statistics, right-aligned before the zoom controls.
-        let st = self.view.stats();
-        if st.count > 1 {
-            let num = |v: f64| {
-                let s = format!("{v:.10}");
-                let s = s.trim_end_matches('0').trim_end_matches('.').to_owned();
-                if s == "-0" {
-                    "0".to_owned()
-                } else {
-                    s
-                }
-            };
-            let mut parts = Vec::new();
-            if let Some(a) = st.average {
-                parts.push(format!(
-                    "{}: {}",
-                    self.t("sheetEditor.average", "Average"),
-                    num(a)
-                ));
-            }
-            parts.push(format!(
-                "{}: {}",
-                self.t("sheetEditor.count", "Count"),
-                st.count
-            ));
-            if st.numbers > 0 {
-                parts.push(format!(
-                    "{}: {}",
-                    self.t("sheetEditor.sum", "Sum"),
-                    num(st.sum)
-                ));
-            }
-            let text = parts.join("      ");
-            let est = text.chars().count() as f32 * style.size * 0.52;
-            p.text(
-                &text,
-                (self.zoom_rects[0][0] - self.px(150.0) - est).round(),
-                ty,
-                style,
-                STATUS_TEXT,
-            );
+        // Page layout view: the page of the active cell, as the reference ("Page: 1 of 6").
+        if let Some((n, of)) = self.view.layout_page_of_active() {
+            let s = self
+                .t("sheetNative.pageOf", "Page: {n} of {of}")
+                .replace("{n}", &n.to_string())
+                .replace("{of}", &of.to_string());
+            p.text(&s, self.px(112.0), ty - 1.0, style, STATUS_TEXT);
+        }
+        // Selection statistics, right-aligned before the view buttons: measured on the
+        // reference at 125 %, the last one ends 41 px before the first view button and they
+        // are 28 px apart.
+        // (Computed and measured at input time: no engine query while painting.)
+        let mut right = w - self.px(353.6) - self.px(32.8);
+        for (part, width) in self.stat_widths.iter().rev() {
+            p.text(part, (right - width).round(), ty, style, STATUS_TEXT);
+            right -= width + self.px(22.4);
         }
         // Zoom: minus, track with the 100 % tick, thumb, plus, percentage.
         let [minus, track, plus, pct] = self.zoom_rects;
@@ -2264,13 +2357,18 @@ impl SheetWindow {
         );
         let zoom = format!("{}%", (self.view.zoom() * 100.0).round() as i32);
         p.text(&zoom, pct[0], ty, style, ink);
-        // View buttons before the zoom controls (normal view on).
+        // View buttons before the zoom controls (the current view on).
         // Three 54 px view buttons ending 389 px from the right; the current one #C6C6C6.
         let bw = self.px(43.2);
         let size = self.px(16.0);
+        let on = match self.view_mode() {
+            ViewMode::Normal => 0,
+            ViewMode::PageLayout => 1,
+            ViewMode::PageBreak => 2,
+        };
         for i in 0..3 {
             let x = w - self.px(353.6) + i as f32 * bw;
-            if i == 0 {
+            if i == on {
                 p.fill_rect(x, y, bw, sh, STATUS_EDGE);
             }
             let icon = ["view.normal", "layout.margins", "view.sorter"][i];

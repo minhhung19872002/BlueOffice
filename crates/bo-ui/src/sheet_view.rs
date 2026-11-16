@@ -13,6 +13,9 @@ use bo_render::{PageList, PathSeg, Rgba};
 use bo_sheet::viewport::{PaneKind, Viewport};
 use serde_json::{json, Value};
 
+#[path = "sheet_pages.rs"]
+mod pages_impl;
+
 /// Keeps the grid image drawn from the engine's display list (a GPU bitmap on Windows).
 pub trait GridStore {
     /// Draw `list` (points) at `scale` device pixels per point as the new grid image; the
@@ -275,6 +278,8 @@ enum Drag {
     Move(u32, u32),
     /// Pointing at cells for a formula being typed: the cell the drag began on.
     Point(u32, u32),
+    /// Dragging a page break in Page Break Preview: (print area, rows, its position).
+    Break(usize, bool, u32),
 }
 
 /// Colours of the reference frames drawn around the cells a formula refers to while it is
@@ -389,6 +394,10 @@ pub struct Stats {
     pub numbers: u64,
     /// Average of the numbers.
     pub average: Option<f64>,
+    /// Smallest number.
+    pub min: Option<f64>,
+    /// Largest number.
+    pub max: Option<f64>,
 }
 
 /// The grid of one workbook window.
@@ -454,6 +463,20 @@ pub struct SheetView {
     show_headings: bool,
     /// Cells the fill handle drag would fill (bounds), while dragging.
     fill_to: Option<(u32, u32, u32, u32)>,
+    /// Where Enter moves the active cell (the reference's "After pressing Enter, move
+    /// selection", down by default); `None` stays.
+    enter_move: Option<(i64, i64)>,
+    /// Column the last run of Tab presses started on: Enter goes back to it on the next row
+    /// (as the reference).
+    tab_start: Option<u32>,
+    /// Ctrl held when the mouse button is released (set by the host).
+    mouse_ctrl: bool,
+    /// Page layout view (pages instead of the grid), when shown.
+    layout: Option<pages_impl::PageLayoutView>,
+    /// Page Break Preview: print areas and breaks, when shown.
+    breaks: Option<Vec<pages_impl::BreakArea>>,
+    /// "Page {n}" (Page Break Preview) and "Add header" (page layout view) in the UI language.
+    page_labels: (String, String),
 }
 
 fn rgba_hex(s: &str) -> Option<Rgba> {
@@ -522,6 +545,12 @@ impl SheetView {
             show_formulas: false,
             show_headings: true,
             fill_to: None,
+            enter_move: Some((1, 0)),
+            tab_start: None,
+            mouse_ctrl: false,
+            layout: None,
+            breaks: None,
+            page_labels: ("Page {n}".into(), "Add header".into()),
         };
         // Start on the sheet the workbook was saved on, at its first unfrozen cell.
         let active = v
@@ -650,6 +679,9 @@ impl SheetView {
     pub fn set_scale(&mut self, scale: f32) {
         if scale > 0.0 && scale != self.scale {
             self.scale = scale;
+            // The pages' row heights follow the screen scale.
+            self.reload_breaks();
+            self.reload_layout();
             self.redraw_all();
             self.refresh();
         }
@@ -694,6 +726,7 @@ impl SheetView {
     fn refresh_with(&mut self, details: bool) {
         // Row heights in whole pixels at this scale, as the reference shows them.
         self.engine.set_display_scale(Some(f64::from(self.k())));
+        self.sync_print_scale();
         let vp = self.viewport();
         let (gx, gy) = self.grid_origin();
         let k = self.k();
@@ -863,6 +896,8 @@ impl SheetView {
             count: v.get("count").and_then(Value::as_u64).unwrap_or(0),
             numbers: v.get("numbers").and_then(Value::as_u64).unwrap_or(0),
             average: v.get("average").and_then(Value::as_f64),
+            min: v.get("min").and_then(Value::as_f64),
+            max: v.get("max").and_then(Value::as_f64),
         }
     }
 
@@ -1097,6 +1132,8 @@ impl SheetView {
     /// The workbook changed: redraw the grid and reload the active cell.
     pub fn changed(&mut self) {
         self.modified = true;
+        self.reload_breaks();
+        self.reload_layout();
         self.redraw_all();
         self.refresh();
     }
@@ -1133,9 +1170,31 @@ impl SheetView {
         self.extent = (0, 0);
         self.active = (0, 0);
         self.copied = None;
+        if let Some(pl) = self.layout.as_mut() {
+            pl.scroll = (0.0, 0.0);
+        }
+        self.reload_breaks();
+        self.reload_layout();
         self.redraw_all();
         self.refresh();
         true
+    }
+
+    /// Show sheet `index` even when it is the current index (after a sheet was deleted
+    /// or hidden).
+    pub fn set_sheet_index(&mut self, index: usize) {
+        if index == self.sheet {
+            self.sheet = usize::MAX;
+        }
+        if !self.set_sheet(index) {
+            self.sheet = index.min(
+                self.engine
+                    .workbook()
+                    .map_or(0, |w| w.sheets.len().saturating_sub(1)),
+            );
+            self.redraw_all();
+            self.refresh();
+        }
     }
 
     /// Sheet names, in tab order (hidden sheets as `None`).
@@ -1171,6 +1230,8 @@ impl SheetView {
         self.anchor = clamp(anchor);
         self.extent = clamp(extent);
         self.active = clamp(active);
+        // Any other move ends a run of Tab presses.
+        self.tab_start = None;
         self.reveal(self.extent);
         self.refresh();
     }
@@ -1282,6 +1343,9 @@ impl SheetView {
     /// Scroll position, scrollable extent and visible size of the main pane, in points
     /// (`vertical` or horizontal), for scroll bars.
     pub fn scroll_info(&mut self, vertical: bool) -> (f64, f64, f64) {
+        if self.layout.is_some() {
+            return self.layout_scroll_info(vertical);
+        }
         let key = BarKey {
             scroll: self.scroll,
             frame: self.frame,
@@ -1329,6 +1393,9 @@ impl SheetView {
 
     /// Scroll the main pane to `pos` points (snapped to a row / column start).
     pub fn scroll_to(&mut self, vertical: bool, pos: f64) -> bool {
+        if self.layout.is_some() {
+            return self.layout_scroll_to(vertical, pos);
+        }
         let vp = self.viewport();
         let Ok((layout, geom)) = self.engine.view_layout(self.sheet, &vp) else {
             return false;
@@ -1976,7 +2043,34 @@ impl SheetView {
                 self.measure_edit(m);
                 true
             }
-            Input::Key(k, mods) => self.key(k, mods, m),
+            Input::Key(k, mods) => {
+                let done = self.key(k, mods, m);
+                if self.layout.is_some() {
+                    self.layout_reveal();
+                }
+                done
+            }
+            Input::Wheel(px) if self.layout.is_some() => {
+                let (pos, _, _) = self.layout_scroll_info(true);
+                self.layout_scroll_to(true, pos + f64::from(px / self.k()))
+            }
+            Input::Press { x, y, shift, .. } if self.layout.is_some() => {
+                self.layout_press(x, y, shift)
+            }
+            Input::Drag { .. } if self.layout.is_some() => false,
+            Input::Press {
+                x,
+                y,
+                count: 1,
+                shift: false,
+            } if self.breaks.is_some() && self.edit.is_none() => {
+                if let Some((a, rows, at)) = self.break_at(x, y) {
+                    self.drag = Some(Drag::Break(a, rows, at));
+                    true
+                } else {
+                    self.press(x, y, 1, false, m)
+                }
+            }
             Input::Wheel(px) => {
                 // Three rows per notch (the host sends ~20 logical px per wheel line).
                 let lines = (px / (20.0 * self.scale)).round() as i64;
@@ -1996,6 +2090,7 @@ impl SheetView {
                     Some(Drag::RowEdge(r, origin)) => self.resize_edge(true, r, origin, y),
                     Some(Drag::Fill(r0, c0, r1, c1)) => self.finish_fill((r0, c0, r1, c1)),
                     Some(Drag::Move(..)) => self.finish_move(),
+                    Some(Drag::Break(a, rows, at)) => self.drop_break(a, rows, at, x, y),
                     Some(Drag::Point(..)) => {
                         self.measure_edit(m);
                         true
@@ -2041,15 +2136,29 @@ impl SheetView {
             Key::Left => self.move_active(0, -1, ext),
             Key::Right => self.move_active(0, 1, ext),
             Key::Enter | Key::Tab => {
-                let (dr, dc) = match (k, mods.shift) {
-                    (Key::Enter, false) => (1, 0),
-                    (Key::Enter, true) => (-1, 0),
-                    (_, false) => (0, 1),
-                    (_, true) => (0, -1),
+                let Some(down) = (if k == Key::Enter {
+                    self.enter_move
+                } else {
+                    Some((0, 1))
+                }) else {
+                    return true;
                 };
+                let (dr, dc) = if mods.shift { (-down.0, -down.1) } else { down };
                 let (r0, c0, r1, c1) = self.range_bounds();
                 if (r0, c0) == (r1, c1) {
-                    self.move_active(dr, dc, false);
+                    let start = self.tab_start.take();
+                    let col = self.active.1;
+                    match start {
+                        // Tab, Tab, Enter: the next row of the column the Tabs began on.
+                        Some(c) if k == Key::Enter && (dr, dc) == (1, 0) => {
+                            let r = (self.active.0 + 1).min(MAX_ROWS - 1);
+                            self.select((r, c), (r, c), (r, c));
+                        }
+                        _ => self.move_active(dr, dc, false),
+                    }
+                    if k == Key::Tab {
+                        self.tab_start = Some(start.unwrap_or(col));
+                    }
                 } else {
                     // Inside a selected range the active cell cycles through it.
                     let (mut r, mut c) = self.active;
@@ -2244,7 +2353,11 @@ impl SheetView {
             return true;
         }
         let rng = |(r0, c0, r1, c1): (u32, u32, u32, u32)| json!({ "r0": r0, "c0": c0, "r1": r1, "c1": c1 });
-        let ok = self.run(json!({ "cmd": "autofill", "source": rng(from), "target": rng(to) }));
+        // Ctrl while dragging toggles between copying and a series, as the reference.
+        let mode = if self.mouse_ctrl { "toggle" } else { "auto" };
+        let ok = self.run(
+            json!({ "cmd": "autofill", "source": rng(from), "target": rng(to), "mode": mode }),
+        );
         if ok {
             self.anchor = (to.0, to.1);
             self.extent = (to.2, to.3);
@@ -2438,7 +2551,7 @@ impl SheetView {
             Drag::Cells => self.extent = (r, c),
             Drag::Cols => self.extent = (MAX_ROWS - 1, c),
             Drag::Rows => self.extent = (r, MAX_COLS - 1),
-            Drag::ColEdge(..) | Drag::RowEdge(..) => return true,
+            Drag::ColEdge(..) | Drag::RowEdge(..) | Drag::Break(..) => return true,
             Drag::Fill(r0, c0, r1, c1) => {
                 // Along the axis the pointer left the selection by the most cells.
                 let down = r.saturating_sub(r1);
@@ -2519,6 +2632,20 @@ impl SheetView {
         if !self.grid_dirty {
             return Ok(());
         }
+        if self.layout.is_some() {
+            let list = self.layout_list()?;
+            store.update(&list, &self.engine, self.k())?;
+            self.drawn = None;
+            self.grid_dirty = false;
+            self.full_redraw = false;
+            return Ok(());
+        }
+        let outside = self.breaks.as_ref().map(|areas| {
+            (
+                areas.iter().map(|a| a.range).collect::<Vec<_>>(),
+                pages_impl::OUTSIDE_GREY,
+            )
+        });
         let vp = self.viewport();
         let show_grid = self.show_grid;
         let show_formulas = self.show_formulas;
@@ -2547,6 +2674,7 @@ impl SheetView {
                             .render_viewport_with(self.sheet, &band_vp, |o| {
                                 o.headers = Some(false);
                                 o.gridline_color = GRID_LINE;
+                                o.outside.clone_from(&outside);
                                 if !show_grid {
                                     o.gridlines = Some(false);
                                 }
@@ -2574,6 +2702,7 @@ impl SheetView {
             .render_viewport_with(self.sheet, &vp, |o| {
                 o.headers = Some(false);
                 o.gridline_color = GRID_LINE;
+                o.outside.clone_from(&outside);
                 if !show_grid {
                     o.gridlines = Some(false);
                 }
@@ -2680,6 +2809,17 @@ impl SheetView {
         Some((moves, bands, shift))
     }
 
+    /// Where Enter moves the active cell: (rows, columns) per press, `None` to stay
+    /// (the reference's Advanced option "After pressing Enter, move selection").
+    pub fn set_enter_move(&mut self, dir: Option<(i64, i64)>) {
+        self.enter_move = dir;
+    }
+
+    /// Whether Ctrl is held with the next mouse release (the host reads the key state).
+    pub fn set_mouse_ctrl(&mut self, on: bool) {
+        self.mouse_ctrl = on;
+    }
+
     /// Lay out only the newly exposed rows when the grid image turns (default on; off
     /// lays out the whole viewport, for measurements).
     pub fn set_band_lists(&mut self, on: bool) {
@@ -2704,12 +2844,17 @@ impl SheetView {
 
     /// Paint headers, the grid image (`Painter::page(0)`), the selection and the editor.
     pub fn paint(&self, p: &mut dyn Painter) {
+        if self.layout.is_some() {
+            self.paint_layout(p);
+            return;
+        }
         let [fx, fy, fw, fh] = self.frame;
         let (gx, gy) = self.grid_origin();
         let (right, bottom) = (fx + fw, fy + fh);
         p.push_clip(fx, fy, fw, fh);
         p.fill_rect(gx, gy, right - gx, bottom - gy, Rgba(255, 255, 255, 255));
         p.page(0, gx as i32, gy as i32);
+        self.paint_breaks(p);
         // A selected drawing (chart) hides the cell selection: no highlighted headers, tint
         // or frame, as on the reference.
         let (r0, c0, r1, c1) = if self.object_selected {

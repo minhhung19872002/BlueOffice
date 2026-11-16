@@ -1,7 +1,8 @@
 //! Paste Special of BlueSheet (round 27): Ctrl+Alt+V and the grid's context menu open the
 //! reference's dialog (Paste: All, Formulas, Values, Formats, All except borders; Operation;
 //! Skip blanks, Transpose) over the internal clipboard (engine `paste` with `mode`,
-//! `skipBlanks`, `transpose`, `noBorders`). Choices the engine cannot paste yet are dimmed.
+//! `skipBlanks`, `transpose`, `noBorders`). Operation adds / subtracts / multiplies / divides into the destination (round 36);
+//! choices the engine cannot paste yet are dimmed.
 
 use super::form_impl::{Event, Form, FormKind, Kind};
 use super::SheetWindow;
@@ -71,12 +72,13 @@ const PASTE: [(&str, &str, &str, &str, bool); 12] = [
     ),
 ];
 
-const OPERATION: [(&str, &str, &str); 5] = [
-    ("oNone", "sheetPaste.none", "None"),
-    ("oAdd", "sheetPaste.add", "Add"),
-    ("oSubtract", "sheetPaste.subtract", "Subtract"),
-    ("oMultiply", "sheetPaste.multiply", "Multiply"),
-    ("oDivide", "sheetPaste.divide", "Divide"),
+/// The Operation choices: (control id, label key, fallback, engine `operation`).
+const OPERATION: [(&str, &str, &str, &str); 5] = [
+    ("oNone", "sheetPaste.none", "None", "none"),
+    ("oAdd", "sheetPaste.add", "Add", "add"),
+    ("oSubtract", "sheetPaste.subtract", "Subtract", "subtract"),
+    ("oMultiply", "sheetPaste.multiply", "Multiply", "multiply"),
+    ("oDivide", "sheetPaste.divide", "Divide", "divide"),
 ];
 
 impl SheetWindow {
@@ -118,7 +120,7 @@ impl SheetWindow {
             [16.0, 258.0, 438.0, 100.0],
             Kind::Group(t("sheetPaste.operation", "Operation")),
         );
-        for (i, (id, key, fallback)) in OPERATION.iter().enumerate() {
+        for (i, (id, key, fallback, _)) in OPERATION.iter().enumerate() {
             let (col, row) = (i / 3, i % 3);
             f.add(
                 id,
@@ -134,8 +136,6 @@ impl SheetWindow {
                     on: i == 0,
                 },
             );
-            // Arithmetic pasting is not in the engine yet.
-            f.enable(id, i == 0);
         }
         f.add(
             "skipBlanks",
@@ -209,9 +209,10 @@ impl SheetWindow {
             Event::Ok => {
                 let Some(f) = self.form.as_ref() else { return };
                 let pick = PASTE.iter().find(|p| f.on(p.0)).map_or(PASTE[0], |p| *p);
+                let op = OPERATION.iter().find(|o| f.on(o.0)).map_or("none", |o| o.3);
                 let (r, c) = self.view.active();
                 let cmd = json!({
-                    "cmd": "paste", "row": r, "col": c, "mode": pick.3,
+                    "cmd": "paste", "row": r, "col": c, "mode": pick.3, "operation": op,
                     "transpose": f.on("transpose"), "skipBlanks": f.on("skipBlanks"),
                     "noBorders": pick.0 == "pNoBorders", "range": self.view.rng(),
                 });

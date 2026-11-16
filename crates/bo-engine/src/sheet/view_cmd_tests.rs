@@ -23,7 +23,7 @@ fn run(e: &mut SheetEngine, v: Value) -> Value {
 /// (720 ≤ 734 < 740): rows 1–36, 37–72, 73–100.
 fn hundred_rows() -> SheetEngine {
     let mut e = engine();
-    let wb = e.wb.as_mut().unwrap();
+    let wb = e.wb.as_deref_mut().unwrap();
     let ws = &mut wb.sheets[0];
     ws.format.default_row_height = Some(20.0);
     for r in 0..100 {
@@ -404,4 +404,85 @@ fn custom_views_save_apply_delete() {
         back.sheets[0].custom_views[0].session_hidden_rows,
         Some(vec![(4, 4)])
     );
+}
+
+/// Measured on the reference (`HPageBreaks` / `VPageBreaks` through its object model) with a
+/// sheet of 120 rows × 14 columns in the default font, no paper size in the file and the
+/// region's paper Letter: margins 0.75 / 1 in → 504 × 648 pt printable; rows 14.4 pt, so 45
+/// rows fill the page exactly and the reference puts 44 per page (breaks before rows 45 and
+/// 89).
+#[test]
+fn breaks_match_the_reference_on_letter() {
+    let mut e = engine();
+    e.set_default_paper(Some(1));
+    {
+        let wb = e.wb.as_deref_mut().unwrap();
+        let ws = &mut wb.sheets[0];
+        ws.page_setup.margins = Some(bo_model::sheet::PageMargins {
+            left: 0.75,
+            right: 0.75,
+            top: 1.0,
+            bottom: 1.0,
+            header: 0.5,
+            footer: 0.5,
+        });
+        ws.format.default_row_height = Some(14.4);
+        for r in 0..120 {
+            for c in 0..14 {
+                ws.set_cell(
+                    r,
+                    c,
+                    bo_model::sheet::Cell::new(CellValue::Number(f64::from(r + c))),
+                );
+            }
+        }
+    }
+    e.invalidate(None);
+    let p = run(&mut e, json!({ "cmd": "pageBreakPreview", "sheet": 0 }));
+    assert_eq!(
+        spans(&p["areas"][0]["rows"]),
+        vec![[0, 43], [44, 87], [88, 119]],
+        "{p}"
+    );
+    // The page setup reports the paper the sheet is paginated on.
+    let s = run(&mut e, json!({ "cmd": "pageSetup", "sheet": 0 }));
+    assert_eq!(s["paperSize"], 1, "{s}");
+}
+
+/// The view's zoom does not move the page breaks (the reference keeps row heights in points;
+/// Page Break Preview opens at 60 %): pages use the geometry at the print scale.
+#[test]
+fn zoom_does_not_move_page_breaks() {
+    let mut e = engine();
+    e.set_default_paper(Some(1));
+    {
+        let ws = &mut e.wb.as_deref_mut().unwrap().sheets[0];
+        for r in 0..120 {
+            ws.set_cell(r, 0, bo_model::sheet::Cell::new(CellValue::Number(1.0)));
+        }
+    }
+    let base = 1.25 * 4.0 / 3.0;
+    e.set_display_scale(Some(base));
+    e.invalidate(None);
+    let at_100 = run(&mut e, json!({ "cmd": "pageBreakPreview", "sheet": 0 }));
+    // At 60 % the display rows round to other heights; with the print scale set the
+    // breaks stay.
+    e.set_display_scale(Some(base * 0.6));
+    let unscaled = run(&mut e, json!({ "cmd": "pageBreakPreview", "sheet": 0 }));
+    e.set_print_scale(Some(base));
+    let at_60 = run(&mut e, json!({ "cmd": "pageBreakPreview", "sheet": 0 }));
+    assert_eq!(
+        spans(&at_60["areas"][0]["rows"]),
+        spans(&at_100["areas"][0]["rows"])
+    );
+    assert_ne!(
+        spans(&unscaled["areas"][0]["rows"]),
+        spans(&at_100["areas"][0]["rows"]),
+        "the display geometry at 60 % paginates differently"
+    );
+    // The display geometry is kept: the 60 % layout still has its own row heights.
+    let row = |e: &mut SheetEngine| e.geometry(0).unwrap().row_height(0);
+    let h60 = row(&mut e);
+    e.set_print_scale(None);
+    assert!((row(&mut e) - h60).abs() < 1e-9);
 }

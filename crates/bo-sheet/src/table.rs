@@ -195,6 +195,13 @@ pub fn create_table(
         n += 1;
         name = format!("Bảng{n}");
     }
+    // The workbook's default table style (§18.8.41 defaultTableStyle), as the reference.
+    let style_name = wb
+        .styles
+        .default_table_style
+        .clone()
+        .filter(|n| !n.trim().is_empty())
+        .unwrap_or_else(|| "TableStyleMedium2".into());
     let ws = &mut wb.sheets[sheet];
     // The header row shows the column names.
     for (k, col) in (range.first.col..=range.last.col).enumerate() {
@@ -224,7 +231,7 @@ pub fn create_table(
             })
             .collect(),
         style: Some(TableStyleInfo {
-            name: Some("TableStyleMedium2".into()),
+            name: Some(style_name),
             show_row_stripes: true,
             ..TableStyleInfo::default()
         }),

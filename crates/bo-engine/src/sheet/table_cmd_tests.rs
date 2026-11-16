@@ -236,3 +236,65 @@ fn resize_and_convert_to_range() {
     let styles = run(&mut e, json!({ "cmd": "tableStyles" }));
     assert_eq!(styles.as_array().map(Vec::len), Some(60));
 }
+
+#[test]
+fn custom_table_style_is_made_chosen_saved_and_undone() {
+    let mut e = engine();
+    let r = run(
+        &mut e,
+        json!({
+            "cmd": "createTableStyle", "sheet": 0, "name": "Kiểu bảng 1", "setDefault": true,
+            "elements": {
+                "headerRow": { "fill": "#1F4E79", "text": "#FFFFFF", "bold": true },
+                "firstRowStripe": { "fill": "#DDEBF7" },
+                "wholeTable": { "border": "#000080" },
+            },
+        }),
+    );
+    assert_eq!(r["name"], "Kiểu bảng 1");
+    // Unknown element types and taken names are refused.
+    for bad in [
+        json!({ "cmd": "createTableStyle", "sheet": 0, "name": "X", "elements": { "nope": {} } }),
+        json!({ "cmd": "createTableStyle", "sheet": 0, "name": "kiểu BẢNG 1" }),
+        json!({ "cmd": "createTableStyle", "sheet": 0, "name": "TableStyleLight1" }),
+    ] {
+        assert!(e.exec_json(&bad.to_string()).is_err(), "{bad}");
+    }
+    run(
+        &mut e,
+        json!({ "cmd": "tableUpdate", "sheet": 0, "table": 0, "style": "Kiểu bảng 1" }),
+    );
+    let look = |e: &SheetEngine, r: u32| {
+        let wb = e.workbook().unwrap();
+        bo_sheet::table_style::look_in(wb, &wb.sheets[0].tables[0], r, 0)
+    };
+    // Header 1F4E79 white bold; first data row (first stripe) DDEBF7; framed in 000080.
+    let h = look(&e, 0).expect("header");
+    assert_eq!((h.fill.as_deref(), h.bold), (Some("1F4E79"), true));
+    assert_eq!(look(&e, 1).and_then(|l| l.fill).as_deref(), Some("DDEBF7"));
+    assert_eq!(look(&e, 2).and_then(|l| l.fill), None);
+    assert_eq!(
+        h.borders[2].as_ref().map(|b| b.color.as_str()),
+        Some("000080")
+    );
+    // The default table style: a new table gets it.
+    assert_eq!(
+        e.workbook().unwrap().styles.default_table_style.as_deref(),
+        Some("Kiểu bảng 1")
+    );
+    // Saved and read back.
+    let bytes = e.save("xlsx", 0).unwrap();
+    let mut back = SheetEngine::with_bundled_fonts();
+    back.open(&bytes, "t.xlsx").unwrap();
+    let wb = back.workbook().unwrap();
+    assert_eq!(wb.styles.table_styles.len(), 1);
+    assert_eq!(wb.styles.table_styles[0].elements.len(), 3);
+    assert_eq!(
+        look(&back, 1).and_then(|l| l.fill).as_deref(),
+        Some("DDEBF7")
+    );
+    // Undo: the style choice, then the style itself.
+    e.undo().unwrap();
+    e.undo().unwrap();
+    assert_eq!(e.workbook().unwrap().styles.table_styles.len(), 0);
+}

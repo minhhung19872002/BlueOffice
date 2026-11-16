@@ -46,6 +46,13 @@ pub fn run() -> Result<(), String> {
     }
     // Formulas are calculated when a file opens, as the reference spreadsheet does with
     // files another application saved (BLUEOFFICE_SHEET_RECALC=0 keeps the saved results).
+    // Sheets without a paper size print on the region's paper (iPaperSize: 1 Letter,
+    // 9 A4), as the reference with the default printer.
+    engine.set_default_paper(
+        win32::region_value("iPaperSize")
+            .and_then(|v| v.trim().parse().ok())
+            .filter(|v| *v > 0),
+    );
     engine.set_recalc_on_open(std::env::var("BLUEOFFICE_SHEET_RECALC").as_deref() != Ok("0"));
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -83,6 +90,18 @@ pub fn run() -> Result<(), String> {
         "Book1.xlsx".into()
     };
     let mut view = SheetWindow::new(SheetView::new(engine), &locale, &name);
+    // Page layout ruler: inches when the region measures in US units (iMeasure = 1).
+    view.set_ruler_inches(win32::region_value("iMeasure").as_deref() == Some("1"));
+    // BLUEOFFICE_SHEET_ENTER=down|right|up|left|none: where Enter moves the active cell.
+    if let Ok(dir) = std::env::var("BLUEOFFICE_SHEET_ENTER") {
+        view.view_mut().set_enter_move(match dir.as_str() {
+            "right" => Some((0, 1)),
+            "up" => Some((-1, 0)),
+            "left" => Some((0, -1)),
+            "none" => None,
+            _ => Some((1, 0)),
+        });
+    }
     // BLUEOFFICE_SHEET_BANDS=0 lays out the whole viewport on each scroll (to compare).
     view.view_mut()
         .set_band_lists(std::env::var("BLUEOFFICE_SHEET_BANDS").as_deref() != Ok("0"));
@@ -657,6 +676,13 @@ impl Handler for Shell {
             Input::Preedit(_) => "preedit",
         };
         let start = Instant::now();
+        if kind == "release" {
+            // Ctrl while the fill handle is dropped toggles copy / series (MK_CONTROL of
+            // the mouse message, so posted input carries it too).
+            self.view
+                .view_mut()
+                .set_mouse_ctrl(win32::mouse_mods().ctrl);
+        }
         let m = Measure(self.gpu.as_ref().map(|g| &g.device));
         let mut redraw = self.view.handle(input, &m);
         redraw |= self.handle_requests();

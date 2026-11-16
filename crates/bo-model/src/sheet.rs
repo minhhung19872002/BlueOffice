@@ -3597,6 +3597,13 @@ pub struct Stylesheet {
     /// there for writing).
     #[serde(default)]
     pub frame_styles: Vec<FrameStyleParts>,
+    /// The custom table styles found in `unknown` when the part was read (§18.8.40
+    /// `tableStyle` with `table` not 0, kept there for writing).
+    #[serde(default)]
+    pub table_styles: Vec<TableStyleParts>,
+    /// `tableStyles/@defaultTableStyle` (§18.8.41): the style new tables get.
+    #[serde(default)]
+    pub default_table_style: Option<String>,
 }
 
 impl Stylesheet {
@@ -3977,6 +3984,30 @@ pub struct FrameStyleParts {
     pub selected: Option<Dxf>,
     /// `unselectedItemWithData` (slicer) / `unselectedTimeBlock` (timeline).
     pub unselected: Option<Dxf>,
+}
+
+/// A custom table style of the workbook (§18.8.40 `tableStyle`): its elements in file order.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TableStyleParts {
+    /// Style name (`tableStyleInfo/@name`).
+    pub name: String,
+    /// `pivot` (a PivotTable style; `table` is then 0).
+    pub pivot: bool,
+    /// §18.8.85 `tableStyleElement`s.
+    pub elements: Vec<TableStyleElementParts>,
+}
+
+/// One element of a custom table style (§18.8.85 `tableStyleElement`).
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TableStyleElementParts {
+    /// §18.18.83 ST_TableStyleType (`wholeTable`, `headerRow`, `firstRowStripe`, …).
+    pub kind: String,
+    /// `size`: rows / columns of a stripe (1 by default).
+    pub size: u32,
+    /// Its format (§18.8.15 `dxfs` entry `dxfId`).
+    pub dxf: Option<Dxf>,
 }
 
 #[cfg(test)]

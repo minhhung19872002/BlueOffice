@@ -1166,6 +1166,8 @@ impl SheetWindow {
                 self.cf_form_event(kind, ev);
             }
             FormKind::PasteSpecial => self.paste_special_event(ev),
+            FormKind::Unhide | FormKind::TabColor => self.tabs_form_event(kind, ev),
+            FormKind::TableStyle => self.tstyle_event(ev),
             FormKind::FormatCells => {}
         }
         true

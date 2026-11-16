@@ -69,6 +69,7 @@ impl ReaderWindow {
             d.set_view(current, r);
         }
         d.set_page_sizes((0..n).map(|i| t.view.page_size(i)).collect());
+        d.set_has_comments(!t.view.doc().comment_threads().is_empty());
         d.layout(m, self.size, self.scale);
         self.extra.print = Some(d);
         self.update_print_preview();
@@ -325,6 +326,11 @@ impl ReaderWindow {
                 Some(PrintAction::Cancel) => self.extra.print = None,
                 Some(PrintAction::Properties(name)) => {
                     self.requests.push(ReaderRequest::PrinterProperties(name));
+                }
+                Some(PrintAction::Summarize) => {
+                    self.extra.print = None;
+                    self.run_command("comment.summarize", m);
+                    return Some(true);
                 }
                 None => {}
             }

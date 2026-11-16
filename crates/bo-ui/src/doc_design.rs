@@ -246,11 +246,22 @@ fn paint_tile(
     // Body: three short lines of the sample text in the body face.
     let bs = (5.0 * scale).round().max(4.0);
     let chars_per_line = ((w / (bs * 0.5)).floor() as usize).max(8);
-    let text: Vec<char> = words.2.chars().collect();
-    for line in text.chunks(chars_per_line).take(3) {
-        let s: String = line.iter().collect();
+    // Break at spaces, about `chars_per_line` characters a line.
+    let mut lines: Vec<String> = Vec::new();
+    let mut line = String::new();
+    for word in words.2.split_whitespace() {
+        if !line.is_empty() && line.chars().count() + 1 + word.chars().count() > chars_per_line {
+            lines.push(std::mem::take(&mut line));
+        }
+        if !line.is_empty() {
+            line.push(' ');
+        }
+        line.push_str(word);
+    }
+    lines.push(line);
+    for s in lines.iter().take(3) {
         p.text_font(
-            s.trim(),
+            s,
             x,
             y,
             &face(&look.minor, bs, false),

@@ -121,13 +121,12 @@ pub(crate) const L_REPLACED: usize = 39;
 pub(crate) const L_FOUND: usize = 40;
 
 /// Go to what: entries (only Page is carried out; the others are listed greyed).
-const GO_WHAT: [(&str, &str); 6] = [
+const GO_WHAT: [(&str, &str); 5] = [
     ("findDlg.page", "Page"),
     ("findDlg.section", "Section"),
     ("findDlg.line", "Line"),
     ("findDlg.bookmark", "Bookmark"),
     ("findDlg.comment", "Comment"),
-    ("findDlg.heading", "Heading"),
 ];
 
 /// Special ▾ entries: label and the code typed into the box (the engine's search codes).

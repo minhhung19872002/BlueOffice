@@ -58,6 +58,7 @@ mod editor_more_tests;
 mod editor_objtext;
 #[cfg(test)]
 mod editor_objtext_tests;
+mod editor_org9;
 mod editor_organize;
 #[cfg(test)]
 mod editor_organize5_tests;
@@ -66,6 +67,9 @@ mod editor_portfolio;
 mod editor_rot8;
 #[cfg(test)]
 mod editor_round7_tests;
+#[cfg(test)]
+mod editor_round9_tests;
+mod editor_selhi9;
 mod editor_sign;
 #[cfg(test)]
 mod editor_tests;

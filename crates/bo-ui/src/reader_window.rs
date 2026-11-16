@@ -3872,6 +3872,11 @@ impl ReaderWindow {
 }
 
 impl ReaderWindow {
+    /// Open `menu` as the drop-down of control `id` (BlueEditor's menus with icons, round 9).
+    pub(crate) fn set_menu9(&mut self, menu: Menu, id: &'static str) {
+        self.menu = Some((menu, id));
+    }
+
     /// Paint the open popup menu again, over what a host drew after [`ReaderWindow::paint`]
     /// (BlueEditor's Organize page grid, round 8).
     pub(crate) fn paint_open_menu(&self, p: &mut dyn Painter) {

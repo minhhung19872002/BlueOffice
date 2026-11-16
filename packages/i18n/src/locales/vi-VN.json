@@ -11920,5 +11920,20 @@
     "presetName": "Tên thiết lập:",
     "saveSettingsTitle": "Lưu thiết lập",
     "pickPicture": "Hãy chọn ảnh bằng Duyệt... trước."
+  },
+  "pdfEditor9": {
+    "fromFile": "Từ tệp",
+    "fromFolder": "Từ thư mục",
+    "fromOpenFiles": "Từ tệp đang mở",
+    "fromWebPage": "Từ trang web",
+    "fromScanner": "Từ máy quét",
+    "fromClipboard": "Từ bộ nhớ tạm",
+    "blankPage": "Trang trắng",
+    "intoFile": "Vào tệp",
+    "add": "Thêm",
+    "update": "Cập nhật",
+    "removeAll": "Xoá hết",
+    "noOtherFiles": "Không có tài liệu nào khác đang mở.",
+    "pagesInserted": "Đã chèn {{n}} trang."
   }
 }

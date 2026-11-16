@@ -211,20 +211,21 @@ fn typing_words_selection_clipboard_and_session_undo() {
     w.file_picked("pasteText", std::path::Path::new("c.txt"), b"X\tY");
     key(&mut w, Key::Escape, false, false);
     assert_eq!(texts(&mut w), ["Page one X Y"]);
-    // Inside a session Ctrl+Z steps back a word at a time, Ctrl+Y forward.
+    // Inside a session Ctrl+Z steps back a character at a time like the reference (round 9),
+    // Ctrl+Y forward.
     start_typing(&mut w);
     key(&mut w, Key::End, false, false);
     typed(&mut w, " ab cd");
     key(&mut w, Key::Letter('z'), true, false);
     key(&mut w, Key::Escape, false, false);
-    assert_eq!(texts(&mut w), ["Page one X Y ab"]);
+    assert_eq!(texts(&mut w), ["Page one X Y ab c"]);
     start_typing(&mut w);
     key(&mut w, Key::End, false, false);
     typed(&mut w, " ef");
     key(&mut w, Key::Letter('z'), true, false);
     key(&mut w, Key::Letter('y'), true, false);
     key(&mut w, Key::Escape, false, false);
-    assert_eq!(texts(&mut w), ["Page one X Y ab ef"]);
+    assert_eq!(texts(&mut w), ["Page one X Y ab c ef"]);
 }
 
 #[test]

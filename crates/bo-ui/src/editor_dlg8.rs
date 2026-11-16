@@ -1615,6 +1615,7 @@ impl EditorWindow {
                     self.form8.push((f, what));
                     return;
                 }
+                self.org9_before_ok(&what, &f);
                 match what {
                     FormWhat::HeaderFooter => self.header_footer_ok(&f),
                     FormWhat::Watermark => self.watermark_ok(&f),

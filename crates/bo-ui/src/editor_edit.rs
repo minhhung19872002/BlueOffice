@@ -117,10 +117,13 @@ impl Typing {
         })
     }
 
-    /// Remember the paragraph before a change of kind; a run of the same kind joins the
-    /// step before unless `boundary` (a space or line break typed) starts a new one.
+    /// Remember the paragraph before a change. Round 9: inside the session every typed or
+    /// deleted character is its own step, as the reference editor undoes them (black-box:
+    /// "xyz abc" typed, each Undo takes one character off); the session as a whole is still
+    /// one step of the document once it ends.
     fn checkpoint(&mut self, kind: Change, boundary: bool) {
-        if kind != self.last || kind == Change::Other || boundary {
+        let _ = boundary;
+        {
             if let Some(s) = self.snap() {
                 self.undo.push(s);
                 if self.undo.len() > 200 {
@@ -473,20 +476,16 @@ impl Editing {
         }
     }
 
-    /// Corner handle of the single selected item under a window point.
+    /// Handle of the single selected item under a window point: 0–3 corners (top left, top
+    /// right, bottom left, bottom right), 4–7 side middles (top, bottom, left, right).
     fn handle_at(&mut self, v: &mut ReaderView, page: usize, x: f32, y: f32) -> Option<usize> {
         let k = *self.selected.first()?;
         let b = self.items(v, page).get(k)?.bbox;
         let r = v.doc_rect_to_window(page, b)?;
-        let corners = [
-            (r[0], r[1]),
-            (r[0] + r[2], r[1]),
-            (r[0], r[1] + r[3]),
-            (r[0] + r[2], r[1] + r[3]),
-        ];
-        corners
-            .iter()
-            .position(|&(cx, cy)| (x - cx).abs() <= 5.0 && (y - cy).abs() <= 5.0)
+        handle_points(r)
+            .into_iter()
+            .find(|&(_, (cx, cy))| (x - cx).abs() <= 5.0 && (y - cy).abs() <= 5.0)
+            .map(|(i, _)| i)
     }
 
     /// Button down and moving.
@@ -602,6 +601,9 @@ impl Editing {
     /// The resize box of the single selected item for a corner dragged to `to`; Shift keeps
     /// its proportions.
     fn resized(&self, b: [f32; 4], corner: usize, to: (f32, f32)) -> ([f32; 4], f32, f32) {
+        if corner >= 4 {
+            return side_resized(b, corner, to);
+        }
         let (ax, ay) = match corner {
             0 => (b[2], b[3]),
             1 => (b[0], b[3]),
@@ -1219,6 +1221,9 @@ impl Editing {
         caret_on: bool,
     ) {
         let Some(page) = self.page else { return };
+        // Selections are drawn in the reference's selection blue, not the app accent.
+        let _ = accent;
+        let accent = crate::editor_rot8::SEL_BLUE;
         let list = self.items(v, page).to_vec();
         let frame = v.frame();
         p.push_clip(frame[0], frame[1], frame[2], frame[3]);
@@ -1305,20 +1310,23 @@ impl Editing {
             if let Some(r) = v.doc_rect_to_window(page, moved) {
                 outline(p, r, accent, 1.0);
                 if tool == EditTool::Object && self.selected.len() == 1 && self.typing.is_none() {
-                    for (cx, cy) in [
-                        (r[0], r[1]),
-                        (r[0] + r[2], r[1]),
-                        (r[0], r[1] + r[3]),
-                        (r[0] + r[2], r[1] + r[3]),
-                    ] {
-                        p.fill_rect(cx.round() - 3.0, cy.round() - 3.0, 7.0, 7.0, accent);
-                        p.fill_rect(
-                            cx.round() - 2.0,
-                            cy.round() - 2.0,
-                            5.0,
-                            5.0,
-                            Rgba(255, 255, 255, 255),
-                        );
+                    // The reference's handles: solid 6 px squares on the 1 px frame at the
+                    // corners and side middles.
+                    // The frame's left / top line is the pixel before the box, its right /
+                    // bottom line the pixel after: each square has 3 px before that pixel.
+                    let (x1, y1) = (r[0] + r[2], r[1] + r[3]);
+                    for (_, (cx, cy)) in handle_points(r) {
+                        let hx = if cx >= x1 {
+                            cx.round() - 3.0
+                        } else {
+                            cx.round() - 4.0
+                        };
+                        let hy = if cy >= y1 {
+                            cy.round() - 3.0
+                        } else {
+                            cy.round() - 4.0
+                        };
+                        p.fill_rect(hx, hy, 6.0, 6.0, accent);
                     }
                 }
             }
@@ -1361,13 +1369,7 @@ impl Editing {
                     }
                 }
             }
-            if let (Some((a, e)), Some(b)) = (t.selection(), &t.block) {
-                for s in b.selection_rects(a, e) {
-                    if let Some(r) = v.doc_rect_to_window(t.page, s) {
-                        p.fill_rect(r[0], r[1], r[2], r[3], Rgba(0, 120, 215, 70));
-                    }
-                }
-            }
+            // Round 9: the selected text is drawn into the page image (`editor_selhi9`).
             if caret_on {
                 if let Some(c) = self.caret(v) {
                     p.fill_rect(c[0], c[1], c[2], c[3], Rgba(0, 0, 0, 255));
@@ -1375,5 +1377,45 @@ impl Editing {
             }
         }
         p.pop_clip();
+    }
+}
+
+/// Window points of the handles of a selection box `[x, y, w, h]` with their index: corners
+/// 0–3 (top left, top right, bottom left, bottom right), side middles 4–7 (top, bottom, left,
+/// right). A box under 16 px either way has no side handles (they would cover a thin
+/// object such as a line).
+pub(crate) fn handle_points(r: [f32; 4]) -> Vec<(usize, (f32, f32))> {
+    let (x0, y0, x1, y1) = (r[0], r[1], r[0] + r[2], r[1] + r[3]);
+    let (xm, ym) = (f32::midpoint(x0, x1), f32::midpoint(y0, y1));
+    let all = [
+        (x0, y0),
+        (x1, y0),
+        (x0, y1),
+        (x1, y1),
+        (xm, y0),
+        (xm, y1),
+        (x0, ym),
+        (x1, ym),
+    ];
+    all.into_iter()
+        .enumerate()
+        .filter(|&(i, _)| i < 4 || (r[2] >= 16.0 && r[3] >= 16.0))
+        .collect()
+}
+
+/// A box stretched by a side handle (4 top, 5 bottom, 6 left, 7 right): the opposite side
+/// stays, the other direction keeps its size.
+fn side_resized(b: [f32; 4], side: usize, to: (f32, f32)) -> ([f32; 4], f32, f32) {
+    let (w0, h0) = ((b[2] - b[0]).max(0.01), (b[3] - b[1]).max(0.01));
+    if side < 6 {
+        let ay = if side == 4 { b[3] } else { b[1] };
+        let sy = (to.1 - ay).abs() / h0;
+        let y0 = if to.1 < ay { ay - h0 * sy } else { ay };
+        ([b[0], y0, b[2], y0 + h0 * sy], 1.0, sy)
+    } else {
+        let ax = if side == 6 { b[2] } else { b[0] };
+        let sx = (to.0 - ax).abs() / w0;
+        let x0 = if to.0 < ax { ax - w0 * sx } else { ax };
+        ([x0, b[1], x0 + w0 * sx, b[3]], sx, 1.0)
     }
 }

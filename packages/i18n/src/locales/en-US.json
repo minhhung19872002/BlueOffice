@@ -11920,5 +11920,20 @@
     "presetName": "Name of the settings:",
     "saveSettingsTitle": "Save Settings",
     "pickPicture": "Pick a picture with Browse... first."
+  },
+  "pdfEditor9": {
+    "fromFile": "From File",
+    "fromFolder": "From Folder",
+    "fromOpenFiles": "From Open Files",
+    "fromWebPage": "From Web Page",
+    "fromScanner": "From Scanner",
+    "fromClipboard": "From Clipboard",
+    "blankPage": "Blank Page",
+    "intoFile": "Into File",
+    "add": "Add",
+    "update": "Update",
+    "removeAll": "Remove All",
+    "noOtherFiles": "No other document is open.",
+    "pagesInserted": "{{n}} pages inserted."
   }
 }

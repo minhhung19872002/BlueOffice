@@ -534,6 +534,12 @@ pub struct EditorWindow {
     pub(crate) presets_loaded8: bool,
     /// The Edit Object rotation handle being dragged (`editor_rot8`).
     pub(crate) rot8: Option<crate::editor_rot8::RotDrag>,
+    /// Values last applied per page design kind, for Update (`editor_org9`).
+    pub(crate) org9_last: std::collections::BTreeMap<&'static str, crate::editor_dlg8b::Vals>,
+    /// The open page design dialog came from Update: replace that kind on OK.
+    pub(crate) org9_update: Option<&'static str>,
+    /// The clipboard picture asked for is for Insert › From Clipboard.
+    pub(crate) clip_insert9: bool,
     /// Form field tool.
     pub(crate) design: crate::editor_design::DesignState,
     /// Caret shown (blink phase).
@@ -618,6 +624,9 @@ impl EditorWindow {
             wm_image8: None,
             presets_loaded8: false,
             rot8: None,
+            org9_last: std::collections::BTreeMap::new(),
+            org9_update: None,
+            clip_insert9: false,
             close_box: None,
             design: crate::editor_design::DesignState::default(),
             caret_on: true,
@@ -1086,7 +1095,8 @@ impl EditorWindow {
             }
             return;
         }
-        if self.dlg8_command(cmd)
+        if self.org9_command(cmd)
+            || self.dlg8_command(cmd)
             || self.action(cmd, m)
             || self.search_command(cmd)
             || self.tools_command(cmd)
@@ -1509,6 +1519,9 @@ impl EditorWindow {
             self.picture_picked(purpose, bytes);
             return;
         }
+        if self.org9_file_picked(purpose, bytes) {
+            return;
+        }
         if purpose == "batchPrintAdd" {
             self.batch_print_picked(path, bytes);
             return;
@@ -1902,6 +1915,8 @@ impl EditorWindow {
                 v.want_preview(i, s);
             }
         }
+        // Round 9: selected text of the paragraph being typed goes into the page image.
+        self.sync_text_mark9();
         self.r.prepare(store) || closed
     }
 

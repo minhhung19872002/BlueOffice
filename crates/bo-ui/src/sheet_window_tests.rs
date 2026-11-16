@@ -1360,8 +1360,9 @@ fn data_and_formulas_dialogs_sort_validate_seek_name_and_trace() {
     {
         let f = w.form.as_mut().expect("sort form");
         assert!(f.on("header"), "header row guessed");
-        assert_eq!(f.text("col0"), "Name");
-        f.set_sel("col0", Some(1));
+        // No key chosen yet, as the reference opens.
+        assert_eq!(f.text("col0"), "");
+        f.set_sel("col0", Some(2));
         f.set_sel("ord0", Some(1));
     }
     click_form(&mut w, "add", 10.0, 10.0);
@@ -1370,6 +1371,9 @@ fn data_and_formulas_dialogs_sort_validate_seek_name_and_trace() {
         .as_ref()
         .and_then(|f| f.get("col1"))
         .is_some_and(|c| c.visible));
+    if let Some(f) = w.form.as_mut() {
+        f.set_sel("col1", Some(1));
+    }
     let ok = w.fc_ok_point();
     w.handle(
         Input::Press {
@@ -1430,15 +1434,36 @@ fn data_and_formulas_dialogs_sort_validate_seek_name_and_trace() {
     w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
     assert!(w.form.is_none());
     assert_eq!(shown(&w, 6, 1), "5");
-    // Name Manager: define Rate = 0,1.
+    // Name Manager: New… opens New Name; define Rate = 0,1.
     assert!(w.action("sheet.nameManager", &Fixed));
+    click_form(&mut w, "new", 10.0, 10.0);
+    assert_eq!(w.form_kind, form_impl::FormKind::NewName);
     {
-        let f = w.form.as_mut().expect("names form");
+        let f = w.form.as_mut().expect("new name form");
         f.set_text("name", "Rate");
         f.set_text("ref", "=0,1");
     }
-    click_form(&mut w, "new", 10.0, 10.0);
-    assert!(w.name_rows.iter().any(|(n, _)| n == "Rate"));
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert_eq!(w.form_kind, form_impl::FormKind::Names);
+    let rate = w
+        .name_table
+        .iter()
+        .find(|r| r.name == "Rate")
+        .expect("Rate");
+    assert_eq!(rate.value, "0.1");
+    // Filter ▾ is a button with a menu: Table Names leaves no defined name.
+    click_form(&mut w, "filterBtn", 10.0, 10.0);
+    assert!(w
+        .form
+        .as_ref()
+        .and_then(|f| f.get("fmenu"))
+        .is_some_and(|c| c.visible));
+    w.form_event(
+        form_impl::FormKind::Names,
+        &form_impl::Event::Canvas("fmenu", 10.0, 6.0 * 26.0 + 10.0),
+        &Fixed,
+    );
+    assert!(w.name_table.iter().all(|r| r.table));
     w.handle(Input::Key(Key::Escape, Mods::default()), &Fixed);
     // Insert Function: search IF, pick it, OK starts the formula.
     w.view_mut().select((9, 0), (9, 0), (9, 0));
@@ -1541,7 +1566,7 @@ fn filter_drop_down_checks_values_and_reports_records_found() {
     // The button sits at the right end of the header cell.
     let b = w.view().cell_box(0, 1).expect("header");
     let at = (b[2] - 4.0, f32::midpoint(b[1], b[3]));
-    assert_eq!(w.filter_button_at(at.0, at.1), Some(1));
+    assert_eq!(w.filter_button_at(at.0, at.1), Some((1, None)));
     assert_eq!(w.filter_button_at(b[0] + 4.0, at.1), None);
     press(&mut w, at, 1);
     let f = w.filter.as_ref().expect("drop-down open");
@@ -2952,4 +2977,331 @@ fn tab_then_enter_returns_to_the_first_column_and_enter_direction_is_an_option()
     w.view_mut().undo();
     assert_eq!(shown(&w, 2, 4), "");
     assert_eq!(shown(&w, 0, 4), "d");
+}
+
+#[test]
+fn table_header_buttons_open_the_table_filter() {
+    let mut w = window();
+    put(
+        &mut w,
+        &[
+            (0, 0, "Name"),
+            (0, 1, "Region"),
+            (1, 0, "An"),
+            (1, 1, "North"),
+            (2, 0, "Binh"),
+            (2, 1, "South"),
+            (3, 0, "Chi"),
+            (3, 1, "North"),
+        ],
+    );
+    w.view.run(serde_json::json!({ "cmd": "createTable", "range": { "r0": 0, "c0": 0, "r1": 3, "c1": 1 } }));
+    assert_eq!(w.auto_filter(), None);
+    let b = w.view().cell_box(0, 1).expect("header");
+    let at = (b[2] - 4.0, f32::midpoint(b[1], b[3]));
+    assert_eq!(
+        w.filter_button_at(at.0, at.1),
+        Some((1, Some([0, 0, 3, 1])))
+    );
+    press(&mut w, at, 1);
+    let f = w.filter.as_ref().expect("drop-down open");
+    assert_eq!(f.header, "Region");
+    w.filter.as_mut().expect("open").toggle(2);
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert_eq!(w.status, "2 of 3 records found");
+    let info = w.view().engine().info().expect("info");
+    assert_eq!(info.sheets[0].hidden_rows, vec![(2, 2)]);
+    // Sort Z to A from the table's drop-down sorts the table's rows.
+    press(&mut w, at, 1);
+    assert!(w.filter_item(1));
+    assert_eq!(input(&w, 1, 1), "South");
+}
+
+#[test]
+fn options_dialog_sets_enter_direction_r1c1_and_iteration() {
+    let mut w = window();
+    assert!(w.action("file.options", &Fixed));
+    assert_eq!(w.form_kind, form_impl::FormKind::Options);
+    {
+        let f = w.form.as_mut().expect("options");
+        f.set_on("aEnter", true);
+        f.set_sel("aDir", Some(1));
+        f.set_on("fR1c1", true);
+        f.set_on("fIterate", true);
+        f.set_num("fCount", 50);
+    }
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert!(w.form.is_none());
+    let text = w.take_preferences().expect("changed");
+    assert!(
+        text.contains("enterDir=1") && text.contains("r1c1=1"),
+        "{text}"
+    );
+    assert_eq!(w.view().enter_move(), Some((0, 1)));
+    assert!(w.view().r1c1());
+    let calc = w
+        .view
+        .query(serde_json::json!({ "cmd": "calcOptions" }))
+        .expect("calc");
+    assert_eq!(calc["options"]["iterate"], true);
+    assert_eq!(calc["options"]["iterateCount"], 50);
+    // R1C1: the name box and formulas read and type in R1C1 notation.
+    put(&mut w, &[(0, 0, "2"), (1, 0, "=A1*3")]);
+    w.view.select((1, 0), (1, 0), (1, 0));
+    assert_eq!(w.view().name_box(), "R2C1");
+    assert_eq!(w.view().formula_text(), "=R[-1]C*3");
+    w.view.select((1, 1), (1, 1), (1, 1));
+    w.handle(Input::Text("=R[-1]C[-1]+1".into()), &Fixed);
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert_eq!(
+        w.view().engine().cell(0, 1, 1).expect("cell").input,
+        "=A1+1"
+    );
+}
+
+fn region_list(w: &mut SheetWindow) {
+    put(
+        w,
+        &[
+            (0, 0, "Region"),
+            (0, 1, "Sales"),
+            (1, 0, "North"),
+            (1, 1, "5"),
+            (2, 0, "North"),
+            (2, 1, "7"),
+            (3, 0, "South"),
+            (3, 1, "4"),
+            (4, 0, "South"),
+            (4, 1, "4"),
+        ],
+    );
+    w.view.select((1, 0), (1, 0), (1, 0));
+}
+
+#[test]
+fn subtotal_dialog_adds_and_removes_subtotals() {
+    let mut w = window();
+    region_list(&mut w);
+    assert!(w.action("outline.subtotal", &Fixed));
+    assert_eq!(w.form_kind, form_impl::FormKind::Subtotal);
+    {
+        let f = w.form.as_ref().expect("subtotal");
+        // The last column is ticked, as the reference.
+        assert!(!f.on("c0") && f.on("c1"));
+    }
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert!(w.form.is_none());
+    // North 5 + 7 = 12 under the North rows.
+    assert_eq!(shown(&w, 3, 1), "12");
+    assert!(w.action("outline.subtotal", &Fixed));
+    w.form_event(
+        form_impl::FormKind::Subtotal,
+        &form_impl::Event::Clicked("removeAll"),
+        &Fixed,
+    );
+    assert_eq!(input(&w, 3, 0), "South");
+}
+
+#[test]
+fn remove_duplicates_dialog_compares_the_ticked_columns() {
+    let mut w = window();
+    region_list(&mut w);
+    assert!(w.action("sheet.removeDuplicates", &Fixed));
+    assert_eq!(w.form_kind, form_impl::FormKind::RemoveDups);
+    {
+        let f = w.form.as_mut().expect("dups");
+        assert!(f.on("header") && f.on("c0") && f.on("c1"));
+        // Only Region: one North and one South stay.
+        f.set_on("c1", false);
+    }
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert!(w.form.is_none());
+    assert_eq!(input(&w, 1, 0), "North");
+    assert_eq!(input(&w, 2, 0), "South");
+    assert_eq!(input(&w, 3, 0), "");
+    assert!(w.status.contains('2'), "{}", w.status);
+}
+
+#[test]
+fn advanced_filter_dialog_filters_in_place() {
+    let mut w = window();
+    region_list(&mut w);
+    put(&mut w, &[(0, 4, "Region"), (1, 4, "South")]);
+    w.view.select((1, 0), (1, 0), (1, 0));
+    assert!(w.action("sheet.filterAdvanced", &Fixed));
+    assert_eq!(w.form_kind, form_impl::FormKind::AdvancedFilter);
+    {
+        let f = w.form.as_mut().expect("advanced");
+        assert_eq!(f.text("list"), "$A$1:$B$5");
+        f.set_text("crit", "E1:E2");
+    }
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert!(w.form.is_none());
+    let info = w.view().engine().info().expect("info");
+    assert_eq!(info.sheets[0].hidden_rows, vec![(1, 2)]);
+}
+
+#[test]
+fn evaluate_formula_steps_like_the_reference() {
+    let mut w = window();
+    put(&mut w, &[(0, 0, "2"), (0, 1, "3"), (1, 0, "=A1+B1*2")]);
+    w.view.select((1, 0), (1, 0), (1, 0));
+    assert!(w.action("sheet.evaluateFormula", &Fixed));
+    assert_eq!(w.form_kind, form_impl::FormKind::Evaluate);
+    let first = w.eval.as_ref().expect("state").pieces();
+    assert!(!first.1.is_empty(), "an underlined part: {first:?}");
+    let n = w.eval.as_ref().map_or(0, |e| e.steps.len());
+    for _ in 0..n {
+        w.form_event(
+            form_impl::FormKind::Evaluate,
+            &form_impl::Event::Clicked("evaluate"),
+            &Fixed,
+        );
+    }
+    // Every step done: the result, in the box as the last value.
+    assert_eq!(w.eval.as_ref().expect("state").pieces().3, "8");
+    w.form_event(
+        form_impl::FormKind::Evaluate,
+        &form_impl::Event::Clicked("cancel"),
+        &Fixed,
+    );
+    assert!(w.form.is_none());
+}
+
+#[test]
+fn sort_dialog_moves_levels_and_sorts_with_options() {
+    let mut w = window();
+    put(
+        &mut w,
+        &[
+            (0, 0, "Name"),
+            (0, 1, "Score"),
+            (1, 0, "B"),
+            (1, 1, "2"),
+            (2, 0, "b"),
+            (2, 1, "2"),
+            (3, 0, "a"),
+            (3, 1, "1"),
+        ],
+    );
+    w.view_mut().select((1, 0), (1, 0), (1, 0));
+    assert!(w.action("sheet.sortDialog", &Fixed));
+    // Level 1: Score; level 2: Name; then move Name up: Name first, Score second.
+    w.form.as_mut().expect("sort").set_sel("col0", Some(2));
+    w.form_event(
+        form_impl::FormKind::Sort,
+        &form_impl::Event::Clicked("add"),
+        &Fixed,
+    );
+    w.form.as_mut().expect("sort").set_sel("col1", Some(1));
+    assert_eq!(w.sort_sel, 1);
+    w.form_event(
+        form_impl::FormKind::Sort,
+        &form_impl::Event::Clicked("up"),
+        &Fixed,
+    );
+    {
+        let f = w.form.as_ref().expect("sort");
+        assert_eq!(
+            (f.text("col0").as_str(), f.text("col1").as_str()),
+            ("Name", "Score")
+        );
+    }
+    assert_eq!(w.sort_sel, 0);
+    // Options: case sensitive (lower case first, as the reference sorts).
+    w.form_event(
+        form_impl::FormKind::Sort,
+        &form_impl::Event::Clicked("opts"),
+        &Fixed,
+    );
+    assert_eq!(w.form_kind, form_impl::FormKind::SortOptions);
+    w.form.as_mut().expect("options").set_on("case", true);
+    w.form_event(
+        form_impl::FormKind::SortOptions,
+        &form_impl::Event::Ok,
+        &Fixed,
+    );
+    assert_eq!(w.form_kind, form_impl::FormKind::Sort);
+    assert!(w.sort_case);
+    // Alt+D deletes the chosen level (Name): Score stays.
+    w.handle(
+        Input::Key(
+            Key::Letter('d'),
+            Mods {
+                alt: true,
+                ..Mods::default()
+            },
+        ),
+        &Fixed,
+    );
+    assert_eq!(w.sort_levels, 1);
+    assert_eq!(w.form.as_ref().expect("sort").text("col0"), "Score");
+    w.form_event(
+        form_impl::FormKind::Sort,
+        &form_impl::Event::Clicked("add"),
+        &Fixed,
+    );
+    w.form.as_mut().expect("sort").set_sel("col1", Some(1));
+    w.form_event(form_impl::FormKind::Sort, &form_impl::Event::Ok, &Fixed);
+    assert!(w.form.is_none());
+    let names: Vec<String> = (1..4).map(|r| input(&w, r, 0)).collect();
+    // Score, then Name case sensitive: lower case before upper case.
+    assert_eq!(names, ["a", "b", "B"]);
+}
+
+#[test]
+fn insert_function_recent_list_descriptions_and_search() {
+    let mut w = window();
+    assert!(w.action("sheet.insertFunction", &Fixed));
+    {
+        let f = w.form.as_ref().expect("insert function");
+        // Most Recently Used, seeded as the reference.
+        assert_eq!(f.sel("cat"), Some(0));
+        assert_eq!(f.text("fns"), "SUM");
+    }
+    let help = |w: &SheetWindow| match w
+        .form
+        .as_ref()
+        .and_then(|f| f.get("help"))
+        .map(|c| c.kind.clone())
+    {
+        Some(form_impl::Kind::Note(s)) => s,
+        _ => String::new(),
+    };
+    assert_eq!(help(&w), w.function_description("SUM"));
+    assert_ne!(help(&w), String::new());
+    // Go searches the descriptions too.
+    if let Some(f) = w.form.as_mut() {
+        f.set_text("search", "remainder");
+    }
+    w.form_event(
+        form_impl::FormKind::Function,
+        &form_impl::Event::Clicked("go"),
+        &Fixed,
+    );
+    assert_eq!(w.form.as_ref().expect("form").text("fns"), "MOD");
+    w.form_event(form_impl::FormKind::Function, &form_impl::Event::Ok, &Fixed);
+    assert_eq!(
+        w.prefs.recent_functions.first().map(String::as_str),
+        Some("MOD")
+    );
+}
+
+#[test]
+fn subtotal_defaults_to_count_for_a_text_column() {
+    let mut w = window();
+    put(
+        &mut w,
+        &[
+            (0, 0, "Region"),
+            (0, 1, "Note"),
+            (1, 0, "N"),
+            (1, 1, "x"),
+            (2, 0, "S"),
+            (2, 1, "y"),
+        ],
+    );
+    w.view.select((1, 0), (1, 0), (1, 0));
+    assert!(w.action("outline.subtotal", &Fixed));
+    assert_eq!(w.form.as_ref().and_then(|f| f.sel("fn")), Some(1));
 }

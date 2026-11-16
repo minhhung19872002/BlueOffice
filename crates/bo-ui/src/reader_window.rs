@@ -37,6 +37,9 @@ mod tabs4;
 // Helpers used by BlueEditor (tool hand-off, status text in tests).
 #[path = "editor_rows_win.rs"]
 mod rows;
+// BlueEditor round 7: Skins of the File page over the editor's own look.
+#[path = "editor_skin7_win.rs"]
+mod edskin7;
 
 #[path = "reader_tabs5_win.rs"]
 mod tabs5;
@@ -1983,6 +1986,9 @@ impl ReaderWindow {
             ],
             Vec::new(),
         );
+        // Placed at once (BlueEditor draws it before the next layout).
+        let mut d = d;
+        d.layout(&crate::editor_window::Estimate, self.size, self.scale);
         self.dialog = Some((d, Some(pending)));
     }
 
@@ -2050,6 +2056,8 @@ impl ReaderWindow {
         let track = self.vbar[3] - self.px(16.0);
         let view_h = t.view.frame()[3];
         let total = (hi - lo) + view_h;
+        // A window not laid out yet (or very short) has no track: no panic on min > max.
+        let track = track.max(self.px(20.0));
         let th = (track * view_h / total.max(1.0)).clamp(self.px(20.0), track);
         let frac = if hi > lo { (sy - lo) / (hi - lo) } else { 0.0 };
         let _ = ch;
@@ -2410,6 +2418,8 @@ impl ReaderWindow {
                     vec![(self.t("pdfReader.ok"), DialogButton::Ok)],
                     vec![self.t("pdfReader.aboutText")],
                 );
+                let mut d = d;
+                d.layout(&crate::editor_window::Estimate, self.size, self.scale);
                 self.dialog = Some((d, None));
             }
             "nav.bookmarks" | "panel.bookmarks" => self.toggle_panel(Panel::Bookmarks),

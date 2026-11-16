@@ -239,4 +239,10 @@ impl PdfWindow for EditorWindow {
     fn caret(&self) -> Option<[f32; 4]> {
         EditorWindow::caret(self)
     }
+    fn take_batch(&mut self) -> Vec<usize> {
+        self.r.take_batch()
+    }
+    fn view_at_mut(&mut self, i: usize) -> Option<&mut ReaderView> {
+        self.r.view_at_mut(i)
+    }
 }

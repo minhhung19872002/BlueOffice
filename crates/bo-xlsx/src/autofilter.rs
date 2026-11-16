@@ -228,6 +228,26 @@ fn parse_criterion(xml: &str) -> Option<ColumnFilter> {
     }
 }
 
+/// Parse a verbatim `autoFilter` element (a table part's §18.5.1.2 `table/autoFilter`, kept
+/// as XML in the model) into the AutoFilter model; `None` when it is not one.
+#[must_use]
+pub fn parse_auto_filter_xml(xml: &str) -> Option<AutoFilter> {
+    let mut r = XmlReader::new(xml.as_bytes(), "autoFilter");
+    let (e, empty) = root(&mut r).ok()?;
+    if lname(&e) != "autoFilter" {
+        return None;
+    }
+    read_auto_filter(&mut r, &e, empty).ok()
+}
+
+/// Serialize an AutoFilter model back to an `autoFilter` element (§18.3.1.2).
+#[must_use]
+pub fn auto_filter_xml(af: &AutoFilter) -> String {
+    let mut out = String::new();
+    write_auto_filter(&mut out, af);
+    out
+}
+
 /// Write an `autoFilter` element.
 pub(crate) fn write_auto_filter(out: &mut String, af: &AutoFilter) {
     out.push_str("<autoFilter");
@@ -458,6 +478,16 @@ mod tests {
         let mut out = String::new();
         write_auto_filter(&mut out, &af);
         (af, out)
+    }
+
+    #[test]
+    fn table_filter_xml_round_trips() {
+        let xml = r#"<autoFilter ref="B2:D9"><filterColumn colId="1"><filters><filter val="x"/></filters></filterColumn></autoFilter>"#;
+        let af = parse_auto_filter_xml(xml).unwrap();
+        assert_eq!(af.range, CellRange::parse("B2:D9").unwrap());
+        assert_eq!(af.columns[0].col_id, 1);
+        assert_eq!(auto_filter_xml(&af), xml);
+        assert!(parse_auto_filter_xml("<sortState/>").is_none());
     }
 
     #[test]

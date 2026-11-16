@@ -48,6 +48,10 @@ pub(super) enum SlideDialog {
     Compress,
     /// Add Section (`None`) or Rename Section.
     Section(Option<usize>),
+    /// Keep the ink drawn in the show that ended?
+    KeepInk,
+    /// Paragraph indents and spacing.
+    Paragraph,
 }
 
 /// Which contextual tabs the selection shows.
@@ -58,6 +62,8 @@ pub(super) enum Context {
     Shape,
     Picture,
     Table,
+    /// A chart: Chart Design and Format.
+    Chart,
 }
 
 /// Commands of these tabs (always enabled unless [`needs_selection`]).
@@ -336,6 +342,7 @@ pub(super) fn context_tabs(c: Context) -> Vec<Tab> {
         Context::Shape => vec![super::fmt::shape_format_tab()],
         Context::Picture => vec![super::pic::picture_format_tab()],
         Context::Table => vec![super::fmt::table_design_tab(), table_layout_tab()],
+        Context::Chart => super::chart::chart_tabs(),
     }
 }
 
@@ -530,6 +537,7 @@ impl SlideWindow {
             None => Context::None,
             Some("picture") if sel.len() == 1 => Context::Picture,
             Some("table") if sel.len() == 1 => Context::Table,
+            Some(_) if self.chart_selected() => Context::Chart,
             Some(_) => Context::Shape,
         }
     }
@@ -1418,6 +1426,10 @@ impl SlideWindow {
                 self.open_section_dialog(i);
                 return;
             }
+            SlideDialog::Paragraph => {
+                self.paragraph_action("format.paragraphSettings");
+                return;
+            }
             SlideDialog::HeaderFooter => {
                 let info = {
                     self.view.run(SlideCommand::HeaderFooterInfo);
@@ -1448,6 +1460,18 @@ impl SlideWindow {
                     (self.label("hfNotTitle"), not_title),
                 ])
             }
+            // A message box like the reference's after a show with ink: Keep / Discard.
+            SlideDialog::KeepInk => Dialog::new(
+                DialogKind::WordCount,
+                // The product name (ADR-0006), as the title-bar shows it.
+                "BlueSlide".to_owned(),
+                Vec::new(),
+                vec![
+                    (t(self, "showTools.keep"), DialogButton::Ok),
+                    (t(self, "showTools.discard"), DialogButton::Cancel),
+                ],
+                vec![t(self, "slideNative.keepInkQuestion")],
+            ),
             SlideDialog::Link => Dialog::new(
                 DialogKind::Link,
                 self.label("linkTitle"),
@@ -1558,13 +1582,20 @@ impl SlideWindow {
             self.show_dialog_button(k, b, values);
             return;
         }
+        if kind == SlideDialog::KeepInk {
+            let name = self.strings.get("showTools.inkName").to_owned();
+            self.view.resolve_pending_ink(b == DialogButton::Ok, &name);
+            self.dialog = None;
+            return;
+        }
         if b == DialogButton::Cancel {
             self.dialog = None;
             return;
         }
         let on = |i: usize| values.get(i).is_some_and(|v| v == "1");
         match kind {
-            SlideDialog::Show(_) => {}
+            SlideDialog::Show(_) | SlideDialog::KeepInk => {}
+            SlideDialog::Paragraph => self.paragraph_button(values),
             SlideDialog::Compress => self.compress_button(b, values),
             SlideDialog::Section(i) => self.section_button(i, b, values),
             SlideDialog::Link => {
@@ -1787,11 +1818,33 @@ impl SlideWindow {
         total
     }
 
-    /// Format Painter: give the next shape chosen the copied formatting.
-    pub(super) fn paste_format_painter(&mut self) -> bool {
+    /// Format Painter: give the next shape chosen the copied formatting; in text, the
+    /// characters selected next (a click takes the word under the pointer, as the
+    /// reference does). `release` is where the mouse button was let go, if it was.
+    pub(super) fn paste_format_painter(&mut self, release: Option<(f32, f32)>) -> bool {
         let Some(from) = self.fmt_painter.as_ref() else {
             return false;
         };
+        let c = self.view.canvas_rect();
+        let on_canvas = release
+            .filter(|(x, y)| *x >= c[0] && *x < c[0] + c[2] && *y >= c[1] && *y < c[1] + c[3]);
+        if let (Some((x, y)), Some(te)) = (on_canvas, self.view.text_edit().cloned()) {
+            if te.start == te.end {
+                // A click: the word under the pointer (double click selects it).
+                self.view.handle(Input::Press {
+                    x,
+                    y,
+                    count: 2,
+                    shift: false,
+                });
+                self.view.handle(Input::Release { x, y });
+            }
+            if self.view.text_edit().is_some_and(|t| t.start != t.end) {
+                self.fmt_painter = None;
+                return self.view.run(SlideCommand::PasteFormat);
+            }
+            return false;
+        }
         let ids: Vec<u32> = self.view.selection().iter().map(|s| s.id).collect();
         if ids.is_empty() || &ids == from {
             return false;

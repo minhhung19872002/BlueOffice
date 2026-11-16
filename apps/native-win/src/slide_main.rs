@@ -20,6 +20,7 @@ fn main() {
         .name("ui".into())
         .stack_size(64 * 1024 * 1024)
         .spawn(|| {
+            win32::enable_slide_keys();
             if let Err(e) = slide_app::run() {
                 win32::fatal(&e);
             }

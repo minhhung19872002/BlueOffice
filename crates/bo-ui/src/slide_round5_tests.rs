@@ -422,10 +422,13 @@ fn grayscale_ruler_and_page_masters() {
     w.paint(&mut p);
     assert_eq!(w.ribbon.active_tab(), 0);
     assert!(w.command_rect("pm.perPage").is_some());
+    // The status bar names the view (reference: "Handout Master", no slide counter).
+    assert_eq!(w.status_mode_text().as_deref(), Some("Handout Master"));
     click_command(&mut w, "pm.header");
     assert!(!w.pm_flags[0]);
     click_command(&mut w, "view.closePageMaster");
     assert!(w.page_master.is_none());
+    assert!(w.status_mode_text().is_none());
     assert_eq!(w.view().slide_count(), n);
     click_command(&mut w, "view.notesMaster");
     assert!(w.command_rect("pm.slideImage").is_some());

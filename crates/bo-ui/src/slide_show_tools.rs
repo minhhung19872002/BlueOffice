@@ -6,6 +6,7 @@
 //! show ends; they are kept in fractions of the slide so they follow a resize.
 use super::{SlideView, BLACK, R};
 use crate::{Input, Key, Mods, Painter};
+use bo_engine::slide_edit::present::{InkSlide, InkStroke};
 use bo_render::{PathSeg, Rgba};
 use std::collections::HashMap;
 
@@ -198,6 +199,57 @@ impl SlideView {
     /// Forget the drawings and tools (the show ended).
     pub(super) fn reset_show_tools(&mut self) {
         self.show_tools = ShowTools::default();
+    }
+
+    /// The show's drawings in slide points, to keep or discard when it ends (the
+    /// reference asks "Do you want to keep your ink annotations?"); slides in order.
+    pub(super) fn show_ink(&self) -> Vec<InkSlide> {
+        let (w, h) = self.slide_points();
+        let (w, h) = (f64::from(w), f64::from(h));
+        // Widths as drawn: 2.6 / 14 px per 960 px of slide.
+        let k = w / 960.0;
+        let mut slides: Vec<usize> = self.show_tools.strokes.keys().copied().collect();
+        slides.sort_unstable();
+        slides
+            .into_iter()
+            .filter_map(|slide| {
+                let strokes: Vec<InkStroke> = self
+                    .show_tools
+                    .strokes
+                    .get(&slide)?
+                    .iter()
+                    .filter(|s| !s.pts.is_empty())
+                    .map(|s| InkStroke {
+                        points: s
+                            .pts
+                            .iter()
+                            .map(|&(u, v)| [f64::from(u) * w, f64::from(v) * h])
+                            .collect(),
+                        color: if s.highlight { "FFFF00" } else { "FF0000" }.into(),
+                        width: if s.highlight { 14.0 * k } else { 2.6 * k },
+                        highlighter: s.highlight,
+                    })
+                    .collect();
+                (!strokes.is_empty()).then_some(InkSlide { slide, strokes })
+            })
+            .collect()
+    }
+
+    /// Ink left by the show that ended, waiting for the keep / discard answer.
+    pub fn has_pending_ink(&self) -> bool {
+        self.pending_ink.is_some()
+    }
+
+    /// Answer the keep / discard question: keep adds the drawings to their slides as ink
+    /// (one undo step) under `name`.
+    pub fn resolve_pending_ink(&mut self, keep: bool, name: &str) -> bool {
+        let Some(ink) = self.pending_ink.take() else {
+            return false;
+        };
+        keep && self.run(bo_engine::slide_edit::SlideCommand::KeepInk {
+            ink,
+            name: name.to_owned(),
+        })
     }
 
     /// Drawings, the laser dot and a blanked screen over the show.

@@ -1283,7 +1283,8 @@ pub struct SlideEditResult {
     pub bounds: Option<BoxR>,
     /// Resize and rotate handles of the selection.
     pub handles: Vec<Handle>,
-    /// Empty placeholders of the current slide (drawn as dashed outlines).
+    /// Empty placeholders of the current slide (drawn as dashed outlines); on a handout /
+    /// notes master page every placeholder, the filled ones of kind `filled`.
     pub placeholders: Vec<BoxR>,
     /// Type of each of [`SlideEditResult::placeholders`] (§19.7.10 ST_PlaceholderType:
     /// `title`, `ctrTitle`, `subTitle`, `body`, `obj`, …), for their prompt text.
@@ -2099,6 +2100,27 @@ fn format_state_at(
         caps: r.cap.clone().filter(|c| c != "none"),
         spacing: r.spc.map(|s| f64::from(s) / 100.0),
         double_strike: r.strike.as_deref() == Some("dblStrike"),
+        paragraph: Some(para_values(&ppr)),
+    }
+}
+
+/// Effective indents and spacing of a paragraph in points (Paragraph dialog).
+fn para_values(ppr: &bo_model::slide::ParaProps) -> text::ParaValues {
+    use bo_model::slide::Spacing;
+    let pts = |s: Option<Spacing>| match s {
+        Some(Spacing::Points(v)) => Some(f64::from(v) / 100.0),
+        Some(Spacing::Percent(_)) => None,
+        None => Some(0.0),
+    };
+    text::ParaValues {
+        before_text: ppr.mar_l.unwrap_or(0) as f64 / 12_700.0,
+        first_line: ppr.indent.unwrap_or(0) as f64 / 12_700.0,
+        space_before: pts(ppr.spc_bef),
+        space_after: pts(ppr.spc_aft),
+        line_exact: match ppr.ln_spc {
+            Some(Spacing::Points(v)) => Some(f64::from(v) / 100.0),
+            _ => None,
+        },
     }
 }
 
@@ -5410,6 +5432,38 @@ impl Engine {
         Some(base64::engine::general_purpose::STANDARD.encode(png))
     }
 
+    /// Slide `slide` drawn without its top-level shapes `ids` (`cNvPr@id`): what lies under
+    /// a shape being resized, for the see-through outline of its new size the editor draws
+    /// over it. `None` without a presentation or such a slide.
+    pub fn slide_without_shapes(
+        &mut self,
+        slide: usize,
+        ids: &[u32],
+    ) -> Option<bo_render::PageList> {
+        if self.slides.in_any_master_view() {
+            return None;
+        }
+        let pres = self.pres.as_mut()?;
+        let s = pres.slides.get_mut(slide)?;
+        let kept: Vec<ShapeNode> = s
+            .data
+            .shapes
+            .iter()
+            .filter(|n| !n.nv().is_some_and(|nv| ids.contains(&nv.id)))
+            .cloned()
+            .collect();
+        let all = std::mem::replace(&mut s.data.shapes, kept);
+        let page = bo_pptx::render_with(
+            pres,
+            slide,
+            &mut self.fonts,
+            &mut self.images,
+            &bo_pptx::RenderOptions::default(),
+        );
+        pres.slides[slide].data.shapes = all;
+        page.ok()
+    }
+
     /// Insert a PNG/JPEG picture on the current slide.
     pub fn slide_insert_picture(
         &mut self,
@@ -6023,15 +6077,26 @@ impl Engine {
             many => Rect::union_all(many.iter().map(|p| p.b.bounds())).map(BoxR::from_rect),
         };
         let mut placeholder_prompts = Vec::new();
+        // A handout / notes master page outlines every placeholder, filled or not
+        // (reference: the date and page number boxes are dashed too).
+        let all_outlined = ed.page.is_some();
         let (placeholders, placeholder_kinds): (Vec<BoxR>, Vec<String>) = placed
             .iter()
             .filter_map(|p| match ops::node_at(pres, slide, &p.path) {
                 Some(ShapeNode::Shape(s))
-                    if s.text.as_ref().is_none_or(|t| t.text().trim().is_empty()) =>
+                    if all_outlined
+                        || s.text.as_ref().is_none_or(|t| t.text().trim().is_empty()) =>
                 {
+                    let empty = s.text.as_ref().is_none_or(|t| t.text().trim().is_empty());
                     s.nv.placeholder.as_ref().map(|ph| {
                         placeholder_prompts.push(custom_prompt(pres, slide, ph));
-                        (p.b, ph.kind.clone().unwrap_or_else(|| "obj".to_owned()))
+                        // A filled one (master page only) gets no prompt: kind "filled".
+                        let kind = if empty {
+                            ph.kind.clone().unwrap_or_else(|| "obj".to_owned())
+                        } else {
+                            "filled".to_owned()
+                        };
+                        (p.b, kind)
                     })
                 }
                 _ => None,

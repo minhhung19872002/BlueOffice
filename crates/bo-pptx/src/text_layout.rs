@@ -21,7 +21,8 @@ const EMU_PT: f64 = 12_700.0;
 pub(crate) struct TextEnv<'a> {
     pub theme: Option<&'a Theme>,
     pub colors: ColorContext<'a>,
-    /// 1-based slide number for `slidenum` fields.
+    /// 1-based slide number for `slidenum` fields; 0 on a master page, where the field
+    /// shows its placeholder `‹#›`.
     pub slide_number: usize,
     /// Name of the part holding the text (hyperlink targets are relative to it).
     pub part: &'a str,
@@ -420,7 +421,11 @@ fn layout_paragraph(
                 let rp = TextStyleStack::run(ppr, props);
                 let text = match r {
                     TextRun::Field { kind: Some(k), .. } if k == "slidenum" => {
-                        env.slide_number.to_string()
+                        if env.slide_number == 0 {
+                            "‹#›".to_owned()
+                        } else {
+                            env.slide_number.to_string()
+                        }
                     }
                     _ => apply_caps(&rp, raw),
                 };
@@ -867,12 +872,19 @@ fn arrange(
     };
 
     let mut layout = layout_all(body, stack, col_w, wrap, scale, reduction, env, fonts);
-    // §21.1.2.1.3 normAutofit: shrink further while the text overflows.
+    // §21.1.2.1.3 normAutofit: shrink further while the text overflows, in the reference
+    // presentation app's steps (measured): line spacing −10 % then −20 %, then the font in
+    // 7.5 % steps (92.5, 85, 77.5, … %).
     if shrink {
         let mut guard = 0;
-        while columns_needed(&layout, box_h) > ncol && guard < 12 {
-            scale *= 0.9;
-            reduction = (reduction + 0.05).min(0.2);
+        while columns_needed(&layout, box_h) > ncol && guard < 16 {
+            if reduction < 0.2 - 1e-9 {
+                reduction = ((reduction * 10.0 + 1e-9).floor() + 1.0).min(2.0) / 10.0;
+            } else if scale > 0.1 + 1e-9 {
+                scale = (((scale - 0.075) * 1000.0).round() / 1000.0).max(0.1);
+            } else {
+                break;
+            }
             layout = layout_all(body, stack, col_w, wrap, scale, reduction, env, fonts);
             guard += 1;
         }

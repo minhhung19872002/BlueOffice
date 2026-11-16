@@ -328,14 +328,25 @@ fn hf_shape_xml(id: u32, kind: &str, idx: u32, (x, y, w, h): (i64, i64, i64, i64
     } else {
         format!(r#" idx="{idx}""#)
     };
-    // §21.1.2.2.4 fld type="slidenum": the page number.
+    // §21.1.2.2.4 fld type="slidenum": the page number; a master shows it as "‹#›".
     let para = if kind == "sldNum" {
         format!(
             concat!(
                 r#"<a:p><a:fld id="{{B6F15528-21DE-4FAA-801E-634DDDAF4B2B}}" type="slidenum">"#,
-                r#"<a:rPr lang="{lang}"/><a:t>#</a:t></a:fld><a:endParaRPr lang="{lang}"/></a:p>"#
+                r#"<a:rPr lang="{lang}"/><a:t>‹#›</a:t></a:fld><a:endParaRPr lang="{lang}"/></a:p>"#
             ),
             lang = build::LANG
+        )
+    } else if kind == "dt" {
+        // §21.1.2.2.4 fld type="datetimeFigureOut": today's date, as a new handout / notes
+        // master of the reference carries it.
+        format!(
+            concat!(
+                r#"<a:p><a:fld id="{{E1D3C2A5-6B7F-4C1D-9A2E-3F4B5C6D7E8F}}" type="datetimeFigureOut">"#,
+                r#"<a:rPr lang="{lang}"/><a:t>{date}</a:t></a:fld><a:endParaRPr lang="{lang}"/></a:p>"#
+            ),
+            lang = build::LANG,
+            date = today_mdy(),
         )
     } else {
         format!(r#"<a:p><a:endParaRPr lang="{}"/></a:p>"#, build::LANG)
@@ -361,6 +372,38 @@ fn hf_shape_xml(id: u32, kind: &str, idx: u32, (x, y, w, h): (i64, i64, i64, i64
         algn = algn,
         para = para,
     )
+}
+
+/// The host's local time minus UTC in minutes (`Engine::set_utc_offset_minutes`): new date
+/// fields show the local date.
+static UTC_OFFSET_MIN: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
+
+/// Remember the host's UTC offset for new date fields.
+pub(crate) fn set_utc_offset_minutes(minutes: i32) {
+    UTC_OFFSET_MIN.store(minutes, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Today's local date as `MM/DD/YYYY`, the cached text of a new date field.
+fn today_mdy() -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs()) as i64
+        + i64::from(UTC_OFFSET_MIN.load(std::sync::atomic::Ordering::Relaxed)) * 60;
+    let (y, m, d) = civil_from_days(secs.div_euclid(86_400));
+    format!("{m:02}/{d:02}/{y}")
+}
+
+/// Civil date of a day count since 1970-01-01 (H. Hinnant's algorithm).
+fn civil_from_days(days: i64) -> (i64, i64, i64) {
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    (yoe + era * 400 + i64::from(m <= 2), m, d)
 }
 
 /// Our default box of a header / footer item on a `w` × `h` page (EMU): the

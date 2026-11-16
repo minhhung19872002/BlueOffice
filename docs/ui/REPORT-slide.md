@@ -398,3 +398,37 @@ phím / chuột thật); kéo hình, khung chọn, đổi cỡ chạy được n
 Còn lại (sau vòng 14): ngày giờ trong chỗ dành sẵn Handout Master và thanh trạng thái "Handout Master";
 đổi cỡ của tham chiếu vẽ bóng mờ 50 % (ta vẽ hình thật); hỏi giữ nét bút khi kết thúc trình chiếu; Presenter
 View trên màn hình phụ.
+
+## Vòng 15 — phần còn lại, định dạng chữ, biểu đồ, bảng (`slide-24…`, 1500 × 1102, 125 %)
+
+Ảnh chụp: cửa sổ của ta được đặt *topmost* (không kích hoạt) trong lúc chụp — các cửa sổ của tác tử khác che
+lên thì swap chain bị *occluded* và `PrintWindow` trả khung cũ (vòng trước tưởng là lỗi nhấp chuột).
+
+| Đo (tham chiếu qua COM / PostMessage) | Tham chiếu | BlueSlide |
+|---|---|---|
+| Handout Master: ô ngày | trường `datetimeFigureOut` 11/16/2026, căn phải | như vậy (ngày theo giờ máy, `MM/DD/YYYY`) |
+| Handout Master: ô số trang | `‹#›`, khung đứt nét | như vậy (trước: "1", không khung) |
+| Handout Master: thanh trạng thái | "Handout Master", không Notes | như vậy; không thanh cuộn |
+| Handout Master: ribbon | Handout Orientation, Slide Size, Slides Per Page; Edit Theme; Background | như vậy (Hide Background Graphics mờ) |
+| Bóng đổi cỡ | hình mới mờ 60 % (46/117/182 trên trắng → 130/172/211), bản gốc ẩn, không tay nắm | như vậy (trước: hình thật) |
+| Increase Font Size từ 18 | 20 24 28 32 36 40 44 48 54 60 66 72 80 88 96 115 138 166 199 239 287 344 | trùng (Ctrl+] / Ctrl+Shift+>, nút ribbon; trước: +2 pt) |
+| Decrease Font Size từ 18 | 16 14 12 11 10,5 10 9 8 7 6 5 4 3 2 | trùng |
+| Cỡ lẫn 12 / 30, tăng | 14 / 32 (mỗi đoạn chạy theo cỡ riêng) | trùng |
+| Shrink text on overflow (thân 828 × 342,6 pt, 28 pt, N dòng) | 9 dòng: lnSpcReduction 10 %; 10: 92,5 % + 20 %; 11: 85; 12: 77,5; 13: 62,5; 14–15: 55; 16: 47,5; 17: 40; 18: 32,5 | bước như vậy: giãn dòng −10 %, −20 % rồi cỡ chữ từng 7,5 % (trước: ×0,9 và +5 % cùng lúc) |
+
+- Kết thúc trình chiếu có nét bút / bút đánh dấu: hộp "Do you want to keep your ink annotations?"
+  (Keep / Discard) như tham chiếu; Keep thêm nét vào đúng trang (lệnh engine `keepInk`, một bước hoàn tác).
+- Kiểm thử bố cục cho số đo dòng Windows (`slide_line_metrics`): Calibri hệ thống, hộp neo trên, dòng đầu ở
+  `tIns + usWinAscent` (24 / 54 pt, ±0,5 pt); bỏ qua khi máy không có Calibri.
+- Home: Clear All Formatting, Character Spacing (Very Tight −3 … Very Loose +6 pt), Change Case (Sentence
+  case., lowercase, UPPERCASE, Capitalize Each Word, tOGGLE cASE, chữ vẫn được chọn), Line Spacing (1.0 … 3.0,
+  dấu chọn ở mức hiện tại, đường kẻ trên Line Spacing Options…), hộp Paragraph (Before text, First line âm =
+  treo, Before / After pt, giãn dòng bội số hoặc "N pt" chính xác; giá trị đầu là giá trị hiệu lực qua
+  master — `FormatState.paragraph`).
+- Format Painter trên chữ: chép định dạng ký tự của vùng chọn, quét chọn chữ khác (hoặc nhấp một từ) là dán,
+  dùng một lần như tham chiếu.
+- Biểu đồ: Insert > Chart mở danh sách loại; biểu đồ chọn hiện tab Chart Design / Format của BlueSheet (Add
+  Chart Element, Quick Layout, Change Colors, Chart Styles, Change Chart Type, Shape Fill / Outline) trên lệnh
+  `setChart` của engine.
+- Bảng: Tab sang ô kế (chọn hết chữ), Shift+Tab ô trước, Tab ở ô cuối thêm hàng mới; gõ chữ trong ô giờ ghi
+  vào ô (trước: lệnh `setText` thiếu `cell`, chữ không vào ô).

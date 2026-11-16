@@ -159,6 +159,18 @@ const LAYER_KEY: usize = 3 << 40;
 const PIECES_KEY: usize = 4 << 40;
 /// Image keys of a running Morph (`slide_show::morph_keys` offsets).
 const MORPH_KEY: usize = 5 << 40;
+/// Image key of the slide under the shapes being resized (see [`SlideView::ghost`]).
+const GHOST_KEY: usize = 12 << 40;
+
+/// The slide without the shapes being resized or turned.
+struct Ghost {
+    /// Slide index.
+    slide: usize,
+    /// Its display list, until stored.
+    list: Option<bo_render::PageList>,
+    /// Zoom it was stored at.
+    scale: f32,
+}
 
 /// Device-pixel rectangle `[x, y, w, h]`.
 type R = [f32; 4];
@@ -291,6 +303,14 @@ pub struct SlideView {
     color_mode: colormode::ColorMode,
     /// The selection's frame and handles are not drawn (Remove Background).
     hide_handles: bool,
+    /// While a handle is dragged: the slide without the selected shapes (to store as
+    /// [`GHOST_KEY`]) — the shapes' new size is drawn half see-through over it, the
+    /// original hidden, as the reference does.
+    ghost: Option<Ghost>,
+    /// [`GHOST_KEY`] holds an image that is no longer needed.
+    ghost_stored: bool,
+    /// Ink drawn in the show that just ended, until the user keeps or discards it.
+    pending_ink: Option<Vec<bo_engine::slide_edit::present::InkSlide>>,
     /// Prompts of empty title, subtitle and body placeholders (interface language).
     /// Prompts: title, subtitle, body, then header and footer (page master views).
     prompts: [String; 5],
@@ -380,6 +400,9 @@ impl SlideView {
             collapsed: Vec::new(),
             color_mode: colormode::ColorMode::Color,
             hide_handles: false,
+            ghost: None,
+            ghost_stored: false,
+            pending_ink: None,
             prompts: [
                 "Click to add title".into(),
                 "Click to add subtitle".into(),
@@ -1119,8 +1142,8 @@ impl SlideView {
             "format.italic" => Some(TextFormat::Italic { value: toggle }),
             "format.underline" => Some(TextFormat::Underline { value: toggle }),
             "format.strike" => Some(TextFormat::Strike { value: toggle }),
-            "format.growStep" => Some(TextFormat::SizeBy { points: 2.0 }),
-            "format.shrinkStep" => Some(TextFormat::SizeBy { points: -2.0 }),
+            "format.growStep" => Some(TextFormat::SizeStep { up: true }),
+            "format.shrinkStep" => Some(TextFormat::SizeStep { up: false }),
             "format.alignLeft" => Some(align(Align::Left)),
             "format.alignCenter" => Some(align(Align::Center)),
             "format.alignRight" => Some(align(Align::Right)),
@@ -1228,12 +1251,14 @@ impl SlideView {
     }
 
     fn set_text(&mut self, id: u32, text: String, start: usize, end: usize) -> bool {
+        // In a table, the text of the cell being edited (typing went to the frame before).
+        let cell = self.text_edit().filter(|t| t.id == id).and_then(|t| t.cell);
         self.run(SlideCommand::SetText {
             id: Some(id),
             text,
             merge: true,
             sel: Some([start, end]),
-            cell: None,
+            cell,
         })
     }
 
@@ -1348,6 +1373,9 @@ impl SlideView {
             // Shift+Enter: line break inside the paragraph (§21.1.2.2.1 br).
             Key::Enter if m.shift => self.type_text("\u{b}"),
             Key::Enter => self.type_text("\n"),
+            // In a table, Tab goes to the next cell (its text selected), Shift+Tab to the
+            // previous one; Tab in the last cell adds a row (reference).
+            Key::Tab if te.cell.is_some() => self.table_tab(te.id, m.shift),
             // Tab inside a paragraph types a tab; at its start (or over a selection) it
             // demotes the paragraph, Shift+Tab promotes (reference).
             Key::Tab if !m.shift && te.start == te.end && !para_start(&te.text, te.end) => {
@@ -1363,6 +1391,71 @@ impl SlideView {
             Key::Letter('a') if m.ctrl => self.select_text(0, len),
             _ => false,
         }
+    }
+
+    /// Tab / Shift+Tab in a table cell: the next / previous cell in reading order, its text
+    /// selected; Tab in the last cell adds a row below and goes to its first cell.
+    fn table_tab(&mut self, id: u32, back: bool) -> bool {
+        let Some(cur) = self.text_edit().and_then(|t| t.cell) else {
+            return false;
+        };
+        let Some(t) = self.state.as_ref().and_then(|s| s.table.clone()) else {
+            return false;
+        };
+        let mut cells: Vec<(usize, usize, usize)> = t
+            .cells
+            .iter()
+            .map(|c| (c.row, c.col, utf16_len(&c.text)))
+            .collect();
+        cells.sort_unstable();
+        let Some(i) = cells
+            .iter()
+            .position(|(r, c, _)| *r == cur[0] && *c == cur[1])
+        else {
+            return false;
+        };
+        let target = if back {
+            i.checked_sub(1).map(|j| cells[j])
+        } else {
+            cells.get(i + 1).copied()
+        };
+        let (r, c, _) = match target {
+            Some(cell) => cell,
+            None if back => return false,
+            None => {
+                // The last cell: a new row below, its first cell (empty).
+                self.run(SlideCommand::TableSelect {
+                    id: Some(id),
+                    r0: cur[0],
+                    c0: cur[1],
+                    r1: None,
+                    c1: None,
+                });
+                if !self.run(SlideCommand::TableInsertRow { below: true }) {
+                    return false;
+                }
+                (t.rows, 0, 0)
+            }
+        };
+        if !self.run(SlideCommand::TextSelect {
+            id: Some(id),
+            start: 0,
+            end: 0,
+            cell: Some([r, c]),
+        }) {
+            return false;
+        }
+        // The cell's whole text selected (as the edit reports it now).
+        let len = self.text_edit().map_or(0, |t| utf16_len(&t.text));
+        if len > 0 {
+            self.run(SlideCommand::TextSelect {
+                id: Some(id),
+                start: 0,
+                end: len,
+                cell: Some([r, c]),
+            });
+        }
+        true
     }
 
     // ------------------------------------------------------------------ keyboard
@@ -1388,6 +1481,11 @@ impl SlideView {
                     };
                     return self.action(id);
                 }
+                // Increase / Decrease Font Size: Ctrl+] / Ctrl+[ and Ctrl+Shift+> / <.
+                Key::Letter(']') => return self.action("format.growStep"),
+                Key::Letter('[') => return self.action("format.shrinkStep"),
+                Key::Letter('.') if m.shift => return self.action("format.growStep"),
+                Key::Letter(',') if m.shift => return self.action("format.shrinkStep"),
                 _ => {}
             }
         }
@@ -1543,6 +1641,7 @@ impl SlideView {
                 kind: h.kind,
                 from: (x, y),
             });
+            self.start_ghost();
             return true;
         }
         // Inside the text being edited: place the caret (Shift extends; double click
@@ -1775,8 +1874,67 @@ impl SlideView {
         }
     }
 
+    /// Keep the slide without the selected shapes while a handle is dragged (the
+    /// reference hides them and draws their new size half see-through).
+    fn start_ghost(&mut self) {
+        let ids: Vec<u32> = self
+            .state
+            .as_ref()
+            .map(|s| s.selection.iter().map(|i| i.id).collect())
+            .unwrap_or_default();
+        let slide = self.current;
+        self.ghost = (!ids.is_empty())
+            .then(|| self.engine.slide_without_shapes(slide, &ids))
+            .flatten()
+            .map(|list| Ghost {
+                slide,
+                list: Some(list),
+                scale: 0.0,
+            });
+    }
+
+    /// The see-through outline is drawn (a handle drag changed the shapes).
+    pub fn ghost_shown(&self) -> bool {
+        self.live_since.is_some()
+            && matches!(self.drag, Some(Drag::Handle { .. }))
+            && self.ghost.as_ref().is_some_and(|g| {
+                g.list.is_none()
+                    && g.slide == self.current
+                    && (g.scale - self.scale()).abs() <= f32::EPSILON
+            })
+    }
+
+    /// Store the slide under a handle drag; let its image go after the drag.
+    fn prepare_ghost(&mut self, store: &mut dyn PageStore) -> Result<(), String> {
+        if !matches!(self.drag, Some(Drag::Handle { .. })) {
+            self.ghost = None;
+        }
+        let scale = self.scale();
+        match self.ghost.as_mut() {
+            Some(g) => {
+                if let Some(list) = g.list.take() {
+                    if self.color_mode == colormode::ColorMode::Color {
+                        store.update(GHOST_KEY, &list, &self.engine, scale, None)?;
+                    } else {
+                        let shown = colormode::recolor(&list, self.color_mode);
+                        store.update(GHOST_KEY, &shown, &self.engine, scale, None)?;
+                    }
+                    g.scale = scale;
+                    self.ghost_stored = true;
+                }
+            }
+            None if self.ghost_stored => {
+                store.remove(GHOST_KEY);
+                self.ghost_stored = false;
+            }
+            None => {}
+        }
+        Ok(())
+    }
+
     fn release(&mut self, x: f32, y: f32) -> bool {
         let drag = self.drag.take();
+        self.ghost = None;
         self.preview = None;
         self.undo_live();
         if let Some(Drag::Slides { moved, to, .. }) = drag {
@@ -2067,6 +2225,8 @@ impl SlideView {
         let Some(s) = self.show.take() else {
             return false;
         };
+        let ink = self.show_ink();
+        self.pending_ink = (!ink.is_empty()).then_some(ink);
         self.reset_show_tools();
         self.reading = false;
         if !s.ended {
@@ -2431,6 +2591,7 @@ impl SlideView {
             self.ensure(store, id, cur, scale)?;
             self.touch(id);
         }
+        self.prepare_ghost(store)?;
         let ts = self.thumb_scale();
         // While typing, the current slide's thumbnail is brought up to date when idle
         // (`prefetch`), off the keystroke's path: it costs as much as the slide itself.
@@ -2863,7 +3024,10 @@ impl SlideView {
             p.fill_rect(n[0], n[1] - 1.0, w - (n[0] - ox), 1.0, SPLITTER);
             self.paint_notes(p, n, text_size);
         }
-        self.paint_scrollbar(p);
+        // A handout / notes master is one page: no scroll bar (reference).
+        if !self.in_page_master() {
+            self.paint_scrollbar(p);
+        }
         if self.previewing() {
             p.push_clip(canvas[0], canvas[1], canvas[2], canvas[3]);
             self.paint_show(p, text_size);
@@ -2915,12 +3079,40 @@ impl SlideView {
         p.pop_clip();
     }
 
+    /// A handle drag: the slide without the shapes, and the shapes at their new size half
+    /// see-through over it (reference: 60 % opaque — 46/117/182 over white gives 130/172/211 —, original hidden, no handles).
+    fn paint_ghost(&self, p: &mut dyn Painter, id: usize, (x, y): (f32, f32)) {
+        // Pages are drawn at whole pixels.
+        let (x, y) = ((x as i32) as f32, (y as i32) as f32);
+        p.page(GHOST_KEY, x as i32, y as i32);
+        let Some(b) = self.state.as_ref().and_then(|s| s.bounds) else {
+            return;
+        };
+        let r = b.bounds();
+        let (l, t) = self.to_px(r.x, r.y);
+        let (rr, bb) = self.to_px(r.x + r.w, r.y + r.h);
+        // Room for outlines, shadows drawn just outside the box.
+        let pad = 8.0 * self.display_scale;
+        let (w, h) = self.slide_px(self.scale());
+        let x0 = (l - pad).max(x).floor();
+        let y0 = (t - pad).max(y).floor();
+        let x1 = (rr + pad).min(x + w).ceil();
+        let y1 = (bb + pad).min(y + h).ceil();
+        if x1 <= x0 || y1 <= y0 {
+            return;
+        }
+        let dest = [x0, y0, x1 - x0, y1 - y0];
+        p.page_part(id, [x0 - x, y0 - y, dest[2], dest[3]], dest, 0.6);
+    }
+
     fn paint_slide(&self, p: &mut dyn Painter) {
         let (x, y) = self.slide_origin();
         let (w, h) = self.slide_px(self.scale());
         let one = 1.0;
         p.fill_rect(x - one, y - one, w + 2.0 * one, h + 2.0 * one, SLIDE_EDGE);
+        let ghost = self.ghost_shown();
         match self.ids.get(self.current) {
+            Some(id) if ghost => self.paint_ghost(p, *id, (x, y)),
             Some(id) if self.shown.contains_key(id) => p.page(*id, x as i32, y as i32),
             _ => p.fill_rect(x, y, w, h, HANDLE_FILL),
         }

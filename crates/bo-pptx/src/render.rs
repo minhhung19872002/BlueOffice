@@ -449,9 +449,20 @@ fn make_ctx<'a>(
         clr_map: clr_map_of(pres, level),
         rels,
         part,
-        slide_number: index + 1,
+        // A handout / notes master edited as a page shows `‹#›` in its number field.
+        slide_number: if is_page_master_part(part) {
+            0
+        } else {
+            index + 1
+        },
         opts,
     }
+}
+
+/// A handout master (§19.3.1.24) or notes master (§19.3.1.27) part.
+fn is_page_master_part(part: &str) -> bool {
+    let p = part.to_ascii_lowercase();
+    p.contains("/handoutmasters/") || p.contains("/notesmasters/")
 }
 
 fn is_placeholder(n: &ShapeNode) -> bool {

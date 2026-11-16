@@ -1491,6 +1491,7 @@ impl crate::Engine {
     /// §17.16.5.68 show the local date and time; revision dates stay UTC).
     pub fn set_utc_offset_minutes(&mut self, minutes: i32) {
         self.utc_offset_min = Some(minutes);
+        crate::slide_edit::page_master::set_utc_offset_minutes(minutes);
         if let Some(ms) = self.clock_fixed.or_else(crate::review::system_ms) {
             self.apply_clock_ms(ms);
         }

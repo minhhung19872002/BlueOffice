@@ -91,12 +91,15 @@ fn home() -> Tab {
                         SizeBox,
                         B("format.growStep"),
                         B("format.shrinkStep"),
+                        B("format.clear"),
                     ],
                     vec![
                         B("format.bold"),
                         B("format.italic"),
                         B("format.underline"),
                         B("format.strike"),
+                        B("format.charSpacing"),
+                        B("format.changeCase"),
                         B("format.highlight"),
                         B("format.color"),
                     ],
@@ -111,6 +114,7 @@ fn home() -> Tab {
                         B("format.numbering"),
                         B("format.outdent"),
                         B("format.indent"),
+                        B("format.lineSpacing"),
                     ],
                     vec![
                         B("format.alignLeft"),
@@ -288,6 +292,12 @@ mod showtab;
 
 #[path = "slide_viewtab.rs"]
 mod viewtab;
+
+#[path = "slide_paragraph.rs"]
+mod paragraph;
+
+#[path = "slide_chart.rs"]
+mod chart;
 pub use ins::InsertFile;
 pub use views5::WindowRequest;
 
@@ -406,6 +416,8 @@ fn slide_enabled(id: &str, f: &bo_edit::FormatState) -> bool {
         || pic::BG_COMMANDS.contains(&id)
         || views5::COMMANDS.contains(&id)
         || sections::COMMANDS.contains(&id)
+        || paragraph::COMMANDS.contains(&id)
+        || chart::COMMANDS.contains(&id)
 }
 
 impl SlideWindow {
@@ -420,6 +432,7 @@ impl SlideWindow {
         pic::install_strings(&mut strings);
         views5::install_strings(&mut strings);
         sections::install_strings(&mut strings);
+        paragraph::install_strings(&mut strings);
         let mut icons = Icons::load();
         sr::install_icons(&mut icons);
         ins::install_icons(&mut icons);
@@ -429,6 +442,8 @@ impl SlideWindow {
         pic::install_icons(&mut icons);
         views5::install_icons(&mut icons);
         sections::install_icons(&mut icons);
+        crate::sheet_window::add_chart_icons(&mut icons);
+        paragraph::install_icons(&mut icons);
         view.set_labels(
             strings.get("slideEditor.notesPlaceholder"),
             strings.get("slideEditor.end"),
@@ -701,11 +716,19 @@ impl SlideWindow {
     pub fn handle(&mut self, input: Input, text: &dyn TextMeasure) -> bool {
         let showing = self.view.showing();
         let mode = self.view.mode();
+        let released = match input {
+            Input::Release { x, y } => Some((x, y)),
+            _ => None,
+        };
         let redraw = self.route(input, text)
             | self.paint_effect()
-            | self.paste_format_painter()
+            | self.paste_format_painter(released)
             | self.sync_context()
             | self.after_rehearsal();
+        // A show with ink ended: ask whether to keep it (reference message box).
+        if !self.view.showing() && self.view.has_pending_ink() && self.dialog.is_none() {
+            self.open_dialog(ins::SlideDialog::KeepInk);
+        }
         if std::mem::take(&mut self.dialog_layout) {
             if let Some((d, _)) = self.dialog.as_mut() {
                 d.layout(text, self.size, self.scale);
@@ -828,6 +851,12 @@ impl SlideWindow {
             return r;
         }
         if let Some(r) = self.format_action(id) {
+            return r;
+        }
+        if let Some(r) = self.paragraph_action(id) {
+            return r;
+        }
+        if let Some(r) = self.chart_action(id) {
             return r;
         }
         if let Some(r) = self.insert_action(id) {
@@ -1844,6 +1873,10 @@ impl SlideWindow {
                 color: (!v.is_empty()).then(|| v.to_owned()),
                 all: false,
             }),
+            "lspc" => self.choose_line_spacing(v),
+            "case" => self.change_case(v),
+            "chsp" => self.choose_spacing(v),
+            "slchart" => self.chart_action(c).unwrap_or(false),
             "tdir" => self.set_transition(None, Some(v.to_owned()), None, false),
             "tdur" => self.set_transition(None, None, v.parse().ok(), false),
             "adir" => self.apply_effect(None, Some(v.to_owned())),
@@ -2162,7 +2195,7 @@ impl SlideWindow {
             Input::Press { x, y, .. } if y >= status_top => {
                 self.area_press = false;
                 match self.status_hit(x, y) {
-                    Some(0) => self.action("view.notes"),
+                    Some(0) if self.page_master.is_none() => self.action("view.notes"),
                     Some(1) => self.step_zoom(false),
                     Some(2) => {
                         self.zoom_drag = true;
@@ -2625,15 +2658,20 @@ impl SlideWindow {
         let style = self.status_style();
         let ink = self.theme.text;
         let ty = (y + 1.0 + (sh - 1.0 - style.size * 1.33) / 2.0).round();
-        let counter = self
-            .strings
-            .get("slideEditor.slideOf")
-            // Reading view counts the slide it shows.
-            .replace(
-                "{{n}}",
-                &(self.view.show_slide().unwrap_or(self.view.current()) + 1).to_string(),
-            )
-            .replace("{{total}}", &self.view.slide_count().to_string());
+        // A master view names itself instead of counting slides (reference: "Handout
+        // Master", "Notes Master", "Slide Master").
+        let counter = match self.status_mode_text() {
+            Some(t) => t,
+            None => self
+                .strings
+                .get("slideEditor.slideOf")
+                // Reading view counts the slide it shows.
+                .replace(
+                    "{{n}}",
+                    &(self.view.show_slide().unwrap_or(self.view.current()) + 1).to_string(),
+                )
+                .replace("{{total}}", &self.view.slide_count().to_string()),
+        };
         p.text(&counter, self.px(11.0), ty, style, ink);
         let [notes, minus, track, plus, pct, fit, normal, ..] = self.status;
         let icon = self.px(16.0);
@@ -2677,7 +2715,7 @@ impl SlideWindow {
         }
         // The notes toggle is a plain icon and label (no band), as on the reference; the
         // sorter has no notes, so no toggle.
-        if self.view.mode() == ViewMode::Normal {
+        if self.view.mode() == ViewMode::Normal && self.page_master.is_none() {
             self.icons.draw(
                 p,
                 "format.lineSpacing",
@@ -2774,6 +2812,10 @@ impl SlideWindow {
 #[cfg(test)]
 #[path = "slide_window_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "slide_round7_tests.rs"]
+mod round7_tests;
 
 #[cfg(test)]
 #[path = "slide_round5_tests.rs"]

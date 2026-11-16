@@ -286,6 +286,12 @@ pub enum TextFormat {
         /// Signed change (points).
         points: f64,
     },
+    /// Increase / Decrease Font Size: each run to the next size of the reference
+    /// presentation app's list (see [`font_size_step`]).
+    SizeStep {
+        /// Larger (else smaller).
+        up: bool,
+    },
     /// Text colour (§20.1.2.3.32 srgbClr).
     Color {
         /// `RRGGBB`; `None` = inherit.
@@ -325,6 +331,12 @@ pub enum TextFormat {
     LineSpacing {
         /// The multiple.
         value: f64,
+    },
+    /// Paragraph dialog: indents and spacing in points (§21.1.2.2.7 pPr@marL / @indent,
+    /// §21.1.2.2.10 spcBef / spcAft / lnSpc spcPts); `line_exact` replaces a multiple.
+    Paragraph {
+        /// The values.
+        values: ParaValues,
     },
     /// Superscript / subscript (§21.1.2.3.9 rPr@baseline, ST_Percentage): positive raises,
     /// negative lowers, 0 puts the text back on the line.
@@ -366,6 +378,7 @@ impl TextFormat {
                 | TextFormat::Numbering { .. }
                 | TextFormat::Level { .. }
                 | TextFormat::LineSpacing { .. }
+                | TextFormat::Paragraph { .. }
         )
     }
 }
@@ -444,6 +457,27 @@ pub struct FormatState {
     pub spacing: Option<f64>,
     /// Double strikethrough.
     pub double_strike: bool,
+    /// Paragraph values the Paragraph dialog starts from (effective, points): left margin
+    /// (§21.1.2.2.7 pPr@marL), first-line indent (pPr@indent, negative = hanging), space
+    /// before / after (§21.1.2.2.10 spcBef / spcAft as points) and an exact line spacing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub paragraph: Option<ParaValues>,
+}
+
+/// Paragraph indents and spacing in points (Paragraph dialog).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ParaValues {
+    /// Before text (left margin).
+    pub before_text: f64,
+    /// First line: positive indents, negative hangs.
+    pub first_line: f64,
+    /// Space before; `None` when given as a percentage of the font size.
+    pub space_before: Option<f64>,
+    /// Space after; `None` when given as a percentage.
+    pub space_after: Option<f64>,
+    /// Exact line spacing (points); `None` for a multiple ([`FormatState::line_spacing`]).
+    pub line_exact: Option<f64>,
 }
 
 /// Parse `RRGGBB` (with or without `#`).
@@ -453,6 +487,41 @@ pub fn parse_hex(hex: &str) -> Option<u32> {
         return None;
     }
     u32::from_str_radix(h, 16).ok()
+}
+
+/// Font sizes Increase / Decrease Font Size step through (points), as measured on the
+/// reference presentation app; above the last one a step is 20 % (×1.2 rounded, 96 → 115 →
+/// 138 → 166 …; 100 → 120), below the first it stops at 1.
+const SIZE_STEPS: [f64; 31] = [
+    1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 10.5, 11.0, 12.0, 14.0, 16.0, 18.0, 20.0,
+    24.0, 28.0, 32.0, 36.0, 40.0, 44.0, 48.0, 54.0, 60.0, 66.0, 72.0, 80.0, 88.0, 96.0,
+];
+
+/// The next size up or down from `cur` points (Ctrl+Shift+> / Ctrl+Shift+<, Ctrl+] / Ctrl+[).
+pub fn font_size_step(cur: f64, up: bool) -> f64 {
+    let last = SIZE_STEPS[SIZE_STEPS.len() - 1];
+    let next = if up {
+        if cur >= last - 1e-6 {
+            (cur * 1.2).round()
+        } else {
+            SIZE_STEPS
+                .iter()
+                .copied()
+                .find(|s| *s > cur + 1e-6)
+                .unwrap_or(last)
+        }
+    } else if cur > last + 1e-6 {
+        (cur / 1.2).round().max(last)
+    } else {
+        SIZE_STEPS
+            .iter()
+            .rev()
+            .copied()
+            .find(|s| *s < cur - 1e-6)
+            .unwrap_or(1.0)
+    };
+    // ST_TextFontSize: 1–4000 pt.
+    next.clamp(1.0, 4000.0)
 }
 
 pub(super) type RunChange = Box<dyn Fn(&mut RunProps)>;
@@ -497,6 +566,14 @@ pub(super) fn run_change(
             Some(Box::new(move |r: &mut RunProps| {
                 let cur = r.sz.map_or(base, |s| f64::from(s) / 100.0);
                 r.sz = Some(((cur + delta).clamp(1.0, 4000.0) * 100.0).round() as i32);
+            }))
+        }
+        TextFormat::SizeStep { up } => {
+            let up = *up;
+            let base = state.size.unwrap_or(default_size);
+            Some(Box::new(move |r: &mut RunProps| {
+                let cur = r.sz.map_or(base, |s| f64::from(s) / 100.0);
+                r.sz = Some((font_size_step(cur, up) * 100.0).round() as i32);
             }))
         }
         TextFormat::Color { hex } => {
@@ -638,6 +715,23 @@ fn para_change(p: &mut Paragraph, f: &TextFormat, state: &FormatState) {
         TextFormat::LineSpacing { value } => {
             let pct = (value.clamp(0.1, 10.0) * 100_000.0).round() as i32;
             pp.ln_spc = Some(Spacing::Percent(pct));
+        }
+        TextFormat::Paragraph { values: v } => {
+            // ST_Coordinate32 EMU for marL (0–51 206 400) / indent (±51 206 400).
+            let emu = |pt: f64| (pt * 12_700.0).round() as i64;
+            pp.mar_l = Some(emu(v.before_text).clamp(0, 51_206_400));
+            pp.indent = Some(emu(v.first_line).clamp(-51_206_400, 51_206_400));
+            // ST_TextSpacingPoint: 0–158 400 hundredths of a point.
+            let pts = |pt: f64| Spacing::Points((pt * 100.0).round().clamp(0.0, 158_400.0) as i32);
+            if let Some(b) = v.space_before {
+                pp.spc_bef = Some(pts(b));
+            }
+            if let Some(a) = v.space_after {
+                pp.spc_aft = Some(pts(a));
+            }
+            if let Some(l) = v.line_exact {
+                pp.ln_spc = Some(pts(l));
+            }
         }
         _ => {}
     }
@@ -927,6 +1021,65 @@ mod tests {
         assert_eq!(tb.paragraphs[0].runs[0], run("ab", false));
         assert!(matches!(tb.paragraphs[0].runs[1], TextRun::Break { .. }));
         assert!(matches!(tb.paragraphs[0].runs[2], TextRun::Field { .. }));
+    }
+
+    #[test]
+    fn font_size_steps_like_the_reference() {
+        // Measured: Increase Font Size from 18, Decrease from 18, and single steps.
+        let mut s = 18.0;
+        let ups: Vec<f64> = (0..22)
+            .map(|_| {
+                s = font_size_step(s, true);
+                s
+            })
+            .collect();
+        assert_eq!(
+            ups,
+            [
+                20.0, 24.0, 28.0, 32.0, 36.0, 40.0, 44.0, 48.0, 54.0, 60.0, 66.0, 72.0, 80.0, 88.0,
+                96.0, 115.0, 138.0, 166.0, 199.0, 239.0, 287.0, 344.0
+            ]
+        );
+        let mut s = 18.0;
+        let downs: Vec<f64> = (0..14)
+            .map(|_| {
+                s = font_size_step(s, false);
+                s
+            })
+            .collect();
+        assert_eq!(
+            downs,
+            [16.0, 14.0, 12.0, 11.0, 10.5, 10.0, 9.0, 8.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0]
+        );
+        for (from, up, down) in [
+            (11.0, 12.0, 10.5),
+            (13.0, 14.0, 12.0),
+            (25.0, 28.0, 24.0),
+            (57.0, 60.0, 54.0),
+            (100.0, 120.0, 96.0),
+        ] {
+            assert_eq!(font_size_step(from, true), up, "{from} up");
+            assert_eq!(font_size_step(from, false), down, "{from} down");
+        }
+        // Each run steps from its own size (reference: 12 / 30 → 14 / 32).
+        let mut tb = body(vec![vec![run("a", false), run("b", false)]]);
+        if let TextRun::Run { props, .. } = &mut tb.paragraphs[0].runs[0] {
+            props.sz = Some(1200);
+        }
+        if let TextRun::Run { props, .. } = &mut tb.paragraphs[0].runs[1] {
+            props.sz = Some(3000);
+        }
+        let st = FormatState::default();
+        apply_format(&mut tb, &TextFormat::SizeStep { up: true }, &st, 18.0);
+        let sizes: Vec<Option<i32>> = tb.paragraphs[0]
+            .runs
+            .iter()
+            .map(|r| match r {
+                TextRun::Run { props, .. } => props.sz,
+                _ => None,
+            })
+            .collect();
+        assert_eq!(sizes, [Some(1400), Some(3200)]);
     }
 
     #[test]

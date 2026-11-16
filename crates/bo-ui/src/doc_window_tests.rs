@@ -250,9 +250,11 @@ fn every_contextual_button_has_a_label_an_icon_and_a_command() {
                 // table look state.
                 let drawn = crate::doc_table::labeled_w(id).is_some()
                     || crate::doc_table::large_w(id).is_some();
-                if drawn && id.starts_with("table.") {
-                    let mut look = crate::doc_table::TableLook::default();
-                    assert!(look.command(id).is_some(), "{id} does nothing");
+                if drawn {
+                    if id.starts_with("table.look.") || id.starts_with("table.opt.") {
+                        let mut look = crate::doc_table::TableLook::default();
+                        assert!(look.command(id).is_some(), "{id} does nothing");
+                    }
                     continue;
                 }
                 assert!(
@@ -261,6 +263,7 @@ fn every_contextual_button_has_a_label_an_icon_and_a_command() {
                 );
                 assert!(
                     catalog::is_menu(id)
+                        || crate::doc_table::DIALOGS.contains(id)
                         || doc_tools::command(
                             id,
                             &format,
@@ -562,14 +565,10 @@ fn ctrl_g_goes_to_a_page() {
         ..Mods::default()
     };
     w.handle(Input::Key(Key::Letter('g'), ctrl), &Fixed);
-    assert_eq!(w.dialog.as_ref().map(|d| d.kind), Some(DialogKind::GoTo));
-    for _ in 0..4 {
-        w.handle(Input::Key(Key::Backspace, Mods::default()), &Fixed);
-    }
+    assert_eq!(w.find_dialog.as_ref().map(|d| d.tab), Some(2), "Go To tab");
     w.view.scroll_to(0.0);
     w.handle(Input::Text("3".into()), &Fixed);
     w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
-    assert!(w.dialog.is_none());
     let (scroll, _, _) = w.view.scroll_info();
     let third = w.view.slots().iter().find(|s| s.index == 2).map(|s| s.y);
     assert!(scroll > 0.0, "scrolled to page 3");
@@ -626,12 +625,61 @@ fn table_looks_options_alignment_and_select() {
     assert_eq!(t.v_align, Some(bo_model::CellVAlign::Bottom));
     assert_eq!(t.cell_h_align, bo_model::Alignment::Right);
     assert!(w.on_ids().contains(&"table.align.bottomRight"));
+    // Cell Size: type a row height, step the column width with its up arrow.
+    click(&mut w, "table.rowHeight");
+    assert!(w.cell_spin.is_some(), "the height box takes typing");
+    w.handle(Input::Text("1,5".into()), &Fixed);
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert!(w.cell_spin.is_none());
+    let t = w.view.format().table.clone().expect("in a table");
+    assert_eq!(t.row_height, 850, "1.5 cm");
+    let before = t.col_width;
+    let r = w
+        .ribbon
+        .rect_of(RibbonHit::Command("table.colWidth"))
+        .expect("width box");
+    let f = crate::doc_table::spin_rect(r, w.scale);
+    let (x, y) = (f[0] + f[2] - 3.0, f[1] + 3.0);
+    w.handle(
+        Input::Press {
+            x,
+            y,
+            count: 1,
+            shift: false,
+        },
+        &Fixed,
+    );
+    w.handle(Input::Release { x, y }, &Fixed);
+    let after = w.view.format().table.as_ref().map_or(0, |t| t.col_width);
+    assert_eq!(after, before + 57, "one 0.1 cm step");
     // Select › Select Table: every cell.
     click(&mut w, "table.select");
     assert!(w.menu.is_some(), "Select opens its menu");
     w.menu = None;
     act(&mut w, "table.select.table");
     assert!(w.view.format().table.as_ref().is_some_and(|t| t.multi_cell));
+}
+
+/// Read Mode: no ribbon, two pages side by side fitted to the window; Esc goes back to
+/// Print Layout at the zoom it had.
+#[test]
+fn read_mode_shows_two_pages_without_the_ribbon() {
+    let mut w = window();
+    let zoom = w.view.zoom();
+    act(&mut w, "view.readMode");
+    assert!((w.view.zoom() - 1.4).abs() < 1e-3, "reading zoom");
+    assert!((w.view_top() - w.title.height()).abs() < 0.5, "no ribbon");
+    assert!(w.on_ids().contains(&"view.readMode"));
+    assert!(
+        w.view.spell_marks().is_empty(),
+        "no proofing marks while reading"
+    );
+    assert!(!w.view.spelling_out_of_view());
+    w.handle(Input::Key(Key::Escape, Mods::default()), &Fixed);
+    assert!((w.view.zoom() - zoom).abs() < 1e-3);
+    assert!(w.view_top() > w.title.height() + 10.0, "ribbon back");
+    // The status bar's first view button is Read Mode, as on the reference.
+    assert_eq!(VIEW_MODES[0].0, "read");
 }
 
 /// Resting on a ribbon button shows its name with the shortcut and a description.
@@ -672,4 +720,71 @@ impl Painter for Rects {
     fn path(&mut self, _: &[PathSeg], _: Option<Rgba>, _: Option<(Rgba, f32)>) {}
     fn push_clip(&mut self, _: f32, _: f32, _: f32, _: f32) {}
     fn pop_clip(&mut self) {}
+}
+
+/// The navigation pane's Pages tab shows page thumbnails drawn by the host's page store.
+#[test]
+fn pages_tab_shows_page_thumbnails() {
+    #[derive(Default)]
+    struct Keys(Vec<(usize, f32)>);
+    impl crate::PageStore for Keys {
+        fn update(
+            &mut self,
+            index: usize,
+            _: &bo_render::PageList,
+            _: &Engine,
+            scale: f32,
+            _: Option<[u32; 4]>,
+        ) -> Result<(), String> {
+            self.0.push((index, scale));
+            Ok(())
+        }
+        fn remove(&mut self, _: usize) {}
+    }
+    let mut w = window();
+    act(&mut w, "view.navigationPane");
+    if let Some(nav) = w.nav.as_mut() {
+        nav.show(crate::nav_pane::NavTab::Pages);
+    }
+    w.handle(Input::Tick, &Fixed);
+    let mut store = Keys::default();
+    w.prepare(&mut store).unwrap();
+    let thumb = store.0.iter().find(|(k, _)| *k == crate::THUMB_KEY);
+    assert!(
+        thumb.is_some_and(|(_, s)| *s > 0.05 && *s < 0.5),
+        "{:?}",
+        store.0
+    );
+    let rects = w.nav.as_ref().map(NavPane::thumb_rects).unwrap_or_default();
+    assert_eq!(rects.len(), 1);
+    let mut rec = Rects::default();
+    w.paint(&mut rec);
+}
+
+/// Sizes follow the region's unit as the reference does: inches with a point in the US
+/// system (0.35" for a 504-twip row), centimetres elsewhere.
+#[test]
+fn sizes_in_the_region_unit() {
+    let us = crate::doc_table::Units {
+        inches: true,
+        decimal: '.',
+    };
+    assert_eq!(us.fmt(504), "0.35\"");
+    assert_eq!(us.parse("1.63\""), Some(2347));
+    assert_eq!(us.step(), 144);
+    let vn = crate::doc_table::Units::default();
+    assert_eq!(vn.fmt(567), "1,00 cm");
+    assert_eq!(vn.parse("1,5"), Some(850));
+    // An automatic row shows its laid-out height.
+    let mut w = window();
+    act(&mut w, "insert.table.2x2");
+    w.handle(Input::Tick, &Fixed);
+    for _ in 0..6 {
+        w.handle(Input::Tick, &Fixed);
+    }
+    assert!(
+        w.row_measured.is_some_and(|h| h > 200),
+        "{:?}",
+        w.row_measured
+    );
 }

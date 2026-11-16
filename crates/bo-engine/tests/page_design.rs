@@ -209,6 +209,30 @@ fn theme_and_style_set_from_the_gallery() {
     assert!(r["design"]["theme"].is_null());
 }
 
+#[test]
+fn document_style_set_survives_save_and_undo() {
+    let mut e = engine();
+    cmd(&mut e, r#"{"cmd":"applyDocumentStyleSet","id":"capital"}"#);
+    let f = reopen(&e);
+    let d = f.document().unwrap();
+    let h1 = d.style("Heading1").expect("Heading 1");
+    assert_eq!(h1.rpr.caps, Some(true));
+    assert_eq!(h1.rpr.size.map(|s| s.0), Some(28));
+    assert_eq!(
+        d.style("Title").and_then(|t| t.rpr.size).map(|s| s.0),
+        Some(52)
+    );
+    cmd(&mut e, r#"{"cmd":"undo"}"#);
+    let f = reopen(&e);
+    assert_ne!(
+        f.document()
+            .unwrap()
+            .style("Heading1")
+            .and_then(|h| h.rpr.caps),
+        Some(true)
+    );
+}
+
 /// Everything at once (BO_WRITE_DESIGN=<path> keeps the file for OpenXmlValidator:
 /// `bo-cli validate <path> --openxml require`).
 #[test]

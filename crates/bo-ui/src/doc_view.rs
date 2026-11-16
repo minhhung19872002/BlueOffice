@@ -116,6 +116,19 @@ pub struct DocView {
     spell: Vec<bo_engine::spell::SpellMark>,
     /// Pages the marks were checked on (those in view and one either side).
     spell_pages: Vec<usize>,
+    /// Pages side by side in a row.
+    columns: usize,
+    /// Proofing marks are hidden (Read Mode shows none, as the reference).
+    hide_spelling: bool,
+    /// White canvas without page edges (Read Mode's screen pages).
+    plain: bool,
+    /// Page thumbnails the navigation pane shows: wanted pages and width (device px),
+    /// the scale each stored thumbnail was drawn at, and those changed since (redrawn
+    /// at rest, not while typing).
+    thumbs: (Vec<usize>, f32),
+    thumbs_shown: std::collections::HashMap<usize, f32>,
+    thumbs_stale: std::collections::BTreeSet<usize>,
+    thumbs_refresh: bool,
     /// The rest of the document checked in the background, a few pages at a time.
     sweep: Sweep,
     /// How tracked changes and comments are shown.
@@ -154,6 +167,13 @@ impl DocView {
             spell: Vec::new(),
             spell_pages: Vec::new(),
             sweep: Sweep::default(),
+            columns: 1,
+            hide_spelling: false,
+            plain: false,
+            thumbs: (Vec::new(), 0.0),
+            thumbs_shown: std::collections::HashMap::new(),
+            thumbs_stale: std::collections::BTreeSet::new(),
+            thumbs_refresh: false,
             markup: bo_engine::markup::MarkupOptions::default(),
         };
         view.apply(&state);
@@ -274,6 +294,11 @@ impl DocView {
         self.modified = false;
     }
 
+    /// Comments of the document (threads and replies, in document order).
+    pub fn comments(&self) -> &[bo_edit::comments::CommentInfo] {
+        &self.comments
+    }
+
     /// Id of the comment whose anchor holds the caret.
     pub fn comment_at_caret(&self) -> Option<i32> {
         let caret = self.selection?.focus;
@@ -338,7 +363,9 @@ impl DocView {
         };
         let per_zoom = self.display_scale * 96.0 / 72.0;
         let gap = 2.0 * self.gap();
-        let across = (self.viewport.0 - gap).max(1.0) / (page.width * per_zoom);
+        // Pages side by side share the width.
+        let cols = self.columns.max(1) as f32;
+        let across = (self.viewport.0 - gap * cols).max(1.0) / (page.width * per_zoom * cols);
         let z = if whole_page {
             across.min((self.viewport.1 - gap).max(1.0) / (page.height * per_zoom))
         } else {
@@ -496,11 +523,18 @@ impl DocView {
         !self.spell.is_empty() || !self.sweep.found.is_empty()
     }
 
+    /// Laid-out height (twips) of the row holding the caret, for the Cell Size box.
+    pub fn caret_row_height(&mut self) -> Option<i32> {
+        self.engine.caret_row_height()
+    }
+
     /// Some page in view was not checked yet (after scrolling).
     pub fn spelling_out_of_view(&self) -> bool {
-        self.visible()
-            .iter()
-            .any(|s| !self.spell_pages.contains(&s.index))
+        !self.hide_spelling
+            && self
+                .visible()
+                .iter()
+                .any(|s| !self.spell_pages.contains(&s.index))
     }
 
     /// Wavy-line marks of the last spelling check.
@@ -735,26 +769,142 @@ impl DocView {
         ((p.width * s).ceil() as i32, (p.height * s).ceil() as i32)
     }
 
+    /// Show `n` pages side by side in each row (Read Mode shows two); `true` when it
+    /// changed.
+    pub fn set_columns(&mut self, n: usize) -> bool {
+        let n = n.max(1);
+        if n == self.columns {
+            return false;
+        }
+        self.columns = n;
+        self.glide = None;
+        self.clamp_scroll();
+        true
+    }
+
+    /// Height / width of the first page (thumbnail shape).
+    pub fn page_aspect(&self) -> f32 {
+        self.pages
+            .first()
+            .map_or(1.414, |p| p.height / p.width.max(1.0))
+    }
+
+    /// Show thumbnails of `pages`, `width` device pixels wide (the navigation pane's Pages
+    /// tab); an empty list frees them.
+    pub fn set_thumbnails(&mut self, pages: Vec<usize>, width: f32) {
+        self.thumbs = (pages, width);
+    }
+
+    /// Redraw the thumbnails of edited pages at the next frame (called at rest).
+    pub fn refresh_thumbnails(&mut self) -> bool {
+        let due = self
+            .thumbs
+            .0
+            .iter()
+            .any(|i| self.thumbs_stale.contains(i) && self.thumbs_shown.contains_key(i));
+        self.thumbs_refresh |= due;
+        due
+    }
+
+    /// Thumbnails still to draw (the host asks for another frame).
+    pub fn thumbnails_pending(&self) -> bool {
+        self.thumbs
+            .0
+            .iter()
+            .any(|i| !self.thumbs_shown.contains_key(i))
+    }
+
+    /// Bring the wanted thumbnails up to date: at most `MAX_THUMBS_PER_FRAME` new ones per
+    /// frame, edited ones only when asked at rest; others are freed.
+    fn prepare_thumbnails(&mut self, store: &mut dyn PageStore) -> Result<(), String> {
+        const MAX_THUMBS_PER_FRAME: usize = 4;
+        let wanted: std::collections::BTreeSet<usize> = self.thumbs.0.iter().copied().collect();
+        let gone: Vec<usize> = self
+            .thumbs_shown
+            .keys()
+            .copied()
+            .filter(|i| !wanted.contains(i))
+            .collect();
+        for i in gone {
+            store.remove(crate::THUMB_KEY + i);
+            self.thumbs_shown.remove(&i);
+        }
+        let refresh = std::mem::take(&mut self.thumbs_refresh);
+        let mut drawn = 0;
+        for &i in &wanted {
+            let Some(size) = self.pages.get(i) else {
+                continue;
+            };
+            let scale = (self.thumbs.1 / size.width.max(1.0)).max(0.01);
+            let current = self
+                .thumbs_shown
+                .get(&i)
+                .is_some_and(|s| (s - scale).abs() < 1e-4);
+            let stale = self.thumbs_stale.contains(&i);
+            if current && !(stale && refresh) {
+                continue;
+            }
+            if drawn >= MAX_THUMBS_PER_FRAME {
+                break;
+            }
+            let list = self.engine.page(i).map_err(|e| e.to_string())?;
+            store.update(crate::THUMB_KEY + i, list, &self.engine, scale, None)?;
+            self.thumbs_shown.insert(i, scale);
+            self.thumbs_stale.remove(&i);
+            drawn += 1;
+        }
+        Ok(())
+    }
+
+    /// Draw the pages on a white canvas without their edges (Read Mode).
+    pub fn set_plain(&mut self, on: bool) {
+        self.plain = on;
+    }
+
+    /// Hide or show the wavy proofing marks (and drop the ones laid out before).
+    pub fn set_hide_spelling(&mut self, hide: bool) {
+        self.hide_spelling = hide;
+        if hide {
+            self.spell.clear();
+            self.spell_pages.clear();
+        }
+    }
+
+    /// Pages side by side in a row.
+    pub fn columns(&self) -> usize {
+        self.columns
+    }
+
+    /// Height of each row of pages (the tallest page of the row).
+    fn row_heights(&self) -> Vec<i32> {
+        self.pages
+            .chunks(self.columns.max(1))
+            .map(|row| row.iter().map(|p| self.page_px(*p).1).max().unwrap_or(0))
+            .collect()
+    }
+
     /// Document y (device pixels from the top of the first gap) of each page's top.
     fn page_tops(&self) -> Vec<f32> {
         let gap = self.gap();
+        let cols = self.columns.max(1);
         let mut y = gap;
-        self.pages
-            .iter()
-            .map(|p| {
-                let top = y;
-                y += self.page_px(*p).1 as f32 + gap;
-                top
-            })
-            .collect()
+        let mut tops = Vec::with_capacity(self.pages.len());
+        for h in self.row_heights() {
+            for _ in 0..cols {
+                tops.push(y);
+            }
+            y += h as f32 + gap;
+        }
+        tops.truncate(self.pages.len());
+        tops
     }
 
     fn content_height(&self) -> f32 {
         let gap = self.gap();
         gap + self
-            .pages
+            .row_heights()
             .iter()
-            .map(|p| self.page_px(*p).1 as f32 + gap)
+            .map(|h| *h as f32 + gap)
             .sum::<f32>()
     }
 
@@ -780,15 +930,24 @@ impl DocView {
     /// Every page with its position in the view (whole pixels, so images map 1:1).
     pub fn slots(&self) -> Vec<PageSlot> {
         let tops = self.page_tops();
+        let cols = self.columns.max(1);
+        let gap = self.gap();
         self.pages
             .iter()
             .zip(tops)
             .enumerate()
             .map(|(index, (p, top))| {
                 let (width, height) = self.page_px(*p);
-                let x = ((self.viewport.0 - width as f32) / 2.0)
-                    .max(self.gap())
-                    .floor();
+                // The row is centred; pages follow each other with a gap between them.
+                let first = index - index % cols;
+                let row = &self.pages[first..(first + cols).min(self.pages.len())];
+                let row_w: f32 = row.iter().map(|q| self.page_px(*q).0 as f32).sum::<f32>()
+                    + gap * (row.len() as f32 - 1.0);
+                let before: f32 = self.pages[first..index]
+                    .iter()
+                    .map(|q| self.page_px(*q).0 as f32 + gap)
+                    .sum();
+                let x = (((self.viewport.0 - row_w) / 2.0).max(gap) + before).floor();
                 PageSlot {
                     index,
                     x: (x + self.origin.0) as i32,
@@ -972,6 +1131,7 @@ impl DocView {
             self.clamp_scroll();
         }
         self.stale.extend(r.dirty.iter().copied());
+        self.thumbs_stale.extend(r.dirty.iter().copied());
         // The document changed: check every page again in the background (the cache
         // keeps unchanged paragraphs cheap); pages found so far stay until re-checked.
         if !r.dirty.is_empty() {
@@ -1087,7 +1247,7 @@ impl DocView {
             self.stale.remove(&index);
         }
         self.repaint_all = false;
-        Ok(())
+        self.prepare_thumbnails(store)
     }
 
     /// Paint a frame: background, pages, selection and caret.
@@ -1095,11 +1255,20 @@ impl DocView {
         let (ox, oy) = self.origin;
         let (vw, vh) = self.viewport;
         p.push_clip(ox, oy, vw, vh);
-        p.fill_rect(ox, oy, vw, vh, CANVAS_BG);
+        let canvas = if self.plain {
+            Rgba(255, 255, 255, 255)
+        } else {
+            CANVAS_BG
+        };
+        p.fill_rect(ox, oy, vw, vh, canvas);
         let s = self.scale();
         let visible = self.visible();
         for slot in &visible {
-            let edge = self.display_scale.round().max(1.0);
+            let edge = if self.plain {
+                0.0
+            } else {
+                self.display_scale.round().max(1.0)
+            };
             p.fill_rect(
                 slot.x as f32 - edge,
                 slot.y as f32 - edge,
@@ -1112,7 +1281,12 @@ impl DocView {
             }
             // Wavy lines under misspelt words (red) and grammar issues (blue), as a desktop
             // word processor checks as you type.
-            for m in self.spell.iter().filter(|m| m.page == slot.index) {
+            let marks = if self.hide_spelling {
+                &[][..]
+            } else {
+                &self.spell[..]
+            };
+            for m in marks.iter().filter(|m| m.page == slot.index) {
                 let color = if m.grammar { SPELL_GRAMMAR } else { SPELL_RED };
                 wavy(
                     p,

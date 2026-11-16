@@ -111,6 +111,33 @@ pub(crate) fn distribute_rows(t: &mut Table, r0: usize, r1: usize, heights: &[i3
     }
 }
 
+/// Height of rows `r0..=r1` (§17.4.81 trHeight): `Some` twips as a minimum height (an
+/// exact height stays exact), `None` back to automatic.
+pub(crate) fn set_row_height(t: &mut Table, r0: usize, r1: usize, twips: Option<i32>) {
+    for row in t.rows.iter_mut().take(r1 + 1).skip(r0) {
+        row.props.height = twips.filter(|h| *h > 0).map(|h| {
+            let rule = match row.props.height {
+                Some((_, HeightRule::Exact)) => HeightRule::Exact,
+                _ => HeightRule::AtLeast,
+            };
+            (Twips(h), rule)
+        });
+    }
+}
+
+/// Width of grid columns `g0..=g1` (§17.4.48 gridCol) in twips; the cells follow
+/// (§17.4.71 tcW).
+pub(crate) fn set_column_width(t: &mut Table, g0: usize, g1: usize, twips: i32) {
+    if twips <= 0 || t.grid.is_empty() {
+        return;
+    }
+    let last = t.grid.len() - 1;
+    for w in t.grid.iter_mut().take(g1.min(last) + 1).skip(g0) {
+        w.0 = twips;
+    }
+    sync_cell_widths(t);
+}
+
 /// Give grid columns `g0..=g1` (all columns when only one is selected) the same width,
 /// keeping their total (§17.4.48 gridCol), and update the cell widths.
 pub(crate) fn distribute_columns(t: &mut Table, g0: usize, g1: usize) {

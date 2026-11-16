@@ -24,6 +24,12 @@ pub enum DialogKind {
     PageSetup,
     /// Go to a page (Ctrl+G).
     GoTo,
+    /// Table properties: preferred width, row height, column width (cm).
+    TableProperties,
+    /// Default cell margins of a table (cm).
+    CellMargins,
+    /// Reply to a comment thread (comments pane).
+    CommentReply,
 }
 
 /// A dialog button's action.

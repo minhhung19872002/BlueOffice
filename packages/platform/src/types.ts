@@ -363,6 +363,12 @@ export interface TableState {
   vAlign?: 'Top' | 'Center' | 'Bottom';
   /** Horizontal alignment of the caret's paragraph in its cell. */
   cellHAlign: Alignment;
+  /** Height of the caret's row in twips (0 = automatic). */
+  rowHeight: number;
+  /** Width of the caret's column in twips. */
+  colWidth: number;
+  /** Default left / right cell margins in twips. */
+  cellMargin: [number, number];
 }
 
 /** §17.18.93 ST_TextDirection (transitional names). */
@@ -415,6 +421,10 @@ export type TableEdit =
       };
     }
   | { kind: 'select'; part: 'cell' | 'column' | 'row' | 'table' }
+  | { kind: 'rowHeight'; twips: number | null }
+  | { kind: 'columnWidth'; twips: number }
+  | { kind: 'splitTable' }
+  | { kind: 'cellMargins'; left: number; right: number }
   /** Separator: "\t", ",", "\n" (one paragraph per cell) or any text. */
   | { kind: 'toText'; separator: string }
   | { kind: 'fromText'; separator: string; cols?: number | null };
@@ -981,7 +991,7 @@ export type EditCommand =
   | { cmd: 'setPageBorders'; borders?: PageBordersSpec | null; scope?: 'section' | 'document' }
   /** Text or picture watermark of every page; absent removes it. */
   | { cmd: 'setWatermark'; watermark?: WatermarkSpec | null }
-  | { cmd: 'applyTheme' | 'applyStyleSet'; id: string }
+  | { cmd: 'applyTheme' | 'applyStyleSet' | 'applyDocumentStyleSet'; id: string }
   /** File › Info document properties (CORE-UI-002) → `docProperties`. */
   | import('./docProperties').DocPropertiesCommand
   /** Check document (CORE-INSPECT-001): `inspect`, `inspectRemove`, `inspectKeep` → `inspection`. */

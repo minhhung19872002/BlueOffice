@@ -18,7 +18,7 @@ pub(crate) const HEADER_FOOTER: &str = "ribbon.tabs.headerFooter";
 pub(crate) const PICTURE_FORMAT: &str = "ribbon.tabs.pictureFormat";
 
 /// Menu buttons of the contextual tabs.
-const MENUS: [&str; 11] = [
+const MENUS: [&str; 16] = [
     "table.select",
     "table.data",
     "review.markupMode",
@@ -30,6 +30,11 @@ const MENUS: [&str; 11] = [
     "table.delete",
     "table.autoFit",
     "picture.crop",
+    "design.themes",
+    "design.colors",
+    "design.fonts",
+    "design.paragraphSpacing",
+    "design.effects",
 ];
 
 /// What the selection needs: header/footer editing, a table, a picture.
@@ -117,7 +122,7 @@ fn table_layout_tab() -> Tab {
             Group {
                 label: "ribbon.groups.table",
                 large: vec![],
-                rows: vec![vec![S("table.select")]],
+                rows: vec![vec![S("table.select")], vec![S("table.properties")]],
             },
             Group {
                 label: "ribbon.groups.rowsColumns",
@@ -131,25 +136,33 @@ fn table_layout_tab() -> Tab {
             Group {
                 label: "ribbon.groups.merge",
                 large: vec![],
-                rows: vec![vec![S("table.mergeCells")], vec![S("table.splitCell")]],
+                rows: vec![
+                    vec![S("table.mergeCells")],
+                    vec![S("table.splitCell")],
+                    vec![S("table.splitTable")],
+                ],
             },
+            // Height / width boxes with the distribute buttons beside them, AutoFit under
+            // them, as on the reference.
             Group {
                 label: "ribbon.groups.cellSize",
-                large: vec![L("table.autoFit")],
+                large: vec![],
                 rows: vec![
-                    vec![S("table.distributeRows")],
-                    vec![S("table.distributeColumns")],
+                    vec![S("table.rowHeight"), B("table.distributeRows")],
+                    vec![S("table.colWidth"), B("table.distributeColumns")],
+                    vec![S("table.autoFit")],
                 ],
             },
             // Nine alignment buttons in three rows, then Text Direction (reference order).
             Group {
                 label: "ribbon.groups.cellAlignment",
-                large: vec![L("table.textDirection")],
+                large: vec![L("table.textDirection"), L("table.cellMargins")],
                 rows: vec![
                     vec![a(0), a(1), a(2)],
                     vec![a(3), a(4), a(5)],
                     vec![a(6), a(7), a(8)],
                 ],
+                // (Text Direction and Cell Margins follow the grid.)
             },
             // One Data menu, as on the reference.
             Group {
@@ -240,6 +253,8 @@ pub(crate) fn menu(id: &str) -> Vec<Entry> {
         "table.data" => vec![
             e("table.headerRow", "docTable.repeatHeaderRows"),
             e("table.toText", "docTable.convertToText"),
+            e("table.sortAsc", "docTable.sortAsc"),
+            e("table.sortDesc", "docTable.sortDesc"),
         ],
         "table.select" => crate::doc_table::SELECT
             .iter()
@@ -383,6 +398,16 @@ pub(crate) fn command(
         "table.autoFitWindow" => table(&json!({ "kind": "autoFit", "mode": "window" })),
         "table.autoFitFixed" => table(&json!({ "kind": "autoFit", "mode": "fixed" })),
         "table.toText" => table(&json!({ "kind": "toText", "separator": "\t" })),
+        "table.splitTable" => table(&json!({ "kind": "splitTable" })),
+        // Sort the rows below the header row by the caret's column, as text.
+        "table.sortAsc" | "table.sortDesc" => {
+            let column = f.table.as_ref().map_or(0, |t| t.col);
+            table(&json!({
+                "kind": "sort",
+                "keys": [{ "column": column, "kind": "text", "descending": id == "table.sortDesc" }],
+                "header": f.table.as_ref().is_some_and(|t| t.header_row),
+            }))
+        }
         "table.headerRow" => {
             let on = !f.table.as_ref().is_some_and(|t| t.header_row);
             table(&json!({ "kind": "headerRow", "on": on }))
@@ -457,8 +482,20 @@ pub(crate) fn enabled(id: &str, f: &FormatState) -> Option<bool> {
         _ if id.starts_with("table.") => in_table,
         _ if id.starts_with("picture.") => f.picture.is_some() || f.picture_tools,
         _ if id.starts_with("hf.") || id.starts_with("review.markup") => true,
-        "review.showMarkup" | "review.acceptMenu" | "review.rejectMenu" | "review.accept"
-        | "review.reject" => true,
+        "review.showMarkup"
+        | "review.acceptMenu"
+        | "review.rejectMenu"
+        | "review.accept"
+        | "review.reject"
+        | "review.showComments"
+        | "design.themes"
+        | "design.colors"
+        | "design.fonts"
+        | "design.paragraphSpacing"
+        | "design.styleSetMore"
+        | "design.pageBorders" => true,
+        _ if id.starts_with("design.styleSet.") => true,
+        _ if crate::doc_design::UNAVAILABLE.contains(&id) => false,
         _ => return None,
     })
 }
@@ -513,8 +550,41 @@ pub(crate) fn install_strings(s: &mut Strings) {
         ("picture.crop", "ribbon.docTools.crop"),
         ("picture.fill", "pictureTools.fill"),
         ("picture.fit", "pictureTools.fit"),
+        ("view.readMode", "docTable.readMode"),
+        ("review.showComments", "slideNative.showComments"),
+        ("design.colors", "docTable.designColors"),
+        ("design.fonts", "docTable.designFonts"),
+        ("design.paragraphSpacing", "docTable.paragraphSpacing"),
+        ("design.effects", "docTable.effects"),
+        ("design.setDefault", "docTable.setDefault"),
+        ("design.pageBorders", "docTable.pageBorders"),
+        ("design.pageColor", "docTable.pageColor"),
+        ("design.styleSetMore", "docTable.moreStyleSets"),
+        ("design.styleSet.standard", "docTable.styleSet.standard"),
+        ("design.styleSet.capital", "docTable.styleSet.capital"),
+        ("design.styleSet.lotus", "docTable.styleSet.lotus"),
+        ("design.styleSet.river", "docTable.styleSet.river"),
+        ("design.styleSet.harbor", "docTable.styleSet.harbor"),
+        ("design.styleSet.quiet", "docTable.styleSet.quiet"),
+        ("design.styleSet.bold", "docTable.styleSet.bold"),
     ] {
         copy(s, id, key);
+    }
+    // Group names in the reference's casing (Document Formatting, Page Background).
+    for (group, key) in [
+        (
+            "ribbon.groups.documentFormatting",
+            "docTable.groupDocumentFormatting",
+        ),
+        (
+            "ribbon.groups.pageBackground",
+            "docTable.groupPageBackground",
+        ),
+    ] {
+        let v = s.get(key).to_owned();
+        if v != key {
+            s.set(group, &v);
+        }
     }
 }
 
@@ -530,6 +600,9 @@ pub(crate) fn install_icons(icons: &mut Icons) {
         ("table.textDirection", "format.wrap"),
         ("table.toText", "table.split"),
         ("table.data", "data.sortAsc"),
+        ("table.splitTable", "table.split"),
+        ("table.properties", "table.bordersAll"),
+        ("table.cellMargins", "layout.margins"),
         ("hf.gotoHeader", "insert.header"),
         ("hf.gotoFooter", "insert.footer"),
         ("hf.linkToPrevious", "insert.link"),
@@ -540,9 +613,26 @@ pub(crate) fn install_icons(icons: &mut Icons) {
         ("review.rejectMenu", "review.reject"),
         ("review.markupMode", "review.viewMarkup"),
         ("view.printLayout", "layout.margins"),
+        ("view.readMode", "view.reading"),
         ("view.webLayout", "view.normal"),
         ("view.draft", "format.justify"),
         ("review.showMarkup", "review.comments"),
+        ("review.showComments", "review.comments"),
+        ("design.themes", "view.toggleTheme"),
+        ("design.colors", "format.color"),
+        ("design.fonts", "format.fontDialog"),
+        ("design.paragraphSpacing", "format.lineSpacing"),
+        ("design.effects", "format.fill"),
+        ("design.setDefault", "review.accept"),
+        ("design.pageBorders", "format.borders"),
+        ("design.styleSetMore", "style.title"),
+        ("design.styleSet.standard", "style.title"),
+        ("design.styleSet.capital", "style.title"),
+        ("design.styleSet.lotus", "style.title"),
+        ("design.styleSet.river", "style.title"),
+        ("design.styleSet.harbor", "style.title"),
+        ("design.styleSet.quiet", "style.title"),
+        ("design.styleSet.bold", "style.title"),
         ("picture.crop", "picture.position"),
         ("picture.fill", "view.fitWidth"),
         ("picture.fit", "view.fitWidth"),
@@ -551,6 +641,71 @@ pub(crate) fn install_icons(icons: &mut Icons) {
             icons.alias(id, existing);
         }
     }
+    // Design tab, filled like the rest of BlueDoc's ribbon (own shapes): Themes an "Aa"
+    // tile over four accent bars, Colors four swatches of a BlueOffice theme, Fonts a solid
+    // A, Watermark a page with a pale diagonal band, Page Color a tinted page and a drop.
+    let rgb = |r, g, b| Some(bo_render::Rgba(r, g, b, 255));
+    let page = "M4 3h16v18h-16Z";
+    icons.add_solid(
+        "design.themes",
+        &[
+            (page, rgb(255, 255, 255)),
+            (
+                "M5.5 13L8.6 4.5h1.6L13.3 13h-1.7l-0.7-2h-3l-0.7 2Z",
+                rgb(38, 38, 38),
+            ),
+            ("M8.7 9.6h1.9L9.6 6.6Z", rgb(255, 255, 255)),
+            ("M14.2 8.5h3.6v4.5h-3.6Z", rgb(38, 38, 38)),
+            ("M15.3 9.7h1.4v2.1h-1.4Z", rgb(255, 255, 255)),
+            ("M6 16h3v3h-3Z", rgb(0x1f, 0x6f, 0xb2)),
+            ("M9.3 16h3v3h-3Z", rgb(0x2b, 0xa3, 0xa0)),
+            ("M12.6 16h3v3h-3Z", rgb(0xf2, 0xa5, 0x41)),
+            ("M15.9 16h2.1v3h-2.1Z", rgb(0xd9, 0x53, 0x4f)),
+            (page, None),
+        ],
+    );
+    icons.add_solid(
+        "design.colors",
+        &[
+            ("M3 3h9v9h-9Z", rgb(0x1b, 0x3a, 0x5c)),
+            ("M12 3h9v9h-9Z", rgb(0xe7, 0xee, 0xf5)),
+            ("M3 12h9v9h-9Z", rgb(0x1f, 0x6f, 0xb2)),
+            ("M12 12h9v9h-9Z", rgb(0xf2, 0xa5, 0x41)),
+            ("M3 3h18v18h-18Z", None),
+        ],
+    );
+    icons.add_solid(
+        "design.fonts",
+        &[
+            (page, rgb(255, 255, 255)),
+            (
+                "M6.5 19L11 5h2l4.5 14h-2.4l-1.1-3.4h-4l-1.1 3.4Z",
+                rgb(20, 20, 20),
+            ),
+            ("M10.6 13.6h2.8L12 9Z", rgb(255, 255, 255)),
+            (page, None),
+        ],
+    );
+    icons.add_solid(
+        "design.watermark",
+        &[
+            (page, rgb(255, 255, 255)),
+            ("M6 16.5L15.5 5.5h2.5L8.5 16.5Z", rgb(0xf0, 0xb4, 0xb4)),
+            ("M6 18.5h12v1h-12Z", rgb(150, 150, 150)),
+            (page, None),
+        ],
+    );
+    icons.add_solid(
+        "design.pageColor",
+        &[
+            ("M3 3h14v18h-14Z", rgb(0xc8, 0xde, 0xf5)),
+            ("M3 3h14v18h-14Z", None),
+            (
+                "M18.5 11L21.5 15.5L21 18L18.5 19.5L16 18L15.5 15.5Z",
+                rgb(0x1f, 0x6f, 0xb2),
+            ),
+        ],
+    );
     // Navigation pane: a page with a filled list column on its left (own drawing).
     icons.add_solid(
         "view.navigationPane",

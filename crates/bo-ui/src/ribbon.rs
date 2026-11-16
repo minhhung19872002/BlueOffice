@@ -13,7 +13,6 @@ fn mix(a: Rgba, b: Rgba, k: f32) -> Rgba {
     let m = |x: u8, y: u8| (f32::from(x) * k + f32::from(y) * (1.0 - k)).round() as u8;
     Rgba(m(a.0, b.0), m(a.1, b.1), m(a.2, b.2), m(a.3, b.3))
 }
-
 /// One control of a group row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Item {
@@ -39,10 +38,10 @@ pub(crate) fn icon_of(id: &str) -> &str {
         "review.rejectAll" => "review.reject",
         "review.deleteComment" => "review.resolveComment",
         "review.wordCount" => "review.checkDocument",
-        "design.pageColor" | "format.shading" => "format.fillColor",
+        "format.shading" => "format.fillColor",
         "format.paraBorders" => "format.borders",
         "format.sortParagraphs" => "data.sortAsc",
-        "design.watermark" | "slide.layout" => "layout.pageSetup",
+        "slide.layout" => "layout.pageSetup",
         "view.layout" | "view.notes" => "view.normal",
         "view.onePage" => "view.reading",
         "view.pageWidth" | "view.fitSlide" => "view.fitWidth",
@@ -184,6 +183,9 @@ pub struct Ribbon {
     band_extra: f32,
     /// Fixed width (logical px) of some large buttons (gallery-like tiles), by command id.
     large_w: fn(&str) -> Option<f32>,
+    /// Group labels sit this much (logical px) below the middle of their row (per app:
+    /// each was measured against its own reference).
+    label_drop: f32,
     /// Fixed width (logical px) of some labeled items (BlueSheet's number format box).
     labeled_w: fn(&str) -> Option<f32>,
     /// Large buttons placed after the group's rows instead of before them.
@@ -360,11 +362,39 @@ fn design_tab() -> Tab {
     use Item::{Labeled as S, Large as L};
     Tab {
         label: "ribbon.tabs.design",
-        groups: vec![Group {
-            label: "ribbon.groups.pageBackground",
-            large: vec![L("design.watermark"), L("design.pageColor")],
-            rows: vec![],
-        }],
+        groups: vec![
+            // Document Formatting: themes, colours, fonts, paragraph spacing, as the
+            // reference's Design tab.
+            Group {
+                label: "ribbon.groups.documentFormatting",
+                large: vec![
+                    L("design.themes"),
+                    L("design.styleSet.standard"),
+                    L("design.styleSet.capital"),
+                    L("design.styleSet.lotus"),
+                    L("design.styleSet.river"),
+                    L("design.styleSet.harbor"),
+                    L("design.styleSet.quiet"),
+                    L("design.styleSet.bold"),
+                    L("design.colors"),
+                    L("design.fonts"),
+                ],
+                rows: vec![
+                    vec![S("design.paragraphSpacing")],
+                    vec![S("design.effects")],
+                    vec![S("design.setDefault")],
+                ],
+            },
+            Group {
+                label: "ribbon.groups.pageBackground",
+                large: vec![
+                    L("design.watermark"),
+                    L("design.pageColor"),
+                    L("design.pageBorders"),
+                ],
+                rows: vec![],
+            },
+        ],
     }
 }
 
@@ -456,7 +486,7 @@ fn review_tab() -> Tab {
             },
             Group {
                 label: "ribbon.groups.comments",
-                large: vec![L("review.newComment")],
+                large: vec![L("review.newComment"), L("review.showComments")],
                 rows: vec![
                     vec![S("review.deleteComment")],
                     vec![S("review.previousComment")],
@@ -489,7 +519,12 @@ fn view_tab() -> Tab {
             // 100 % with One Page and Page Width.
             Group {
                 label: "ribbon.groups.views",
-                large: vec![L("view.printLayout"), L("view.webLayout"), L("view.draft")],
+                large: vec![
+                    L("view.readMode"),
+                    L("view.printLayout"),
+                    L("view.webLayout"),
+                    L("view.draft"),
+                ],
                 rows: vec![],
             },
             Group {
@@ -561,6 +596,7 @@ impl Ribbon {
             label_row: 0.0,
             band_extra: 0.0,
             large_w: |_| None,
+            label_drop: 0.0,
             labeled_w: |_| None,
             trailing: |_| false,
             late: |_| false,
@@ -725,6 +761,14 @@ impl Ribbon {
     }
 
     /// Give some large buttons a fixed width (logical px), as gallery tiles.
+    /// Move the group labels down by `drop` logical px (BlueDoc: measured at 125 % the
+    /// reference's label ink ends 2 px above the ribbon body's bottom edge).
+    #[must_use]
+    pub(crate) fn with_label_drop(mut self, drop: f32) -> Self {
+        self.label_drop = drop;
+        self
+    }
+
     pub(crate) fn with_large_widths(mut self, rule: fn(&str) -> Option<f32>) -> Self {
         self.large_w = rule;
         self
@@ -2019,7 +2063,7 @@ impl Ribbon {
                     p.text(
                         label,
                         (r.x + ((r.w - w) / 2.0).max(0.0)).round(),
-                        r.y + (r.h - line) / 2.0,
+                        r.y + (r.h - line) / 2.0 + self.px(self.label_drop),
                         style,
                         // Near the body text: muted labels read faded next to desktop ribbons.
                         mix(t.text, t.text_muted, 0.8),
@@ -2625,7 +2669,11 @@ mod tests {
                 assert_ne!(strings.get(g.label), g.label, "missing label {}", g.label);
                 for item in g.large.iter().chain(g.rows.iter().flatten()) {
                     if let Item::Button(id) | Item::Large(id) | Item::Labeled(id) = item {
-                        assert!(commands::enabled(id, &format), "{id} has no action");
+                        assert!(
+                            commands::enabled(id, &format)
+                                || crate::doc_design::UNAVAILABLE.contains(id),
+                            "{id} has no action"
+                        );
                         let glyph = GLYPH_BUTTONS.iter().any(|(g, _)| g == id);
                         assert!(glyph || icons.has(icon_of(id)), "{id} has no icon");
                         let key = format!("commands.{id}");

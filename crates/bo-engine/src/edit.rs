@@ -1059,6 +1059,12 @@ pub enum Command {
     },
     /// The document's theme as a `.thmx` file (`design.themeFile`, base64).
     SaveThemeFile,
+    /// Apply a document style set: the looks of Title / Heading 1 / Heading 2
+    /// (`bo_edit::design::DOC_STYLE_SETS`; Design › Document Formatting gallery).
+    ApplyDocumentStyleSet {
+        /// Style set id (`standard`, `capital`, `lotus`, `river`, `harbor`, `quiet`, `bold`).
+        id: String,
+    },
     /// Apply a paragraph-spacing style set.
     ApplyStyleSet {
         /// Style set id (`compact`, `balanced`, `airy`, `double`).
@@ -1892,6 +1898,7 @@ impl crate::Engine {
                     | Command::ApplyThemeFile { .. }
                     | Command::SaveThemeFile
                     | Command::ApplyStyleSet { .. }
+                    | Command::ApplyDocumentStyleSet { .. }
                     | Command::InsertSignatureLine { .. }
                     | Command::SignatureLines
                     | Command::SignatureLineImages { .. }
@@ -2813,6 +2820,20 @@ impl crate::Engine {
             blocks: None,
             math: None,
         })
+    }
+}
+
+impl crate::Engine {
+    /// Laid-out height in twips of the row holding the caret (§17.4.81: an automatic row
+    /// is as tall as its content), for the Cell Size box; `None` outside a table.
+    pub fn caret_row_height(&mut self) -> Option<i32> {
+        let s = self.session.as_ref()?;
+        let row = s.format_state().table?.row;
+        let (t, avail) = s.caret_table()?;
+        let m =
+            bo_layout::measure_table(s.doc(), &mut self.fonts, &mut self.cache, t, avail.to_pt())
+                .ok()?;
+        m.row_heights.get(row).map(|h| (h * 20.0).round() as i32)
     }
 }
 

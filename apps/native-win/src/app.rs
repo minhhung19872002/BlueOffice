@@ -72,7 +72,18 @@ pub fn run() -> Result<(), String> {
     // Interface language: English by default (owner's choice, 2026-11-14); BLUEOFFICE_LOCALE
     // selects another locale of packages/i18n (e.g. vi-VN).
     let locale = std::env::var("BLUEOFFICE_LOCALE").unwrap_or_else(|_| "en-US".into());
-    let view = DocWindow::new(DocView::new(engine)?, &locale, &name);
+    let mut view = DocWindow::new(DocView::new(engine)?, &locale, &name);
+    // Sizes in the region's unit and decimal separator, as the reference shows them
+    // (iMeasure 1: US system, inches). BLUEOFFICE_UNITS=cm|in overrides.
+    let inches = match std::env::var("BLUEOFFICE_UNITS").as_deref() {
+        Ok("in") => true,
+        Ok("cm") => false,
+        _ => win32::region_value("iMeasure").as_deref() == Some("1"),
+    };
+    let decimal = win32::region_value("sDecimal")
+        .and_then(|s| s.chars().next())
+        .unwrap_or('.');
+    view.set_units(inches, decimal);
     let perf = std::env::var_os("BLUEOFFICE_NATIVE_PERF").and_then(|p| {
         std::fs::OpenOptions::new()
             .create(true)

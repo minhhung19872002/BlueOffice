@@ -284,6 +284,7 @@ impl Engine {
                 | Command::ApplyTheme { .. }
                 | Command::ApplyThemeFile { .. }
                 | Command::ApplyStyleSet { .. }
+                | Command::ApplyDocumentStyleSet { .. }
         );
         if !edit && !matches!(cmd, Command::Design | Command::SaveThemeFile) {
             return Ok(None);
@@ -344,6 +345,7 @@ impl Engine {
                     }
                 }
                 Command::ApplyStyleSet { id } => s.apply_style_set(id),
+                Command::ApplyDocumentStyleSet { id } => s.apply_document_style_set(id),
                 _ => Ok(()),
             };
             if let Err(e) = res {

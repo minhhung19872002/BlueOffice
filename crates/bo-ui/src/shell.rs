@@ -1,7 +1,11 @@
 //! The BlueDoc window: ribbon, document view and status bar, with input routing.
 use crate::backstage::{Backstage, FileAction};
 use crate::catalog;
+use crate::design_gallery::{DesignGallery, DesignMenu};
 use crate::dialog::{Dialog, DialogButton, DialogKind};
+use crate::doc_borders::{BordersAction, BordersDialog};
+use crate::doc_comments::{CommentAction, CommentsPane};
+use crate::doc_find::{FindAction, FindDialog};
 use crate::doc_tools::{self, Context, Tool};
 use crate::doc_view::DocView;
 use crate::icons::Icons;
@@ -11,6 +15,7 @@ use crate::ribbon::{Ribbon, RibbonHit};
 use crate::ruler::Ruler;
 use crate::spell_pane::{SpellAction, SpellPane};
 use crate::strings::Strings;
+use crate::symbol_grid::{SymbolGrid, SymbolPick};
 use crate::table_grid::{GridPick, TableGrid};
 use crate::theme::Theme;
 use crate::titlebar::{NcHit, TitleBar};
@@ -138,10 +143,51 @@ pub struct DocWindow {
     status_cache: (String, String, f32),
     /// Quick table look and style options of the Table Design tab.
     table_look: crate::doc_table::TableLook,
+    /// Read Mode: zoom and ruler to restore when it ends.
+    read_mode: Option<(f32, bool)>,
+    /// Read Mode lays the text out for the window at the next layout.
+    read_fit: bool,
+    /// Width the Read Mode text was laid out for (device px).
+    read_w: f32,
+    /// A Cell Size box being typed in, and the width of its text (caret position).
+    cell_spin: Option<crate::spin_box::SpinEdit>,
+    cell_spin_w: f32,
+    /// The box's value is selected: the first character typed replaces it.
+    cell_spin_fresh: bool,
+    /// Measurement unit and decimal separator of the region (set by the host).
+    units: crate::doc_table::Units,
+    /// Measured height of the caret's row (twips) while the Cell Size box shows it, and
+    /// whether it must be measured again (at the next rest).
+    row_measured: Option<i32>,
+    row_measure_due: bool,
     /// Proofing pane (Review › Spelling & Grammar, F7), when shown.
     spell_pane: Option<SpellPane>,
+    /// Comments pane (Review › Show Comments), when shown.
+    comments_pane: Option<CommentsPane>,
+    /// Thread the reply dialog answers.
+    reply_to: Option<i32>,
+    /// Text typed in Find what, carried to the next tab of Find and Replace.
+    find_draft: Option<String>,
+    /// The classic Find and Replace dialog (Ctrl+H, Ctrl+G), when open.
+    find_dialog: Option<FindDialog>,
+    /// Searches typed in it, most recent first (its combo boxes' history).
+    find_history: Vec<String>,
+    /// Search options of the matches in `find` (JSON), to search again when they change.
+    find_options: String,
     /// Insert › Table size picker, when open.
     table_grid: Option<TableGrid>,
+    /// Insert › Symbol gallery, when open.
+    symbol_grid: Option<SymbolGrid>,
+    /// Design › Themes / Colors / Fonts / Paragraph Spacing drop-down, when open.
+    design_gallery: Option<DesignGallery>,
+    /// Theme applied from the Design tab (framed in its gallery).
+    design_theme: Option<String>,
+    /// Document style set applied from the Design tab's gallery.
+    design_style_set: Option<String>,
+    /// Design › Page Borders dialog, when open.
+    borders_dialog: Option<BordersDialog>,
+    /// Symbols inserted from the gallery, most recent first.
+    recent_symbols: Vec<char>,
     /// The format painter stays on after applying (double click), until Escape.
     painter_lock: bool,
 }
@@ -171,11 +217,26 @@ fn parse_num(s: &str) -> Option<f64> {
     t.parse::<f64>().ok().filter(|v| v.is_finite())
 }
 
+/// Tab of the Find and Replace dialog a dialog kind is (Find, Replace, Go To).
+fn find_page(kind: DialogKind) -> Option<usize> {
+    match kind {
+        DialogKind::Find => Some(0),
+        DialogKind::Replace => Some(1),
+        DialogKind::GoTo => Some(2),
+        _ => None,
+    }
+}
+
+/// Read Mode zoom (the reference reads at 140 %).
+const READ_ZOOM: f32 = 1.4;
+/// Text margin either side in Read Mode (points at 100 %).
+const READ_MARGIN_PT: f32 = 4.0;
+
 /// Status bar view buttons: view layout and its icon (Bluestar's own drawings).
 const VIEW_MODES: [(&str, &str); 3] = [
+    ("read", "view.reading"),
     ("print", "layout.margins"),
     ("web", "view.normal"),
-    ("draft", "format.justify"),
 ];
 
 fn step_font_size(current: u32, grow: bool) -> u32 {
@@ -232,8 +293,10 @@ impl DocWindow {
             name: name.to_owned(),
             requests: Vec::new(),
             ribbon: Ribbon::new()
+                .with_two_line_labels()
                 .with_labeled_widths(crate::doc_table::labeled_w)
                 .with_large_widths(crate::doc_table::large_w)
+                .with_label_drop(4.0)
                 .with_trailing(crate::doc_table::trailing),
             theme: Theme::light("doc"),
             icons,
@@ -274,8 +337,29 @@ impl DocWindow {
             status_x: [0.0; 3],
             status_cache: (String::new(), String::new(), 0.0),
             table_look: crate::doc_table::TableLook::default(),
+            read_mode: None,
+            read_fit: false,
+            read_w: 0.0,
+            cell_spin: None,
+            cell_spin_w: 0.0,
+            cell_spin_fresh: false,
+            units: crate::doc_table::Units::default(),
+            row_measured: None,
+            row_measure_due: true,
             spell_pane: None,
+            comments_pane: None,
+            reply_to: None,
+            find_draft: None,
+            find_dialog: None,
+            find_history: Vec::new(),
+            find_options: String::new(),
             table_grid: None,
+            symbol_grid: None,
+            design_gallery: None,
+            design_theme: None,
+            design_style_set: None,
+            borders_dialog: None,
+            recent_symbols: crate::symbol_grid::DEFAULT_RECENT.to_vec(),
             painter_lock: false,
         }
     }
@@ -290,6 +374,119 @@ impl DocWindow {
         self.menu = None;
         self.table_grid = Some(TableGrid::open(anchor, commands, self.scale));
         true
+    }
+
+    fn open_symbol_grid(&mut self) -> bool {
+        let anchor = self
+            .ribbon
+            .rect_of(RibbonHit::Command("insert.symbol"))
+            .unwrap_or([0.0, self.ribbon.bottom(), 1.0, 0.0]);
+        let more = self.t("docTable.moreSymbols", "More Symbols…");
+        self.menu = None;
+        let grid = SymbolGrid::open(anchor, &self.recent_symbols, more, self.scale);
+        self.symbol_grid = Some(grid);
+        true
+    }
+
+    fn open_design_gallery(&mut self, id: &'static str, menu: DesignMenu) -> bool {
+        let anchor = self.ribbon.rect_of(RibbonHit::Command(id)).unwrap_or([
+            0.0,
+            self.ribbon.bottom(),
+            1.0,
+            0.0,
+        ]);
+        let spacing = ["Compact", "Balanced", "Open", "Double"]
+            .iter()
+            .zip([
+                "spacingCompact",
+                "spacingBalanced",
+                "spacingOpen",
+                "spacingDouble",
+            ])
+            .map(|(fallback, key)| self.t(&format!("docTable.{key}"), fallback))
+            .collect();
+        let spacing = if menu == DesignMenu::StyleSets {
+            crate::doc_design::STYLE_TILES
+                .iter()
+                .map(|(id, _)| self.strings.get(&format!("commands.{id}")).to_owned())
+                .collect()
+        } else {
+            spacing
+        };
+        let title = if matches!(menu, DesignMenu::Spacing | DesignMenu::StyleSets) {
+            self.t("docTable.builtIn", "Built-In")
+        } else {
+            "BlueOffice".to_owned()
+        };
+        self.menu = None;
+        let mut g = DesignGallery::open(menu, anchor, title, spacing, self.scale);
+        g.current.clone_from(&self.design_theme);
+        self.design_gallery = Some(g);
+        true
+    }
+
+    /// Input while a Design drop-down is open; `None` lets it through.
+    fn design_gallery_input(&mut self, input: &Input) -> Option<bool> {
+        let g = self.design_gallery.as_mut()?;
+        Some(match *input {
+            Input::Move { x, y } | Input::Drag { x, y } => g.hover(x, y),
+            Input::Press { x, y, .. } => {
+                let pick = g.press(x, y);
+                self.design_gallery = None;
+                self.ribbon.clear_pointer();
+                if let Some(v) = pick {
+                    if v["cmd"] == "applyTheme" {
+                        self.design_theme = v["id"].as_str().map(str::to_owned);
+                    }
+                    if v["cmd"] == "applyDocumentStyleSet" {
+                        self.design_style_set = v["id"].as_str().map(str::to_owned);
+                    }
+                    if let Some(c) = catalog::from_json(v) {
+                        self.view.run_command(c);
+                    }
+                }
+                true
+            }
+            Input::Key(Key::Escape, _) => {
+                self.design_gallery = None;
+                true
+            }
+            Input::Text(_) | Input::Key(..) | Input::Wheel(_) | Input::Release { .. } => true,
+            _ => return None,
+        })
+    }
+
+    /// Input while the symbol gallery is open; `None` lets it through.
+    fn symbol_grid_input(&mut self, input: &Input) -> Option<bool> {
+        let grid = self.symbol_grid.as_mut()?;
+        Some(match *input {
+            Input::Move { x, y } | Input::Drag { x, y } => grid.hover(x, y),
+            Input::Press { x, y, .. } => match grid.press(x, y) {
+                Some(SymbolPick::More) => {
+                    grid.show_more(self.size.0);
+                    true
+                }
+                Some(SymbolPick::Char(c)) => {
+                    self.symbol_grid = None;
+                    self.ribbon.clear_pointer();
+                    self.recent_symbols.retain(|x| *x != c);
+                    self.recent_symbols.insert(0, c);
+                    self.recent_symbols.truncate(20);
+                    self.view.handle(Input::Text(c.to_string()))
+                }
+                None => {
+                    self.symbol_grid = None;
+                    self.ribbon.clear_pointer();
+                    true
+                }
+            },
+            Input::Key(Key::Escape, _) => {
+                self.symbol_grid = None;
+                true
+            }
+            Input::Text(_) | Input::Key(..) | Input::Wheel(_) | Input::Release { .. } => true,
+            _ => return None,
+        })
     }
 
     /// Input while the table size picker is open; `None` lets it through.
@@ -331,13 +528,51 @@ impl DocWindow {
         self.size.0
             - if self.spell_pane.is_some() {
                 SpellPane::width(self.scale)
+            } else if self.comments_pane.is_some() {
+                CommentsPane::width(self.scale)
             } else {
                 0.0
             }
     }
 
+    /// Show or hide the comments pane (it shares the window's right side with the proofing
+    /// pane, one at a time).
+    fn toggle_comments(&mut self) -> bool {
+        if self.comments_pane.take().is_none() {
+            self.spell_pane = None;
+            self.comments_pane = Some(CommentsPane::new());
+        }
+        self.relayout_pending = true;
+        true
+    }
+
+    fn comments_action(&mut self, a: CommentAction) -> bool {
+        let cmd = match a {
+            CommentAction::Close => {
+                self.comments_pane = None;
+                self.relayout_pending = true;
+                return true;
+            }
+            CommentAction::Redraw => return true,
+            CommentAction::Reply(id) => {
+                self.reply_to = Some(id);
+                return self.open_dialog(DialogKind::CommentReply);
+            }
+            CommentAction::Select(id) => json!({ "cmd": "selectComment", "id": id }),
+            CommentAction::Resolve(id, done) => {
+                json!({ "cmd": "resolveComment", "id": id, "done": done })
+            }
+            CommentAction::Delete(id) => json!({ "cmd": "deleteComment", "id": id }),
+        };
+        if let Some(c) = catalog::from_json(cmd) {
+            self.view.run_command(c);
+        }
+        true
+    }
+
     /// Open the proofing pane on the first issue at or after the caret.
     fn open_spelling(&mut self) -> bool {
+        self.comments_pane = None;
         let issues = self.view.proof_issues();
         let caret = self.view.caret_para().unwrap_or(0);
         let index = issues.iter().position(|i| i.para >= caret).unwrap_or(0);
@@ -413,6 +648,24 @@ impl DocWindow {
 
     /// Status bar texts: page, word count.
     fn status_texts(&self) -> (String, String) {
+        // Read Mode counts screens, as the reference's status bar.
+        if self.read_mode.is_some() {
+            let (scroll, content, viewport) = self.view.scroll_info();
+            let total = (content / viewport.max(1.0)).ceil().max(1.0) as usize;
+            let current = ((scroll / viewport.max(1.0)).floor() as usize + 1).min(total);
+            let page = self.strings.fmt(
+                "docTable.screen",
+                &[
+                    ("current", &current.to_string()),
+                    ("total", &total.to_string()),
+                ],
+            );
+            let words = self.strings.fmt(
+                "status.words",
+                &[("count", &self.view.word_count().to_string())],
+            );
+            return (page, words);
+        }
         let page = self.strings.fmt(
             "status.page",
             &[
@@ -507,7 +760,9 @@ impl DocWindow {
         let pages = self.view.page_count();
         let caret = self.view.caret_para();
         let current_page = self.view.current_page();
+        let aspect = self.view.page_aspect();
         if let Some(nav) = self.nav.as_mut() {
+            nav.aspect = aspect;
             nav.headings = items
                 .into_iter()
                 .filter_map(|i| {
@@ -649,6 +904,22 @@ impl DocWindow {
         if let Some(sp) = self.spell_pane.as_mut() {
             sp.measure(text);
         }
+        if let Some(g) = self.symbol_grid.as_mut() {
+            g.measure(text);
+        }
+        if let Some(fd) = self.find_dialog.as_mut() {
+            fd.layout(text, &self.strings, self.size, self.scale);
+        }
+        if let Some(bd) = self.borders_dialog.as_mut() {
+            bd.layout(text, &self.strings, self.size, self.scale);
+        }
+        if let Some(g) = self.design_gallery.as_mut() {
+            g.measure(text);
+        }
+        if let Some(cp) = self.comments_pane.as_mut() {
+            let caret = self.view.comment_at_caret();
+            cp.measure(self.view.comments(), caret, &self.strings, text);
+        }
         pending
     }
 
@@ -725,6 +996,12 @@ impl DocWindow {
         }
     }
 
+    /// Measurement unit of the region (inches in the US system, else centimetres) and its
+    /// decimal separator, as the reference shows sizes.
+    pub fn set_units(&mut self, inches: bool, decimal: char) {
+        self.units = crate::doc_table::Units { inches, decimal };
+    }
+
     /// The document now has this file name (after Save As).
     pub fn set_name(&mut self, name: &str) {
         self.name = name.to_owned();
@@ -765,7 +1042,11 @@ impl DocWindow {
     }
 
     fn open_dialog(&mut self, kind: DialogKind) -> bool {
-        let sel = self.find.as_ref().map(|f| f.0.clone()).unwrap_or_default();
+        let sel = self
+            .find_draft
+            .take()
+            .or_else(|| self.find.as_ref().map(|f| f.0.clone()))
+            .unwrap_or_default();
         let ok = self.t("common.ok", "OK");
         let cancel = self.t("common.cancel", "Cancel");
         let (title, fields, buttons, message) = match kind {
@@ -842,6 +1123,54 @@ impl DocWindow {
                 ],
                 vec![],
             ),
+            DialogKind::TableProperties | DialogKind::CellMargins => {
+                let Some(t) = self.view.format().table.clone() else {
+                    return false;
+                };
+                // In the region's unit, as the reference's table dialogs.
+                let units = self.units;
+                let cm = |twips: i32| units.number(twips);
+                let unit = if units.inches { "in" } else { "cm" };
+                let f = |key: &str, fallback: &str, v: String| {
+                    (format!("{} ({unit})", self.t(key, fallback)), v)
+                };
+                let (title, fields) = if kind == DialogKind::TableProperties {
+                    let width = match (t.width_pct, t.width) {
+                        (None, w) if w > 0 => cm(w),
+                        _ => String::new(),
+                    };
+                    (
+                        self.t("docTable.properties", "Table Properties"),
+                        vec![
+                            f("docTable.preferredWidth", "Preferred width", width),
+                            f(
+                                "docTable.rowHeight",
+                                "Row height",
+                                if t.row_height > 0 {
+                                    cm(t.row_height)
+                                } else {
+                                    String::new()
+                                },
+                            ),
+                            f("docTable.colWidth", "Column width", cm(t.col_width)),
+                        ],
+                    )
+                } else {
+                    (
+                        self.t("docTable.cellMargins", "Cell Margins"),
+                        vec![
+                            f("pageSetup.left", "Left", cm(t.cell_margin.0)),
+                            f("pageSetup.right", "Right", cm(t.cell_margin.1)),
+                        ],
+                    )
+                };
+                (
+                    title,
+                    fields,
+                    vec![(ok, DialogButton::Ok), (cancel, DialogButton::Cancel)],
+                    vec![],
+                )
+            }
             DialogKind::PageSetup => {
                 let s = &self.view.format().section;
                 // Centimetres with two decimals at most, decimal comma.
@@ -915,6 +1244,12 @@ impl DocWindow {
                 vec![(ok, DialogButton::Ok), (cancel, DialogButton::Cancel)],
                 vec![],
             ),
+            DialogKind::CommentReply => (
+                self.t("comments.reply", "Reply"),
+                vec![(self.t("comments.replyPlaceholder", "Reply…"), String::new())],
+                vec![(ok, DialogButton::Ok), (cancel, DialogButton::Cancel)],
+                vec![],
+            ),
             DialogKind::WordCount => (
                 self.t("commands.review.wordCount", "Word Count"),
                 vec![],
@@ -923,7 +1258,25 @@ impl DocWindow {
             ),
         };
         self.menu = None;
+        // Find, Replace and Go To are the three tabs of one "Find and Replace" dialog, as on
+        // the reference.
+        let page = find_page(kind);
+        let title = if page.is_some() {
+            self.t("docTable.findReplace", "Find and Replace")
+        } else {
+            title
+        };
+        let n = fields.len();
         let mut dialog = Dialog::new(kind, title, fields, buttons, message);
+        if let Some(page) = page {
+            let labels = vec![
+                self.t("commands.edit.find", "Find"),
+                self.t("commands.edit.replace", "Replace"),
+                self.t("docTable.goToTab", "Go To"),
+            ];
+            dialog = dialog.with_tabs(labels, &vec![page; n.max(1)]);
+            dialog.set_page(page);
+        }
         if kind == DialogKind::Font {
             // Style check boxes and a preview, as in a desktop word processor's Font dialog.
             let f = self.view.format();
@@ -940,6 +1293,258 @@ impl DocWindow {
         self.dialog = Some(dialog);
         self.relayout_pending = true;
         true
+    }
+
+    /// Open the Find and Replace dialog on tab `tab` (0 Find, 1 Replace, 2 Go To).
+    fn open_find_dialog(&mut self, tab: usize) -> bool {
+        let sel = self.find.as_ref().map(|f| f.0.clone()).unwrap_or_default();
+        self.menu = None;
+        let mut fd = FindDialog::new(tab, &sel, self.find_history.clone());
+        fd.bookmarks = self
+            .view
+            .engine()
+            .document()
+            .map(bo_edit::fields::bookmarks)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|b| b.name)
+            .collect();
+        self.find_dialog = Some(fd);
+        self.relayout_pending = true;
+        true
+    }
+
+    /// Carry out what the Find and Replace dialog asked for.
+    fn find_dialog_action(&mut self, a: FindAction) -> bool {
+        let Some(fd) = self.find_dialog.as_mut() else {
+            return false;
+        };
+        let query = fd.query();
+        let with = fd.replacement();
+        let options = fd.options();
+        if matches!(
+            a,
+            FindAction::FindNext | FindAction::Replace | FindAction::ReplaceAll
+        ) {
+            fd.remember();
+            self.find_history = fd.history().to_vec();
+        }
+        match a {
+            FindAction::None => return false,
+            FindAction::Redraw => {}
+            FindAction::Close => self.find_dialog = None,
+            FindAction::FindNext => self.find_with(&query, &options),
+            FindAction::Replace => {
+                if let Some((q, matches, i)) = self.find.clone().filter(|f| f.0 == query) {
+                    if let Some(m) = matches.get(i) {
+                        let cmd = catalog::from_json(json!({
+                            "cmd": "replace", "match": m, "with": with, "query": q,
+                            "options": options,
+                        }));
+                        if let Some(c) = cmd {
+                            self.view.run_command(c);
+                        }
+                    }
+                    self.find = None;
+                }
+                self.find_with(&query, &options);
+            }
+            FindAction::ReplaceAll => {
+                let cmd = catalog::from_json(json!({
+                    "cmd": "replaceAll", "query": query, "with": with, "options": options,
+                }));
+                let n = cmd
+                    .and_then(|c| self.view.exec(c))
+                    .and_then(|r| r.count)
+                    .unwrap_or(0);
+                self.find = None;
+                if let Some(fd) = self.find_dialog.as_mut() {
+                    fd.message = fd
+                        .label(crate::doc_find::L_REPLACED)
+                        .replace("{{count}}", &n.to_string());
+                }
+            }
+            FindAction::GoTo(what, typed) if what != 0 => {
+                self.go_to_target(what, &typed);
+            }
+            FindAction::GoTo(_, typed) => {
+                // Page numbers count from 1; "+n" / "-n" move from the current page.
+                let t = typed.trim();
+                let current = self.view.current_page() as i64;
+                let target = if let Some(n) = t.strip_prefix('+') {
+                    n.parse::<i64>().ok().map(|n| current + n)
+                } else if let Some(n) = t.strip_prefix('-') {
+                    n.parse::<i64>().ok().map(|n| current - n)
+                } else {
+                    t.parse::<i64>().ok().map(|n| n - 1)
+                };
+                if let Some(page) = target {
+                    let last = self.view.page_count().saturating_sub(1) as i64;
+                    self.view.show_page(page.clamp(0, last) as usize);
+                }
+            }
+        }
+        true
+    }
+
+    /// Go To for a target other than Page: section, line, bookmark, comment or heading
+    /// number `typed` (1-based), "+n" / "-n" from the caret, or a bookmark's name.
+    fn go_to_target(&mut self, what: usize, typed: &str) -> bool {
+        let t = typed.trim();
+        let relative = |t: &str| -> Option<i64> {
+            if let Some(n) = t.strip_prefix('+') {
+                n.trim().parse::<i64>().ok()
+            } else if let Some(n) = t.strip_prefix('-').or_else(|| t.strip_prefix('\u{2013}')) {
+                n.trim().parse::<i64>().ok().map(|n| -n)
+            } else {
+                None
+            }
+        };
+        if what == 2 {
+            // Lines through the layout: from the document start (absolute) or the caret.
+            let (from_start, count) = match relative(t) {
+                Some(n) => (false, n),
+                None => (true, t.parse::<i64>().unwrap_or(1) - 1),
+            };
+            if from_start {
+                let ctrl = Mods {
+                    ctrl: true,
+                    ..Mods::default()
+                };
+                self.view.handle(Input::Key(Key::Home, ctrl));
+            }
+            let key = if count < 0 { Key::Up } else { Key::Down };
+            for _ in 0..count.unsigned_abs().min(100_000) {
+                self.view.handle(Input::Key(key, Mods::default()));
+            }
+            return true;
+        }
+        // Targets in document order: (paragraph, offset).
+        let mut names: Vec<String> = Vec::new();
+        let targets: Vec<(usize, usize)> = match what {
+            1 => {
+                let mut last = None;
+                self.view
+                    .outline()
+                    .into_iter()
+                    .filter(|i| last.replace(i.entry.section) != Some(i.entry.section))
+                    .map(|i| (i.entry.para, 0))
+                    .collect()
+            }
+            crate::doc_find::GO_BOOKMARK => self
+                .view
+                .engine()
+                .document()
+                .map(bo_edit::fields::bookmarks)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|b| {
+                    names.push(b.name);
+                    (b.para, 0)
+                })
+                .collect(),
+            4 => self
+                .view
+                .comments()
+                .iter()
+                .filter(|c| c.parent.is_none())
+                .filter_map(|c| c.start.map(|p| (p.para, p.offset)))
+                .collect(),
+            12 => self
+                .view
+                .outline()
+                .into_iter()
+                .filter(|i| i.entry.level.is_some())
+                .map(|i| (i.entry.para, 0))
+                .collect(),
+            _ => return false,
+        };
+        if targets.is_empty() {
+            return false;
+        }
+        let caret = self.view.caret_para().unwrap_or(0);
+        let current = targets.iter().rposition(|(p, _)| *p <= caret);
+        let index = if let Some(n) = relative(t) {
+            match current {
+                Some(c) => c as i64 + n,
+                None if n > 0 => n - 1,
+                None => return false,
+            }
+        } else if let Ok(n) = t.parse::<i64>() {
+            n - 1
+        } else if let Some(i) = names.iter().position(|n| n.eq_ignore_ascii_case(t)) {
+            i as i64
+        } else {
+            return false;
+        };
+        let last = targets.len() as i64 - 1;
+        let (para, offset) = targets[index.clamp(0, last) as usize];
+        self.view.select_range(para, offset, offset)
+    }
+
+    /// Find the next match of `query` with search `options` (JSON) and select it.
+    fn find_with(&mut self, query: &str, options: &serde_json::Value) {
+        if query.is_empty() {
+            return;
+        }
+        let key = options.to_string();
+        let fresh = self.find_options != key || self.find.as_ref().is_none_or(|f| f.0 != query);
+        if fresh {
+            self.find_options = key;
+            let matches =
+                catalog::from_json(json!({ "cmd": "find", "query": query, "options": options }))
+                    .and_then(|c| self.view.exec(c))
+                    .and_then(|r| r.matches)
+                    .unwrap_or_default();
+            self.find = Some((query.to_owned(), matches, usize::MAX));
+        }
+        let found = match self.find.as_mut() {
+            Some((_, matches, i)) if !matches.is_empty() => {
+                *i = if *i == usize::MAX {
+                    0
+                } else {
+                    (*i + 1) % matches.len()
+                };
+                let (n, total, m) = (*i + 1, matches.len(), matches[*i]);
+                if let Some(c) = catalog::from_json(json!({ "cmd": "selectMatch", "match": m })) {
+                    self.view.run_command(c);
+                }
+                Some((n, total))
+            }
+            _ => None,
+        };
+        if let Some(fd) = self.find_dialog.as_mut() {
+            fd.message = match found {
+                Some((n, total)) => fd
+                    .label(crate::doc_find::L_FOUND)
+                    .replace("{{n}}", &n.to_string())
+                    .replace("{{total}}", &total.to_string()),
+                None => fd.label(crate::doc_find::L_NOT_FOUND),
+            };
+        }
+    }
+
+    /// The Find and Replace dialog shows another tab: open that tab's kind in its place,
+    /// keeping the text typed in Find what.
+    fn sync_find_tabs(&mut self) {
+        let Some(d) = self.dialog.as_ref() else {
+            return;
+        };
+        let Some(cur) = find_page(d.kind) else {
+            return;
+        };
+        let page = d.page();
+        if page == cur {
+            return;
+        }
+        if cur != 2 {
+            self.find_draft = d.values().first().cloned();
+        }
+        let kind = [DialogKind::Find, DialogKind::Replace, DialogKind::GoTo][page.min(2)];
+        if kind == DialogKind::GoTo {
+            self.find_draft = None;
+        }
+        self.open_dialog(kind);
     }
 
     fn dialog_button(&mut self, b: DialogButton) {
@@ -1056,6 +1661,41 @@ impl DocWindow {
                     self.view.run_command(c);
                 }
             }
+            (DialogKind::TableProperties, DialogButton::Ok) => {
+                self.dialog = None;
+                let units = self.units;
+                let twips = |i: usize| units.parse(&v(i));
+                let edits = [
+                    json!({ "kind": "properties", "width": twips(0).filter(|w| *w > 0) }),
+                    json!({ "kind": "rowHeight", "twips": twips(1).filter(|h| *h > 0) }),
+                ];
+                for e in edits {
+                    if let Some(c) = catalog::from_json(json!({ "cmd": "tableEdit", "edit": e })) {
+                        self.view.run_command(c);
+                    }
+                }
+                if let Some(c) = twips(2)
+                    .filter(|w| *w > 0)
+                    .and_then(|w| crate::doc_table::spin_command(crate::doc_table::SPINS[1], w))
+                {
+                    self.view.run_command(c);
+                }
+            }
+            (DialogKind::CellMargins, DialogButton::Ok) => {
+                self.dialog = None;
+                let t = self
+                    .view
+                    .format()
+                    .table
+                    .as_ref()
+                    .map_or((108, 108), |t| t.cell_margin);
+                let twips = |i: usize, old: i32| self.units.parse(&v(i)).unwrap_or(old);
+                let e =
+                    json!({ "kind": "cellMargins", "left": twips(0, t.0), "right": twips(1, t.1) });
+                if let Some(c) = catalog::from_json(json!({ "cmd": "tableEdit", "edit": e })) {
+                    self.view.run_command(c);
+                }
+            }
             (DialogKind::GoTo, DialogButton::Ok) => {
                 // Page numbers count from 1; "+n" / "-n" move from the current page.
                 let typed = v(0);
@@ -1075,10 +1715,26 @@ impl DocWindow {
                 }
             }
             (
-                DialogKind::Font | DialogKind::Paragraph | DialogKind::PageSetup | DialogKind::GoTo,
+                DialogKind::Font
+                | DialogKind::Paragraph
+                | DialogKind::PageSetup
+                | DialogKind::GoTo
+                | DialogKind::TableProperties
+                | DialogKind::CellMargins,
                 _,
             ) => {
                 self.dialog = None;
+            }
+            (DialogKind::CommentReply, _) => {
+                self.dialog = None;
+                let text = v(0);
+                if let Some(id) = self.reply_to.take().filter(|_| !text.trim().is_empty()) {
+                    if let Some(c) =
+                        catalog::from_json(json!({ "cmd": "replyComment", "id": id, "text": text }))
+                    {
+                        self.view.run_command(c);
+                    }
+                }
             }
             (DialogKind::Comment, _) => {
                 self.dialog = None;
@@ -1279,6 +1935,7 @@ impl DocWindow {
         on.push(match self.view_mode {
             "web" => "view.webLayout",
             "draft" => "view.draft",
+            "read" => "view.readMode",
             _ => "view.printLayout",
         });
         if self.painter {
@@ -1342,10 +1999,20 @@ impl DocWindow {
             return self.view.run_command(Command::FormatParagraph { format });
         }
         if let Some(mode) = id.strip_prefix("view.layout.") {
-            self.view_mode = VIEW_MODES
-                .iter()
-                .find(|(m, _)| *m == mode)
-                .map_or("print", |(m, _)| m);
+            // The text moves: spelling marks are checked again at the next tick.
+            self.spell_pending = true;
+            self.spell_idle = 3;
+            if mode == "read" {
+                return self.enter_read_mode();
+            }
+            if self.read_mode.is_some() {
+                self.leave_read_mode();
+            }
+            self.view_mode = match mode {
+                "web" => "web",
+                "draft" => "draft",
+                _ => "print",
+            };
         }
         let merge = |w: &mut Self, record: Option<usize>| {
             w.merge_record = record;
@@ -1362,8 +2029,13 @@ impl DocWindow {
             "edit.find" => self.toggle_nav(true, true),
             "review.spellingDialog" => self.open_spelling(),
             "layout.pageSetup" => self.open_dialog(DialogKind::PageSetup),
-            "edit.goTo" => self.open_dialog(DialogKind::GoTo),
+            "edit.goTo" => self.open_find_dialog(2),
+            id if id == crate::doc_table::DIALOGS[0] => {
+                self.open_dialog(DialogKind::TableProperties)
+            }
+            id if id == crate::doc_table::DIALOGS[1] => self.open_dialog(DialogKind::CellMargins),
             "view.printLayout" => self.action("view.layout.print"),
+            "view.readMode" => self.action("view.layout.read"),
             "view.webLayout" => self.action("view.layout.web"),
             "view.draft" => self.action("view.layout.draft"),
             "view.onePage" | "view.pageWidth" => {
@@ -1372,16 +2044,53 @@ impl DocWindow {
                 self.view.set_zoom(z)
             }
             "insert.table" => self.open_table_grid(),
+            "insert.symbol" => self.open_symbol_grid(),
+            "design.themes" => self.open_design_gallery("design.themes", DesignMenu::Themes),
+            "design.colors" => self.open_design_gallery("design.colors", DesignMenu::Colors),
+            "design.fonts" => self.open_design_gallery("design.fonts", DesignMenu::Fonts),
+            "design.paragraphSpacing" => {
+                self.open_design_gallery("design.paragraphSpacing", DesignMenu::Spacing)
+            }
+            "design.styleSetMore" => {
+                self.open_design_gallery("design.styleSetMore", DesignMenu::StyleSets)
+            }
+            "design.pageBorders" => {
+                let has = self
+                    .view
+                    .engine()
+                    .document()
+                    .is_some_and(|d| d.sections.iter().any(|s| s.page_borders.is_some()));
+                self.menu = None;
+                self.borders_dialog = Some(BordersDialog::new(has));
+                self.relayout_pending = true;
+                true
+            }
+            id if crate::doc_design::style_set_of(id).is_some() => {
+                let set = crate::doc_design::style_set_of(id).unwrap_or_default();
+                self.design_style_set = Some(set.to_owned());
+                catalog::from_json(json!({ "cmd": "applyDocumentStyleSet", "id": set }))
+                    .is_some_and(|c| self.view.run_command(c))
+            }
             "view.navigationPane" => {
                 let show = self.nav.is_none();
                 self.toggle_nav(show, false)
             }
-            "edit.replace" => self.open_dialog(DialogKind::Replace),
+            // The pane on its Pages tab (scripted comparisons).
+            "view.navigationPane.pages" => {
+                self.toggle_nav(true, false);
+                if let Some(nav) = self.nav.as_mut() {
+                    nav.show(NavTab::Pages);
+                }
+                self.refresh_nav();
+                true
+            }
+            "edit.replace" => self.open_find_dialog(1),
             "insert.link" => self.open_dialog(DialogKind::Link),
             "format.fontSettings" => self.open_dialog(DialogKind::Font),
             "format.paragraphSettings" => self.open_dialog(DialogKind::Paragraph),
             "review.newComment" => self.open_dialog(DialogKind::Comment),
             "review.wordCount" => self.open_dialog(DialogKind::WordCount),
+            "review.showComments" => self.toggle_comments(),
             "review.deleteComment" => match self.view.comment_at_caret() {
                 Some(id) => catalog::from_json(json!({ "cmd": "deleteComment", "id": id }))
                     .is_some_and(|c| self.view.run_command(c)),
@@ -1457,6 +2166,27 @@ impl DocWindow {
                     .unwrap_or([0.0, 0.0, 1.0, 1.0]);
                 self.open_command_menu(id, anchor);
                 true
+            }
+            id if crate::doc_table::SPINS.contains(&id) => {
+                let sid = if id == crate::doc_table::SPINS[0] {
+                    crate::doc_table::SPINS[0]
+                } else {
+                    crate::doc_table::SPINS[1]
+                };
+                let Some(r) = self.ribbon.rect_of(RibbonHit::Command(sid)) else {
+                    return false;
+                };
+                let v = crate::doc_table::spin_value(sid, self.view.format(), self.row_measured);
+                match crate::doc_table::spin_press(sid, r, v, self.units, self.scale, self.pointer)
+                {
+                    Ok(Some(cmd)) => self.view.run_command(cmd),
+                    Ok(None) => false,
+                    Err(edit) => {
+                        self.cell_spin = Some(edit);
+                        self.cell_spin_fresh = true;
+                        true
+                    }
+                }
             }
             id if id.starts_with("table.look.") || id.starts_with("table.opt.") => {
                 match self.table_look.command(id) {
@@ -1556,7 +2286,75 @@ impl DocWindow {
 
     /// Width of the vertical scroll bar (as on a desktop word processor).
     fn sb_w(&self) -> f32 {
-        (15.0 * self.scale).round()
+        // Read Mode turns screens with its arrows instead of a scroll bar.
+        if self.read_mode.is_some() {
+            0.0
+        } else {
+            (15.0 * self.scale).round()
+        }
+    }
+
+    /// Read Mode's page-turn arrows at mid-height of the view: (previous, next).
+    fn read_arrows(&self) -> Option<[[f32; 4]; 2]> {
+        self.read_mode?;
+        let d = (40.0 * self.scale).round();
+        let top = self.view_top();
+        let bottom = self.size.1 - self.status_h();
+        let y = (top.midpoint(bottom) - d / 2.0).round();
+        let m = (14.0 * self.scale).round();
+        Some([[m, y, d, d], [self.size.0 - m - d, y, d, d]])
+    }
+
+    /// Turn a screen in Read Mode (`forward`: the next one).
+    fn read_turn(&mut self, forward: bool) -> bool {
+        let (scroll, _, viewport) = self.view.scroll_info();
+        let step = (viewport * 0.95).round();
+        self.view.scroll_to(if forward {
+            scroll + step
+        } else {
+            scroll - step
+        })
+    }
+
+    /// Draw Read Mode's round page-turn arrows (own drawing: white disc, grey ring and
+    /// chevron, as the reference's light arrows).
+    fn paint_read_arrows(&self, p: &mut dyn Painter) {
+        let Some(arrows) = self.read_arrows() else {
+            return;
+        };
+        let ring = Rgba(200, 200, 200, 255);
+        let ink = Rgba(150, 150, 150, 255);
+        for (i, [x, y, d, _]) in arrows.into_iter().enumerate() {
+            let (cx, cy, r) = (x + d / 2.0, y + d / 2.0, d / 2.0);
+            // A circle as a 16-sided path.
+            let mut segs = Vec::with_capacity(18);
+            for k in 0..=16 {
+                let a = k as f32 / 16.0 * std::f32::consts::TAU;
+                let pt = (cx + r * a.cos(), cy + r * a.sin());
+                segs.push(if k == 0 {
+                    PathSeg::M(pt.0, pt.1)
+                } else {
+                    PathSeg::L(pt.0, pt.1)
+                });
+            }
+            segs.push(PathSeg::Z);
+            p.path(
+                &segs,
+                Some(Rgba(255, 255, 255, 255)),
+                Some((ring, self.scale.max(1.0) * 1.5)),
+            );
+            let k = d * 0.16;
+            let dir = if i == 0 { -1.0 } else { 1.0 };
+            p.path(
+                &[
+                    PathSeg::M(cx - dir * k * 0.5, cy - k),
+                    PathSeg::L(cx + dir * k * 0.5, cy),
+                    PathSeg::L(cx - dir * k * 0.5, cy + k),
+                ],
+                None,
+                Some((ink, self.scale.max(1.0) * 1.5)),
+            );
+        }
     }
 
     /// Scroll bar parts: (bar, up button, down button, thumb) as [x, y, w, h].
@@ -1626,7 +2424,7 @@ impl DocWindow {
         let top = self.title.height();
         self.ribbon
             .layout(text, &self.strings, self.size.0, self.scale, top);
-        let mut top = self.ribbon.bottom();
+        let mut top = self.chrome_bottom();
         if self.show_ruler {
             top += Ruler::height(self.scale);
         }
@@ -1641,8 +2439,25 @@ impl DocWindow {
             (right - self.sb_w() - vr - left).max(1.0),
             h,
         );
+        // Read Mode: two whole pages in the window.
+        // Read Mode: the text reflows to the window at 140 % (the reference's reading
+        // zoom), with a margin either side; again when the window width changes.
+        if self.read_mode.is_some() {
+            let width = (right - self.sb_w() - vr - left).max(1.0);
+            if self.read_fit || (width - self.read_w).abs() > 0.5 {
+                self.read_fit = false;
+                self.read_w = width;
+                self.view.set_zoom(READ_ZOOM);
+                let pt = (width / self.view.scale() - 2.0 * READ_MARGIN_PT).max(144.0);
+                if let Some(c) = catalog::from_json(
+                    json!({ "cmd": "setViewLayout", "mode": "web", "width": pt }),
+                ) {
+                    self.view.run_command(c);
+                }
+            }
+        }
         let (sp_top, sp_bottom, sp_right, scale) = (
-            self.ribbon.bottom(),
+            self.chrome_bottom(),
             self.size.1 - self.status_h(),
             self.size.0,
             self.scale,
@@ -1650,7 +2465,10 @@ impl DocWindow {
         if let Some(sp) = self.spell_pane.as_mut() {
             sp.layout(sp_right, sp_top, sp_bottom, scale);
         }
-        let (nav_top, nav_bottom) = (self.ribbon.bottom(), self.size.1 - self.status_h());
+        if let Some(cp) = self.comments_pane.as_mut() {
+            cp.layout(sp_right, sp_top, sp_bottom, scale);
+        }
+        let (nav_top, nav_bottom) = (self.chrome_bottom(), self.size.1 - self.status_h());
         if let Some(nav) = self.nav.as_mut() {
             nav.layout(nav_top, nav_bottom, self.scale);
         }
@@ -1686,6 +2504,50 @@ impl DocWindow {
         for (i, r) in self.view_rects.iter_mut().enumerate() {
             let x = right - (3 - i) as f32 * (bw + gap);
             *r = [x, y + 1.0, bw, sh - 1.0];
+        }
+    }
+
+    /// Bottom of the title bar and ribbon (the title bar alone in Read Mode).
+    fn chrome_bottom(&self) -> f32 {
+        if self.read_mode.is_some() {
+            self.title.height()
+        } else {
+            self.ribbon.bottom()
+        }
+    }
+
+    /// Read Mode as on the reference: no ribbon or rulers, two pages side by side
+    /// fitted to the window; Esc or another view button ends it.
+    fn enter_read_mode(&mut self) -> bool {
+        if self.read_mode.is_some() {
+            return false;
+        }
+        self.read_mode = Some((self.view.zoom(), self.show_ruler));
+        // No proofing marks while reading, as the reference; white screen pages.
+        self.view.set_hide_spelling(true);
+        self.view.set_plain(true);
+        self.view_mode = "read";
+        self.show_ruler = false;
+        self.menu = None;
+        self.read_fit = true;
+        self.relayout_pending = true;
+        true
+    }
+
+    fn leave_read_mode(&mut self) {
+        if let Some((zoom, ruler)) = self.read_mode.take() {
+            if let Some(c) = catalog::from_json(json!({ "cmd": "setViewLayout", "mode": "print" }))
+            {
+                self.view.run_command(c);
+            }
+            self.view.set_zoom(zoom);
+            self.view.set_hide_spelling(false);
+            self.view.set_plain(false);
+            self.show_ruler = ruler;
+            self.view_mode = "print";
+            self.relayout_pending = true;
+            self.spell_pending = true;
+            self.spell_idle = 3;
         }
     }
 
@@ -1725,7 +2587,100 @@ impl DocWindow {
         if let Some(sp) = self.spell_pane.as_mut() {
             sp.measure(text);
         }
+        if let Some(g) = self.symbol_grid.as_mut() {
+            g.measure(text);
+        }
+        if let Some(fd) = self.find_dialog.as_mut() {
+            fd.layout(text, &self.strings, self.size, self.scale);
+        }
+        if let Some(bd) = self.borders_dialog.as_mut() {
+            bd.layout(text, &self.strings, self.size, self.scale);
+        }
+        if let Some(g) = self.design_gallery.as_mut() {
+            g.measure(text);
+        }
+        if let Some(cp) = self.comments_pane.as_mut() {
+            let caret = self.view.comment_at_caret();
+            cp.measure(self.view.comments(), caret, &self.strings, text);
+        }
+        // The Pages tab of the navigation pane shows thumbnails of the pages in view there.
+        let thumbs = match &self.nav {
+            Some(nav) => {
+                let rects = nav.thumb_rects();
+                let w = nav.thumb_size().0;
+                (rects.into_iter().map(|(i, _)| i).collect(), w)
+            }
+            None => (Vec::new(), 0.0),
+        };
+        self.view.set_thumbnails(thumbs.0, thumbs.1);
+        if let Some(e) = &self.cell_spin {
+            let style = TextStyle {
+                size: (12.0 * self.scale).round(),
+                bold: false,
+            };
+            self.cell_spin_w = text.measure(&e.text, style).0;
+        }
         redraw
+    }
+
+    /// Keys and text for a Cell Size box being typed in; `None` lets the input through.
+    fn cell_spin_input(&mut self, input: &Input) -> Option<bool> {
+        let edit = self.cell_spin.as_mut()?;
+        match input {
+            Input::Text(s) => {
+                if std::mem::take(&mut self.cell_spin_fresh) {
+                    edit.text.clear();
+                }
+                edit.type_text(s);
+                Some(true)
+            }
+            Input::Key(k, _) => {
+                self.cell_spin_fresh = false;
+                let action = edit.key(*k);
+                let (id, typed) = (edit.id, edit.text.clone());
+                match action {
+                    crate::spin_box::SpinKey::Commit => {
+                        self.cell_spin = None;
+                        if let Some(c) = self
+                            .units
+                            .parse(&typed)
+                            .and_then(|tw| crate::doc_table::spin_command(id, tw))
+                        {
+                            self.view.run_command(c);
+                        }
+                    }
+                    crate::spin_box::SpinKey::Cancel => self.cell_spin = None,
+                    crate::spin_box::SpinKey::Up | crate::spin_box::SpinKey::Down => {
+                        let up = action == crate::spin_box::SpinKey::Up;
+                        let units = self.units;
+                        if let Some(c) = crate::doc_table::spin_step(id, &typed, up, units) {
+                            self.view.run_command(c);
+                            let v = crate::doc_table::spin_value(id, self.view.format(), None);
+                            if let Some(e) = self.cell_spin.as_mut() {
+                                e.text = units.number(v);
+                            }
+                        }
+                    }
+                    crate::spin_box::SpinKey::Edited | crate::spin_box::SpinKey::Ignored => {}
+                }
+                Some(true)
+            }
+            // Clicking elsewhere leaves the box (the typed value is kept, as on the
+            // reference) and the click goes on.
+            Input::Press { .. } => {
+                let (id, typed) = (edit.id, edit.text.clone());
+                self.cell_spin = None;
+                if let Some(c) = self
+                    .units
+                    .parse(&typed)
+                    .and_then(|tw| crate::doc_table::spin_command(id, tw))
+                {
+                    self.view.run_command(c);
+                }
+                None
+            }
+            _ => None,
+        }
     }
 
     fn route(&mut self, input: Input, text: &dyn TextMeasure) -> bool {
@@ -1753,6 +2708,64 @@ impl DocWindow {
                 _ => {}
             }
         }
+        if let Input::Press { x, y, .. } = input {
+            self.pointer = (x, y);
+        }
+        if let Some(redraw) = self.cell_spin_input(&input) {
+            return redraw;
+        }
+        // So is the Page Borders dialog.
+        if let Some(bd) = self.borders_dialog.as_mut() {
+            let a = match input {
+                Input::Press { x, y, .. } => bd.press(x, y),
+                Input::Key(k, m) => bd.key(k, m),
+                Input::Move { .. }
+                | Input::Blink
+                | Input::Text(_)
+                | Input::Wheel(_)
+                | Input::Drag { .. }
+                | Input::Release { .. }
+                | Input::Context { .. } => return false,
+                _ => BordersAction::None,
+            };
+            match a {
+                BordersAction::None => {}
+                BordersAction::Redraw => return true,
+                BordersAction::Close => {
+                    self.borders_dialog = None;
+                    return true;
+                }
+                BordersAction::Apply(v) => {
+                    self.borders_dialog = None;
+                    if let Some(c) = catalog::from_json(v) {
+                        self.view.run_command(c);
+                    }
+                    return true;
+                }
+            }
+        }
+        // The Find and Replace dialog is modal too.
+        if let Some(fd) = self.find_dialog.as_mut() {
+            let a = match input {
+                Input::Text(ref s) => {
+                    fd.text(s);
+                    FindAction::Redraw
+                }
+                Input::Key(k, m) => fd.key(k, m),
+                Input::Move { x, y } => return fd.hover(x, y),
+                Input::Press { x, y, .. } => fd.press(x, y),
+                Input::Blink => return true,
+                Input::Wheel(dy) => return fd.wheel(dy),
+                Input::Drag { .. } | Input::Release { .. } | Input::Context { .. } => return false,
+                _ => FindAction::None,
+            };
+            if a != FindAction::None {
+                return self.find_dialog_action(a);
+            }
+            if !matches!(input, Input::Resize { .. } | Input::Scale(_) | Input::Tick) {
+                return false;
+            }
+        }
         // A dialog is modal: it takes keyboard and pointer input.
         if let Some(d) = self.dialog.as_mut() {
             match input {
@@ -1764,6 +2777,7 @@ impl DocWindow {
                     if let Some(b) = d.key(k, m) {
                         self.dialog_button(b);
                     }
+                    self.sync_find_tabs();
                     return true;
                 }
                 Input::Move { x, y } => return d.hover(x, y),
@@ -1771,6 +2785,7 @@ impl DocWindow {
                     if let Some(b) = d.press(x, y) {
                         self.dialog_button(b);
                     }
+                    self.sync_find_tabs();
                     return true;
                 }
                 Input::Blink => return true,
@@ -1786,7 +2801,21 @@ impl DocWindow {
         if let Some(redraw) = self.table_grid_input(&input) {
             return redraw;
         }
+        if let Some(redraw) = self.symbol_grid_input(&input) {
+            return redraw;
+        }
+        if let Some(redraw) = self.design_gallery_input(&input) {
+            return redraw;
+        }
         // Pointer and keyboard input goes to an open menu first.
+        // The ▾ column of the Design tab's style set gallery lists the sets.
+        if let Input::Press { x, y, .. } = input {
+            let more = crate::doc_design::more_rect(&self.ribbon, self.scale)
+                .filter(|_| self.menu.is_none() && self.design_gallery.is_none());
+            if more.is_some_and(|r| x >= r[0] && x < r[0] + r[2] && y >= r[1] && y < r[1] + r[3]) {
+                return self.open_design_gallery("design.styleSet.bold", DesignMenu::StyleSets);
+            }
+        }
         if self.menu.is_some() {
             if let Some(redraw) = self.menu_input(&input) {
                 return redraw;
@@ -1800,6 +2829,7 @@ impl DocWindow {
             Input::Text(_) | Input::Key(..) | Input::Release { .. } => {
                 self.spell_pending = true;
                 self.spell_idle = 0;
+                self.row_measure_due = true;
             }
             Input::Tick if self.spell_pending => {
                 self.spell_idle += 1;
@@ -1809,6 +2839,19 @@ impl DocWindow {
                         return true;
                     }
                 }
+            }
+            // The Cell Size box shows the caret row's laid-out height, measured at rest.
+            Input::Tick if self.row_measure_due && self.context.table => {
+                self.row_measure_due = false;
+                let m = self.view.caret_row_height();
+                if m != self.row_measured {
+                    self.row_measured = m;
+                    return true;
+                }
+            }
+            // Thumbnails of edited pages are redrawn at rest.
+            Input::Tick if self.nav.is_some() && self.view.refresh_thumbnails() => {
+                return true;
             }
             // Pages scrolled into view are checked at the next tick.
             Input::Tick if self.view.spelling_out_of_view() => {
@@ -1835,6 +2878,28 @@ impl DocWindow {
                 Input::Press { x, y, .. } if sp.contains(x, y) => {
                     let a = sp.press(x, y);
                     return self.spell_pane_action(a);
+                }
+                _ => {}
+            }
+        }
+        if let Some(cp) = self.comments_pane.as_mut() {
+            match input {
+                Input::Move { x, y } if cp.contains(x, y) => return cp.hover(x, y),
+                Input::Move { .. } => {
+                    cp.hover(-1.0, -1.0);
+                }
+                Input::Press { x, y, .. } if cp.contains(x, y) => {
+                    let a = cp.press(x, y);
+                    return self.comments_action(a);
+                }
+                Input::Press { .. } => cp.selected = None,
+                // The release and drags of a press in the pane stay in the pane (the
+                // document must not take them as the end of a selection).
+                Input::Release { x, y } | Input::Drag { x, y } if cp.contains(x, y) => {
+                    return false;
+                }
+                Input::Wheel(dy) if cp.contains(self.pointer.0, self.pointer.1) => {
+                    return cp.wheel(-dy * self.scale);
                 }
                 _ => {}
             }
@@ -1872,7 +2937,9 @@ impl DocWindow {
             self.tooltip = None;
         }
         let in_title = |w: &Self, y: f32| y < w.title.height();
-        let in_ribbon = |w: &Self, y: f32| y >= w.ribbon.top() && y < w.ribbon.bottom();
+        let in_ribbon = |w: &Self, y: f32| {
+            w.read_mode.is_none() && y >= w.ribbon.top() && y < w.ribbon.bottom()
+        };
         if let Input::Key(
             Key::Letter(c @ ('s' | 'c' | 'x' | 'v' | 'f' | 'h' | 'k' | 'g')),
             Mods {
@@ -1893,7 +2960,28 @@ impl DocWindow {
             };
             return self.action(id);
         }
+        // Read Mode: the arrows and the left / right keys turn screens.
+        if self.read_mode.is_some() {
+            match input {
+                Input::Press { x, y, .. } => {
+                    if let Some(arrows) = self.read_arrows() {
+                        for (i, r) in arrows.iter().enumerate() {
+                            if x >= r[0] && x < r[0] + r[2] && y >= r[1] && y < r[1] + r[3] {
+                                return self.read_turn(i == 1);
+                            }
+                        }
+                    }
+                }
+                Input::Key(Key::Right | Key::PageDown, _) => return self.read_turn(true),
+                Input::Key(Key::Left | Key::PageUp, _) => return self.read_turn(false),
+                _ => {}
+            }
+        }
         if let Input::Key(Key::Escape, _) = input {
+            if self.read_mode.is_some() {
+                self.leave_read_mode();
+                return true;
+            }
             if self.story_options().is_some() && !self.painter {
                 return self.view.run_command(Command::CloseHeaderFooter);
             }
@@ -2312,7 +3400,7 @@ impl DocWindow {
 
     /// Whether an animation needs more frames.
     pub fn animating(&self) -> bool {
-        self.view.animating()
+        self.view.animating() || self.view.thumbnails_pending()
     }
 
     /// Advance animations to the host clock (ms); `true` while frames are still needed.
@@ -2334,12 +3422,13 @@ impl DocWindow {
     pub fn paint(&self, p: &mut dyn Painter) {
         p.clear(self.theme.bg);
         self.view.paint(p);
+        self.paint_read_arrows(p);
         self.paint_story_frame(p);
         // Title bar and ribbon: one cached layer, redrawn only when what it shows changes
         // (typing changes the document, not the ribbon).
-        let chrome_h = self.ribbon.bottom();
+        let chrome_h = self.chrome_bottom();
         let on = self.on_ids();
-        self.layered(p, 0, [0.0, 0.0, self.size.0, chrome_h], &mut |p| {
+        Self::layered(p, 0, [0.0, 0.0, self.size.0, chrome_h], &mut |p| {
             p.fill_rect(0.0, 0.0, self.size.0, chrome_h, self.theme.bg);
             self.title.paint(
                 p,
@@ -2350,15 +3439,17 @@ impl DocWindow {
                 self.view.modified(),
                 self.view.format(),
             );
-            self.ribbon.paint(
-                p,
-                &self.theme,
-                &self.icons,
-                &self.strings,
-                self.view.format(),
-                &self.styles,
-                &on,
-            );
+            if self.read_mode.is_none() {
+                self.ribbon.paint(
+                    p,
+                    &self.theme,
+                    &self.icons,
+                    &self.strings,
+                    self.view.format(),
+                    &self.styles,
+                    &on,
+                );
+            }
             if let Some((first, odd_even, _)) = self.story_options() {
                 crate::doc_table::paint_checks(
                     p,
@@ -2373,10 +3464,49 @@ impl DocWindow {
                 );
             }
             if self.context.table {
+                let caret = self.cell_spin_w;
+                crate::doc_table::paint_spins(
+                    p,
+                    &self.ribbon,
+                    self.view.format(),
+                    (self.units, self.row_measured),
+                    self.cell_spin.as_ref(),
+                    &self.theme,
+                    &|_| caret,
+                    self.scale,
+                );
                 crate::doc_table::paint(
                     p,
                     &self.ribbon,
                     &self.table_look,
+                    &self.theme,
+                    &self.strings,
+                    self.scale,
+                );
+            }
+            // Design › Document Formatting: the style set gallery in the theme's faces.
+            if crate::doc_design::more_rect(&self.ribbon, self.scale).is_some() {
+                let (major, minor) = self
+                    .view
+                    .engine()
+                    .document()
+                    .map(|d| {
+                        (
+                            d.theme_fonts.major_latin.clone(),
+                            d.theme_fonts.minor_latin.clone(),
+                        )
+                    })
+                    .unwrap_or_default();
+                let look = crate::doc_design::PreviewLook::new(
+                    self.design_theme.as_deref(),
+                    &major,
+                    &minor,
+                );
+                crate::doc_design::paint(
+                    p,
+                    &self.ribbon,
+                    self.design_style_set.as_deref(),
+                    &look,
                     &self.theme,
                     &self.strings,
                     self.scale,
@@ -2405,6 +3535,9 @@ impl DocWindow {
         if let Some(sp) = &self.spell_pane {
             sp.paint(p, &self.theme, &self.strings);
         }
+        if let Some(cp) = &self.comments_pane {
+            cp.paint(p, &self.theme, &self.strings, self.view.comment_at_caret());
+        }
         // Status bar.
         let (w, h) = self.size;
         let sh = self.status_h();
@@ -2412,7 +3545,7 @@ impl DocWindow {
         // Vertical scroll bar: light track, white buttons and thumb framed in grey, dark
         // arrows (measured on a desktop word processor: 243 / 255 / 148 / 38).
         let [bar, up, down, thumb] = self.sb_rects();
-        if bar[3] > 0.0 {
+        if bar[3] > 0.0 && bar[2] > 0.0 {
             let edge = Rgba(0x94, 0x94, 0x94, 255);
             p.fill_rect(bar[0], bar[1], bar[2], bar[3], Rgba(0xf3, 0xf3, 0xf3, 255));
             let boxed = |p: &mut dyn Painter, r: [f32; 4]| {
@@ -2455,7 +3588,13 @@ impl DocWindow {
                 None,
             );
         }
-        self.layered(p, 1, [0.0, y, w, sh], &mut |p| self.paint_status(p));
+        Self::layered(p, 1, [0.0, y, w, sh], &mut |p| self.paint_status(p));
+        if let Some(grid) = &self.symbol_grid {
+            grid.paint(p, &self.theme);
+        }
+        if let Some(g) = &self.design_gallery {
+            g.paint(p, &self.theme);
+        }
         if let Some(grid) = &self.table_grid {
             let label = |c: usize, r: usize| {
                 self.strings.fmt(
@@ -2495,14 +3634,17 @@ impl DocWindow {
         if let Some(d) = &self.dialog {
             d.paint(p, &self.theme, self.size, true);
         }
+        if let Some(fd) = &self.find_dialog {
+            fd.paint(p, &self.theme, true);
+        }
+        if let Some(bd) = &self.borders_dialog {
+            bd.paint(p, &self.theme);
+        }
     }
 
     /// Paint `paint` through cached layer `id` over `rect` (window pixels): the backend
     /// keeps its image and draws it again while the drawing it records hashes the same.
-    // A method so callers read like the other paint helpers; it needs no window state.
-    #[allow(clippy::unused_self)]
     fn layered(
-        &self,
         p: &mut dyn Painter,
         id: usize,
         rect: [f32; 4],
@@ -2713,7 +3855,7 @@ impl DocWindow {
     }
 
     fn view_top(&self) -> f32 {
-        self.ribbon.bottom()
+        self.chrome_bottom()
             + if self.show_ruler {
                 Ruler::height(self.scale)
             } else {
@@ -3193,8 +4335,20 @@ mod tests {
 }
 
 #[cfg(test)]
+#[path = "doc_comments_tests.rs"]
+mod doc_comments_tests;
+#[cfg(test)]
+#[path = "doc_design_tests.rs"]
+mod doc_design_tests;
+#[cfg(test)]
+#[path = "doc_find_tests.rs"]
+mod doc_find_tests;
+#[cfg(test)]
 #[path = "doc_perf_tests.rs"]
 mod doc_perf_tests;
+#[cfg(test)]
+#[path = "doc_symbol_tests.rs"]
+mod doc_symbol_tests;
 #[cfg(test)]
 #[path = "doc_window_tests.rs"]
 mod doc_window_tests;

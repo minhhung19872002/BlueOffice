@@ -85,7 +85,8 @@ pub fn static_id(id: &str) -> &'static str {
 }
 
 /// Commands the window handles itself (dialogs, view state, format painter, mail merge).
-pub const WINDOW: [&str; 31] = [
+pub const WINDOW: [&str; 32] = [
+    "view.readMode",
     "layout.pageSetup",
     "view.printLayout",
     "view.webLayout",

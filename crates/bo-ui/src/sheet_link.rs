@@ -19,6 +19,13 @@ const KINDS: [(&str, &str); 4] = [
 /// The bar: left, top, width, height; each entry's height.
 const BAR: [f32; 4] = [18.0, 74.0, 118.0, 338.0];
 const ENTRY_H: f32 = 78.0;
+/// The browser's tabs left of the list (label key, fallback) and their height.
+const LTABS: [(&str, &str); 3] = [
+    ("sheetLink.currentFolder", "Current Folder"),
+    ("sheetLink.browsedPages", "Browsed Pages"),
+    ("sheetLink.recentFiles", "Recent Files"),
+];
+const LTAB_H: f32 = 69.0;
 
 impl SheetWindow {
     /// Insert › Link: the hyperlink of the active cell.
@@ -113,25 +120,109 @@ impl SheetWindow {
         );
         f.set_access("tip", 6);
         f.add("rule", None, [151.0, 86.0, 666.0, 1.0], Kind::Canvas);
-        // Page 0: web page or file.
+        // Page 0: web page or file. Look in (the workbook's folder), three small buttons,
+        // the Current Folder / Browsed Pages / Recent Files tabs left of the list, Bookmark….
         let p = Some(0);
         f.add(
-            "browseL",
+            "lookL",
             p,
-            [151.0, 104.0, 660.0, 22.0],
-            Kind::Label(t("sheetLink.recent", "Addresses used in this workbook:")),
+            [151.0, 98.0, 90.0, 22.0],
+            Kind::Label(t("sheetLink.lookIn", "Look in:")),
         );
-        let used = self.used_link_targets();
+        f.set_access("lookL", 1);
+        let folder = self.link_dir_name();
+        f.add(
+            "look",
+            p,
+            [248.0, 93.0, 394.0, 27.0],
+            Kind::Combo {
+                items: vec![folder],
+                sel: 0,
+            },
+        );
+        f.add("upDir", p, [662.0, 93.0, 28.0, 28.0], Kind::Canvas);
+        f.add("web", p, [717.0, 93.0, 28.0, 28.0], Kind::Canvas);
+        f.add("file", p, [752.0, 93.0, 28.0, 28.0], Kind::Canvas);
+        f.enable("web", false);
+        f.enable("file", false);
+        f.add("ltabs", p, [151.0, 124.0, 96.0, 207.0], Kind::Canvas);
         f.add(
             "used",
             p,
-            [151.0, 126.0, 666.0, 200.0],
+            [247.0, 124.0, 570.0, 207.0],
             Kind::List {
-                items: used,
+                items: Vec::new(),
                 sel: None,
                 top: 0,
             },
         );
+        f.add(
+            "bookmark",
+            p,
+            [832.0, 126.0, 113.0, 28.0],
+            Kind::Button {
+                label: t("sheetLink.bookmark", "Bookmark..."),
+                default: false,
+            },
+        );
+        f.set_access("bookmark", 1);
+        // Page 2: a new workbook or document beside this one.
+        let p = Some(2);
+        f.add(
+            "newL",
+            p,
+            [151.0, 104.0, 400.0, 22.0],
+            Kind::Label(t("sheetLink.newName", "Name of new document:")),
+        );
+        f.set_access("newL", 0);
+        f.add("newName", p, [151.0, 126.0, 666.0, 26.0], edit(""));
+        f.add(
+            "pathL",
+            p,
+            [151.0, 164.0, 400.0, 22.0],
+            Kind::Label(t("sheetLink.fullPath", "Full path:")),
+        );
+        let full = self
+            .link_dir
+            .as_ref()
+            .map_or_else(String::new, |d| format!("{}\\", d.display()));
+        f.add("path", p, [151.0, 186.0, 666.0, 22.0], Kind::Label(full));
+        f.add(
+            "change",
+            p,
+            [832.0, 180.0, 113.0, 28.0],
+            Kind::Button {
+                label: t("sheetLink.change", "Change..."),
+                default: false,
+            },
+        );
+        f.enable("change", false);
+        f.add(
+            "whenG",
+            p,
+            [151.0, 226.0, 666.0, 22.0],
+            Kind::Group(t("sheetLink.when", "When to edit:")),
+        );
+        f.add(
+            "later",
+            p,
+            [165.0, 252.0, 400.0, 24.0],
+            Kind::Check {
+                label: t("sheetLink.editLater", "Edit the new document later"),
+                on: true,
+            },
+        );
+        f.add(
+            "now",
+            p,
+            [165.0, 278.0, 400.0, 24.0],
+            Kind::Check {
+                label: t("sheetLink.editNow", "Edit the new document now"),
+                on: false,
+            },
+        );
+        f.enable("now", false);
+        f.set_radios(&["later", "now"]);
         f.add(
             "addrL",
             p,
@@ -206,6 +297,12 @@ impl SheetWindow {
             c.rect = [832.0, 384.0, 113.0, 30.0];
         }
         f.set_page(page);
+        self.form = Some(f);
+        self.link_dir = self.folder.clone();
+        self.link_list(0);
+        let Some(mut f) = self.form.take() else {
+            return false;
+        };
         f.focus(match page {
             1 => "cell",
             3 => "mail",
@@ -238,6 +335,20 @@ impl SheetWindow {
     pub(super) fn link_event(&mut self, ev: &Event) {
         if self.form_kind == FormKind::LinkTip {
             match ev {
+                Event::Ok | Event::Clicked("ok")
+                    if self
+                        .form
+                        .as_ref()
+                        .is_some_and(|f| f.get("bmCell").is_some()) =>
+                {
+                    let place = self.link_bookmark_text();
+                    self.link_back();
+                    if let Some(f) = self.form.as_mut() {
+                        let a = f.text("addr");
+                        let base = a.split('#').next().unwrap_or("").to_owned();
+                        f.set_text("addr", &format!("{base}#{place}"));
+                    }
+                }
                 Event::Ok | Event::Clicked("ok") => {
                     self.link_tip = self
                         .form
@@ -258,23 +369,52 @@ impl SheetWindow {
             Event::Cancel | Event::Clicked("cancel") => self.form = None,
             Event::Canvas("bar", _, y) => {
                 let i = ((y / ENTRY_H).floor().max(0.0) as usize).min(3);
-                // Create New Document is not available.
-                if i != 2 {
-                    f.set_page(i);
-                    f.focus(match i {
-                        1 => "cell",
-                        3 => "mail",
-                        _ => "addr",
-                    });
+                f.set_page(i);
+                f.focus(match i {
+                    1 => "cell",
+                    2 => "newName",
+                    3 => "mail",
+                    _ => "addr",
+                });
+            }
+            Event::Canvas("ltabs", _, y) => {
+                let i = ((y / LTAB_H).floor().max(0.0) as usize).min(2);
+                self.link_list(i);
+            }
+            Event::Canvas("upDir", ..) => {
+                if let Some(up) = self
+                    .link_dir
+                    .as_ref()
+                    .and_then(|d| d.parent())
+                    .map(std::path::Path::to_path_buf)
+                {
+                    self.link_dir = Some(up);
+                    self.link_refresh_folder();
                 }
             }
+            Event::Clicked("bookmark") => self.open_link_bookmark(),
+            Event::Changed("later" | "now") => {
+                f.set_on("later", true);
+                f.set_on("now", false);
+            }
             Event::Changed("used") | Event::Clicked("used") => {
-                let pick = match f.get("used").map(|c| &c.kind) {
-                    Some(Kind::List { items, sel, .. }) => sel.and_then(|i| items.get(i)).cloned(),
-                    _ => None,
+                let double = matches!(ev, Event::Clicked(_));
+                let at = f.sel("used").unwrap_or(0);
+                let Some((name, dir)) = self.link_entries.get(at).cloned() else {
+                    return;
                 };
-                if let Some(a) = pick {
-                    f.set_text("addr", &a);
+                if self.link_tab == 0 {
+                    let path = self.link_dir.as_ref().map(|d| d.join(&name));
+                    if dir && double {
+                        self.link_dir = path;
+                        self.link_refresh_folder();
+                    } else if !dir {
+                        if let Some(f) = self.form.as_mut() {
+                            f.set_text("addr", &name);
+                        }
+                    }
+                } else if let Some(f) = self.form.as_mut() {
+                    f.set_text("addr", &name);
                 }
             }
             Event::Clicked("tip") => self.open_link_tip(),
@@ -319,6 +459,13 @@ impl SheetWindow {
                             (Some(t), None)
                         }
                     }
+                    2 => {
+                        let name = f.text("newName").trim().to_owned();
+                        match self.link_create_document(&name) {
+                            Some(path) => (Some(path), None),
+                            None => return,
+                        }
+                    }
                     _ => {
                         let a = f.text("addr").trim().to_owned();
                         // A bare host gets the web scheme, as the reference adds it.
@@ -327,7 +474,14 @@ impl SheetWindow {
                         } else {
                             a
                         };
-                        ((!a.is_empty()).then_some(a), None)
+                        // "file.xlsx#Sheet1!A1": a place in another workbook (Bookmark…).
+                        match a.split_once('#') {
+                            Some((t, l)) if !t.is_empty() => {
+                                (Some(t.to_owned()), Some(l.to_owned()))
+                            }
+                            Some((_, l)) => (None, Some(l.to_owned())),
+                            None => ((!a.is_empty()).then_some(a), None),
+                        }
                     }
                 };
                 self.form = None;
@@ -386,6 +540,189 @@ impl SheetWindow {
         self.form_kind = FormKind::LinkTip;
     }
 
+    /// The workbook's folder name for Look in.
+    fn link_dir_name(&self) -> String {
+        self.link_dir
+            .as_ref()
+            .and_then(|d| d.file_name().map(|n| n.to_string_lossy().into_owned()))
+            .unwrap_or_default()
+    }
+
+    /// Show browser tab `tab`: 0 Current Folder (the folder's entries, folders first),
+    /// 1 Browsed Pages (web addresses of this workbook's links), 2 Recent Files (files
+    /// this workbook links to).
+    fn link_list(&mut self, tab: usize) {
+        self.link_tab = tab;
+        if tab == 0 {
+            if self.link_dir.is_none() {
+                self.link_dir = self.folder.clone();
+            }
+            self.link_refresh_folder();
+            return;
+        }
+        let used = self.used_link_targets();
+        let web = |t: &String| t.contains("://");
+        self.link_entries = used
+            .into_iter()
+            .filter(|t| if tab == 1 { web(t) } else { !web(t) })
+            .map(|t| (t, false))
+            .collect();
+        self.link_show_entries();
+    }
+
+    fn link_refresh_folder(&mut self) {
+        let mut v: Vec<(String, bool)> = self
+            .link_dir
+            .as_ref()
+            .and_then(|d| std::fs::read_dir(d).ok())
+            .map(|rd| {
+                rd.filter_map(Result::ok)
+                    .filter_map(|e| {
+                        let name = e.file_name().to_string_lossy().into_owned();
+                        (!name.starts_with('.') && !name.starts_with("~$"))
+                            .then(|| (name, e.file_type().is_ok_and(|t| t.is_dir())))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        v.sort_by(|a, b| {
+            b.1.cmp(&a.1)
+                .then_with(|| a.0.to_lowercase().cmp(&b.0.to_lowercase()))
+        });
+        self.link_entries = v;
+        let name = self.link_dir_name();
+        if let Some(f) = self.form.as_mut() {
+            f.set_items("look", vec![name], Some(0));
+        }
+        self.link_show_entries();
+    }
+
+    fn link_show_entries(&mut self) {
+        let items: Vec<String> = self
+            .link_entries
+            .iter()
+            .map(|(n, d)| {
+                if *d {
+                    format!("\u{25A0} {n}")
+                } else {
+                    format!("    {n}")
+                }
+            })
+            .collect();
+        if let Some(f) = self.form.as_mut() {
+            f.set_items("used", items, None);
+        }
+    }
+
+    /// Create New Document: an empty workbook (.xlsx, the default) or document (.docx) in
+    /// the workbook's folder; its path, or `None` (status says why).
+    fn link_create_document(&mut self, name: &str) -> Option<String> {
+        if name.is_empty() {
+            return None;
+        }
+        let dir = self.link_dir.clone().or_else(|| self.folder.clone())?;
+        let mut file = name.to_owned();
+        let lower = file.to_lowercase();
+        if !lower.ends_with(".xlsx") && !lower.ends_with(".docx") {
+            file.push_str(".xlsx");
+        }
+        let path = dir.join(&file);
+        if path.exists() {
+            self.status = self.t("sheetLink.exists", "A file with this name already exists.");
+            return None;
+        }
+        let bytes = if file.to_lowercase().ends_with(".docx") {
+            let mut e = bo_engine::Engine::new();
+            e.new_document(&file).ok()?;
+            e.save_docx().ok()?
+        } else {
+            let mut e = bo_engine::SheetEngine::new();
+            e.new_workbook(&file).ok()?;
+            e.save("xlsx", 0).ok()?
+        };
+        if std::fs::write(&path, bytes).is_err() {
+            self.status = self.t("sheetLink.cannotCreate", "The document cannot be created.");
+            return None;
+        }
+        Some(path.display().to_string())
+    }
+
+    /// Bookmark…: Select Place in Document (cell reference, sheets and names).
+    fn open_link_bookmark(&mut self) {
+        let t = |k: &str, f: &str| self.t(k, f);
+        let mut f = Form::new(
+            &t("sheetLink.bmTitle", "Select Place in Document"),
+            (420.0, 360.0),
+            vec![],
+        );
+        f.add(
+            "bmCellL",
+            None,
+            [18.0, 48.0, 380.0, 22.0],
+            Kind::Label(t("sheetLink.cellRef", "Type the cell reference:")),
+        );
+        f.add(
+            "bmCell",
+            None,
+            [18.0, 72.0, 384.0, 26.0],
+            Kind::Edit {
+                value: "A1".chars().collect(),
+                caret: 2,
+            },
+        );
+        f.add(
+            "bmL",
+            None,
+            [18.0, 108.0, 380.0, 22.0],
+            Kind::Label(t(
+                "sheetLink.selectPlace",
+                "Or select a place in this document:",
+            )),
+        );
+        let sheets: Vec<String> = self.view.sheet_names().into_iter().flatten().collect();
+        f.add(
+            "bmList",
+            None,
+            [18.0, 132.0, 384.0, 170.0],
+            Kind::List {
+                items: sheets,
+                sel: Some(self.view.sheet()),
+                top: 0,
+            },
+        );
+        f.ok_cancel(&t("common.ok", "OK"), &t("common.cancel", "Cancel"));
+        if let Some(c) = f.get_mut("ok") {
+            c.rect = [176.0, 314.0, 107.0, 30.0];
+        }
+        if let Some(c) = f.get_mut("cancel") {
+            c.rect = [295.0, 314.0, 107.0, 30.0];
+        }
+        f.focus("bmCell");
+        if let Some(old) = self.form.take() {
+            self.form_stash = Some((old, self.form_kind));
+        }
+        self.form = Some(f);
+        self.form_kind = FormKind::LinkTip;
+    }
+
+    fn link_bookmark_text(&self) -> String {
+        let Some(f) = self.form.as_ref() else {
+            return String::new();
+        };
+        let sheet = match f.get("bmList").map(|c| &c.kind) {
+            Some(Kind::List { items, sel, .. }) => {
+                sel.and_then(|i| items.get(i)).cloned().unwrap_or_default()
+            }
+            _ => String::new(),
+        };
+        let q = if sheet.chars().all(|c| c.is_alphanumeric() || c == '_') {
+            sheet
+        } else {
+            format!("'{}'", sheet.replace('\'', "''"))
+        };
+        format!("{q}!{}", f.text("bmCell").trim())
+    }
+
     fn link_back(&mut self) {
         if let Some((f, k)) = self.form_stash.take() {
             self.form = Some(f);
@@ -399,6 +736,108 @@ impl SheetWindow {
         let k = f.scale_k();
         if id.starts_with("rule") {
             p.fill_rect(r[0], r[1], r[2], 1.0, Rgba(0xDC, 0xDC, 0xDC, 255));
+            return;
+        }
+        if id == "ltabs" {
+            let font = f.font();
+            let line = font.size * 1.33;
+            for (i, (key, fb)) in LTABS.iter().enumerate() {
+                let y = r[1] + (i as f32 * LTAB_H * k).round();
+                let h = (LTAB_H * k).round();
+                if i == self.link_tab {
+                    p.fill_rect(r[0], y, r[2], h, Rgba(0x99, 0xC9, 0xEF, 255));
+                    p.fill_rect(
+                        r[0] + 1.0,
+                        y + 1.0,
+                        r[2] - 2.0,
+                        h - 2.0,
+                        Rgba(0xCC, 0xE4, 0xF7, 255),
+                    );
+                }
+                let label = self.t(key, fb);
+                let w = f.width(&label);
+                p.text_font(
+                    &label,
+                    (r[0] + (r[2] - w) / 2.0).round(),
+                    (y + (h - line) / 2.0).round(),
+                    &font,
+                    Rgba(0, 0, 0, 255),
+                );
+            }
+            return;
+        }
+        if matches!(id, "upDir" | "web" | "file") {
+            let on = f.get(id).is_some_and(|c| c.enabled);
+            let ink = if on {
+                Rgba(0x40, 0x40, 0x40, 255)
+            } else {
+                Rgba(0xA0, 0xA0, 0xA0, 255)
+            };
+            p.fill_rect(r[0], r[1], r[2], r[3], Rgba(0xD0, 0xD0, 0xD0, 255));
+            p.fill_rect(
+                r[0] + 1.0,
+                r[1] + 1.0,
+                r[2] - 2.0,
+                r[3] - 2.0,
+                Rgba(0xFD, 0xFD, 0xFD, 255),
+            );
+            let (cx, cy) = ((r[0] + r[2] / 2.0).round(), (r[1] + r[3] / 2.0).round());
+            let a = (6.0 * k).round();
+            match id {
+                // A folder with an arrow up.
+                "upDir" => {
+                    p.fill_rect(
+                        cx - a,
+                        cy - a * 0.4,
+                        2.0 * a,
+                        a * 1.3,
+                        Rgba(0xE8, 0xB8, 0x4A, 255),
+                    );
+                    p.path(
+                        &[
+                            PathSeg::M(cx, cy + a * 0.6),
+                            PathSeg::L(cx, cy - a),
+                            PathSeg::M(cx - a * 0.5, cy - a * 0.5),
+                            PathSeg::L(cx, cy - a),
+                            PathSeg::L(cx + a * 0.5, cy - a * 0.5),
+                        ],
+                        None,
+                        Some((ink, (1.4 * k).max(1.0))),
+                    );
+                }
+                // A globe.
+                "web" => {
+                    let d = a;
+                    let kk = d * 0.552_284_8;
+                    p.path(
+                        &[
+                            PathSeg::M(cx + d, cy),
+                            PathSeg::C(cx + d, cy + kk, cx + kk, cy + d, cx, cy + d),
+                            PathSeg::C(cx - kk, cy + d, cx - d, cy + kk, cx - d, cy),
+                            PathSeg::C(cx - d, cy - kk, cx - kk, cy - d, cx, cy - d),
+                            PathSeg::C(cx + kk, cy - d, cx + d, cy - kk, cx + d, cy),
+                            PathSeg::Z,
+                            PathSeg::M(cx - d, cy),
+                            PathSeg::L(cx + d, cy),
+                            PathSeg::M(cx, cy - d),
+                            PathSeg::L(cx, cy + d),
+                        ],
+                        None,
+                        Some((ink, k.max(1.0))),
+                    );
+                }
+                // A page.
+                _ => {
+                    p.fill_rect(cx - a * 0.7, cy - a, a * 1.4, 2.0 * a, ink);
+                    p.fill_rect(
+                        cx - a * 0.7 + 1.0,
+                        cy - a + 1.0,
+                        a * 1.4 - 2.0,
+                        2.0 * a - 2.0,
+                        Rgba(0xFD, 0xFD, 0xFD, 255),
+                    );
+                }
+            }
             return;
         }
         if id != "bar" {
@@ -499,6 +938,7 @@ impl SheetWindow {
     pub(super) fn link_strings(&self) -> Vec<String> {
         KINDS
             .iter()
+            .chain(LTABS.iter())
             .flat_map(|(key, fb)| {
                 let label = self.t(key, fb);
                 let words: Vec<String> = label.split(' ').map(str::to_owned).collect();

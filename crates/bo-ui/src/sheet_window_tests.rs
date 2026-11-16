@@ -1189,7 +1189,7 @@ fn text_to_columns_wizard_previews_then_splits() {
     click_form(&mut w, "next", 10.0, 10.0);
     // Step 3: second column as text, then pick the destination C1 on the sheet.
     assert_eq!(w.ttc.as_ref().map(|t| t.step), Some(2));
-    click_form(&mut w, "preview", 100.0, 60.0);
+    click_form(&mut w, "preview", 20.0, 60.0);
     assert_eq!(w.ttc.as_ref().map(|t| t.col), Some(1));
     click_form(&mut w, "fText", 5.0, 10.0);
     click_form(&mut w, "pickDest", 5.0, 5.0);
@@ -3551,4 +3551,99 @@ fn scripted_form_clicks_tick_wizard_delimiters() {
     let f = w.form.as_ref().expect("wizard");
     assert!(f.on("dComma"));
     assert!(w.ttc.as_ref().is_some_and(|t| t.delims[2]));
+}
+
+/// BLUESHEET_FILE=<xlsx> BLUESHEET_ACTIONS="a;b": run scripted actions and paint (debugging).
+#[test]
+fn scripted_actions_on_a_file_paint() {
+    let Some(path) = std::env::var_os("BLUESHEET_FILE") else {
+        return;
+    };
+    let bytes = std::fs::read(path).expect("file");
+    let mut e = SheetEngine::with_bundled_fonts();
+    e.open(&bytes, "t.xlsx").expect("open");
+    let mut w = window_with(e);
+    let acts = std::env::var("BLUESHEET_ACTIONS").unwrap_or_default();
+    for id in acts.split(';').filter(|s| !s.is_empty()) {
+        w.run_command(id, &Fixed);
+    }
+    let mut hash = PaintHash::default();
+    w.paint_top(&mut hash);
+    w.paint_overlay(&mut hash);
+}
+
+#[test]
+fn review_comment_buttons_follow_the_sheets_comments() {
+    let mut w = window();
+    let f = w.format_state();
+    assert!(!sheet_enabled("sheet.deleteComment", &f));
+    assert!(!sheet_enabled("sheet.nextComment", &f));
+    assert!(!sheet_enabled("sheet.showHideComment", &f));
+    assert!(!sheet_enabled("sheet.unshareWorkbook", &f));
+    w.view_mut().select((1, 1), (1, 1), (1, 1));
+    assert!(w.action("sheet.newComment", &Fixed));
+    type_in(&mut w, "Look");
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    w.view_mut().select((1, 1), (1, 1), (1, 1));
+    let f = w.format_state();
+    assert!(sheet_enabled("sheet.deleteComment", &f));
+    assert!(sheet_enabled("sheet.nextComment", &f));
+    w.view_mut().select((4, 4), (4, 4), (4, 4));
+    let f = w.format_state();
+    assert!(!sheet_enabled("sheet.deleteComment", &f));
+    assert!(sheet_enabled("sheet.prevComment", &f));
+    assert!(sheet_ribbon::is_menu("sheet.checkAccessibility"));
+    assert!(sheet_ribbon::is_menu("sheet.hideInk"));
+}
+
+#[test]
+fn hyperlink_browser_lists_the_folder_and_creates_a_new_document() {
+    let dir = std::env::temp_dir().join(format!("bo-link-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("sub")).expect("dir");
+    std::fs::write(dir.join("report.xlsx"), b"x").expect("file");
+    let mut w = window();
+    w.set_folder(&dir);
+    assert!(w.action("sheet.link", &Fixed));
+    // Folders first, then files.
+    assert_eq!(
+        w.link_entries,
+        vec![("sub".to_owned(), true), ("report.xlsx".to_owned(), false)]
+    );
+    w.form.as_mut().expect("link").set_sel("used", Some(1));
+    w.link_event(&form_impl::Event::Changed("used"));
+    assert_eq!(
+        w.form.as_ref().map(|f| f.text("addr")),
+        Some("report.xlsx".into())
+    );
+    // Bookmark… adds a place in that workbook.
+    w.link_event(&form_impl::Event::Clicked("bookmark"));
+    w.form.as_mut().expect("bm").set_text("bmCell", "B2");
+    w.link_event(&form_impl::Event::Ok);
+    assert_eq!(
+        w.form.as_ref().map(|f| f.text("addr")),
+        Some("report.xlsx#Sheet1!B2".into())
+    );
+    w.link_event(&form_impl::Event::Ok);
+    let link = w
+        .view
+        .query(json!({ "cmd": "hyperlink", "sheet": 0, "row": 0, "col": 0 }))
+        .expect("link");
+    assert_eq!(link["target"], "report.xlsx");
+    assert_eq!(link["location"], "Sheet1!B2");
+    // Create New Document writes an empty workbook beside and links it.
+    w.view_mut().select((2, 0), (2, 0), (2, 0));
+    assert!(w.action("sheet.link", &Fixed));
+    w.link_event(&form_impl::Event::Canvas("bar", 10.0, 2.5 * 78.0));
+    assert_eq!(w.form.as_ref().map(|f| f.tab), Some(2));
+    w.form.as_mut().expect("new").set_text("newName", "Budget");
+    w.link_event(&form_impl::Event::Ok);
+    let made = dir.join("Budget.xlsx");
+    assert!(made.exists());
+    let link = w
+        .view
+        .query(json!({ "cmd": "hyperlink", "sheet": 0, "row": 2, "col": 0 }))
+        .expect("link");
+    assert_eq!(link["target"], made.display().to_string());
+    let _ = std::fs::remove_dir_all(&dir);
 }

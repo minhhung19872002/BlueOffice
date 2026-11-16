@@ -422,6 +422,14 @@ pub(crate) fn menu(id: &str, functions: &[String]) -> Vec<Entry> {
             e("sheet.refreshAllNow", "commands.sheet.refreshAll"),
             e("sheet.refreshPivots", "sheetData.refreshPivots"),
         ],
+        "sheet.checkAccessibility" => vec![
+            e("sheet.accessCheck", "sheetRev.checkAccessibility"),
+            e("sheet.accessAltText", "sheetRev.altText"),
+        ],
+        "sheet.hideInk" => vec![
+            e("sheet.hideInkNow", "sheetRev.hideInk"),
+            e("sheet.deleteInk", "sheetRev.deleteInk"),
+        ],
         "sheet.dataValidation" => vec![
             e("sheet.dataValidationDlg", "sheetDv.menuDialog"),
             e("sheet.circleInvalid", "sheetDv.circleInvalid"),

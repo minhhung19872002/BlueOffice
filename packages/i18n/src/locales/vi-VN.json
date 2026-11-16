@@ -10952,6 +10952,8 @@
     "mismatch": "Mật khẩu xác nhận không trùng."
   },
   "sheetRev": {
+    "altText": "Văn bản thay thế",
+    "deleteInk": "Xoá mọi nét mực trong trang tính",
     "spelling": "Chính tả",
     "thesaurus": "Từ đồng nghĩa",
     "workbookStats": "Thống kê sổ làm việc",
@@ -11007,6 +11009,20 @@
     "accNote": "Chọn một vấn đề để xem vì sao cần sửa và cách sửa."
   },
   "sheetLink": {
+    "lookIn": "Tìm trong:",
+    "bookmark": "Dấu trang...",
+    "newName": "Tên tài liệu mới:",
+    "fullPath": "Đường dẫn đầy đủ:",
+    "change": "Đổi...",
+    "when": "Khi nào sửa:",
+    "editLater": "Sửa tài liệu mới sau",
+    "editNow": "Sửa tài liệu mới ngay",
+    "exists": "Đã có tệp trùng tên.",
+    "cannotCreate": "Không tạo được tài liệu.",
+    "bmTitle": "Chọn vị trí trong tài liệu",
+    "currentFolder": "Thư mục hiện tại",
+    "browsedPages": "Trang đã xem",
+    "recentFiles": "Tệp gần đây",
     "existing": "Tệp hoặc trang web có sẵn",
     "place": "Vị trí trong tài liệu này",
     "newDoc": "Tạo tài liệu mới",

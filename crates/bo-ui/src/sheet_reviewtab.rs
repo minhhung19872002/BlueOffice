@@ -36,12 +36,15 @@ const LABELS: [(&str, &str, &str); 9] = [
 
 /// Commands of the tab that are shown but not available (greyed as the reference greys
 /// what does not apply).
-pub(super) const GREYED: [&str; 5] = [
+pub(super) const GREYED: [&str; 8] = [
     "sheet.thesaurus",
     "sheet.translate",
     "sheet.allowEditRanges",
     "sheet.unshareWorkbook",
     "sheet.hideInk",
+    "sheet.hideInkNow",
+    "sheet.deleteInk",
+    "sheet.accessAltText",
 ];
 
 /// Use the Review tab's labels.
@@ -194,7 +197,7 @@ impl SheetWindow {
         Some(match id {
             "sheet.spelling" => self.open_spelling(),
             "sheet.workbookStats" => self.open_workbook_stats(),
-            "sheet.checkAccessibility" => self.open_accessibility(),
+            "sheet.checkAccessibility" | "sheet.accessCheck" => self.open_accessibility(),
             "sheet.showHideComment" => {
                 let at = self.view.active();
                 if self.commented_cells().contains(&at) {

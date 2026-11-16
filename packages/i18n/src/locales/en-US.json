@@ -10952,6 +10952,8 @@
     "mismatch": "Confirmation password is not identical."
   },
   "sheetRev": {
+    "altText": "Alt Text",
+    "deleteInk": "Delete All Ink in Sheet",
     "spelling": "Spelling",
     "thesaurus": "Thesaurus",
     "workbookStats": "Workbook Statistics",
@@ -11007,6 +11009,20 @@
     "accNote": "Select an issue to see why it matters and how to fix it."
   },
   "sheetLink": {
+    "lookIn": "Look in:",
+    "bookmark": "Bookmark...",
+    "newName": "Name of new document:",
+    "fullPath": "Full path:",
+    "change": "Change...",
+    "when": "When to edit:",
+    "editLater": "Edit the new document later",
+    "editNow": "Edit the new document now",
+    "exists": "A file with this name already exists.",
+    "cannotCreate": "The document cannot be created.",
+    "bmTitle": "Select Place in Document",
+    "currentFolder": "Current Folder",
+    "browsedPages": "Browsed Pages",
+    "recentFiles": "Recent Files",
     "existing": "Existing File or Web Page",
     "place": "Place in This Document",
     "newDoc": "Create New Document",

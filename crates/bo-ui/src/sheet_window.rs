@@ -211,6 +211,14 @@ fn sheet_enabled(id: &str, f: &FormatState) -> bool {
     if reviewtab_impl::GREYED.contains(&id) {
         return false;
     }
+    // Review › Comments follow the sheet's comments, as the reference's.
+    let ctx = f.style.as_deref().unwrap_or("");
+    let has = |w: &str| ctx.split(',').any(|c| c == w);
+    match id {
+        "sheet.deleteComment" | "sheet.showHideComment" => return has("cell"),
+        "sheet.prevComment" | "sheet.nextComment" => return has("comments"),
+        _ => {}
+    }
     match id {
         "edit.undo" => f.can_undo,
         "edit.redo" => f.can_redo,
@@ -401,8 +409,13 @@ pub struct SheetWindow {
     spell: Option<reviewtab_impl::SpellState>,
     speller: Option<bo_spell::Speller>,
     pinned_comments: Vec<(u32, u32)>,
-    /// ScreenTip of the open Insert Hyperlink dialog.
+    /// ScreenTip of the open Insert Hyperlink dialog, its browser's folder, tab and entries
+    /// (name, is a folder), and the workbook's folder (set by the host).
     link_tip: String,
+    link_dir: Option<std::path::PathBuf>,
+    link_tab: usize,
+    link_entries: Vec<(String, bool)>,
+    folder: Option<std::path::PathBuf>,
     /// The open protection dialog.
     prot: protect_impl::ProtState,
     /// The open Text to Columns wizard.
@@ -496,6 +509,7 @@ impl SheetWindow {
             requests: Vec::new(),
             ribbon: Ribbon::with_tabs(sheet_ribbon::tabs_wide())
                 .with_enabled(sheet_enabled)
+                .with_large_dim()
                 .with_labeled_widths(|id| {
                     (id == "sheet.numberFormat").then(|| sheet_ribbon::number_box_width(true))
                 })
@@ -559,6 +573,10 @@ impl SheetWindow {
             prot: protect_impl::ProtState::default(),
             spell: None,
             link_tip: String::new(),
+            link_dir: None,
+            link_tab: 0,
+            link_entries: Vec::new(),
+            folder: None,
             speller: None,
             pinned_comments: Vec::new(),
             dv_sqref: Vec::new(),
@@ -709,6 +727,11 @@ impl SheetWindow {
     /// The grid view, for the host's file operations.
     pub fn view_mut(&mut self) -> &mut SheetView {
         &mut self.view
+    }
+
+    /// The folder of the workbook's file (Insert Hyperlink browses it).
+    pub fn set_folder(&mut self, dir: &std::path::Path) {
+        self.folder = Some(dir.to_path_buf());
     }
 
     /// The workbook now has this file name (after Save As).
@@ -1017,8 +1040,25 @@ impl SheetWindow {
             },
             can_undo: e.can_undo(),
             can_redo: e.can_redo(),
+            // BlueSheet's ribbon context for the enabled rule (the field is unused by
+            // spreadsheets): "comments" when the sheet has any, "cell" when the active
+            // cell has one.
+            style: Some(self.ribbon_context()),
             ..FormatState::default()
         }
+    }
+
+    /// Context words of the ribbon's enabled rule (see `format_state`).
+    fn ribbon_context(&self) -> String {
+        let cells = self.commented_cells();
+        let mut ctx = Vec::new();
+        if !cells.is_empty() {
+            ctx.push("comments");
+        }
+        if cells.contains(&self.view.active()) {
+            ctx.push("cell");
+        }
+        ctx.join(",")
     }
 
     fn on_ids(&self) -> Vec<&'static str> {

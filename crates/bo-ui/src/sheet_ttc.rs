@@ -1307,7 +1307,7 @@ fn column_widths(fields: &[Vec<String>], fixed: bool, breaks: &[usize]) -> Vec<u
                 .map(|f| f.chars().count())
                 .max()
                 .unwrap_or(0)
-                .max(7)
+                .max(1)
                 + 1
         })
         .collect()

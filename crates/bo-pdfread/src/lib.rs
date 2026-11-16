@@ -46,6 +46,7 @@ mod links_edit;
 mod markup;
 mod media_edit;
 mod mesh;
+mod navdata;
 mod objects;
 mod optimize;
 mod pages_edit;
@@ -79,6 +80,7 @@ pub use image::Image;
 pub use links_edit::{find_web_addresses, FoundLink};
 pub use markup::{Markup, MarkupKind};
 pub use media_edit::ShapeKind;
+pub use navdata::{Attachment, CommentState, LayerRow};
 pub use objects::{image_size, text_lines, NewImage, ObjectKind, PageObject, TextLine};
 pub use optimize::{JpegEncoder, OptimizeOptions, OptimizeReport};
 pub use pages_edit::{LabelRange, LabelStyle};
@@ -638,6 +640,8 @@ impl PdfDocument {
     ) -> Result<Page, String> {
         let info = self.pages.get(index).ok_or("no such page")?.clone();
         let base = page_matrix(info.crop, info.rotate);
+        // Printing follows the layers' print states (BlueReader round 8, navdata.rs).
+        let print_hidden = extra.printing.then(|| self.print_hidden());
         let doc = &self.doc;
         let page = doc.get_dictionary(info.id).map_err(|e| e.to_string())?;
         let resources = inherited(doc, page, b"Resources").and_then(|o| o.as_dict().ok());
@@ -647,7 +651,7 @@ impl PdfDocument {
             fonts: &mut self.fonts,
             font_cache: &mut self.font_cache,
             images: &mut self.images,
-            hidden: &self.hidden,
+            hidden: print_hidden.as_ref().unwrap_or(&self.hidden),
             opts,
         };
         let mut it = Interp::new(

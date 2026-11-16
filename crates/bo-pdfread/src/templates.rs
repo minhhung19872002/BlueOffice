@@ -22,7 +22,7 @@ pub struct EmbeddedFile {
 }
 
 /// `D:YYYYMMDDHHmm…` (§7.9.4) as `YYYY-MM-DD HH:MM` (or the date alone).
-fn date_text(s: &str) -> String {
+pub(crate) fn date_text(s: &str) -> String {
     let d: String = s
         .trim_start_matches("D:")
         .chars()
@@ -39,7 +39,7 @@ fn date_text(s: &str) -> String {
 }
 
 /// Text of a PDF string (UTF-16BE with a byte order mark, else PDFDocEncoding as Latin-1).
-fn text(b: &[u8]) -> String {
+pub(crate) fn text(b: &[u8]) -> String {
     if b.len() >= 2 && b[0] == 0xFE && b[1] == 0xFF {
         let u: Vec<u16> = b[2..]
             .chunks(2)
@@ -64,7 +64,7 @@ fn pdf_text(s: &str) -> Object {
 
 impl PdfDocument {
     /// Entries of the name tree `key` of the catalog's `/Names` (§7.9.6), in tree order.
-    fn name_tree(&self, key: &[u8]) -> Vec<(String, Object)> {
+    pub(crate) fn name_tree(&self, key: &[u8]) -> Vec<(String, Object)> {
         fn walk(
             doc: &crate::store::Document,
             node: &Dictionary,
@@ -234,7 +234,10 @@ impl PdfDocument {
         self.doc.catalog().is_ok_and(|c| c.has(b"Collection"))
     }
 
-    fn file_stream<'a>(&'a self, spec: &'a Object) -> Option<(&'a lopdf::Stream, &'a Dictionary)> {
+    pub(crate) fn file_stream<'a>(
+        &'a self,
+        spec: &'a Object,
+    ) -> Option<(&'a lopdf::Stream, &'a Dictionary)> {
         let spec = resolve(&self.doc, spec).as_dict().ok()?;
         let ef = resolve(&self.doc, spec.get(b"EF").ok()?).as_dict().ok()?;
         let s = ef.get(b"UF").or_else(|_| ef.get(b"F")).ok()?;

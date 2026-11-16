@@ -10737,6 +10737,7 @@
     "magnification": "Độ phóng"
   },
   "sheetNative": {
+    "nmClear": "Bỏ lọc",
     "nmFilter": "Lọc",
     "nmScopedSheet": "Tên trong phạm vi trang tính",
     "nmScopedBook": "Tên trong phạm vi sổ làm việc",

@@ -1451,6 +1451,19 @@ fn data_and_formulas_dialogs_sort_validate_seek_name_and_trace() {
         .find(|r| r.name == "Rate")
         .expect("Rate");
     assert_eq!(rate.value, "0.1");
+    // Filter ▾ is a button with a menu: Table Names leaves no defined name.
+    click_form(&mut w, "filterBtn", 10.0, 10.0);
+    assert!(w
+        .form
+        .as_ref()
+        .and_then(|f| f.get("fmenu"))
+        .is_some_and(|c| c.visible));
+    w.form_event(
+        form_impl::FormKind::Names,
+        &form_impl::Event::Canvas("fmenu", 10.0, 6.0 * 26.0 + 10.0),
+        &Fixed,
+    );
+    assert!(w.name_table.iter().all(|r| r.table));
     w.handle(Input::Key(Key::Escape, Mods::default()), &Fixed);
     // Insert Function: search IF, pick it, OK starts the formula.
     w.view_mut().select((9, 0), (9, 0), (9, 0));

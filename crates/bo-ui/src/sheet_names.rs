@@ -35,6 +35,9 @@ const FILTERS: [(&str, &str); 7] = [
     ("sheetNative.nmTables", "Table Names"),
 ];
 
+/// Row height of the Filter menu (reference pixels).
+const MENU_ROW: f32 = 26.0;
+
 /// Row height and header height of the table (reference pixels).
 const ROW: f32 = 22.0;
 const HEAD: f32 = 26.0;
@@ -76,6 +79,19 @@ impl SheetWindow {
                 sel: 0,
             },
         );
+        // The choice is kept in the hidden list box; the reference shows a push button
+        // "Filter ▾" that opens a menu.
+        f.show("filter", false);
+        f.add(
+            "filterBtn",
+            None,
+            [575.0, 48.0, 111.0, 29.0],
+            Kind::Button {
+                label: format!("{} \u{25be}", t("sheetNative.nmFilter", "Filter")),
+                default: false,
+            },
+        );
+        f.set_access("filterBtn", 0);
         // The list the events read (hidden) and the table drawn over its place.
         f.add(
             "names",
@@ -123,6 +139,14 @@ impl SheetWindow {
                 default: true,
             },
         );
+        // The Filter menu, over everything else while open.
+        f.add(
+            "fmenu",
+            None,
+            [430.0, 77.0, 256.0, MENU_ROW * FILTERS.len() as f32 + 4.0],
+            Kind::Canvas,
+        );
+        f.show("fmenu", false);
         self.form = Some(f);
         self.form_kind = FormKind::Names;
         self.names_refresh();
@@ -306,8 +330,30 @@ impl SheetWindow {
             .as_ref()
             .and_then(|f| f.sel("names"))
             .and_then(|i| self.name_table.get(i).cloned());
+        // Any other press closes the Filter menu.
+        if !matches!(ev, Event::Canvas("fmenu", ..) | Event::Clicked("filterBtn")) {
+            if let Some(f) = self.form.as_mut() {
+                f.show("fmenu", false);
+            }
+        }
         match ev {
             Event::Changed("filter") => self.names_refresh(),
+            Event::Clicked("filterBtn") => {
+                if let Some(f) = self.form.as_mut() {
+                    let open = f.get("fmenu").is_some_and(|c| c.visible);
+                    f.show("fmenu", !open);
+                }
+            }
+            Event::Canvas("fmenu", _, y) => {
+                let i = ((y - 2.0) / MENU_ROW).floor();
+                if let Some(f) = self.form.as_mut() {
+                    f.show("fmenu", false);
+                    if i >= 0.0 && (i as usize) < FILTERS.len() {
+                        f.set_sel("filter", Some(i as usize));
+                    }
+                }
+                self.names_refresh();
+            }
             Event::Canvas("ntable", _, y) => {
                 let row = ((y - HEAD) / ROW).floor();
                 if row >= 0.0 && (row as usize) < self.name_table.len() {
@@ -495,6 +541,59 @@ impl SheetWindow {
         let ink = Rgba(0, 0, 0, 255);
         let grey = Rgba(0xA0, 0xA0, 0xA0, 255);
         match id {
+            "fmenu" => {
+                // A menu: white, framed #CCCCCC, the current filter ticked; the first entry
+                // clears the filter.
+                p.fill_rect(r[0], r[1], r[2], r[3], Rgba(0xCC, 0xCC, 0xCC, 255));
+                p.fill_rect(
+                    r[0] + 1.0,
+                    r[1] + 1.0,
+                    r[2] - 2.0,
+                    r[3] - 2.0,
+                    Rgba(255, 255, 255, 255),
+                );
+                let font = f.font();
+                let line = font.size * 1.33;
+                let cur = f.sel("filter").unwrap_or(0);
+                let rh = (MENU_ROW * k).round();
+                for (i, (key, fb)) in FILTERS.iter().enumerate() {
+                    let y = r[1] + 2.0 * k + i as f32 * rh;
+                    let text = if i == 0 {
+                        self.t("sheetNative.nmClear", "Clear Filter")
+                    } else {
+                        self.t(key, fb)
+                    };
+                    p.text_font(
+                        &text,
+                        r[0] + 30.0 * k,
+                        (y + (rh - line) / 2.0).round(),
+                        &font,
+                        ink,
+                    );
+                    if i == cur && i > 0 {
+                        let (cx, cy, s) = (r[0] + 14.0 * k, y + rh / 2.0, 5.0 * k);
+                        p.path(
+                            &[
+                                PathSeg::M(cx - s, cy),
+                                PathSeg::L(cx - s * 0.3, cy + s * 0.7),
+                                PathSeg::L(cx + s, cy - s * 0.8),
+                            ],
+                            None,
+                            Some((ink, 1.5 * k)),
+                        );
+                    }
+                    if i == 0 {
+                        p.fill_rect(
+                            r[0] + 4.0 * k,
+                            y + rh,
+                            r[2] - 8.0 * k,
+                            1.0,
+                            Rgba(0xD7, 0xD7, 0xD7, 255),
+                        );
+                    }
+                }
+                return;
+            }
             "ntable" => {}
             "refX" | "refOk" => {
                 let on = f.get("ref").is_some_and(|c| c.enabled);

@@ -10737,6 +10737,7 @@
     "magnification": "Magnification"
   },
   "sheetNative": {
+    "nmClear": "Clear Filter",
     "nmFilter": "Filter",
     "nmScopedSheet": "Names Scoped to Worksheet",
     "nmScopedBook": "Names Scoped to Workbook",

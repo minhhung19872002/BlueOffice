@@ -144,7 +144,20 @@ fn ribbon_format(view: &SlideView, anim: bool) -> bo_edit::FormatState {
         flags.push_str("sel ");
     }
     if anim {
-        flags.push_str("anim");
+        flags.push_str("anim ");
+    }
+    // Preview (Transitions / Animations) and Delete comment are dimmed on the reference
+    // while the slide has nothing to play or delete.
+    if let Some(st) = view.state() {
+        if st.transition.is_some() {
+            flags.push_str("trans ");
+        }
+        if !st.animations.is_empty() {
+            flags.push_str("anims ");
+        }
+        if !st.comments.is_empty() {
+            flags.push_str("cmt ");
+        }
     }
     let (can_undo, can_redo) = view.history();
     bo_edit::FormatState {
@@ -267,6 +280,15 @@ pub struct SlideWindow {
     window_request: Option<WindowRequest>,
     /// Draw Table / Eraser in use.
     table_tool: tabletools::TableTool,
+    /// The spelling issue the open context menu corrects.
+    ctx_issue: Option<serde_json::Value>,
+    /// Where the next menu opens instead of under its ribbon button (a context menu's
+    /// sub-menu).
+    menu_anchor: Option<[f32; 4]>,
+    /// Where the last context menu opened.
+    ctx_at: [f32; 4],
+    /// The Spelling pane's walk through the deck.
+    spelling: spelling::SpellRun,
 }
 
 #[path = "slide_controls.rs"]
@@ -304,6 +326,12 @@ mod paragraph;
 
 #[path = "slide_chart.rs"]
 mod chart;
+
+#[path = "slide_context.rs"]
+mod context;
+
+#[path = "slide_spelling.rs"]
+mod spelling;
 pub use ins::InsertFile;
 pub use views5::WindowRequest;
 
@@ -410,7 +438,13 @@ fn slide_enabled(id: &str, f: &bo_edit::FormatState) -> bool {
     // Trigger and Animation Painter need an effect on the selection (dimmed otherwise, as
     // on the reference).
     if matches!(id, "anim.trigger" | "anim.painter") {
-        return flags.contains("anim");
+        return flags.contains("anim ");
+    }
+    match id {
+        "transition.preview" => return flags.contains("trans "),
+        "anim.preview" => return flags.contains("anims "),
+        "review.deleteComment" => return flags.contains("cmt "),
+        _ => {}
     }
     crate::commands::enabled(id, f)
         || sr::is_command(id)
@@ -544,6 +578,10 @@ impl SlideWindow {
             ruler: false,
             window_request: None,
             table_tool: tabletools::TableTool::Off,
+            ctx_issue: None,
+            menu_anchor: None,
+            ctx_at: [0.0; 4],
+            spelling: spelling::SpellRun::default(),
         }
     }
 
@@ -939,6 +977,7 @@ impl SlideWindow {
                     None => false,
                 }
             }
+            "review.spellingDialog" => self.start_spelling(),
             "review.prevComment" | "review.nextComment" => {
                 self.step_comment(id == "review.nextComment")
             }
@@ -1596,7 +1635,11 @@ impl SlideWindow {
     }
 
     fn open_menu(&mut self, kind: MenuKind, hit: RibbonHit) {
-        let anchor = self.ribbon.rect_of(hit).unwrap_or([0.0, 0.0, 1.0, 1.0]);
+        let anchor = self
+            .menu_anchor
+            .take()
+            .or_else(|| self.ribbon.rect_of(hit))
+            .unwrap_or([0.0, 0.0, 1.0, 1.0]);
         let f = self.view.format();
         let design = self.view.state().and_then(|s| s.design.clone());
         let items: Vec<MenuItem> = match kind {
@@ -1883,6 +1926,7 @@ impl SlideWindow {
             "lspc" => self.choose_line_spacing(v),
             "case" => self.change_case(v),
             "chsp" => self.choose_spacing(v),
+            "ctxsp" => self.choose_context(v),
             "hl" | "fc" | "body" => self.choose_home(kind, v),
             "slchart" => self.chart_action(c).unwrap_or(false),
             "tdir" => self.set_transition(None, Some(v.to_owned()), None, false),
@@ -2102,6 +2146,11 @@ impl SlideWindow {
         if let Input::Key(Key::Letter('s'), Mods { ctrl: true, .. }) = input {
             return self.action("file.save");
         }
+        if let Input::Key(Key::F(7), m) = input {
+            if !m.ctrl && !m.shift && !m.alt && !self.view.showing() {
+                return self.start_spelling();
+            }
+        }
         // Clipboard shortcuts outside text editing go to the engine's slide clipboard.
         if let Input::Key(Key::Letter(c @ ('c' | 'x' | 'v')), Mods { ctrl: true, .. }) = input {
             if self.view.text_edit().is_none() && self.view.focus() != Focus::Notes {
@@ -2279,7 +2328,7 @@ impl SlideWindow {
                 // here; the view decides by its focus.
                 self.view.handle(Input::Wheel(dy))
             }
-            Input::Context { .. } => false,
+            Input::Context { x, y } => self.open_context(x, y),
             Input::Text(_)
             | Input::Key(..)
             | Input::Blink
@@ -2827,6 +2876,10 @@ mod tests;
 #[cfg(test)]
 #[path = "slide_round7_tests.rs"]
 mod round7_tests;
+
+#[cfg(test)]
+#[path = "slide_round8_tests.rs"]
+mod round8_tests;
 
 #[cfg(test)]
 #[path = "slide_round5_tests.rs"]

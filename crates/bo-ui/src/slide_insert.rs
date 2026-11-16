@@ -236,7 +236,7 @@ pub(super) fn drawing_group() -> Group {
 /// Home tab: Editing group (one menu at this width on the reference).
 pub(super) fn editing_group() -> Group {
     Group {
-        label: "ribbon.groups.editing",
+        label: COLLAPSED,
         large: vec![Item::Large("sl.editing")],
         rows: vec![],
     }
@@ -274,7 +274,7 @@ pub(super) fn insert_tab() -> Tab {
                 ],
             },
             Group {
-                label: "slideNative.links",
+                label: COLLAPSED,
                 large: vec![L("sl.links")],
                 rows: vec![],
             },
@@ -289,12 +289,12 @@ pub(super) fn insert_tab() -> Tab {
                 rows: vec![vec![B("sl.dateTime")], vec![B("sl.slideNumber")]],
             },
             Group {
-                label: "slideNative.symbols",
+                label: COLLAPSED,
                 large: vec![L("sl.symbols")],
                 rows: vec![],
             },
             Group {
-                label: "slideNative.media",
+                label: COLLAPSED,
                 large: vec![L("sl.media")],
                 rows: vec![],
             },
@@ -456,8 +456,13 @@ pub(super) fn install_icons(icons: &mut crate::icons::Icons) {
     icons.alias("sl.width", "sl.crop");
 }
 
+/// Label of a group the reference shrinks to its one button at this width: the button
+/// carries the group's name and the label row stays empty.
+pub(super) const COLLAPSED: &str = "slideNative.collapsedGroup";
+
 /// Name the commands of these tabs.
 pub(super) fn install_strings(s: &mut crate::strings::Strings) {
+    s.set(COLLAPSED, "");
     for (id, key) in LABELS {
         let v = s.get(&format!("slideNative.{key}")).to_owned();
         s.set(&format!("commands.{id}"), &v);
@@ -827,18 +832,22 @@ impl SlideWindow {
             "sl.shading" => picker(self, PickKind::Fill, "sl.shading"),
             "sl.outline" => picker(self, PickKind::Outline, "sl.outline"),
             "sl.picBorder" => picker(self, PickKind::Outline, "sl.picBorder"),
-            "sl.pictures" => {
-                self.file_request = Some(InsertFile::Picture);
-                true
-            }
-            "sl.photoAlbum" => {
-                self.file_request = Some(InsertFile::AlbumPicture);
-                true
-            }
-            "sl.model3d" => {
-                self.file_request = Some(InsertFile::Model3d);
-                true
-            }
+            // Insert Picture From / Photo Album / 3D Models menus (reference).
+            "sl.pictures" => menu(
+                self,
+                vec![(self.label("fromDevice"), "ins:picture".into())],
+                "sl.pictures",
+            ),
+            "sl.photoAlbum" => menu(
+                self,
+                vec![(self.label("newPhotoAlbum"), "ins:album".into())],
+                "sl.photoAlbum",
+            ),
+            "sl.model3d" => menu(
+                self,
+                vec![(self.label("fromDevice"), "ins:model3d".into())],
+                "sl.model3d",
+            ),
             "sl.smartart" => menu(
                 self,
                 [
@@ -1169,6 +1178,18 @@ impl SlideWindow {
                 self.insert_text_style(*fill, *outline)
             }
             "ins" => match v {
+                "picture" => {
+                    self.file_request = Some(InsertFile::Picture);
+                    true
+                }
+                "album" => {
+                    self.file_request = Some(InsertFile::AlbumPicture);
+                    true
+                }
+                "model3d" => {
+                    self.file_request = Some(InsertFile::Model3d);
+                    true
+                }
                 "video" => {
                     self.file_request = Some(InsertFile::Video);
                     true

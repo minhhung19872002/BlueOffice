@@ -155,8 +155,10 @@ pub fn has_menu_mark(id: &str) -> bool {
             | "design.layout"
             | "design.slideSize"
             | "show.custom"
-            | "sl.smartart"
             | "sl.links"
+            | "sl.pictures"
+            | "sl.photoAlbum"
+            | "sl.model3d"
             | "sl.textStyles"
             | "sl.textQuick"
             | "sl.textFill"
@@ -414,17 +416,25 @@ pub(crate) fn review_tab() -> Tab {
     use Item::Large as L;
     Tab {
         label: "ribbon.tabs.review",
-        groups: vec![Group {
-            label: "ribbon.groups.comments",
-            large: vec![
-                L("review.newComment"),
-                L("review.deleteComment"),
-                L("review.prevComment"),
-                L("review.nextComment"),
-                L("review.comments"),
-            ],
-            rows: vec![],
-        }],
+        groups: vec![
+            // Proofing: Spelling opens the Spelling pane (F7), as on the reference.
+            Group {
+                label: "ribbon.groups.proofing",
+                large: vec![L("review.spellingDialog")],
+                rows: vec![],
+            },
+            Group {
+                label: "ribbon.groups.comments",
+                large: vec![
+                    L("review.newComment"),
+                    L("review.deleteComment"),
+                    L("review.prevComment"),
+                    L("review.nextComment"),
+                    L("review.comments"),
+                ],
+                rows: vec![],
+            },
+        ],
     }
 }
 
@@ -500,7 +510,8 @@ pub(crate) fn install_strings(s: &mut Strings) {
         ("draw.blue", "slideNative.bluePen"),
         ("draw.green", "slideNative.greenPen"),
         ("draw.inkToShape", "slideNative.inkToShape"),
-        ("review.newComment", "slideEditor.comments.new"),
+        ("review.newComment", "slideNative.newComment"),
+        ("review.spellingDialog", "slideNative.spelling"),
         ("review.comments", "slideNative.showComments"),
         ("review.deleteComment", "slideEditor.comments.delete"),
         ("review.prevComment", "slideNative.previous"),

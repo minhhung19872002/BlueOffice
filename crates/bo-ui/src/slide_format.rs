@@ -647,6 +647,14 @@ impl SlideWindow {
                         }
                         true
                     }
+                    Some(
+                        h @ (SideHit::IgnoreOnce
+                        | SideHit::IgnoreAll
+                        | SideHit::AddWord
+                        | SideHit::Change
+                        | SideHit::ChangeAll
+                        | SideHit::Suggestion(_)),
+                    ) => self.spelling_hit(&h),
                     Some(SideHit::Decorative) => match self.selected_alt() {
                         Some((id, _, on)) => self.view.run_props(Props::SetShapeProps {
                             id,
@@ -702,6 +710,21 @@ impl SlideWindow {
                 ];
                 self.side
                     .record_selection(text, &rows, &labels, self.theme.text);
+            }
+            SideKind::Spelling => {
+                let shown = self.spell_shown();
+                let labels = [
+                    self.t("slideNative.spelling", "Spelling"),
+                    self.t("slideNative.ignoreOnce", "Ignore Once"),
+                    self.t("slideNative.ignoreAll", "Ignore All"),
+                    self.t("slideNative.addWord", "Add"),
+                    self.t("slideNative.changeWord", "Change"),
+                    self.t("slideNative.changeAll", "Change All"),
+                    self.t("slideNative.spellDone", "Spell check complete."),
+                    self.strings.get("spell.noSuggestions").to_owned(),
+                ];
+                self.side
+                    .record_spelling(text, &shown, &labels, self.theme.text);
             }
             SideKind::AltText => {
                 let alt = self.selected_alt();

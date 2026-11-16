@@ -3094,7 +3094,18 @@
     "dirStacked": "Xếp chồng",
     "oneColumn": "Một cột",
     "twoColumns": "Hai cột",
-    "threeColumns": "Ba cột"
+    "threeColumns": "Ba cột",
+    "fromDevice": "Thiết bị này...",
+    "newPhotoAlbum": "Album ảnh mới...",
+    "spelling": "Chính tả",
+    "ignoreOnce": "Bỏ qua một lần",
+    "ignoreAll": "Bỏ qua tất cả",
+    "addWord": "Thêm",
+    "changeWord": "Thay đổi",
+    "changeAll": "Thay đổi tất cả",
+    "spellDone": "Đã kiểm tra chính tả xong. Bạn có thể tiếp tục!",
+    "newComment": "Bình luận mới",
+    "resetSlideMenu": "Đặt lại trang chiếu"
   },
   "slideEditor": {
     "open": "Mở",

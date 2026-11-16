@@ -3094,7 +3094,18 @@
     "dirStacked": "Stacked",
     "oneColumn": "One Column",
     "twoColumns": "Two Columns",
-    "threeColumns": "Three Columns"
+    "threeColumns": "Three Columns",
+    "fromDevice": "This Device...",
+    "newPhotoAlbum": "New Photo Album...",
+    "spelling": "Spelling",
+    "ignoreOnce": "Ignore Once",
+    "ignoreAll": "Ignore All",
+    "addWord": "Add",
+    "changeWord": "Change",
+    "changeAll": "Change All",
+    "spellDone": "Spell check complete. You're good to go!",
+    "newComment": "New Comment",
+    "resetSlideMenu": "Reset Slide"
   },
   "slideEditor": {
     "open": "Open",

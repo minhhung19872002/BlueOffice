@@ -111,8 +111,7 @@ fn shrink_on_overflow_takes_the_reference_steps() {
     let fit_for = |n: usize| {
         all.iter()
             .find(|a| a.0 == n)
-            .map(|a| (a.1, a.2))
-            .unwrap_or_else(|| panic!("{all:?}"))
+            .map_or_else(|| panic!("{all:?}"), |a| (a.1, a.2))
     };
     // Every value we write is one of the reference's steps.
     for n in 4..=18 {

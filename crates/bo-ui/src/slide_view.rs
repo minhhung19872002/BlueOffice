@@ -2861,6 +2861,82 @@ impl SlideView {
         &self.spell
     }
 
+    /// Answer of a spelling command (`slideSpell*`) of the engine, its `slideSpell` member.
+    pub fn spell_command(&mut self, cmd: &serde_json::Value) -> Option<serde_json::Value> {
+        let out = self.engine.slide_command_json(&cmd.to_string()).ok()?;
+        let mut v: serde_json::Value = serde_json::from_str(&out).ok()?;
+        Some(v.get_mut("slideSpell")?.take())
+    }
+
+    /// The spelling / grammar issue under a window position on the slide (with its
+    /// corrections), as the engine's `slideSpellAt` answers it.
+    pub fn spell_at(&mut self, x: f32, y: f32) -> Option<serde_json::Value> {
+        if !inside(self.canvas_rect(), x, y) || self.spell.is_empty() {
+            return None;
+        }
+        let (sx, sy) = self.to_slide(x, y);
+        let hit = self.spell_command(&serde_json::json!({
+            "cmd": "slideSpellAt", "x": sx, "y": sy
+        }))?;
+        hit.get("hit").filter(|h| !h.is_null()).cloned()
+    }
+
+    /// Replace a flagged word (an issue of [`Self::spell_at`] / `slideSpellCheck`) by
+    /// `text`, one undo step; the wavy lines are checked again.
+    pub fn spell_fix(&mut self, issue: &serde_json::Value, text: &str) -> bool {
+        self.spell_fix_many(&[(issue, text)])
+    }
+
+    /// Several corrections (Change All) as one undo step.
+    pub fn spell_fix_many(&mut self, fixes: &[(&serde_json::Value, &str)]) -> bool {
+        let edits: Vec<bo_engine::slide_edit::spell::SlideReplace> = fixes
+            .iter()
+            .filter_map(|(issue, text)| {
+                serde_json::from_value(serde_json::json!({
+                    "target": issue.get("target"),
+                    "para": issue.get("para"),
+                    "start": issue.get("start"),
+                    "end": issue.get("end"),
+                    "text": text,
+                    "word": issue.get("word"),
+                }))
+                .ok()
+            })
+            .collect();
+        if edits.is_empty() {
+            return false;
+        }
+        let ok = match self.engine.slide_spell_fix(&edits) {
+            Ok(r) if r.error.is_none() => {
+                self.apply(r);
+                true
+            }
+            _ => false,
+        };
+        self.spell_dirty = true;
+        ok
+    }
+
+    /// Ignore a word everywhere (this session) or add it to the dictionary; the wavy lines
+    /// are checked again.
+    pub fn spell_learn(&mut self, word: &str, add: bool) -> bool {
+        let cmd = if add {
+            "slideSpellAddWord"
+        } else {
+            "slideSpellIgnore"
+        };
+        let ok = self
+            .spell_command(&serde_json::json!({ "cmd": cmd, "word": word }))
+            .is_some();
+        self.spell_dirty = true;
+        ok
+    }
+
+    /// Whether a window position is over the thumbnails pane; the slide there.
+    pub fn thumb_under(&self, x: f32, y: f32) -> Option<Option<usize>> {
+        inside(self.thumbs_rect(), x, y).then(|| self.thumb_at(x, y))
+    }
+
     fn paint_spelling(&self, p: &mut dyn Painter) {
         let k = self.display_scale;
         for (a, b, grammar) in &self.spell {

@@ -13,11 +13,11 @@ use bo_pptx::build::{build_pptx, DeckSpec, ParaSpec, RunSpec, ShapeSpec, SlideSp
 use bo_render::Command;
 
 /// A table of a TrueType font (`tag` → its bytes).
-fn table<'a>(font: &'a [u8], tag: &[u8; 4]) -> Option<&'a [u8]> {
+fn table(font: &[u8], tag: [u8; 4]) -> Option<&[u8]> {
     let n = usize::from(u16::from_be_bytes([*font.get(4)?, *font.get(5)?]));
     (0..n).find_map(|i| {
         let rec = font.get(12 + 16 * i..28 + 16 * i)?;
-        if &rec[..4] != tag {
+        if rec[..4] != tag {
             return None;
         }
         let off = u32::from_be_bytes([rec[8], rec[9], rec[10], rec[11]]) as usize;
@@ -49,9 +49,9 @@ fn system_calibri_first_baseline_follows_the_windows_ascent() {
         eprintln!("no system Calibri: skipped");
         return;
     };
-    let upem = f32::from(u16_at(table(&font, b"head").unwrap(), 18));
-    let win_ascent = f32::from(u16_at(table(&font, b"OS/2").unwrap(), 74));
-    let hhea_ascent = f32::from(u16_at(table(&font, b"hhea").unwrap(), 4) as i16);
+    let upem = f32::from(u16_at(table(&font, *b"head").unwrap(), 18));
+    let win_ascent = f32::from(u16_at(table(&font, *b"OS/2").unwrap(), 74));
+    let hhea_ascent = f32::from(u16_at(table(&font, *b"hhea").unwrap(), 4) as i16);
     assert!(
         win_ascent - hhea_ascent > 0.1 * upem,
         "the two metrics differ"

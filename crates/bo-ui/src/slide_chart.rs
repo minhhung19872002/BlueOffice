@@ -159,11 +159,7 @@ impl SlideWindow {
         if let (Some(a), Value::Object(b)) = (cmd.as_object_mut(), spec) {
             a.extend(b);
         }
-        Some(
-            serde_json::from_value::<SlideCommand>(cmd)
-                .ok()
-                .is_some_and(|c| self.view.run(c)),
-        )
+        Some(serde_json::from_value::<SlideCommand>(cmd).is_ok_and(|c| self.view.run(c)))
     }
 
     /// Insert > Chart: the chart types (reference: the Insert Chart dialog's list).

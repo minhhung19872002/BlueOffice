@@ -31,6 +31,8 @@ pub enum SideKind {
     Selection,
     /// The Alt Text pane.
     AltText,
+    /// The Spelling pane (Review > Spelling, F7).
+    Spelling,
 }
 
 /// A shape listed by the Selection Pane.
@@ -69,6 +71,31 @@ pub enum SideHit {
     AltBox,
     /// "Mark as decorative".
     Decorative,
+    /// Spelling: skip this occurrence.
+    IgnoreOnce,
+    /// Spelling: skip the word everywhere.
+    IgnoreAll,
+    /// Spelling: add the word to the dictionary.
+    AddWord,
+    /// Spelling: replace by the chosen correction.
+    Change,
+    /// Spelling: replace every occurrence.
+    ChangeAll,
+    /// Spelling: choose correction `n`.
+    Suggestion(usize),
+}
+
+/// What the Spelling pane shows.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SpellShown {
+    /// The flagged text (`None`: the check is complete).
+    pub word: Option<String>,
+    /// A grammar or style issue rather than a misspelt word.
+    pub grammar: bool,
+    /// Corrections, best first.
+    pub suggestions: Vec<String>,
+    /// The chosen correction.
+    pub chosen: usize,
 }
 
 /// What typing in a pane asks for.
@@ -594,6 +621,139 @@ impl SidePane {
                 SideHit::Decorative,
             ));
         }
+        self.ops = ops;
+        self.hits = hits;
+    }
+
+    /// Lay out the Spelling pane; `labels`: title, Ignore Once, Ignore All, Add, Change,
+    /// Change All, "complete" message, no suggestions.
+    pub fn record_spelling(
+        &mut self,
+        text: &dyn TextMeasure,
+        shown: &SpellShown,
+        labels: &[String; 8],
+        ink: Rgba,
+    ) {
+        let mut ops = Vec::new();
+        let mut hits = Vec::new();
+        self.header(&mut ops, &mut hits, &labels[0], ink);
+        let [x, y, w, _] = self.rect;
+        let body = TextStyle {
+            size: self.px(12.8),
+            bold: false,
+        };
+        let left = x + self.px(12.0);
+        let width = w - self.px(24.0);
+        let line = text.measure("Ag", body).1.max(self.px(16.0));
+        let Some(word) = &shown.word else {
+            let mut ty = y + self.px(60.0);
+            for l in wrap(&labels[6], width, text, body) {
+                ops.push(Op::Text(l, left, ty, body, ink));
+                ty += line;
+            }
+            self.ops = ops;
+            self.hits = hits;
+            return;
+        };
+        // Measured on the reference at 125 % (device px from the pane's top): the flagged
+        // word bold 20 px at 61, buttons 35 px tall at 92 (15 px in, 14 apart, 10 px of
+        // padding), the corrections list at 144 (202 px tall, 148 frame, the chosen row 198
+        // framed 148, 40 px rows), Change / Change All 10 px under it.
+        let big = TextStyle {
+            size: self.px(16.0),
+            bold: true,
+        };
+        ops.push(Op::Text(word.clone(), left, y + self.px(48.8), big, ink));
+        let bh = self.px(28.0);
+        let gap = self.px(11.2);
+        let pad = self.px(8.0);
+        let mut bx = left;
+        let ty = y + self.px(73.6);
+        let buttons: &[(usize, SideHit)] = if shown.grammar {
+            &[(1, SideHit::IgnoreOnce)]
+        } else {
+            &[
+                (1, SideHit::IgnoreOnce),
+                (2, SideHit::IgnoreAll),
+                (3, SideHit::AddWord),
+            ]
+        };
+        for (i, hit) in buttons {
+            let bw = (text.measure(&labels[*i], body).0 + 2.0 * pad).round();
+            let r = [bx, ty, bw, bh];
+            Self::button(&mut ops, r, &labels[*i], text, body, ink);
+            hits.push((r, hit.clone()));
+            bx += bw + gap;
+        }
+        // Corrections list.
+        let ty = y + self.px(115.2);
+        let row = self.px(32.0);
+        let lh = self.px(161.6);
+        let lr = [left, ty, width, lh];
+        ops.push(Op::Rect(lr, BUTTON_EDGE));
+        ops.push(Op::Rect(
+            [lr[0] + 1.0, lr[1] + 1.0, lr[2] - 2.0, lr[3] - 2.0],
+            WHITE,
+        ));
+        if shown.suggestions.is_empty() {
+            ops.push(Op::Text(
+                labels[7].clone(),
+                left + self.px(9.6),
+                ty + (row - line) / 2.0,
+                body,
+                DIM,
+            ));
+        }
+        let fits = ((lh - 2.0) / row).floor().max(1.0) as usize;
+        for (i, sug) in shown.suggestions.iter().take(fits).enumerate() {
+            let ry = ty + 1.0 + row * i as f32;
+            let rr = [left + 1.0, ry, width - 2.0, row];
+            if i == shown.chosen {
+                ops.push(Op::Rect(rr, BUTTON_EDGE));
+                ops.push(Op::Rect(
+                    [rr[0] + 1.0, rr[1] + 1.0, rr[2] - 2.0, rr[3] - 2.0],
+                    ROW_SEL,
+                ));
+            }
+            ops.push(Op::Text(
+                sug.clone(),
+                left + self.px(9.6),
+                ry + ((row - line) / 2.0).round(),
+                body,
+                ink,
+            ));
+            hits.push((rr, SideHit::Suggestion(i)));
+        }
+        // Change / Change All.
+        let enabled = !shown.suggestions.is_empty();
+        let ty = ty + lh + self.px(8.0);
+        let mut bx = left;
+        let changes: &[(usize, SideHit)] = if shown.grammar {
+            &[(4, SideHit::Change)]
+        } else {
+            &[(4, SideHit::Change), (5, SideHit::ChangeAll)]
+        };
+        for (i, hit) in changes {
+            let bw = (text.measure(&labels[*i], body).0 + 2.0 * pad).round();
+            let r = [bx, ty, bw, bh];
+            Self::button(
+                &mut ops,
+                r,
+                &labels[*i],
+                text,
+                body,
+                if enabled { ink } else { DIM },
+            );
+            if enabled {
+                hits.push((r, hit.clone()));
+            }
+            bx += bw + gap;
+        }
+        // A rule under the buttons (the reference shows the word's meaning below it).
+        ops.push(Op::Rect(
+            [left, ty + bh + self.px(16.0), width, 1.0],
+            ROW_SEL,
+        ));
         self.ops = ops;
         self.hits = hits;
     }

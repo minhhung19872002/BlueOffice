@@ -71,6 +71,16 @@ impl SheetWindow {
 
     /// Open the drop-down of menu button `id`; `false` when it has none.
     pub(super) fn open_sheet_menu(&mut self, id: &'static str) -> bool {
+        // Conditional Formatting has the reference's cascading menu.
+        if id == "sheet.tblQuickStyles" {
+            return self.open_quick_styles();
+        }
+        if id == "sheet.conditional" {
+            return match self.ribbon.rect_of(RibbonHit::Command(id)) {
+                Some(anchor) => self.open_cf_menu(anchor),
+                None => false,
+            };
+        }
         let entries = sheet_ribbon::menu(id, &self.functions);
         if entries.is_empty() {
             return false;
@@ -734,6 +744,16 @@ impl SheetWindow {
         if let Some(r) = self.chart_action(id) {
             return Some(r);
         }
+        if let Some(r) = self.table_action(id, text) {
+            return Some(r);
+        }
+        if let Some(r) = self.theme_action(id) {
+            return Some(r);
+        }
+        if id == "sheet.pasteSpecial" {
+            self.view.commit();
+            return Some(self.open_paste_special());
+        }
         if let Some(r) = self.illus_action(id) {
             return Some(r);
         }
@@ -795,6 +815,13 @@ impl SheetWindow {
             ("find", "goto") => self.open_sheet_dialog(SheetDialog::GoTo),
             ("cf", which) => self.cf(which),
             ("table", style) => {
+                // In a table the style applies to it, as the reference's gallery does.
+                if let Some((i, _)) = self.table_at_active() {
+                    return Some(
+                        self.view
+                            .run(json!({ "cmd": "tableUpdate", "table": i, "style": style })),
+                    );
+                }
                 let region = self.region();
                 let made = self
                     .view
@@ -904,8 +931,9 @@ impl SheetWindow {
             ("edit.cut", "commands.edit.cut", Some("edit.cut")),
             ("edit.copy", "commands.edit.copy", Some("edit.copy")),
             ("edit.paste", "commands.edit.paste", Some("edit.paste")),
+            ("sheet.pasteSpecial", "commands.sheet.pasteSpecial", None),
         ];
-        let mut separators = vec![3];
+        let mut separators = vec![4];
         match lines {
             Some(true) => ids.extend([
                 (

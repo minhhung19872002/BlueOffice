@@ -511,6 +511,8 @@ impl Renderer<'_> {
             }
             self.cell_text(p, at, cell, &merges);
         }
+        // Table style borders (§18.5.1.5) under the cells' own borders.
+        self.table_borders(p, &merges);
         for &(at, cell) in &cells {
             let rect = Self::screen_rect(p, self.geom.cell_rect(at.row, at.col));
             self.cell_borders(cell, rect);
@@ -1232,6 +1234,60 @@ impl Renderer<'_> {
                 color,
                 dash,
             });
+        }
+    }
+
+    /// Borders the table styles draw in pane `p` (cells with their own border on an edge keep
+    /// it).
+    fn table_borders(&mut self, p: &PaneRegion, merges: &[CellRange]) {
+        let list = crate::table_style::borders(self.wb, self.sheet, p.rows.clone(), p.cols.clone());
+        for (r, c, edges) in list {
+            if self.geom.row_height(r) <= 0.0 || self.geom.col_width(c) <= 0.0 {
+                continue;
+            }
+            let at = CellRef::new(r, c);
+            if merges.iter().any(|m| m.contains(at) && m.first != at) {
+                continue;
+            }
+            let own = self
+                .ws
+                .cell(r, c)
+                .and_then(|cell| self.xf(cell))
+                .and_then(|xf| self.wb.styles.borders.get(xf.border_id as usize).cloned())
+                .unwrap_or_default();
+            let has = |e: &BorderEdge| e.style.as_deref().is_some_and(|s| s != "none");
+            let mine = [
+                has(&own.top),
+                has(&own.bottom),
+                has(&own.left),
+                has(&own.right),
+            ];
+            let rect = Self::screen_rect(p, self.geom.cell_rect(r, c));
+            let (x0, y0, x1, y1) = (rect.x, rect.y, rect.x + rect.w, rect.y + rect.h);
+            let lines = [
+                (x0, y0, x1, y0, false),
+                (x0, y1, x1, y1, false),
+                (x0, y0, x0, y1, true),
+                (x1, y0, x1, y1, true),
+            ];
+            for (k, e) in edges.iter().enumerate() {
+                let Some(e) = e else { continue };
+                if mine[k] {
+                    continue;
+                }
+                let style = match (e.double, e.width) {
+                    (true, _) => "double",
+                    (_, 2) => "medium",
+                    (_, 3) => "thick",
+                    _ => "thin",
+                };
+                let edge = BorderEdge {
+                    style: Some(style.into()),
+                    color: Some(bo_model::sheet::SheetColor::rgb(&e.color)),
+                };
+                let (ax, ay, bx, by, v) = lines[k];
+                self.edge(&edge, ax, ay, bx, by, v);
+            }
         }
     }
 

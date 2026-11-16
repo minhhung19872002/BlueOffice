@@ -81,6 +81,21 @@ pub(super) enum FormKind {
     WhatIfTable,
     CustomViews,
     Zoom,
+    /// Chart Design: Select Data Source, Edit Series, Axis Labels, Move Chart.
+    ChartData,
+    ChartSeries,
+    ChartAxisLabels,
+    MoveChart,
+    /// Table Design: Table Name, Resize Table.
+    TableName,
+    TableResize,
+    /// Conditional formatting: a rule dialog (Greater Than…), New / Edit Formatting Rule, the
+    /// rules manager.
+    CfRule,
+    CfNewRule,
+    CfManager,
+    /// Paste Special.
+    PasteSpecial,
 }
 
 /// What a control is.

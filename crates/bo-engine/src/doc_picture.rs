@@ -16,6 +16,65 @@ use std::sync::Arc;
 
 const EMU_PT: f64 = 12_700.0;
 
+/// The anchor of a picture placed by the Position gallery: `inline`, or square-wrapped and
+/// aligned at one of nine places of the margins (§20.4.2.1 / §20.4.2.2 align, relative to
+/// `margin`), keeping the rest of `old`.
+fn place(
+    position: &str,
+    old: Option<&bo_model::Anchor>,
+) -> std::result::Result<Option<bo_model::Anchor>, String> {
+    if position == "inline" {
+        return Ok(None);
+    }
+    let mut c = position.chars();
+    let v = match c.next() {
+        Some('t') => "top",
+        Some('m') => "center",
+        Some('b') => "bottom",
+        _ => return Err("badPosition".into()),
+    };
+    let h = match c.next() {
+        Some('l') => "left",
+        Some('c') => "center",
+        Some('r') => "right",
+        _ => return Err("badPosition".into()),
+    };
+    if c.next().is_some() {
+        return Err("badPosition".into());
+    }
+    let mut a = crate::doc_chart::anchor_for("square", old)?.ok_or("badPosition")?;
+    a.wrap = bo_model::Wrap::Square;
+    a.behind = false;
+    a.h_relative = "margin".into();
+    a.v_relative = "margin".into();
+    a.h_align = Some(h.into());
+    a.v_align = Some(v.into());
+    Ok(Some(a))
+}
+
+/// The anchor of a floating picture aligned at `align` (Arrange › Align), relative to the
+/// margin or the page; an inline picture is refused (as the reference dims the menu).
+fn aligned(
+    align: &str,
+    page: bool,
+    old: Option<&bo_model::Anchor>,
+) -> std::result::Result<bo_model::Anchor, String> {
+    let mut a = old.cloned().ok_or("inlinePicture")?;
+    let frame = if page { "page" } else { "margin" };
+    match align {
+        "left" | "center" | "right" => {
+            a.h_relative = frame.into();
+            a.h_align = Some(align.into());
+        }
+        "top" | "middle" | "bottom" => {
+            a.v_relative = frame.into();
+            a.v_align = Some(if align == "middle" { "center" } else { align }.into());
+        }
+        _ => return Err("badAlign".into()),
+    }
+    Ok(a)
+}
+
 /// Uses of a media part: largest shown width and height (points), the crop shared
 /// by every use (`None` when they differ) and the number of pictures.
 type Uses = (f64, f64, Option<[i32; 4]>, usize);
@@ -170,6 +229,26 @@ impl crate::Engine {
             match cmd {
                 // "Insert SVG" returned above.
                 PictureCommand::PictureInfo | PictureCommand::PictureInsertSvg { .. } => Ok(()),
+                PictureCommand::PictureWrap { wrap } => need(picture.as_ref()).and_then(|img| {
+                    let anchor = crate::doc_chart::anchor_for(&wrap, img.anchor.as_ref())
+                        .map_err(|_| "badWrap".to_owned())?;
+                    run(s.update_picture(None, |img| img.anchor = anchor))
+                }),
+                PictureCommand::PicturePosition { position } => need(picture.as_ref())
+                    .and_then(|img| place(&position, img.anchor.as_ref()))
+                    .and_then(|anchor| run(s.update_picture(None, |img| img.anchor = anchor))),
+                PictureCommand::PictureAlign { align, page } => need(picture.as_ref())
+                    .and_then(|img| aligned(&align, page, img.anchor.as_ref()))
+                    .and_then(
+                        |anchor| run(s.update_picture(None, |img| img.anchor = Some(anchor))),
+                    ),
+                PictureCommand::PictureRotate { degrees } => {
+                    need(picture.as_ref()).and_then(|_| {
+                        run(s.update_picture(None, |img| {
+                            img.rotation = (img.rotation + degrees * 60_000).rem_euclid(21_600_000);
+                        }))
+                    })
+                }
                 PictureCommand::PicturePreviews { presets, size } => {
                     if let Some(img) = &picture {
                         if let Some(d) = s.doc().media.get(&img.media) {

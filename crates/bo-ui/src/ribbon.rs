@@ -425,6 +425,8 @@ fn references_tab() -> Tab {
     use Item::{Labeled as S, Large as L};
     Tab {
         label: "ribbon.tabs.references",
+        // The reference's References tab: Table of Contents, Footnotes, Citations &
+        // Bibliography, Captions, Index.
         groups: vec![
             Group {
                 label: "ribbon.groups.toc",
@@ -434,12 +436,29 @@ fn references_tab() -> Tab {
             Group {
                 label: "ribbon.groups.footnotes",
                 large: vec![L("insert.footnote")],
-                rows: vec![vec![S("insert.endnote")]],
+                rows: vec![vec![S("insert.endnote")], vec![S("references.notesDialog")]],
+            },
+            Group {
+                label: "docR3.groupCitations",
+                large: vec![L("references.insertCitation")],
+                rows: vec![
+                    vec![S("references.manageSources")],
+                    vec![S("references.citationStyle")],
+                    vec![S("references.insertBibliography")],
+                ],
             },
             Group {
                 label: "ribbon.groups.captions",
                 large: vec![L("references.insertCaption")],
-                rows: vec![],
+                rows: vec![
+                    vec![S("references.tableOfFigures")],
+                    vec![S("references.crossReference")],
+                ],
+            },
+            Group {
+                label: "docR3.groupIndex",
+                large: vec![L("references.markEntry")],
+                rows: vec![vec![S("references.insertIndex")]],
             },
         ],
     }
@@ -451,6 +470,12 @@ fn mailings_tab() -> Tab {
     Tab {
         label: "ribbon.tabs.mailings",
         groups: vec![
+            // Create: Envelopes and Labels, as the reference's first Mailings group.
+            Group {
+                label: "docR3.groupCreate",
+                large: vec![],
+                rows: vec![vec![S("mailings.envelopes")], vec![S("mailings.labels")]],
+            },
             Group {
                 label: "ribbon.groups.mergeData",
                 large: vec![L("mailings.recipients")],
@@ -485,6 +510,11 @@ fn review_tab() -> Tab {
                 rows: vec![vec![S("review.wordCount")]],
             },
             Group {
+                label: "docR3.groupLanguage",
+                large: vec![L("review.languageMenu")],
+                rows: vec![],
+            },
+            Group {
                 label: "ribbon.groups.comments",
                 large: vec![L("review.newComment"), L("review.showComments")],
                 rows: vec![
@@ -505,6 +535,16 @@ fn review_tab() -> Tab {
                 large: vec![L("review.acceptMenu"), L("review.rejectMenu")],
                 rows: vec![vec![S("review.previous")], vec![S("review.next")]],
             },
+            Group {
+                label: "docR3.groupCompare",
+                large: vec![L("review.compareMenu")],
+                rows: vec![],
+            },
+            Group {
+                label: "docR3.groupProtect",
+                large: vec![L("review.protectMenu")],
+                rows: vec![],
+            },
         ],
     }
 }
@@ -523,9 +563,8 @@ fn view_tab() -> Tab {
                     L("view.readMode"),
                     L("view.printLayout"),
                     L("view.webLayout"),
-                    L("view.draft"),
                 ],
-                rows: vec![],
+                rows: vec![vec![S("view.outline")], vec![S("view.draft")]],
             },
             Group {
                 label: "ribbon.groups.show",
@@ -535,6 +574,11 @@ fn view_tab() -> Tab {
                     vec![S("view.formattingMarks")],
                     vec![S("view.navigationPane")],
                 ],
+            },
+            Group {
+                label: "docR3.groupPanes",
+                large: vec![L("view.stylesPane")],
+                rows: vec![],
             },
             Group {
                 label: "ribbon.groups.zoom",
@@ -2648,6 +2692,7 @@ mod tests {
         let ribbon = Ribbon::new();
         let mut icons = Icons::load();
         crate::doc_tools::install_icons(&mut icons);
+        crate::doc_r3_menus::install_icons(&mut icons);
         let format = FormatState {
             section: bo_edit::SectionState {
                 width: 11906,
@@ -2663,6 +2708,7 @@ mod tests {
         };
         let mut strings = Strings::load("en-US");
         crate::doc_tools::install_strings(&mut strings);
+        crate::doc_r3_menus::install_strings(&mut strings);
         for tab in &ribbon.tabs {
             assert!(!tab.groups.is_empty(), "{} is empty", tab.label);
             for g in &tab.groups {

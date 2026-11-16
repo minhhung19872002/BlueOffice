@@ -486,3 +486,53 @@ fn doc_click_selects_the_picture() {
     );
     assert_eq!(v["selection"]["anchor"], v["selection"]["focus"], "{v}");
 }
+
+/// Wrap Text, Position, Align and Rotate of the picture tools (§20.4.2.3 anchor,
+/// §20.4.2.18 wrapThrough, §20.4.2.1 / §20.4.2.2 align): each is one undo step and is
+/// written to the file.
+#[test]
+fn doc_wrap_position_align_rotate() {
+    let mut e = doc_with_picture();
+    let v = doc_json(&mut e, r#"{"cmd":"pictureWrap","wrap":"through"}"#);
+    assert!(v.get("error").is_none(), "{v}");
+    let xml = document_xml(&e.save_docx().unwrap());
+    assert!(xml.contains("<wp:wrapThrough"), "{xml}");
+    assert!(xml.contains("<wp:anchor"), "{xml}");
+    doc_json(&mut e, r#"{"cmd":"pictureWrap","wrap":"behind"}"#);
+    let xml = document_xml(&e.save_docx().unwrap());
+    assert!(
+        xml.contains("behindDoc=\"1\"") && xml.contains("<wp:wrapNone/>"),
+        "{xml}"
+    );
+    doc_json(&mut e, r#"{"cmd":"picturePosition","position":"br"}"#);
+    let xml = document_xml(&e.save_docx().unwrap());
+    assert!(xml.contains("<wp:align>right</wp:align>"), "{xml}");
+    assert!(xml.contains("<wp:align>bottom</wp:align>"), "{xml}");
+    assert!(xml.contains("<wp:wrapSquare"), "{xml}");
+    doc_json(
+        &mut e,
+        r#"{"cmd":"pictureAlign","align":"center","page":true}"#,
+    );
+    let xml = document_xml(&e.save_docx().unwrap());
+    assert!(
+        xml.contains("<wp:positionH relativeFrom=\"page\"><wp:align>center</wp:align>"),
+        "{xml}"
+    );
+    doc_json(&mut e, r#"{"cmd":"pictureRotate","degrees":90}"#);
+    let bytes = e.save_docx().unwrap();
+    validate(&bytes, "pic-wrap.docx");
+    assert!(document_xml(&bytes).contains("rot=\"5400000\""));
+    let v = doc_json(&mut e, r#"{"cmd":"picturePosition","position":"inline"}"#);
+    assert!(v.get("error").is_none(), "{v}");
+    assert!(document_xml(&e.save_docx().unwrap()).contains("<wp:inline"));
+    // Every step is undone one by one, back to the inline picture.
+    for _ in 0..6 {
+        doc_json(&mut e, r#"{"cmd":"undo"}"#);
+    }
+    assert!(document_xml(&e.save_docx().unwrap()).contains("<wp:inline"));
+    // An inline picture cannot be aligned; a bad wrap name is refused.
+    let v = doc_json(&mut e, r#"{"cmd":"pictureAlign","align":"left"}"#);
+    assert!(v.get("error").is_some(), "{v}");
+    let v = doc_json(&mut e, r#"{"cmd":"pictureWrap","wrap":"sideways"}"#);
+    assert!(v.get("error").is_some(), "{v}");
+}

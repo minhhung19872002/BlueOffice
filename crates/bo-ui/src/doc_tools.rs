@@ -46,6 +46,8 @@ pub(crate) struct Context {
     pub(crate) table: bool,
     /// A picture is selected.
     pub(crate) picture: bool,
+    /// The outline view is on (Outlining tab).
+    pub(crate) outline: bool,
 }
 
 impl Context {
@@ -59,6 +61,7 @@ impl Context {
             },
             table: f.table.is_some(),
             picture: f.picture.is_some() || f.picture_tools,
+            outline: false,
         }
     }
 }
@@ -66,6 +69,9 @@ impl Context {
 /// Contextual tabs for `c`, in the reference's order.
 pub(crate) fn tabs(c: Context) -> Vec<Tab> {
     let mut out = Vec::new();
+    if c.outline {
+        out.push(outlining_tab());
+    }
     if c.story.is_some() {
         out.push(header_footer_tab());
     }
@@ -209,7 +215,7 @@ fn header_footer_tab() -> Tab {
 }
 
 fn picture_tab() -> Tab {
-    use Item::Large as L;
+    use Item::{Button as B, Labeled as S, Large as L};
     Tab {
         label: PICTURE_FORMAT,
         groups: vec![
@@ -218,9 +224,52 @@ fn picture_tab() -> Tab {
                 large: vec![L("picture.reset")],
                 rows: vec![],
             },
+            // Arrange as the reference: Position and Wrap Text, then Bring Forward / Send
+            // Backward beside Align / Group / Rotate.
+            Group {
+                label: "docR3.groupArrange",
+                large: vec![L("picture.position"), L("picture.wrap")],
+                rows: vec![
+                    vec![S("picture.bringForward"), B("picture.align")],
+                    vec![S("picture.sendBackward"), B("picture.group")],
+                    vec![B("picture.rotate")],
+                ],
+            },
             Group {
                 label: "pictureTools.groupSize",
                 large: vec![L("picture.crop")],
+                rows: vec![],
+            },
+        ],
+    }
+}
+
+/// Tab label key of the Outlining tab.
+pub(crate) const OUTLINING: &str = "docR3.tabOutlining";
+
+/// The Outlining tab of the outline view.
+fn outlining_tab() -> Tab {
+    use Item::{Button as B, Labeled as S, Large as L};
+    Tab {
+        label: OUTLINING,
+        groups: vec![
+            Group {
+                label: "docR3.groupOutlineTools",
+                large: vec![],
+                rows: vec![
+                    vec![
+                        B("outline.promoteHeading"),
+                        B("outline.promote"),
+                        B("outline.demote"),
+                        B("outline.demoteBody"),
+                    ],
+                    vec![B("outline.moveUp"), B("outline.moveDown")],
+                    vec![S("outline.showLevel")],
+                ],
+            },
+            Group {
+                label: "docR3.groupClose",
+                large: vec![L("outline.close")],
                 rows: vec![],
             },
         ],
@@ -308,7 +357,7 @@ pub(crate) fn menu(id: &str) -> Vec<Entry> {
             e("picture.fill", "pictureTools.fill"),
             e("picture.fit", "pictureTools.fit"),
         ],
-        _ => Vec::new(),
+        _ => crate::doc_r3_menus::menu(id),
     }
 }
 
@@ -479,6 +528,8 @@ pub(crate) fn enabled(id: &str, f: &FormatState) -> Option<bool> {
     let in_table = f.table.is_some();
     Some(match id {
         "table.mergeCells" => f.table.as_ref().is_some_and(|t| t.multi_cell),
+        "picture.group" => false,
+        _ if id.starts_with("outline.") => true,
         _ if id.starts_with("table.") => in_table,
         _ if id.starts_with("picture.") => f.picture.is_some() || f.picture_tools,
         _ if id.starts_with("hf.") || id.starts_with("review.markup") => true,
@@ -493,9 +544,12 @@ pub(crate) fn enabled(id: &str, f: &FormatState) -> Option<bool> {
         | "design.fonts"
         | "design.paragraphSpacing"
         | "design.styleSetMore"
-        | "design.pageBorders" => true,
+        | "design.pageBorders"
+        | "design.effects"
+        | "design.setDefault" => true,
         _ if id.starts_with("design.styleSet.") => true,
         _ if crate::doc_design::UNAVAILABLE.contains(&id) => false,
+        _ if crate::doc_r3_menus::static_id(id).is_some() => true,
         _ => return None,
     })
 }

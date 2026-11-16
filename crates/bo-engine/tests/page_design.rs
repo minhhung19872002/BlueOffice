@@ -430,3 +430,35 @@ fn theme_colours_of_runs_follow_the_theme() {
     cmd(&mut e, r#"{"cmd":"applyTheme","id":"sunset"}"#);
     assert_eq!(of(&e, "Xanh"), "FF0000");
 }
+
+/// Design › Effects writes the effect set into the theme's fmtScheme (§20.1.4.1.14), keeps
+/// the theme's colours and fonts, is one undo step and survives saving.
+#[test]
+fn theme_effects_are_written_to_the_theme_part() {
+    fn theme_part(bytes: &[u8]) -> String {
+        let pkg = bo_opc::Package::read(bytes, &bo_opc::Limits::default()).unwrap();
+        String::from_utf8_lossy(&pkg.part("/word/theme/theme1.xml").unwrap().data).into_owned()
+    }
+    let mut e = engine();
+    cmd(&mut e, r#"{"cmd":"applyTheme","id":"ocean"}"#);
+    let before = theme_part(&e.save_docx().unwrap());
+    cmd(&mut e, r#"{"cmd":"applyThemeEffects","id":"deep"}"#);
+    let after = theme_part(&e.save_docx().unwrap());
+    assert!(after.contains("name=\"Deep Shadow\""), "{after}");
+    assert_eq!(after.matches("<a:effectStyle>").count(), 3, "{after}");
+    assert!(after.contains("<a:outerShdw blurRad=\"76200\""), "{after}");
+    // Colours and fonts stay.
+    let scheme =
+        |x: &str| x[x.find("<a:clrScheme").unwrap()..x.find("</a:fontScheme>").unwrap()].to_owned();
+    assert_eq!(scheme(&before), scheme(&after));
+    let f = reopen(&e);
+    assert!(theme_part(&f.save_docx().unwrap()).contains("Deep Shadow"));
+    cmd(&mut e, r#"{"cmd":"undo"}"#);
+    assert!(!theme_part(&e.save_docx().unwrap()).contains("Deep Shadow"));
+    let r: Value = serde_json::from_str(
+        &e.command_json(r#"{"cmd":"applyThemeEffects","id":"nope"}"#)
+            .unwrap(),
+    )
+    .unwrap();
+    assert!(r.get("error").is_some());
+}

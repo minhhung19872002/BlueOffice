@@ -72,7 +72,14 @@ pub fn run() -> Result<(), String> {
     // Interface language: English by default (owner's choice, 2026-11-14); BLUEOFFICE_LOCALE
     // selects another locale of packages/i18n (e.g. vi-VN).
     let locale = std::env::var("BLUEOFFICE_LOCALE").unwrap_or_else(|_| "en-US".into());
+    let new_document = file.is_none();
     let mut view = DocWindow::new(DocView::new(engine)?, &locale, &name);
+    // A new document takes the theme, style set and effects set as the default.
+    if new_document {
+        if let Some(v) = defaults_path().and_then(|p| std::fs::read_to_string(p).ok()) {
+            view.apply_design_defaults(&v);
+        }
+    }
     // Sizes in the region's unit and decimal separator, as the reference shows them
     // (iMeasure 1: US system, inches). BLUEOFFICE_UNITS=cm|in overrides.
     let inches = match std::env::var("BLUEOFFICE_UNITS").as_deref() {
@@ -401,6 +408,44 @@ impl Shell {
                     }
                 }
                 Request::PickPicture => redraw |= self.pick_picture(),
+                // Review › Compare: the document to compare with (BLUEOFFICE_COMPARE, a
+                // path, skips the dialog for scripted comparisons).
+                Request::PickCompareFile => {
+                    let filters = [("Documents (*.docx;*.doc;*.odt)", "*.docx;*.doc;*.odt")];
+                    let path = std::env::var_os("BLUEOFFICE_COMPARE")
+                        .map(std::path::PathBuf::from)
+                        .or_else(|| win32::file_dialog(false, &filters, ""));
+                    if let Some(bytes) = path.as_ref().and_then(|p| std::fs::read(p).ok()) {
+                        use base64::Engine as _;
+                        let b64 = base64::engine::general_purpose::STANDARD.encode(bytes);
+                        let name = path
+                            .as_ref()
+                            .and_then(|p| p.file_name())
+                            .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+                        redraw |= self.view.compare_file(&name, &b64);
+                    }
+                }
+                // Envelopes and Labels: the new document opens in a window of its own.
+                Request::OpenNewDocument => {
+                    if let Some(bytes) = self.view.take_new_document() {
+                        let stamp = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map_or(0, |d| d.as_millis());
+                        let path = std::env::temp_dir().join(format!("BlueDoc-{stamp}.docx"));
+                        if std::fs::write(&path, bytes).is_ok() {
+                            spawn_self(Some(&path));
+                        }
+                    }
+                }
+                // Design › Set as Default: kept for new documents.
+                Request::SaveDefaults => {
+                    if let (Some(path), Some(v)) = (defaults_path(), self.view.design_defaults()) {
+                        if let Some(dir) = path.parent() {
+                            let _ = std::fs::create_dir_all(dir);
+                        }
+                        let _ = std::fs::write(&path, v);
+                    }
+                }
                 other => self.pending.push(other),
             }
         }
@@ -429,6 +474,15 @@ impl Shell {
         self.last_frame = [t1 - t0, painted, t1.elapsed().saturating_sub(painted)];
         r
     }
+}
+
+/// Where Design › Set as Default keeps the defaults of new documents.
+fn defaults_path() -> Option<std::path::PathBuf> {
+    std::env::var_os("APPDATA").map(|d| {
+        std::path::PathBuf::from(d)
+            .join("BlueOffice")
+            .join("bluedoc-defaults.json")
+    })
 }
 
 /// Start another BlueDoc window (with `file`, or a new document).

@@ -2130,6 +2130,46 @@ impl Session {
         Ok(n)
     }
 
+    /// Remove the first table of contents of the body (§17.16.5.68 TOC field with its result
+    /// paragraphs) in one undo step; `false` when the body has none.
+    pub fn remove_toc(&mut self) -> Result<bool> {
+        let found = self.doc.sections.iter().enumerate().find_map(|(si, s)| {
+            fields::toc_ranges(&s.blocks)
+                .into_iter()
+                .find(|t| fields::field_kind(t.instr()) == "TOC")
+                .map(|t| (si, t.first, t.last, s.blocks.len()))
+        });
+        let Some((si, first, last, len)) = found else {
+            return Ok(false);
+        };
+        self.edit(|tx, _| {
+            let remove = tx.doc.sections[si].blocks[first..=last].to_vec();
+            // A section keeps at least one paragraph.
+            let insert = if remove.len() == len {
+                vec![Block::Paragraph(Paragraph::new(
+                    ParaProps::default(),
+                    Vec::new(),
+                ))]
+            } else {
+                Vec::new()
+            };
+            tx.push(Op::Blocks {
+                path: vec![si],
+                index: first,
+                remove,
+                insert,
+            })?;
+            let paths = tx.paths();
+            let at = paths
+                .iter()
+                .position(|p| p.len() == 2 && p[0] == si && p[1] >= first)
+                .unwrap_or(paths.len().saturating_sub(1));
+            Ok(Selection::caret(Pos::new(at, 0)))
+        })?;
+        self.fix_selection();
+        Ok(true)
+    }
+
     /// Insert a caption paragraph after the caret's paragraph: `label n: text` with a
     /// `SEQ label` field (§17.16.5.56).
     pub fn insert_caption(&mut self, label: &str, text: &str) -> Result<Selection> {

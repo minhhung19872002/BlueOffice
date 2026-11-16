@@ -573,7 +573,7 @@ impl SheetWindow {
         let t = |k: &str, d: &str| self.cd_t(k, d);
         // The next free "ChartN" name, as the reference proposes.
         let lower: Vec<String> = names.iter().map(|n| n.to_lowercase()).collect();
-        let free = (1..)
+        let free = (1..10_000)
             .map(|n| format!("{}{n}", t("sheetChart.chartSheetPrefix", "Chart")))
             .find(|n| !lower.contains(&n.to_lowercase()))
             .unwrap_or_default();

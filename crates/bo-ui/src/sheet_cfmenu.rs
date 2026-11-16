@@ -200,7 +200,7 @@ fn gallery(sub: &str) -> Vec<(&'static str, &'static str, Vec<Tile>, usize)> {
                 "Gradient Fill",
                 BARS.iter()
                     .map(|c| Tile::Bar {
-                        color: *c,
+                        color: c,
                         gradient: true,
                     })
                     .collect(),
@@ -211,7 +211,7 @@ fn gallery(sub: &str) -> Vec<(&'static str, &'static str, Vec<Tile>, usize)> {
                 "Solid Fill",
                 BARS.iter()
                     .map(|c| Tile::Bar {
-                        color: *c,
+                        color: c,
                         gradient: false,
                     })
                     .collect(),
@@ -221,7 +221,7 @@ fn gallery(sub: &str) -> Vec<(&'static str, &'static str, Vec<Tile>, usize)> {
         "colorScales" => vec![("", "", (0..12).map(Tile::Scale).collect(), 4)],
         "iconSets" => ICON_SECTIONS
             .iter()
-            .map(|(k, d, sets)| (*k, *d, sets.iter().map(|s| Tile::Icons(*s)).collect(), 2))
+            .map(|(k, d, sets)| (*k, *d, sets.iter().map(|s| Tile::Icons(s)).collect(), 2))
             .collect(),
         _ => Vec::new(),
     }
@@ -1296,8 +1296,7 @@ impl SheetWindow {
             caret: s.chars().count(),
             value: s.chars().collect(),
         };
-        let with_x;
-        match which {
+        let with_x = match which {
             "between" => {
                 f.add("v1", None, [20.0, 80.0, 150.0, 25.0], edit(&seed));
                 f.add(
@@ -1307,7 +1306,7 @@ impl SheetWindow {
                     Kind::Label(t("sheetCf.and", "and")),
                 );
                 f.add("v2", None, [212.0, 80.0, 150.0, 25.0], edit(&seed));
-                with_x = 370.0;
+                370.0
             }
             "date" => {
                 let items = DATES.iter().map(|(_, l, d)| t(l, d)).collect();
@@ -1317,7 +1316,7 @@ impl SheetWindow {
                     [20.0, 80.0, 200.0, 25.0],
                     Kind::Combo { items, sel: 0 },
                 );
-                with_x = 228.0;
+                228.0
             }
             "duplicate" => {
                 let items = vec![
@@ -1330,7 +1329,7 @@ impl SheetWindow {
                     [20.0, 80.0, 150.0, 25.0],
                     Kind::Combo { items, sel: 0 },
                 );
-                with_x = 178.0;
+                178.0
             }
             "top" | "topPct" | "bottom" | "bottomPct" => {
                 f.add(
@@ -1351,7 +1350,7 @@ impl SheetWindow {
                         Kind::Label("%".into()),
                     );
                 }
-                with_x = 140.0;
+                140.0
             }
             "above" | "below" => {
                 f.add(
@@ -1360,14 +1359,14 @@ impl SheetWindow {
                     [20.0, 84.0, 0.0, 0.0],
                     Kind::Label(t("sheetCf.forRange", "for the selected range")),
                 );
-                with_x = 200.0;
+                200.0
             }
             _ => {
                 let v = if which == "text" { String::new() } else { seed };
                 f.add("v1", None, [20.0, 80.0, 240.0, 25.0], edit(&v));
-                with_x = 268.0;
+                268.0
             }
-        }
+        };
         f.add(
             "with",
             None,
@@ -1390,7 +1389,7 @@ impl SheetWindow {
         self.cf_which = which.to_owned();
     }
 
-    fn cf_style(&self, f: &Form, id: &str) -> Value {
+    fn cf_style(f: &Form, id: &str) -> Value {
         let (_, fill, font) = PRESETS[f.sel(id).unwrap_or(0).min(PRESETS.len() - 1)];
         json!({ "fill": fill, "fontColor": font })
     }
@@ -1398,7 +1397,7 @@ impl SheetWindow {
     /// The rule of the open simple rule dialog.
     fn cf_rule_of_form(&self) -> Option<Value> {
         let f = self.form.as_ref()?;
-        let style = self.cf_style(f, "preset");
+        let style = Self::cf_style(f, "preset");
         let v1 = f.text("v1");
         let (r0, c0, r1, c1) = self.view.range_bounds();
         let a1 = |r: u32, c: u32| format!("{}{}", bo_model::sheet::col_to_letters(c), r + 1);
@@ -1535,6 +1534,7 @@ const OPERATORS: [(&str, &str); 8] = [
 
 impl SheetWindow {
     /// New Formatting Rule (or Edit Formatting Rule with `edit` = (block, rule, spec)).
+    #[allow(clippy::needless_pass_by_value)]
     pub(super) fn open_new_rule(&mut self, edit: Option<(usize, usize, Value)>) {
         let t = |k: &str, d: &str| self.t(k, d);
         let title = if edit.is_some() {
@@ -1726,11 +1726,9 @@ impl SheetWindow {
                 "dataBar" => f.set_sel("style", Some(2)),
                 "colorScale" => f.set_sel(
                     "style",
-                    Some(if spec.get("midColor").is_some_and(|m| !m.is_null()) {
-                        1
-                    } else {
-                        0
-                    }),
+                    Some(usize::from(
+                        spec.get("midColor").is_some_and(|m| !m.is_null()),
+                    )),
                 ),
                 _ => {}
             }
@@ -1777,7 +1775,7 @@ impl SheetWindow {
 
     fn cf_new_rule_ok(&mut self) {
         let Some(f) = self.form.as_ref() else { return };
-        let style = self.cf_style(f, "preset");
+        let style = Self::cf_style(f, "preset");
         let (r0, c0, r1, c1) = self.view.range_bounds();
         let a1 = format!("{}{}", bo_model::sheet::col_to_letters(c0), r0 + 1);
         let abs = |r: u32, c: u32| format!("${}${}", bo_model::sheet::col_to_letters(c), r + 1);
@@ -1941,7 +1939,7 @@ impl SheetWindow {
     }
 
     /// A rule's description as the reference's list shows it.
-    fn cf_describe(&self, r: &Value) -> String {
+    fn cf_describe(r: &Value) -> String {
         let spec = r.get("spec").cloned().unwrap_or(Value::Null);
         let s = |k: &str| {
             spec.get(k)
@@ -2025,7 +2023,7 @@ impl SheetWindow {
             }
             let ty = ry + (row_h - style.size * 1.33) / 2.0;
             p.text(
-                &self.cf_describe(rule),
+                &Self::cf_describe(rule),
                 x + (6.0 * k).round(),
                 ty,
                 style,

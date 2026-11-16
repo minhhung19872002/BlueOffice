@@ -408,7 +408,7 @@ fn paint_table_tile(p: &mut dyn Painter, r: [f32; 4], name: &str) {
             let dw = ((x1 - x0) * 0.45).round();
             p.fill_rect(
                 (x0 + (x1 - x0 - dw) / 2.0).round(),
-                ((y0 + y1) / 2.0).round(),
+                f32::midpoint(y0, y1).round(),
                 dw,
                 if l.bold { 2.0 } else { 1.0 },
                 ink,

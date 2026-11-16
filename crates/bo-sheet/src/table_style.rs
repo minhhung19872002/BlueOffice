@@ -137,13 +137,13 @@ fn builtin_look(t: &Table, name: &str, row: u32, col: u32) -> Option<Look> {
         let first_row = i == 0;
         l.borders[0] = if first_row {
             b2[0].clone()
-        } else if i % 2 == 1 {
+        } else if !i.is_multiple_of(2) {
             b2[1].clone()
         } else {
             b3[1].clone()
         };
         if !last_data {
-            l.borders[1] = if i % 2 == 0 {
+            l.borders[1] = if i.is_multiple_of(2) {
                 b2[1].clone()
             } else {
                 b3[1].clone()
@@ -169,7 +169,7 @@ fn builtin_look(t: &Table, name: &str, row: u32, col: u32) -> Option<Look> {
         };
         if let Some(b) = get(s) {
             // Row bands win over column bands.
-            if !(info.show_row_stripes && !band2) || l.fill.is_none() {
+            if !info.show_row_stripes || band2 || l.fill.is_none() {
                 l.fill = b.fill.clone().or(l.fill);
             }
         }

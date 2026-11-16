@@ -2425,7 +2425,11 @@ fn paste_special_values_and_transpose() {
 #[test]
 fn page_layout_themes_apply_and_save() {
     let mut w = window();
-    assert!(!sheet_ribbon::menu("sheet.themes", &[]).is_empty());
+    assert_eq!(
+        sheet_ribbon::menu("sheet.themes", &[]).len(),
+        5,
+        "4 themes and Browse"
+    );
     assert!(w.action("theme.ocean", &Fixed));
     let saved = w
         .view_mut()

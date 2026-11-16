@@ -115,6 +115,8 @@ pub(crate) struct FormatPane {
     /// Paragraph spacing of the paragraph at (page, top, bottom) (reading the page's
     /// paragraphs is too slow for every frame).
     para: Option<((usize, u32, u32), Option<f32>)>,
+    /// Scroll of the Edit Object pane (window pixels).
+    pub scroll: f32,
 }
 
 fn button_xy(k: usize) -> f32 {
@@ -508,14 +510,17 @@ impl EditorWindow {
 
     /// Whether the Format pane is shown: Edit Text is on and it was not closed.
     fn format_shown(&self) -> bool {
-        (self.edit_tool() == Some(EditTool::Text) || self.comment.tool.is_some())
+        (matches!(self.edit_tool(), Some(EditTool::Text | EditTool::Object))
+            || self.comment.tool.is_some())
             && !self.format_closed
             && self.r.showing_doc()
     }
 
-    /// Show or hide the Format pane with the Edit Text tool.
+    /// Show or hide the Format pane with the Edit Text / Edit Object tools.
     pub(crate) fn sync_format(&mut self) {
-        if self.edit_tool() != Some(EditTool::Text) && self.comment.tool.is_none() {
+        if !matches!(self.edit_tool(), Some(EditTool::Text | EditTool::Object))
+            && self.comment.tool.is_none()
+        {
             self.format_closed = false;
         }
         let w = if self.format_shown() { PANE_W } else { 0.0 };
@@ -524,6 +529,17 @@ impl EditorWindow {
 
     /// A press in the Format pane; false when it is elsewhere.
     pub(crate) fn format_input(&mut self, input: &Input) -> bool {
+        if let Input::Wheel(dy) = *input {
+            let pane = self.r.right_pane_rect();
+            let (px, py) = self.pointer();
+            if pane[2] > 0.0 && inside(pane, px, py) && self.edit_tool() == Some(EditTool::Object) {
+                // The text object's sections are about 700 logical pixels tall.
+                let max = (700.0 * self.ui_scale() - pane[3]).max(0.0);
+                self.pane.scroll = (self.pane.scroll + dy).clamp(0.0, max);
+                return true;
+            }
+            return false;
+        }
         let Input::Press { x, y, .. } = *input else {
             return false;
         };
@@ -539,7 +555,9 @@ impl EditorWindow {
             .find(|h| inside(h.0, x, y))
             .map(|h| h.1);
         if let Some(cmd) = hit {
-            if typing || cmd == "fmt.close" || self.comment.tool.is_some() {
+            if cmd.starts_with("obj.") {
+                self.arrange_command(cmd);
+            } else if typing || cmd == "fmt.close" || self.comment.tool.is_some() {
                 self.format_command(cmd);
             }
         }
@@ -618,6 +636,25 @@ impl EditorWindow {
             self.paint_comment_props(p, x0, y0);
             return;
         }
+        // Edit Object: a text object shows Text Style, Split and Arrange (the pane scrolls),
+        // other objects only Arrange, as the reference's.
+        let object = self.edit_tool() == Some(EditTool::Object);
+        let text_object = object
+            && self
+                .edit
+                .selected_kinds()
+                .contains(&bo_pdfread::ObjectKind::Text);
+        if object && !text_object {
+            self.pane.scroll = 0.0;
+            self.paint_arrange(p, x0, y0 + px(46.0));
+            return;
+        }
+        let y0 = if object {
+            p.push_clip(r[0], y0 + px(36.0), r[2], r[3] - px(36.0));
+            y0 - self.pane.scroll
+        } else {
+            y0
+        };
         // "Text Style" section.
         let ty = y0 + px(46.0);
         p.path(
@@ -630,13 +667,18 @@ impl EditorWindow {
             Some(MUTED),
             None,
         );
-        p.text(
-            &self.t("pdfEditor.textStyle"),
-            x0 + px(27.0),
-            ty,
-            style(17.0),
-            TEXT,
-        );
+        if object {
+            // The reference's section heading with its rule.
+            self.section_heading(p, x0, ty, "pdfEditor.textStyle");
+        } else {
+            p.text(
+                &self.t("pdfEditor.textStyle"),
+                x0 + px(27.0),
+                ty,
+                style(17.0),
+                TEXT,
+            );
+        }
         let typing = self.edit.typing.as_ref().is_some_and(|t| t.block.is_some());
         let cur = self.edit.current_style();
         let ink = if typing { TEXT } else { MUTED };
@@ -787,6 +829,17 @@ impl EditorWindow {
             if live {
                 self.pane.hits.push((r, cmd));
             }
+        }
+        if object {
+            // 125 %: Split at +467, Arrange at +566 from the pane top.
+            self.paint_split(p, x0, y0 + px(374.0));
+            self.paint_arrange(p, x0, y0 + px(453.0));
+            p.pop_clip();
+            // Hit boxes scrolled under the header are not pressable.
+            let top = r[1] + px(36.0);
+            self.pane
+                .hits
+                .retain(|h| h.1 == "fmt.close" || h.0[1] >= top);
         }
     }
 }

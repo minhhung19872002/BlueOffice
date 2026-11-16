@@ -78,6 +78,8 @@ pub trait PdfWindow {
     }
     /// Paper of one printer after its driver settings changed.
     fn set_print_paper(&mut self, _name: &str, _paper: Option<crate::Paper>) {}
+    /// Shift / Ctrl held with the last mouse message (BlueEditor: Ctrl+drag copies objects).
+    fn set_pointer_mods(&mut self, _m: crate::Mods) {}
     /// Interface text `key` with `{{name}}` placeholders filled.
     fn text(&self, key: &str, _args: &[(&str, &str)]) -> String {
         key.to_owned()
@@ -165,6 +167,9 @@ impl PdfWindow for ReaderWindow {
 }
 
 impl PdfWindow for EditorWindow {
+    fn set_pointer_mods(&mut self, m: crate::Mods) {
+        EditorWindow::set_pointer_mods(self, m);
+    }
     fn handle(&mut self, input: Input, m: &dyn TextMeasure) -> bool {
         EditorWindow::handle(self, input, m)
     }

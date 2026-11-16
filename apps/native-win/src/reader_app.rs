@@ -776,6 +776,9 @@ impl Handler for Shell {
             Input::Preedit(_) => "preedit",
         };
         let start = Instant::now();
+        if matches!(kind, "press" | "drag" | "release") {
+            self.window.set_pointer_mods(win32::mouse_mods());
+        }
         let m = Measure(self.gpu.as_ref().map(|g| &g.device));
         let mut redraw = self.window.handle(input, &m);
         redraw |= self.handle_requests();

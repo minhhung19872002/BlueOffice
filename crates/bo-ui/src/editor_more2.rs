@@ -24,13 +24,10 @@ pub(crate) enum More2Ask {
 }
 
 /// Grey commands of these tabs with their tooltip.
-pub(crate) const NOT_OFFERED2: [(&str, &str); 8] = [
+pub(crate) const NOT_OFFERED2: [(&str, &str); 5] = [
     ("view.transitions", "pdfEditor.tipTransitions"),
-    ("form.pageTemplates", "pdfEditor.tipTemplates"),
     ("form.xfa", "pdfEditor.tipXfa"),
-    ("prot.batchEncrypt", "pdfEditor.tipBatch"),
     ("conv.form", "pdfEditor.tipForm"),
-    ("conv.portfolio", "pdfEditor.tipPortfolio"),
     ("conv.preflight", "pdfEditor.tipPreflight"),
     ("cm.calculator", "pdfEditor.tipCalculator"),
 ];
@@ -246,6 +243,7 @@ impl EditorWindow {
                     ("prot.password", "pdfEditor.passwordProtect"),
                     ("prot.restrict", "pdfEditor.restrictAccess"),
                     ("prot.removeSecurity", "pdfEditor.removeSecurity"),
+                    ("prot.batchEncrypt", "pdfEditor.batchEncrypt"),
                 ];
                 self.menu(&items, "prot.secureMenu");
             }

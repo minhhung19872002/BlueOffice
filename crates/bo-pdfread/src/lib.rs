@@ -18,6 +18,7 @@ mod annot_caret;
 mod annot_draw;
 mod annot_edit;
 mod annot_image;
+mod arrange;
 mod cmap;
 mod cmyk;
 mod codecs;
@@ -53,6 +54,7 @@ mod sanitize;
 mod sfnt;
 mod sigappear;
 mod store;
+mod templates;
 mod text;
 mod type1;
 mod viewer;
@@ -63,6 +65,7 @@ pub use annot_draw::{
     measure_label, path_length, polygon_area, Shape, StampKind, Style as DrawStyle,
 };
 pub use annot_edit::CommentThread;
+pub use arrange::{flip_about, rotation_about};
 
 pub use convert::{StyledBlock, StyledRun};
 pub use design::{NewField, NewFieldKind, PageMarks};
@@ -81,6 +84,7 @@ pub use pages_edit::{LabelRange, LabelStyle};
 pub use paragraph::{text_blocks, Align, BlockEdit, RunStyle, StyleChange, TextBlock};
 pub use sanitize::{ButtonAction, HiddenCounts, HiddenData};
 pub use sigappear::{signature_appearance, SignatureLook};
+pub use templates::EmbeddedFile;
 pub use text::TextLayer;
 pub use viewer::{DocInfo, FontInfo};
 
@@ -1139,6 +1143,8 @@ fn hidden_groups(doc: &Document) -> HashSet<ObjectId> {
 }
 
 #[cfg(test)]
+mod arrange_tests;
+#[cfg(test)]
 mod color_tests;
 #[cfg(test)]
 mod edit_tests;
@@ -1148,5 +1154,7 @@ mod forms_tests;
 mod objects_tests;
 #[cfg(test)]
 mod paragraph_tests;
+#[cfg(test)]
+mod templates_tests;
 #[cfg(test)]
 mod tests;

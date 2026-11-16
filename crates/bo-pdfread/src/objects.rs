@@ -334,7 +334,7 @@ pub(crate) fn deleted_run(rec: &Recorded) -> String {
 }
 
 /// The showing operator of a run with its own operands (`'` and `"` become `Tj`).
-fn show_operator(rec: &Recorded) -> Vec<u8> {
+pub(crate) fn show_operator(rec: &Recorded) -> Vec<u8> {
     let mut out = Vec::new();
     match rec.op.as_slice() {
         b"TJ" | b"Tj" => {
@@ -519,7 +519,7 @@ impl PdfDocument {
     }
 
     /// Normalise the page, analyse it and check `ids`.
-    fn edit_page(
+    pub(crate) fn edit_page(
         &mut self,
         index: usize,
         ids: &[usize],

@@ -992,6 +992,19 @@ thu hộp thoại thành dải chỉ còn ô đó ở góc trên trái của h�
 tham chiếu tuyệt đối theo kiểu của ô (`$A$1:$B$4`, `Sheet1!…`, `=Sheet1!…`, `=$A$1…`); nút mở rộng / Enter trả hộp
 thoại về với tham chiếu, Escape giữ chữ cũ (`sheet_rangepick.rs`).
 
+### Vòng 51 — sau góp ý: trạng thái nút theo ngữ cảnh, trình duyệt của Insert Hyperlink
+
+- Review: Delete / Show/Hide Comment chỉ bật khi ô hiện hành có chú thích, Previous / Next khi trang có chú thích
+  (ngữ cảnh truyền qua `FormatState` cho quy tắc bật/tắt của ribbon); Unshare Workbook, Hide Ink mờ; Check
+  Accessibility và Hide Ink có ▾ (menu); nút lớn của ribbon BlueSheet nay cũng theo quy tắc bật/tắt (mờ như đối
+  chứng). Test `review_comment_buttons_follow_the_sheets_comments`.
+- Insert Hyperlink: Look in (thư mục của sổ — host gọi `set_folder`), nút lên thư mục / web / tệp / thư mục, các
+  thẻ Current Folder / Browsed Pages / Recent Files bên trái danh sách (Recent Files chỉ lấy liên kết của chính sổ,
+  không đọc danh sách gần đây của hệ thống), thư mục trước rồi tệp, nhấp đúp vào thư mục để vào; Bookmark… (Select
+  Place in Document → `tệp#Sheet1!B2`, engine nhận target + location); Create New Document ghi một .xlsx / .docx trống
+  cạnh sổ rồi liên kết tới nó. Ảnh so sánh chụp trên một thư mục mẫu riêng trong scratch (`linkdemo`), không phải thư
+  mục của người dùng. Test `hyperlink_browser_lists_the_folder_and_creates_a_new_document`.
+
 ## Còn lại (sau vòng 10)
 
 - Text to Columns: chưa hỏi "Do you want to replace the contents of the destination cells?"; thanh cuộn xem trước chỉ

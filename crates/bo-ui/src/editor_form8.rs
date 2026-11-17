@@ -1183,15 +1183,36 @@ impl Form {
                         Rgba(c[0], c[1], c[2], 255),
                     );
                     if matches!(self.vals.get(*id), Some(Val::Text(t)) if t == "none") {
-                        // No colour (round 11, our own mark): white with a red diagonal.
-                        p.fill_rect(b[0] + 1.0, b[1] + 1.0, b[2] - 2.0, b[3] - 2.0, WHITE);
-                        p.path(
-                            &[
-                                PathSeg::M(b[0] + q(3.0), b[1] + b[3] - q(3.0)),
-                                PathSeg::L(b[0] + b[2] - q(3.0), b[1] + q(3.0)),
-                            ],
-                            None,
-                            Some((Rgba(0xE0, 0x20, 0x20, 255), (1.5 * s).max(1.0))),
+                        // No colour / mixed (round 11, our own mark): a grey and white
+                        // checkerboard with a dark "?" over it.
+                        let inner = [b[0] + 1.0, b[1] + 1.0, b[2] - 2.0, b[3] - 2.0];
+                        p.fill_rect(inner[0], inner[1], inner[2], inner[3], WHITE);
+                        let n = 4;
+                        let (cw, ch) = (inner[2] / n as f32, inner[3] / n as f32);
+                        for row in 0..n {
+                            for col in 0..n {
+                                if (row + col) % 2 == 0 {
+                                    p.fill_rect(
+                                        inner[0] + cw * col as f32,
+                                        inner[1] + ch * row as f32,
+                                        cw,
+                                        ch,
+                                        Rgba(0xC8, 0xC8, 0xC8, 255),
+                                    );
+                                }
+                            }
+                        }
+                        let mark = TextStyle {
+                            size: (b[3] * 0.62).round(),
+                            bold: true,
+                        };
+                        let mw = text_w("?", mark.size);
+                        p.text(
+                            "?",
+                            (b[0] + (b[2] - mw) / 2.0).round(),
+                            (b[1] + (b[3] - mark.size * 1.33) / 2.0).round(),
+                            mark,
+                            Rgba(0x30, 0x30, 0x30, 255),
                         );
                     }
                     hits.push((b, Hit::Ctl(i)));

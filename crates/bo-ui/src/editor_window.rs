@@ -1876,7 +1876,11 @@ impl EditorWindow {
                 }
                 true
             }
-            Input::Wheel(dy) if inside(self.org.frame, self.pointer.0, self.pointer.1) => {
+            // Round 11: also before any pointer move (the pages behind the grid are hidden).
+            Input::Wheel(dy)
+                if inside(self.org.frame, self.pointer.0, self.pointer.1)
+                    || self.pointer == (0.0, 0.0) =>
+            {
                 self.org.scroll_by(dy);
                 true
             }

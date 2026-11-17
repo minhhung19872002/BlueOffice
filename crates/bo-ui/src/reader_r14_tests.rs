@@ -157,3 +157,38 @@ fn the_document_tab_close_button_is_exposed_and_invokable() {
     assert_eq!(w.tab_count(), 0);
     assert!(!w.invoke12("doc:close", &Fixed));
 }
+
+#[test]
+fn a_new_fitted_zoom_rebuilds_the_page_lists() {
+    // NoZoom notes and hairlines depend on the zoom: lists drawn for the first window size
+    // must not be reused after it changes.
+    let mut w = window();
+    w.run_command("zoom.page", &Fixed);
+    let mut store = Store::default();
+    for _ in 0..20 {
+        if !w.prepare(&mut store) {
+            break;
+        }
+    }
+    assert!(w.view().expect("view").cached_lists() > 0);
+    w.handle(
+        Input::Resize {
+            width: 1100.0,
+            height: 760.0,
+        },
+        &Fixed,
+    );
+    w.prepare(&mut store);
+    let z = w.view().expect("view").zoom();
+    assert!(w.view().expect("view").cached_lists() > 0);
+    // The rebuilt lists were made at the new zoom: a second resize back changes it again.
+    w.handle(
+        Input::Resize {
+            width: 1518.0,
+            height: 1036.0,
+        },
+        &Fixed,
+    );
+    assert!((w.view().expect("view").zoom() - z).abs() > 1e-3);
+    assert_eq!(w.view().expect("view").cached_lists(), 0);
+}

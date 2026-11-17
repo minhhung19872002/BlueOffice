@@ -427,7 +427,14 @@ impl ReaderView {
             Fit::None => self.zoom,
         };
         if z.is_finite() && z > 0.0 {
-            self.zoom = z.clamp(MIN_ZOOM, MAX_ZOOM);
+            let z = z.clamp(MIN_ZOOM, MAX_ZOOM);
+            // Round 14: a fitted zoom that changes (window resized, first layout) rebuilds the
+            // lists like `set_zoom`: NoZoom notes and hairlines depend on the zoom (a note
+            // sized at the first, smaller window's zoom was drawn 1.4 × too large).
+            if (z - self.zoom).abs() > self.zoom * 1e-3 {
+                self.cache_reset_lines();
+            }
+            self.zoom = z;
         }
     }
 
@@ -894,8 +901,7 @@ impl ReaderView {
             text_color: self.night.then_some(crate::reader_viewx::NIGHT_TEXT),
             // Sticky notes keep one point per interface pixel whatever the zoom, as the
             // reference reader draws them (16 pt note: 20 px at 125 %, round 10).
-            // Round 14: zoomed out they shrink with the page (a 20 pt note at 60 %: 20 px).
-            no_zoom: (1.0 / (self.zoom * PT).max(0.01)).min(1.0),
+            no_zoom: 1.0 / (self.zoom * PT).max(0.01),
             field_tint: self.field_tint,
             ..bo_pdfread::RenderExtra::default()
         }
@@ -1096,6 +1102,11 @@ impl ReaderView {
             }
         }
         more
+    }
+
+    /// Pages held as display lists (round 14 tests: a new fitted zoom rebuilds them).
+    pub fn cached_lists(&self) -> usize {
+        self.cache.len()
     }
 
     /// Every image key this view has in the store (pages, thumbnails, previews), so a closed

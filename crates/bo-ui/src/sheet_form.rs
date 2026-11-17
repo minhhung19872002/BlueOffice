@@ -1389,6 +1389,17 @@ impl Form {
                     let ly = (r[1] + line + 6.0 * self.k).round();
                     p.fill_rect(r[0], ly, r[2], 1.0, Rgba(0xe6, 0xe6, 0xe6, 255));
                 }
+                // A bold group caption with a rule under it across the group (Value Field
+                // Settings, round 61).
+                Kind::Group(s) if self.bold.contains(&c.id) => {
+                    let bold = Font {
+                        weight: 700,
+                        ..font
+                    };
+                    p.text_font(s, r[0], r[1], &bold, ink);
+                    let ly = (r[1] + line + 3.0 * self.k).round();
+                    p.fill_rect(r[0], ly, r[2], 1.0, GROUP_LINE);
+                }
                 Kind::Group(s) => {
                     let tw = self.width(s);
 

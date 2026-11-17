@@ -10,7 +10,7 @@
 //! name. Changes go through the engine's `pivotUpdate` (one undo step, column widths fitted).
 use super::form_impl::{Event, Form, FormKind, Kind};
 use super::SheetWindow;
-use crate::popup::{Choice, Menu, MenuItem};
+use crate::popup::{Choice, Menu, MenuItem, MenuLook};
 use crate::{Painter, TextStyle};
 use bo_render::{PathSeg, Rgba};
 use serde_json::{json, Value};
@@ -21,6 +21,16 @@ const WHITE: Rgba = Rgba(255, 255, 255, 255);
 const INK: Rgba = Rgba(0x24, 0x24, 0x24, 255);
 const BOX_EDGE: Rgba = Rgba(0xAB, 0xAB, 0xAB, 255);
 const DIM: Rgba = Rgba(0xA0, 0xA0, 0xA0, 255);
+
+/// The tools (gear) button: left, top, width, height (reference pixels; measured 62 × 37 px,
+/// centred on the "Choose fields" line, 25 px from the pane's right edge).
+const GEAR: [f32; 4] = [349.0, 65.0, 62.0, 37.0];
+
+/// Field items in an area: inset, top offset, height and pitch (reference pixels).
+const ITEM_X: f32 = 1.0;
+const ITEM_Y: f32 = 2.0;
+const ITEM_H: f32 = 31.0;
+const ITEM_PITCH: f32 = 32.0;
 
 /// Pane width (reference pixels at 125 %).
 pub(super) const PIVOT_W: f32 = 436.0;
@@ -53,6 +63,19 @@ pub(super) struct PivotPane {
     pub opts: std::collections::BTreeMap<u32, ValueOpts>,
     /// The value field whose Value Field Settings dialog is open.
     pub vfs: Option<u32>,
+    /// Field list sorted A to Z (gear menu) instead of in data source order.
+    pub sort_az: bool,
+}
+
+impl PivotPane {
+    /// Field indexes in the order the list shows them.
+    pub(super) fn order(&self) -> Vec<usize> {
+        let mut v: Vec<usize> = (0..self.fields.len()).collect();
+        if self.sort_az {
+            v.sort_by_key(|&i| self.fields[i].0.to_lowercase());
+        }
+        v
+    }
 }
 
 /// "Show values as", base field / item and custom name of a value field.
@@ -63,6 +86,8 @@ pub(super) struct ValueOpts {
     pub base_item: u32,
     /// Custom name ("" = "<Function> of <field>").
     pub name: String,
+    /// Number format code of the values ("" = the source's; §18.10.1.21 `numFmtId`).
+    pub num_fmt: String,
 }
 
 impl PivotPane {
@@ -227,8 +252,19 @@ impl SheetWindow {
                     } else {
                         String::new()
                     },
+                    num_fmt: v
+                        .get("numFmt")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_owned(),
                 },
             );
+        }
+        // A value field whose settings dialog is open keeps what was chosen there (its
+        // number format is applied on OK).
+        let vfs = self.pivot.as_ref().and_then(|p| p.vfs);
+        if let Some(o) = vfs.and_then(|f| Some((f, self.pivot.as_ref()?.opts.get(&f)?.clone()))) {
+            opts.insert(o.0, o.1);
         }
         let pane = PivotPane {
             sheet,
@@ -240,7 +276,8 @@ impl SheetWindow {
             values,
             items,
             opts,
-            vfs: self.pivot.as_ref().and_then(|p| p.vfs),
+            vfs,
+            sort_az: self.pivot.as_ref().is_some_and(|p| p.sort_az),
         };
         if was.is_none() {
             self.pane_changed = true;
@@ -267,6 +304,9 @@ impl SheetWindow {
                     }
                     if !o.name.is_empty() {
                         v["name"] = json!(o.name);
+                    }
+                    if !o.num_fmt.is_empty() {
+                        v["numFmt"] = json!(o.num_fmt);
                     }
                 }
                 v
@@ -338,15 +378,20 @@ impl SheetWindow {
         if (LIST[0]..LIST[0] + LIST[2]).contains(&lx) && (LIST[1]..LIST[1] + LIST[3]).contains(&ly)
         {
             let i = ((ly - LIST[1] - 4.0) / ROW_H).floor().max(0.0) as usize;
-            if i < p.fields.len() {
-                self.pivot_toggle(i as u32);
+            if let Some(&f) = p.order().get(i) {
+                self.pivot_toggle(f as u32);
             }
+            return true;
+        }
+        if (GEAR[0]..GEAR[0] + GEAR[2]).contains(&lx) && (GEAR[1]..GEAR[1] + GEAR[3]).contains(&ly)
+        {
+            self.pivot_gear_menu();
             return true;
         }
         for (a, r) in AREAS.iter().enumerate() {
             if (r[0]..r[0] + r[2]).contains(&lx) && (r[1]..r[1] + r[3]).contains(&ly) {
                 let list = Self::area_fields(&p, a);
-                let i = ((ly - r[1] - 3.0) / 26.0).floor().max(0.0) as usize;
+                let i = ((ly - r[1] - ITEM_Y) / ITEM_PITCH).floor().max(0.0) as usize;
                 if let Some(f) = list.get(i) {
                     self.pivot_drag = Some((a, *f, lx, ly));
                 }
@@ -453,13 +498,16 @@ impl SheetWindow {
             None,
             Some((INK, k.max(1.0))),
         );
+        // Tools (gear) button with its drop-down arrow, right of "Choose fields…".
+        Self::paint_gear(p, at(GEAR[0], GEAR[1]), k);
         // Field list.
         let (lx, ly) = at(LIST[0], LIST[1]);
         let (lw, lh) = ((LIST[2] * k).round(), (LIST[3] * k).round());
         p.fill_rect(lx, ly, lw, lh, BOX_EDGE);
         p.fill_rect(lx + 1.0, ly + 1.0, lw - 2.0, lh - 2.0, WHITE);
-        for (i, (name, _)) in pane.fields.iter().enumerate() {
-            let y = LIST[1] + 4.0 + i as f32 * ROW_H;
+        for (row, i) in pane.order().into_iter().enumerate() {
+            let name = &pane.fields[i].0;
+            let y = LIST[1] + 4.0 + row as f32 * ROW_H;
             let (bx, by) = at(LIST[0] + 4.0, y + 6.0);
             let b = (16.0 * k).round();
             let on = pane.used(i as u32);
@@ -521,27 +569,26 @@ impl SheetWindow {
                 } else {
                     name.to_owned()
                 };
-                let (ix, iy) = at(b[0] + 6.0, b[1] + 3.0 + n as f32 * 26.0);
-                p.fill_rect(
-                    ix,
-                    iy,
-                    ((b[2] - 12.0) * k).round(),
-                    (24.0 * k).round(),
-                    Rgba(0xF3, 0xF3, 0xF3, 255),
-                );
-                p.text(&label, ix + 6.0 * k, iy + 2.0 * k, style(18.0, false), INK);
-                // Drop-down arrow at the item's right (it opens the item's menu).
-                let cx = ix + ((b[2] - 26.0) * k).round();
-                let cy = iy + (12.0 * k).round();
-                let d = (3.5 * k).round();
+                // A white box framed #BFBFBF, 1 px in from the area's sides and 2 px below
+                // its top, 31 px high every 32 px (measured on the reference, round 58).
+                let (ix, iy) = at(b[0] + ITEM_X, b[1] + ITEM_Y + n as f32 * ITEM_PITCH);
+                let (iw, ih) = (((b[2] - 2.0 * ITEM_X) * k).round(), (ITEM_H * k).round());
+                p.fill_rect(ix, iy, iw, ih, PANE_EDGE);
+                p.fill_rect(ix + 1.0, iy + 1.0, iw - 2.0, ih - 2.0, WHITE);
+                p.text(&label, ix + 9.0 * k, iy + 4.0 * k, style(18.0, false), INK);
+                // Solid drop-down triangle 11 × 6 px, its centre 18 px from the right edge.
+                let cx = ix + iw - (18.0 * k).round();
+                let cy = iy + (ih / 2.0).round();
+                let (hw, h) = (5.5 * k, 6.0 * k);
                 p.path(
                     &[
-                        PathSeg::M(cx - d, cy - d / 2.0),
-                        PathSeg::L(cx, cy + d / 2.0),
-                        PathSeg::L(cx + d, cy - d / 2.0),
+                        PathSeg::M(cx - hw, cy - h / 2.0),
+                        PathSeg::L(cx + hw, cy - h / 2.0),
+                        PathSeg::L(cx, cy + h / 2.0),
+                        PathSeg::Z,
                     ],
+                    Some(INK),
                     None,
-                    Some((INK, k.max(1.0))),
                 );
             }
         }
@@ -884,6 +931,19 @@ impl SheetWindow {
                     .map_or_else(|| self.view.sheet(), |s| s as usize);
                 // A new worksheet goes in front of the source sheet, as the reference puts
                 // it (round 58); creating and moving it are one undo step.
+                // Compact layout, as the reference's new PivotTables ("Row Labels" with its
+                // field button in one indented column).
+                let index = made.get("index").and_then(Value::as_u64).unwrap_or(0);
+                let labels = json!({
+                    "grandTotal": self.t("sheetInsert.grandTotal", "Grand Total"),
+                    "rowLabels": self.t("sheetInsert.rowLabels", "Row Labels"),
+                });
+                self.view.run(json!({
+                    "cmd": "pivotUpdate", "sheet": sheet, "index": index,
+                    "rows": [], "cols": [], "values": [], "filters": [],
+                    "labels": labels, "layout": "compact",
+                }));
+                self.view.engine_mut().merge_history_since(depth);
                 if dest.is_none() && sheet >= before && src_sheet < sheet {
                     self.view
                         .run(json!({ "cmd": "moveSheet", "from": sheet, "to": src_sheet }));
@@ -962,8 +1022,14 @@ impl SheetWindow {
     /// Area (0 Filters, 1 Columns, 2 Rows, 3 Values) and item slot under a pane point.
     fn pivot_area_at(lx: f32, ly: f32) -> Option<(usize, usize)> {
         AREAS.iter().enumerate().find_map(|(a, r)| {
-            ((r[0]..r[0] + r[2]).contains(&lx) && (r[1] - 40.0..r[1] + r[3]).contains(&ly))
-                .then(|| (a, ((ly - r[1] - 3.0) / 26.0).floor().max(0.0) as usize))
+            ((r[0]..r[0] + r[2]).contains(&lx) && (r[1] - 40.0..r[1] + r[3]).contains(&ly)).then(
+                || {
+                    (
+                        a,
+                        ((ly - r[1] - ITEM_Y) / ITEM_PITCH).floor().max(0.0) as usize,
+                    )
+                },
+            )
         })
     }
 
@@ -1000,7 +1066,12 @@ impl SheetWindow {
             .position(|x| *x == f)
             .unwrap_or(0);
         let r = AREAS[area.min(3)];
-        let rect = [r[0] + 6.0, r[1] + 3.0 + n as f32 * 26.0, r[2] - 12.0, 24.0];
+        let rect = [
+            r[0] + ITEM_X,
+            r[1] + ITEM_Y + n as f32 * ITEM_PITCH,
+            r[2] - 2.0 * ITEM_X,
+            ITEM_H,
+        ];
         self.pivot_item_menu(area, f, rect);
     }
 
@@ -1068,7 +1139,19 @@ impl SheetWindow {
             rect[2] * k,
             rect[3] * k,
         ];
-        self.menu = Some(Menu::open(items, anchor, self.size, self.scale));
+        // The reference's menu at 125 %: 236 px wide, 30 px rows, 15 px text 43 px in,
+        // rules before Move to Report Filter, Remove Field and the settings (round 58).
+        let look = MenuLook {
+            item_h: 24.0,
+            text: 12.0,
+            text_x: (34.4, 34.4),
+            min_w: 188.8,
+            ..MenuLook::default()
+        };
+        self.menu = Some(
+            Menu::open_with(items, anchor, self.size, self.scale, look)
+                .with_decor(Vec::new(), vec![4, 8, 9]),
+        );
     }
 
     /// A command of an area item's menu (`op` as in [`Self::pivot_item_menu`]).
@@ -1231,7 +1314,7 @@ impl SheetWindow {
             [32.0, 179.0, 0.0, 0.0],
             Kind::Note(t(
                 "sheetPivot.summarizeHelp",
-                "Choose the type of calculation that you want to use to summarize data from selected field",
+                "Pick the calculation that combines the values of this field",
             )),
         );
         form.add(
@@ -1254,14 +1337,14 @@ impl SheetWindow {
         form.add(
             "showG",
             Some(1),
-            [32.0, 152.0, 450.0, 0.0],
-            Kind::Group(t("sheetPivot.showAs", "Show values as")),
+            [32.0, 152.0, 0.0, 0.0],
+            Kind::Label(t("sheetPivot.showAs", "Show values as")),
         );
         form.set_bold("showG");
         form.add(
             "show",
             Some(1),
-            [32.0, 177.0, 450.0, 26.0],
+            [32.0, 179.0, 450.0, 27.0],
             Kind::Combo {
                 items: SHOW_AS
                     .iter()
@@ -1273,13 +1356,13 @@ impl SheetWindow {
         form.add(
             "baseFL",
             Some(1),
-            [32.0, 215.0, 0.0, 0.0],
+            [32.0, 212.0, 0.0, 0.0],
             Kind::Label(t("sheetPivot.baseField", "Base field:")),
         );
         form.add(
             "baseF",
             Some(1),
-            [32.0, 237.0, 218.0, 96.0],
+            [32.0, 232.0, 217.0, 105.0],
             Kind::List {
                 items: p.fields.iter().map(|x| x.0.clone()).collect(),
                 sel: Some(o.base_field as usize),
@@ -1289,7 +1372,7 @@ impl SheetWindow {
         form.add(
             "baseIL",
             Some(1),
-            [264.0, 215.0, 0.0, 0.0],
+            [264.0, 212.0, 0.0, 0.0],
             Kind::Label(t("sheetPivot.baseItem", "Base item:")),
         );
         let base_items = Self::base_items(&p, o.base_field, &t);
@@ -1301,7 +1384,7 @@ impl SheetWindow {
         form.add(
             "baseI",
             Some(1),
-            [264.0, 237.0, 218.0, 96.0],
+            [264.0, 232.0, 218.0, 105.0],
             Kind::List {
                 items: base_items,
                 sel: Some(bi),
@@ -1317,8 +1400,6 @@ impl SheetWindow {
                 default: false,
             },
         );
-        // Number formats of value fields are not offered here yet.
-        form.enable("numFmt", false);
         form.ok_cancel(&t("common.ok", "OK"), &t("common.cancel", "Cancel"));
         if let Some(c) = form.get_mut("ok") {
             c.rect = [256.0, 374.0, 111.0, 27.0];
@@ -1354,7 +1435,31 @@ impl SheetWindow {
     /// Events of Value Field Settings.
     pub(super) fn value_settings_event(&mut self, ev: &Event) {
         match ev {
-            Event::Cancel => self.form = None,
+            Event::Cancel => {
+                self.form = None;
+                if let Some(p) = self.pivot.as_mut() {
+                    p.vfs = None;
+                }
+                self.sync_pivot_pane();
+            }
+            // Number Format: Format Cells with its Number page only; OK stores the code on
+            // the value field (§18.10.1.21 `dataField/@numFmtId`), then this dialog returns.
+            Event::Clicked("numFmt") => {
+                self.vfs_stash = self.form.take();
+                self.open_format_cells(0);
+                if let Some(f) = self.form.as_mut() {
+                    f.tabs.truncate(1);
+                    let code = self
+                        .pivot
+                        .as_ref()
+                        .and_then(|p| p.vfs.and_then(|v| p.opts.get(&v)))
+                        .map(|o| o.num_fmt.clone())
+                        .unwrap_or_default();
+                    if !code.is_empty() {
+                        f.set_text("code", &code);
+                    }
+                }
+            }
             Event::Changed("show") => {
                 if let Some(form) = self.form.as_mut() {
                     let si = form.sel("show").unwrap_or(0);
@@ -1408,6 +1513,9 @@ impl SheetWindow {
                 let Some(f) = p.vfs.take() else {
                     return;
                 };
+                if let Some(cur) = self.pivot.as_mut() {
+                    cur.vfs = None;
+                }
                 let fi = form.sel("fn").unwrap_or(0).min(SUMMARIES.len() - 1);
                 let si = form.sel("show").unwrap_or(0).min(SHOW_AS.len() - 1);
                 let field = p
@@ -1428,9 +1536,15 @@ impl SheetWindow {
                     1 => BASE_NEXT,
                     n => u32::try_from(n - 2).unwrap_or(0),
                 };
+                let num_fmt = p
+                    .opts
+                    .get(&f)
+                    .map(|o| o.num_fmt.clone())
+                    .unwrap_or_default();
                 p.opts.insert(
                     f,
                     ValueOpts {
+                        num_fmt,
                         show_as: SHOW_AS[si].0.to_owned(),
                         base_field: form
                             .sel("baseF")
@@ -1448,5 +1562,169 @@ impl SheetWindow {
             }
             _ => {}
         }
+    }
+}
+
+impl SheetWindow {
+    /// The gear button: a framed box with BlueOffice's own cog and a solid ▾.
+    fn paint_gear(p: &mut dyn Painter, (x, y): (f32, f32), k: f32) {
+        let (w, h) = ((GEAR[2] * k).round(), (GEAR[3] * k).round());
+        p.fill_rect(x, y, w, h, BOX_EDGE);
+        p.fill_rect(x + 1.0, y + 1.0, w - 2.0, h - 2.0, WHITE);
+        // Cog: eight teeth round a ring.
+        let (cx, cy) = (x + (22.0 * k).round(), y + (h / 2.0).round());
+        let (ro, ri, rh) = (8.5 * k, 6.0 * k, 2.6 * k);
+        let mut segs = Vec::new();
+        for t in 0..16 {
+            let a = std::f32::consts::PI * 2.0 * (t as f32 + 0.5) / 16.0;
+            let r = if t % 2 == 0 { ro } else { ri };
+            let (px, py) = (cx + r * a.cos(), cy + r * a.sin());
+            segs.push(if t == 0 {
+                PathSeg::M(px, py)
+            } else {
+                PathSeg::L(px, py)
+            });
+        }
+        segs.push(PathSeg::Z);
+        p.path(&segs, Some(Rgba(0x60, 0x60, 0x60, 255)), None);
+        let kk = rh * 0.552_284_8;
+        p.path(
+            &[
+                PathSeg::M(cx + rh, cy),
+                PathSeg::C(cx + rh, cy + kk, cx + kk, cy + rh, cx, cy + rh),
+                PathSeg::C(cx - kk, cy + rh, cx - rh, cy + kk, cx - rh, cy),
+                PathSeg::C(cx - rh, cy - kk, cx - kk, cy - rh, cx, cy - rh),
+                PathSeg::C(cx + kk, cy - rh, cx + rh, cy - kk, cx + rh, cy),
+                PathSeg::Z,
+            ],
+            Some(WHITE),
+            None,
+        );
+        let (ax, ay) = (x + w - (16.0 * k).round(), y + (h / 2.0).round());
+        let (hw, ah) = (5.0 * k, 5.0 * k);
+        p.path(
+            &[
+                PathSeg::M(ax - hw, ay - ah / 2.0),
+                PathSeg::L(ax + hw, ay - ah / 2.0),
+                PathSeg::L(ax, ay + ah / 2.0),
+                PathSeg::Z,
+            ],
+            Some(INK),
+            None,
+        );
+    }
+
+    /// The gear menu: pane layouts (only the stacked one is offered yet; the others are
+    /// shown dimmed) and the order of the field list.
+    pub(super) fn pivot_gear_menu(&mut self) {
+        let az = self.pivot.as_ref().is_some_and(|p| p.sort_az);
+        let entries: [(&str, &str, &str, bool, bool); 7] = [
+            (
+                "stacked",
+                "sheetPivot.layoutStacked",
+                "Fields Section and Areas Section Stacked",
+                true,
+                false,
+            ),
+            (
+                "sideBySide",
+                "sheetPivot.layoutSide",
+                "Fields Section and Areas Section Side-By-Side",
+                false,
+                true,
+            ),
+            (
+                "fieldsOnly",
+                "sheetPivot.layoutFields",
+                "Fields Section Only",
+                false,
+                true,
+            ),
+            (
+                "areas22",
+                "sheetPivot.layoutAreas22",
+                "Areas Section Only (2 by 2)",
+                false,
+                true,
+            ),
+            (
+                "areas14",
+                "sheetPivot.layoutAreas14",
+                "Areas Section Only (1 by 4)",
+                false,
+                true,
+            ),
+            ("az", "sheetPivot.sortAz", "Sort A to Z", az, false),
+            (
+                "source",
+                "sheetPivot.sortSource",
+                "Sort in Data Source Order",
+                !az,
+                false,
+            ),
+        ];
+        let items = entries
+            .iter()
+            .map(|(op, key, d, checked, dim)| MenuItem {
+                label: self.t(key, d),
+                choice: Choice::Command(format!("pivotgear.{op}")),
+                checked: *checked,
+                dim: *dim,
+            })
+            .collect();
+        let pane = self.pane_rect();
+        let k = self.scale / 1.25;
+        let anchor = [
+            pane[0] + GEAR[0] * k,
+            pane[1] + GEAR[1] * k,
+            GEAR[2] * k,
+            GEAR[3] * k,
+        ];
+        let look = MenuLook {
+            item_h: 24.0,
+            text: 12.0,
+            text_x: (34.4, 34.4),
+            min_w: 188.8,
+            ..MenuLook::default()
+        };
+        self.menu = Some(
+            Menu::open_with(items, anchor, self.size, self.scale, look)
+                .with_decor(Vec::new(), vec![5]),
+        );
+    }
+
+    /// A choice of the gear menu.
+    pub(super) fn pivot_gear_command(&mut self, op: &str) -> bool {
+        let Some(p) = self.pivot.as_mut() else {
+            return false;
+        };
+        match op {
+            "az" => p.sort_az = true,
+            "source" => p.sort_az = false,
+            _ => return false,
+        }
+        true
+    }
+}
+
+impl SheetWindow {
+    /// Format Cells opened from Value Field Settings closed: OK keeps its number format code
+    /// for the value field; both return to Value Field Settings. `false` when Format Cells
+    /// was not opened from there.
+    pub(super) fn vfs_number_format_done(&mut self, ok: bool) -> bool {
+        let Some(stash) = self.vfs_stash.take() else {
+            return false;
+        };
+        if ok {
+            let code = self.fc_number_code();
+            if let Some(p) = self.pivot.as_mut() {
+                if let Some(f) = p.vfs {
+                    p.opts.entry(f).or_default().num_fmt = code;
+                }
+            }
+        }
+        self.form = Some(stash);
+        self.form_kind = FormKind::PivotValue;
+        true
     }
 }

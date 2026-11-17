@@ -268,3 +268,56 @@ fn area_item_menus_drags_and_value_field_settings() {
     assert!(w.run_command("pivotitem.remove.3.2", &Fixed));
     assert!(w.pivot.as_ref().is_some_and(|p| p.values.is_empty()));
 }
+
+#[test]
+fn compact_report_gear_menu_and_value_number_format() {
+    let mut w = pivot_window();
+    w.pivot_toggle(0);
+    w.pivot_toggle(2);
+    // Compact layout: "Row Labels" over the items, which are not bold.
+    assert_eq!(shown(&w, 2, 0), "Row Labels");
+    let bold = |w: &SheetWindow, r: u32| {
+        w.view()
+            .engine()
+            .workbook()
+            .and_then(|wb| {
+                let c = wb.sheets[0].cell(r, 0)?;
+                let xf = wb.styles.xf(c.style)?;
+                wb.styles.fonts.get(xf.font_id as usize).map(|f| f.bold)
+            })
+            .unwrap_or(false)
+    };
+    assert!(!bold(&w, 3), "items in regular weight");
+    assert!(bold(&w, 5), "Grand Total bold");
+    // Gear menu: sort the field list A to Z.
+    assert!(w.run_command("pivot.gear", &Fixed));
+    assert!(w.menu.is_some());
+    w.menu = None;
+    assert!(w.run_command("pivotgear.az", &Fixed));
+    let p = w.pivot.clone().expect("pane");
+    assert_eq!(p.order(), vec![1, 0, 2]);
+    // Value Field Settings › Number Format › OK keeps a format on the value field.
+    assert!(w.run_command("pivotitem.settings.3.2", &Fixed));
+    w.value_settings_event(&form_impl::Event::Clicked("numFmt"));
+    assert_eq!(w.form_kind, form_impl::FormKind::FormatCells);
+    w.form
+        .as_mut()
+        .expect("format cells")
+        .set_sel("cat", Some(11));
+    w.form
+        .as_mut()
+        .expect("format cells")
+        .set_text("code", "0.00");
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert_eq!(w.form_kind, form_impl::FormKind::PivotValue);
+    w.value_settings_event(&form_impl::Event::Ok);
+    assert_eq!(
+        w.pivot
+            .as_ref()
+            .and_then(|p| p.opts.get(&2))
+            .map(|o| o.num_fmt.clone()),
+        Some("0.00".into())
+    );
+    // Two decimals in the workbook's locale.
+    assert!(["17.00", "17,00"].contains(&shown(&w, 3, 1).as_str()));
+}

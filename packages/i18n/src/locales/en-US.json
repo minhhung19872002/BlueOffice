@@ -11307,6 +11307,13 @@
     "found": "{n} cell(s) found"
   },
   "sheetPivot": {
+    "layoutStacked": "Fields Section and Areas Section Stacked",
+    "layoutSide": "Fields Section and Areas Section Side-By-Side",
+    "layoutFields": "Fields Section Only",
+    "layoutAreas22": "Areas Section Only (2 by 2)",
+    "layoutAreas14": "Areas Section Only (1 by 4)",
+    "sortAz": "Sort A to Z",
+    "sortSource": "Sort in Data Source Order",
     "moveUp": "Move Up",
     "moveDown": "Move Down",
     "moveBegin": "Move to Beginning",
@@ -11324,7 +11331,7 @@
     "sourceName": "Source Name:",
     "customName": "Custom Name:",
     "summarizeBy": "Summarize value field by",
-    "summarizeHelp": "Choose the type of calculation that you want to use to summarize data from selected field",
+    "summarizeHelp": "Pick the calculation that combines the values of this field",
     "showAs": "Show values as",
     "baseField": "Base field:",
     "baseItem": "Base item:",

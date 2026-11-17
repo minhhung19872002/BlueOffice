@@ -1159,5 +1159,78 @@ song song 10–17, ghi kết quả 6–30, sắp xếp 0,3–3. Đã làm:
   bằng một lần tra, hoặc một lượt duyệt có thứ tự khi các ô cần ghi chiếm phần lớn trang (trước: ba lần tra B-tree mỗi
   ô).
 
+`cargo bench -p bo-formula` (1 triệu ô, 100 000 công thức hỗn hợp; cùng máy, trước = mã của
+`work/desktop-performance`):
+
+| | trước | sau |
+|---|---|---|
+| `load_and_calc_1m_cells_100k_formulas` | 925 ms | 610 ms |
+| `edit_one_cell_row_dependents` | 9,49 ms | 1,16 ms |
+| `edit_lookup_table_cell` (10 000 ô phụ thuộc) | 38,3 ms | 8,64 ms |
+| `edit_chain_head` (chuỗi 10 000 ô) | 40,0 ms | 8,84 ms |
+
 `cargo test -p bo-formula -p bo-sheet` xanh.
 
+### Vòng 59 — Enter trên sổ lớn
+
+Đầu dò `enter_phases` (release, `big-1m.xlsx`, sửa A1 — ô đầu của chuỗi tổng lũy kế 10 000 ô; máy bận): Enter 70 ms =
+`set_input` 38 ms + `SheetView::changed` 20 ms + `content_size` 15 ms (thanh cuộn gọi lại thêm một lần). Kiểm tra
+"Accessibility: Investigate" trên thanh trạng thái **không** tốn (0,01 ms: chỉ đọc biểu đồ, bảng, ô gộp, liên kết, tên
+trang; không đọc ô). Ba chỗ duyệt mọi ô mỗi lần Enter:
+
+- Chỉ mục công thức mảng cũ (`WbSlot`) bị bỏ ở mọi truy cập ghi vào sổ, nên lần đọc thanh công thức kế tiếp quét lại
+  1 triệu ô; kiểm tra "sửa một phần mảng" (`check_array_parts`) cũng quét mọi ô. Nay chỉ mục giữ qua sửa ô (cập nhật
+  đúng các ô vừa sửa, `take_index` / `restore_index`) và kiểm tra dùng chỉ mục; `tables_after_input` không lấy quyền
+  ghi khi trang không có bảng.
+- `content_size` tìm cột cuối bằng cách nhảy theo hàng (ô cuối của hàng + hàng kế, hai lần tra có thứ tự) khi mỗi
+  hàng có nhiều ô.
+
+Ứng dụng thật (`perf12.ps1 -Repeat 6`, handle của Enter, các lần sau lần đầu; máy có 5 tiến trình rustc):
+
+| | vòng 11 | đầu vòng 12 (chỉ bộ tính) | sau vòng 59 |
+|---|---|---|---|
+| `f100k` sửa D1 (100 000 ô phụ thuộc) | 140–170 ms | 30–35 ms | 24 ms (tổng tới present 27 ms) |
+| `big-1m` sửa A1 (chuỗi 10 000 ô) | ~180 ms | 72–82 ms | 22–24 ms (tổng 28–34 ms) |
+| Lần Enter đầu sau khi mở | — | 50 / 113 ms | 50 / 61 ms (lập kế hoạch tính lần đầu) |
+
+Đối chứng tính lại 100 000 công thức trong 11 ms (đa luồng, vòng 57). Mục tiêu ≤ 16 ms chưa đạt: phần còn lại là ghi
+kết quả 100 000 ô về mô hình (B-tree) và vẽ lại lưới.
+
+### Vòng 60 — bánh xe trên sổ 1 triệu ô
+
+Đo lại: `big-1m` p50 11,6 ms; một sổ nhỏ **cùng mật độ** (400 hàng × 100 cột số, `dense400.xlsx`) cũng 11,7 ms; sổ
+`f100k` (2 cột) 4,2 ms. Thời gian mỗi nấc không phụ thuộc kích thước sổ mà theo số ô có chữ trong dải mới lộ ra (vẽ
+dải 3 hàng × ~20 cột chữ số: dựng display list + vẽ glyph). Việc kế tiếp: đo riêng `render_viewport_with` cho một dải
+(đầu dò `wheel_phases_on_a_big_book` đã có) và bộ nhớ đệm chữ đã định dạng theo ô.
+
+### Vòng 61 — PivotTable
+
+- Trang PivotTable mới đặt **trước** trang nguồn như đối chứng (tạo + chuyển trang là một bước hoàn tác;
+  `sheet-73`), cột của báo cáo tự khớp sau mỗi thay đổi ("Grand Total" không bị cắt; `sheet-74`; cùng bước hoàn tác).
+- Mục trong bốn vùng đo lại trên đối chứng: hộp trắng viền #BFBFBF, cách mép vùng 1 px, 2 px dưới đỉnh, cao 31 px, bước
+  32 px, tam giác đặc 11 × 6 px cách mép phải 18 px.
+- Nhấp một mục mở menu như đối chứng (236 px, hàng 30 px, chữ 15 px; Move Up / Down / to Beginning / to End, Move to
+  Report Filter / Row Labels / Column Labels / Values, Remove Field, Value Field Settings…; mục không áp dụng thì mờ;
+  `sheet-76`, menu đối chứng mở bằng nhấp gửi vào ngăn của bản sao). Kéo mục sang vùng khác / vị trí khác để chuyển,
+  thả lên danh sách trường hoặc ra ngoài ngăn để bỏ.
+- Báo cáo mới ở bố cục gọn (compact) như đối chứng: ô tiêu đề "Row Labels" có nút trường ▾ (vẽ như nút lọc, cả
+  "Column Labels" khi có trường cột), mục của trường hàng trong cùng không đậm với kiểu mặc định (tiêu đề và hàng
+  Grand Total vẫn đậm, dải xanh nhạt, viền trên kép).
+- Nút bánh răng ▾ của ngăn (62 × 37 px, hình bánh răng riêng): menu bố cục ngăn (xếp chồng — các bố cục khác hiện mờ)
+  và Sort A to Z / Sort in Data Source Order cho danh sách trường.
+- Value Field Settings (514 × 421 px như đối chứng mở bằng `ExecuteMso("PivotTableFieldSettings")` trên bản sao,
+  `sheet-75`): Source Name, Custom Name, hai thẻ Summarize Values By (11 hàm) / Show Values As (15 phép tính, Base field
+  / Base item, bật tắt theo phép tính; trang đo lại theo đối chứng), Number Format mở Format Cells chỉ với trang Number
+  và lưu mã định dạng vào trường giá trị (§18.10.1.21 `dataField/@numFmtId`); tiêu đề "Summarize value field by" đậm
+  có vạch dưới. Tên mặc định đổi theo hàm; tên riêng được giữ. Lời mô tả
+  là câu riêng của BlueOffice. Test `area_item_menus_drags_and_value_field_settings`,
+  `new_pivot_sheet_goes_left_of_its_source_and_fits_its_columns`.
+
+## Còn lại (sau vòng 12)
+
+- Enter 22–24 ms trên sổ lớn (mục tiêu ≤ 16 ms): ghi 100 000 kết quả về mô hình, vẽ lại lưới; lần Enter đầu 50–60 ms.
+- Bánh xe 11–12 ms khi màn hình đầy ô chữ số (không phụ thuộc kích thước sổ).
+- PivotTable: thẻ ngữ cảnh PivotTable Analyze / Design (Refresh, Change Data Source, bố cục báo cáo, tổng phụ, tổng
+  chung, hàng xen màu) chưa làm; Field Settings của trường hàng / cột mờ; menu mục chưa có biểu tượng; bố cục ngăn cạnh nhau / chỉ trường / chỉ vùng chưa làm; nút trường ▾ trên báo cáo chưa
+  mở menu sắp xếp / lọc của trường.
+- Function Arguments, Accessibility, Find and Replace, Format Cells: như sau vòng 11.

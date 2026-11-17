@@ -11307,6 +11307,13 @@
     "found": "Tìm thấy {n} ô"
   },
   "sheetPivot": {
+    "layoutStacked": "Phần trường và phần vùng xếp chồng",
+    "layoutSide": "Phần trường và phần vùng cạnh nhau",
+    "layoutFields": "Chỉ phần trường",
+    "layoutAreas22": "Chỉ phần vùng (2 × 2)",
+    "layoutAreas14": "Chỉ phần vùng (1 × 4)",
+    "sortAz": "Sắp xếp A đến Z",
+    "sortSource": "Sắp xếp theo thứ tự nguồn dữ liệu",
     "moveUp": "Chuyển lên",
     "moveDown": "Chuyển xuống",
     "moveBegin": "Chuyển lên đầu",

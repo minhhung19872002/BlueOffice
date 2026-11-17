@@ -8,11 +8,14 @@ use crate::{Key, Painter, TextMeasure, TextStyle};
 use bo_engine::slide_edit::show::AnimOut;
 use bo_render::{PathSeg, Rgba};
 
-const PANE_BG: Rgba = Rgba(0xff, 0xff, 0xff, 255);
+// The reference's pane is grey (230) with white-filled buttons framed 171 (round 19).
+const PANE_BG: Rgba = Rgba(0xe6, 0xe6, 0xe6, 255);
+const BUTTON_EDGE: Rgba = Rgba(0xab, 0xab, 0xab, 255);
+const BUTTON_FILL: Rgba = Rgba(0xfd, 0xfd, 0xfd, 255);
+const DIM_EDGE: Rgba = Rgba(0xe1, 0xe1, 0xe1, 255);
 const SPLIT: Rgba = Rgba(0xbf, 0xbf, 0xbf, 255);
-const EDGE: Rgba = Rgba(0xc6, 0xc6, 0xc6, 255);
-const SELECTED: Rgba = Rgba(0xcd, 0xe6, 0xf7, 255);
-const DIM: Rgba = Rgba(0x60, 0x60, 0x60, 255);
+// The chosen rows on a light tint of BlueSlide's accent (the reference tints its own).
+const SELECTED: Rgba = Rgba(0xf6, 0xd1, 0xde, 255);
 const ENTR: Rgba = Rgba(0x3f, 0xa3, 0x4d, 255);
 const EMPH: Rgba = Rgba(0xe8, 0xb3, 0x1e, 255);
 const EXIT: Rgba = Rgba(0xd2, 0x4a, 0x3c, 255);
@@ -55,6 +58,10 @@ pub struct AnimPane {
     scale: f32,
     /// Effects listed by the last [`AnimPane::record`].
     count: usize,
+    /// Rows added to the chosen one with Shift (round 19: "Play Selected").
+    pub extra: Vec<usize>,
+    /// Advanced Timeline hidden (the rows' menu toggles it).
+    pub hide_timeline: bool,
     /// Click targets laid out by the last [`AnimPane::record`].
     pub(crate) hits: Vec<([f32; 4], AnimHit)>,
     ops: Vec<Op>,
@@ -107,10 +114,6 @@ impl AnimPane {
         self.shown && x >= rx && x < rx + rw && y >= ry && y < ry + rh
     }
 
-    fn px(&self, v: f32) -> f32 {
-        (v * self.scale).round()
-    }
-
     /// What a click at a window position hits.
     pub fn press(&self, x: f32, y: f32) -> Option<AnimHit> {
         self.hits
@@ -149,13 +152,19 @@ impl AnimPane {
     }
 
     /// Lay the pane out for `effects` of the current slide; `labels`: title, Play From,
-    /// Play All.
+    /// Play All, Play Selected. Measured on the reference at 125 % (round 19, device px from
+    /// the pane's corner): grey ground, the title in large text cut with "…" before its
+    /// chevron and ✕, Play From 125 × 40 at (17, 64), the reorder buttons 40 × 40 at 183 and
+    /// 226 (a light frame when dimmed), rows of 31 px from y 118, and the Advanced Timeline:
+    /// each effect a small box 23 px tall with a 1 px darker frame from its start (delay
+    /// within its click) for its duration, 20 px a second from 184 px into the list; an
+    /// effect started after the previous one has a hairline down its row at its start.
     #[allow(clippy::too_many_lines)]
     pub fn record(
         &mut self,
         text: &dyn TextMeasure,
         effects: &[AnimOut],
-        labels: &[String; 3],
+        labels: &[String; 4],
         ink: Rgba,
     ) {
         let mut ops = Vec::new();
@@ -165,24 +174,26 @@ impl AnimPane {
         if self.selected.is_some_and(|s| s >= effects.len()) {
             self.selected = None;
         }
+        self.extra.retain(|&i| i < effects.len());
+        // Reference px at 125 % → device px.
+        let d = |v: f32| (v * self.scale / 1.25).round();
         ops.push(Op::Rect([x, y, w, h], PANE_BG));
         ops.push(Op::Rect([x, y, 1.0, h], SPLIT));
-        let pad = self.px(11.2);
         let title = TextStyle {
-            size: self.px(16.0),
+            size: d(30.0 / 1.1),
             bold: false,
         };
         let body = TextStyle {
-            size: self.px(12.0),
+            size: d(20.0 / 1.1),
             bold: false,
         };
-        let line = text.measure("Ag", body).1.max(self.px(14.0));
-        ops.push(Op::Text(labels[0].clone(), x + pad, y + pad, title, ink));
-        // Close cross.
-        let cs = self.px(20.0);
-        let close = [x + w - pad - cs, y + pad, cs, cs];
-        let k = self.px(5.0);
+        let line = text.measure("Ag", body).1.max(d(18.0));
+        // Close cross and the chevron of the pane's menu.
+        let cs = d(24.0);
+        let close = [x + w - d(30.0), y + d(16.0), cs, cs];
+        let k = d(7.0);
         let (cx, cy) = (close[0] + cs / 2.0, close[1] + cs / 2.0);
+        let pen = Some((ink, (self.scale / 1.25).max(1.0)));
         ops.push(Op::Path(
             vec![
                 PathSeg::M(cx - k, cy - k),
@@ -191,142 +202,159 @@ impl AnimPane {
                 PathSeg::L(cx - k, cy + k),
             ],
             None,
-            Some((ink, self.scale.max(1.0).round())),
+            pen,
         ));
         hits.push((close, AnimHit::Close));
-        // Play button (a triangle and its label), reorder arrows at the right.
-        let by = y + pad + self.px(32.0);
-        let bh = self.px(26.0);
-        let label = if self.selected.is_some() {
+        let chev_x = close[0] - d(34.0);
+        let t = fit(&labels[0], chev_x - d(10.0) - (x + d(16.0)), text, title);
+        ops.push(Op::Text(t, x + d(16.0), y + d(12.0), title, ink));
+        let s = d(7.0);
+        ops.push(Op::Path(
+            vec![
+                PathSeg::M(chev_x, cy - s / 2.0),
+                PathSeg::L(chev_x + s, cy + s / 2.0),
+                PathSeg::L(chev_x + 2.0 * s, cy - s / 2.0),
+            ],
+            None,
+            pen,
+        ));
+        // Play From / Play All / Play Selected: an outlined triangle and the label.
+        let by = y + d(64.0);
+        let bh = d(40.0);
+        let label = if !self.extra.is_empty() {
+            &labels[3]
+        } else if self.selected.is_some() {
             &labels[1]
         } else {
             &labels[2]
         };
         let (lw, _) = text.measure(label, body);
-        let play = [x + pad, by, lw + self.px(34.0), bh];
-        ops.push(Op::Rect(play, EDGE));
+        let play = [x + d(17.0), by, (lw + d(62.0)).max(d(125.0)), bh];
+        ops.push(Op::Rect(play, BUTTON_EDGE));
         ops.push(Op::Rect(
             [play[0] + 1.0, play[1] + 1.0, play[2] - 2.0, play[3] - 2.0],
-            PANE_BG,
+            BUTTON_FILL,
         ));
-        let (tx, ty) = (play[0] + self.px(10.0), play[1] + bh / 2.0);
-        let t = self.px(5.0);
+        let (tx, ty) = (play[0] + d(15.0), play[1] + bh / 2.0);
+        let tri = d(8.0);
         ops.push(Op::Path(
             vec![
-                PathSeg::M(tx, ty - t),
-                PathSeg::L(tx + 1.6 * t, ty),
-                PathSeg::L(tx, ty + t),
+                PathSeg::M(tx, ty - tri),
+                PathSeg::L(tx + 1.1 * tri, ty),
+                PathSeg::L(tx, ty + tri),
                 PathSeg::Z,
             ],
-            Some(ENTR),
-            None,
+            Some(Rgba(0xb4, 0xb4, 0xb4, 255)),
+            Some((Rgba(0x80, 0x80, 0x80, 255), 1.0)),
         ));
         ops.push(Op::Text(
             label.clone(),
-            play[0] + self.px(24.0),
+            play[0] + d(45.0),
             play[1] + (bh - line) / 2.0,
             body,
             ink,
         ));
         hits.push((play, AnimHit::Play));
-        let aw = self.px(24.0);
-        for (k, (hit, up)) in [(AnimHit::Earlier, true), (AnimHit::Later, false)]
-            .into_iter()
-            .enumerate()
-        {
-            let r = [
-                x + w - pad - (2 - k) as f32 * (aw + self.px(4.0)),
-                by,
-                aw,
-                bh,
-            ];
-            let enabled = match (self.selected, up) {
-                (Some(s), true) => s > 0,
-                (Some(s), false) => s + 1 < effects.len(),
+        // Move Up / Move Down: square buttons with filled triangles.
+        let first = self.first_chosen();
+        let last = self.last_chosen();
+        for (bx, hit, up) in [
+            (183.0, AnimHit::Earlier, true),
+            (226.0, AnimHit::Later, false),
+        ] {
+            let r = [x + d(bx), by, d(40.0), d(40.0)];
+            let enabled = match (first, last, up) {
+                (Some(f), _, true) => f > 0,
+                (_, Some(l), false) => l + 1 < effects.len(),
                 _ => false,
             };
-            let c = if enabled { ink } else { EDGE };
-            let (ax, ay) = (r[0] + aw / 2.0, r[1] + bh / 2.0);
-            let d = if up { -1.0 } else { 1.0 };
+            ops.push(Op::Rect(r, if enabled { BUTTON_EDGE } else { DIM_EDGE }));
+            ops.push(Op::Rect(
+                [r[0] + 1.0, r[1] + 1.0, r[2] - 2.0, r[3] - 2.0],
+                BUTTON_FILL,
+            ));
+            let (ax, ay) = (r[0] + r[2] / 2.0, r[1] + r[3] / 2.0);
+            let (hw, hh) = (d(7.0), d(4.0));
+            let dir = if up { -1.0 } else { 1.0 };
             ops.push(Op::Path(
                 vec![
-                    PathSeg::M(ax - k_of(self.scale), ay + d * -k_of(self.scale) / 2.0),
-                    PathSeg::L(ax, ay + d * k_of(self.scale) / 2.0),
-                    PathSeg::L(ax + k_of(self.scale), ay + d * -k_of(self.scale) / 2.0),
+                    PathSeg::M(ax - hw, ay - dir * hh / 2.0),
+                    PathSeg::L(ax + hw, ay - dir * hh / 2.0),
+                    PathSeg::L(ax, ay + dir * hh),
+                    PathSeg::Z,
                 ],
+                Some(if enabled {
+                    Rgba(0x80, 0x80, 0x80, 255)
+                } else {
+                    Rgba(0xc8, 0xc8, 0xc8, 255)
+                }),
                 None,
-                Some((c, self.scale.max(1.0).round() + 0.5)),
             ));
             hits.push((r, hit));
         }
         // The list.
-        let top = by + bh + pad;
-        ops.push(Op::Rect([x + pad, top, w - 2.0 * pad, 1.0], EDGE));
-        let row_h = self.px(25.6);
-        let end = effects
-            .iter()
-            .map(|a| f64::from(a.end_ms))
-            .fold(1.0, f64::max);
-        let bar_x = x + w * 0.62;
-        let bar_w = w - pad - (bar_x - x) - self.px(4.0);
-        let mut ry = top + self.px(4.0);
+        let lx = x + d(17.0);
+        let lw = (w - d(26.0)).max(d(100.0));
+        let row_h = d(31.0);
+        let bar_x = lx + d(184.0).min(lw * 0.74);
+        // 20 px a second, fewer when the longest click would leave the pane.
+        let end = effects.iter().map(|a| a.end_ms).max().unwrap_or(0).max(1);
+        let room = (lx + lw - d(30.0) - bar_x).max(d(20.0));
+        let per_ms = (d(20.0) / 1000.0).min(room / end as f32);
+        let mut ry = y + d(118.0);
         for (i, a) in effects.iter().enumerate() {
             if ry > y + h {
                 break;
             }
-            let r = [x + pad, ry, w - 2.0 * pad, row_h];
-            if self.selected == Some(i) {
+            let r = [lx, ry, lw, row_h];
+            if self.selected == Some(i) || self.extra.contains(&i) {
                 ops.push(Op::Rect(r, SELECTED));
             }
             let ty = ry + (row_h - line) / 2.0;
-            // Click number on effects started by a click.
+            // Click number on effects started by a click, right-aligned before the star.
             if a.trigger == "onClick" {
-                ops.push(Op::Text(
-                    a.click.to_string(),
-                    x + pad + self.px(4.0),
-                    ty,
-                    body,
-                    DIM,
-                ));
+                let n = a.click.to_string();
+                let nw = text.measure(&n, body).0;
+                ops.push(Op::Text(n, lx + d(29.0) - nw, ty, body, ink));
             }
-            let sc = (x + pad + self.px(26.0), ry + row_h / 2.0);
+            let sc = (lx + d(41.0), ry + row_h / 2.0);
             ops.push(Op::Path(
-                star(sc.0, sc.1, self.px(7.0)),
+                star(sc.0, sc.1, d(9.0)),
                 Some(class_color(a.class)),
                 None,
             ));
-            let name = fit(
-                &a.shape_name,
-                bar_x - (x + pad + self.px(40.0)) - self.px(6.0),
-                text,
-                body,
-            );
-            ops.push(Op::Text(name, x + pad + self.px(40.0), ty, body, ink));
-            // Timing bar: start to end within the slide's longest end.
-            let k = bar_w / end as f32;
-            let bx = bar_x + a.start_ms as f32 * k;
-            let bw = ((a.end_ms.saturating_sub(a.start_ms)) as f32 * k).max(self.px(4.0));
-            let bh = self.px(8.0);
-            ops.push(Op::Rect(
-                [
-                    bx.round(),
-                    (ry + (row_h - bh) / 2.0).round(),
-                    bw.round(),
-                    bh,
-                ],
-                class_color(a.class),
-            ));
-            hits.push((r, AnimHit::Select(i)));
-            // The chosen row's drop-down button at its right end, as on the reference.
-            if self.selected == Some(i) {
-                let bw = self.px(18.0);
-                let b = [r[0] + r[2] - bw, ry + 1.0, bw, row_h - 2.0];
-                ops.push(Op::Rect(b, EDGE));
+            let name_x = lx + d(55.0);
+            let name_end = if self.hide_timeline {
+                lx + lw - d(30.0)
+            } else {
+                bar_x - d(4.0)
+            };
+            let name = fit(&a.shape_name, name_end - name_x, text, body);
+            ops.push(Op::Text(name, name_x, ty, body, ink));
+            if !self.hide_timeline {
+                let bh = d(23.0);
+                let bx = (bar_x + a.start_ms as f32 * per_ms).round();
+                let bw = ((a.end_ms.saturating_sub(a.start_ms)) as f32 * per_ms)
+                    .round()
+                    .max(d(4.0));
+                let top = (ry + (row_h - bh) / 2.0).round();
+                let (fill, edge) = bar_colors(a.class);
+                ops.push(Op::Rect([bx, top, bw, bh], edge));
                 ops.push(Op::Rect(
-                    [b[0] + 1.0, b[1] + 1.0, b[2] - 2.0, b[3] - 2.0],
-                    PANE_BG,
+                    [bx + 1.0, top + 1.0, (bw - 2.0).max(1.0), bh - 2.0],
+                    fill,
                 ));
-                let (ax, ay, k) = (b[0] + bw / 2.0, b[1] + b[3] / 2.0, self.px(3.5));
+                if a.trigger == "afterPrevious" && a.start_ms > 0 {
+                    // A hairline down the row at the effect's start (reference).
+                    ops.push(Op::Rect([bx, ry, 1.0, row_h], edge));
+                }
+            }
+            hits.push((r, AnimHit::Select(i)));
+            // The chosen row's drop-down arrow at its right end, as on the reference.
+            if self.selected == Some(i) {
+                let bw = d(26.0);
+                let b = [r[0] + r[2] - bw, ry, bw, row_h];
+                let (ax, ay, k) = (b[0] + bw / 2.0, b[1] + b[3] / 2.0, d(6.0));
                 ops.push(Op::Path(
                     vec![
                         PathSeg::M(ax - k, ay - k / 2.0),
@@ -344,11 +372,41 @@ impl AnimPane {
         self.ops = ops;
         self.hits = hits;
     }
+
+    /// First and last chosen rows (the chosen one and Shift-added ones).
+    fn first_chosen(&self) -> Option<usize> {
+        self.selected
+            .into_iter()
+            .chain(self.extra.iter().copied())
+            .min()
+    }
+
+    fn last_chosen(&self) -> Option<usize> {
+        self.selected
+            .into_iter()
+            .chain(self.extra.iter().copied())
+            .max()
+    }
+
+    /// Shift+click: choose the rows from the chosen one to `i` ("Play Selected").
+    pub fn extend_to(&mut self, i: usize) {
+        let Some(s) = self.selected else {
+            self.selected = Some(i);
+            return;
+        };
+        self.extra = (s.min(i)..=s.max(i)).filter(|&k| k != s).collect();
+    }
 }
 
-/// Half width of the reorder chevrons.
-fn k_of(scale: f32) -> f32 {
-    (5.0 * scale).round()
+/// Timing bar fill and frame of an effect class: green entrances as the reference's
+/// (158, 219, 134 framed 56, 104, 33), and the same lightness for the other classes.
+fn bar_colors(class: &str) -> (Rgba, Rgba) {
+    match class {
+        "entr" => (Rgba(158, 219, 134, 255), Rgba(56, 104, 33, 255)),
+        "emph" => (Rgba(250, 216, 120, 255), Rgba(150, 110, 10, 255)),
+        "exit" => (Rgba(240, 160, 150, 255), Rgba(150, 45, 30, 255)),
+        _ => (Rgba(160, 196, 238, 255), Rgba(40, 80, 150, 255)),
+    }
 }
 
 /// `s` shortened with an ellipsis to fit `width`.

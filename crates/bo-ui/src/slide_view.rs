@@ -355,6 +355,8 @@ pub struct SlideView {
     /// (slide points: from, to, grammar), checked again on the next tick after a change.
     spell: Vec<([f64; 2], [f64; 2], bool)>,
     spell_dirty: bool,
+    /// Bumped whenever a command changes slide content (round 19: checks cached on it).
+    content_rev: u64,
     /// Slide Sorter zoom (1 = 100 %).
     sort_zoom: f32,
     /// Draw tab tool in use, and the stroke being drawn (slide points).
@@ -447,6 +449,7 @@ impl SlideView {
             live_since: None,
             spell: Vec::new(),
             spell_dirty: true,
+            content_rev: 0,
             sort_zoom: 1.0,
             ink_tool: None,
             draw_ruler: None,
@@ -523,6 +526,21 @@ impl SlideView {
             .as_ref()
             .map(|s| s.format.clone())
             .unwrap_or_default()
+    }
+
+    /// Length of the undo history (to merge the steps made after it).
+    pub fn history_mark(&mut self) -> usize {
+        self.history_len()
+    }
+
+    /// Merge the undo steps made since `history_mark` into one.
+    pub fn merge_history(&mut self, since: usize) -> bool {
+        self.history_len() > since + 1 && self.run(SlideCommand::MergeHistory { since })
+    }
+
+    /// A number that changes whenever a command changes slide content.
+    pub fn content_rev(&self) -> u64 {
+        self.content_rev
     }
 
     /// Undo / redo are available.
@@ -1158,6 +1176,9 @@ impl SlideView {
         self.caret_on = true;
         if moved || !r.dirty.is_empty() || r.slides_changed {
             self.spell_dirty = true;
+        }
+        if !r.dirty.is_empty() || r.slides_changed {
+            self.content_rev += 1;
         }
         self.state = Some(r);
     }

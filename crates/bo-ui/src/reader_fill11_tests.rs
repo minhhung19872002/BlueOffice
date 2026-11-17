@@ -115,19 +115,58 @@ fn saved_signatures_survive_their_text_form() {
             },
             initials: false,
             color: [0, 0, 255],
+            keep_size: false,
+            session: false,
         },
         SavedSig {
             ink: SignatureInk::Strokes(vec![vec![[0.0, 0.5], [1.0, 0.25]], vec![[0.5, 0.5]]]),
             initials: true,
             color: [255, 0, 0],
+            keep_size: false,
+            session: false,
         },
         SavedSig {
             ink: SignatureInk::Image(vec![1, 2, 3, 250]),
             initials: false,
             color: [0, 0, 0],
+            keep_size: false,
+            session: false,
         },
     ];
     assert_eq!(decode_sigs(&encode_sigs(&sigs)), sigs);
+    // Round 11 Options: keep size survives, discarded signatures are not written; a typed
+    // signature in a system font is kept as shapes.
+    let more = vec![
+        SavedSig {
+            ink: SignatureInk::Image(vec![9, 9]),
+            initials: true,
+            color: [0, 0, 0],
+            keep_size: true,
+            session: false,
+        },
+        SavedSig {
+            ink: SignatureInk::Shape {
+                segs: vec![
+                    bo_render::PathSeg::M(0.0, 0.5),
+                    bo_render::PathSeg::C(0.25, 0.0, 0.75, 1.0, 1.0, 0.5),
+                    bo_render::PathSeg::Z,
+                ],
+                aspect: 3.5,
+            },
+            initials: false,
+            color: [0, 0, 255],
+            keep_size: false,
+            session: false,
+        },
+        SavedSig {
+            ink: SignatureInk::Strokes(vec![vec![[0.0, 0.0]]]),
+            initials: false,
+            color: [0, 0, 0],
+            keep_size: false,
+            session: true,
+        },
+    ];
+    assert_eq!(decode_sigs(&encode_sigs(&more)), more[..2].to_vec());
     assert_eq!(decode_sigs("garbage\nX|0|000000|y").len(), 0);
 }
 
@@ -354,4 +393,21 @@ fn reflow_reads_with_the_keyboard() {
     assert_eq!(w.reflow_page11(), Some(1));
     key(&mut w, Key::Home, false);
     assert_eq!(w.reflow_page11(), Some(0));
+}
+
+#[test]
+fn fill_and_sign_keeps_the_status_bar_in_place() {
+    let mut w = window_with(form_pdf());
+    let ids = [
+        "page.next",
+        "page.last",
+        "view.single",
+        "zoom.out",
+        "zoom.in",
+    ];
+    let before: Vec<_> = ids.iter().map(|id| w.control_rect(id)).collect();
+    w.run_command("prot.fillSign", &Fixed);
+    assert!(w.control_rect("fill.gallery").is_some());
+    let after: Vec<_> = ids.iter().map(|id| w.control_rect(id)).collect();
+    assert_eq!(before, after);
 }

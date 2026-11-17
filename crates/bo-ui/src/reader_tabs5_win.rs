@@ -118,14 +118,17 @@ impl ReaderWindow {
     pub(crate) fn fill_items() -> Vec<(&'static str, super::Kind)> {
         use super::Kind::{Big, Sep, Small};
         // Round 11, as the reference's tab: the signature gallery, Manage Signatures, Keep
-        // Tool Selected | Add Text, Predefined Text | the marks in a 3 × 2 grid | Close.
+        // Tool Selected, Apply All Signatures | Add Text, Comb Field, Predefined Text | the
+        // marks in a 3 × 2 grid | Close.
         vec![
             ("sep1", Sep),
             ("fill.gallery", Big("", "", false)),
-            ("fill.manage", Big("manageSig", "pdfFill.manage", true)),
+            ("fill.manage", Big("manageSig", "pdfFill.manage", false)),
             ("fill.keep", Big("pin", "pdfFill.keep", false)),
+            ("fill.applyAll", Big("applySigs", "pdfFill.applyAll", false)),
             ("sep2", Sep),
             ("fill.text", Big("addText", "pdfFill.addText", false)),
+            ("fill.comb", Big("combField", "pdfFill.comb", false)),
             ("menu.fillPredef", Big("predefText", "pdfFill.predef", true)),
             ("sep3", Sep),
             ("fill.check", Small("check")),

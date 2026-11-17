@@ -588,6 +588,23 @@ fn standard_symbol_fonts_use_their_built_in_encodings() {
 }
 
 #[test]
+fn zapf_dingbats_ignores_a_named_base_encoding() {
+    // PyMuPDF's check boxes: `/BaseFont /ZapfDingbats /Encoding /WinAnsiEncoding`, code '3'.
+    let pdf = build_pdf(&[
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R \
+         /Resources << /Font << /Z 5 0 R >> >> >>",
+        "<< /Length 33 >>\nstream\nBT /Z 12 Tf 72 700 Td (3) Tj ET\nendstream",
+        "<< /Type /Font /Subtype /Type1 /BaseFont /ZapfDingbats /Encoding /WinAnsiEncoding >>",
+    ]);
+    let mut doc = open(pdf);
+    let page = doc.render(0, RenderOptions::default()).expect("renders");
+    let text: String = page.chars.iter().map(|c| c.text.as_str()).collect();
+    assert_eq!(text, "\u{2713}");
+}
+
+#[test]
 fn aes_256_with_an_empty_user_password_opens() {
     // Revision 6 (ISO 32000-2 §7.6.4.4) with only an owner password (made with MuPDF).
     let bytes = include_bytes!("../testdata/aes256-empty-user.pdf").to_vec();

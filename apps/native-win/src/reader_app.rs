@@ -717,6 +717,35 @@ impl Shell {
                         self.window.file_picked("paste10txt", p, t.as_bytes());
                     }
                 }
+                // Create Signature (round 11): the system's handwriting fonts for a typed
+                // signature (read only when the dialog first opens), a picture to paste.
+                ReaderRequest::Command(c) if c == "host.sigfonts11" => {
+                    let dir = std::env::var_os("WINDIR")
+                        .map_or_else(|| "C:\\Windows".into(), std::path::PathBuf::from)
+                        .join("Fonts");
+                    for (name, file) in [
+                        ("Segoe Script", "segoesc.ttf"),
+                        ("Ink Free", "Inkfree.ttf"),
+                        ("Segoe Print", "segoepr.ttf"),
+                        ("Lucida Handwriting", "LHANDW.TTF"),
+                    ] {
+                        if let Ok(data) = std::fs::read(dir.join(file)) {
+                            let mut b = name.as_bytes().to_vec();
+                            b.push(0);
+                            b.extend_from_slice(&data);
+                            self.window
+                                .file_picked("sigfont11", std::path::Path::new(file), &b);
+                        }
+                    }
+                }
+                ReaderRequest::Command(c) if c == "host.sigpaste11" => {
+                    let dib = clip::get_dib().unwrap_or_default();
+                    self.window.file_picked(
+                        "sig11dib",
+                        std::path::Path::new("clipboard.bmp"),
+                        &dib,
+                    );
+                }
                 // Fill & Sign's saved signatures (round 11).
                 ReaderRequest::Command(c) if c.starts_with("host.sigs11:") => {
                     if let Some(f) = sigs_file() {

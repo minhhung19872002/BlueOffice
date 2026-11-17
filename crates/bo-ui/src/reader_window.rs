@@ -86,7 +86,9 @@ const NAV_BG: Rgba = Rgba(245, 246, 250, 255);
 const STRIP: Rgba = Rgba(230, 233, 240, 255);
 const PAGE_EDGE: Rgba = Rgba(119, 120, 122, 255);
 const TEXT: Rgba = Rgba(51, 51, 51, 255);
-const MUTED: Rgba = Rgba(150, 150, 151, 255);
+// Hints and labels: the reference's 150 grey gave 2.96 : 1 on white; 112 keeps 4.5 : 1 on
+// every panel (WCAG 2.2 SC 1.4.3, round 11 contrast audit of every skin).
+const MUTED: Rgba = Rgba(112, 112, 113, 255);
 const PRESSED: Rgba = Rgba(230, 233, 240, 255);
 const HOVER: Rgba = Rgba(238, 240, 245, 255);
 const TRACK: Rgba = Rgba(240, 240, 240, 255);
@@ -1212,7 +1214,9 @@ impl ReaderWindow {
                     let words: Vec<&str> = text.split(' ').collect();
                     // Two-line labels wrap at the last space.
                     let two = words.len() > 1
-                        && (text.len() > self.wrap_after9() || self.look.wrap_words);
+                        && (text.len() > self.wrap_after9()
+                            || self.look.wrap_words
+                            || self.wraps11(label));
                     // The drop-down arrow follows the second line: it widens the button only
                     // when that line with the arrow is the longer one.
                     let arrow = if dropdown && two {
@@ -2789,7 +2793,9 @@ impl ReaderWindow {
                     );
                     let text = self.t(label);
                     let lines: Vec<String> = if text.contains(' ')
-                        && (text.len() > self.wrap_after9() || self.look.wrap_words)
+                        && (text.len() > self.wrap_after9()
+                            || self.look.wrap_words
+                            || self.wraps11(label))
                     {
                         let (a, b) = self.split_label9(&text);
                         vec![a.to_owned(), b.to_owned()]
@@ -3079,6 +3085,9 @@ impl ReaderWindow {
     fn enabled(&self, id: &str) -> bool {
         if let Some(&e) = self.enabled_override.get(id) {
             return e;
+        }
+        if let Some(e) = self.eleven_enabled(id) {
+            return e && self.showing_doc();
         }
         if let Some(e) = self.tabs5_enabled(id) {
             return e && self.showing_doc();

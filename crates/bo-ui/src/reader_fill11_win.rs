@@ -63,6 +63,10 @@ pub(crate) struct SavedSig {
     pub(crate) ink: SignatureInk,
     pub(crate) initials: bool,
     pub(crate) color: [u8; 3],
+    /// Options › Keep original size: a picture is placed at 96 dpi.
+    pub(crate) keep_size: bool,
+    /// Options › Discard this signature when the program closes (not written to disk).
+    pub(crate) session: bool,
 }
 
 /// What a click on the page places (besides the round 5 marks).
@@ -74,7 +78,12 @@ pub(crate) enum Mark11 {
     Text,
     /// Predefined text (the author's name, today's date).
     Predef(String),
+    /// Comb Field: text typed in place, one character per cell.
+    Comb,
 }
+
+/// Comb Field's cell (page points) and text size.
+const COMB_CELL: f32 = 14.0;
 
 /// A text field being typed in.
 #[derive(Debug, Clone, PartialEq)]
@@ -90,7 +99,7 @@ pub(crate) struct FieldEdit {
 /// The Create Signature dialog.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub(crate) struct SigDialog {
-    /// 0 Type, 1 Draw, 2 Import.
+    /// 0 Type, 1 Draw, 2 Import, 3 Paste.
     pub(crate) tab: u8,
     pub(crate) text: String,
     pub(crate) face: usize,
@@ -103,6 +112,13 @@ pub(crate) struct SigDialog {
     /// The font list or the colour row is open.
     fonts_open: bool,
     colours_open: bool,
+    /// The Options box is open; its choices (black & white, keep size, discard) and what they
+    /// were when it opened (Cancel).
+    pub(crate) options_open: bool,
+    pub(crate) bw: bool,
+    pub(crate) keep_size: bool,
+    pub(crate) discard: bool,
+    options_was: (bool, bool, bool),
 }
 
 /// State of round 11.
@@ -112,12 +128,18 @@ pub(crate) struct Eleven {
     pub(crate) sigs: Vec<SavedSig>,
     /// The saved signature being placed.
     pub(crate) placing: Option<usize>,
+    /// A signature was placed since the document was opened (Apply All Signatures).
+    pub(crate) placed: bool,
     pub(crate) keep: bool,
     pub(crate) flatten_on_save: bool,
     pub(crate) mark: Option<Mark11>,
     /// Add Text being typed: page, point (page points), text.
     pub(crate) typing: Option<(usize, [f32; 2], String)>,
     pub(crate) dialog: Option<SigDialog>,
+    /// Handwriting fonts of the system offered first for a typed signature (name, program),
+    /// asked of the host when the dialog first opens.
+    pub(crate) script_fonts: Vec<(String, std::sync::Arc<Vec<u8>>)>,
+    fonts_asked: bool,
     /// The form field with the keyboard and the text field being typed in.
     pub(crate) focus: Option<FormField>,
     pub(crate) edit: Option<FieldEdit>,
@@ -146,16 +168,17 @@ fn today11() -> String {
     format!("{m}/{d}/{y}")
 }
 
-/// Saved signatures as text lines (`T|initials|rrggbb|face|text`, `D|…|x,y x,y;…`,
-/// `I|…|base64`).
+/// Saved signatures as text lines (`T|flags|rrggbb|face|text`, `D|…|x,y x,y;…`,
+/// `I|…|base64`, `S|…|aspect|M x y;C …;Z`); flags: 1 initials, 2 keep size. Signatures to
+/// discard on close are left out.
 pub(crate) fn encode_sigs(sigs: &[SavedSig]) -> String {
     use base64::Engine as _;
     let mut out = String::new();
-    for s in sigs {
+    for s in sigs.iter().filter(|s| !s.session) {
         let head = |k: &str| {
             format!(
                 "{k}|{}|{:02x}{:02x}{:02x}|",
-                u8::from(s.initials),
+                u8::from(s.initials) | (u8::from(s.keep_size) << 1),
                 s.color[0],
                 s.color[1],
                 s.color[2]
@@ -181,6 +204,21 @@ pub(crate) fn encode_sigs(sigs: &[SavedSig]) -> String {
             SignatureInk::Image(b) => {
                 out.push_str(&head("I"));
                 out.push_str(&base64::engine::general_purpose::STANDARD.encode(b));
+            }
+            SignatureInk::Shape { segs, aspect } => {
+                let body: Vec<String> = segs
+                    .iter()
+                    .map(|g| match *g {
+                        PathSeg::M(x, y) => format!("M {x:.4} {y:.4}"),
+                        PathSeg::L(x, y) => format!("L {x:.4} {y:.4}"),
+                        PathSeg::Q(a, b, x, y) => format!("Q {a:.4} {b:.4} {x:.4} {y:.4}"),
+                        PathSeg::C(a, b, c, d, x, y) => {
+                            format!("C {a:.4} {b:.4} {c:.4} {d:.4} {x:.4} {y:.4}")
+                        }
+                        PathSeg::Z => "Z".to_owned(),
+                    })
+                    .collect();
+                out.push_str(&format!("{}{aspect:.4}|{}", head("S"), body.join(";")));
             }
         }
         out.push('\n');
@@ -247,12 +285,43 @@ pub(crate) fn decode_sigs(text: &str) -> Vec<SavedSig> {
                 Ok(b) => SignatureInk::Image(b),
                 Err(_) => continue,
             },
+            "S" => {
+                let Some((aspect, body)) = rest.split_once('|') else {
+                    continue;
+                };
+                let segs: Vec<PathSeg> = body
+                    .split(';')
+                    .filter_map(|t| {
+                        let mut it = t.split(' ');
+                        let k = it.next()?;
+                        let v: Vec<f32> = it.filter_map(|n| n.parse().ok()).collect();
+                        match (k, v.as_slice()) {
+                            ("M", [x, y]) => Some(PathSeg::M(*x, *y)),
+                            ("L", [x, y]) => Some(PathSeg::L(*x, *y)),
+                            ("Q", [a, b, x, y]) => Some(PathSeg::Q(*a, *b, *x, *y)),
+                            ("C", [a, b, c, d, x, y]) => Some(PathSeg::C(*a, *b, *c, *d, *x, *y)),
+                            ("Z", []) => Some(PathSeg::Z),
+                            _ => None,
+                        }
+                    })
+                    .collect();
+                if segs.is_empty() {
+                    continue;
+                }
+                SignatureInk::Shape {
+                    segs,
+                    aspect: aspect.parse().unwrap_or(3.0),
+                }
+            }
             _ => continue,
         };
+        let flags: u8 = i.parse().unwrap_or(0);
         out.push(SavedSig {
             ink,
-            initials: i == "1",
+            initials: flags & 1 != 0,
             color,
+            keep_size: flags & 2 != 0,
+            session: false,
         });
     }
     out
@@ -301,10 +370,99 @@ pub(crate) fn sig_size(s: &SavedSig) -> (f32, f32) {
         }
         SignatureInk::Image(b) => {
             let (w, hh) = bo_pdfread::image_size(b).unwrap_or((4, 3));
+            if s.keep_size {
+                // Keep original size: 96 dpi.
+                return (w.max(1) as f32 * 0.75, hh.max(1) as f32 * 0.75);
+            }
             let h = 36.0 * k;
             (h * w.max(1) as f32 / hh.max(1) as f32, h)
         }
+        SignatureInk::Shape { aspect, .. } => {
+            let h = 24.0 * k;
+            (h * aspect.max(0.1), h)
+        }
     }
+}
+
+/// Outlines (em units, y down) moved into a unit box, quadratic segments made cubic; and the
+/// box's width over height. `None` when there is nothing to draw.
+pub(crate) fn unit_shape(segs: &[PathSeg]) -> Option<(Vec<PathSeg>, f32)> {
+    let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
+    let mut grow = |x: f32, y: f32| {
+        x0 = x0.min(x);
+        y0 = y0.min(y);
+        x1 = x1.max(x);
+        y1 = y1.max(y);
+    };
+    for g in segs {
+        match *g {
+            PathSeg::M(x, y) | PathSeg::L(x, y) => grow(x, y),
+            PathSeg::Q(a, b, x, y) => {
+                grow(a, b);
+                grow(x, y);
+            }
+            PathSeg::C(a, b, c, d, x, y) => {
+                grow(a, b);
+                grow(c, d);
+                grow(x, y);
+            }
+            PathSeg::Z => {}
+        }
+    }
+    if x0 >= x1 || y0 >= y1 {
+        return None;
+    }
+    let (w, h) = (x1 - x0, y1 - y0);
+    let u = |x: f32, y: f32| ((x - x0) / w, (y - y0) / h);
+    let mut cur = (0.0_f32, 0.0_f32);
+    let out = segs
+        .iter()
+        .map(|g| match *g {
+            PathSeg::M(x, y) => {
+                cur = (x, y);
+                let (a, b) = u(x, y);
+                PathSeg::M(a, b)
+            }
+            PathSeg::L(x, y) => {
+                cur = (x, y);
+                let (a, b) = u(x, y);
+                PathSeg::L(a, b)
+            }
+            PathSeg::Q(qx, qy, x, y) => {
+                let c1 = u(
+                    cur.0 + (qx - cur.0) * 2.0 / 3.0,
+                    cur.1 + (qy - cur.1) * 2.0 / 3.0,
+                );
+                let c2 = u(x + (qx - x) * 2.0 / 3.0, y + (qy - y) * 2.0 / 3.0);
+                cur = (x, y);
+                let e = u(x, y);
+                PathSeg::C(c1.0, c1.1, c2.0, c2.1, e.0, e.1)
+            }
+            PathSeg::C(a, b, c, d, x, y) => {
+                cur = (x, y);
+                let (p1, p2, e) = (u(a, b), u(c, d), u(x, y));
+                PathSeg::C(p1.0, p1.1, p2.0, p2.1, e.0, e.1)
+            }
+            PathSeg::Z => PathSeg::Z,
+        })
+        .collect();
+    Some((out, w / h))
+}
+
+/// A picture made black and white (Options › Convert signature to black & white): dark
+/// pixels black, the rest transparent; a PNG. `None` when it cannot be read.
+pub(crate) fn black_and_white(bytes: &[u8]) -> Option<Vec<u8>> {
+    let mut img = bo_raster::codecs::decode(bytes)?;
+    for px in img.pixels.chunks_exact_mut(4) {
+        let l = u32::from(px[0]) * 299 + u32::from(px[1]) * 587 + u32::from(px[2]) * 114;
+        let ink = px[3] > 127 && l < 160_000;
+        px.copy_from_slice(if ink {
+            &[0, 0, 0, 255]
+        } else {
+            &[255, 255, 255, 0]
+        });
+    }
+    bo_raster::rgba_to_png(img)
 }
 
 impl ReaderWindow {
@@ -474,8 +632,9 @@ impl ReaderWindow {
         let dx = want - r[2];
         let th = self.title_h();
         self.controls[k].r[2] = want;
+        // Only the ribbon commands after the gallery move (not the status bar's).
         for c in self.controls.iter_mut().skip(k + 1) {
-            if c.r[0] > r[0] && c.r[1] > th {
+            if c.r[0] > r[0] && c.r[1] > th && c.r[1] < r[1] + r[3] {
                 c.r[0] += dx;
             }
         }
@@ -487,6 +646,7 @@ impl ReaderWindow {
             "fill.keep" => self.eleven.keep,
             "fill.box" => self.eleven.mark == Some(Mark11::Box),
             "fill.text" => self.eleven.mark == Some(Mark11::Text),
+            "fill.comb" => self.eleven.mark == Some(Mark11::Comb),
             _ => false,
         }
     }
@@ -495,7 +655,7 @@ impl ReaderWindow {
         self.eleven.mark = None;
         self.eleven.placing = None;
         self.commit_typing11();
-        for id in ["fill.box", "fill.text"] {
+        for id in ["fill.box", "fill.text", "fill.comb"] {
             self.on.remove(id);
         }
     }
@@ -508,7 +668,7 @@ impl ReaderWindow {
             self.eleven.mark = Some(m);
             self.status = self.t("pdfFill.place");
         }
-        for id in ["fill.box", "fill.text"] {
+        for id in ["fill.box", "fill.text", "fill.comb"] {
             if self.on11(id) {
                 self.on.insert(id);
             }
@@ -527,6 +687,34 @@ impl ReaderWindow {
         match purpose {
             "sigs11" => {
                 self.eleven.sigs = decode_sigs(&String::from_utf8_lossy(bytes));
+                true
+            }
+            // A handwriting font of the system: "name\0" then the font program.
+            "sigfont11" => {
+                if let Some(k) = bytes.iter().position(|&b| b == 0) {
+                    let name = String::from_utf8_lossy(&bytes[..k]).into_owned();
+                    let data = bytes[k + 1..].to_vec();
+                    if !bo_pdfread::typed_outline_in("A", &data).is_empty()
+                        && !self.eleven.script_fonts.iter().any(|f| f.0 == name)
+                    {
+                        self.eleven
+                            .script_fonts
+                            .push((name, std::sync::Arc::new(data)));
+                    }
+                }
+                true
+            }
+            // Paste page: a packed DIB from the clipboard (empty: none).
+            "sig11dib" => {
+                let png = bo_raster::codecs::decode_dib(bytes).and_then(bo_raster::rgba_to_png);
+                match png {
+                    Some(png) => {
+                        if let Some(d) = self.eleven.dialog.as_mut() {
+                            d.image = Some(png);
+                        }
+                    }
+                    None => self.status = self.t("pdfFill.pasteNone"),
+                }
                 true
             }
             "sig11img" => {
@@ -548,6 +736,38 @@ impl ReaderWindow {
             initials,
             ..SigDialog::default()
         });
+        if !self.eleven.fonts_asked {
+            self.eleven.fonts_asked = true;
+            self.requests
+                .push(ReaderRequest::Command("host.sigfonts11".into()));
+        }
+    }
+
+    /// Names of the typed-signature fonts: the system's handwriting fonts, then ours.
+    pub(crate) fn faces11(&self) -> Vec<String> {
+        self.eleven
+            .script_fonts
+            .iter()
+            .map(|f| f.0.clone())
+            .chain(FACES.iter().map(|f| f.0.to_owned()))
+            .collect()
+    }
+
+    /// The typed signature of the dialog as ink: outlines of a system font, else a bundled
+    /// face.
+    fn typed_ink11(&self, d: &SigDialog) -> SignatureInk {
+        let text = d.text.trim().to_owned();
+        let n = self.eleven.script_fonts.len();
+        if let Some((_, data)) = self.eleven.script_fonts.get(d.face) {
+            if let Some((segs, aspect)) = unit_shape(&bo_pdfread::typed_outline_in(&text, data)) {
+                return SignatureInk::Shape { segs, aspect };
+            }
+        }
+        let k = d.face.saturating_sub(n).min(FACES.len() - 1);
+        SignatureInk::Typed {
+            text,
+            face: FACES[k].1,
+        }
     }
 
     /// Commands of round 11; true when `cmd` was one.
@@ -565,6 +785,25 @@ impl ReaderWindow {
             }
             "fill.box" => self.set_mark11(Mark11::Box),
             "fill.text" => self.set_mark11(Mark11::Text),
+            "fill.comb" => self.set_mark11(Mark11::Comb),
+            "fill.applyAll" => {
+                self.clear_fill11();
+                let r = self
+                    .tabs
+                    .get_mut(self.active)
+                    .map(|t| t.view.doc_mut().flatten_fill_sign());
+                match r {
+                    Some(Ok(n)) => {
+                        self.eleven.placed = false;
+                        self.status = self
+                            .strings
+                            .fmt("pdfFill.applied", &[("n", &n.to_string())]);
+                    }
+                    Some(Err(e)) => self.status = e,
+                    None => {}
+                }
+                self.document_changed();
+            }
             "fill.keep" => {
                 self.eleven.keep = !self.eleven.keep;
                 if self.eleven.keep {
@@ -600,6 +839,7 @@ impl ReaderWindow {
                         SignatureInk::Typed { text, .. } => text.clone(),
                         SignatureInk::Strokes(_) => self.t("pdfFill.drawn"),
                         SignatureInk::Image(_) => self.t("pdfFill.picture"),
+                        SignatureInk::Shape { .. } => self.t("pdfFill.typedSig"),
                     };
                     items.push(MenuItem {
                         label: self.strings.fmt("pdfFill.delete", &[("name", &name)]),
@@ -808,7 +1048,7 @@ impl ReaderWindow {
                 }
                 let before = self.view().map_or(0, |v| v.doc().annot_count(page));
                 match self.eleven.mark.clone() {
-                    Some(Mark11::Text) => {
+                    Some(Mark11::Text | Mark11::Comb) => {
                         self.commit_typing11();
                         self.eleven.typing = Some((page, [px, py], String::new()));
                         return Some(true);
@@ -899,7 +1139,17 @@ impl ReaderWindow {
             return;
         };
         let before = self.view().map_or(0, |v| v.doc().annot_count(page));
-        self.add_fill_text11(page, p, &text);
+        if self.eleven.mark == Some(Mark11::Comb) {
+            // One typewriter character near the middle of each cell.
+            for (k, c) in text.chars().filter(|c| *c != '\n').enumerate() {
+                if c != ' ' {
+                    let x = p[0] + COMB_CELL * k as f32 + COMB_CELL * 0.22;
+                    self.add_fill_text11(page, [x, p[1]], &c.to_string());
+                }
+            }
+        } else {
+            self.add_fill_text11(page, p, &text);
+        }
         self.mark_new11(page, before);
     }
 
@@ -916,6 +1166,10 @@ impl ReaderWindow {
                 if let Some((_, _, t)) = self.eleven.typing.as_mut() {
                     t.pop();
                 }
+                Some(true)
+            }
+            Input::Key(Key::Enter, _) if self.eleven.mark == Some(Mark11::Comb) => {
+                self.commit_typing11();
                 Some(true)
             }
             Input::Key(Key::Enter, mods) if !mods.shift => {
@@ -956,9 +1210,35 @@ impl ReaderWindow {
                 .add_signature_stamp(page, rect, &ink, s.color, &author)
             {
                 self.status = e;
+            } else {
+                self.eleven.placed = true;
             }
         }
         self.document_changed();
+    }
+
+    /// Enabled rule of round 11's commands (`None`: not ours). The reference keeps Keep Tool
+    /// Selected grey until a Fill & Sign tool is chosen, and Apply All Signatures grey until
+    /// a signature is placed.
+    pub(crate) fn eleven_enabled(&self, id: &str) -> Option<bool> {
+        if !self.eleven_on() {
+            return None;
+        }
+        match id {
+            "fill.keep" => Some(
+                self.eleven.keep
+                    || self.eleven.mark.is_some()
+                    || self.eleven.placing.is_some()
+                    || self.tabs5.fill.is_some(),
+            ),
+            "fill.applyAll" => Some(self.eleven.placed),
+            _ => None,
+        }
+    }
+
+    /// Ribbon labels that wrap however short they are (the reference's "Add / Text").
+    pub(crate) fn wraps11(&self, label: &str) -> bool {
+        self.eleven_on() && label == "pdfFill.addText"
     }
 
     // ----- Create Signature dialog ----------------------------------------------------------
@@ -981,7 +1261,9 @@ impl ReaderWindow {
                 at(62.4, 46.4, 76.8, 28.8),
                 at(138.4, 46.4, 76.8, 28.8),
                 at(214.4, 46.4, 76.8, 28.8),
+                at(290.4, 46.4, 76.8, 28.8),
             ],
+            options: at(22.4, 439.2, 99.2, 27.2),
             panel: at(24.0, 88.0, 821.6, 336.0),
             edit: at(96.8, 98.4, 252.8, 27.2),
             font: at(359.2, 98.4, 193.6, 27.2),
@@ -991,6 +1273,39 @@ impl ReaderWindow {
             browse: at(361.6, 230.4, 145.6, 27.2),
             clear: at(817.6, 96.0, 20.8, 20.8),
         }
+    }
+
+    /// The Options box over the dialog (measured 502 × 438 px at 125 %): its frame, the four
+    /// check boxes, OK and Cancel.
+    fn opt_parts11(&self) -> ([f32; 4], [[f32; 4]; 4], [f32; 4], [f32; 4]) {
+        let d = self.dlg_rect11();
+        let (w, h) = (self.px(401.6), self.px(350.4));
+        let o = [
+            (d[0] + (d[2] - w) / 2.0).round(),
+            (d[1] + (d[3] - h) / 2.0).round(),
+            w,
+            h,
+        ];
+        let at = |x: f32, y: f32, ww: f32, hh: f32| {
+            [
+                o[0] + self.px(x),
+                o[1] + self.px(y),
+                self.px(ww),
+                self.px(hh),
+            ]
+        };
+        let rows = [
+            at(27.2, 43.2, 340.0, 17.6),
+            at(27.2, 86.4, 340.0, 17.6),
+            at(27.2, 129.6, 340.0, 17.6),
+            at(27.2, 172.8, 340.0, 17.6),
+        ];
+        (
+            o,
+            rows,
+            at(205.6, 299.2, 84.0, 28.0),
+            at(300.0, 299.2, 84.8, 28.0),
+        )
     }
 
     fn dlg_ready11(d: &SigDialog) -> bool {
@@ -1004,14 +1319,44 @@ impl ReaderWindow {
     #[allow(clippy::too_many_lines)]
     fn dialog_input11(&mut self, input: &Input) -> bool {
         let parts = self.dlg_parts11();
+        let (_, rows, opt_ok, opt_cancel) = self.opt_parts11();
+        let nfaces = self.faces11().len();
         let Some(d) = self.eleven.dialog.as_mut() else {
             return false;
         };
+        if d.options_open {
+            // The Options box is modal over the dialog.
+            match *input {
+                Input::Press { x, y, .. } => {
+                    let image = d.tab >= 2;
+                    if inside(rows[0], x, y) && image {
+                        d.bw = !d.bw;
+                    } else if inside(rows[1], x, y) && image {
+                        d.keep_size = !d.keep_size;
+                    } else if inside(rows[2], x, y) {
+                        d.discard = !d.discard;
+                    } else if inside(opt_ok, x, y) {
+                        d.options_open = false;
+                    } else if inside(opt_cancel, x, y) {
+                        (d.bw, d.keep_size, d.discard) = d.options_was;
+                        d.options_open = false;
+                    }
+                }
+                Input::Key(Key::Escape, _) => {
+                    (d.bw, d.keep_size, d.discard) = d.options_was;
+                    d.options_open = false;
+                }
+                Input::Key(Key::Enter, _) => d.options_open = false,
+                Input::Resize { .. } | Input::Scale(_) => return false,
+                _ => {}
+            }
+            return true;
+        }
         match *input {
             Input::Press { x, y, .. } => {
                 if d.fonts_open {
                     d.fonts_open = false;
-                    for (k, _) in FACES.iter().enumerate() {
+                    for k in 0..nfaces {
                         let r = font_row(parts.font, k);
                         if inside(r, x, y) {
                             d.face = k;
@@ -1038,6 +1383,11 @@ impl ReaderWindow {
                         return true;
                     }
                 }
+                if inside(parts.options, x, y) {
+                    d.options_was = (d.bw, d.keep_size, d.discard);
+                    d.options_open = true;
+                    return true;
+                }
                 if inside(parts.ok, x, y) {
                     if Self::dlg_ready11(d) {
                         let d = d.clone();
@@ -1053,6 +1403,10 @@ impl ReaderWindow {
                         d.drawing = true;
                         d.strokes
                             .push(vec![[x - parts.panel[0], y - parts.panel[1]]]);
+                    }
+                    3 if inside(parts.browse, x, y) => {
+                        self.requests
+                            .push(ReaderRequest::Command("host.sigpaste11".into()));
                     }
                     2 if inside(parts.browse, x, y) => {
                         let f = self.t("pdfComment.images");
@@ -1106,9 +1460,9 @@ impl ReaderWindow {
             }
             Input::Key(Key::Tab, mods) => {
                 d.tab = if mods.shift {
-                    (d.tab + 2) % 3
+                    (d.tab + 3) % 4
                 } else {
-                    (d.tab + 1) % 3
+                    (d.tab + 1) % 4
                 };
                 true
             }
@@ -1120,15 +1474,15 @@ impl ReaderWindow {
     /// OK: the signature is saved (first in the gallery) and ready to place.
     fn finish_dialog11(&mut self, d: &SigDialog, panel: [f32; 4]) {
         let ink = match d.tab {
-            0 => SignatureInk::Typed {
-                text: d.text.trim().to_owned(),
-                face: FACES[d.face.min(FACES.len() - 1)].1,
-            },
+            0 => self.typed_ink11(d),
             1 => {
                 let _ = panel;
                 SignatureInk::Strokes(unit_strokes(&d.strokes).0)
             }
             _ => match &d.image {
+                Some(b) if d.bw => {
+                    SignatureInk::Image(black_and_white(b).unwrap_or_else(|| b.clone()))
+                }
                 Some(b) => SignatureInk::Image(b.clone()),
                 None => return,
             },
@@ -1139,6 +1493,8 @@ impl ReaderWindow {
                 ink,
                 initials: d.initials,
                 color: COLOURS[d.colour.min(COLOURS.len() - 1)],
+                keep_size: d.keep_size && d.tab >= 2,
+                session: d.discard,
             },
         );
         self.eleven.dialog = None;
@@ -1687,6 +2043,36 @@ impl ReaderWindow {
         };
         let size = 12.0 * s;
         let st = TextStyle { size, bold: false };
+        if self.eleven.mark == Some(Mark11::Comb) {
+            // Comb Field: a row of cells (one more than typed, at least six), a character in
+            // each, the caret at the next cell.
+            let cell = (COMB_CELL * s).round();
+            let n = text.chars().count();
+            let cells = (n + 1).max(6);
+            let h = (size * 1.25 + self.px(6.0)).round();
+            let (x, y) = (o[0].round(), o[1].round());
+            let w = cell * cells as f32;
+            p.raw_colours(true);
+            for e in [[x, y, w, 1.0], [x, y + h - 1.0, w, 1.0]] {
+                p.fill_rect(e[0], e[1], e[2], e[3], TYPING_EDGE);
+            }
+            for k in 0..=cells {
+                p.fill_rect(x + cell * k as f32, y, 1.0, h, TYPING_EDGE);
+            }
+            for (k, c) in text.chars().enumerate() {
+                p.text(
+                    &c.to_string(),
+                    x + cell * k as f32 + cell * 0.22,
+                    y + self.px(3.0),
+                    st,
+                    INK,
+                );
+            }
+            let cx = (x + cell * n as f32 + cell * 0.22).round();
+            p.fill_rect(cx, y + self.px(3.0), 1.0, size * 1.25, INK);
+            p.raw_colours(false);
+            return;
+        }
         let lines: Vec<&str> = text.split('\n').collect();
         let longest = lines.iter().map(|l| l.chars().count()).max().unwrap_or(0) as f32;
         let lh = (size * 1.25).round();
@@ -1872,7 +2258,12 @@ impl ReaderWindow {
         let tab_style = self.style(17.0, false);
         let bold = self.style(17.0, true);
         for (k, tr) in parts.tabs.iter().enumerate() {
-            let key = ["pdfFill.type", "pdfFill.draw", "pdfFill.import"][k];
+            let key = [
+                "pdfFill.type",
+                "pdfFill.draw",
+                "pdfFill.import",
+                "pdfFill.paste",
+            ][k];
             let label = self.t(key);
             let on = d.tab as usize == k;
             let st = if on { bold } else { tab_style };
@@ -1919,7 +2310,10 @@ impl ReaderWindow {
             ink: SignatureInk::Strokes(Vec::new()),
             initials: d.initials,
             color: colour,
+            keep_size: false,
+            session: false,
         };
+        let faces = self.faces11();
         match d.tab {
             0 => {
                 p.text(
@@ -1946,9 +2340,9 @@ impl ReaderWindow {
                     INK,
                 );
                 field_box(p, parts.font, Rgba(122, 122, 122, 255));
-                let face = FACES[d.face.min(FACES.len() - 1)];
+                let face = faces[d.face.min(faces.len() - 1)].as_str();
                 p.text(
-                    face.0,
+                    face,
                     parts.font[0] + self.px(4.0),
                     parts.font[1] + self.px(5.6),
                     ui,
@@ -1973,10 +2367,7 @@ impl ReaderWindow {
                     );
                 } else {
                     let s = SavedSig {
-                        ink: SignatureInk::Typed {
-                            text: d.text.clone(),
-                            face: face.1,
-                        },
+                        ink: self.typed_ink11(d),
                         ..preview
                     };
                     let area = [
@@ -1988,7 +2379,7 @@ impl ReaderWindow {
                     paint_ink(p, &s, fit_box(area, sig_size(&s)), 255);
                 }
                 if d.fonts_open {
-                    for (k, (name, _)) in FACES.iter().enumerate() {
+                    for (k, name) in faces.iter().enumerate() {
                         let rr = font_row(parts.font, k);
                         p.fill_rect(
                             rr[0],
@@ -2003,7 +2394,7 @@ impl ReaderWindow {
                         );
                         p.text(name, rr[0] + self.px(4.0), rr[1] + self.px(4.0), ui, INK);
                     }
-                    let last = font_row(parts.font, FACES.len() - 1);
+                    let last = font_row(parts.font, faces.len() - 1);
                     let top = font_row(parts.font, 0);
                     field_box_outline(
                         p,
@@ -2061,6 +2452,37 @@ impl ReaderWindow {
                     Rgba(150, 150, 151, 255),
                 );
             }
+            3 => {
+                // Paste: a button that takes a picture from the clipboard, then its preview.
+                field_box(p, parts.browse, Rgba(122, 122, 122, 255));
+                let b = self.t("pdfFill.paste");
+                let bw = b.chars().count() as f32 * ui.size * 0.48;
+                p.text(
+                    &b,
+                    parts.browse[0] + (parts.browse[2] - bw) / 2.0,
+                    parts.browse[1] + self.px(5.6),
+                    ui,
+                    INK,
+                );
+                let msg = match &d.image {
+                    Some(img) => {
+                        let (iw, ih) = bo_pdfread::image_size(img).unwrap_or((0, 0));
+                        self.strings.fmt(
+                            "pdfFill.imageLoaded",
+                            &[("w", &iw.to_string()), ("h", &ih.to_string())],
+                        )
+                    }
+                    None => self.t("pdfFill.pasteHint"),
+                };
+                let mw = msg.chars().count() as f32 * ui.size * 0.48;
+                p.text(
+                    &msg,
+                    pr[0] + (pr[2] - mw) / 2.0,
+                    parts.browse[1] + self.px(44.0),
+                    ui,
+                    INK,
+                );
+            }
             _ => {
                 field_box(p, parts.browse, Rgba(122, 122, 122, 255));
                 let b = self.t("pdfFill.browse");
@@ -2112,6 +2534,22 @@ impl ReaderWindow {
             ui,
             Rgba(255, 255, 255, 255),
         );
+        // Options, bottom left (measured 124 × 34 px at 125 %).
+        let opb = parts.options;
+        p.path(
+            &rounded_rect(opb, self.px(3.2)),
+            Some(Rgba(255, 255, 255, 255)),
+            Some((Rgba(190, 190, 190, 255), 1.0)),
+        );
+        let opt = self.t("pdfFill.options");
+        let optw = opt.chars().count() as f32 * ui.size * 0.5;
+        p.text(
+            &opt,
+            opb[0] + (opb[2] - optw) / 2.0,
+            opb[1] + self.px(5.6),
+            ui,
+            INK,
+        );
         let cb = parts.cancel;
         p.path(
             &rounded_rect(cb, self.px(3.2)),
@@ -2140,13 +2578,112 @@ impl ReaderWindow {
                 colour_dot(p, cc, *col);
             }
         }
+        if d.options_open {
+            self.paint_options11(p, d);
+        }
+    }
+
+    /// The Options box: Convert signature to black & white and Keep original size (pictures
+    /// only), Discard this signature when the program closes, Require password (not offered:
+    /// grey), OK and Cancel.
+    fn paint_options11(&self, p: &mut dyn Painter, d: &SigDialog) {
+        let (o, rows, ok, cancel) = self.opt_parts11();
+        p.fill_rect(
+            o[0] - 1.0,
+            o[1] - 1.0,
+            o[2] + 2.0,
+            o[3] + 2.0,
+            Rgba(130, 130, 130, 255),
+        );
+        p.fill_rect(o[0], o[1], o[2], o[3], Rgba(255, 255, 255, 255));
+        let title_h = self.px(25.6);
+        p.fill_rect(o[0], o[1], o[2], title_h, Rgba(243, 243, 243, 255));
+        let ts = self.style(17.0, false);
+        p.text(
+            &self.t("pdfFill.options"),
+            o[0] + self.px(6.4),
+            o[1] + self.px(4.0),
+            ts,
+            INK,
+        );
+        let ui = self.style(15.0, false);
+        let image = d.tab >= 2;
+        let grey = Rgba(117, 117, 118, 255);
+        let items = [
+            ("pdfFill.optBw", d.bw, image),
+            ("pdfFill.optKeepSize", d.keep_size, image),
+            ("pdfFill.optDiscard", d.discard, true),
+            ("pdfFill.optPassword", false, false),
+        ];
+        for (r, (key, on, enabled)) in rows.iter().zip(items) {
+            let bx = self.px(11.2);
+            let by = r[1] + (r[3] - bx) / 2.0;
+            let ink = if enabled { INK } else { grey };
+            p.path(
+                &rounded_rect([r[0], by, bx, bx], self.px(1.6)),
+                Some(Rgba(255, 255, 255, 255)),
+                Some((
+                    if enabled {
+                        Rgba(51, 51, 51, 255)
+                    } else {
+                        Rgba(190, 190, 190, 255)
+                    },
+                    1.0,
+                )),
+            );
+            if on {
+                let k = bx / 12.0;
+                p.path(
+                    &[
+                        PathSeg::M(r[0] + 2.5 * k, by + 6.0 * k),
+                        PathSeg::L(r[0] + 5.0 * k, by + 8.5 * k),
+                        PathSeg::L(r[0] + 9.5 * k, by + 3.0 * k),
+                    ],
+                    None,
+                    Some((INK, 1.5)),
+                );
+            }
+            p.text(
+                &self.t(key),
+                r[0] + bx + self.px(4.8),
+                r[1] + self.px(0.8),
+                ui,
+                ink,
+            );
+        }
+        let accent = self.theme.accent;
+        p.path(&rounded_rect(ok, self.px(3.2)), Some(accent), None);
+        let okt = self.t("pdfReader.ok");
+        let okw = okt.chars().count() as f32 * ui.size * 0.5;
+        p.text(
+            &okt,
+            ok[0] + (ok[2] - okw) / 2.0,
+            ok[1] + self.px(5.6),
+            ui,
+            Rgba(255, 255, 255, 255),
+        );
+        p.path(
+            &rounded_rect(cancel, self.px(3.2)),
+            Some(Rgba(255, 255, 255, 255)),
+            Some((Rgba(190, 190, 190, 255), 1.0)),
+        );
+        let ct = self.t("pdfPrint.cancel");
+        let cw = ct.chars().count() as f32 * ui.size * 0.5;
+        p.text(
+            &ct,
+            cancel[0] + (cancel[2] - cw) / 2.0,
+            cancel[1] + self.px(5.6),
+            ui,
+            INK,
+        );
     }
 }
 
 /// Boxes of the Create Signature dialog.
 struct DlgParts {
     close: [f32; 4],
-    tabs: [[f32; 4]; 3],
+    tabs: [[f32; 4]; 4],
+    options: [f32; 4],
     panel: [f32; 4],
     edit: [f32; 4],
     font: [f32; 4],
@@ -2358,6 +2895,34 @@ fn paint_ink(p: &mut dyn Painter, s: &SavedSig, b: [f32; 4], alpha: u8) {
                     })
                     .collect();
                 p.path(&segs, None, Some((c, wd)));
+            }
+        }
+        SignatureInk::Shape { segs, .. } => {
+            let m = |x: f32, y: f32| (b[0] + x * b[2], b[1] + y * b[3]);
+            let out: Vec<PathSeg> = segs
+                .iter()
+                .map(|g| match *g {
+                    PathSeg::M(x, y) => {
+                        let q = m(x, y);
+                        PathSeg::M(q.0, q.1)
+                    }
+                    PathSeg::L(x, y) => {
+                        let q = m(x, y);
+                        PathSeg::L(q.0, q.1)
+                    }
+                    PathSeg::Q(a, bb, x, y) => {
+                        let (c1, e) = (m(a, bb), m(x, y));
+                        PathSeg::Q(c1.0, c1.1, e.0, e.1)
+                    }
+                    PathSeg::C(a, bb, cc, dd, x, y) => {
+                        let (c1, c2, e) = (m(a, bb), m(cc, dd), m(x, y));
+                        PathSeg::C(c1.0, c1.1, c2.0, c2.1, e.0, e.1)
+                    }
+                    PathSeg::Z => PathSeg::Z,
+                })
+                .collect();
+            if !out.is_empty() {
+                p.path(&out, Some(c), None);
             }
         }
         SignatureInk::Image(_) => {

@@ -35,6 +35,15 @@ pub enum SignatureInk {
     Strokes(Vec<Vec<[f32; 2]>>),
     /// A JPEG or PNG picture.
     Image(Vec<u8>),
+    /// Filled outlines in a unit box (0..1 both ways, top down) with the box's width over
+    /// height: a name typed in a handwriting font of the system, kept as shapes so that no
+    /// font program is embedded (round 11).
+    Shape {
+        /// The outlines.
+        segs: Vec<bo_render::PathSeg>,
+        /// Width over height of the box.
+        aspect: f32,
+    },
 }
 
 /// One calculated field: its name, the operation and the fields it reads.
@@ -71,6 +80,13 @@ pub fn typed_width(text: &str, face: usize) -> f32 {
 /// 0), so that a typed signature's preview is drawn exactly as it will be placed.
 #[must_use]
 pub fn typed_outline(text: &str, face: usize) -> Vec<bo_render::PathSeg> {
+    crate::fallback::face_data(face).map_or_else(Vec::new, |d| typed_outline_in(text, d))
+}
+
+/// Glyph outlines of `text` in the font program `data` (TrueType / OpenType, face 0) at size
+/// 1 (em units, y down, baseline at 0); empty when the data is not a font.
+#[must_use]
+pub fn typed_outline_in(text: &str, data: &[u8]) -> Vec<bo_render::PathSeg> {
     use bo_render::PathSeg;
     struct B {
         out: Vec<PathSeg>,
@@ -104,8 +120,7 @@ pub fn typed_outline(text: &str, face: usize) -> Vec<bo_render::PathSeg> {
             self.out.push(PathSeg::Z);
         }
     }
-    let Some(f) = crate::fallback::face_data(face).and_then(|d| ttf_parser::Face::parse(d, 0).ok())
-    else {
+    let Ok(f) = ttf_parser::Face::parse(data, 0) else {
         return Vec::new();
     };
     let k = 1.0 / f32::from(f.units_per_em().max(1));
@@ -454,6 +469,58 @@ impl PdfDocument {
                     }
                     s.push('Q');
                     s
+                }
+                SignatureInk::Shape { segs, .. } => {
+                    let mut c = format!("q {cr:.3} {cg:.3} {cb:.3} rg\n");
+                    let (fx, fy) = (|x: f32| x * w, |y: f32| (1.0 - y) * h);
+                    // Quadratic segments become cubic ones (PDF paths have no quadratic).
+                    let mut cur = (0.0_f32, 0.0_f32);
+                    for g in segs {
+                        use bo_render::PathSeg;
+                        let op = match *g {
+                            PathSeg::M(x, y) => {
+                                cur = (x, y);
+                                format!("{:.2} {:.2} m\n", fx(x), fy(y))
+                            }
+                            PathSeg::L(x, y) => {
+                                cur = (x, y);
+                                format!("{:.2} {:.2} l\n", fx(x), fy(y))
+                            }
+                            PathSeg::Q(x1, y1, x, y) => {
+                                let c1 = (
+                                    cur.0 + (x1 - cur.0) * 2.0 / 3.0,
+                                    cur.1 + (y1 - cur.1) * 2.0 / 3.0,
+                                );
+                                let c2 = (x + (x1 - x) * 2.0 / 3.0, y + (y1 - y) * 2.0 / 3.0);
+                                cur = (x, y);
+                                format!(
+                                    "{:.2} {:.2} {:.2} {:.2} {:.2} {:.2} c\n",
+                                    fx(c1.0),
+                                    fy(c1.1),
+                                    fx(c2.0),
+                                    fy(c2.1),
+                                    fx(x),
+                                    fy(y)
+                                )
+                            }
+                            PathSeg::C(x1, y1, x2, y2, x, y) => {
+                                cur = (x, y);
+                                format!(
+                                    "{:.2} {:.2} {:.2} {:.2} {:.2} {:.2} c\n",
+                                    fx(x1),
+                                    fy(y1),
+                                    fx(x2),
+                                    fy(y2),
+                                    fx(x),
+                                    fy(y)
+                                )
+                            }
+                            PathSeg::Z => "h\n".to_owned(),
+                        };
+                        c.push_str(&op);
+                    }
+                    c.push_str("f Q");
+                    c
                 }
                 SignatureInk::Typed { text, face } => {
                     let (font, glyphs) = self.embed_text(*face, text)?;

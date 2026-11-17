@@ -160,7 +160,7 @@ fn shape(name: &str) -> &'static [Part] {
         // Fill & Sign marks (round 5).
         "check" => &[S("M4 12.5l5 5L20 6.5")],
         "cross" => &[S("M5.5 5.5l13 13 M18.5 5.5l-13 13")],
-        "dot" => &[F("M12 8.5a3.5 3.5 0 1 0 .01 0z")],
+        "dot" => &[F("M12 4a8 8 0 1 0 .01 0z")],
         // Comment exchange rows and the small icon column (round 5).
         "importComments" => &[S("M3.5 6.5h17v10H11l-4.5 4v-4h-3z"), A("M12 1.5v9 M9 7.5l3 3 3-3")],
         "exportComments" => &[S("M3.5 6.5h17v10H11l-4.5 4v-4h-3z"), A("M12 12V2 M9 4.5l3-3 3 3")],
@@ -248,6 +248,13 @@ fn shape(name: &str) -> &'static [Part] {
             FA("M7 12.5h3v2.5H7z M11 12.5h3v2.5h-3z M15 12.5h3v2.5h-3z M7 16h3v2.5H7z"),
         ],
         "initials" => &[S("M3 20.5h18"), A("M5 16l2.5-10 2.5 10 M6 12.5h3 M14 6v10c0 2-3 2-3 0")],
+        // Round 11 (ours): a signature stroke over a line with an accent tick; a row of three
+        // cells with an accent caret in each.
+        "applySigs" => &[
+            S("M3 20.5h18 M3.5 16c2-4 4-8 5.5-7.5s-2 6 0 6 2.5-3 4-3"),
+            A("M14 6.5l2.5 2.5 5-5"),
+        ],
+        "combField" => &[S("M2.5 7.5h19v9h-19z M8.8 7.5v9 M15.2 7.5v9"), A("M5.65 10v4 M12 10v4 M18.35 10v4")],
         _ => crate::editor_icons::shape(name),
     }
 }
@@ -467,6 +474,8 @@ mod tests {
             "box",
             "fillDate",
             "initials",
+            "applySigs",
+            "combField",
             "check",
             "cross",
             "dot",

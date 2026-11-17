@@ -176,3 +176,32 @@ fn no_zoom_flag_and_typed_width() {
     let a = doc.annotations();
     assert!(doc.is_fill_sign(&a[1]) && !doc.is_fill_sign(&a[0]));
 }
+
+#[test]
+fn combo_boxes_get_a_drop_button_on_screen_only() {
+    let mut doc = open(build_pdf(&[
+        "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R 5 0 R] >> >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] /Annots [4 0 R 5 0 R] >>",
+        "<< /FT /Ch /Ff 131072 /T (country) /Opt [(A) (B)] /V (A) /Subtype /Widget /Rect [20 150 240 170] /F 4 >>",
+        "<< /FT /Ch /T (size) /Opt [(S) (M)] /Subtype /Widget /Rect [20 50 140 104] /F 4 >>",
+    ]));
+    let count = |doc: &mut PdfDocument, tint: bool, printing: bool| {
+        let extra = crate::RenderExtra {
+            field_tint: tint.then_some(bo_render::Rgba(221, 228, 255, 255)),
+            printing,
+            ..crate::RenderExtra::default()
+        };
+        doc.render_extra(0, RenderOptions::default(), extra)
+            .expect("renders")
+            .list
+            .commands
+            .len()
+    };
+    let plain = count(&mut doc, false, false);
+    let tinted = count(&mut doc, true, false);
+    // Two tints (combo and list box) and the combo's button (face, frame, arrow); the list box
+    // gets no button.
+    assert_eq!(tinted - plain, 2 + 3, "{plain} {tinted}");
+    assert_eq!(count(&mut doc, true, true), plain);
+}

@@ -28,6 +28,17 @@ struct Prev {
     after: f32,
 }
 
+/// Spacing between two paragraphs (ECMA-376 Part 1, §17.3.1.33 spacing `w:before` /
+/// `w:after`). The reference word processor keeps the larger of the previous paragraph's
+/// space after and the next one's space before rather than their sum (measured black-box
+/// with 12/6, 6/12 and 12/12 pt: 12 pt each time, docs/ui/REPORT.md Fidelity round 1).
+/// `y` already holds `added_after` (the previous paragraph's own space after); it is taken
+/// back, and the space still to add above the next paragraph is returned.
+pub(crate) fn collapse_spacing(y: &mut f32, added_after: f32, after: f32, before: f32) -> f32 {
+    *y -= added_after;
+    after.max(before)
+}
+
 /// Pagination state between two top-level blocks, without the pages themselves.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Snap {
@@ -1190,16 +1201,29 @@ impl Flow {
         }
         let mut before = pb.space_before;
         if let Some(p) = &self.prev {
+            let mut after = p.after;
             if p.style == pb.style {
+                // §17.3.1.9 contextualSpacing: no spacing between paragraphs of the same style.
                 if pb.contextual {
                     before = 0.0;
                 }
                 if p.contextual {
-                    self.y -= p.after;
+                    after = 0.0;
                 }
             }
+            if self.col_has_content {
+                before = collapse_spacing(&mut self.y, p.after, after, before);
+            }
         }
-        if self.col_has_content {
+        // Space before is dropped at the top of a page or column, except at the start of a
+        // section's first page (the document start, a new-page section break): measured
+        // black-box in the reference word processor (docs/ui/REPORT.md, Fidelity round 1) —
+        // natural, hard and §17.3.1.23 pageBreakBefore page breaks all drop it.
+        let section_top = !self.page_has_content
+            && self.col == 0
+            && self.section_start.get(self.section).copied().flatten()
+                == self.pages.len().checked_sub(1);
+        if self.col_has_content || section_top {
             self.y += before;
         }
         let total = pb.height();

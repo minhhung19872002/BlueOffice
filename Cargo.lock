@@ -889,6 +889,7 @@ name = "bo-pdfread"
 version = "0.1.0"
 dependencies = [
  "bo-engine",
+ "bo-raster",
  "bo-render",
  "bo-text",
  "hayro-ccitt",

@@ -551,15 +551,17 @@ pub(crate) fn stack_blocks(
                 let pb = build_para(ctx, p, width, body, mark)?;
                 let mut before = pb.space_before;
                 if let Some((ps, pc, pa)) = &prev {
+                    let mut after = *pa;
                     // §17.3.1.9 contextualSpacing: ignore spacing between paragraphs of the same style.
                     if *ps == pb.style {
                         if pb.contextual {
                             before = 0.0;
                         }
                         if *pc {
-                            y -= pa;
+                            after = 0.0;
                         }
                     }
+                    before = crate::flow::collapse_spacing(&mut y, *pa, after, before);
                 }
                 y += before;
                 let y0 = y;

@@ -136,9 +136,10 @@ fn row_height(
     let mut metric = |face: FaceId, size: f32, shift: f32| {
         let info = fonts.info(face);
         let scale = size / f32::from(info.units_per_em);
-        ascent = ascent.max(f32::from(info.ascender) * scale - shift.min(0.0));
-        descent = descent.max(-f32::from(info.descender) * scale + shift.max(0.0));
-        gap = gap.max(f32::from(info.line_gap) * scale);
+        let (a, d, g) = info.line_metrics();
+        ascent = ascent.max(a * scale - shift.min(0.0));
+        descent = descent.max(d * scale + shift.max(0.0));
+        gap = gap.max(g * scale);
     };
     let mut obj = 0.0f32;
     let mut obj_depth = 0.0f32;
@@ -454,6 +455,7 @@ fn hash_inputs(inp: &ParaInput<'_>) -> u64 {
     inp.doc.default_run.hash(&mut h);
     inp.doc.theme_fonts.hash(&mut h);
     inp.doc.hyphenation.hash(&mut h);
+    inp.doc.compat_mode.hash(&mut h);
     // Run properties coming from the style definitions (ECMA-376 Part 1,
     // §17.7.2 style hierarchy): the paragraph style chain and the character
     // styles of the runs. The paragraph and runs above only name the styles, so
@@ -1313,7 +1315,12 @@ fn layout_uncached(
             let mut trial = cur[seg_start..].to_vec();
             trial.extend(word.pieces.iter().cloned());
             let (_, ink) = position(&trial, start_x, &tab_ctx);
-            let overflow = ink > max + 0.01;
+            let room = if align == Alignment::Justify && doc.modern_layout() {
+                max + squeeze_room(&trial, max)
+            } else {
+                max
+            };
+            let overflow = ink > room + 0.01;
             if overflow && seg + 1 < row.len() {
                 // Continue on the other side of the picture.
                 cur_segs.push((cur.len(), row[seg + 1].0, row[seg + 1].1));
@@ -1413,6 +1420,11 @@ fn layout_uncached(
         let base = cur.len();
         cur.append(&mut word.pieces);
         let (_, ink) = position(&cur, start_x, &tab_ctx);
+        let room = if align == Alignment::Justify && doc.modern_layout() {
+            max + squeeze_room(&cur, max)
+        } else {
+            max
+        };
         word.pieces = cur.split_off(base);
         // A chunk of an over-long run continues the line and is cut where it ends.
         if ink > max + 0.01
@@ -1428,7 +1440,7 @@ fn layout_uncached(
                 continue;
             }
         }
-        if ink > max + 0.01 && word.chunk == Chunk::No {
+        if ink > room + 0.01 && word.chunk == Chunk::No {
             // §17.15.1.10 autoHyphenation: the first part of the word and a hyphen.
             let split = hyph
                 .as_ref()
@@ -1444,7 +1456,7 @@ fn layout_uncached(
                 continue;
             }
         }
-        if ink > max + 0.01 && !cur.is_empty() {
+        if ink > room + 0.01 && !cur.is_empty() {
             lines.push(std::mem::take(&mut cur));
             line_breaks.push(None);
             queue.push_front(word);
@@ -1522,17 +1534,21 @@ fn layout_uncached(
             };
             let last_seg = sk + 1 == line_segs.len();
             let (xs, ink_end) = position(pieces, start_x, &tab_ctx);
-            let slack = (max - ink_end).max(0.0);
-            let justify = align == Alignment::Justify && (!last_seg || (!is_last && brk.is_none()));
-            let last_tab = pieces.iter().rposition(|p| p.kind == Kind::Tab);
-            let last_ink = pieces
-                .iter()
-                .rposition(|p| matches!(p.kind, Kind::Text | Kind::Object));
-            let stretchable = |i: usize, p: &Piece| {
-                p.kind == Kind::Space
-                    && last_tab.is_none_or(|t| i > t)
-                    && last_ink.is_some_and(|l| i < l)
+            // A justified line kept by narrowing its spaces (see `squeeze_room`) is
+            // justified even when it is the paragraph's last.
+            let squeezed = align == Alignment::Justify
+                && doc.modern_layout()
+                && ink_end > max + 0.01
+                && ink_end <= max + squeeze_room(pieces, max) + 0.01;
+            let slack = if squeezed {
+                max - ink_end
+            } else {
+                (max - ink_end).max(0.0)
             };
+            let justify = align == Alignment::Justify
+                && (squeezed || !last_seg || (!is_last && brk.is_none()));
+            let last_tab = pieces.iter().rposition(|p| p.kind == Kind::Tab);
+            let stretchable = |i: usize, _: &Piece| is_inner_space(pieces, i);
             let space_count: usize = if justify {
                 pieces
                     .iter()
@@ -1568,9 +1584,10 @@ fn layout_uncached(
                     ascent = ascent.max(p.obj_h);
                     descent = descent.max(p.obj_d);
                 } else {
-                    ascent = ascent.max(f32::from(info.ascender) * scale - st.shift.min(0.0));
-                    descent = descent.max(-f32::from(info.descender) * scale + st.shift.max(0.0));
-                    gap = gap.max(f32::from(info.line_gap) * scale);
+                    let (a, d, g) = info.line_metrics();
+                    ascent = ascent.max(a * scale - st.shift.min(0.0));
+                    descent = descent.max(d * scale + st.shift.max(0.0));
+                    gap = gap.max(g * scale);
                 }
                 let x0 = offset + xs[i] + extra;
                 let x_next = offset + xs[i + 1] + extra;
@@ -1609,7 +1626,7 @@ fn layout_uncached(
                     Kind::LineBreak | Kind::PageBreak | Kind::ColumnBreak | Kind::Tab => continue,
                     _ => {}
                 }
-                let stretch_here = per_space > 0.0 && stretchable(i, p);
+                let stretch_here = per_space.abs() > f32::EPSILON && stretchable(i, p);
                 let mut glyphs = Vec::with_capacity(p.glyphs.len());
                 let mut gx = 0.0f32;
                 for g in p.glyphs.iter() {
@@ -1686,24 +1703,29 @@ fn layout_uncached(
         {
             let info = fonts.info(mark_style.face);
             let scale = mark_style.size / f32::from(info.units_per_em);
-            ascent = ascent.max(f32::from(info.ascender) * scale);
-            descent = descent.max(-f32::from(info.descender) * scale);
-            gap = gap.max(f32::from(info.line_gap) * scale);
+            let (a, d, g) = info.line_metrics();
+            ascent = ascent.max(a * scale);
+            descent = descent.max(d * scale);
+            gap = gap.max(g * scale);
         }
         let natural = ascent + descent + gap;
-        // Line height (ECMA-376 Part 1, §17.3.1.33 spacing/@line, @lineRule).
+        // Line height (ECMA-376 Part 1, §17.3.1.33 spacing/@line, @lineRule) and where the
+        // baseline sits in it, as the reference word processor places it (measured black-box,
+        // docs/ui/REPORT.md Fidelity round 1): the external leading above the ascent; a
+        // multiple of single spacing adds its extra space below the text; "at least" adds it
+        // above; an exact height puts the baseline at 80 % of the line whatever the font.
         let (height, baseline) = match spacing {
             LineSpacing::Auto(v) => {
                 let h = natural * v as f32 / 240.0;
-                (h, (h - natural).max(0.0) + ascent)
+                (h, gap + ascent)
             }
             LineSpacing::Exact(t) => {
                 let h = t.to_pt();
-                (h, h - descent)
+                (h, h * 0.8)
             }
             LineSpacing::AtLeast(t) => {
                 let h = natural.max(t.to_pt());
-                (h, h - descent - gap)
+                (h, h - descent)
             }
         };
         let real: Vec<&Piece> = pieces.iter().filter(|p| !p.virtual_).collect();
@@ -2295,6 +2317,29 @@ fn position(pieces: &[Piece], start_x: f32, t: &TabCtx<'_>) -> (Vec<f32>, f32) {
     }
     xs.push(x);
     (xs, ink - start_x)
+}
+
+/// Spaces a justified line stretches or narrows: after its last tab, before its last ink.
+fn is_inner_space(pieces: &[Piece], i: usize) -> bool {
+    let last_tab = pieces.iter().rposition(|p| p.kind == Kind::Tab);
+    let last_ink = pieces
+        .iter()
+        .rposition(|p| matches!(p.kind, Kind::Text | Kind::Object));
+    pieces[i].kind == Kind::Space
+        && last_tab.is_none_or(|t| i > t)
+        && last_ink.is_some_and(|l| i < l)
+}
+
+/// Width a justified line (§17.18.44 `ST_Jc` `both`) may exceed its room by, narrowing its
+/// inter-word spaces: the reference word processor keeps a word on the line when the
+/// spaces can give up to a quarter of their width, but no more than 1.75 % of the line
+/// (measured black-box over 10–20 words at 8–24 pt, docs/ui/REPORT.md Fidelity round 1).
+fn squeeze_room(pieces: &[Piece], max: f32) -> f32 {
+    let spaces: f32 = (0..pieces.len())
+        .filter(|&i| is_inner_space(pieces, i))
+        .map(|i| pieces[i].width)
+        .sum();
+    (spaces * 0.25).min(max * 0.0175)
 }
 
 fn special_piece(kind: Kind, style: usize, styles: &[RunStyle], at: u32, virtual_: bool) -> Piece {

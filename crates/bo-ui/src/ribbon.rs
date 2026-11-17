@@ -2896,6 +2896,7 @@ mod tests {
         crate::doc_r3_menus::install_icons(&mut icons);
         crate::doc_r4_menus::install_icons(&mut icons);
         crate::doc_r4_fit::install_icons(&mut icons);
+        crate::doc_tabs7::install_icons(&mut icons);
         let format = FormatState {
             section: bo_edit::SectionState {
                 width: 11906,
@@ -2914,6 +2915,7 @@ mod tests {
         crate::doc_r3_menus::install_strings(&mut strings);
         crate::doc_r4_menus::install_strings(&mut strings);
         crate::doc_r4_fit::install_strings(&mut strings);
+        crate::doc_tabs7::install_strings(&mut strings);
         for tab in &ribbon.tabs {
             assert!(!tab.groups.is_empty(), "{} is empty", tab.label);
             for g in &tab.groups {
@@ -2925,7 +2927,9 @@ mod tests {
                                 || crate::doc_design::UNAVAILABLE.contains(id)
                                 || crate::doc_r4_menus::UNAVAILABLE.contains(id)
                                 || crate::doc_r4_fit::UNAVAILABLE.contains(id)
-                                || crate::doc_r4_fit::ARRANGE.contains(id),
+                                || crate::doc_r4_fit::ARRANGE.contains(id)
+                                // Handled by DocWindow::r7_action (covered in doc_r7_tests).
+                                || *id == "review.checkAccessibility",
                             "{id} has no action"
                         );
                         let glyph = GLYPH_BUTTONS.iter().any(|(g, _)| g == id);

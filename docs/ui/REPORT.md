@@ -272,3 +272,68 @@ Vòng 94: **chú thích viết trong thẻ** — New Comment mở ngăn Comments
 Vòng 95: **dấu định dạng theo loại**. Giao diện tự vẽ trước đây không vẽ dấu nào (bật ¶ chỉ hiện chữ ẩn); nay DocView vẽ dấu của engine (`Engine::formatting_marks`) lên ảnh trang bằng màu chữ như bản đối chiếu: · khoảng trắng, ° khoảng trắng không ngắt, → tab giữa khoảng tab, ¶ cuối đoạn, ¤ cuối ô / hàng, ↵ ngắt dòng, ¬ gạch nối tuỳ chọn (U+00AD, §17.3.3.29 softHyphen — loại dấu mới), neo đối tượng (chỉ khi đối tượng được chọn hoặc bật ¶). Engine: `showFormattingMarks` nhận `kinds` (`MarkKinds`: tabs, spaces, paragraphs, hidden, optionalHyphens, anchors); chỉ đổi dấu thì không dàn trang lại, đổi chữ ẩn thì dàn lại; in không in chữ ẩn hiện theo loại. File › Options › Display: sáu ô kiểm chạy riêng từng loại, lưu `markKinds=` trong `doc-prefs.txt` (mặc định: chỉ Object anchors). Bản đối chiếu cho ¬ chiếm chỗ (dàn lại dòng); BlueDoc vẽ ¬ chồng tại chỗ (không đụng dàn dòng — việc của agent bố cục).
 Vòng 96: **File › Info › Protect Document ▾** chạy đủ trừ chữ ký số: Always Open Read-Only (`setReadOnlyRecommended`, §17.15.1.93 writeProtection@recommended — có dấu khi bật), Encrypt with Password (hộp thoại 340 × 254, ô mật khẩu che chữ; lần lưu sau mã hoá agile [MS-OFFCRYPTO] của engine, mật khẩu rỗng bỏ mã hoá), Restrict Editing, Mark as Final (`_MarkAsFinal`). Lệnh bảo mật tệp nay đi qua `DocView::run_json`. **Check for Issues ▾**: Inspect Document (Document Inspector: sáu nhóm ô kiểm — Comments/Revisions, Properties, Custom XML, Headers/Footers/Watermarks, Hidden Text, Macros — Inspect → kết quả từng nhóm, Remove All theo nhóm qua `inspectRemove` / `acceptAllRevisions`, Reinspect), Check Accessibility (ngăn bên phải theo nhóm như ngăn đối chiếu: Color and Contrast, Media and Illustrations, Tables, Document Structure; mỗi quy tắc số lỗi hoặc ✓), Check Compatibility (danh sách tính năng engine báo mất khi lưu định dạng cũ). Các lệnh menu tệp của bản đối chiếu không gọi được bằng `ExecuteMso` (chỉ AccessibilityChecker), nên hộp thoại Encrypt / Inspector chưa đo được trên bản đối chiếu.
 Vòng 97 (rà soát của điều phối): **thẻ chú thích trong vùng đánh dấu** (chế độ Contextual như bản đối chiếu, `doc_card7.rs`): New Comment khi ngăn Comments đóng mở thẻ nổi cạnh vùng chọn ở vùng đánh dấu — vòng tròn chữ tắt theo màu tác giả (cùng màu bóng chú thích, người đầu #D13438), tên đậm + "A few seconds ago" (thời gian tương đối từ `w:date`: phút / giờ trước, quá một ngày ghi ngày), ô soạn, Post / Cancel; nhấp ra ngoài thì đăng nội dung đã gõ (thẻ rỗng tự bỏ). Chú thích đang chứa con trỏ hiện thành thẻ đè lên bóng của nó (viền màu tác giả, bóng đổ nhẹ) với các trả lời và nút **Reply** (mũi tên móc) / **Resolve** (dấu tích trong khung lời) chữ #2B579A; Reply mở ô trả lời trong thẻ. Ngăn Comments là chế độ List (Review › Show Comments); huy hiệu trong ngăn cũng theo màu tác giả. **Dấu định dạng**: ¬ vẽ bằng nét (thanh ngang + móc xuống) ngay chỗ ngắt thay cho ký tự chồng lên chữ; khi đang sửa thân văn bản, lề trên / dưới của trang (đầu trang, chân trang) phủ trắng nửa trong suốt như bản đối chiếu vẽ đầu / chân trang nhạt. Tab ngữ cảnh: các nút lớn mờ được (Quick Styles…), Go to Header mờ khi đang ở đầu trang, Link to Previous mờ ở phần đầu. Còn khác: ¶ của đầu / chân trang và của đoạn trống ngay sau bảng chưa vẽ (dấu engine chỉ lấy dòng thân văn bản); hàng bảng cao hơn bản đối chiếu là khoảng cách đoạn kiểu bảng — đã sửa ở nhánh bố cục, sẽ về qua `work/desktop-performance`.
+
+## Fidelity round 1 — bố cục trang BlueDoc so với trình soạn thảo đối chiếu (2026-11-17)
+
+Cách đo: 56 tệp .docx — 36 tệp của `tests/corpus/doc` (para, layout, lists, notes, images, sections, tables,
+styles, text, fields-03, page-01, phase1-sample) và 20 tệp OOXML viết tay (`gen-01…20`: tiếng Việt căn đều
+Times 13 pt giãn 1,5, giãn dòng single / 1,15 / exact / at least, khoảng cách đoạn + contextual, keep / widow,
+ngắt section đổi hướng và lề, cột, bảng dài lặp tiêu đề / tách hàng, ô gộp / autofit, danh sách nhiều cấp,
+header / footer / số trang, chú thích, tab có dẫn, phông lẫn cỡ, drop cap, text box, ảnh nổi square / tight /
+top-and-bottom, mục lục). Bản sao trong scratch được xuất PDF bằng COM trong instance riêng (ẩn, chỉ đọc,
+`ExportAsFixedFormat`, không in); BlueDoc xuất PDF bằng `bo-cli convert`. Hai PDF cùng được raster hoá 96 dpi và
+trích ký tự bằng `bo-pdfread` (ví dụ mới `cargo run -p bo-pdfread --example pdf_pages -- in.pdf out/ 1.3333`);
+ảnh BlueDoc lấy từ `bo-cli render`. Điểm: số trang; tỉ lệ đầu dòng khớp (chuỗi ký tự không khoảng trắng của
+hai bên được gióng bằng SequenceMatcher, đầu dòng của bản đối chiếu phải rơi đúng đầu dòng của BlueDoc); tỉ lệ
+điểm ảnh lệch (> 64 mức xám) trên trang. Mỗi quy tắc dưới đây được đo trước bằng tài liệu hiệu chuẩn riêng.
+
+| | Số trang khớp | Đầu dòng khớp (TB tệp) | Đầu dòng khớp (theo dòng) | Điểm ảnh lệch TB |
+|---|---|---|---|---|
+| Trước | 52 / 56 | 89,9 % | 88,6 % | 0,0428 |
+| Sau | 56 / 56 | 96,1 % | 96,9 % | 0,0150 |
+
+Sửa (mỗi mục có test trong `crates/bo-layout/tests/word_fidelity.rs` hoặc test đơn vị):
+1. **Khoảng cách giữa hai đoạn = max(after, before)**, không cộng (12/6, 6/12, 12/12 pt đều cho 12 pt; như nhau ở
+   compat 12 / 14 / 15 / không khai báo). Cả trong ô bảng.
+2. **Space before ở đầu trang**: giữ ở đầu tài liệu và trang đầu của section bắt đầu trang mới; bỏ sau ngắt
+   trang tự nhiên, ngắt trang cứng và pageBreakBefore.
+3. **Hộp dòng** theo `TEXTMETRIC` của GDI: usWinAscent / usWinDescent + external leading
+   (`max(0, hhea.lineGap − ((winA + winD) − (hhea.asc − hhea.desc)))`) đặt **trên** ascent; bội số giãn dòng
+   thêm khoảng trống **dưới** chữ (trước: trên); Exactly đặt đường cơ sở ở 80 % chiều cao dòng với mọi phông;
+   At least thêm khoảng trống phía trên. Caladea (thay Cambria) nhận chiều cao dòng của Cambria 1,1724 em.
+   (`FaceInfo::line_metrics`, bo-text.)
+4. **Căn đều ở compat 15 được nén khoảng trắng** để giữ chữ cuối trên dòng: nén tối đa min(25 % độ rộng các
+   khoảng trắng, (chữ cuối + khoảng trắng trước nó) / 2,85) — đo với từ 1–8 ký tự, 8–24 pt. Tệp compat < 15
+   hoặc không khai báo thì không nén; mô hình đọc `compatibilityMode` (`Document::compat_mode`, ghi lại khi lưu).
+   gen-01 (tiếng Việt căn đều) 42,9 → 100 %, gen-17 70,6 → 100 %.
+5. **pPr của kiểu bảng** (§17.7.6; Table Grid: after 0, single) áp cho đoạn trong ô, dưới kiểu đoạn và định dạng
+   trực tiếp.
+6. **Hàng bảng chứa viền**: nội dung bắt đầu dưới viền trên, hàng cuối chứa viền dưới (+0,5 pt với sz 4).
+7. **Tab phải vượt lề phải** canh tại lề phải (header mẫu tab 6,5" trên dòng 6,27" không còn xuống dòng).
+8. **Header trang đầu cao hơn (titlePg)** chỉ đẩy thân trang đầu; mỗi trang dùng header/footer của biến thể của nó.
+9. **Bao trên–dưới (top-and-bottom)**: dòng giãn bội số được để phần giãn chạm vào đối tượng, chỉ phần chữ phải
+   ở trên (dòng 1,5 Calibri 11 pt nằm trên hộp cách 14 pt); dòng Exactly cần đủ chiều cao.
+
+Ảnh (đối chiếu trái): `scratchpad/show/docfid-01-worst6-before.png`, `docfid-02-spacing-justify-before-after.png`,
+`docfid-03-tables-header-before-after.png`, `docfid-04-floats-textbox-dropcap-before-after.png`,
+`docfid-05-worst6-after.png`.
+
+10. **Cân bằng cột** trước ngắt section liên tục: các dòng của section trên trang đó được rót lại vào các cột
+    cao bằng nhau (trừ khi có ngắt cột đặt chúng); cột không đều rộng hơn vùng chữ giữ nguyên độ rộng (bản đối
+    chiếu không co, cột cuối chạy ra lề phải — test cũ của page_layout.rs sửa theo phép đo). gen-06: 3 → 2 trang.
+11. **Dấu dẫn tab** chỉ vẽ cho tab tới điểm dừng có dẫn (trước: tab tới điểm giữa vẽ dấu chấm của điểm sau).
+    para-03 75 → 100 %.
+12. **Bảng AutoFit theo nội dung** (§17.4.53; ô không có độ rộng): cột lấy chiều rộng từ chữ dài nhất và dòng
+    không ngắt dài nhất (+ lề ô), chia phần còn lại theo tỉ lệ. gen-08 87 → 100 %.
+13. **Chiều cao dòng theo phông của run**, không theo phông dự phòng chỉ cấp glyph thiếu (Caladea thiếu vài glyph
+    tiếng Việt khiến dòng Cambria cao thêm 0,5 pt). gen-13: 3 → 2 trang.
+14. **Chú thích dài giữ trọn trang có tham chiếu**: dòng thân văn bản sau tham chiếu chuyển sang trang sau khi chú
+    thích vừa một trang (chỉ chú thích quá dài mới nối sang trang sau). notes-05 88 → 99 %.
+15. **Gạch nối tuỳ ý (§17.3.3.29)** khi hiện dấu định dạng: hiện "¬" và chiếm chỗ như bản đối chiếu; ẩn dấu thì
+    không chiếm chỗ, ngắt dòng tại đó vẫn vẽ "-".
+
+Còn lệch (vòng sau): độ rộng glyph Cambria / Calibri Light / Caladea Italic khác (gen-13 76 % đầu dòng);
+ký hiệu đầu dòng phông Symbol / Wingdings / Courier New được thay bằng phông có dòng cao hơn (+0,4 pt mỗi dòng ở
+gen-09); lề ô trên/dưới (`tblCellMar` top/bottom) chưa có trong mô hình; độ rộng glyph của bản đối chiếu làm tròn
+theo lưới 600 dpi (Times 13 pt "n" 6,48 so với 6,50 pt) — chưa mô phỏng; gen-07 tách hàng bảng cuối trang khác một
+hàng.

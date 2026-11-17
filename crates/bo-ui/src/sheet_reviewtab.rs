@@ -197,7 +197,7 @@ impl SheetWindow {
         Some(match id {
             "sheet.spelling" => self.open_spelling(),
             "sheet.workbookStats" => self.open_workbook_stats(),
-            "sheet.checkAccessibility" | "sheet.accessCheck" => self.open_accessibility(),
+            "sheet.checkAccessibility" | "sheet.accessCheck" => self.toggle_accessibility_pane(),
             "sheet.showHideComment" => {
                 let at = self.view.active();
                 if self.commented_cells().contains(&at) {
@@ -702,131 +702,6 @@ impl SheetWindow {
             [292.0, 512.0, 110.0, 32.0],
             Kind::Button {
                 label: t("common.ok", "OK"),
-                default: true,
-            },
-        );
-        self.form = Some(f);
-        self.form_kind = FormKind::Help;
-        true
-    }
-
-    /// Check Accessibility: the inspection results of the workbook (our own checks: merged
-    /// cells, default sheet names, charts without a title, tables without a header row).
-    fn open_accessibility(&mut self) -> bool {
-        let Some(wb) = self.view.engine().workbook() else {
-            return false;
-        };
-        let mut warn = Vec::new();
-        let mut errors = Vec::new();
-        let default_name = |n: &str| {
-            let l = n.to_lowercase();
-            ["sheet", "trang tính"].iter().any(|p| {
-                l.strip_prefix(p)
-                    .is_some_and(|d| d.trim().parse::<u32>().is_ok())
-            })
-        };
-        for ws in &wb.sheets {
-            if !ws.merges.is_empty() {
-                warn.push(format!(
-                    "{} ({})",
-                    self.t("sheetRev.merged", "Merged Cells"),
-                    ws.name
-                ));
-            }
-            if default_name(&ws.name) && !ws.cells.is_empty() {
-                warn.push(format!(
-                    "{} ({})",
-                    self.t("sheetRev.defaultName", "Default Sheet Names"),
-                    ws.name
-                ));
-            }
-            for ch in &ws.charts {
-                if ch.title.as_deref().unwrap_or("").is_empty() {
-                    errors.push(format!(
-                        "{} ({})",
-                        self.t("sheetRev.noAlt", "Missing Alternative Text"),
-                        ws.name
-                    ));
-                    let _ = ch;
-                }
-            }
-            for tb in &ws.tables {
-                if tb.header_row_count == Some(0) {
-                    errors.push(format!(
-                        "{} ({})",
-                        self.t("sheetRev.noHeader", "No Header Row Specified"),
-                        tb.display_name
-                    ));
-                }
-            }
-        }
-        let t = |k: &str, f: &str| self.t(k, f);
-        let mut items = Vec::new();
-        if !errors.is_empty() {
-            items.push(format!(
-                "{} ({})",
-                t("sheetRev.errors", "Errors"),
-                errors.len()
-            ));
-            items.extend(errors.into_iter().map(|e| format!("    {e}")));
-        }
-        if !warn.is_empty() {
-            items.push(format!(
-                "{} ({})",
-                t("sheetRev.warnings", "Warnings"),
-                warn.len()
-            ));
-            items.extend(warn.into_iter().map(|e| format!("    {e}")));
-        }
-        let clean = items.is_empty();
-        if clean {
-            items.push(t(
-                "sheetRev.noIssues",
-                "No accessibility issues found. People with disabilities should not have difficulty reading this workbook.",
-            ));
-        }
-        let mut f = Form::new(
-            &t("sheetRev.accTitle", "Accessibility"),
-            (420.0, 520.0),
-            vec![],
-        );
-        f.add(
-            "resL",
-            None,
-            [18.0, 46.0, 380.0, 22.0],
-            Kind::Group(t("sheetRev.inspection", "Inspection Results")),
-        );
-        f.add(
-            "list",
-            None,
-            [18.0, 74.0, 384.0, 300.0],
-            Kind::List {
-                items,
-                sel: None,
-                top: 0,
-            },
-        );
-        f.add(
-            "infoG",
-            None,
-            [18.0, 386.0, 380.0, 22.0],
-            Kind::Group(t("sheetRev.additional", "Additional Information")),
-        );
-        f.add(
-            "info",
-            None,
-            [18.0, 410.0, 384.0, 50.0],
-            Kind::Note(t(
-                "sheetRev.accNote",
-                "Select an issue to see why it matters and how to fix it.",
-            )),
-        );
-        f.add(
-            "ok",
-            None,
-            [292.0, 472.0, 110.0, 32.0],
-            Kind::Button {
-                label: t("common.close", "Close"),
                 default: true,
             },
         );

@@ -60,7 +60,8 @@ impl SheetWindow {
                 self.view.set_show_formulas(on);
                 true
             }
-            "sheet.errorCheck" => self.error_check(),
+            "sheet.errorCheck" => self.open_error_check(),
+            "sheet.watchWindow" => self.toggle_watch_window(),
             "sheet.evaluateFormula" => self.open_evaluate_formula(),
             "sheet.sortDialog" => self.open_sort_dialog(),
             "sheet.dataValidation" | "sheet.dataValidationDlg" => self.open_validation_dialog(),
@@ -263,59 +264,6 @@ impl SheetWindow {
                 "sheetAudit.noRefs",
                 "The active cell does not refer to or is not referred to by other cells.",
             );
-        }
-        true
-    }
-
-    /// Select the next cell with a formula error and say what it is.
-    fn error_check(&mut self) -> bool {
-        let sheet = self.view.sheet();
-        let out = self
-            .view
-            .query(json!({ "cmd": "errorCheck", "sheet": sheet }))
-            .unwrap_or(Value::Null);
-        let list = out
-            .get("errors")
-            .or_else(|| out.get("cells"))
-            .and_then(Value::as_array)
-            .cloned()
-            .or_else(|| out.as_array().cloned())
-            .unwrap_or_default();
-        let (ar, ac) = self.view.active();
-        let num = |v: &Value, k: &str| v.get(k).and_then(Value::as_u64).map(|n| n as u32);
-        let cells: Vec<(u32, u32, String)> = list
-            .iter()
-            .filter_map(|e| {
-                Some((
-                    num(e, "row")?,
-                    num(e, "col")?,
-                    e.get("message")
-                        .or_else(|| e.get("rule"))
-                        .and_then(Value::as_str)
-                        .unwrap_or("")
-                        .to_owned(),
-                ))
-            })
-            .collect();
-        let next = cells
-            .iter()
-            .find(|(r, c, _)| (*r, *c) > (ar, ac))
-            .or_else(|| cells.first());
-        match next {
-            Some((r, c, msg)) => {
-                self.view.select((*r, *c), (*r, *c), (*r, *c));
-                self.status = if msg.is_empty() {
-                    self.t("sheetAudit.errorFound", "Error in cell")
-                } else {
-                    msg.clone()
-                };
-            }
-            None => {
-                self.status = self.t(
-                    "sheetAudit.noErrors",
-                    "The error check is complete for the entire sheet.",
-                );
-            }
         }
         true
     }

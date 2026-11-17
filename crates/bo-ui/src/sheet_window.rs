@@ -29,6 +29,8 @@ mod data_impl;
 mod datadlg_impl;
 #[path = "sheet_dataforms.rs"]
 mod dataforms_impl;
+#[path = "sheet_errcheck.rs"]
+mod errcheck_impl;
 #[path = "sheet_evaluate.rs"]
 mod evaluate_impl;
 #[path = "sheet_fbar.rs"]
@@ -37,6 +39,10 @@ mod fbar_impl;
 mod fcells_impl;
 #[path = "sheet_filter.rs"]
 mod filter_impl;
+#[path = "sheet_findrep.rs"]
+mod findrep_impl;
+#[path = "sheet_fnargs.rs"]
+mod fnargs_impl;
 #[path = "sheet_form.rs"]
 mod form_impl;
 #[path = "sheet_gallery.rs"]
@@ -53,8 +59,12 @@ mod names_impl;
 mod options_impl;
 #[path = "sheet_pagelayout.rs"]
 mod pagelayout_impl;
+#[path = "sheet_panes.rs"]
+mod panes_impl;
 #[path = "sheet_paste.rs"]
 mod paste_impl;
+#[path = "sheet_pivotpane.rs"]
+mod pivotpane_impl;
 #[path = "sheet_protect.rs"]
 mod protect_impl;
 #[path = "sheet_rangepick.rs"]
@@ -234,7 +244,6 @@ fn sheet_enabled(id: &str, f: &FormatState) -> bool {
         | "sheet.relationships"
         | "sheet.dataModel"
         | "sheet.forecastSheet"
-        | "sheet.watchWindow"
         | "sheet.ruler"
         | "sheet.newWindow"
         | "sheet.split"
@@ -420,6 +429,22 @@ pub struct SheetWindow {
     prot: protect_impl::ProtState,
     /// The open Text to Columns wizard.
     ttc: Option<ttc_impl::Ttc>,
+    /// The open Function Arguments dialog.
+    fnargs: Option<fnargs_impl::FnArgs>,
+    /// The open Error Checking dialog.
+    errc: Option<errcheck_impl::ErrCheck>,
+    /// Check Accessibility pane, the pointer over it, the pane opened or closed (relayout),
+    /// accessibility issues for the status bar; the Watch Window.
+    acc: Option<panes_impl::AccPane>,
+    pane_ptr: bool,
+    pane_changed: bool,
+    acc_issues_cached: usize,
+    watch: Option<panes_impl::WatchWin>,
+    /// Find and Replace settings (kept between openings).
+    find_state: findrep_impl::FindState,
+    /// PivotTable Fields pane, and the pivot table whose pane was closed.
+    pivot: Option<pivotpane_impl::PivotPane>,
+    pivot_closed: Option<(usize, usize)>,
     /// A dialog collapsed while a range is picked on the sheet.
     pick_state: Option<rangepick_impl::PickState>,
     /// Format Cells state beyond its controls (border edges, orientation, fill).
@@ -570,6 +595,16 @@ impl SheetWindow {
             form_ptr: (0.0, 0.0),
             form_count: 1,
             ttc: None,
+            fnargs: None,
+            errc: None,
+            acc: None,
+            pane_ptr: false,
+            pane_changed: false,
+            acc_issues_cached: 0,
+            watch: None,
+            find_state: findrep_impl::FindState::default(),
+            pivot: None,
+            pivot_closed: None,
             prot: protect_impl::ProtState::default(),
             spell: None,
             link_tip: String::new(),
@@ -692,6 +727,47 @@ impl SheetWindow {
             self.handle(Input::Release { x, y }, text);
             return done;
         }
+        // `form.tab.<n>` shows page n of the open form; `pane.scroll.<px>` scrolls the
+        // accessibility pane; `pane.detail.<rule>` opens a rule's first issue.
+        if let Some(n) = id.strip_prefix("form.tab.").and_then(|n| n.parse().ok()) {
+            if let Some(f) = self.form.as_mut() {
+                f.set_tab(n);
+            }
+            self.layout_form(text);
+            return true;
+        }
+        if let Some(n) = id.strip_prefix("pane.scroll.").and_then(|n| n.parse().ok()) {
+            self.pane_scroll_to(n);
+            return true;
+        }
+        // `form.set.<control>=<text>` types into a box of the open form; `watch.add` adds the
+        // selection to the Watch Window.
+        if let Some((ctl, value)) = id.strip_prefix("form.set.").and_then(|r| r.split_once('=')) {
+            let ctl: &'static str = match ctl {
+                "what" => "what",
+                "with" => "with",
+                "a0" => "a0",
+                "a1" => "a1",
+                _ => return false,
+            };
+            if let Some(f) = self.form.as_mut() {
+                f.focus(ctl);
+                f.set_text(ctl, value);
+            }
+            if self.form_kind == form_impl::FormKind::FnArgs {
+                self.fnargs_changed(ctl);
+            }
+            self.layout_form(text);
+            return true;
+        }
+        if id == "watch.add" {
+            self.watch_add_selection();
+            return true;
+        }
+        if let Some(n) = id.strip_prefix("pane.detail.").and_then(|n| n.parse().ok()) {
+            self.pane_detail(n);
+            return true;
+        }
         let done = self.choose(Choice::Command(id.to_owned()), text);
         if self.pick_state.is_some() {
             self.range_pick_follow();
@@ -800,7 +876,7 @@ impl SheetWindow {
 
     /// Arrow buttons: up, down, left, right.
     fn arrow_rects(&self) -> [[f32; 4]; 4] {
-        let (w, h) = self.size;
+        let (w, h) = (self.size.0 - self.pane_w(), self.size.1);
         let (b, m) = self.sb_box();
         let gt = self.grid_top();
         let tabs_y = h - self.status_h() - self.tabs_h();
@@ -817,7 +893,7 @@ impl SheetWindow {
 
     /// Left edge of the horizontal scroll bar in the tab strip.
     fn hbar_x(&self) -> f32 {
-        (self.size.0 * 0.6)
+        ((self.size.0 - self.pane_w()) * 0.6)
             .round()
             .max(self.add_rect[0] + self.add_rect[2] + self.px(24.0))
     }
@@ -864,8 +940,13 @@ impl SheetWindow {
         let (w, h) = self.size;
         let gt = self.grid_top();
         let tabs_y = h - self.status_h() - self.tabs_h();
-        self.view
-            .set_frame(0.0, gt, (w - self.sb_w()).max(1.0), (tabs_y - gt).max(1.0));
+        let pane = self.pane_w();
+        self.view.set_frame(
+            0.0,
+            gt,
+            (w - pane - self.sb_w()).max(1.0),
+            (tabs_y - gt).max(1.0),
+        );
         // Formula bar: name box, then the content box after the fx area.
         let fb = self.ribbon.bottom();
         let pad = self.px(9.6);
@@ -1534,6 +1615,18 @@ impl SheetWindow {
             redraw |= self.hover_comments(x, y);
         }
         self.layout_cards(text);
+        self.layout_panes(text);
+        if std::mem::take(&mut self.pane_changed) {
+            self.relayout(text);
+            redraw = true;
+        }
+        if redraw {
+            self.acc_issues_cached = self.acc_issue_count();
+            self.sync_pivot_pane();
+            if std::mem::take(&mut self.pane_changed) {
+                self.relayout(text);
+            }
+        }
         if self.view.sheet_names().len() != sheets {
             self.layout_tabs(text);
         }
@@ -1634,6 +1727,11 @@ impl SheetWindow {
         }
         if let Some(r) = self.name_input(&input) {
             return r;
+        }
+        if self.form.is_none() && self.dialog.is_none() {
+            if let Some(r) = self.pane_input(&input, text) {
+                return r;
+            }
         }
         let tip_before = self.tooltip.is_some();
         if matches!(
@@ -2042,6 +2140,9 @@ impl SheetWindow {
         self.paint_tabs(p);
         self.paint_tab_extras(p);
         self.paint_scrollbars(p);
+        self.paint_acc_pane(p);
+        self.paint_pivot_pane(p);
+        self.paint_watch(p);
         self.paint_status(p);
         self.paint_totals_button(p);
         self.paint_totals_list(p);
@@ -2080,6 +2181,7 @@ impl SheetWindow {
             (true, form_impl::FormKind::Evaluate) => self.eval_strings(),
             (true, form_impl::FormKind::Names) => self.names_strings(),
             (true, form_impl::FormKind::Link) => self.link_strings(),
+            (true, form_impl::FormKind::FnArgs) => self.fnargs_strings(),
             (true, _) => Vec::new(),
             _ => return,
         };
@@ -2100,7 +2202,7 @@ impl SheetWindow {
         }
         if self.form_kind == form_impl::FormKind::TextToColumns {
             match input {
-                Input::Drag { x, .. } => return Some(self.ttc_drag(*x)),
+                Input::Drag { x, y, .. } => return Some(self.ttc_drag(*x, *y)),
                 Input::Release { .. } => return Some(self.ttc_release()),
                 _ => {}
             }
@@ -2170,7 +2272,9 @@ impl SheetWindow {
             ttc_impl::paint_pick_button(p, r, f.scale_k());
         } else if matches!(
             self.form_kind,
-            form_impl::FormKind::TextToColumns | form_impl::FormKind::TtcAdvanced
+            form_impl::FormKind::TextToColumns
+                | form_impl::FormKind::TtcAdvanced
+                | form_impl::FormKind::TtcConfirm
         ) {
             self.paint_ttc(f, id, r, p);
         } else if self.form_kind == form_impl::FormKind::Validation && id == "eicon" {
@@ -2204,6 +2308,10 @@ impl SheetWindow {
             self.paint_evaluate(f, r, p);
         } else if self.form_kind == form_impl::FormKind::Sort {
             self.paint_sort_canvas(f, id, r, p);
+        } else if self.form_kind == form_impl::FormKind::FnArgs {
+            self.paint_fnargs(f, id, r, p);
+        } else if self.form_kind == form_impl::FormKind::FindReplace {
+            self.paint_find(f, id, r, p);
         }
     }
 
@@ -2379,7 +2487,7 @@ impl SheetWindow {
             p.fill_rect(r[0], r[1], r[2], r[3], edge);
             p.fill_rect(r[0] + 1.0, r[1] + 1.0, r[2] - 2.0, r[3] - 2.0, WHITE);
         };
-        let (w, h) = self.size;
+        let (w, h) = (self.size.0 - self.pane_w(), self.size.1);
         let gt = self.grid_top();
         let tabs_y = h - self.status_h() - self.tabs_h();
         p.fill_rect(w - self.sb_w(), gt, self.sb_w(), tabs_y - gt, TABS_BG);
@@ -2438,7 +2546,7 @@ impl SheetWindow {
     fn paint_tabs(&self, p: &mut dyn Painter) {
         let y = self.size.1 - self.status_h() - self.tabs_h();
         let h = self.tabs_h();
-        let w = self.size.0;
+        let w = self.size.0 - self.pane_w();
         p.fill_rect(0.0, y, w, h, TABS_BG);
         p.fill_rect(0.0, y, w, 1.0, TABS_EDGE);
         // Navigation arrows.
@@ -2605,6 +2713,32 @@ impl SheetWindow {
             self.t("sheetEditor.ready", "Ready")
         };
         p.text(&mode, self.px(11.2), ty - 1.0, style, STATUS_TEXT);
+        // Accessibility status after the mode, as the reference keeps it (own mark).
+        if self.view.layout_page_of_active().is_none() && self.status.is_empty() {
+            let x = self.px(108.0);
+            let r = self.px(5.6);
+            let (cx, cy) = (x + r, y + sh / 2.0);
+            p.path(
+                &[
+                    PathSeg::M(cx - r, cy),
+                    PathSeg::C(cx - r, cy - r * 1.1, cx + r, cy - r * 1.1, cx + r, cy),
+                    PathSeg::C(cx + r, cy + r * 1.1, cx - r, cy + r * 1.1, cx - r, cy),
+                    PathSeg::Z,
+                ],
+                None,
+                Some((STATUS_TEXT, self.scale.max(1.0).round())),
+            );
+            p.fill_rect(cx - 1.0, cy - r * 0.55, 2.0, 2.0, STATUS_TEXT);
+            p.fill_rect(cx - r * 0.5, cy - r * 0.15, r, 1.0, STATUS_TEXT);
+            p.fill_rect(cx - 0.5, cy - r * 0.15, 1.0, r * 0.6, STATUS_TEXT);
+            p.text(
+                &self.acc_status_text(),
+                self.px(127.0),
+                ty - 1.0,
+                style,
+                STATUS_TEXT,
+            );
+        }
         // Page layout view: the page of the active cell, as the reference ("Page: 1 of 6").
         if let Some((n, of)) = self.view.layout_page_of_active() {
             let s = self

@@ -13,8 +13,6 @@ use serde_json::{json, Value};
 /// What the open dialog is for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum SheetDialog {
-    Find,
-    Replace,
     GoTo,
     InsertFunction,
     FormatCells,
@@ -263,46 +261,6 @@ impl SheetWindow {
         let ok = self.t("common.ok", "OK");
         let cancel = self.t("common.cancel", "Cancel");
         let (dk, title, fields, buttons) = match kind {
-            SheetDialog::Find => (
-                DialogKind::Find,
-                self.t("sheetMenu.dialog.find", "Find"),
-                vec![(
-                    self.t("sheetMenu.dialog.findWhat", "Find what"),
-                    String::new(),
-                )],
-                vec![
-                    (
-                        self.t("sheetMenu.dialog.findNext", "Find next"),
-                        DialogButton::FindNext,
-                    ),
-                    (cancel, DialogButton::Cancel),
-                ],
-            ),
-            SheetDialog::Replace => (
-                DialogKind::Replace,
-                self.t("sheetMenu.dialog.replace", "Replace"),
-                vec![
-                    (
-                        self.t("sheetMenu.dialog.findWhat", "Find what"),
-                        String::new(),
-                    ),
-                    (
-                        self.t("sheetMenu.dialog.replaceWith", "Replace with"),
-                        String::new(),
-                    ),
-                ],
-                vec![
-                    (
-                        self.t("sheetMenu.dialog.findNext", "Find next"),
-                        DialogButton::FindNext,
-                    ),
-                    (
-                        self.t("sheetMenu.dialog.replaceAll", "Replace all"),
-                        DialogButton::ReplaceAll,
-                    ),
-                    (cancel, DialogButton::Cancel),
-                ],
-            ),
             SheetDialog::GoTo => (
                 DialogKind::Link,
                 self.t("sheetMenu.dialog.goto", "Go to"),
@@ -353,34 +311,6 @@ impl SheetWindow {
             return true;
         }
         match kind {
-            SheetDialog::Find | SheetDialog::Replace if b == DialogButton::FindNext => {
-                let found = self.find_next(&v(0));
-                let msg = if found {
-                    Vec::new()
-                } else {
-                    vec![self.t("sheetMenu.dialog.notFound", "Nothing found.")]
-                };
-                if let Some((_, d)) = self.dialog.as_mut() {
-                    d.set_message(msg);
-                }
-                true
-            }
-            SheetDialog::Replace if b == DialogButton::ReplaceAll => {
-                let out = self.view.query(json!({
-                    "cmd": "replace", "query": v(0), "with": v(1),
-                }));
-                let n = out
-                    .as_ref()
-                    .and_then(|o| o.get("replaced").or_else(|| o.get("count")))
-                    .and_then(Value::as_u64)
-                    .unwrap_or(0);
-                self.view.changed();
-                let msg = format!("{} {n}", self.t("sheetMenu.dialog.replaced", "Replaced:"));
-                if let Some((_, d)) = self.dialog.as_mut() {
-                    d.set_message(vec![msg]);
-                }
-                true
-            }
             SheetDialog::GoTo => {
                 self.dialog = None;
                 self.go_to(&v(0))
@@ -654,48 +584,6 @@ impl SheetWindow {
         }
     }
 
-    /// Select the next cell after the active one whose text contains `query`.
-    fn find_next(&mut self, query: &str) -> bool {
-        if query.is_empty() {
-            return false;
-        }
-        let sheet = self.view.sheet();
-        let Some(out) = self
-            .view
-            .query(json!({ "cmd": "find", "query": query, "sheet": sheet }))
-        else {
-            return false;
-        };
-        let at = |m: &Value, k: &str| m.get(k).and_then(Value::as_u64).unwrap_or(0) as u32;
-        let list: Vec<(u32, u32)> = out
-            .get("matches")
-            .and_then(Value::as_array)
-            .map(|a| {
-                a.iter()
-                    .filter(|m| {
-                        m.get("sheet")
-                            .and_then(Value::as_u64)
-                            .is_none_or(|s| s as usize == sheet)
-                    })
-                    .map(|m| (at(m, "row"), at(m, "col")))
-                    .collect()
-            })
-            .unwrap_or_default();
-        let cur = self.view.active();
-        let next = list
-            .iter()
-            .copied()
-            .find(|p| *p > cur)
-            .or_else(|| list.first().copied());
-        match next {
-            Some(p) => {
-                self.view.select(p, p, p);
-                true
-            }
-            None => false,
-        }
-    }
-
     /// Go to a reference or name typed in Go To or the name box.
     pub(super) fn go_to(&mut self, text: &str) -> bool {
         let sheet = self.view.sheet();
@@ -814,8 +702,8 @@ impl SheetWindow {
                     .run(json!({ "cmd": "toggleFilter", "range": region }))
             }
             ("filter", "clear") => self.view.run(json!({ "cmd": "showAllData" })),
-            ("find", "find") => self.open_sheet_dialog(SheetDialog::Find),
-            ("find", "replace") => self.open_sheet_dialog(SheetDialog::Replace),
+            ("find", "find") => self.open_find_replace(false),
+            ("find", "replace") => self.open_find_replace(true),
             ("find", "goto") => self.open_sheet_dialog(SheetDialog::GoTo),
             ("cf", which) => self.cf(which),
             ("table", style) => {

@@ -1579,10 +1579,12 @@ fn data_and_formulas_dialogs_sort_validate_seek_name_and_trace() {
         w.form.as_ref().and_then(|f| f.get("sig")).map(|c| &c.kind),
         Some(form_impl::Kind::Label(s)) if s == "IFERROR(value, value_if_error)"
     ));
+    // OK opens Function Arguments (round 52) on its two arguments.
     w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
-    assert!(w.view().editing());
-    assert_eq!(w.view().formula_text(), "=IFERROR(");
+    assert_eq!(w.form_kind, form_impl::FormKind::FnArgs);
+    assert_eq!(w.fnargs.as_ref().map(|s| s.args.len()), Some(2));
     w.handle(Input::Key(Key::Escape, Mods::default()), &Fixed);
+    assert!(w.form.is_none());
     // Trace precedents of B8: one arrow from B7.
     w.view_mut().select((7, 1), (7, 1), (7, 1));
     assert!(w.action("sheet.tracePrecedents", &Fixed));
@@ -3532,8 +3534,9 @@ fn review_tab_spelling_changes_words_and_greys_what_is_missing() {
     assert!(w.action("sheet.workbookStats", &Fixed));
     assert!(w.form.is_some());
     w.form = None;
+    // Check Accessibility is a task pane (round 52), not a dialog.
     assert!(w.action("sheet.checkAccessibility", &Fixed));
-    assert!(w.form.is_some());
+    assert!(w.form.is_none() && w.acc.is_some());
 }
 
 #[test]
@@ -3647,3 +3650,6 @@ fn hyperlink_browser_lists_the_folder_and_creates_a_new_document() {
     assert_eq!(link["target"], made.display().to_string());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[path = "sheet_r11_tests.rs"]
+mod r11;

@@ -116,6 +116,16 @@ pub(super) enum FormKind {
     /// Data › Text to Columns wizard and its Advanced Text Import Settings.
     TextToColumns,
     TtcAdvanced,
+    /// "Replace the contents of the destination cells?" over the stashed wizard.
+    TtcConfirm,
+    /// Formulas › Function Arguments.
+    FnArgs,
+    /// Formulas › Error Checking.
+    ErrorCheck,
+    /// Home › Find and Replace.
+    FindReplace,
+    /// Insert › PivotTable (from table or range).
+    PivotNew,
     /// A dialog collapsed to its reference box while cells are picked on the sheet.
     RangePick,
     /// Review: Protect Sheet / Protect Workbook / passwords.
@@ -212,6 +222,9 @@ pub(super) struct Form {
     pub pos: Option<(f32, f32)>,
     /// Edit boxes whose text is shown as bullets (passwords).
     pub masked: Vec<&'static str>,
+    /// Height of the tab page frame (reference pixels) when it does not reach the
+    /// buttons' band (Find and Replace with its Find All list below).
+    pub page_h: Option<f32>,
     pub ctls: Vec<Ctl>,
     focus: Option<usize>,
     /// Open drop-down list (control index) and its highlighted item.
@@ -319,6 +332,7 @@ impl Form {
             bold: Vec::new(),
             pos: None,
             masked: Vec::new(),
+            page_h: None,
         }
     }
 
@@ -1246,7 +1260,8 @@ impl Form {
             Rgba(0x40, 0x40, 0x40, 255),
         );
         if !self.tabs.is_empty() {
-            let pg = self.dev([18.0, 74.0, self.size.0 - 36.0, self.size.1 - 74.0 - 61.0]);
+            let ph = self.page_h.unwrap_or(self.size.1 - 74.0 - 61.0);
+            let pg = self.dev([18.0, 74.0, self.size.0 - 36.0, ph]);
             p.fill_rect(pg[0], pg[1], pg[2], pg[3], PAGE_EDGE);
             p.fill_rect(pg[0] + 1.0, pg[1] + 1.0, pg[2] - 2.0, pg[3] - 2.0, PAGE);
             for (i, (label, r)) in self.tabs.iter().zip(&self.tab_rects).enumerate() {

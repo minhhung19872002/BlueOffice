@@ -382,7 +382,7 @@ impl SheetWindow {
     pub(super) fn insert_action(&mut self, id: &str) -> Option<bool> {
         Some(match id {
             "sheet.table" => self.open_create_table(),
-            "sheet.pivotTable" => self.open_create_pivot(false),
+            "sheet.pivotTable" => self.open_new_pivot(),
             "sheet.recPivot" => self.open_create_pivot(true),
             "sheet.sparkLine" => self.open_sparklines("line"),
             "sheet.sparkColumn" => self.open_sparklines("column"),

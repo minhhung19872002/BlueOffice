@@ -13,6 +13,8 @@ use serde_json::{json, Value};
 
 /// Wizard size (reference pixels, title bar included).
 const SIZE: (f32, f32) = (771.0, 546.0);
+/// The replace question's message box.
+const CONFIRM: (f32, f32) = (450.0, 240.0);
 /// The preview area: left, top, width, height of the owner-drawn canvas.
 const CANVAS: [f32; 4] = [32.0, 315.0, 720.0, 160.0];
 /// Inside the canvas: the box's top (steps 1 and 2; step 3 has a header row above it).
@@ -85,7 +87,53 @@ pub(super) struct Ttc {
     pub left: usize,
     /// The break being dragged (index into `breaks`).
     pub drag: Option<usize>,
+    /// A preview scroll thumb being dragged: vertical, and the pointer's offset from the
+    /// thumb start (canvas pixels).
+    pub bar_drag: Option<(bool, f32)>,
+    /// "Replace the contents of the destination cells?" was answered OK.
+    pub confirmed: bool,
 }
+
+/// One preview scroll bar (canvas pixels along its axis): track start, track length, thumb
+/// start, thumb length; `max` is the last first row / character.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) struct Bar {
+    pub track: f32,
+    pub len: f32,
+    pub thumb: f32,
+    pub size: f32,
+    pub max: usize,
+}
+
+impl Bar {
+    fn new(track: f32, len: f32, shown: usize, total: usize, at: usize) -> Self {
+        let total = total.max(shown).max(1);
+        let max = total - shown.min(total);
+        let size = (len * shown as f32 / total as f32).clamp(18.0_f32.min(len), len);
+        let thumb = if max == 0 {
+            track
+        } else {
+            track + (len - size) * at.min(max) as f32 / max as f32
+        };
+        Self {
+            track,
+            len,
+            thumb,
+            size,
+            max,
+        }
+    }
+
+    /// The first row / character for a thumb starting at `start`.
+    fn at(&self, start: f32) -> usize {
+        let room = (self.len - self.size).max(1.0);
+        let f = ((start - self.track) / room).clamp(0.0, 1.0);
+        (f * self.max as f32).round() as usize
+    }
+}
+
+/// Characters shown across the preview box.
+const SHOWN_CHARS: usize = ((BOX_W - 2.0) / CH_W) as usize;
 
 impl Ttc {
     fn split(&self) -> SplitMode {
@@ -172,6 +220,26 @@ fn col_letters(mut c: u32) -> String {
 fn visible_rows(step: u8) -> usize {
     let top = if step == 2 { HEAD_TOP + CH_H } else { BOX_TOP };
     ((BOX_BOTTOM - top - 1.0) / CH_H).floor() as usize
+}
+
+impl Ttc {
+    /// The horizontal bar under the box (between its arrows) and the vertical bar right of
+    /// it (`None` when every row fits).
+    pub(super) fn bars(&self) -> (Bar, Option<Bar>) {
+        let h = Bar::new(20.0, BOX_W - 40.0, SHOWN_CHARS, self.longest(), self.left);
+        let rows = visible_rows(self.step);
+        let top = if self.step == 2 { HEAD_TOP } else { BOX_TOP };
+        let v = (self.lines.len() > rows).then(|| {
+            Bar::new(
+                top + 20.0,
+                BOX_BOTTOM - top - 40.0,
+                rows,
+                self.lines.len(),
+                self.top,
+            )
+        });
+        (h, v)
+    }
 }
 
 impl SheetWindow {
@@ -695,6 +763,21 @@ impl SheetWindow {
                 return;
             }
         };
+        // Cells already holding data where the columns go (other than the source cells):
+        // ask first, as the reference does.
+        if !st.confirmed {
+            let (ds, dr, dc) = dest
+                .as_ref()
+                .map_or((st.sheet, st.range[0], st.range[1]), |d| {
+                    let n = |k: &str| d.get(k).and_then(Value::as_u64).unwrap_or(0);
+                    (n("sheet") as usize, n("row") as u32, n("col") as u32)
+                });
+            let out = (0..n).filter(|i| st.format(*i) != ColFmt::Skip).count() as u32;
+            if self.ttc_dest_busy(&st, (ds, dr, dc), out) {
+                self.open_ttc_confirm();
+                return;
+            }
+        }
         let num = |s: &str| s.chars().next();
         self.form = None;
         self.ttc = None;
@@ -704,6 +787,124 @@ impl SheetWindow {
             "decimal": num(&st.decimal), "thousands": num(&st.thousands),
             "trailingMinus": st.trailing,
         }));
+    }
+
+    /// Whether the `cols` columns written from (sheet, row, col) cover a non-empty cell
+    /// other than the source column's own cells.
+    fn ttc_dest_busy(&self, st: &Ttc, (sheet, row, col): (usize, u32, u32), cols: u32) -> bool {
+        let rows = st.range[2] - st.range[0];
+        (row..=row + rows).any(|r| {
+            (col..col + cols).any(|c| {
+                let source = sheet == st.sheet
+                    && c == st.range[1]
+                    && (st.range[0]..=st.range[2]).contains(&r);
+                !source
+                    && self
+                        .view
+                        .engine()
+                        .cell(sheet, r, c)
+                        .is_ok_and(|d| !d.input.is_empty())
+            })
+        })
+    }
+
+    /// The reference's question before overwriting cells (a message box over the wizard:
+    /// warning sign, OK / Cancel).
+    fn open_ttc_confirm(&mut self) {
+        // Measured on the reference's message (469 × 251 px with its shadow, `sheet-57`): the
+        // application's name large in the accent colour, a warning sign, two lines of text,
+        // a filled OK and a grey Cancel button (97 × 35 px).
+        let t = |k: &str, f: &str| self.t(k, f);
+        let mut f = Form::new("", (CONFIRM.0, CONFIRM.1), vec![]);
+        f.add("face", None, [0.0, 0.0, CONFIRM.0, CONFIRM.1], Kind::Canvas);
+        f.add("head", None, [33.0, 36.0, 300.0, 40.0], Kind::Canvas);
+        f.add("warn", None, [34.0, 104.0, 42.0, 42.0], Kind::Canvas);
+        f.add(
+            "msg",
+            None,
+            [94.0, 100.0, CONFIRM.0 - 110.0, 60.0],
+            Kind::Note(t(
+                "sheetTtc.replace",
+                "There's already data here. Do you want to replace it?",
+            )),
+        );
+        f.add("okb", None, [210.0, 179.0, 97.0, 35.0], Kind::Canvas);
+        f.add("cancelb", None, [322.0, 179.0, 97.0, 35.0], Kind::Canvas);
+        if let Some(old) = self.form.take() {
+            self.form_stash = Some((old, self.form_kind));
+        }
+        self.form = Some(f);
+        self.form_kind = FormKind::TtcConfirm;
+    }
+
+    /// The message box's own parts: white face, the name, the buttons.
+    fn paint_ttc_confirm(&self, f: &Form, id: &str, r: [f32; 4], p: &mut dyn Painter) {
+        let font = f.font();
+        let ok_label = self.t("common.ok", "OK");
+        let cancel_label = self.t("common.cancel", "Cancel");
+        match id {
+            "face" => {
+                let k = f.scale_k();
+                p.fill_rect(
+                    r[0],
+                    r[1] + (38.0 * k).round(),
+                    r[2],
+                    r[3] - (38.0 * k).round(),
+                    WHITE,
+                );
+            }
+            "head" => {
+                let big = Font {
+                    size: (font.size * 1.9).round(),
+                    ..font
+                };
+                p.text_font("BlueSheet", r[0], r[1], &big, self.theme.accent_text);
+            }
+            "okb" | "cancelb" => {
+                let ok = id == "okb";
+                let (edge, fill, ink) = if ok {
+                    (INK, self.theme.accent_strong, self.theme.accent_on)
+                } else {
+                    (
+                        Rgba(0x94, 0x94, 0x94, 255),
+                        Rgba(0xE6, 0xE6, 0xE6, 255),
+                        INK,
+                    )
+                };
+                p.fill_rect(r[0], r[1], r[2], r[3], edge);
+                let b = if ok { 2.0 } else { 1.0 };
+                p.fill_rect(r[0] + b, r[1] + b, r[2] - 2.0 * b, r[3] - 2.0 * b, fill);
+                let label = if ok { &ok_label } else { &cancel_label };
+                let w = f.width(label);
+                p.text_font(
+                    label,
+                    (r[0] + (r[2] - w) / 2.0).round(),
+                    (r[1] + (r[3] - font.size * 1.33) / 2.0).round(),
+                    &font,
+                    ink,
+                );
+            }
+            _ => {}
+        }
+    }
+
+    /// OK splits over the cells; Cancel goes back to the wizard.
+    pub(super) fn ttc_confirm_event(&mut self, ev: &Event) {
+        let ok = match ev {
+            Event::Ok | Event::Clicked("ok") | Event::Canvas("okb", ..) => true,
+            Event::Cancel | Event::Clicked("cancel") | Event::Canvas("cancelb", ..) => false,
+            _ => return,
+        };
+        if let Some((f, k)) = self.form_stash.take() {
+            self.form = Some(f);
+            self.form_kind = k;
+        }
+        if ok {
+            if let Some(st) = self.ttc.as_mut() {
+                st.confirmed = true;
+            }
+            self.ttc_finish();
+        }
     }
 
     /// A range typed in a dialog: (sheet, range).
@@ -791,24 +992,40 @@ impl SheetWindow {
             return;
         };
         let rows = visible_rows(st.step);
-        let n = st.lines.len();
-        // Scroll arrows: below the box (left / right), right of it (up / down).
+        // Scroll bars: below the box (left / right), right of it (up / down): arrows step,
+        // the thumb drags, the track pages.
+        let (hb, vb) = st.bars();
         if y > BOX_BOTTOM + 1.0 {
-            if x < 30.0 {
-                st.left = st.left.saturating_sub(8);
-            } else if x > BOX_W - 30.0 {
-                st.left = (st.left + 8).min(st.longest().saturating_sub(8));
+            if x < hb.track {
+                st.left = st.left.saturating_sub(1);
+            } else if x > hb.track + hb.len {
+                st.left = (st.left + 1).min(hb.max);
+            } else if x < hb.thumb {
+                st.left = st.left.saturating_sub(SHOWN_CHARS);
+            } else if x > hb.thumb + hb.size {
+                st.left = (st.left + SHOWN_CHARS).min(hb.max);
+            } else {
+                st.bar_drag = Some((false, x - hb.thumb));
             }
             return;
         }
         if x > BOX_W + 1.0 {
-            if y < BOX_TOP + 30.0 {
-                st.top = st.top.saturating_sub(1);
-            } else if y > BOX_BOTTOM - 30.0 {
-                st.top = (st.top + 1).min(n.saturating_sub(rows));
+            if let Some(vb) = vb {
+                if y < vb.track {
+                    st.top = st.top.saturating_sub(1);
+                } else if y > vb.track + vb.len {
+                    st.top = (st.top + 1).min(vb.max);
+                } else if y < vb.thumb {
+                    st.top = st.top.saturating_sub(rows);
+                } else if y > vb.thumb + vb.size {
+                    st.top = (st.top + rows).min(vb.max);
+                } else {
+                    st.bar_drag = Some((true, y - vb.thumb));
+                }
             }
             return;
         }
+
         let at = st.left + ((x - 1.0) / CH_W).round().max(0.0) as usize;
         match st.step {
             1 if st.fixed && y >= 0.0 => {
@@ -852,15 +1069,26 @@ impl SheetWindow {
         }
     }
 
-    /// Dragging a break of the fixed-width step (window point).
-    pub(super) fn ttc_drag(&mut self, x: f32) -> bool {
+    /// Dragging a break of the fixed-width step or a preview scroll thumb (window point).
+    pub(super) fn ttc_drag(&mut self, x: f32, y: f32) -> bool {
         let Some(f) = self.form.as_ref() else {
             return false;
         };
-        let (lx, _) = f.to_local(x, 0.0);
+        let (lx, ly) = f.to_local(x, y);
         let Some(st) = self.ttc.as_mut() else {
             return false;
         };
+        if let Some((vertical, grab)) = st.bar_drag {
+            let (hb, vb) = st.bars();
+            if vertical {
+                if let Some(vb) = vb {
+                    st.top = vb.at(ly - CANVAS[1] - grab);
+                }
+            } else {
+                st.left = hb.at(lx - CANVAS[0] - grab);
+            }
+            return true;
+        }
         let Some(i) = st.drag else {
             return false;
         };
@@ -876,6 +1104,9 @@ impl SheetWindow {
         let Some(st) = self.ttc.as_mut() else {
             return false;
         };
+        if st.bar_drag.take().is_some() {
+            return true;
+        }
         if st.drag.take().is_none() {
             return false;
         }
@@ -1026,6 +1257,14 @@ impl SheetWindow {
         let k = f.scale_k();
         if id == "pickDest" {
             paint_pick_button(p, r, k);
+            return;
+        }
+        if id == "warn" {
+            paint_warning(p, r);
+            return;
+        }
+        if self.form_kind == FormKind::TtcConfirm {
+            self.paint_ttc_confirm(f, id, r, p);
             return;
         }
         if id != "preview" {
@@ -1258,24 +1497,17 @@ impl SheetWindow {
         let ay = y0 + px(BOX_BOTTOM + 9.0);
         tri(p, x0 + px(9.0), ay, 0);
         tri(p, x0 + px(675.0), ay, 1);
-        let vx = x0 + px(BOX_W + 11.0);
-        if st.lines.len() > rows {
+        // Thumbs: thin grey bars as the reference's (drag them, click the track to page).
+        let (hb, vb) = st.bars();
+        if hb.max > 0 {
+            p.fill_rect(x0 + px(hb.thumb), ay - 1.0, px(hb.size), px(2.0), THUMB);
+        }
+        if let Some(vb) = vb {
+            let vx = x0 + px(BOX_W + 11.0);
             tri(p, vx, y0 + px(box_top + 10.0), 2);
             tri(p, vx, y0 + px(BOX_BOTTOM - 10.0), 3);
+            p.fill_rect(vx - 1.0, y0 + px(vb.thumb), px(2.0), px(vb.size), THUMB);
         }
-        let span = BOX_BOTTOM - box_top - 50.0;
-        let frac = if st.lines.len() > rows {
-            st.top as f32 / (st.lines.len() - rows) as f32
-        } else {
-            0.0
-        };
-        p.fill_rect(
-            vx - 1.0,
-            y0 + px(box_top + 21.0 + frac * span),
-            px(2.0),
-            px(18.0),
-            THUMB,
-        );
     }
 }
 
@@ -1345,4 +1577,28 @@ pub(super) fn paint_pick_button(p: &mut dyn Painter, r: [f32; 4], k: f32) {
     );
     p.fill_rect(cx - (stem / 2.0).round(), cy - 1.0, stem, a * 0.8, INK);
     p.fill_rect(cx - a, cy + a, 2.0 * a, (1.5 * k).round().max(1.0), INK);
+}
+
+/// Our warning sign of message boxes: a yellow rounded triangle with a dark exclamation mark.
+pub(super) fn paint_warning(p: &mut dyn Painter, r: [f32; 4]) {
+    let s = r[2].min(r[3]);
+    let (x, y) = (r[0], r[1]);
+    let at = |u: f32, v: f32| (x + u * s, y + v * s);
+    let pts = [at(0.5, 0.06), at(0.97, 0.9), at(0.03, 0.9)];
+    p.path(
+        &[
+            PathSeg::M(pts[0].0, pts[0].1),
+            PathSeg::L(pts[1].0, pts[1].1),
+            PathSeg::L(pts[2].0, pts[2].1),
+            PathSeg::Z,
+        ],
+        Some(Rgba(0xFF, 0xC8, 0x2C, 255)),
+        Some((Rgba(0xD8, 0x9C, 0x00, 255), (s / 32.0).max(1.0))),
+    );
+    let ink = Rgba(0x20, 0x20, 0x20, 255);
+    let w = (s * 0.09).max(2.0);
+    let (bx, by) = at(0.5, 0.33);
+    p.fill_rect(bx - w / 2.0, by, w, s * 0.32, ink);
+    let (dx, dy) = at(0.5, 0.75);
+    p.fill_rect(dx - w / 2.0, dy, w, w, ink);
 }

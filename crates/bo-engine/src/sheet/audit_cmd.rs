@@ -18,10 +18,11 @@
 use super::cmd::Recalc;
 use super::SheetEngine;
 use crate::{EngineError, Result};
-use bo_formula::{Area, CellId, Expr, Value as FValue};
+use bo_formula::{Area, CellId, CellProvider, Expr, Value as FValue};
 use bo_model::sheet::{CellRef, CellValue, Workbook};
 use bo_sheet::calcopts::CalcSettings;
 use bo_sheet::errcheck::{self, ErrorRule, ErrorRules};
+use bo_sheet::numfmt::Locale;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -59,6 +60,15 @@ pub enum AuditCommand {
     },
     /// Step-by-step evaluation of a cell's formula, `null` without one.
     EvaluateFormula { sheet: usize, row: u32, col: u32 },
+    /// Evaluates a formula text as if it were in (`sheet`, `row`, `col`), nothing stored
+    /// (Function Arguments' live values): `{ ok, value, error }`; `value` is the result as
+    /// a constant (`53.5`, `"text"`, `{1;2;3}` for a range or array, `#DIV/0!`).
+    EvaluateText {
+        sheet: usize,
+        row: u32,
+        col: u32,
+        formula: String,
+    },
     /// Syntax check of a formula text, nothing is changed or evaluated:
     /// `{ ok, error: { message, pos } | null, functions, unknownFunctions }`.
     CheckFormula { formula: String },
@@ -107,6 +117,7 @@ impl AuditCommand {
             "traceArrows",
             "evaluateFormula",
             "checkFormula",
+            "evaluateText",
             "errorCheck",
             "ignoreError",
             "resetIgnoredErrors",
@@ -252,6 +263,31 @@ impl SheetEngine {
             } => self.trace_arrows(sheet, row, col, dependents, levels.max(1)),
             AuditCommand::EvaluateFormula { sheet, row, col } => {
                 self.evaluate_formula(sheet, row, col)
+            }
+            AuditCommand::EvaluateText {
+                sheet,
+                row,
+                col,
+                formula,
+            } => {
+                let text = formula.trim().trim_start_matches('=');
+                if text.is_empty() {
+                    return Ok(json!({ "ok": false, "value": null, "error": null }));
+                }
+                let typed = format!("={text}");
+                let fixed = bo_formula::localized_input(&typed, self.locale.decimal);
+                let fixed = fixed.as_deref().unwrap_or(&typed).trim_start_matches('=');
+                let Some(fw) = self.live.engine() else {
+                    return Ok(json!({ "ok": false, "value": null, "error": null }));
+                };
+                Ok(match fw.evaluate(sheet, row, col, fixed) {
+                    Ok(v) => json!({
+                        "ok": true,
+                        "value": constant_text(fw, &v, &self.locale),
+                        "error": matches!(v, FValue::Error(_)),
+                    }),
+                    Err(e) => json!({ "ok": false, "value": null, "error": e.message }),
+                })
             }
             AuditCommand::CheckFormula { formula } => {
                 // What typing it would store: `;` separators, decimal commas and
@@ -507,6 +543,58 @@ impl SheetEngine {
     }
 }
 
+/// Most array items written by [`constant_text`].
+const MAX_SHOWN: usize = 64;
+
+/// A value written as a constant the way a user reads it (decimal separator of the
+/// locale): a range as the array of its values (`{4.5;24;25}`, rows `;`, columns `,` or
+/// `\` with a decimal comma).
+fn constant_text(fw: &bo_formula::Workbook, v: &FValue, locale: &Locale) -> String {
+    let one = |v: &FValue| -> String {
+        match v {
+            FValue::Number(n) => bo_sheet::numfmt::format_general(*n, locale),
+            FValue::Text(t) => format!("\"{}\"", t.replace('"', "\"\"")),
+            FValue::Bool(b) => if *b { "TRUE" } else { "FALSE" }.to_owned(),
+            FValue::Error(e) => e.as_str().to_owned(),
+            FValue::Empty => "0".to_owned(),
+            _ => String::new(),
+        }
+    };
+    let col_sep = if locale.decimal == ',' { '\\' } else { ',' };
+    let grid = |rows: usize, cols: usize, get: &dyn Fn(usize, usize) -> FValue| -> String {
+        let mut out = String::from("{");
+        let mut n = 0;
+        'rows: for r in 0..rows {
+            if r > 0 {
+                out.push(';');
+            }
+            for c in 0..cols {
+                if c > 0 {
+                    out.push(col_sep);
+                }
+                n += 1;
+                if n > MAX_SHOWN {
+                    out.push('…');
+                    break 'rows;
+                }
+                out.push_str(&one(&get(r, c)));
+            }
+        }
+        out.push('}');
+        out
+    };
+    match v {
+        FValue::Ref(a) if a.is_single() => one(&fw.cell_value(a.sheet, a.r1, a.c1)),
+        FValue::Ref(a) => grid(
+            (a.r2 - a.r1 + 1) as usize,
+            (a.c2 - a.c1 + 1) as usize,
+            &|r, c| fw.cell_value(a.sheet, a.r1 + r as u32, a.c1 + c as u32),
+        ),
+        FValue::Array(arr) => grid(arr.rows(), arr.cols(), &|r, c| arr.get(r, c).clone()),
+        other => one(other),
+    }
+}
+
 /// A defined name (§18.2.5) designating exactly this cell.
 fn defined_name_of(wb: &Workbook, sheet: usize, row: u32, col: u32) -> Option<String> {
     let name = &wb.sheets.get(sheet)?.name;
@@ -549,6 +637,33 @@ mod tests {
     fn run(e: &mut SheetEngine, v: &Value) -> Value {
         let cmd = AuditCommand::parse(v).expect("audit command");
         e.audit(cmd).unwrap()
+    }
+
+    #[test]
+    fn evaluate_text_gives_live_argument_values() {
+        let mut e = engine(
+            &[(0, "A1", "4"), (0, "A2", "24"), (0, "A3", "25")],
+            &["Sheet1"],
+        );
+        let ev = |e: &mut SheetEngine, f: &str| {
+            run(
+                e,
+                &json!({"cmd": "evaluateText", "sheet": 0, "row": 5, "col": 0, "formula": f}),
+            )
+        };
+        assert_eq!(ev(&mut e, "A1:A3")["value"], "{4;24;25}");
+        assert_eq!(ev(&mut e, "=SUM(A1:A3)")["value"], "53");
+        assert_eq!(ev(&mut e, "A2")["value"], "24");
+        assert_eq!(ev(&mut e, "\"ab\"")["value"], "\"ab\"");
+        let div = ev(&mut e, "1/0");
+        assert_eq!(
+            (div["value"].clone(), div["error"].clone()),
+            (json!("#DIV/0!"), json!(true))
+        );
+        assert_eq!(ev(&mut e, "1+*")["ok"], false);
+        assert_eq!(ev(&mut e, "")["ok"], false);
+        // Nothing was stored.
+        assert_eq!(e.cell(0, 5, 0).unwrap().input, "");
     }
 
     #[test]

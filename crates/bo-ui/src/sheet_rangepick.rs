@@ -20,6 +20,8 @@ pub(super) enum RefStyle {
     Formula,
     /// `=$A$1:$B$4` (Data Validation sources).
     Eq,
+    /// `A1:B4` (Function Arguments).
+    Relative,
 }
 
 /// A dialog waiting while cells are picked: the form, its kind, the box being filled, its
@@ -33,7 +35,14 @@ pub(super) struct PickState {
 }
 
 /// Picker buttons: (form kind, button id, the box it fills, reference style).
-const PICKERS: [(FormKind, &str, &str, RefStyle); 11] = [
+const PICKERS: [(FormKind, &str, &str, RefStyle); 18] = [
+    (FormKind::PivotNew, "pickTable", "table", RefStyle::Sheet),
+    (FormKind::PivotNew, "pickLoc", "loc", RefStyle::Sheet),
+    (FormKind::FnArgs, "pick0", "a0", RefStyle::Relative),
+    (FormKind::FnArgs, "pick1", "a1", RefStyle::Relative),
+    (FormKind::FnArgs, "pick2", "a2", RefStyle::Relative),
+    (FormKind::FnArgs, "pick3", "a3", RefStyle::Relative),
+    (FormKind::FnArgs, "pick4", "a4", RefStyle::Relative),
     (FormKind::Names, "refPick", "ref", RefStyle::Formula),
     (FormKind::NewName, "refPick", "ref", RefStyle::Formula),
     (FormKind::TextToColumns, "pickDest", "dest", RefStyle::Plain),
@@ -144,6 +153,9 @@ impl SheetWindow {
         self.form = Some(form);
         self.form_kind = st.kind;
         // The wizard keeps its destination in its own state.
+        if st.kind == FormKind::FnArgs && keep {
+            self.fnargs_changed(st.ctl);
+        }
         if st.kind == FormKind::TextToColumns && keep {
             if let Some(t) = self.ttc.as_mut() {
                 t.dest = text;
@@ -174,6 +186,7 @@ impl SheetWindow {
             RefStyle::Sheet => format!("{}!{s}", sheet_ref(&sheet)),
             RefStyle::Formula => format!("={}!{s}", sheet_ref(&sheet)),
             RefStyle::Eq => format!("={s}"),
+            RefStyle::Relative => s.replace('$', ""),
         }
     }
 

@@ -2717,7 +2717,7 @@ impl DocWindow {
         }
         self.r3_layout(text);
         self.r5_layout();
-        self.r7_layout();
+        self.r7_layout(text);
         if let Some(d) = self.dialog.as_mut() {
             d.layout(text, self.size, self.scale);
         }
@@ -3966,6 +3966,25 @@ impl DocWindow {
     /// word processor (text 0 → 128, line 119 in 3 px dashes, tag 225 with text 68).
     fn paint_story_frame(&self, p: &mut dyn Painter) {
         if self.story_options().is_none() {
+            // While the body is edited the headers and footers show lighter, as the
+            // reference draws them (round 7): a half-white veil over the top and bottom
+            // margins of each printed page.
+            if self.view_mode == "print" && self.read_mode.is_none() {
+                let sec = &self.view.format().section;
+                let s = self.view.scale();
+                for slot in self.view.slots() {
+                    let (x, y, w, h) = (
+                        slot.x as f32,
+                        slot.y as f32,
+                        slot.width as f32,
+                        slot.height as f32,
+                    );
+                    let top = (sec.margin_top.max(0) as f32 / 20.0 * s).round().min(h);
+                    let bottom = (sec.margin_bottom.max(0) as f32 / 20.0 * s).round().min(h);
+                    p.fill_rect(x, y, w, top, Rgba(255, 255, 255, 120));
+                    p.fill_rect(x, y + h - bottom, w, bottom, Rgba(255, 255, 255, 120));
+                }
+            }
             return;
         }
         let sec = &self.view.format().section;

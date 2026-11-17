@@ -1250,10 +1250,10 @@ pub(crate) fn install_icons(icons: &mut Icons) {
     );
     // Unicode / LaTeX / Text: their marks are lettered by the window over a blank icon.
     for id in ["eq.unicode", "eq.latex", "eq.text"] {
-        icons.add_solid(id, &[("M6 4h12v16h-12Z", None)]);
+        icons.add_solid(id, &[("M12 12h0.01Z", None)]);
     }
     for id in SYMBOL_IDS {
-        icons.add_solid(id, &[("M6 4h12v16h-12Z", None)]);
+        icons.add_solid(id, &[("M12 12h0.01Z", None)]);
     }
 }
 

@@ -1051,7 +1051,6 @@ impl Ribbon {
     }
 
     /// Label (i18n key) of the active tab.
-    #[cfg(test)]
     pub(crate) fn active_label(&self) -> &'static str {
         self.tabs.get(self.active).map_or("", |t| t.label)
     }

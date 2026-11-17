@@ -224,8 +224,10 @@ fn new_comment_is_written_in_a_card_and_posted() {
     let mut w = window();
     w.view.handle(Input::Text("Hello world".into()));
     w.view.run_json(&json!({ "cmd": "selectAll" }));
+    // Contextual view: a card in the markup area.
     assert!(run(&mut w, "review.newComment"));
-    assert!(w.comments_pane.as_ref().is_some_and(|c| c.draft.is_some()));
+    assert!(w.r7.card.what.is_some());
+    assert!(w.comments_pane.is_none());
     w.handle(Input::Text("Check this".into()), &Fixed);
     let ctrl = Mods {
         ctrl: true,
@@ -235,12 +237,19 @@ fn new_comment_is_written_in_a_card_and_posted() {
     let comments = w.view.comments();
     assert_eq!(comments.len(), 1);
     assert_eq!(comments[0].text, "Check this");
-    assert!(w.comments_pane.as_ref().is_some_and(|c| c.draft.is_none()));
     // Escape drops a draft without posting.
     assert!(run(&mut w, "review.newComment"));
     w.handle(Input::Text("Never mind".into()), &Fixed);
     w.handle(Input::Key(Key::Escape, Mods::default()), &Fixed);
     assert_eq!(w.view.comments().len(), 1);
+    // List view: with the Comments pane open the card is in the pane.
+    assert!(run(&mut w, "review.showComments"));
+    assert!(run(&mut w, "review.newComment"));
+    assert!(w.comments_pane.as_ref().is_some_and(|c| c.draft.is_some()));
+    w.handle(Input::Text("Second".into()), &Fixed);
+    w.handle(Input::Key(Key::Enter, ctrl), &Fixed);
+    assert_eq!(w.view.comments().len(), 2);
+    assert!(w.comments_pane.as_ref().is_some_and(|c| c.draft.is_none()));
 }
 
 #[test]

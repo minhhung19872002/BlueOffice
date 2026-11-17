@@ -6,6 +6,9 @@
 //! is at hand.
 use super::DocWindow;
 use crate::doc_forms::DocFormKind;
+
+#[path = "doc_card7.rs"]
+mod card;
 use crate::doc_tabs7::{self as tabs, Pen};
 use crate::ribbon::RibbonHit;
 use crate::slide_window::pic::{GalleryKind, PicGallery};
@@ -35,6 +38,8 @@ pub(super) struct R7 {
     pub(super) inspected: Vec<String>,
     /// The Accessibility pane, when shown.
     pub(super) a11y: Option<crate::doc_reveal::InfoPane>,
+    /// Comment card in the markup area (Contextual view).
+    pub(super) card: card::Card,
 }
 
 /// Size boxes of Picture / Shape Format and position boxes of Header & Footer.
@@ -78,6 +83,11 @@ impl DocWindow {
             // Review › New Comment: a card with a text box in the comments pane, Post /
             // Cancel (the reference's in-card editor) instead of a dialog.
             "review.newComment" => {
+                // Contextual view: a card beside the selection in the markup area; the List
+                // view (Comments pane open) writes in the pane.
+                if self.comments_pane.is_none() && self.r7_card_new() {
+                    return Some(true);
+                }
                 if self.comments_pane.is_none() {
                     self.spell_pane = None;
                     self.comments_pane = Some(crate::doc_comments::CommentsPane::new());
@@ -391,6 +401,9 @@ impl DocWindow {
         if let Some(r) = self.r7_pane_input(input) {
             return Some(r);
         }
+        if let Some(r) = self.r7_card_input(input) {
+            return Some(r);
+        }
         if let Some(g) = self.r7.gallery.as_mut() {
             match *input {
                 Input::Move { x, y } if g.contains(x, y) => {
@@ -683,6 +696,7 @@ impl DocWindow {
 
     /// Paint the open gallery (over the document, under dialogs).
     pub(super) fn r7_paint(&self, p: &mut dyn Painter) {
+        self.r7_paint_card(p);
         self.r7_paint_panes(p);
         if let Some(g) = &self.r7.gallery {
             g.paint(p, self.theme.text, self.scale);
@@ -1010,8 +1024,36 @@ impl DocWindow {
         }
     }
 
-    /// Lay the Accessibility pane out (left of the round-3 / round-5 panes).
-    pub(super) fn r7_layout(&mut self) {
+    /// Lay the Accessibility pane out (left of the round-3 / round-5 panes); dim what the
+    /// reference dims on the contextual tabs (large buttons included).
+    pub(super) fn r7_layout(&mut self, text: &dyn crate::TextMeasure) {
+        self.r7_layout_card(text);
+        let active = self.ribbon.active_label();
+        if [
+            crate::doc_tools::TABLE_DESIGN,
+            crate::doc_tools::TABLE_LAYOUT,
+            crate::doc_tools::PICTURE_FORMAT,
+            crate::doc_tools::HEADER_FOOTER,
+            tabs::SHAPE_FORMAT,
+            tabs::EQUATION,
+        ]
+        .contains(&active)
+        {
+            let mut dim: Vec<&'static str> = tabs::GREYED.to_vec();
+            if let Some(story) = self.view.story() {
+                // The story being edited: its Go to button is dimmed, and the first
+                // section has nothing to link to.
+                dim.push(if story.kind == "header" {
+                    "hf.gotoHeader"
+                } else {
+                    "hf.gotoFooter"
+                });
+                if self.view.format().section.index == 0 {
+                    dim.push("hf.linkToPrevious");
+                }
+            }
+            self.ribbon.set_extra_dim(dim);
+        }
         let right = self.size.0 - self.r3_pane_w() + self.r7_pane_w();
         let (top, bottom, scale) = (
             self.chrome_bottom(),

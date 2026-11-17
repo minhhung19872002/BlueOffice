@@ -100,11 +100,20 @@ impl DocView {
                 }
                 FormatMarkKind::LineBreak => p.text_font("↵", x.round(), top, &font, INK),
                 FormatMarkKind::OptionalHyphen => {
-                    let small = Font {
-                        size: size * 0.8,
-                        ..font
-                    };
-                    p.text_font("¬", (x - size * 0.2).round(), top, &small, INK);
+                    // ¬ drawn as a bar with a down tick at the hyphen's height, centred on
+                    // the break (the layout gives it no width).
+                    let w = size * 0.32;
+                    let (l, y) = ((x - w / 2.0).round(), (base - size * 0.3).round() + 0.5);
+                    let t = (size * 0.07).max(1.0);
+                    p.path(
+                        &[
+                            PathSeg::M(l, y),
+                            PathSeg::L(l + w, y),
+                            PathSeg::L(l + w, y + size * 0.16),
+                        ],
+                        None,
+                        Some((INK, t)),
+                    );
                 }
                 FormatMarkKind::PageBreak | FormatMarkKind::ColumnBreak => {
                     let label = if m.kind == FormatMarkKind::PageBreak {

@@ -17,15 +17,6 @@ const EDGE: Rgba = Rgba(198, 198, 198, 255);
 const MUTED: Rgba = Rgba(118, 118, 118, 255);
 const LINK: Rgba = Rgba(0x1f, 0x5f, 0xb4, 255);
 const SELECTED_BG: Rgba = Rgba(0xf3, 0xf3, 0xf3, 255);
-/// Badge colours by author (the first is the reference's measured blue; the others are
-/// Bluestar's own choice).
-const BADGES: [Rgba; 5] = [
-    Rgba(0, 120, 212, 255),
-    Rgba(0x8a, 0x3f, 0xb8, 255),
-    Rgba(0x0b, 0x7a, 0x5a, 255),
-    Rgba(0xc2, 0x4f, 0x1c, 255),
-    Rgba(0x9c, 0x2a, 0x54, 255),
-];
 /// Font of the comment text (the document's default face, as the reference shows it).
 const BODY_FACE: &str = "Times New Roman";
 
@@ -316,13 +307,10 @@ impl CommentsPane {
             self.selected = None;
         }
         let active = self.active(caret);
-        let mut authors: Vec<String> = Vec::new();
-        let mut badge = |name: &str| -> Rgba {
-            let i = authors.iter().position(|a| a == name).unwrap_or_else(|| {
-                authors.push(name.to_owned());
-                authors.len() - 1
-            });
-            BADGES[i % BADGES.len()]
+        // The author's colour, as the markup balloons and the reference's cards.
+        let badge = |name: &str| -> Rgba {
+            let k = bo_layout::author_color(name);
+            Rgba(k.r, k.g, k.b, 255)
         };
         let pane_w = self.rect[2];
         let d = self.px(24.0);
@@ -366,7 +354,7 @@ impl CommentsPane {
             let ini = name_initials(&me);
             let ini_w = text.measure(&ini, self.badge_style()).0;
             card.badges
-                .push((pad + d / 2.0, y + d / 2.0, ini, BADGES[0], ini_w));
+                .push((pad + d / 2.0, y + d / 2.0, ini, badge(&me), ini_w));
             card.lines.push((me, text_x, y, true, Rgba(0, 0, 0, 255)));
             y += author_h + self.px(4.0);
             let fw = right - text_x;

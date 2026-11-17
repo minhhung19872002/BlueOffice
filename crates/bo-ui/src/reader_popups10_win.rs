@@ -701,14 +701,42 @@ impl ReaderWindow {
             body_colour(tinted)
         };
         let edge = edge_colour(tinted);
-        p.fill_rect(x, y, w, h, if active { FRAME_ACTIVE } else { FRAME });
-        p.fill_rect(x + 1.0, y + 1.0, w - 2.0, h - 2.0, head);
         let side = self.px(BODY_SIDE);
         let top = self.px(BODY_TOP);
         let bottom = self.px(BODY_BOTTOM);
         let bx = x + 1.0 + side;
         let bw = w - 2.0 - 2.0 * side;
-        p.fill_rect(bx, y + top, bw, h - top - bottom - 1.0, body);
+        // Round 14: a note that is not being used lets the page show through (measured on the
+        // reference: 77 % opaque, the same colours over white); each pixel is filled once.
+        let glass = !active;
+        let fill = |p: &mut dyn Painter, r: [f32; 4], c: Rgba| {
+            p.fill_rect(
+                r[0],
+                r[1],
+                r[2],
+                r[3],
+                if glass { see_through14(c) } else { c },
+            );
+        };
+        let frame = if active { FRAME_ACTIVE } else { FRAME };
+        for r in [
+            [x, y, w, 1.0],
+            [x, y + h - 1.0, w, 1.0],
+            [x, y + 1.0, 1.0, h - 2.0],
+            [x + w - 1.0, y + 1.0, 1.0, h - 2.0],
+        ] {
+            fill(p, r, frame);
+        }
+        let body_h = h - top - bottom - 1.0;
+        for r in [
+            [x + 1.0, y + 1.0, w - 2.0, top - 1.0],
+            [x + 1.0, y + top + body_h, w - 2.0, h - 1.0 - top - body_h],
+            [x + 1.0, y + top, side, body_h],
+            [bx + bw, y + top, x + w - 1.0 - bx - bw, body_h],
+        ] {
+            fill(p, r, head);
+        }
+        fill(p, [bx, y + top, bw, body_h], body);
         // Header: the comment's icon, its date, the close box.
         let ink = Ink {
             ink: Rgba(60, 60, 40, 255),
@@ -721,8 +749,20 @@ impl ReaderWindow {
         }
         let hf = font((HEAD_FONT * self.scale).round());
         let cb = self.close_box(b);
-        p.fill_rect(cb[0], cb[1], cb[2], cb[3], edge);
-        p.fill_rect(cb[0] + 1.0, cb[1] + 1.0, cb[2] - 2.0, cb[3] - 2.0, head);
+        if glass {
+            // The box's face is the header already: only its frame.
+            for r in [
+                [cb[0], cb[1], cb[2], 1.0],
+                [cb[0], cb[1] + cb[3] - 1.0, cb[2], 1.0],
+                [cb[0], cb[1] + 1.0, 1.0, cb[3] - 2.0],
+                [cb[0] + cb[2] - 1.0, cb[1] + 1.0, 1.0, cb[3] - 2.0],
+            ] {
+                p.fill_rect(r[0], r[1], r[2], r[3], edge);
+            }
+        } else {
+            p.fill_rect(cb[0], cb[1], cb[2], cb[3], edge);
+            p.fill_rect(cb[0] + 1.0, cb[1] + 1.0, cb[2] - 2.0, cb[3] - 2.0, head);
+        }
         let i = (cb[2] * 0.22).round();
         let cross = vec![
             PathSeg::M(cb[0] + i, cb[1] + i),
@@ -735,6 +775,19 @@ impl ReaderWindow {
         let dw = self.head_width(&date);
         let dx = (cb[0] - self.px(4.0) - dw).max(x + icon + self.px(4.0));
         p.text_font(&date, dx.round(), y + self.px(DATE_Y), &hf, INK);
+        // Round 14: the comment's subject (`/Subj`) at the left of the header, as the
+        // reference shows "Note", "Insert Text"…, clipped before the date.
+        if let Some(subject) = self.subject14(&n.comment) {
+            // At the left edge, after the icon only for sticky notes (the reference).
+            let sx = if n.comment.kind == AnnotKind::Note {
+                x + icon + self.px(4.0)
+            } else {
+                x + self.px(4.8)
+            };
+            p.push_clip(sx, y, (dx - sx - self.px(4.0)).max(0.0), self.px(ROW_H));
+            p.text_font(&subject, sx.round(), y + self.px(DATE_Y), &hf, INK);
+            p.pop_clip();
+        }
         // Author and Options with its arrow.
         p.text_font(
             &n.comment.author,
@@ -1122,3 +1175,14 @@ fn typewriter_style() -> bo_pdfread::DrawStyle {
 #[cfg(test)]
 #[path = "reader_popups10_tests.rs"]
 mod tests;
+
+/// Colour that shows `c` over white at 77 % opacity (BlueReader round 14: pop-up notes).
+fn see_through14(c: Rgba) -> Rgba {
+    const A: f32 = 0.77;
+    let f = |v: u8| {
+        ((f32::from(v) - (1.0 - A) * 255.0) / A)
+            .clamp(0.0, 255.0)
+            .round() as u8
+    };
+    Rgba(f(c.0), f(c.1), f(c.2), (A * 255.0).round() as u8)
+}

@@ -57,6 +57,10 @@ pub enum PrintLayout {
         order: PageOrder,
         /// Frame each page.
         border: bool,
+        /// Space between the pages (points; the reference's Margins box, round 14).
+        margin: f32,
+        /// Columns × rows chosen with "Custom…" in place of `per_sheet` (round 14).
+        custom: Option<(u8, u8)>,
     },
     /// Folded booklet, two pages on each side of a sheet.
     Booklet {
@@ -64,6 +68,8 @@ pub enum PrintLayout {
         sides: BookletSides,
         /// Bound on the right (right-to-left reading).
         right_binding: bool,
+        /// Space kept round the pages at the sheet's outer edges (points, round 14).
+        margin: f32,
     },
     /// Large pages split over several sheets (the reference's Tile Large Pages).
     Tile {
@@ -191,11 +197,25 @@ pub fn plan(
             per_sheet,
             order,
             border,
-        } => multiple(pages, &size, view, area, per_sheet, order, border, o),
+            margin,
+            custom,
+        } => {
+            let g = Grid {
+                cells: custom.map_or_else(
+                    || grid(per_sheet),
+                    |(c, r)| (usize::from(c.max(1)), usize::from(r.max(1))),
+                ),
+                order,
+                border,
+                margin,
+            };
+            multiple(pages, &size, view, area, &g, o)
+        }
         PrintLayout::Booklet {
             sides,
             right_binding,
-        } => booklet(pages, &size, area, sides, right_binding),
+            margin,
+        } => booklet(pages, &size, area, sides, right_binding, margin),
         PrintLayout::Tile {
             zoom,
             overlap,
@@ -257,19 +277,25 @@ fn one_page(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+/// A sheet of several pages: grid (columns, rows), order, frames, space between pages.
+struct Grid {
+    cells: (usize, usize),
+    order: PageOrder,
+    border: bool,
+    margin: f32,
+}
+
 fn multiple(
     pages: &[usize],
     size: &dyn Fn(usize) -> (f32, f32),
     view: Option<[f32; 4]>,
     area: (f32, f32),
-    per_sheet: u8,
-    order: PageOrder,
-    border: bool,
+    g: &Grid,
     o: &PlanOptions,
 ) -> Vec<Sheet> {
-    let (c, r) = grid(per_sheet);
-    let n = c * r;
+    let (c, r) = g.cells;
+    let (order, border) = (g.order, g.border);
+    let n = (c * r).max(1);
     // Lay the grid on the sheet as is or turned (2 and 6 pages on portrait paper go
     // landscape), whichever prints the first page larger.
     let first = pages.first().map_or((612.0, 792.0), |&i| size(i));
@@ -283,8 +309,12 @@ fn multiple(
     } else {
         (c, r, area)
     };
-    // A small gutter between the cells, like printed n-up sheets.
-    let gap = 6.0_f32.min(sheet.0 / cols as f32 / 10.0);
+    // The Margins box: space between the cells (at most a third of a cell).
+    let gap = g
+        .margin
+        .max(0.0)
+        .min(sheet.0 / cols as f32 / 3.0)
+        .min(sheet.1 / rows as f32 / 3.0);
     let cw = (sheet.0 - gap * (cols as f32 - 1.0)) / cols as f32;
     let ch = (sheet.1 - gap * (rows as f32 - 1.0)) / rows as f32;
     pages
@@ -384,6 +414,7 @@ fn booklet(
     area: (f32, f32),
     sides: BookletSides,
     right_binding: bool,
+    margin: f32,
 ) -> Vec<Sheet> {
     // Saddle stitch: pad to a multiple of four with blank pages; sheet s carries
     // (last − 2s, first + 2s) on its front and (first + 2s + 1, last − 2s − 1) on its back.
@@ -393,6 +424,9 @@ fn booklet(
     let portrait = area.1 >= area.0;
     let sheet = if portrait { (area.1, area.0) } else { area };
     let half = sheet.0 / 2.0;
+    // Margins: kept free at the top, bottom and outer edge of each half (pages still meet at
+    // the fold).
+    let m = margin.max(0.0).min(half / 3.0).min(sheet.1 / 3.0);
     let side = |left: Option<usize>, right: Option<usize>| {
         let (left, right) = if right_binding {
             (right, left)
@@ -402,7 +436,12 @@ fn booklet(
         let mut items = Vec::new();
         for (slot, page) in [(0.0, left), (1.0, right)] {
             let Some(i) = page else { continue };
-            let cell = [slot * half, 0.0, half, sheet.1];
+            let cell = [
+                slot * half + (1.0 - slot) * m,
+                m,
+                half - m,
+                sheet.1 - 2.0 * m,
+            ];
             let mut d = fit_into(size(i), cell, f32::INFINITY, true);
             // Pages meet at the fold.
             d[0] = if slot == 0.0 { half - d[2] } else { half };
@@ -480,6 +519,8 @@ mod tests {
             per_sheet: 2,
             order: PageOrder::Horizontal,
             border: true,
+            margin: 6.0,
+            custom: None,
         });
         let s = plan(&[0, 1, 2], &size, None, LETTER, &o);
         assert_eq!(s.len(), 2);
@@ -501,6 +542,8 @@ mod tests {
                 per_sheet: 4,
                 order,
                 border: false,
+                margin: 6.0,
+                custom: None,
             });
             let s = plan(&[0, 1, 2, 3], &size, None, LETTER, &o);
             s[0].items
@@ -529,6 +572,8 @@ mod tests {
                 per_sheet: n,
                 order: PageOrder::Horizontal,
                 border: false,
+                margin: 6.0,
+                custom: None,
             });
             let pages: Vec<usize> = (0..40).collect();
             let s = plan(&pages, &size, None, LETTER, &o);
@@ -544,6 +589,7 @@ mod tests {
         let o = opts(PrintLayout::Booklet {
             sides: BookletSides::Both,
             right_binding: false,
+            margin: 0.0,
         });
         let s = plan(&pages, &size, None, LETTER, &o);
         // 6 pages → 8 slots → 2 sheets, 4 sides.
@@ -565,6 +611,7 @@ mod tests {
             &opts(PrintLayout::Booklet {
                 sides: BookletSides::Front,
                 right_binding: true,
+                margin: 0.0,
             }),
         );
         assert_eq!(front.len(), 2);
@@ -630,5 +677,52 @@ mod tests {
         assert_eq!(s[0].items[0].clip, Some(v));
         assert!(!s[0].items[0].turn);
         assert!(near(s[0].items[0].dest, [0.0, 192.0, 612.0, 408.0]));
+    }
+
+    #[test]
+    fn custom_grid_margins_and_landscape_booklet() {
+        let size = |_| LETTER;
+        // 3 columns × 1 row ("Custom…") with a 0.2 inch margin between the pages.
+        let mut o = opts(PrintLayout::Multiple {
+            per_sheet: 4,
+            order: PageOrder::Horizontal,
+            border: true,
+            margin: 14.4,
+            custom: Some((1, 3)),
+        });
+        // As laid out (a 1 × 3 grid would otherwise turn to fit the first page larger).
+        o.auto_rotate = false;
+        let pages: Vec<usize> = (0..7).collect();
+        let s = plan(&pages, &size, None, LETTER, &o);
+        assert_eq!(s.len(), 3);
+        assert_eq!(s[0].items.len(), 3);
+        // One column of three rows: the second page starts one cell and a margin lower.
+        let (a, b) = (s[0].items[0], s[0].items[1]);
+        assert!(!a.turn);
+        let cell = (792.0 - 2.0 * 14.4) / 3.0;
+        assert!((b.dest[1] + b.dest[3] / 2.0 - (cell + 14.4 + cell / 2.0)).abs() < 0.01);
+        // Margins off: pages touch.
+        let o = opts(PrintLayout::Multiple {
+            per_sheet: 4,
+            order: PageOrder::Horizontal,
+            border: false,
+            margin: 0.0,
+            custom: None,
+        });
+        let s = plan(&[0, 1, 2, 3], &size, None, LETTER, &o);
+        assert!((s[0].items[0].dest[1] + s[0].items[0].dest[3] - 396.0).abs() < 0.01);
+        // A booklet on landscape paper keeps the pages upright, meeting at the fold, inside
+        // the margin at the outer edges.
+        let o = opts(PrintLayout::Booklet {
+            sides: BookletSides::Both,
+            right_binding: false,
+            margin: 14.4,
+        });
+        let s = plan(&[0, 1, 2, 3], &size, None, (792.0, 612.0), &o);
+        let (l, r) = (s[0].items[0], s[0].items[1]);
+        assert!(!l.turn && !r.turn);
+        assert!((l.dest[0] + l.dest[2] - 396.0).abs() < 0.01);
+        assert!((r.dest[0] - 396.0).abs() < 0.01);
+        assert!(l.dest[1] >= 14.4 - 0.01 && l.dest[1] + l.dest[3] <= 612.0 - 14.4 + 0.01);
     }
 }

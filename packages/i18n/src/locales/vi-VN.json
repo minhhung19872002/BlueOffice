@@ -14257,5 +14257,9 @@
     "setTabOrder": "Đặt thứ tự Tab",
     "sendShared": "Gửi duyệt chung",
     "textbox": "Hộp chữ"
+  },
+  "pdfPrint14": {
+    "custom": "Tùy chỉnh...",
+    "margins": "Lề:"
   }
 }

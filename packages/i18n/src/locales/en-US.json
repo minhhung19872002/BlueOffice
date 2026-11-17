@@ -7786,14 +7786,14 @@
     "tabBooklet": "Booklet",
     "custom": "Custom scale",
     "perSheet": "Pages per sheet:",
-    "order": "Page order:",
+    "order": "Page Order:",
     "orderH": "Horizontal",
     "orderHR": "Horizontal reversed",
     "orderV": "Vertical",
     "orderVR": "Vertical reversed",
-    "border": "Print page border",
+    "border": "Print Page Border",
     "bookletSubset": "Booklet subset:",
-    "bothSides": "Both sides",
+    "bothSides": "Both",
     "frontOnly": "Front side only",
     "backOnly": "Back side only",
     "binding": "Binding:",
@@ -14257,5 +14257,9 @@
     "setTabOrder": "Set Tab Order",
     "sendShared": "Send for Shared Review",
     "textbox": "Textbox"
+  },
+  "pdfPrint14": {
+    "custom": "Custom...",
+    "margins": "Margins:"
   }
 }

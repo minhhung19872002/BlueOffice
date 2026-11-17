@@ -20,8 +20,6 @@ pub(super) enum SheetDialog {
     FormatCells,
     /// New comment on the active cell (Review tab).
     Comment,
-    /// Protect / unprotect the sheet (Review tab).
-    Protect,
     /// Text to Columns wizard at step 0 or 1 (Data tab).
     TextToColumns(u8),
 }
@@ -323,7 +321,7 @@ impl SheetWindow {
                 )],
                 vec![(ok, DialogButton::Ok), (cancel, DialogButton::Cancel)],
             ),
-            SheetDialog::Comment | SheetDialog::Protect | SheetDialog::TextToColumns(_) => {
+            SheetDialog::Comment | SheetDialog::TextToColumns(_) => {
                 return self.open_review_dialog(kind);
             }
             SheetDialog::FormatCells => (
@@ -741,6 +739,9 @@ impl SheetWindow {
         if matches!(id, "sheet.cellStyles" | "sheet.formatTable") {
             return Some(self.open_gallery(id == "sheet.cellStyles", text));
         }
+        if let Some(r) = self.review_tab_action(id) {
+            return Some(r);
+        }
         if let Some(r) = self.datadlg_action(id) {
             return Some(r);
         }
@@ -890,7 +891,7 @@ impl SheetWindow {
             }
             ("sheet", "calcNow" | "calcSheet") => self.calculate(arg == "calcSheet"),
 
-            ("sheet", "textToColumns") => self.open_sheet_dialog(SheetDialog::TextToColumns(0)),
+            ("sheet", "textToColumns") => self.open_ttc(),
             ("sheet", "removeDuplicates") => {
                 let region = self.region();
                 let header = self

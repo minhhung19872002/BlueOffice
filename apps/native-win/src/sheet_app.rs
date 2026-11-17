@@ -97,6 +97,10 @@ pub fn run() -> Result<(), String> {
     if file.is_none() {
         view.apply_new_workbook_prefs(&name);
     }
+    // Insert Hyperlink browses the workbook's folder.
+    if let Some(dir) = file.as_ref().and_then(|p| p.parent()) {
+        view.set_folder(dir);
+    }
     // Page layout ruler: inches when the region measures in US units (iMeasure = 1).
     view.set_ruler_inches(win32::region_value("iMeasure").as_deref() == Some("1"));
     // BLUEOFFICE_SHEET_ENTER=down|right|up|left|none: where Enter moves the active cell.

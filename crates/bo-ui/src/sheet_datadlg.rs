@@ -396,8 +396,17 @@ impl SheetWindow {
                 [18.0, y + 3.0, 95.0, 22.0],
                 Kind::Label(t(key, fb)),
             );
-            f.add(id, None, [115.0, y, 198.0, 26.0], edit(v));
+            f.add(id, None, [115.0, y, 172.0, 26.0], edit(v));
         }
+        // Range pickers (round 45): collapse the dialog to pick cells.
+        for (id, y) in [
+            ("pickList", 128.0),
+            ("pickCrit", 159.0),
+            ("pickDest", 190.0),
+        ] {
+            f.add(id, None, [287.0, y, 26.0, 26.0], Kind::Canvas);
+        }
+        f.enable("pickDest", false);
         f.enable("dest", false);
         f.enable("destL", false);
         f.add(
@@ -453,6 +462,7 @@ impl SheetWindow {
                 f.set_on("copy", copy);
                 f.enable("dest", copy);
                 f.enable("destL", copy);
+                f.enable("pickDest", copy);
             }
             (FormKind::Subtotal, Event::Clicked("removeAll")) => {
                 let Some([r0, c0, r1, c1]) = self.dd_list else {

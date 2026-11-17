@@ -183,6 +183,10 @@ pub enum Command {
         /// objects of the group painted instead of compositing over them.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         knockout: bool,
+        /// Isolated group (§11.4.5, `/I true`): its objects composite with each other on a
+        /// transparent start, not with what is below; the result then goes over it.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        isolated: bool,
     },
     /// End the group started by the matching `PushGroup`.
     PopGroup,

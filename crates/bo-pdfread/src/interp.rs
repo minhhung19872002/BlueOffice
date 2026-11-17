@@ -624,6 +624,45 @@ impl<'s, 'a> Interp<'s, 'a> {
 
     /// Paint the current path, then apply a pending clip and start a new path.
     fn paint(&mut self, fill: bool, stroke: bool) {
+        // A stroke painted with a pattern (§8.7.3): its outline filled with the pattern
+        // (before: a grey line).
+        if stroke
+            && self.gs.stroke_pattern.is_some()
+            && !self.hidden()
+            && !self.path.is_empty()
+            && !self.gs.stroke_cs.paints_nothing()
+        {
+            let s = scale_of(self.gs.ctm);
+            let width = (self.gs.lw * s).max(self.sh.opts.min_line);
+            let dash: Vec<f32> = if self.gs.dash.iter().all(|d| *d <= 0.0) {
+                Vec::new()
+            } else {
+                self.gs.dash.iter().map(|d| (d * s).max(0.01)).collect()
+            };
+            let outline =
+                crate::stroke_outline::outline(&self.path, width, self.gs.cap, self.gs.join, &dash);
+            let clip = self.clip.take();
+            let segs = self.path.clone();
+            if fill {
+                self.paint(true, false);
+            }
+            let swap = |gs: &mut Gs| {
+                std::mem::swap(&mut gs.fill_cs, &mut gs.stroke_cs);
+                std::mem::swap(&mut gs.fill, &mut gs.stroke);
+                std::mem::swap(&mut gs.fill_pattern, &mut gs.stroke_pattern);
+                std::mem::swap(&mut gs.fill_alpha, &mut gs.stroke_alpha);
+            };
+            swap(&mut self.gs);
+            self.path = outline;
+            self.paint(true, false);
+            swap(&mut self.gs);
+            if clip.is_some() {
+                self.clip = clip;
+                self.path = segs;
+                self.paint(false, false);
+            }
+            return;
+        }
         let segs = std::mem::take(&mut self.path);
         if !self.hidden() && !segs.is_empty() && (fill || stroke) {
             let tiling = fill
@@ -772,6 +811,7 @@ impl<'s, 'a> Interp<'s, 'a> {
                     blend: group_blend,
                     mask: mask.as_ref().map(|m| Box::new(SoftMask::clone(m))),
                     knockout: false,
+                    isolated: false,
                 },
             );
         }
@@ -1612,8 +1652,18 @@ impl<'s, 'a> Interp<'s, 'a> {
                         blend: None,
                         mask: None,
                         knockout: true,
+                        isolated: false,
                     });
                 }
+                // §11.4.5 `/I true`: blended objects inside compose on a transparent start
+                // (only marked when something inside blends: a plain isolated group draws the
+                // same either way and a layer costs time).
+                let isolated = !knockout
+                    && group
+                        .and_then(|g| g.get(b"I").ok())
+                        .and_then(|v| v.as_bool().ok())
+                        .unwrap_or(false);
+                let inner_start = self.out.commands.len();
                 if let Some(i) = id {
                     self.forms.push(i);
                 }
@@ -1624,6 +1674,22 @@ impl<'s, 'a> Interp<'s, 'a> {
                     self.forms.pop();
                 }
                 if knockout {
+                    self.out.commands.push(Command::PopGroup);
+                }
+                if isolated
+                    && self.out.commands[inner_start..]
+                        .iter()
+                        .any(|c| matches!(c, Command::PushGroup { blend: Some(_), .. }))
+                {
+                    self.out.commands.insert(
+                        inner_start,
+                        Command::PushGroup {
+                            blend: None,
+                            mask: None,
+                            knockout: false,
+                            isolated: true,
+                        },
+                    );
                     self.out.commands.push(Command::PopGroup);
                 }
                 if group_alpha < 0.999 {

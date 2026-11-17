@@ -472,6 +472,36 @@ fn knockout_group_objects_do_not_blend_with_each_other() {
             .count()
     };
     assert_eq!(blended(&group("false")), 2);
+    // An isolated group with blending inside is marked so (a layer of its own); without
+    // blending it is not.
+    let iso = render(page_pdf(
+        "/G Do",
+        "/XObject << /G 5 0 R >>",
+        &[&xstream(
+            "/Type /XObject /Subtype /Form /BBox [0 0 100 100] \
+             /Group << /S /Transparency /I true >> \
+             /Resources << /ExtGState << /M << /BM /Multiply >> >> >>",
+            "/M gs 1 0 0 rg 0 0 50 50 re f",
+        )],
+    ));
+    assert!(matches!(
+        iso.list.commands.first(),
+        Some(Command::PushGroup { isolated: true, .. })
+    ));
+    let plain = render(page_pdf(
+        "/G Do",
+        "/XObject << /G 5 0 R >>",
+        &[&xstream(
+            "/Type /XObject /Subtype /Form /BBox [0 0 100 100] \
+             /Group << /S /Transparency /I true >>",
+            "1 0 0 rg 0 0 50 50 re f",
+        )],
+    ));
+    assert!(!plain
+        .list
+        .commands
+        .iter()
+        .any(|c| matches!(c, Command::PushGroup { .. })));
     let k = group("true");
     assert_eq!(blended(&k), 0, "{:?}", k.list.commands);
     assert!(k
@@ -479,6 +509,29 @@ fn knockout_group_objects_do_not_blend_with_each_other() {
         .commands
         .iter()
         .any(|c| matches!(c, Command::PushGroup { knockout: true, .. })));
+}
+
+#[test]
+fn a_stroke_painted_with_a_pattern_fills_its_outline_with_the_cells() {
+    let p = render(page_pdf(
+        "/Pattern CS /P SCN 10 w 10 50 m 190 50 l S",
+        "/Pattern << /P 5 0 R >>",
+        &[&xstream(
+            "/Type /Pattern /PatternType 1 /PaintType 1 /TilingType 1 /BBox [0 0 10 10] \
+             /XStep 10 /YStep 10 /Resources << >>",
+            "1 0 0 rg 0 0 5 5 re f",
+        )],
+    ));
+    let c = &p.list.commands;
+    // No grey stand-in; a clip to the stroke's outline with red cells inside.
+    assert!(!c.iter().any(|c| matches!(
+        c,
+        Command::Path { stroke: Some(s), .. } if s.color == Rgba(128, 128, 128, 255)
+    )));
+    assert!(c.iter().any(
+        |c| matches!(c, Command::PushClipPath { .. }) || matches!(c, Command::PushClip { .. })
+    ));
+    assert!(solid_fills(&p).contains(&Rgba(255, 0, 0, 255)), "{c:?}");
 }
 
 #[test]

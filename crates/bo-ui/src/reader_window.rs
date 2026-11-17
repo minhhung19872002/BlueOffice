@@ -828,6 +828,7 @@ impl ReaderWindow {
         self.active = self.tabs.len() - 1;
         self.show_start = false;
         self.apply_view_prefs();
+        self.open_action13();
         if let Some(p) = path {
             self.recent.retain(|r| r != &p);
             self.recent.insert(0, p);

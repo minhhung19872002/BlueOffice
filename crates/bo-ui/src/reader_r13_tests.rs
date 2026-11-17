@@ -35,6 +35,8 @@ impl PdfStore for Store {
 struct Rec {
     pages: Vec<usize>,
     texts: Vec<String>,
+    /// Page image parts drawn: key and destination.
+    parts: Vec<(usize, [f32; 4])>,
 }
 
 impl Painter for Rec {
@@ -49,6 +51,10 @@ impl Painter for Rec {
     fn path(&mut self, _: &[PathSeg], _: Option<Rgba>, _: Option<(Rgba, f32)>) {}
     fn push_clip(&mut self, _: f32, _: f32, _: f32, _: f32) {}
     fn pop_clip(&mut self) {}
+    fn page_part(&mut self, index: usize, _: [f32; 4], dest: [f32; 4], _: f32) {
+        self.parts.push((index, dest));
+        self.pages.push(index);
+    }
 }
 
 fn window() -> ReaderWindow {
@@ -152,4 +158,106 @@ fn magnifier_follows_the_pointer_over_the_page() {
     assert_eq!(w.twelve.thirteen.pointer, None);
     w.run_command("tool.hand", &Fixed);
     assert_eq!(w.assist12(), None);
+}
+
+#[test]
+fn loupe_view_is_filled_with_the_page_around_its_place() {
+    let mut w = window();
+    let mut store = Store::default();
+    w.prepare(&mut store);
+    w.run_command("assist.loupe", &Fixed);
+    // A click in the middle of the page: the loupe shows page all over its view.
+    let page = w.view().expect("view").page_rect(0).expect("page");
+    let (x, y) = (page[0] + page[2] * 0.7, page[1] + 300.0);
+    press(&mut w, x, y);
+    w.prepare(&mut store);
+    let mut p = Rec::default();
+    w.paint(&mut p);
+    let key = w.key_base().expect("tab") + PREVIEW_KEY + 1;
+    let view = w.parts13().view;
+    let (_, d) = p
+        .parts
+        .iter()
+        .copied()
+        .find(|(k, _)| *k == key)
+        .expect("loupe image drawn");
+    for i in 0..4 {
+        assert!((d[i] - view[i]).abs() < 0.01, "{d:?} {view:?}");
+    }
+}
+
+#[test]
+fn open_action_fit_opens_the_whole_page() {
+    // Three pages, the file asking for /Fit on its second page.
+    let mut objs: Vec<String> = vec![
+        "<< /Type /Catalog /Pages 2 0 R /OpenAction [4 0 R /Fit] >>".into(),
+        "<< /Type /Pages /Kids [3 0 R 4 0 R 5 0 R] /Count 3 >>".into(),
+    ];
+    for _ in 0..3 {
+        objs.push("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>".into());
+    }
+    let mut bytes = b"%PDF-1.7
+"
+    .to_vec();
+    let mut offsets = Vec::new();
+    for (i, o) in objs.iter().enumerate() {
+        offsets.push(bytes.len());
+        bytes.extend_from_slice(
+            format!(
+                "{} 0 obj
+{o}
+endobj
+",
+                i + 1
+            )
+            .as_bytes(),
+        );
+    }
+    let xref = bytes.len();
+    bytes.extend_from_slice(
+        format!(
+            "xref
+0 {}
+0000000000 65535 f 
+",
+            objs.len() + 1
+        )
+        .as_bytes(),
+    );
+    for off in offsets {
+        bytes.extend_from_slice(
+            format!(
+                "{off:010} 00000 n 
+"
+            )
+            .as_bytes(),
+        );
+    }
+    bytes.extend_from_slice(
+        format!(
+            "trailer
+<< /Size {} /Root 1 0 R >>
+startxref
+{xref}
+%%EOF
+",
+            objs.len() + 1
+        )
+        .as_bytes(),
+    );
+    let doc = PdfDocument::open(bytes, bo_pdfread::standard_fonts()).expect("pdf");
+    assert_eq!(doc.open_destination(), Some((1, bo_pdfread::OpenFit::Page)));
+    let mut w = ReaderWindow::new("en-US");
+    w.handle(Input::Scale(1.25), &Fixed);
+    w.handle(
+        Input::Resize {
+            width: 1518.0,
+            height: 1036.0,
+        },
+        &Fixed,
+    );
+    w.open(doc, "fit.pdf", None);
+    let v = w.view().expect("view");
+    assert_eq!(v.fit(), crate::reader_view::Fit::Page);
+    assert_eq!(v.current_page(), 1);
 }

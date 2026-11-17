@@ -39,6 +39,8 @@ const AREA: Rgba = Rgba(38, 128, 235, 255);
 const RING: Rgba = Rgba(176, 178, 182, 255);
 const RING_DARK: Rgba = Rgba(96, 98, 102, 255);
 const HANDLE: Rgba = Rgba(46, 48, 52, 255);
+/// Page edge in the loupe (as the view's page frame).
+const PAGE_EDGE13: Rgba = Rgba(119, 120, 122, 255);
 
 /// What a drag on the loupe panel moves.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -148,6 +150,30 @@ impl ReaderWindow {
         };
         let (w, h) = v.page_size(page);
         Some((page, s.min(MAX_SIDE / w.max(h).max(1.0))))
+    }
+
+    /// After a document opens: its `/OpenAction` page and zoom, as the reference shows it
+    /// (a file asking for the whole page opens fitted, whatever the default zoom).
+    pub(crate) fn open_action13(&mut self) {
+        if self.profile.is_some() {
+            return;
+        }
+        let Some(t) = self.tabs.get_mut(self.active) else {
+            return;
+        };
+        let Some((page, fit)) = t.view.doc().open_destination() else {
+            return;
+        };
+        let v = &mut t.view;
+        match fit {
+            bo_pdfread::OpenFit::Page => v.set_fit(crate::reader_view::Fit::Page),
+            bo_pdfread::OpenFit::Width => v.set_fit(crate::reader_view::Fit::Width),
+            bo_pdfread::OpenFit::Zoom(z) => v.set_zoom(z.clamp(0.01, 64.0)),
+            bo_pdfread::OpenFit::Keep => {}
+        }
+        if page > 0 {
+            v.go_to(page, None);
+        }
     }
 
     /// Before page images are brought up to date: the loupe / magnifier image (unless the
@@ -379,6 +405,8 @@ impl ReaderWindow {
         if x1 <= x0 || y1 <= y0 {
             return;
         }
+        // The page's edge where it shows (the caller clips to `dest`).
+        p.fill_rect(ox - 1.0, oy - 1.0, pw * s + 2.0, ph * s + 2.0, PAGE_EDGE13);
         p.fill_rect(x0, y0, x1 - x0, y1 - y0, self.paper());
         if !v.preview_ready(0, page, s_img) {
             return;

@@ -226,7 +226,7 @@ fn cjk_substitutes(
     encoding: &str,
     base: &str,
     serif: bool,
-) -> Option<(char, Vec<&'static str>)> {
+) -> Option<(char, Vec<&'static str>, bool)> {
     let e = encoding.to_ascii_lowercase();
     let script = match ordering {
         "GB1" => 0,
@@ -283,7 +283,10 @@ fn cjk_substitutes(
         ]);
     }
     let sample = ['\u{4e2d}', '\u{4e2d}', '\u{65e5}', '\u{d55c}'][script];
-    Some((sample, list))
+    // Dotum and Gulim draw heavier strokes than Malgun Gothic's regular face: its bold face
+    // stands in for them (the reference shows them bold).
+    let heavy = script == 3 && !serif && (b.contains("dotum") || b.contains("gulim"));
+    Some((sample, list, heavy))
 }
 
 impl Font {
@@ -537,7 +540,9 @@ impl Font {
                     .and_then(|o| o.as_name().ok())
                     .map(|b| String::from_utf8_lossy(b).into_owned())
                     .unwrap_or_default();
-                if let Some((sample, list)) = cjk_substitutes(&ordering, &encoding, &base, serif) {
+                if let Some((sample, list, heavy)) =
+                    cjk_substitutes(&ordering, &encoding, &base, serif)
+                {
                     // Weight from the descriptor (§9.8.1 `/FontWeight`, `/StemV`): CJK names
                     // rarely say "Bold".
                     let value = |k: &[u8]| {
@@ -546,7 +551,8 @@ impl Font {
                             .and_then(num)
                             .unwrap_or(0.0)
                     };
-                    let bold = bold || value(b"FontWeight") >= 600.0 || value(b"StemV") >= 140.0;
+                    let bold =
+                        bold || heavy || value(b"FontWeight") >= 600.0 || value(b"StemV") >= 140.0;
                     font.face = list.iter().find_map(|fam| {
                         fonts
                             .resolve(fam, bold, italic)

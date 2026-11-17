@@ -13175,6 +13175,9 @@
     "characterStyle": "Style: character style",
     "typeNewList": "Type a New List...",
     "useExistingList": "Use an Existing List...",
-    "contactsList": "Choose from Contacts..."
+    "contactsList": "Choose from Contacts...",
+    "hideUntilUsed": "(Hide Until Used)",
+    "latentDesc": "Style: Hide until used, Priority",
+    "modifyTitle": "Modify Style"
   }
 }

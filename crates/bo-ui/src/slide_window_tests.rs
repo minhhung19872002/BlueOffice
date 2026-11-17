@@ -552,8 +552,8 @@ fn draw_tab_pens_and_erases_ink() {
     click_command(&mut w, "draw.eraser");
     drag(&mut w, (x0 + 100.0, y0 - 60.0), (x0 + 100.0, y0 + 10.0));
     assert_eq!(shapes(&w), n);
-    // Select: back to shapes.
-    click_command(&mut w, "draw.select");
+    // Esc: back to selecting shapes (the reference's Draw tab has no Select button).
+    w.handle(Input::Key(Key::Escape, Mods::default()), &Fixed);
     assert!(w.view().ink_tool().is_none());
 }
 
@@ -767,13 +767,12 @@ fn shows_skip_hidden_slides_loop_and_rehearse() {
     assert!(!w.view().showing());
     // Set Up Slide Show: loop until Esc.
     w.run_action("show.setUp");
-    let mut v = w.dialog.as_ref().map(|(d, _)| d.values()).expect("dialog");
-    v[2] = "1".into();
-    w.dialog_button(
-        ins::SlideDialog::Show(showtab::ShowDialog::SetUp),
-        crate::dialog::DialogButton::Ok,
-        &v,
-    );
+    w.form8
+        .as_mut()
+        .expect("Set Up Show")
+        .form
+        .set_on("loop", true);
+    w.form8_event(&sform::Event::Ok);
     let plan = w.view().show_plan(None);
     assert!(plan.looped);
     // Rehearse: the show times each slide; ending it asks to keep the timings.
@@ -893,7 +892,17 @@ fn view_tab_outline_master_and_grid() {
     assert_eq!(w.outline_rows.len(), w.view().slide_count());
     // A press on the second slide's outline row goes there.
     let (top, slide) = w.outline_rows[1];
-    let area = w.view().thumbs_area();
+    // The outline takes the whole view, as the reference's, and dims the Show and
+    // Color/Grayscale buttons.
+    assert_eq!(w.view().thumbs_area()[2], 0.0);
+    let mut f = ribbon_format(&w.view, false);
+    if let Some(s) = f.style.as_mut() {
+        s.push_str("outl ");
+    }
+    assert!(!slide_enabled("view.gridlines", &f));
+    assert!(!slide_enabled("view.grayscale", &f));
+    assert!(slide_enabled("view.zoom", &f));
+    let area = w.outline_area();
     click(&mut w, area[0] + 30.0, top + 4.0);
     assert_eq!(w.view().current(), slide);
     assert!(w.run_action("view.normal"));
@@ -912,6 +921,13 @@ fn view_tab_outline_master_and_grid() {
     assert!(w.gridlines);
     assert!(w.run_action("view.notesPage"));
     assert_eq!(w.pane, viewtab::Pane::NotesPage);
+    // The page takes the whole view: no thumbnails or notes pane, as the reference.
+    assert_eq!(w.view().thumbs_area()[2], 0.0);
+    assert!(w.view().notes_rect().is_none());
+    let z = w.notes_page_zoom();
+    assert!(z > 0.1 && z < 2.0, "{z}");
+    assert!(w.run_action("view.normal"));
+    assert!(w.view().thumbs_area()[2] > 0.0);
 }
 
 #[test]

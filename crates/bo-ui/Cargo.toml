@@ -29,6 +29,7 @@ bo-spell.workspace = true
 bo-raster.workspace = true
 serde = { workspace = true }
 serde_json.workspace = true
+miniz_oxide = "0.8"
 
 [dev-dependencies]
 bo-engine = { workspace = true, features = ["bundled-fonts"] }

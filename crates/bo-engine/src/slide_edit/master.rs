@@ -370,20 +370,26 @@ pub(crate) fn assemble(pres: &Presentation, ed: &SlideEditor) -> Option<Presenta
     Some(p)
 }
 
-/// Display list of slide `i` (a master or layout while the view is open).
+/// Display list of slide `i` (a master or layout while the view is open); `view` is
+/// (master view open, Review > Hide Ink on).
 pub(crate) fn render_page(
     pres: &Presentation,
-    in_view: bool,
+    view: (bool, bool),
     i: usize,
     fonts: &mut bo_text::FontManager,
     images: &mut std::collections::BTreeMap<String, Vec<u8>>,
 ) -> bo_pptx::Result<PageList> {
+    let (in_view, hide_ink) = view;
     if in_view {
         if let Some(t) = view_targets(pres).get(i) {
             return bo_pptx::render_level(pres, t.level(), fonts, images);
         }
     }
-    bo_pptx::render_slide(pres, i, fonts, images)
+    let opts = bo_pptx::RenderOptions {
+        hide_ink,
+        ..bo_pptx::RenderOptions::default()
+    };
+    bo_pptx::render_with(pres, i, fonts, images, &opts)
 }
 
 /// `page` scaled to `width` points (thumbnail).

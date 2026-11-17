@@ -1504,6 +1504,9 @@ pub struct SlideEditor {
     zoom_seen: std::collections::HashMap<String, u64>,
     /// What the format painter took (`copyFormat`).
     painter: Option<Painter>,
+    /// Review > Hide Ink: ink content parts are left out of the slides, thumbnails and the
+    /// show (a view setting, not saved).
+    pub(crate) hide_ink: bool,
 }
 
 /// Formatting taken by the format painter.
@@ -5509,6 +5512,7 @@ impl Engine {
             let opts = bo_pptx::RenderOptions {
                 layer: Some(*r),
                 followed: self.slides.followed.clone(),
+                hide_ink: self.slides.hide_ink,
                 ..bo_pptx::RenderOptions::default()
             };
             let page =
@@ -5587,6 +5591,7 @@ impl Engine {
         let mut opts = bo_pptx::RenderOptions {
             layer: Some(range),
             followed: self.slides.followed.clone(),
+            hide_ink: self.slides.hide_ink,
             ..bo_pptx::RenderOptions::default()
         };
         let mut drawn = node.cloned().unwrap_or_else(|| orig.clone());
@@ -5785,6 +5790,7 @@ impl Engine {
             let opts = bo_pptx::RenderOptions {
                 layer: Some(range),
                 followed: self.slides.followed.clone(),
+                hide_ink: self.slides.hide_ink,
                 ..bo_pptx::RenderOptions::default()
             };
             a.tint =
@@ -5907,7 +5913,7 @@ impl Engine {
         for i in 0..pres.slides.len() {
             pages.push(master::render_page(
                 pres,
-                in_view,
+                (in_view, self.slides.hide_ink),
                 i,
                 &mut self.fonts,
                 &mut self.images,

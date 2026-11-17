@@ -142,6 +142,107 @@ pub fn slide_outline(s: &Slide) -> OutlineSlide {
     }
 }
 
+/// A run of an outline paragraph with the emphasis the outline keeps (ECMA-376 Part 1,
+/// §21.1.2.3.9 rPr `b`, `i`, `u`; size and colour are not shown in the outline).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OutlineRun {
+    /// Run text.
+    pub text: String,
+    /// Bold.
+    pub bold: bool,
+    /// Italic.
+    pub italic: bool,
+    /// Underlined (any `u` but `none`).
+    pub underline: bool,
+}
+
+/// A body paragraph of the outline as drawn: level, its automatic number (§21.1.2.4.1
+/// buAutoNum set on the paragraph) and its runs.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OutlinePara {
+    /// Level 0–8.
+    pub level: u8,
+    /// Automatic number ("1.", "a)") of a numbered paragraph.
+    pub number: Option<String>,
+    /// Runs in order (a line break is a run of `\u{b}`).
+    pub runs: Vec<OutlineRun>,
+}
+
+/// The body paragraphs of a slide's outline with numbers and run emphasis, in the order
+/// of [`slide_outline`]'s bullets.
+pub fn slide_outline_paras(s: &Slide) -> Vec<OutlinePara> {
+    use bo_model::slide::{Bullet, TextRun};
+    let Some(tb) = parts(s)
+        .1
+        .and_then(|i| shape_at(s, i))
+        .and_then(|sh| sh.text.as_ref())
+    else {
+        return Vec::new();
+    };
+    // Counters per level, as the slide's text layout numbers paragraphs.
+    let mut counters: [Option<(String, i32)>; 9] = Default::default();
+    tb.paragraphs
+        .iter()
+        .map(|p| {
+            let level = p
+                .props
+                .as_ref()
+                .and_then(|pp| pp.lvl)
+                .unwrap_or(0)
+                .min(MAX_LEVEL);
+            let lvl = usize::from(level);
+            let has_text = !p.text().trim().is_empty();
+            let number = match p.props.as_ref().and_then(|pp| pp.bullet.as_ref()) {
+                Some(Bullet::AutoNum { scheme, start_at }) if has_text => {
+                    let n = match &counters[lvl] {
+                        Some((sc, n)) if sc == scheme => n + 1,
+                        _ => start_at.unwrap_or(1),
+                    };
+                    counters[lvl] = Some((scheme.clone(), n));
+                    for c in counters.iter_mut().skip(lvl + 1) {
+                        *c = None;
+                    }
+                    Some(bo_pptx::auto_number(scheme, n))
+                }
+                _ => {
+                    if has_text {
+                        counters[lvl] = None;
+                    }
+                    None
+                }
+            };
+            let runs = p
+                .runs
+                .iter()
+                .filter_map(|r| match r {
+                    TextRun::Run { props, text } | TextRun::Field { props, text, .. } => {
+                        Some(OutlineRun {
+                            text: text.clone(),
+                            bold: props.b.unwrap_or(false),
+                            italic: props.i.unwrap_or(false),
+                            underline: props.u.as_deref().is_some_and(|u| u != "none"),
+                        })
+                    }
+                    TextRun::Break { .. } => Some(OutlineRun {
+                        text: "\u{b}".into(),
+                        bold: false,
+                        italic: false,
+                        underline: false,
+                    }),
+                    TextRun::Other(_) => None,
+                })
+                .collect();
+            OutlinePara {
+                level,
+                number,
+                runs,
+            }
+        })
+        .collect()
+}
+
 /// The outline of the deck.
 pub fn outline(pres: &Presentation) -> Vec<OutlineSlide> {
     pres.slides.iter().map(slide_outline).collect()

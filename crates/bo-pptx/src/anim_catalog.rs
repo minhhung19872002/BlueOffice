@@ -41,6 +41,12 @@ const SIDES: &[(&str, Option<u32>)] = &[
 const HV: &[(&str, Option<u32>)] = &[("horz", Some(10)), ("vert", Some(5))];
 const INOUT: &[(&str, Option<u32>)] = &[("in", Some(16)), ("out", Some(32))];
 const NONE: &[(&str, Option<u32>)] = &[];
+const COLORS: &[(&str, Option<u32>)] = &[
+    ("FF0000", None),
+    ("FFC000", None),
+    ("00B050", None),
+    ("0070C0", None),
+];
 
 const fn d(
     id: &'static str,
@@ -148,6 +154,21 @@ pub const EFFECTS: &[EffectDef] = &[
             ("0070C0", None),
         ],
     ),
+    // Emphasis effects of the reference's gallery (round 17), presetIDs as producers number
+    // them; colour variants as Fill Color's.
+    d("colorPulse", EM, 19, NONE),
+    d("desaturate", EM, 25, NONE),
+    d("darken", EM, 24, NONE),
+    d("lighten", EM, 30, NONE),
+    d("objectColor", EM, 23, COLORS),
+    d("complementary", EM, 21, NONE),
+    d("lineColor", EM, 7, COLORS),
+    d("brushColor", EM, 16, COLORS),
+    d("fontColor", EM, 3, COLORS),
+    d("underline", EM, 18, NONE),
+    d("boldFlash", EM, 10, NONE),
+    d("boldReveal", EM, 15, NONE),
+    d("waveText", EM, 34, NONE),
     d("lineDown", PA, 42, NONE),
     d("lineUp", PA, 42, NONE),
     d("lineLeft", PA, 42, NONE),
@@ -241,6 +262,53 @@ fn anim_keys(ids: &mut Ids, spid: u32, dur: u32, attr: &str, keys: &[(u32, &str)
                 .done(),
         )
         .child(list.done())
+        .done()
+}
+
+/// §19.5.2 animClr of `attr` to sRGB `rgb` over `dur` ms (held, or reversed with `back`).
+fn color(ids: &mut Ids, spid: u32, dur: u32, attr: &str, rgb: &str, back: bool) -> XmlElement {
+    let mut ctn = El::new("p:cTn").a("id", ids.next()).a("dur", dur);
+    ctn = if back {
+        ctn.a("autoRev", 1)
+    } else {
+        ctn.a("fill", "hold")
+    };
+    El::new("p:animClr")
+        .a("clrSpc", "rgb")
+        .child(
+            El::new("p:cBhvr")
+                .child(ctn.done())
+                .child(tgt(spid))
+                .child(attr_names(attr))
+                .done(),
+        )
+        .child(
+            El::new("p:to")
+                .child(El::new("a:srgbClr").a("val", rgb).done())
+                .done(),
+        )
+        .done()
+}
+
+/// §19.5.66 set of `attr` to string `val` for `dur` ms (`hold`: kept afterwards).
+fn set_str(ids: &mut Ids, spid: u32, dur: u32, attr: &str, val: &str, hold: bool) -> XmlElement {
+    let mut ctn = El::new("p:cTn").a("id", ids.next()).a("dur", dur);
+    if hold {
+        ctn = ctn.a("fill", "hold");
+    }
+    El::new("p:set")
+        .child(
+            El::new("p:cBhvr")
+                .child(ctn.done())
+                .child(tgt(spid))
+                .child(attr_names(attr))
+                .done(),
+        )
+        .child(
+            El::new("p:to")
+                .child(El::new("p:strVal").a("val", val).done())
+                .done(),
+        )
         .done()
 }
 
@@ -477,6 +545,35 @@ pub(crate) fn behaviours(
             )
             .child(El::new("p:to").child(El::new("a:srgbClr").a("val", dir).done()).done())
             .done()],
+        // §19.5.2 animClr: Color Pulse (to the accent and back), Desaturate / Darken / Lighten
+        // (to grey, dark, light), Object / Complementary Color (fill), Line / Font / Brush
+        // Color (outline, text).
+        "colorPulse" => vec![color(ids, spid, dur / 2, "fillcolor", "5B9BD5", true)],
+        "desaturate" => vec![color(ids, spid, dur, "fillcolor", "A6A6A6", false)],
+        "darken" => vec![color(ids, spid, dur, "fillcolor", "404040", false)],
+        "lighten" => vec![color(ids, spid, dur, "fillcolor", "E7E6E6", false)],
+        "complementary" => vec![color(ids, spid, dur, "fillcolor", "ED7D31", false)],
+        "objectColor" => vec![color(ids, spid, dur, "fillcolor", dir, false)],
+        "lineColor" => vec![color(ids, spid, dur, "stroke.color", dir, false)],
+        "fontColor" | "brushColor" => vec![color(ids, spid, dur, "style.color", dir, false)],
+        // §19.5.66 set of text properties: Underline and Bold Reveal hold, Bold Flash returns.
+        "underline" => vec![set_str(ids, spid, dur, "style.textDecorationUnderline", "true", true)],
+        "boldReveal" => vec![set_str(ids, spid, dur, "style.fontWeight", "bold", true)],
+        "boldFlash" => vec![set_str(ids, spid, dur, "style.fontWeight", "bold", false)],
+        // §19.5.1 anim of ppt_y: the shape rises and settles like a wave.
+        "waveText" => vec![anim_keys(
+            ids,
+            spid,
+            dur,
+            "ppt_y",
+            &[
+                (0, "#ppt_y"),
+                (25_000, "#ppt_y-0.02"),
+                (50_000, "#ppt_y"),
+                (75_000, "#ppt_y+0.01"),
+                (100_000, "#ppt_y"),
+            ],
+        )],
         // Motion paths (§19.5.4 path in slide widths / heights from the shape's position).
         "lineDown" => vec![motion(ids, "M 0 0 L 0 0.25 E")],
         "lineUp" => vec![motion(ids, "M 0 0 L 0 -0.25 E")],

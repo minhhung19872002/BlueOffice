@@ -88,6 +88,29 @@ impl SlideView {
         self.ink_tool.as_ref()
     }
 
+    /// What the eraser removes: whole strokes, or the samples under it.
+    pub fn erase_mode(&self) -> EraseMode {
+        self.erase_mode
+    }
+
+    /// Choose what the eraser removes (and take the eraser).
+    pub fn set_erase_mode(&mut self, mode: EraseMode) {
+        self.erase_mode = mode;
+        self.set_ink_tool(Some(InkTool::Eraser));
+    }
+
+    /// Whether the current slide has ink (Ink Replay is available).
+    pub fn current_slide_has_ink(&self) -> bool {
+        self.engine.presentation().is_some_and(|p| {
+            p.slides.get(self.current).is_some_and(|s| {
+                s.data
+                    .shapes
+                    .iter()
+                    .any(|n| bo_pptx::ink::node_content_part(n).is_some())
+            })
+        })
+    }
+
     /// Pointer input while a Draw tool is active on the slide; `None` when the input is not
     /// for the ink (other panes, keys).
     pub(super) fn ink_input(&mut self, input: &Input) -> Option<bool> {
@@ -96,17 +119,24 @@ impl SlideView {
             return None;
         }
         match *input {
+            // Esc puts the pen down: back to selecting shapes, as on the reference.
+            Input::Key(crate::Key::Escape, _) => {
+                self.ink_tool = None;
+                self.ink_stroke.clear();
+                Some(true)
+            }
             Input::Press { x, y, .. } => {
                 let c = self.canvas_rect();
                 if !(x >= c[0] && x < c[0] + c[2] && y >= c[1] && y < c[1] + c[3]) {
                     return None;
                 }
                 let (sx, sy) = self.to_slide(x, y);
-                self.ink_stroke = vec![[sx, sy]];
+                self.ink_stroke = vec![self.ruler_snap(sx, sy)];
                 Some(true)
             }
             Input::Drag { x, y } if !self.ink_stroke.is_empty() => {
                 let (sx, sy) = self.to_slide(x, y);
+                let [sx, sy] = self.ruler_snap(sx, sy);
                 // Skip points closer than a device pixel to the last one.
                 let last = self.ink_stroke[self.ink_stroke.len() - 1];
                 let k = f64::from(self.scale());
@@ -152,7 +182,7 @@ impl SlideView {
                     InkTool::Eraser | InkTool::Lasso => InkCommand::EraseInk {
                         points,
                         radius: ERASER,
-                        mode: EraseMode::Stroke,
+                        mode: self.erase_mode,
                     },
                 };
                 match self.engine.slide_ink_command(cmd) {

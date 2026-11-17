@@ -167,12 +167,42 @@ impl SlideWindow {
     pub(super) fn spell_shown(&self) -> SpellShown {
         match &self.spelling.issue {
             None => SpellShown::default(),
-            Some(i) => SpellShown {
-                word: Some(word(i)),
-                grammar: i.get("grammar").and_then(Value::as_bool).unwrap_or(false),
-                suggestions: suggestions(i),
-                chosen: self.spelling.chosen,
-            },
+            Some(i) => {
+                let sugg = suggestions(i);
+                let lang = i
+                    .get("lang")
+                    .and_then(Value::as_str)
+                    .unwrap_or("en-US")
+                    .to_owned();
+                // Meanings of the chosen correction (English data only).
+                let meanings = sugg
+                    .get(self.spelling.chosen)
+                    .filter(|_| lang.starts_with("en"))
+                    .map(|w| {
+                        super::thesaurus::meanings(w, 3)
+                            .into_iter()
+                            .map(|m| {
+                                (
+                                    m.gloss,
+                                    m.synonyms
+                                        .into_iter()
+                                        .take(6)
+                                        .collect::<Vec<_>>()
+                                        .join(", "),
+                                )
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                SpellShown {
+                    word: Some(word(i)),
+                    grammar: i.get("grammar").and_then(Value::as_bool).unwrap_or(false),
+                    suggestions: sugg,
+                    chosen: self.spelling.chosen,
+                    meanings,
+                    lang: self.t(&format!("spell.lang.{lang}"), &lang),
+                }
+            }
         }
     }
 

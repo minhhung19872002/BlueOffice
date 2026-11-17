@@ -906,7 +906,7 @@ impl Engine {
         let pres = self.pres.as_ref().ok_or(EngineError::NoDocument)?;
         let page = slide_edit::master::render_page(
             pres,
-            self.slides.in_master_view(),
+            (self.slides.in_master_view(), self.slides.hide_ink),
             index,
             &mut self.fonts,
             &mut self.images,
@@ -955,7 +955,7 @@ impl Engine {
         let page = if self.slides.in_master_view() {
             let p = slide_edit::master::render_page(
                 pres,
-                true,
+                (true, false),
                 index,
                 &mut self.fonts,
                 &mut self.images,

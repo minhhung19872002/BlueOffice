@@ -130,7 +130,9 @@ pub fn is_command(id: &str) -> bool {
 pub fn has_menu_mark(id: &str) -> bool {
     matches!(
         id,
-        "sl.table"
+        "draw.eraser"
+            | "draw.add"
+            | "sl.table"
             | "sl.shapes"
             | "sl.arrange"
             | "sl.quickStyles"
@@ -155,6 +157,7 @@ pub fn has_menu_mark(id: &str) -> bool {
             | "design.layout"
             | "design.slideSize"
             | "show.custom"
+            | "show.record"
             | "sl.links"
             | "sl.pictures"
             | "sl.screenshot"
@@ -240,37 +243,6 @@ pub fn large_width(id: &str) -> Option<f32> {
         Some(96.8)
     } else {
         None
-    }
-}
-
-/// Draw tab: Select and the drawing tools (pens, highlighter, eraser).
-pub(crate) fn draw_tab() -> Tab {
-    use Item::Large as L;
-    Tab {
-        label: "slideNative.draw",
-        groups: vec![
-            Group {
-                label: "slideNative.tools",
-                large: vec![L("draw.eraser"), L("draw.select"), L("draw.lasso")],
-                rows: vec![],
-            },
-            Group {
-                label: "slideNative.pens",
-                large: vec![
-                    L("draw.pen"),
-                    L("draw.red"),
-                    L("draw.highlight"),
-                    L("draw.blue"),
-                    L("draw.green"),
-                ],
-                rows: vec![],
-            },
-            Group {
-                label: "slideNative.convert",
-                large: vec![L("draw.inkToShape")],
-                rows: vec![],
-            },
-        ],
     }
 }
 

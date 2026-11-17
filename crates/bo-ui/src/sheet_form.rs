@@ -240,6 +240,9 @@ pub(super) struct Form {
     headings: bool,
     /// Check boxes drawn as option buttons (round; the owner keeps one of a group on).
     radios: Vec<&'static str>,
+    /// Fill and frame of checked boxes and option buttons (BlueSheet green by default; the
+    /// other apps pass their own accent).
+    accent: (Rgba, Rgba),
     /// Access keys: control id and the char index of its label's underlined letter
     /// (Alt+letter presses the button / toggles the box).
     access: Vec<(&'static str, usize)>,
@@ -313,6 +316,7 @@ impl Form {
             font_k: 1.0,
             headings: false,
             radios: Vec::new(),
+            accent: (ACCENT, Rgba(0x0e, 0x5c, 0x2f, 255)),
             access: Vec::new(),
             left_labels: Vec::new(),
             placeholders: Vec::new(),
@@ -379,6 +383,12 @@ impl Form {
                 ink,
             );
         }
+    }
+
+    /// Fill and frame of checked boxes and option buttons (an app's own accent).
+    #[allow(dead_code)] // used by BlueSlide's dialogs, which include this file too
+    pub fn set_accent(&mut self, fill: Rgba, edge: Rgba) {
+        self.accent = (fill, edge);
     }
 
     /// Draw the check boxes `ids` as option buttons.
@@ -1382,7 +1392,7 @@ impl Form {
                     let b = (13.0 * self.k * self.font_k * 1.12).round();
                     let (bx, by) = (r[0], (r[1] + (r[3] - b) / 2.0).round());
                     let (cx, cy, rr) = (bx + b / 2.0, by + b / 2.0, b / 2.0);
-                    let accent = if c.enabled { ACCENT } else { GREY_INK };
+                    let accent = if c.enabled { self.accent.0 } else { GREY_INK };
                     if *on {
                         p.path(&ring(cx, cy, rr), Some(accent), None);
                         p.path(&ring(cx, cy, rr * 0.42), Some(WHITE), None);
@@ -1402,7 +1412,13 @@ impl Form {
                     // 15 px in the classic dialogs.
                     let b = (13.0 * self.k * self.font_k * 1.12).round();
                     let (bx, by) = (r[0], (r[1] + (r[3] - b) / 2.0).round());
-                    paint_check_box(p, [bx, by, b, b], *on, c.enabled, focused, self.k);
+                    paint_check_box(
+                        p,
+                        [bx, by, b, b],
+                        (*on, c.enabled, focused),
+                        self.k,
+                        self.accent,
+                    );
                     p.text_font(label, bx + b + 7.0 * self.k, text_y(r), &font, ink);
                     self.paint_access(p, i, bx + b + 7.0 * self.k, text_y(r), ink);
                 }
@@ -1729,10 +1745,9 @@ const ACCENT: Rgba = Rgba(0x21, 0x73, 0x46, 255);
 fn paint_check_box(
     p: &mut dyn Painter,
     b: [f32; 4],
-    on: bool,
-    enabled: bool,
-    focused: bool,
+    (on, enabled, focused): (bool, bool, bool),
     k: f32,
+    accent: (Rgba, Rgba),
 ) {
     let grey = Rgba(0xc6, 0xc6, 0xc6, 255);
     if focused {
@@ -1741,7 +1756,7 @@ fn paint_check_box(
     }
     if on {
         let (edge, fill) = if enabled {
-            (Rgba(0x0e, 0x5c, 0x2f, 255), ACCENT)
+            (accent.1, accent.0)
         } else {
             (grey, grey)
         };

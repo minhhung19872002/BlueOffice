@@ -1340,6 +1340,8 @@ impl Ribbon {
                     "ribbon.groups.font" => Some("format.fontSettings"),
                     "ribbon.groups.paragraph" => Some("format.paragraphSettings"),
                     "ribbon.groups.pageSetup" => Some("layout.pageSetup"),
+                    // BlueSlide View > Show: Grid and Guides.
+                    "slideNative.showGroup" => Some("view.gridSettings"),
                     "ribbon.groups.footnotes" => Some("references.notesLauncher"),
                     _ => None,
                 };

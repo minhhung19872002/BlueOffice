@@ -35,6 +35,8 @@ pub enum SideKind {
     Spelling,
     /// The Accessibility pane (Review > Check Accessibility).
     Accessibility,
+    /// The Thesaurus pane (Review > Thesaurus, Shift+F7).
+    Thesaurus,
 }
 
 /// A shape listed by the Selection Pane.
@@ -91,6 +93,12 @@ pub enum SideHit {
     Speak,
     /// Accessibility: go to shape `id` (0: the slide itself) of slide `n`.
     Goto(usize, u32),
+    /// Thesaurus: back to the word looked up before.
+    ThesBack,
+    /// Thesaurus: look a synonym up (a double press puts it in the text).
+    ThesLookup(String),
+    /// Thesaurus: fold / unfold meaning `n`.
+    ThesToggle(usize),
 }
 
 /// An issue listed by the Accessibility pane.
@@ -117,6 +125,10 @@ pub struct SpellShown {
     pub suggestions: Vec<String>,
     /// The chosen correction.
     pub chosen: usize,
+    /// Meanings of the chosen correction: definition, synonyms (round 17, English thesaurus).
+    pub meanings: Vec<(String, String)>,
+    /// Name of the text's proofing language, shown at the pane's foot.
+    pub lang: String,
 }
 
 /// What typing in a pane asks for.
@@ -153,7 +165,12 @@ pub struct SidePane {
     scale: f32,
     pub(crate) hits: Vec<([f32; 4], SideHit)>,
     ops: Vec<Op>,
+    /// The Thesaurus pane's word and history.
+    pub thes: thespane::ThesState,
 }
+
+#[path = "slide_thespane.rs"]
+pub(super) mod thespane;
 
 fn inside(r: [f32; 4], x: f32, y: f32) -> bool {
     x >= r[0] && x < r[0] + r[2] && y >= r[1] && y < r[1] + r[3]
@@ -843,6 +860,41 @@ impl SidePane {
                 Some((ink, self.scale.max(1.0).round())),
             ));
             hits.push(([sx - 2.0, sy - 2.0, s + 4.0, s + 4.0], SideHit::Speak));
+            // Its meanings (numbered definitions, synonyms under each), as the reference
+            // lists them under the word.
+            let mut my = wy + sh + self.px(10.0);
+            let [_, py, _, ph] = self.rect;
+            let foot = py + ph - self.px(40.0);
+            for (n, (gloss, syn)) in shown.meanings.iter().enumerate() {
+                for (k, l) in wrap(&format!("{}. {gloss}", n + 1), width, text, body)
+                    .into_iter()
+                    .enumerate()
+                {
+                    if my + line > foot {
+                        break;
+                    }
+                    let x = if k == 0 { left } else { left + self.px(14.0) };
+                    ops.push(Op::Text(l, x, my, body, ink));
+                    my += line;
+                }
+                if !syn.is_empty() {
+                    for l in wrap(syn, width - self.px(14.0), text, body) {
+                        if my + line > foot {
+                            break;
+                        }
+                        ops.push(Op::Text(l, left + self.px(14.0), my, body, DIM));
+                        my += line;
+                    }
+                }
+                my += self.px(6.0);
+            }
+        }
+        // The proofing language at the foot of the pane.
+        if !shown.lang.is_empty() {
+            let [_, py, _, ph] = self.rect;
+            let fy = py + ph - self.px(32.0);
+            ops.push(Op::Rect([left, fy - self.px(8.0), width, 1.0], ROW_SEL));
+            ops.push(Op::Text(shown.lang.clone(), left, fy, body, ink));
         }
         self.ops = ops;
         self.hits = hits;

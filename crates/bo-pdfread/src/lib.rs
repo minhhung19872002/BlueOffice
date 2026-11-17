@@ -965,7 +965,12 @@ fn combo_button(it: &mut Interp<'_, '_>, doc: &Document, d: &Dictionary, rect: [
         .ok()
         .map(|o| resolve(doc, o))
         .and_then(|o| o.as_dict().ok());
-    let get = |k: &[u8]| d.get(k).ok().or_else(|| parent.and_then(|p| p.get(k).ok()));
+    let get = |k: &[u8]| {
+        d.get(k)
+            .ok()
+            .filter(|o| !matches!(o, Object::Null))
+            .or_else(|| parent.and_then(|p| p.get(k).ok()))
+    };
     let ft = get(b"FT").and_then(|o| o.as_name().ok()).unwrap_or(b"");
     let ff = get(b"Ff").and_then(|o| o.as_i64().ok()).unwrap_or(0);
     let flags = d.get(b"F").ok().and_then(|o| o.as_i64().ok()).unwrap_or(0);

@@ -205,3 +205,27 @@ fn combo_boxes_get_a_drop_button_on_screen_only() {
     assert_eq!(tinted - plain, 2 + 3, "{plain} {tinted}");
     assert_eq!(count(&mut doc, true, true), plain);
 }
+
+#[test]
+fn null_field_keys_are_inherited_from_the_parent() {
+    // PyMuPDF's radio buttons: `/FT null /Ff null /T null` on the widgets, the field in the
+    // parent (§7.3.9: null = absent). They form one group and one Tab stop after "a".
+    let on = "<< /Type /XObject /Subtype /Form /BBox [0 0 12 12] /Length 16 >>\nstream\n0 g 2 2 8 8 re f\nendstream";
+    let mut doc = open(build_pdf(&[
+        "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R 5 0 R] >> >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 300] /Annots [4 0 R 6 0 R 7 0 R] >>",
+        "<< /FT /Tx /T (a) /Subtype /Widget /Rect [20 250 100 270] /P 3 0 R >>",
+        "<< /FT /Btn /Ff 49152 /T (pick) /V /X /Kids [6 0 R 7 0 R] >>",
+        "<< /Subtype /Widget /FT null /Ff null /T null /V null /Parent 5 0 R /Rect [20 100 32 112] /AS /X /AP << /N << /X 8 0 R >> >> /P 3 0 R >>",
+        "<< /Subtype /Widget /FT null /Ff null /T null /V null /Parent 5 0 R /Rect [60 100 72 112] /AS /Off /AP << /N << /Y 8 0 R >> >> /P 3 0 R >>",
+        on,
+    ]));
+    let f = doc.form_fields();
+    let radios: Vec<_> = f.iter().filter(|x| x.kind == FieldKind::Radio).collect();
+    assert_eq!(radios.len(), 2, "{f:?}");
+    assert!(radios.iter().all(|r| r.name == "pick"));
+    let order: Vec<String> = doc.form_tab_order().into_iter().map(|x| x.name).collect();
+    assert_eq!(order, ["a", "pick"]);
+    let _ = &mut doc;
+}

@@ -563,3 +563,73 @@ của cửa sổ vẫn mất 136 ms, trang đầu chậm hơn (435–507 ms) →
 
 Còn lại: ngăn Format khi gõ ghi chú, vùng nhấp của chú thích NoZoom, Area Highlight / Measure /
 Stamp của bản đối chiếu (không nhận thao tác đưa vào), tạo thiết bị D3D chiếm ~60 % thời gian tới trang đầu.
+
+## Vòng 11 (2026-11-16 – 17)
+
+Phần thêm ở mô-đun riêng: `reader_fill11_win.rs` (+ `reader_fill11_tests.rs`: công cụ chú thích, Fill & Sign, điền
+biểu mẫu, Read Aloud, tên cho công nghệ hỗ trợ), lõi `bo-pdfread/src/forms11.rs` (`add_signature_stamp`,
+`flatten_fill_sign`, `/BOFillSign`, thứ tự Tab, `AFSimple_Calculate`, `SignatureInk::Shape`, `typed_outline_in`);
+thêm chung (chỉ cộng thêm): `RenderExtra::field_tint`, nút thả xuống của hộp combo khi tô trường, ZapfDingbats /
+Symbol không nhúng giữ bảng mã có sẵn kể cả khi từ điển font ghi `/Encoding` tên (§9.6.6.1). Ảnh so sánh:
+`scratchpad/show/reader-67…72-*.png` (bản đối chiếu trên).
+
+**Công cụ chú thích** (đo trên bản đối chiếu). Hình vừa vẽ được chọn ngay; Rectangle nét 2 pt; ghi chú NoZoom nhận
+nhấp và khung chọn theo biểu tượng vẽ ra (khung chấm, không tay nắm). Bản đối chiếu không mở ngăn Format khi gõ ghi chú
+mới nên ta không thêm.
+
+**Tab Fill & Sign** (`reader-67`, sau góp ý `reader-69`). Như bản đối chiếu: Hand, Select | thư viện chữ ký 506 px (ô 145 × 68 px,
+"+" tạo chữ ký / chữ ký tắt), Manage Signatures (không mũi tên), Keep Tool Selected (xám tới khi chọn một công cụ),
+Apply All Signatures (xám tới khi đặt chữ ký; áp các mục Fill & Sign vào trang, một bước hoàn tác) | Add / Text (gõ tại
+chỗ, khung 1 px 31, 123, 204), Comb Field (mỗi ký tự một ô 14 pt), Predefined Text (tên, ngày M/D/YYYY) | lưới dấu
+3 × 2 (check, cross, chấm tròn 14 px; line, box; bước 44 px như bản đối chiếu 44–45 px) | Close. Dấu đặt cỡ 18 pt,
+chọn bằng một tay nắm góc giữ tỉ lệ. Sửa lỗi: thư viện chữ ký nới rộng làm dời cả nút của thanh trạng thái (mũi tên
+trang, zoom, kiểu trang biến mất ở chế độ Fill & Sign) — nay chỉ các lệnh ribbon sau nó dời (test
+`fill_and_sign_keeps_the_status_bar_in_place`).
+
+**Create Signature** (`reader-68`, sau góp ý `reader-70`). Hộp 1 086 × 604 px như bản đối chiếu: Type / Draw / Import / Paste
+(Online bỏ), ô chữ ký, danh sách font, chấm màu (đen, xanh, đỏ), xem trước lấp chiều ngang, Options dưới trái, OK /
+Cancel. Font gõ: font viết tay của hệ thống đứng đầu (Segoe Script mặc định, Ink Free, Segoe Print, Lucida Handwriting
+nếu có — host chỉ đọc khi hộp mở lần đầu), sau đó bốn font nghiêng đóng gói; repo không có font script OFL nào. Chữ ký
+gõ bằng font hệ thống lưu thành đường viền tô (`SignatureInk::Shape`, hộp đơn vị + tỉ lệ) nên tệp PDF không nhúng
+chương trình font của bên thứ ba. Paste lấy ảnh từ bộ nhớ tạm (`host.sigpaste11`). Options (hộp 502 × 438 px như bản
+đối chiếu): đổi sang đen trắng và giữ cỡ gốc (96 dpi) cho ảnh, bỏ chữ ký khi đóng chương trình (không ghi
+`reader-signatures.txt`), mật khẩu: xám (chưa làm). Chữ ký lưu cho lần sau, đặt bằng một nhấp, đổi cỡ bằng góc, làm
+phẳng khi lưu nếu chọn (Manage Signatures › Flatten on Save).
+
+**Điền biểu mẫu** (`reader-71`, `reader-72`). Trường tô 221, 228, 255 dưới hình hiện (Highlight Fields bật mặc định
+như bản đối chiếu, Form › Highlight Fields tắt / bật), gõ tại chỗ với khung chấm 1 px ngoài trường, Tab / Shift+Tab theo
+`/Tabs` của trang (một điểm dừng cho mỗi nhóm radio), Space cho hộp kiểm / radio, hàng của hộp danh sách, Alt+↓ / nhấp
+mở combo, Reset Form, trường tính từ `/CO` với tập con `AFSimple_Calculate` (SUM, PRD, AVG, MIN, MAX; không chạy
+script; 5 / 3 → 1.666667 như bản đối chiếu), một bước hoàn tác cho giá trị và phép tính kéo theo, lưu giá trị. Mới ở
+vòng này: hộp combo có nút thả xuống trên màn hình (đo trên trường 20 pt: rộng 9,3 pt, khung đen, mặt 217, 192, 219,
+mũi tên giữa; không in); dấu kiểm của PyMuPDF (`/ZapfDingbats` + `/WinAnsiEncoding`, mã "3") trước hiện thành chữ số
+"3", nay là ✓ như bản đối chiếu (test `zapf_dingbats_ignores_a_named_base_encoding`). Vào trường chữ bằng Tab chọn cả giá trị
+(gõ là thay), nhấp chuột đặt con trỏ — như bản đối chiếu (test `tab_into_a_filled_field_selects_its_value`). Nút
+radio của PyMuPDF ghi `/FT null /T null` trên widget: trước bị coi là trường riêng không kiểu nên nhấp không được và
+Tab nhảy về trường đầu; nay null = không có khoá (§7.3.9), cả nhóm là một điểm dừng Tab (test
+`null_field_keys_are_inherited_from_the_parent`).
+
+**Trợ năng.** Read Aloud tô từ đang đọc (trạng thái SAPI đọc theo nhịp), Reflow đọc bằng Space, ←/→, Home/End; mọi lệnh
+ribbon có tên cho công nghệ hỗ trợ (`accessible_names11`, tooltip cho lệnh chỉ có biểu tượng). UIA thật cần
+`IRawElementProviderSimple` (COM, `unsafe`) trong host Win32 — để vòng sau; hiện tên đọc được qua tooltip và tiêu đề.
+Kiểm độ tương phản (WCAG 2.2 SC 1.4.3) nay chạy trên cả bốn skin (Classic, Light, Blue, Dark) cho mọi bề mặt (mỗi tab,
+mỗi lệnh, panel, trang File, hộp thoại, menu, tooltip; ~6 900 chữ mỗi skin): xám 150, 150, 151 đo từ bản đối chiếu cho
+chữ gợi ý ("Search", "No bookmarks") và nhãn Properties chỉ đạt 2,96 : 1 → 112, 112, 113 (4,8 : 1 trên nền 251). Không
+bật chế độ High Contrast của Windows để thử vì đổi cả máy của chủ dự án.
+
+**Tốc độ** (sổ tay 1 202 trang, bản release sau khi gộp mọi nhánh; máy bận: 7–8 tiến trình `rustc` của agent khác,
+CPU 72–81 %):
+
+| | Vòng 11 | Trước (vòng 8–10) |
+| --- | --- | --- |
+| Mở / trang đầu (`--bench`, 5 lần) | 33–69 / 44–84 ms | 34–55 / 44–66 ms |
+| Tìm "snapshot": kết quả đầu / hết 1 202 trang | 17–27 ms / 1,80–2,17 s (354 kết quả) | 17–55 ms / 1,70–1,81 s |
+| Bánh xe 80 nấc (đầu vào → khung) | p50 2,1–2,2 ms, p95 8,1–8,6 ms | p50 1,4 ms, p95 11 ms |
+| Bộ nhớ riêng sau mở / sau 80 nấc | 117 / 115–117 MB | 101–103 / — MB |
+| Khởi động lạnh (PDF 100 trang): cửa sổ / trang đầu | 104–124 / 368–435 ms | 71–91 / 259–352 ms |
+
+Các số chậm hơn đi cùng CPU cả máy cao hơn (72–81 % so với 40–60 %); không có khoảng máy rảnh để đo lại.
+
+Còn lại: UIA thật (COM provider), mật khẩu cho chữ ký, trang Online của Create Signature, đo lại tốc độ khi máy rảnh;
+chữ của hình hiện trường ta sinh lùi 2 pt từ mép trái (quy ước chung, dùng cả ở BlueEditor; bản đối chiếu 0 pt), dấu ✓
+ZapfDingbats của bản đối chiếu đậm hơn glyph thay thế của ta.

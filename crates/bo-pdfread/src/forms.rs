@@ -63,7 +63,9 @@ fn field_attr(doc: &crate::store::Document, id: ObjectId, key: &[u8]) -> Option<
     let mut cur = id;
     for _ in 0..32 {
         let d = doc.get_dictionary(cur).ok()?;
-        if let Some(v) = get(doc, d, key) {
+        // A null value is the same as the key being absent (§7.3.9): PyMuPDF writes
+        // `/FT null /T null` on radio buttons whose field is the parent.
+        if let Some(v) = get(doc, d, key).filter(|v| !matches!(v, Object::Null)) {
             return Some(v.clone());
         }
         cur = d.get(b"Parent").ok()?.as_reference().ok()?;
@@ -177,8 +179,11 @@ impl PdfDocument {
                 .iter()
                 .copied()
                 .filter(|k| {
-                    doc.get_dictionary(*k)
-                        .is_ok_and(|kd| !kd.has(b"T") && (kd.has(b"Rect") || kd.has(b"Subtype")))
+                    doc.get_dictionary(*k).is_ok_and(|kd| {
+                        // `/T null` is no name (§7.3.9).
+                        let named = kd.get(b"T").is_ok_and(|t| !matches!(t, Object::Null));
+                        !named && (kd.has(b"Rect") || kd.has(b"Subtype"))
+                    })
                 })
                 .collect();
             for k in kids.iter().rev() {

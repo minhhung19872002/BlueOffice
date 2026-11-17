@@ -480,3 +480,25 @@ fn create_signature_paste_options_and_system_fonts() {
         .take_requests()
         .contains(&ReaderRequest::Command("host.sigpaste11".into())));
 }
+
+#[test]
+fn tab_into_a_filled_field_selects_its_value() {
+    // As the reference: entering a text field with Tab selects its whole value (typing replaces
+    // it); a click places the caret.
+    let mut w = window_with(form_pdf());
+    // Click field b, then Shift+Tab: field "a" (value "2") with its value selected.
+    let p = at(&w, 150.0, 122.0);
+    click(&mut w, p);
+    assert!(w.eleven.edit.as_ref().is_some_and(|e| !e.all));
+    key(&mut w, Key::Tab, true);
+    let e = w.eleven.edit.clone().expect("editing a");
+    assert_eq!(e.f.name, "a");
+    assert!(e.all && e.text == "2", "{e:?}");
+    w.handle(Input::Text("9".into()), &Fixed);
+    assert_eq!(w.eleven.edit.as_ref().map(|e| e.text.as_str()), Some("9"));
+    // A click into a filled field: caret, nothing selected.
+    let p = at(&w, 150.0, 82.0);
+    click(&mut w, p);
+    let e = w.eleven.edit.clone().expect("editing by click");
+    assert!(!e.all);
+}

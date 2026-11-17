@@ -80,6 +80,9 @@ mod fill11;
 // Ribbon metrics, Select / Assistant menus, Comment / Share tab ends (BlueReader round 12).
 #[path = "reader_r12_win.rs"]
 mod r12;
+// Loupe and Magnifier (BlueReader round 13).
+#[path = "reader_r13_win.rs"]
+mod r13;
 pub use r12::{AccessItem, AccessRole};
 
 /// Measured greys of the reference reader at 125 %.

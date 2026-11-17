@@ -138,6 +138,7 @@ impl ReaderWindow {
     pub(crate) fn prepare_extra(&mut self) {
         self.sync_viewx();
         self.prepare_view4();
+        self.prepare_thirteen();
         if self.extra.print.is_some() {
             self.update_print_preview();
         }

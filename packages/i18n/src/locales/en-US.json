@@ -13496,7 +13496,12 @@
     "assistant": "Assistant",
     "marquee": "Marquee",
     "loupe": "Loupe",
-    "magnifier": "Magnifier"
+    "magnifier": "Magnifier",
+    "loupeTitle": "Loupe Tool",
+    "lock": "Lock",
+    "zoomOut": "Zoom Out",
+    "zoomIn": "Zoom In",
+    "close": "Close"
   },
   "pdfShare12": {
     "sharedFiles": "Shared Files",

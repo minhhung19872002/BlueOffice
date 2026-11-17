@@ -13496,7 +13496,12 @@
     "assistant": "Hỗ trợ xem",
     "marquee": "Phóng theo vùng",
     "loupe": "Kính lúp nhỏ",
-    "magnifier": "Kính lúp"
+    "magnifier": "Kính lúp",
+    "loupeTitle": "Kính lúp nhỏ",
+    "lock": "Khoá",
+    "zoomOut": "Thu nhỏ",
+    "zoomIn": "Phóng to",
+    "close": "Đóng"
   },
   "pdfShare12": {
     "sharedFiles": "Tệp đã chia sẻ",

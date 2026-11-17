@@ -578,13 +578,17 @@ Tốc độ (`deck-300.pptx`, bản release, máy còn tiến trình rustc của
 
 | | Tham chiếu (COM) | BlueSlide |
 |---|---|---|
-| Mở | 1310 ms (Presentations.Open có cửa sổ) | mở 318 ms, khung đầu 859 ms |
-| Cuộn ngăn hình thu nhỏ | — | trung vị 3,6 ms / p95 4,0 ms mỗi nấc |
-| Gõ chữ tiêu đề | — (không gửi phím thật) | TYPING_RESULT |
-| Trình chiếu | bắt đầu 327 ms; Next trung vị 4,7 ms | phím tiến trung vị 2,1 ms |
+| Mở | 1310 ms (Presentations.Open có cửa sổ) | mở 267 ms, khung đầu 746 ms |
+| Cuộn ngăn hình thu nhỏ | — | trung vị 3,0 ms / p95 3,5 ms mỗi nấc |
+| Gõ chữ tiêu đề (phím → hiện) | — (không gửi phím thật) | trung vị 6,9 ms / p95 16,6 ms (3 rustc khác đang chạy); sau khi bỏ kiểm tra giữa lúc gõ: 9,1 / 11,1 ms với 8 rustc khác (xử lý 2,7 ms, dải GPU 2,0 ms). Trước: 33,3 / 37,1 ms |
+| Trình chiếu | bắt đầu 327 ms; Next trung vị 4,7 ms | phím tiến trung vị 1,4 ms |
 
-- Thụt lùi tìm thấy và sửa: kiểm tra trợ năng cho thanh trạng thái chạy lại cả bản trình bày sau mỗi
-  phím (≈ 16 ms trên 300 trang, gõ chữ trung vị 33 ms). Nay chỉ kiểm lại khi bản trình bày đứng yên 0,8 s.
+- Hai chỗ chậm khi gõ, tìm bằng bảng chia thời gian mới của `BLUEOFFICE_NATIVE_PERF` (`"ensure"`: danh
+  sách vẽ / dải thay đổi / GPU / bản giữ lại):
+  1. kiểm tra trợ năng của thanh trạng thái chạy lại cả bản trình bày sau mỗi phím (≈ 15 ms trên 300
+     trang): nay chỉ chạy khi bản trình bày không đổi trong 0,8 s;
+  2. vẽ lại dải chữ của trang (11,3 ms) giải mã lại ảnh của trang mỗi phím: `bo-gpu-win` bỏ qua ảnh nằm
+     ngoài dải (như các dòng chữ), host BlueSlide giữ ảnh đã giải mã theo id — dải còn 2,0 ms.
 - Kiểm thử: `slide_round19_tests.rs` (gõ / Enter / Backspace / hoàn tác trong Outline, thanh trạng thái,
   ngăn và thanh cuộn, hộp Language), `slide_outline9.rs`, `slide_lang9.rs`, `slide_timing9.rs`,
   `bo-engine/tests/outline_paras.rs` (số kế thừa), `slide_edit::a11y_check` (tương phản, alt text, tiêu đề trùng).

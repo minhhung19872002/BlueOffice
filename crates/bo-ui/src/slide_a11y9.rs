@@ -134,7 +134,7 @@ pub(super) struct A11yPane {
     /// Issue count by the status bar's last check, and the history key it was made at.
     pub status: Option<(u64, usize)>,
     /// When the deck changed since that check (the check waits for a pause in typing).
-    stale: Option<std::time::Instant>,
+    stale: Option<(u64, std::time::Instant)>,
 }
 
 impl A11yPane {
@@ -314,12 +314,19 @@ impl SlideWindow {
                 self.a11y9.stale = None;
                 return n;
             }
-            // Checking a 300-slide deck takes ~15 ms: not on every keystroke. The count is
-            // brought up to date once the deck has stayed changed for 0.8 s (the caret's
-            // blink brings the next input).
-            let since = *self.a11y9.stale.get_or_insert_with(std::time::Instant::now);
-            if since.elapsed() < std::time::Duration::from_millis(800) {
-                return n;
+            // Checking a 300-slide deck takes ~10 ms: not while typing. The count is brought
+            // up to date once the deck has not changed for 0.8 s (the caret's blink brings
+            // the next input).
+            match self.a11y9.stale {
+                Some((rev, since)) if rev == key => {
+                    if since.elapsed() < std::time::Duration::from_millis(800) {
+                        return n;
+                    }
+                }
+                _ => {
+                    self.a11y9.stale = Some((key, std::time::Instant::now()));
+                    return n;
+                }
             }
         }
         self.a11y9.stale = None;

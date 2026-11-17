@@ -105,6 +105,9 @@ pub struct DocView {
     /// Input-method composition shown at the caret.
     preedit: String,
     comments: Vec<bo_edit::comments::CommentInfo>,
+    /// Revisions of the document and whether tracking is locked (Reviewing Pane, round 6).
+    revisions: Vec<bo_edit::RevisionItem>,
+    tracking_locked: bool,
     selection: Option<bo_edit::Selection>,
     format: FormatState,
     words: usize,
@@ -165,6 +168,8 @@ impl DocView {
             track: false,
             preedit: String::new(),
             comments: Vec::new(),
+            revisions: Vec::new(),
+            tracking_locked: false,
             selection: None,
             format: FormatState::default(),
             words: 0,
@@ -205,6 +210,17 @@ impl DocView {
     /// Number of pages.
     pub fn page_count(&self) -> usize {
         self.pages.len()
+    }
+
+    /// The engine for host work that does not change the document's content or layout
+    /// (choosing the package variant of a saved copy).
+    pub fn engine_for_export(&mut self) -> &mut Engine {
+        &mut self.engine
+    }
+
+    /// Page sizes in points (File › Print preview, printing).
+    pub fn page_sizes_pt(&self) -> Vec<(f32, f32)> {
+        self.pages.iter().map(|p| (p.width, p.height)).collect()
     }
 
     /// Words in the main story.
@@ -392,6 +408,16 @@ impl DocView {
     /// Track changes is on.
     pub fn track_changes(&self) -> bool {
         self.track
+    }
+
+    /// Revisions of the document (Reviewing Pane).
+    pub fn revisions(&self) -> &[bo_edit::RevisionItem] {
+        &self.revisions
+    }
+
+    /// Tracking is locked (Review › Track Changes › Lock Tracking).
+    pub fn tracking_locked(&self) -> bool {
+        self.tracking_locked
     }
 
     /// Run a command and return the engine's result (applied to the view).
@@ -1252,6 +1278,8 @@ impl DocView {
         if let Some(review) = &r.review {
             self.track = review.track_changes;
             self.comments.clone_from(&review.comments);
+            self.revisions.clone_from(&review.revisions);
+            self.tracking_locked = review.tracking_locked;
             self.markup.clone_from(&review.markup);
         }
         self.selection = Some(r.selection);

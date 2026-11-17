@@ -57,6 +57,8 @@ pub struct TitleBar {
     pressed: Option<&'static str>,
     /// App name and its mark icon (BlueDoc unless set).
     app: (&'static str, &'static str),
+    /// Quick access commands chosen in an app's options (`None`: the default three).
+    custom_quick: Option<Vec<&'static str>>,
 }
 
 impl Default for TitleBar {
@@ -80,7 +82,14 @@ impl TitleBar {
             hover: None,
             pressed: None,
             app: ("BlueDoc", "app.doc"),
+            custom_quick: None,
         }
+    }
+
+    /// Quick access commands (an app's Quick Access Toolbar option); laid out at the next
+    /// [`TitleBar::layout`].
+    pub fn set_quick_commands(&mut self, ids: Vec<&'static str>) {
+        self.custom_quick = Some(ids);
     }
 
     /// Show another app's name and mark (`"BlueSlide"`, `"app.slide"`).
@@ -126,7 +135,8 @@ impl TitleBar {
         let app = text.measure(self.app.0, self.style(true)).0;
         let mut x = self.px(40.0) + app + self.px(12.0);
         let size = self.px(30.0);
-        self.quick = QUICK
+        let ids: Vec<&'static str> = self.custom_quick.clone().unwrap_or_else(|| QUICK.to_vec());
+        self.quick = ids
             .iter()
             .map(|id| {
                 let r = R {

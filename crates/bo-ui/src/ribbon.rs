@@ -614,7 +614,11 @@ fn review_tab() -> Tab {
             Group {
                 label: "ribbon.groups.tracking",
                 large: vec![L("review.trackChanges")],
-                rows: vec![vec![S("review.markupMode")], vec![S("review.showMarkup")]],
+                rows: vec![
+                    vec![S("review.markupMode")],
+                    vec![S("review.showMarkup")],
+                    vec![S("review.reviewingPane")],
+                ],
             },
             Group {
                 label: "ribbon.groups.changes",

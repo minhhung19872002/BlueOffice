@@ -15,6 +15,9 @@ use form::{Form, Kind};
 
 #[path = "doc_forms5.rs"]
 mod r5;
+
+#[path = "doc_options6.rs"]
+pub(crate) mod options6;
 pub(crate) use r5::{open_manage_styles, ManagedStyle};
 
 use crate::strings::Strings;

@@ -18,7 +18,8 @@ pub(crate) const HEADER_FOOTER: &str = "ribbon.tabs.headerFooter";
 pub(crate) const PICTURE_FORMAT: &str = "ribbon.tabs.pictureFormat";
 
 /// Menu buttons of the contextual tabs.
-const MENUS: [&str; 16] = [
+const MENUS: [&str; 17] = [
+    "review.reviewingPane",
     "table.select",
     "table.data",
     "review.markupMode",
@@ -359,13 +360,30 @@ pub(crate) fn menu(id: &str) -> Vec<Entry> {
             e("review.markup.balloons", "commands.review.markupBalloons"),
         ],
         // §17.13.5 revisions: the one at the selection, or all of them.
+        // The reference's five entries each (round 6).
         "review.acceptMenu" => vec![
-            e("review.accept", "commands.review.accept"),
-            e("review.acceptAll", "commands.review.acceptAll"),
+            e("review.acceptNext", "docR6.rv.acceptNext"),
+            e("review.accept", "docR6.rv.acceptThis"),
+            e("review.acceptAllShown", "docR6.rv.acceptShown"),
+            e("review.acceptAll", "docR6.rv.acceptAll"),
+            e("review.acceptAllStop", "docR6.rv.acceptStop"),
         ],
         "review.rejectMenu" => vec![
-            e("review.reject", "commands.review.reject"),
-            e("review.rejectAll", "commands.review.rejectAll"),
+            e("review.rejectNext", "docR6.rv.rejectNext"),
+            e("review.reject", "docR6.rv.rejectThis"),
+            e("review.rejectAllShown", "docR6.rv.rejectShown"),
+            e("review.rejectAll", "docR6.rv.rejectAll"),
+            e("review.rejectAllStop", "docR6.rv.rejectStop"),
+        ],
+        // Track Changes split button (its menu is opened by the window, round 6) and the
+        // Reviewing Pane's placements.
+        "review.trackChanges" => vec![
+            e("review.trackChanges", "docR6.rv.forEveryone"),
+            e("review.lockTracking", "docR6.rv.lock"),
+        ],
+        "review.reviewingPane" => vec![
+            e("review.reviewingPane.vertical", "docR6.rv.paneVertical"),
+            e("review.reviewingPane.horizontal", "docR6.rv.paneHorizontal"),
         ],
         // §20.1.8.55 srcRect / §20.1.9.18 prstGeom.
         "picture.crop" => vec![
@@ -384,7 +402,12 @@ pub(crate) fn menu(id: &str) -> Vec<Entry> {
 
 /// The `&'static str` of a contextual menu id (menus anchor on their ribbon button).
 pub(crate) fn static_id(id: &str) -> Option<&'static str> {
-    MENUS.iter().find(|m| **m == id).copied()
+    // The Track Changes split button (round 6) anchors its menu too.
+    MENUS
+        .iter()
+        .chain(["review.trackChanges"].iter())
+        .find(|m| **m == id)
+        .copied()
 }
 
 /// What a contextual command runs.
@@ -607,6 +630,7 @@ pub(crate) fn on_ids(f: &FormatState, story: Option<(bool, bool, bool)>) -> Vec<
 
 /// Names of the contextual commands, from strings the shared interface already has.
 pub(crate) fn install_strings(s: &mut Strings) {
+    crate::shell::install_round6_strings(s);
     let copy = |s: &mut Strings, id: &str, key: &str| {
         let v = s.get(key).to_owned();
         if v != key {
@@ -674,6 +698,7 @@ pub(crate) fn install_strings(s: &mut Strings) {
 
 /// Icons of the contextual commands (Bluestar's own drawings, shared icon set).
 pub(crate) fn install_icons(icons: &mut Icons) {
+    crate::shell::install_round6_icons(icons);
     for (id, existing) in [
         ("table.shadingMenu", "table.fill"),
         ("table.borders", "table.bordersAll"),

@@ -32,6 +32,12 @@ mod r3;
 mod r4;
 #[path = "doc_r5.rs"]
 mod r5;
+#[path = "doc_r6.rs"]
+mod r6;
+pub use r6::PrintJob;
+pub(crate) use r6::{
+    install_icons as install_round6_icons, install_strings as install_round6_strings,
+};
 
 /// Something only the platform host can do.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -80,6 +86,19 @@ pub enum Request {
     /// Store the Design tab's theme, style set and effects as the defaults of new documents
     /// (Design › Set as Default; [`DocWindow::design_defaults`]).
     SaveDefaults,
+    /// Open this file in a new window (File › Open / Home recent list).
+    OpenPath(String),
+    /// New document from one of BlueOffice's own templates (new window; the host calls
+    /// [`DocWindow::apply_template`] on it).
+    NewFromTemplate(String),
+    /// Pick a name and save a copy as this type (`dotx`, `pdf`, `html`, `mht`, `xml`, `epub`).
+    SaveAsType(String),
+    /// Show this file in the system file manager (File › Info).
+    OpenLocation(String),
+    /// Print with the File screen's settings.
+    PrintJob(PrintJob),
+    /// Store the application preferences ([`DocWindow::take_prefs`]).
+    SavePrefs,
 }
 
 /// Window contents of BlueDoc.
@@ -210,6 +229,7 @@ pub struct DocWindow {
     r3: r3::R3,
     r4: r4::R4,
     r5: r5::R5,
+    r6: r6::R6,
 }
 
 /// Font sizes offered by the size box (points).
@@ -398,6 +418,7 @@ impl DocWindow {
             r3: r3::R3::default(),
             r4: r4::R4::default(),
             r5: r5::R5::default(),
+            r6: r6::R6::default(),
         }
     }
 
@@ -765,10 +786,11 @@ impl DocWindow {
 
     /// Width taken by the navigation pane on the left (0 when hidden).
     fn nav_w(&self) -> f32 {
+        let review = self.r6_review_w();
         if self.nav.is_some() {
-            NavPane::width(self.scale)
+            NavPane::width(self.scale) + review
         } else {
-            0.0
+            review
         }
     }
 
@@ -2036,6 +2058,9 @@ impl DocWindow {
 
     /// Run interface command `id` from the ribbon, title bar, a menu or a shortcut.
     fn action(&mut self, id: &str) -> bool {
+        if let Some(r) = self.r6_action(id) {
+            return r;
+        }
         if let Some(r) = self.r5_action(id) {
             return r;
         }
@@ -2486,7 +2511,7 @@ impl DocWindow {
         if self.show_ruler {
             top += Ruler::height(self.scale);
         }
-        let h = (self.size.1 - top - self.status_h()).max(1.0);
+        let h = (self.size.1 - top - self.status_h() - self.r6_review_h()).max(1.0);
         // The vertical scroll bar takes the right edge, the vertical ruler the left one.
         let vr = self.vr_w();
         let left = self.nav_w();
@@ -2680,6 +2705,7 @@ impl DocWindow {
             None => (Vec::new(), 0.0),
         };
         self.view.set_thumbnails(thumbs.0, thumbs.1);
+        self.r6_layout(text);
         if let Some(e) = &self.cell_spin {
             let style = TextStyle {
                 size: (12.0 * self.scale).round(),
@@ -2747,6 +2773,9 @@ impl DocWindow {
     }
 
     fn route(&mut self, input: Input, text: &dyn TextMeasure) -> bool {
+        if let Some(r) = self.r6_input(&input, text) {
+            return r;
+        }
         // The File screen covers everything below the title bar.
         if let Some(b) = self.backstage.as_mut() {
             match input {
@@ -3259,33 +3288,7 @@ impl DocWindow {
                 let (fired, changed) = self.ribbon.release(x, y);
                 let ran = match fired {
                     Some(RibbonHit::File) => {
-                        let mut b = Backstage::default();
-                        if let Some(props) = self.view.doc_properties() {
-                            let date = |s: &str| s.split('T').next().unwrap_or("").to_owned();
-                            let rows = [
-                                ("backstage.props.title", "Title", props.title.clone()),
-                                ("backstage.props.author", "Author", props.author.clone()),
-                                (
-                                    "backstage.props.lastModifiedBy",
-                                    "Last modified by",
-                                    props.last_modified_by.clone(),
-                                ),
-                                ("backstage.props.created", "Created", date(&props.created)),
-                                (
-                                    "backstage.props.modified",
-                                    "Last modified",
-                                    date(&props.modified),
-                                ),
-                            ];
-                            b.set_properties(
-                                rows.into_iter()
-                                    .map(|(k, f, v)| (self.t(k, f), v))
-                                    .collect(),
-                            );
-                        }
-                        b.layout(self.title.height(), self.size, self.scale);
-                        self.backstage = Some(b);
-                        true
+                        self.r6_open_backstage(crate::doc_backstage6::BsPage::Info)
                     }
                     Some(RibbonHit::Command(id)) => self.action(id),
                     Some(RibbonHit::Style(i)) => match self.styles.get(i) {
@@ -3445,7 +3448,8 @@ impl DocWindow {
             return false;
         };
         self.rest += 1;
-        if self.rest != TOOLTIP_TICKS || self.menu.is_some() {
+        // File › Options › ScreenTip style: none.
+        if self.rest != TOOLTIP_TICKS || self.menu.is_some() || self.r6_screentips() == 2 {
             return false;
         }
         let Some(anchor) = self.ribbon.rect_of(RibbonHit::Command(id)) else {
@@ -3461,7 +3465,8 @@ impl DocWindow {
             bold: false,
         };
         let (w, _) = text.measure(&label, style);
-        let desc = crate::doc_tips::description(&self.strings, id);
+        let desc =
+            crate::doc_tips::description(&self.strings, id).filter(|_| self.r6_screentips() == 0);
         self.tip = Some(crate::doc_tips::layout(
             &label,
             desc.as_deref(),
@@ -3641,6 +3646,7 @@ impl DocWindow {
         }
         self.r3_paint_panes(p);
         self.r5_paint(p);
+        self.r6_paint_panes(p);
         // Status bar.
         let (w, h) = self.size;
         let sh = self.status_h();
@@ -3744,6 +3750,7 @@ impl DocWindow {
             bd.paint(p, &self.theme);
         }
         self.r3_paint_popups(p);
+        self.r6_paint(p);
     }
 
     /// Paint `paint` through cached layer `id` over `rect` (window pixels): the backend

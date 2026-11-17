@@ -333,54 +333,8 @@ fn ribbon(tab: usize) -> Vec<(&'static str, Kind)> {
             ("sep9", Sep),
         ]),
         6 => v.extend(crate::editor_design::form_tab_items()),
-        // The reference's Protect tab (Sensitivity labels and Batch Encrypt are not offered).
-        7 => v.extend([
-            ("sep1", Sep),
-            (
-                "prot.redact",
-                Big("redact", "pdfEditor.markRedaction", false),
-            ),
-            (
-                "prot.whiteout",
-                Big("whiteout", "pdfEditor.whiteout", false),
-            ),
-            (
-                "prot.applyRedact",
-                Big("applyRedact", "pdfEditor.applyRedactions", false),
-            ),
-            ("sep2", Sep),
-            (
-                "prot.hiddenData",
-                Big("hiddenData", "pdfEditor.hiddenData", false),
-            ),
-            ("sep3", Sep),
-            ("prot.secureMenu", Big("secure", "pdfEditor.secure", true)),
-            ("sep4", Sep),
-            (
-                "prot.restrict",
-                Big("restrictAccess", "pdfEditor.restrictAccess", false),
-            ),
-            (
-                "prot.removeSecurity",
-                Big("unsecure", "pdfEditor.removeSecurity", false),
-            ),
-            ("sep5", Sep),
-            ("form.fill", Big("fillSign", "pdfEditor.fillSign", false)),
-            ("prot.sign", Big("sign", "pdfEditor.signCertify", false)),
-            (
-                "prot.timestamp",
-                Big("timestamp", "pdfEditor.timeStamp", false),
-            ),
-            (
-                "prot.validate",
-                Big("validate", "pdfProtect.validate", false),
-            ),
-            (
-                "prot.sigPanel",
-                Big("signPanel", "pdfEditor.signaturePanel", false),
-            ),
-            ("sep6", Sep),
-        ]),
+        // The reference's Protect tab (round 10 grouping; Sensitivity labels are not offered).
+        7 => v.extend(crate::editor_prot10::protect_tab_items()),
         // Round 9: the contextual Combine Files tab.
         9 => v = crate::editor_combine9::ribbon_items(),
         _ => {
@@ -534,6 +488,8 @@ pub struct EditorWindow {
     pub(crate) wm_image8: Option<Vec<u8>>,
     /// The presets file was read (`editor_dlg8b::presets_file`).
     pub(crate) presets_loaded8: bool,
+    /// PDF Optimizer round 10 (`editor_opt10`): font lists, settings waiting for a render.
+    pub(crate) opt10: crate::editor_opt10::Opt10,
     /// The Edit Object rotation handle being dragged (`editor_rot8`).
     pub(crate) rot8: Option<crate::editor_rot8::RotDrag>,
     /// Values last applied per page design kind, for Update (`editor_org9`).
@@ -633,6 +589,7 @@ impl EditorWindow {
             policy8: None,
             wm_image8: None,
             presets_loaded8: false,
+            opt10: crate::editor_opt10::Opt10::default(),
             rot8: None,
             org9_last: std::collections::BTreeMap::new(),
             org9_update: None,
@@ -1117,7 +1074,9 @@ impl EditorWindow {
             }
             return;
         }
-        if self.org9_command(cmd)
+        if self.prot10_command(cmd)
+            || self.edit10_command(cmd)
+            || self.org9_command(cmd)
             || self.combine9_command(cmd)
             || self.conv9_command(cmd)
             || self.dlg8_command(cmd)
@@ -1313,7 +1272,7 @@ impl EditorWindow {
         }
     }
 
-    fn toggle_tool(&mut self, t: EditTool) {
+    pub(crate) fn toggle_tool(&mut self, t: EditTool) {
         self.edit.reset(self.r.view_mut());
         self.comment.tool = None;
         self.design.tool = None;
@@ -1510,7 +1469,10 @@ impl EditorWindow {
 
     /// Pages rendered as PNG for `purpose` (`images`: one file per page).
     pub fn pages_rendered(&mut self, purpose: &str, pngs: Vec<Vec<u8>>) {
-        if self.conv9_rendered(purpose, &pngs) || self.conv9b_rendered(purpose, &pngs) {
+        if self.conv9_rendered(purpose, &pngs)
+            || self.conv9b_rendered(purpose, &pngs)
+            || self.opt10_rendered(purpose, &pngs)
+        {
             return;
         }
         let stem = self.doc_name();
@@ -1757,7 +1719,7 @@ impl EditorWindow {
         if let Some(t) = self.tool {
             self.r.on.insert(match t {
                 EditTool::Text => "ed.editText",
-                EditTool::Object => "ed.editObject",
+                EditTool::Object => "ed.editObjectMenu",
                 EditTool::AddText => "ed.addText",
                 EditTool::Redact => "prot.redact",
             });

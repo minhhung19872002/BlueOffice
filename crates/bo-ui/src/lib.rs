@@ -54,6 +54,7 @@ mod editor_dlg8;
 mod editor_dlg8_tests;
 mod editor_dlg8b;
 mod editor_edit;
+mod editor_edit10;
 mod editor_file7;
 mod editor_five;
 #[cfg(test)]
@@ -71,7 +72,7 @@ mod editor_more_tests;
 mod editor_objtext;
 #[cfg(test)]
 mod editor_objtext_tests;
-mod editor_opt9;
+mod editor_opt10;
 mod editor_org9;
 mod editor_organize;
 #[cfg(test)]
@@ -80,7 +81,10 @@ mod editor_pagenum9;
 mod editor_pages5;
 mod editor_pages9;
 mod editor_portfolio;
+mod editor_prot10;
 mod editor_rot8;
+#[cfg(test)]
+mod editor_round10_tests;
 #[cfg(test)]
 mod editor_round7_tests;
 #[cfg(test)]

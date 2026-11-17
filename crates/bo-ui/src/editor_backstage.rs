@@ -25,7 +25,7 @@ const ITEMS: [Option<(&str, &str)>; 17] = [
     Some(("bs.open", "pdfReader.open")),
     Some(("file.save", "pdfReader.save")),
     Some(("file.saveAs", "pdfReader.saveAs")),
-    Some(("file.optimize", "pdfEditor.bsOptimizer")),
+    Some(("bs.optimizer", "pdfEditor.bsOptimizer")),
     Some(("bs.actionWizard", "pdfEditor7.actionWizard")),
     Some(("bs.export", "pdfEditor.bsExport")),
     Some(("file.print", "pdfReader.print")),
@@ -53,6 +53,9 @@ pub(crate) struct Backstage {
     pub hits: Vec<([f32; 4], String)>,
     /// Grey entries with a tooltip: box and tooltip key.
     pub tips: Vec<([f32; 4], &'static str)>,
+    /// Round 10: the chosen row of the PDF Optimizer page (Reduce File Size, Advanced
+    /// Optimization, Optimize Scanned PDF).
+    pub sub: usize,
 }
 
 impl EditorWindow {
@@ -115,6 +118,20 @@ impl EditorWindow {
 
     pub(crate) fn backstage_command(&mut self, cmd: &str) {
         match cmd {
+            "bs.optimizer" => {
+                self.bs.page = "bs.optimizer";
+                self.bs.sub = 0;
+            }
+            c if c.starts_with("bs.opt.row") => {
+                self.bs.sub = c[10..].parse().unwrap_or(0);
+            }
+            "bs.opt.current" => {
+                self.close_backstage();
+                match self.bs.sub {
+                    0 => self.open_reduce10(),
+                    _ => self.open_opt10(),
+                }
+            }
             "bs.properties" | "bs.create" | "bs.open" | "bs.export" | "bs.share" | "bs.skins" => {
                 self.bs.page = match cmd {
                     "bs.properties" => "bs.properties",
@@ -341,6 +358,157 @@ impl EditorWindow {
                         hits.push((r, format!("bs.recent.{}", path.to_string_lossy())));
                         y += r[3];
                     }
+                }
+            }
+            "bs.optimizer" => {
+                // Round 10, measured on the reference (125 %): rows as the Open page's, the
+                // chosen one a #D9D9D9 pill with accent text; at the right a #666666 title, a
+                // #999999 description and 142 × 128 px tiles framed #E0E0E0 with the icon
+                // (#333333) over a #707070 label.
+                let head_text = self.t("pdfEditor.bsOptimizer");
+                p.text(
+                    head_text.trim_end_matches(['.', '…']),
+                    mx - px(0.8),
+                    ty,
+                    title,
+                    MUTED,
+                );
+                p.fill_rect(px(517.6), top, 1.0, h - top, RULE);
+                let rows = [
+                    ("file", "pdfEditor10.reduceTitle"),
+                    ("properties", "pdfEditor10.advanced"),
+                    ("pages", "pdfEditor10.scanned"),
+                ];
+                let mut ry = top + px(85.6);
+                let mw = px(300.0);
+                for (k, (icon, key)) in rows.iter().enumerate() {
+                    let r = [mx - px(9.6), ry, mw - px(30.4), px(34.4)];
+                    let chosen = k == self.bs.sub;
+                    if chosen {
+                        p.path(
+                            &rounded(r[0], r[1], r[2], r[3], r[3] / 2.0),
+                            Some(CHOSEN),
+                            None,
+                        );
+                    }
+                    let is = px(20.8);
+                    let ink2 = Ink {
+                        ink: Rgba(0x33, 0x33, 0x33, 255),
+                        accent,
+                    };
+                    reader_icons::draw(
+                        p,
+                        icon,
+                        r[0] + px(16.0),
+                        r[1] + (r[3] - is) / 2.0,
+                        is,
+                        ink2,
+                    );
+                    let lt = r[1] + ((r[3] - item.size * 1.33) / 2.0).round();
+                    p.text(
+                        &self.t(key),
+                        r[0] + px(43.2),
+                        lt,
+                        item,
+                        if chosen { accent } else { TEXT },
+                    );
+                    hits.push((r, format!("bs.opt.row{k}")));
+                    ry += px(45.6);
+                }
+                let rx = px(547.2);
+                let grey = Rgba(0x99, 0x99, 0x99, 255);
+                let (title_key, desc_key) = match self.bs.sub {
+                    0 => ("pdfEditor10.reduceTitle", "pdfEditor10.reduceDesc"),
+                    1 => ("pdfEditor10.advanced", "pdfEditor10.advancedDesc"),
+                    _ => ("pdfEditor10.scanned", "pdfEditor10.scannedDesc"),
+                };
+                p.text(
+                    &self.t(title_key),
+                    rx,
+                    ty + px(4.0),
+                    head,
+                    Rgba(0x66, 0x66, 0x66, 255),
+                );
+                p.text(&self.t(desc_key), rx, top + px(66.4), item, grey);
+                let tile = |p: &mut dyn Painter, y: f32, icon: &str, lines: &[String], on: bool| {
+                    let r = [rx, y, px(113.6), px(102.4)];
+                    p.fill_rect(r[0], r[1], r[2], r[3], Rgba(0xE0, 0xE0, 0xE0, 255));
+                    p.fill_rect(r[0] + 1.0, r[1] + 1.0, r[2] - 2.0, r[3] - 2.0, WHITE);
+                    let is = px(20.8);
+                    let ink3 = Ink {
+                        ink: if on {
+                            Rgba(0x33, 0x33, 0x33, 255)
+                        } else {
+                            Rgba(0xC1, 0xC1, 0xC1, 255)
+                        },
+                        accent,
+                    };
+                    let n = lines.len() as f32;
+                    let icon_y = r[1] + (r[3] - is - px(18.4) * n - px(6.0)) / 2.0;
+                    reader_icons::draw(p, icon, r[0] + (r[2] - is) / 2.0, icon_y, is, ink3);
+                    for (j, l) in lines.iter().enumerate() {
+                        let lw = l.chars().count() as f32 * item.size * 0.5;
+                        p.text(
+                            l,
+                            (r[0] + (r[2] - lw) / 2.0).round(),
+                            icon_y + is + px(6.0) + px(18.4) * j as f32,
+                            item,
+                            if on {
+                                Rgba(0x70, 0x70, 0x70, 255)
+                            } else {
+                                Rgba(0xC1, 0xC1, 0xC1, 255)
+                            },
+                        );
+                    }
+                    r
+                };
+                if self.bs.sub == 0 {
+                    p.text(
+                        &self.t("pdfEditor10.applyCurrent"),
+                        rx,
+                        top + px(108.0),
+                        item,
+                        grey,
+                    );
+                    let r = tile(
+                        p,
+                        top + px(129.6),
+                        "file",
+                        &[self.t("pdfEditor10.currentFile")],
+                        true,
+                    );
+                    hits.push((r, "bs.opt.current".to_owned()));
+                    p.text(
+                        &self.t("pdfEditor10.applyMultiple"),
+                        rx,
+                        top + px(272.0),
+                        item,
+                        grey,
+                    );
+                    // Several files at once is not offered: the tile is grey.
+                    tile(
+                        p,
+                        top + px(293.6),
+                        "combine",
+                        &[self.t("pdfEditor10.multipleFiles")],
+                        false,
+                    );
+                } else {
+                    let key = if self.bs.sub == 1 {
+                        "pdfEditor10.advanced"
+                    } else {
+                        "pdfEditor10.scanned"
+                    };
+                    let words: Vec<String> = self.t(key).split(' ').map(str::to_owned).collect();
+                    let half = words.len().div_ceil(2);
+                    let lines = vec![words[..half].join(" "), words[half..].join(" ")];
+                    let icon = if self.bs.sub == 1 {
+                        "properties"
+                    } else {
+                        "pages"
+                    };
+                    let r = tile(p, top + px(87.2), icon, &lines, true);
+                    hits.push((r, "bs.opt.current".to_owned()));
                 }
             }
             "bs.share" | "bs.skins" => {

@@ -54,7 +54,7 @@ pub struct OptimizeReport {
 pub type JpegEncoder<'a> = &'a dyn Fn(&[u8], u32, u32, u8) -> Option<Vec<u8>>;
 
 /// Box-filter `rgba` (`w` × `h`, 4 bytes a pixel) down to `nw` × `nh`.
-fn downsample(rgba: &[u8], w: usize, h: usize, nw: usize, nh: usize) -> Vec<u8> {
+pub(crate) fn downsample(rgba: &[u8], w: usize, h: usize, nw: usize, nh: usize) -> Vec<u8> {
     let mut out = vec![0_u8; nw * nh * 4];
     for y in 0..nh {
         let y0 = y * h / nh;
@@ -83,7 +83,7 @@ fn downsample(rgba: &[u8], w: usize, h: usize, nw: usize, nh: usize) -> Vec<u8> 
 
 impl PdfDocument {
     /// Largest size (points) each image XObject is drawn at by page content.
-    fn drawn_sizes(&mut self) -> HashMap<ObjectId, (f32, f32)> {
+    pub(crate) fn drawn_sizes(&mut self) -> HashMap<ObjectId, (f32, f32)> {
         let mut out: HashMap<ObjectId, (f32, f32)> = HashMap::new();
         for page in 0..self.pages.len() {
             let Ok(objs) = self.page_objects(page) else {

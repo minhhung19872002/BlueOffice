@@ -491,3 +491,102 @@ bookmarks, Tagged PDF; áp dụng khi From File đổi tệp văn phòng sang PD
 Ô nhập đầu tiên của các hộp được chọn sẵn cả chữ khi mở (và khi Tab tới) như bản đối chiếu, gõ là thay. Menu thả của
 vòng 9: hàng 29 px, chữ nhỏ hơn từ x 35, viền 1 px `#E0E0E0`, bóng mờ đều bốn phía (`Menu::with_soft_shadow`) thay cho
 dải bóng xám phải / dưới.
+
+## Vòng 10 (2026-11-17)
+
+Ảnh so sánh (bản đối chiếu trái / trên, BlueEditor phải / dưới): `scratchpad/show/editor-82…*.png`.
+
+**PDF Optimizer đủ các trang** (`editor_opt10.rs`, `bo-pdfread::optimize10`, `ccitt_enc`, `font_subset`). Đo hộp Advanced
+Optimization của bản đối chiếu ở 125 % (1158 × 795): cột trái là danh sách có ô đánh dấu, trang đang xem nền `#0078D7`
+chữ trắng từ x 40 tới 240, hàng 24 px; khung các trang 1 px `#DCDCDC`.
+- Compress Images: ảnh màu / xám giảm mẫu (Average / Bicubic — Catmull-Rom sau một bước trung bình / Subsampling) tới N
+  ppi khi trên M ppi, nén Retain existing / JPEG / ZIP, chất lượng Minimum…Maximum (dòng Quality chỉ hiện khi chọn JPEG như
+  bản đối chiếu); ảnh đơn sắc (1 bit, image mask) giảm mẫu rồi ghi JBIG2 (vùng generic MMR, không mất dữ liệu; cả hai mức
+  Lossless / Lossy đều ghi MMR vì chưa có mã hoá ký hiệu), CCITT Group 3 / Group 4 (bộ mã T.4 / T.6 tự viết, kiểm bằng bộ
+  giải mã), ZIP, Run Length. JPEG2000 và High Compression không có trong danh sách (không có bộ mã hoá).
+- Unembed Fonts: biểu tượng cảnh báo (hình của ta), Do not unembed any font, hai danh sách Embedded fonts / Fonts to
+  unembed với Unembed>> / <<Retain, Subset all embedded fonts — chương trình TrueType được rút còn các glyph trang dùng (giữ
+  nguyên mã glyph nên `/W`, `/CIDToGIDMap`, `cmap` không đổi; bỏ GSUB / GPOS / kern…). Phông của giá trị mặc định biểu mẫu
+  (`/DR`) giữ nguyên để còn gõ được.
+- Transparency: ba mức Low / Medium / High Resolution với đúng các dòng thông số bản đối chiếu hiện (75 / 288 / 144,
+  75 / 300 / 150, 100 / 1200 / 300). Làm phẳng: trang có trong suốt được host vẽ ở độ phân giải Gradient and Meshes thành
+  ảnh, nội dung cũ giữ dưới một vùng cắt rỗng (vẫn tìm / chép được chữ), trang xoay để nguyên.
+- Discard Objects / Discard User Data / Clean Up: các ô như bản đối chiếu; làm được: thao tác gửi / nhập / đặt lại biểu
+  mẫu, làm phẳng trường, JavaScript, ảnh thay thế, ảnh thu nhỏ, thẻ, thiết lập in, dấu trang, ghi chú / biểu mẫu / đa
+  phương tiện, tham chiếu tệp khác, siêu dữ liệu, đính kèm, dữ liệu riêng (`PieceInfo`), lớp ẩn; nén cả tệp / cấu trúc /
+  bỏ nén / giữ nguyên, Flate cho luồng chưa nén, LZW → Flate, bỏ liên kết tới trang không còn, viết gọn luồng nội dung.
+  Xám (không làm): đường mịn → cong, ghép mảnh ảnh, chỉ mục tìm kiếm, dữ liệu đối tượng, dấu trang hỏng, đích không dùng,
+  Fast Web View.
+- Predefined Settings: Standard, Mobile (đo trên bản đối chiếu: 96 ppi trên 144, JPEG High, đơn sắc 600 / 900 CCITT G4, PDF
+  1.6) và các bộ đã lưu; biểu tượng xoá / lưu (hình của ta), hộp “Create PDF Optimizer settings” 376 × 175; lưu vào
+  `editor-presets.txt` như các hộp vòng 8. Make compatible with: Retain existing / PDF 1.3…1.7 (dưới 1.5 không dùng
+  object stream).
+- Audit Space Usage (349 × 407 khi 6 dòng + Total): Description / Bytes / Percentage theo loại (Images, Bookmarks,
+  Thumbnails, Comments, Forms, Fonts, Content Streams, Structure Info, Named Destinations, Document Overhead, Color Spaces,
+  Cross Reference Table), chỉ các loại có byte, số có dấu phẩy nghìn; byte lấy theo vị trí đối tượng trong tệp (đối tượng
+  trong object stream chia theo độ dài), tổng đúng bằng cỡ tệp.
+- Trang File › PDF Optimizer như bản đối chiếu: ba hàng Reduce File Size / Advanced Optimization / Optimize Scanned PDF,
+  bên phải tiêu đề `#666666`, mô tả `#999999`, ô 142 × 128 px viền `#E0E0E0` (Current File; Multiple Files xám); Reduce
+  File Size mở hộp 544 × 262 (PDF Version Compatibility) và tối ưu theo Standard.
+
+Cỡ tệp trên mẫu 3 trang (ảnh JPEG 2400 × 1800, bản quét xám 2400 × 3000, bản quét 1 bit 3600 × 4800, hai phông TrueType
+nhúng đủ, một hình trong suốt), thiết lập Standard:
+
+| Tệp | Gốc | Bản đối chiếu | BlueEditor |
+| --- | --- | --- | --- |
+| opt.pdf (byte) | 2 089 231 | 351 501 | 243 338 |
+
+Khác biệt điểm ảnh so với bản gốc (vẽ lại 100 dpi xám; trung bình |Δ| / % điểm lệch > 32):
+
+| Trang | Bản đối chiếu | BlueEditor |
+| --- | --- | --- |
+| 1 ảnh màu + chữ | 0,60 / 0,00 % | 0,40 / 0,00 % |
+| 2 bản quét xám | 0,23 / 0,02 % | 0,57 / 0,07 % (nền 254: sửa, xem dưới) |
+| 3 bản quét 1 bit | 1,20 / 1,50 % | 0 / 0 % (MMR không nhỏ hơn Flate gốc nên giữ nguyên) |
+
+Bản đối chiếu rút phông (1,27 MB → 98 KB), giảm ảnh màu 939 × 704, ảnh xám thành JPEG 750 × 938, ảnh 1 bit JBIG2 có
+mất dữ liệu 2250 × 3000 (1 100 byte). BlueEditor: phông 72 KB, ảnh màu 940 × 705, ảnh xám JPEG 750 × 938. Sau góp ý của
+chủ dự án (nền xám nhạt sau bản quét): bộ mã JPEG làm trắng thành 254 — trọng số độ sáng cộng ra 254,99997 và hệ số DC của
+khối trắng nằm đúng nửa bậc lượng tử ở chất lượng 50; nay làm tròn tới 1/1024 trước, trắng giữ 255 ở mọi chất lượng (test).
+Ảnh 1 bit khi giảm mẫu giữ điểm đen từ một phần ba độ phủ (ngưỡng 50 % làm nét chữ mảnh đi).
+
+**Sửa lỗi có từ vòng 4**: host trả trang đã vẽ dưới dạng PNG mà `codecs::decode` chỉ đọc GIF / BMP / TIFF, nên Convert ›
+To Image › JPEG / TIFF / BMP không lưu được tệp nào; nay giải mã PNG (`png_rgba`), có test.
+
+**Protect** (`editor_prot10.rs`, `bo-pdfread::security10`): nhóm và menu như bản đối chiếu — Mark for Redaction ▾ (Text &
+Images, Pages, Search & Redact, rồi Apply Redactions, xám khi chưa đánh dấu), Whiteout, Protect Redactions ▾ (hai mục xám
+như bản đối chiếu), Hidden Data ▾ (Sanitize Document, Remove Hidden Information), Secure Document ▾ (Password Protect,
+Certificate Protect và Security Policies xám, Remove Security xám khi tệp không mã hoá, Security Properties), Restrict
+Access, Batch Encrypt, Fill & Sign, Sign & Certify ▾ (Place Signature…; các mục chứng nhận / Digital IDs xám), Time Stamp,
+Validate. Search & Redact đánh dấu mọi chỗ khớp (cả từ, phân biệt hoa thường), Pages đánh dấu cả trang; Apply xoá thật
+glyph, ảnh, hình, ghi chú dưới vùng (có từ trước, kiểm lại). Security Properties đọc từ điển mã hoá (AES 256 / AES 128 /
+RC4) và quyền `/P`.
+
+**Hộp thoại**: nút không dùng được viền `#E9E9E9` mặt `#F9F9F9`, nút chọn không dùng được vòng `#C3C3C3` trên `#F9F9F9`,
+ô nhập không dùng được viền `#ECECEC`, vành `#FBFBFB`, trong trắng, danh sách và khung trang `#DCDCDC` (đo trên PDF
+Optimizer khi bỏ chọn Compress Images). Audit Space Usage của ta trên cùng tệp ra gần đúng số của bản đối chiếu (Images
+814 435 / 814 429, Fonts 1 267 046 / 1 267 022, Color Spaces 4 878 / 4 870, Cross Reference Table 731 / 730).
+
+**Edit** (`editor_edit10.rs`): ribbon đã đúng thứ tự (ảnh `editor-84`); menu Edit Object ▾ (All / Text / Image / Shape /
+Shading — công cụ chỉ chọn loại đó), Add Images ▾ (Image From File; Draw New Image xám), Web Links ▾ đủ bốn mục (Append All
+Web Links on Current Page, View Web Links là bảng trang / địa chỉ), Add Shapes theo kiểu menu vòng 9 (chưa có bộ hình dạng
+lưới Add Path / Add Shading của bản đối chiếu). Khung khi gõ (Reflow Editing tắt): bản đối chiếu bao cả nhóm đoạn sát nhau,
+kể cả các đoạn phía trên đoạn đang gõ; ta trước chỉ bao từ đoạn đang gõ trở xuống — nay bao từ đoạn đầu nhóm
+(`paragraph_push::leaders_box`, `editor-96`). Gõ thêm dòng ở đoạn cuối nhóm: đường kẻ phía dưới bị đè như bản đối chiếu.
+
+**Tốc độ** (bản release, máy đang build song song — rustc của các agent khác):
+
+| Đo | Vòng 8 | Vòng 10 |
+| --- | --- | --- |
+| Mở sổ tay 1 202 trang / trang đầu (`--bench`, 3 lần) | 34–57 / 46–71 ms | 40–67 / 52–80 ms |
+| Gõ trong Edit Text, xử lý phím / vẽ / gửi khung p50 (p95) | 0,15 / — / — ms | 0,16 (0,24) / 0,42 (0,53) / 0,98 (1,27) ms |
+| Gõ, tổng công việc mỗi phím p50 / p95 (96 ký tự) | 2,4 / 4,8–8,1 ms | 2,2 / 2,7 ms |
+
+Bản đối chiếu không đo được độ trễ phím bằng thông điệp gửi (không có nhật ký thời gian); cuộn ảnh thu nhỏ trang chưa đo.
+
+Còn lại: hộp Properties của trường biểu mẫu (General / Appearance / Options / Actions / Format / Validate / Calculate) —
+công cụ trường và Select Annotation của bản đối chiếu không nhận cú bấm gửi bằng thông điệp nên chưa chụp được để đo, ta vẫn
+dùng hộp đơn giản; Tab order; Add Shapes dạng lưới (Add Path / Add Shading) và các hình mới (đa giác, mũi tên); khung mỏng
+quanh các khối chữ khác khi bật Edit Text (bản đối chiếu vẽ); JBIG2 có mất dữ liệu (mã hoá ký hiệu), JPEG2000; Optimize
+Scanned PDF mở hộp Advanced; Multiple Files; Certificate Protect / Security Policies / chứng nhận chữ ký; nút Edit… của
+Converting To PDF; khung xem trước của Crop.

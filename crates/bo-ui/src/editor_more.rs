@@ -386,7 +386,7 @@ impl EditorWindow {
             .iter()
             .enumerate()
             .filter_map(|(i, png)| {
-                let img = bo_raster::codecs::decode(png)?;
+                let img = crate::editor_opt10::png_rgba(png)?;
                 let jpg = bo_raster::jpeg::encode(&img, 90)?;
                 Some((format!("{stem}-{}.jpg", i + 1), jpg))
             })

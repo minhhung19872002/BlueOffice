@@ -298,7 +298,11 @@ pub fn encode_jpeg(rgba: &[u8], width: u32, height: u32, quality: u8) -> Option<
                     let (r, g, b) = (over(p[0]), over(p[1]), over(p[2]));
                     // JFIF colour conversion (BT.601, full range), level-shifted by 128.
                     let i = yy * 8 + xx;
-                    blocks[0][i] = 0.299 * r + 0.587 * g + 0.114 * b - 128.0;
+                    // The weights add up to 1 in f32 only approximately: white came out as
+                    // 254.99997, which quantized one step low (a light grey box behind
+                    // scanned pages, BlueEditor round 10). Snap to the nearest 1/1024.
+                    let luma = 0.299 * r + 0.587 * g + 0.114 * b;
+                    blocks[0][i] = (luma * 1024.0).round() / 1024.0 - 128.0;
                     blocks[1][i] = -0.168_736 * r - 0.331_264 * g + 0.5 * b;
                     blocks[2][i] = 0.5 * r - 0.418_688 * g - 0.081_312 * b;
                 }
@@ -308,7 +312,10 @@ pub fn encode_jpeg(rgba: &[u8], width: u32, height: u32, quality: u8) -> Option<
                 let d = fdct(block, &cos);
                 let mut coefs = [0i32; 64];
                 for k in 0..64 {
-                    coefs[k] = (d[k] / f32::from(q[k])).round() as i32;
+                    // Snapped to 1/1024 first: a flat white block's DC is exactly half a
+                    // step at quality 50 and float error rounded it down (254 instead of 255).
+                    let v = d[k] / f32::from(q[k]);
+                    coefs[k] = ((v * 1024.0).round() / 1024.0).round() as i32;
                 }
                 let (dc, ac) = if c == 0 {
                     (&dc_l, &ac_l)
@@ -412,6 +419,17 @@ mod tests {
                     );
                 }
             }
+        }
+    }
+
+    #[test]
+    fn white_stays_white_at_every_quality() {
+        // A page of a scan is mostly white: it must not come back as 254 (a grey box).
+        let px = vec![255u8; 16 * 16 * 4];
+        for q in [10, 25, 50, 75, 90] {
+            let jpg = encode_jpeg(&px, 16, 16, q).unwrap();
+            let (rgb, _, _) = decode(&jpg);
+            assert!(rgb.iter().all(|&v| v == 255), "q {q}: {:?}", &rgb[..6]);
         }
     }
 

@@ -55,6 +55,7 @@ mod editor_dlg8_tests;
 mod editor_dlg8b;
 mod editor_edit;
 mod editor_edit10;
+mod editor_fields11;
 mod editor_file7;
 mod editor_five;
 #[cfg(test)]
@@ -63,6 +64,7 @@ mod editor_form8;
 mod editor_format;
 #[cfg(test)]
 mod editor_format_tests;
+mod editor_frames11;
 mod editor_icons;
 mod editor_join8;
 mod editor_more;
@@ -90,6 +92,8 @@ mod editor_round7_tests;
 #[cfg(test)]
 mod editor_round9_tests;
 mod editor_selhi9;
+mod editor_shapes11;
+mod editor_share11;
 mod editor_sign;
 #[cfg(test)]
 mod editor_tests;

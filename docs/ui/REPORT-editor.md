@@ -590,3 +590,88 @@ dùng hộp đơn giản; Tab order; Add Shapes dạng lưới (Add Path / Add S
 quanh các khối chữ khác khi bật Edit Text (bản đối chiếu vẽ); JBIG2 có mất dữ liệu (mã hoá ký hiệu), JPEG2000; Optimize
 Scanned PDF mở hộp Advanced; Multiple Files; Certificate Protect / Security Policies / chứng nhận chữ ký; nút Edit… của
 Converting To PDF; khung xem trước của Crop.
+
+## Vòng 11 (2026-11-17)
+
+Ảnh so sánh (bản đối chiếu trái / trên, BlueEditor phải / dưới): `scratchpad/show/editor-97…*.png`.
+
+**Hộp Properties của trường biểu mẫu** (`editor_fields11.rs`, `bo-pdfread::field_props`). Lần này tới được hộp của
+bản đối chiếu: bấm một công cụ trường (gửi thông điệp) đưa trang vào chế độ trường, nhấp đúp gửi bằng thông điệp chọn
+trường, nhấp phải mở hộp “Text Field Properties”; các tab bấm được bằng thông điệp, danh sách thả đọc bằng
+`CB_GETLBTEXT`, loại Format đổi bằng phím ↓ gửi tới hộp thả. Hộp đổi cỡ theo tab, đo ở 125 % (cả viền): General
+660 × 452, Appearance 678 × 615, Position 834 × 495, Options 628 × 667, Format 625 × 755, Validate 675 × 540, Calculate
+660 × 752, Actions 678 × 690; khung trang 1 px `#E0E0E0` từ (16, 72) tới (W − 31, H − 71), tab chọn là hộp `#E0E0E0` từ
+y 45 tới khung, nhãn giữa y 58, ô Locked ở y H − 44, Close 91 × 27 ở (W − 110, H − 58) là nút mặc định viền `#0078D4`;
+hộp thả trong hộp này mặt `#FDFDFD` viền `#D2D2D2`, danh sách hành động viền `#828790`. Hộp của BlueEditor ra đúng các
+cỡ ấy (kiểm bằng ảnh chụp: 660 × 452 … 678 × 690) với đủ tab và điều khiển:
+- General: tên, chú thích, Form Field (Visible / Hidden / Visible but doesn't print / Hidden but printable → cờ
+  `/F`), hướng xoay (`/MK /R`), Read Only, Required (`/Ff`).
+- Appearance: kiểu viền Solid / Dashed / Beveled / Inset / Underline (`/BS /S`), độ dày (`/BS /W`), màu viền / nền
+  (`/MK /BC /BG`, ô “không màu” là hình của ta: bàn cờ xám có dấu “?”), cỡ chữ Auto…36, màu chữ, phông (14 phông
+  chuẩn, `/DA`), hướng chữ.
+- Position: đơn vị Points / Inches / Centimeters / Picas / Millimeters, Left / Bottom / Right / Top / Width / Height
+  (đo từ gốc trang như bản đối chiếu: 1 in / 9.72 in…), giữ rộng cao khi dời.
+- Options (trường chữ): canh lề `/Q`, giá trị mặc định `/DV`, Scroll long text, Rich Text, giới hạn ký tự `/MaxLen`,
+  Password, File select, Check spelling, Comb of N, Multi-line; hộp thả / danh sách: mục, giá trị xuất, Up / Down /
+  Delete, sắp xếp, cho nhập tự do, chọn nhiều, ghi ngay; ô đánh dấu / nút chọn: giá trị xuất, chọn sẵn; nút bấm: nhãn.
+- Format: None / Number (số lẻ, kiểu phân cách, tiền tệ, ngoặc, chữ đỏ, ví dụ “4,123.03”) / Percentage
+  (“412,303.45%”) / Date (18 mẫu) / Time (4 mẫu) / Special (mã bưu chính, điện thoại, an sinh, mặt nạ tự đặt) /
+  Custom (script) — ghi `AFNumber_Format`, `AFPercent_Format`, `AFDate_FormatEx`, `AFTime_Format`,
+  `AFSpecial_Format` vào `/AA /F /K` như các trình đọc khác hiểu; mô tả dưới khung là lời của ta.
+- Validate: không / trong khoảng (chỉ dùng được khi Format là số, như bản đối chiếu) / script (`AFRange_Validate`).
+- Calculate: không / tổng, tích, trung bình, nhỏ nhất, lớn nhất của các trường (Pick… mở hộp chọn trường) / ký hiệu
+  rút gọn / script (`AFSimple_Calculate` đọc lại được bằng phép tính tự động có từ trước).
+- Actions: Select Trigger (Mouse Up / Down / Enter / Exit, On Receiving / Losing Focus), Select Action (thực hiện mục
+  menu, đi tới trang, nhập dữ liệu, mở liên kết web, mở tệp, đặt lại biểu mẫu, JavaScript, hiện / ẩn trường, gửi
+  biểu mẫu), Add… mở hộp nhỏ theo loại, danh sách Up / Down / Edit / Delete.
+Bản đối chiếu áp từng thay đổi ngay; ta áp khi Close (một bước hoàn tác), không đổi gì thì tài liệu giữ nguyên.
+
+**Chế độ trường** (cùng module): khi một công cụ trường bật, mọi trường hiện khung và tên; nhấp chọn (Shift thêm),
+kéo để dời, Delete xoá, nhấp đúp mở Properties; trường được chọn có khung đen, tám ô vuông đỏ 6 px và nhãn tên đỏ chữ
+trắng như bản đối chiếu. Menu chuột phải: Properties…, Delete, Align ▸ (trái, phải, trên, dưới, tâm dọc, giữa
+ngang), Center ▸ (ngang, dọc, cả hai — giữa trang), Distribute ▸ (dọc, ngang), Size ▸ (cao, rộng, cả hai theo trường
+đầu), Set Tab Order ▸ (theo hàng / cột / cấu trúc → `/Tabs R C S`; tự đặt: bấm lần lượt các trường, số thứ tự hiện
+trên trường, Enter lưu thứ tự `/Annots`), Highlight Fields. Tool Settings ▾ như bản đối chiếu: Highlight Fields (có
+dấu khi bật) và Keep Tool Selected (xám). Bản đối chiếu có thêm ngăn Format (Arrange) khi chọn trường — ta dùng menu.
+
+**Protect** (theo góp ý `editor-94`): Restrict Access ▾ (Unrestricted Access có dấu, xám; kết nối máy chủ quản lý
+quyền, xám), Settings ▾ (Custom Templates xám, Security Watermark → hộp Add Watermark), Sensitivity ▾ (một dòng kết
+nối dịch vụ bảo vệ thông tin, xám; tên dịch vụ của hãng khác không dùng), biểu tượng của ta. Nhãn hai dòng của nút
+lớn cách nhau 23 px như bản đối chiếu (trước 18 px; đo: dòng 1 từ y 133, dòng 2 kết thúc y 167).
+
+**Edit Text** (`editor_frames11.rs`): khi bật Edit Text, mọi khối chữ trên các trang đang hiện có khung 1 px `#C0C0C0`
+cách chữ 2 px hai bên, 1 px trên dưới; khối gồm các đoạn cùng cột cách nhau không quá hai dòng (cùng quy tắc với
+khung khi gõ) — ảnh `editor-101` khớp từng khung với bản đối chiếu. Khối đang gõ giữ khung xanh `#99C1DA` có ô vuông.
+Bản đối chiếu không đổi khung khi rê chuột gửi bằng thông điệp nên chưa đo được màu khi rê.
+
+**Add Shapes** (`editor_shapes11.rs`, `bo-pdfread::shapes11`): lưới như bản đối chiếu (326 × 129 px: “Add Path” với
+chín hình 30 px bước 36 px — đường thẳng, chữ nhật, chữ nhật bo góc, elip, đường gấp khúc, đa giác, đường cong, mũi
+tên, góc chữ L — rồi “Add Shading” với tám hình kín tô chuyển), hình vẽ là của ta. Khi công cụ hình bật, ngăn Format có
+mục Shape: màu đường, màu tô (cả “không”), độ dày 0,5–6 pt, độ mờ 25–100 %, nét liền / đứt / chấm; hình ghi vào nội
+dung trang với `/CA /ca`, mẫu nét `d`, tô chuyển là shading trục (`sh` trong vùng cắt). Ngăn Format của bản đối chiếu
+chỉ hiện khi đã vẽ hình, mà kéo gửi bằng thông điệp không vẽ được — bố cục ngăn là của ta.
+
+**Comment / View / Share** (`editor-103`): thêm tab Share như bản đối chiếu (Email ▾, Send for Shared Review ▾,
+Manage Shared Review ▾, Send for Email Review — gửi tài liệu qua email —, Manage Email Review ▾, Tracker; các dịch vụ
+duyệt trực tuyến xám; nút của dịch vụ ghi chú / quản lý tài liệu hãng khác không đưa vào vì là tên thương hiệu).
+View: Rotate View và Toggle Ruler tách nhóm; Comment: nhãn Textbox một dòng.
+
+**Tốc độ** (bản release, máy vẫn đang build song song): trang đầu ở lưới Organize của sổ 300 trang hiện sau 104–281 ms
+tính từ cú bấm tab (bản đối chiếu không có lưới ở Organize — ảnh thu nhỏ ở ngăn Pages: 170–198 ms; cùng cách đo:
+chụp PrintWindow lặp tới khi ô đầu có chữ, sai số một lần chụp ~100 ms). Lăn / Page Down trong lưới: xử lý mỗi bước
+p50 1,4–1,6 ms, p95 2,0–2,2 ms (Page Down tới vòng này đi xuống trang ẩn sau lưới — nay cuộn lưới; lưới cũng nhận
+lăn khi chuột chưa di chuyển). Bản đối chiếu không cho đo thời gian từng bước. Gõ trong Edit Text với khung các khối:
+tổng mỗi phím p50 1,9 / p95 2,9 ms (vòng 10: 2,2 / 2,7).
+
+| Đo | Vòng 10 | Vòng 11 |
+| --- | --- | --- |
+| Gõ trong Edit Text, tổng mỗi phím p50 / p95 | 2,2 / 2,7 ms | 1,9 / 2,9 ms |
+| Lăn lưới Organize 300 trang, mỗi bước p50 / p95 | — | 1,4–1,6 / 2,0–2,2 ms |
+| Ô đầu của lưới Organize sau khi bấm tab | — | 104–281 ms (bản đối chiếu, ngăn Pages: 170–198 ms) |
+
+Còn lại: ngăn Format (Arrange) khi chọn trường như bản đối chiếu (ta dùng menu chuột phải), Create Multiple Copies /
+Duplicate / dán trường; hộp Options riêng của hộp thả / ô đánh dấu / nút bấm chưa đo được trên bản đối chiếu (theo bố
+cục của ta); ô số của Position chưa kèm đơn vị (“1 in”); màu khung khối chữ khi rê chuột (bản đối chiếu không đổi với
+thông điệp gửi); ngăn Format cho hình đã vẽ (Edit Object) chưa có mục Shape; Assistant ▾ của tab View (trợ lý AI của
+bản đối chiếu) không làm; các mục còn lại của vòng 10 (JBIG2 có mất dữ liệu, JPEG2000, Optimize Scanned PDF, Multiple
+Files, Certificate Protect / Security Policies).

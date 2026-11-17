@@ -157,6 +157,10 @@ impl ReaderWindow {
 
     /// Distance between the two lines of a large button's label (19 px at 125 % in BlueReader).
     pub(crate) fn label_pitch12(&self, size: f32) -> f32 {
+        // BlueEditor round 11 (measured on the reference editor at 125 %): 23 px.
+        if self.profile.as_ref().is_some_and(|p| p.app == "BlueEditor") {
+            return self.px(18.4);
+        }
         if self.profile.is_none() {
             self.px(15.2)
         } else {

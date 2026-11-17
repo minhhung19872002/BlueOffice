@@ -70,7 +70,7 @@ pub(crate) fn edit_tab_items() -> Vec<(&'static str, crate::reader_window::Kind)
             Big("edEditText", "pdfEditor.editText", false),
         ),
         (
-            "ed.editObject",
+            "ed.editObjectMenu",
             Big("editObject", "pdfEditor.editObject", true),
         ),
         ("ed.linkJoin", Big("linkJoin", "pdfEditor.linkJoin", false)),
@@ -81,7 +81,10 @@ pub(crate) fn edit_tab_items() -> Vec<(&'static str, crate::reader_window::Kind)
         ),
         ("sep2", Sep),
         ("ed.addText", Big("addText", "pdfEditor.addText", false)),
-        ("ed.addImage", Big("addImage", "pdfEditor.addImages", true)),
+        (
+            "ed.addImageMenu",
+            Big("addImage", "pdfEditor.addImages", true),
+        ),
         (
             "ed.addShapes",
             Big("addShapes", "pdfEditor.addShapes", true),

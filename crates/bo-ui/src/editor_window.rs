@@ -1075,6 +1075,7 @@ impl EditorWindow {
             return;
         }
         if self.prot10_command(cmd)
+            || self.edit10_command(cmd)
             || self.org9_command(cmd)
             || self.combine9_command(cmd)
             || self.conv9_command(cmd)
@@ -1271,7 +1272,7 @@ impl EditorWindow {
         }
     }
 
-    fn toggle_tool(&mut self, t: EditTool) {
+    pub(crate) fn toggle_tool(&mut self, t: EditTool) {
         self.edit.reset(self.r.view_mut());
         self.comment.tool = None;
         self.design.tool = None;
@@ -1718,7 +1719,7 @@ impl EditorWindow {
         if let Some(t) = self.tool {
             self.r.on.insert(match t {
                 EditTool::Text => "ed.editText",
-                EditTool::Object => "ed.editObject",
+                EditTool::Object => "ed.editObjectMenu",
                 EditTool::AddText => "ed.addText",
                 EditTool::Redact => "prot.redact",
             });

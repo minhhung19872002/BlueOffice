@@ -50,6 +50,7 @@ mod editor_dlg8;
 mod editor_dlg8_tests;
 mod editor_dlg8b;
 mod editor_edit;
+mod editor_edit10;
 mod editor_file7;
 mod editor_five;
 #[cfg(test)]

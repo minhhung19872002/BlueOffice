@@ -288,10 +288,10 @@ impl EditorWindow {
             ),
             label(247.0, 97.0, t("pdfEditor9.compatible")),
             combo("compat", [408.0, 83.0, 181.0, 27.0], compat, On::Always),
-            Ctl::Frame {
+            Ctl::Box {
                 r: [16.0, 130.0, 226.0, 612.0],
             },
-            Ctl::Frame {
+            Ctl::Box {
                 r: [248.0, 130.0, 894.0, 612.0],
             },
         ];
@@ -369,10 +369,10 @@ impl EditorWindow {
                 let yes = |b: bool| if b { "True" } else { "False" };
                 c.extend([
                     label_on(259.0, 159.0, t("pdfEditor10.presetSettings"), on),
-                    Ctl::Frame {
+                    Ctl::Box {
                         r: [259.0, 185.0, 225.0, 546.0],
                     },
-                    Ctl::Frame {
+                    Ctl::Box {
                         r: [491.0, 185.0, 640.0, 546.0],
                     },
                 ]);

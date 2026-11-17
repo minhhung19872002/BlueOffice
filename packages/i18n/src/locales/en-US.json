@@ -12972,6 +12972,19 @@
     "commenting": "Commenting:",
     "fillingFields": "Filling of form fields:",
     "assembly": "Document Assembly:",
-    "securitySummary": "Document Restrictions Summary"
+    "securitySummary": "Document Restrictions Summary",
+    "objAll": "All",
+    "objText": "Text",
+    "objImage": "Image",
+    "objShape": "Shape",
+    "objShading": "Shading",
+    "imageFromFile": "Image From File",
+    "drawNewImage": "Draw New Image",
+    "linksCreate": "Create links from URLs",
+    "linksRemove": "Remove all links",
+    "linksAppend": "Append All Web Links on Current Page",
+    "linksView": "View Web Links",
+    "page": "Page",
+    "address": "Address"
   }
 }

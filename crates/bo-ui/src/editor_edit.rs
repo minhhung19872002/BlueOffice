@@ -194,6 +194,8 @@ pub(crate) struct Editing {
     /// Reflow Editing is on: everything below a paragraph moves with it while typing
     /// (otherwise only the paragraphs after it in its box, like the reference editor).
     pub reflow: bool,
+    /// Round 10: Edit Object ▾ picks only this kind (All: `None`).
+    pub filter10: Option<ObjectKind>,
 }
 
 fn inside(r: [f32; 4], x: f32, y: f32) -> bool {
@@ -288,11 +290,15 @@ impl Editing {
         y: f32,
         tool: EditTool,
     ) -> Option<usize> {
+        let filter = self.filter10;
         let list = self.items(v, page);
         // Text first for the text tool; the smallest box under the point otherwise.
         let mut best: Option<(usize, f32)> = None;
         for (k, it) in list.iter().enumerate() {
             if tool == EditTool::Text && it.kind != ObjectKind::Text {
+                continue;
+            }
+            if tool == EditTool::Object && filter.is_some_and(|k| it.kind != k) {
                 continue;
             }
             let pad = if it.kind == ObjectKind::Text {

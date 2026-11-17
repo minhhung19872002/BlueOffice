@@ -302,6 +302,23 @@ fn rendered_pages_become_jpeg_tiff_and_bmp_files() {
 }
 
 #[test]
+fn edit_object_menu_picks_one_kind_and_web_links_are_listed() {
+    let mut w = window();
+    w.run("ed.obj.image", &Fixed);
+    assert_eq!(w.edit_tool(), Some(crate::EditTool::Object));
+    assert_eq!(w.edit.filter10, Some(bo_pdfread::ObjectKind::Image));
+    w.run("ed.obj.all", &Fixed);
+    assert_eq!(w.edit.filter10, None);
+    w.run("ed.webLinks.view", &Fixed);
+    let p = paint(&mut w);
+    assert!(
+        p.texts.iter().any(|x| x == "View Web Links"),
+        "{:?}",
+        p.texts
+    );
+}
+
+#[test]
 fn protect_tab_marks_by_search_and_pages_and_shows_security() {
     let mut w = window();
     // Search & Redact marks "Hi", Apply removes the text.

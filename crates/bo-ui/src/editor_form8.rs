@@ -128,6 +128,8 @@ pub(crate) enum Ctl {
     },
     /// Round 10: a warning mark (our own drawing: amber triangle with "!").
     Warn { x: f32, y: f32 },
+    /// Round 10: a panel frame, 1 px #DCDCDC on white (the reference's PDF Optimizer).
+    Box { r: [f32; 4] },
 }
 
 /// Icons of the classic dialogs' small buttons (our own drawings).
@@ -985,14 +987,19 @@ impl Form {
                         );
                         p.path(&circle(rx, ry, rr * 0.45), Some(WHITE), None);
                     } else {
+                        // Round 10 (measured): unusable, a #C3C3C3 ring on #F9F9F9.
                         p.path(
                             &circle(rx, ry, rr - 0.5),
-                            Some(WHITE),
+                            Some(if on {
+                                WHITE
+                            } else {
+                                Rgba(0xF9, 0xF9, 0xF9, 255)
+                            }),
                             Some((
                                 if on {
                                     Rgba(0x85, 0x85, 0x85, 255)
                                 } else {
-                                    Rgba(0xC6, 0xC6, 0xC6, 255)
+                                    Rgba(0xC3, 0xC3, 0xC3, 255)
                                 },
                                 1.0,
                             )),
@@ -1067,8 +1074,10 @@ impl Form {
                 Ctl::Button { r, label, id, .. } => {
                     let b = at(*r);
                     let default = *id == "ok";
+                    // Round 10 (measured): a button that cannot be used is framed #E9E9E9
+                    // on a #F9F9F9 face.
                     let edge = if !on {
-                        Rgba(0xE5, 0xE5, 0xE5, 255)
+                        Rgba(0xE9, 0xE9, 0xE9, 255)
                     } else if default {
                         FOCUS
                     } else {
@@ -1084,7 +1093,9 @@ impl Form {
                             b[3] - 2.0 * inset,
                             q(3.0),
                         ),
-                        Some(if !on || hot {
+                        Some(if !on {
+                            Rgba(0xF9, 0xF9, 0xF9, 255)
+                        } else if hot {
                             Rgba(0xF5, 0xF5, 0xF5, 255)
                         } else {
                             Rgba(0xFD, 0xFD, 0xFD, 255)
@@ -1222,12 +1233,8 @@ impl Form {
                 }
                 Ctl::ListBox { id, r, items, .. } => {
                     let b = at(*r);
-                    let edge = if on {
-                        Rgba(0xD9, 0xD9, 0xD9, 255)
-                    } else {
-                        Rgba(0xE3, 0xE3, 0xE3, 255)
-                    };
-                    p.fill_rect(b[0], b[1], b[2], b[3], edge);
+                    // The reference's list boxes: #DCDCDC whether usable or not.
+                    p.fill_rect(b[0], b[1], b[2], b[3], GROUP_EDGE);
                     p.fill_rect(b[0] + 1.0, b[1] + 1.0, b[2] - 2.0, b[3] - 2.0, WHITE);
                     let rh = q(20.0);
                     let sel = self.pick(id);
@@ -1259,6 +1266,11 @@ impl Form {
                         }
                     }
                     p.pop_clip();
+                }
+                Ctl::Box { r } => {
+                    let b = at(*r);
+                    p.fill_rect(b[0], b[1], b[2], b[3], GROUP_EDGE);
+                    p.fill_rect(b[0] + 1.0, b[1] + 1.0, b[2] - 2.0, b[3] - 2.0, WHITE);
                 }
                 Ctl::Warn { x, y } => {
                     // A rounded amber triangle with a dark "!" (our own mark).

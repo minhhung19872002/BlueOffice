@@ -12972,6 +12972,19 @@
     "commenting": "Ghi chú:",
     "fillingFields": "Điền trường biểu mẫu:",
     "assembly": "Sắp xếp tài liệu:",
-    "securitySummary": "Tóm tắt giới hạn của tài liệu"
+    "securitySummary": "Tóm tắt giới hạn của tài liệu",
+    "objAll": "Tất cả",
+    "objText": "Chữ",
+    "objImage": "Ảnh",
+    "objShape": "Hình",
+    "objShading": "Tô chuyển màu",
+    "imageFromFile": "Ảnh từ tệp",
+    "drawNewImage": "Vẽ ảnh mới",
+    "linksCreate": "Tạo liên kết từ địa chỉ web",
+    "linksRemove": "Xoá mọi liên kết",
+    "linksAppend": "Thêm mọi liên kết web của trang hiện tại",
+    "linksView": "Xem các liên kết web",
+    "page": "Trang",
+    "address": "Địa chỉ"
   }
 }

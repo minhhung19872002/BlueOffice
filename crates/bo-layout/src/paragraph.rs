@@ -1316,7 +1316,8 @@ fn layout_uncached(
             trial.extend(word.pieces.iter().cloned());
             let (_, ink) = position(&trial, start_x, &tab_ctx);
             let room = if align == Alignment::Justify && doc.modern_layout() {
-                max + squeeze_room(&trial, max)
+                let (_, before) = position(&cur[seg_start..], start_x, &tab_ctx);
+                max + squeeze_room(&trial, ink - before)
             } else {
                 max
             };
@@ -1420,12 +1421,16 @@ fn layout_uncached(
         let base = cur.len();
         cur.append(&mut word.pieces);
         let (_, ink) = position(&cur, start_x, &tab_ctx);
-        let room = if align == Alignment::Justify && doc.modern_layout() {
-            max + squeeze_room(&cur, max)
+        word.pieces = cur.split_off(base);
+        let room = if align == Alignment::Justify && doc.modern_layout() && !cur.is_empty() {
+            let (_, before) = position(&cur, start_x, &tab_ctx);
+            cur.append(&mut word.pieces);
+            let r = squeeze_room(&cur, ink - before);
+            word.pieces = cur.split_off(base);
+            max + r
         } else {
             max
         };
-        word.pieces = cur.split_off(base);
         // A chunk of an over-long run continues the line and is cut where it ends.
         if ink > max + 0.01
             && (word.chunk == Chunk::Next || (word.chunk == Chunk::First && cur.is_empty()))
@@ -1539,7 +1544,7 @@ fn layout_uncached(
             let squeezed = align == Alignment::Justify
                 && doc.modern_layout()
                 && ink_end > max + 0.01
-                && ink_end <= max + squeeze_room(pieces, max) + 0.01;
+                && ink_end <= max + squeeze_room(pieces, f32::INFINITY) + 0.01;
             let slack = if squeezed {
                 max - ink_end
             } else {
@@ -2331,15 +2336,17 @@ fn is_inner_space(pieces: &[Piece], i: usize) -> bool {
 }
 
 /// Width a justified line (§17.18.44 `ST_Jc` `both`) may exceed its room by, narrowing its
-/// inter-word spaces: the reference word processor keeps a word on the line when the
-/// spaces can give up to a quarter of their width, but no more than 1.75 % of the line
-/// (measured black-box over 10–20 words at 8–24 pt, docs/ui/REPORT.md Fidelity round 1).
-fn squeeze_room(pieces: &[Piece], max: f32) -> f32 {
+/// inter-word spaces to keep its last word (`last`: that word's width with the space
+/// before it). Measured black-box in the reference word processor (docs/ui/REPORT.md,
+/// Fidelity round 1, words of 1–8 letters at 8–24 pt): the spaces give up at most a
+/// quarter of their width, and the narrowing stays below about a third of what moving
+/// the word down would leave to stretch (`last` − overflow ≥ 1.85 × overflow).
+fn squeeze_room(pieces: &[Piece], last: f32) -> f32 {
     let spaces: f32 = (0..pieces.len())
         .filter(|&i| is_inner_space(pieces, i))
         .map(|i| pieces[i].width)
         .sum();
-    (spaces * 0.25).min(max * 0.0175)
+    (spaces * 0.25).min(last / 2.85)
 }
 
 fn special_piece(kind: Kind, style: usize, styles: &[RunStyle], at: u32, virtual_: bool) -> Piece {

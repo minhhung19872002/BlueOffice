@@ -12,8 +12,8 @@ use crate::style::{para_props, ListCounters};
 use crate::types::{Layer, Line, LineRotation, LineSource, NoteKey, PageItem};
 use crate::{LayoutError, RevisionView};
 use bo_model::{
-    Block, Border, Borders, CellPlace, CellVAlign, Color, Document, HeightRule, Image, Paragraph,
-    RunContent, Table, TableGeometry, TableView, TableWidth, Twips, VMerge,
+    Block, Border, Borders, CellPlace, CellVAlign, Color, Document, HeightRule, Image, ParaProps,
+    Paragraph, RunContent, Table, TableGeometry, TableView, TableWidth, Twips, VMerge,
 };
 use bo_text::FontManager;
 use std::collections::HashMap;
@@ -652,6 +652,48 @@ pub(crate) struct TableBox {
     pub float: Option<bo_model::TableFloat>,
 }
 
+/// Paragraph properties of the table's style chain (ECMA-376 Part 1, §17.7.6 table
+/// styles: a table style's `w:pPr` applies to the paragraphs of its cells), `None` when
+/// it sets none.
+fn table_style_ppr(doc: &Document, t: &Table) -> Option<ParaProps> {
+    let id = t.props.style.as_ref()?;
+    let mut p = ParaProps::default();
+    for s in doc.styles.chain(id) {
+        p = s.ppr.inherit(&p);
+    }
+    (p != ParaProps::default()).then_some(p)
+}
+
+/// The paragraphs of a cell with the table style's paragraph properties `tp` under
+/// their own (§17.7.2 style hierarchy: document defaults, then table style, then
+/// paragraph style, then direct formatting). Values the paragraph style sets win over
+/// the table style; nested tables apply their own style.
+fn with_table_ppr(doc: &Document, blocks: &[Block], tp: &ParaProps) -> Vec<Block> {
+    blocks
+        .iter()
+        .map(|b| match b {
+            Block::Paragraph(p) => {
+                let style_id = p.props.style.clone().or_else(|| {
+                    doc.styles
+                        .default_of(bo_model::StyleKind::Paragraph)
+                        .map(|s| s.id.clone())
+                });
+                let style = style_id
+                    .as_deref()
+                    .map(|id| doc.styles.resolve_paragraph(id).0)
+                    .unwrap_or_default();
+                let mut props = p.props.inherit(&style.inherit(tp));
+                props.style.clone_from(&p.props.style);
+                props.num = p.props.num;
+                let mut q = p.clone();
+                q.props = props;
+                Block::Paragraph(q)
+            }
+            other => other.clone(),
+        })
+        .collect()
+}
+
 fn table_borders(doc: &Document, t: &Table) -> Borders {
     if let Some(b) = &t.props.borders {
         return b.clone();
@@ -930,6 +972,7 @@ pub(crate) fn layout_table(
         _ => indent,
     };
     let tb = table_borders(ctx.doc, t);
+    let table_ppr = table_style_ppr(ctx.doc, t);
     let (ml, mr) = t
         .props
         .cell_margin
@@ -983,14 +1026,22 @@ pub(crate) fn layout_table(
                 _ => 0,
             };
             let mut vlen = 0.0f32;
+            let styled;
+            let cell_blocks: &[Block] = match &table_ppr {
+                Some(tp) => {
+                    styled = with_table_ppr(ctx.doc, &cell.blocks, tp);
+                    &styled
+                }
+                None => &cell.blocks,
+            };
             let mut stack = if continued {
                 Stack::default()
             } else if rot != 0 {
                 vlen = match row.props.height {
                     Some((v, _)) if v.to_pt() > 1.0 => v.to_pt(),
-                    _ => natural_length(ctx, &cell.blocks, body)?,
+                    _ => natural_length(ctx, cell_blocks, body)?,
                 };
-                stack_blocks(ctx, &cell.blocks, vlen.max(1.0), body, None)?
+                stack_blocks(ctx, cell_blocks, vlen.max(1.0), body, None)?
             } else {
                 // Hidden cells are laid out too (at an ordinary width): their
                 // paragraphs keep their ids.
@@ -999,7 +1050,7 @@ pub(crate) fn layout_table(
                 } else {
                     w
                 };
-                stack_blocks(ctx, &cell.blocks, (lw - ml - mr).max(1.0), body, None)?
+                stack_blocks(ctx, cell_blocks, (lw - ml - mr).max(1.0), body, None)?
             };
             if pl.hidden {
                 stack = Stack::default();

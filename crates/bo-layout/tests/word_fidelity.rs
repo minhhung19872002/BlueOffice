@@ -7,8 +7,8 @@
 
 use bo_layout::{layout_document, LayoutCache, LayoutDocument, Line, LineSource};
 use bo_model::{
-    Alignment, Block, Document, HalfPoints, LineSpacing, PageSetup, ParaProps, Paragraph, Run,
-    RunProps, Section, Twips,
+    Alignment, Block, Cell, CellProps, Document, HalfPoints, LineSpacing, PageSetup, ParaProps,
+    Paragraph, Run, RunProps, Section, Style, StyleKind, Table, Twips,
 };
 use bo_text::FontManager;
 
@@ -131,10 +131,11 @@ fn line_boxes_place_the_baseline_like_the_reference() {
     assert!(near(least.baseline - least.top, 20.0 - 443.0 * em));
 }
 
-/// Ten words "mmmm" in a line `overflow` points narrower than their natural width.
-fn justified(overflow: f32, compat: Option<u16>) -> usize {
+/// Number of words of `word` (repeated) on the first line of a justified paragraph whose
+/// room is `overflow` points narrower than `n` of them.
+fn justified_n(word: &str, n: usize, overflow: f32, compat: Option<u16>) -> usize {
     let m: f32 = 1593.0 / 2048.0 * 12.0;
-    let natural = 40.0 * m + 9.0 * 3.0;
+    let natural = (n * word.len()) as f32 * m + (n - 1) as f32 * 3.0;
     let right = (451.28 - (natural - overflow)) * 20.0;
     let mut d = doc(vec![Block::Paragraph(Paragraph::new(
         ParaProps {
@@ -145,16 +146,29 @@ fn justified(overflow: f32, compat: Option<u16>) -> usize {
             indent_right: Some(Twips(right.round() as i32)),
             ..ParaProps::default()
         },
-        vec![Run::text(["mmmm"; 22].join(" "), RunProps::default())],
+        vec![Run::text(
+            vec![word; 2 * n + 2].join(" "),
+            RunProps::default(),
+        )],
     ))]);
     d.compat_mode = compat;
     let l = run(&d);
     let first = lines(&l, 0)[0];
-    first
-        .fragments
-        .iter()
-        .map(|f| f.text.matches("mmmm").count())
-        .sum()
+    let text: String = first.fragments.iter().map(|f| f.text.as_str()).collect();
+    text.split_whitespace().count()
+}
+
+/// Ten words "mmmm" in a line `overflow` points narrower than their natural width.
+fn justified(overflow: f32, compat: Option<u16>) -> usize {
+    justified_n("mmmm", 10, overflow, compat)
+}
+
+#[test]
+fn short_last_words_are_squeezed_less() {
+    // Sixteen one-letter words: the spaces could give 11 pt, but the last word with its
+    // space is only 12.3 pt wide — narrowing stops near a third of it.
+    assert_eq!(justified_n("m", 16, 4.0, Some(15)), 16);
+    assert_eq!(justified_n("m", 16, 4.6, Some(15)), 15);
 }
 
 #[test]
@@ -195,4 +209,38 @@ fn a_squeezed_line_fits_its_room() {
     let end = f.x + f.width - 3.0;
     let room_end = 72.0 + natural - 5.0;
     assert!((end - room_end).abs() < 0.1, "{end} vs {room_end}");
+}
+
+/// §17.7.6: the paragraph properties of a table style apply to the paragraphs of its cells,
+/// under the paragraph style and direct formatting (§17.7.2).
+#[test]
+fn table_style_paragraph_properties_apply_in_cells() {
+    let mut t = Table::simple(1, 1, Twips(4000));
+    t.props.style = Some("TableGrid".into());
+    let plain = |text: &str| {
+        Block::Paragraph(Paragraph::new(
+            ParaProps::default(),
+            vec![Run::text(text, RunProps::default())],
+        ))
+    };
+    t.rows[0].cells[0] = Cell {
+        props: CellProps::default(),
+        blocks: vec![plain("one"), plain("two")],
+    };
+    let mut d = doc(vec![Block::Table(t)]);
+    // Document defaults: 8 pt after, 1.08 lines.
+    d.default_para.space_after = Some(Twips(160));
+    d.default_para.line_spacing = Some(LineSpacing::Auto(259));
+    let mut grid = Style::new("TableGrid", "Table Grid", StyleKind::Table);
+    grid.ppr.space_after = Some(Twips(0));
+    grid.ppr.line_spacing = Some(SINGLE);
+    d.styles.styles.push(grid);
+    let l = run(&d);
+    let (a, b) = (lines(&l, 0)[0], lines(&l, 1)[0]);
+    // Single lines, no space after: the second line follows right below the first.
+    assert!(
+        near(b.top - a.top, 2355.0 * 12.0 / 2048.0),
+        "{}",
+        b.top - a.top
+    );
 }

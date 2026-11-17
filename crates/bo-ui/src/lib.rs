@@ -160,6 +160,7 @@ pub use sheet_view::{CellFormat, GridBand, GridMove, GridRing, GridStore, SheetV
 pub use sheet_window::{PaintHash, SheetWindow};
 pub use shell::{DocWindow, Request};
 pub use slide_view::{Focus, SlideView, ViewMode, SLIDE_CANVAS};
+pub use slide_window::{FileRequest as SlideFileRequest, SlidePrintJob};
 pub use slide_window::{InsertFile, SlideWindow, WindowRequest};
 pub use strings::Strings;
 pub use theme::{parse_color, Theme};

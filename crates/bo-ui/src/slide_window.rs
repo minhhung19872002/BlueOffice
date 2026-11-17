@@ -340,6 +340,8 @@ pub struct SlideWindow {
     spelling: spelling::SpellRun,
     /// Text the host should read aloud.
     speak: Option<String>,
+    /// File screen (round 10 of the slide series).
+    f10: file10_win::F10,
 }
 
 #[path = "slide_controls.rs"]
@@ -423,6 +425,16 @@ mod timing9;
 
 #[path = "slide_thesaurus.rs"]
 mod thesaurus;
+
+#[path = "slide_file10.rs"]
+mod file10;
+
+#[path = "slide_file10_win.rs"]
+mod file10_win;
+
+#[path = "slide_showmenu10.rs"]
+mod showmenu10;
+pub use file10_win::{FileRequest, SlidePrintJob};
 pub use ins::InsertFile;
 pub use views5::WindowRequest;
 
@@ -718,6 +730,7 @@ impl SlideWindow {
             ctx_at: [0.0; 4],
             spelling: spelling::SpellRun::default(),
             speak: None,
+            f10: file10_win::F10::default(),
         }
     }
 
@@ -769,7 +782,8 @@ impl SlideWindow {
     /// Update the images the next frame shows.
     pub fn prepare(&mut self, store: &mut dyn PageStore) -> Result<(), String> {
         self.view.prepare(store)?;
-        self.prepare_picture(store)
+        self.prepare_picture(store)?;
+        self.prepare_file10(store)
     }
 
     /// Draw one image ahead of need; `true` while more remains (call when idle).
@@ -848,6 +862,7 @@ impl SlideWindow {
         if let Some(b) = self.backstage.as_mut() {
             b.layout(self.title.height(), self.size, self.scale);
         }
+        self.file10_relayout(text);
         // Status bar, right to left: fit button, percentage, plus, slider, minus; the notes
         // toggle before them.
         let (w, h) = self.size;
@@ -2196,6 +2211,8 @@ impl SlideWindow {
             "side" => self.choose_format(v),
             "sect" => self.choose_section(v),
             "cshow" | "rec" => return self.choose_show(kind, v),
+            "fbs" => self.choose_file10(v),
+            "shw" => self.view.show_command(v),
             "zoom" | "pm" => return self.choose_view(kind, v),
             _ => return self.choose_insert(kind, v),
         })
@@ -2312,13 +2329,21 @@ impl SlideWindow {
                 }
                 Input::Tick => self.view.show_tick(),
                 Input::Blink => false,
-                other => self.view.handle(other),
+                other => {
+                    if let Some(r) = self.show_menu_input(&other) {
+                        return r;
+                    }
+                    self.view.handle(other)
+                }
             };
         }
         if self.form8.is_some() {
             if let Some(r) = self.form8_input(&input) {
                 return r;
             }
+        }
+        if let Some(r) = self.file10_input(&input) {
+            return r;
         }
         if let Input::Key(k, m) = input {
             if let Some(r) = self.outline_key(k, m) {
@@ -2388,6 +2413,21 @@ impl SlideWindow {
         }
         if let Input::Key(Key::Letter('s'), Mods { ctrl: true, .. }) = input {
             return self.action("file.save");
+        }
+        // Ctrl+P: the File screen's Print page, as on the reference.
+        if let Input::Key(
+            Key::Letter('p'),
+            Mods {
+                ctrl: true,
+                shift: false,
+                alt: false,
+                ..
+            },
+        ) = input
+        {
+            if self.view.text_edit().is_none() {
+                return self.open_file_screen(file10::BsPage::Print);
+            }
         }
         if let Some(r) = self.spelling_key(&input) {
             return r;
@@ -2557,12 +2597,7 @@ impl SlideWindow {
                 }
                 let (fired, changed) = self.ribbon.release(x, y);
                 redraw |= match fired {
-                    Some(RibbonHit::File) => {
-                        let mut b = Backstage::default();
-                        b.layout(self.title.height(), self.size, self.scale);
-                        self.backstage = Some(b);
-                        true
-                    }
+                    Some(RibbonHit::File) => self.open_file_screen(file10::BsPage::Info),
                     Some(RibbonHit::Command(id)) => self.action(id),
                     Some(RibbonHit::FontBox) => {
                         self.open_menu(MenuKind::Font, RibbonHit::FontBox);
@@ -2598,6 +2633,9 @@ impl SlideWindow {
     pub fn paint(&self, p: &mut dyn Painter) {
         if self.view.showing() {
             self.view.paint(p, self.text_size);
+            if let Some(menu) = &self.menu {
+                menu.paint(p, &self.theme, &self.icons);
+            }
             return;
         }
         p.clear(self.theme.bg);
@@ -2668,6 +2706,7 @@ impl SlideWindow {
                 self.view.modified(),
             );
         }
+        self.paint_file10(p);
         if let Some((d, _)) = &self.dialog {
             d.paint(p, &self.theme, self.size, true);
         }
@@ -3180,6 +3219,10 @@ mod round17_tests;
 #[cfg(test)]
 #[path = "slide_round19_tests.rs"]
 mod round19_tests;
+
+#[cfg(test)]
+#[path = "slide_round20_tests.rs"]
+mod round20_tests;
 
 #[cfg(test)]
 #[path = "slide_round7_tests.rs"]

@@ -31,6 +31,8 @@ pub enum Pointer {
     Highlighter,
     /// Laser pointer (Ctrl+L): a red dot follows the pointer.
     Laser,
+    /// Eraser (Ctrl+E): a click removes the drawing under the pointer.
+    Eraser,
 }
 
 /// A drawn stroke, in fractions of the slide.
@@ -57,6 +59,10 @@ pub struct ShowTools {
     pub drawing: Option<ShowStroke>,
     /// Laser position (window pixels).
     pub laser: Option<(f32, f32)>,
+    /// The slide shown before the current one (right-click menu › Last Viewed).
+    pub last_viewed: Option<usize>,
+    /// The slide shown now (for [`ShowTools::last_viewed`]).
+    pub seen: Option<usize>,
 }
 
 /// Pen ink (reference default: red) and highlighter (yellow, translucent).
@@ -71,7 +77,7 @@ impl SlideView {
     }
 
     /// Where the show slide is drawn (window pixels).
-    pub(super) fn show_slide_rect(&self) -> R {
+    pub(crate) fn show_slide_rect(&self) -> R {
         let [ax, ay, ww, wh] = self.show_area();
         let scale = self.show_scale();
         let (w, h) = self.slide_px(scale);
@@ -137,6 +143,7 @@ impl SlideView {
                     'p' => Pointer::Pen,
                     'i' => Pointer::Highlighter,
                     'l' => Pointer::Laser,
+                    'e' => Pointer::Eraser,
                     'a' => Pointer::Arrow,
                     _ => return None,
                 };
@@ -163,6 +170,9 @@ impl SlideView {
                 Some(true)
             }
             &Input::Press { .. } if self.show_tools.pointer == Pointer::Laser => Some(false),
+            &Input::Press { x, y, .. } if self.show_tools.pointer == Pointer::Eraser => {
+                Some(self.erase_stroke_at(x, y))
+            }
             &Input::Drag { x, y } | &Input::Move { x, y } => {
                 if self.show_tools.pointer == Pointer::Laser {
                     self.show_tools.laser = Some((x, y));
@@ -184,6 +194,109 @@ impl SlideView {
                 Some(true)
             }
             _ => None,
+        }
+    }
+
+    /// Eraser: remove the drawing of the shown slide passing within 10 px of (`x`, `y`).
+    fn erase_stroke_at(&mut self, x: f32, y: f32) -> bool {
+        let Some(i) = self.show_slide() else {
+            return false;
+        };
+        let [rx, ry, rw, rh] = self.show_slide_rect();
+        let reach = 10.0 * self.display_scale.max(1.0);
+        let Some(list) = self.show_tools.strokes.get_mut(&i) else {
+            return false;
+        };
+        let at = |(fx, fy): (f32, f32)| (rx + fx * rw, ry + fy * rh);
+        // Distance from the pointer to the segment a–b.
+        let near = |a: (f32, f32), b: (f32, f32)| {
+            let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+            let len2 = dx * dx + dy * dy;
+            let t = if len2 > 0.0 {
+                (((x - a.0) * dx + (y - a.1) * dy) / len2).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            (a.0 + t * dx - x).hypot(a.1 + t * dy - y) <= reach
+        };
+        let hit = list.iter().rposition(|st| {
+            let pts: Vec<(f32, f32)> = st.pts.iter().copied().map(at).collect();
+            match pts.as_slice() {
+                [one] => near(*one, *one),
+                _ => pts.windows(2).any(|w| near(w[0], w[1])),
+            }
+        });
+        match hit {
+            Some(k) => {
+                list.remove(k);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// A command of the slide show's right-click menu (as the reference's): `next`, `prev`,
+    /// `last` (last viewed), `goto:N`, `black`, `white`, `laser`, `pen`, `highlighter`,
+    /// `eraser`, `arrow`, `eraseAll`, `end`.
+    pub fn show_command(&mut self, id: &str) -> bool {
+        if self.show.is_none() {
+            return false;
+        }
+        if let Some(n) = id
+            .strip_prefix("goto:")
+            .and_then(|n| n.parse::<usize>().ok())
+        {
+            return n < self.ids.len() && self.show_jump(n);
+        }
+        match id {
+            "next" => self.show_step(true),
+            "prev" => self.show_step(false),
+            "last" => match self.show_tools.last_viewed {
+                Some(n) if n < self.ids.len() => self.show_jump(n),
+                _ => false,
+            },
+            "black" => {
+                self.show_tools.screen = Some(Screen::Black);
+                true
+            }
+            "white" => {
+                self.show_tools.screen = Some(Screen::White);
+                true
+            }
+            "laser" => {
+                self.set_show_pointer(Pointer::Laser);
+                true
+            }
+            "pen" => {
+                self.set_show_pointer(Pointer::Pen);
+                true
+            }
+            "highlighter" => {
+                self.set_show_pointer(Pointer::Highlighter);
+                true
+            }
+            "eraser" => {
+                self.set_show_pointer(Pointer::Eraser);
+                true
+            }
+            "arrow" => {
+                self.set_show_pointer(Pointer::Arrow);
+                true
+            }
+            "eraseAll" => match self.show_slide() {
+                Some(i) => self.show_tools.strokes.remove(&i).is_some(),
+                None => false,
+            },
+            "end" => self.end_show(),
+            _ => false,
+        }
+    }
+
+    /// Slide `index` is shown: the one before is remembered for "Last Viewed".
+    pub(super) fn note_shown(&mut self, index: usize) {
+        if self.show_tools.seen != Some(index) {
+            self.show_tools.last_viewed = self.show_tools.seen;
+            self.show_tools.seen = Some(index);
         }
     }
 

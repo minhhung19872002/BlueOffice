@@ -2352,6 +2352,7 @@ impl SlideView {
         let Some(index) = self.show.as_ref().map(|s| s.index) else {
             return;
         };
+        self.note_shown(index);
         let info = self
             .engine
             .slide_command(SlideCommand::Show { slide: index })

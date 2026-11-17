@@ -1175,27 +1175,129 @@ fn text_to_columns_wizard_previews_then_splits() {
     put(&mut w, &[(0, 0, "a;b;c"), (1, 0, "d;e")]);
     w.view_mut().select((0, 0), (1, 0), (0, 0));
     assert!(w.action("sheet.textToColumns", &Fixed));
-    // Step 1: delimiters field (second), type a semicolon list.
-    w.handle(Input::Key(Key::Tab, Mods::default()), &Fixed);
-    for _ in 0..12 {
-        w.handle(Input::Key(Key::Backspace, Mods::default()), &Fixed);
-    }
-    type_in(&mut w, "semicolon");
+    assert_eq!(w.form_kind, form_impl::FormKind::TextToColumns);
+    // Step 1: the guess is Delimited.
+    assert!(w
+        .form
+        .as_ref()
+        .is_some_and(|f| f.on("delimited") && !f.on("fixed")));
+    click_form(&mut w, "next", 10.0, 10.0);
+    // Step 2: Tab only, as the reference; tick Semicolon.
+    let f = w.form.as_ref().expect("step 2");
+    assert!(f.on("dTab") && !f.on("dSemi") && !f.on("dComma"));
+    click_form(&mut w, "dSemi", 5.0, 10.0);
+    click_form(&mut w, "next", 10.0, 10.0);
+    // Step 3: second column as text, then pick the destination C1 on the sheet.
+    assert_eq!(w.ttc.as_ref().map(|t| t.step), Some(2));
+    click_form(&mut w, "preview", 20.0, 60.0);
+    assert_eq!(w.ttc.as_ref().map(|t| t.col), Some(1));
+    click_form(&mut w, "fText", 5.0, 10.0);
+    click_form(&mut w, "pickDest", 5.0, 5.0);
+    assert_eq!(w.form_kind, form_impl::FormKind::RangePick);
+    let r = w.view.cell_rect(0, 2).expect("C1 on screen");
+    w.handle(
+        Input::Press {
+            x: r[0] + 5.0,
+            y: r[1] + 5.0,
+            count: 1,
+            shift: false,
+        },
+        &Fixed,
+    );
+    w.handle(
+        Input::Release {
+            x: r[0] + 5.0,
+            y: r[1] + 5.0,
+        },
+        &Fixed,
+    );
+    assert_eq!(w.form.as_ref().map(|f| f.text("ref")), Some("$C$1".into()));
     w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
-    assert!(matches!(
-        w.dialog.as_ref().map(|d| d.0),
-        Some(commands_impl::SheetDialog::TextToColumns(1))
-    ));
-    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
-    assert!(w.dialog.is_none());
+    assert_eq!(w.form_kind, form_impl::FormKind::TextToColumns);
+    assert_eq!(w.form.as_ref().map(|f| f.text("dest")), Some("$C$1".into()));
+    click_form(&mut w, "finish", 10.0, 10.0);
+    assert!(w.form.is_none());
+    assert_eq!(
+        (
+            input(&w, 0, 0),
+            input(&w, 0, 2),
+            input(&w, 0, 3),
+            input(&w, 0, 4),
+            input(&w, 1, 3)
+        ),
+        (
+            "a;b;c".into(),
+            "a".into(),
+            "b".into(),
+            "c".into(),
+            "e".into()
+        )
+    );
+}
+
+#[test]
+fn text_to_columns_fixed_width_breaks_click_drag_and_double_click() {
+    let mut w = window();
+    put(
+        &mut w,
+        &[
+            (0, 0, "Alice     Hanoi     2024"),
+            (1, 0, "Bob       Hue       2023"),
+        ],
+    );
+    w.view_mut().select((0, 0), (1, 0), (0, 0));
+    assert!(w.action("sheet.textToColumns", &Fixed));
+    assert!(w.form.as_ref().is_some_and(|f| f.on("fixed")));
+    click_form(&mut w, "next", 10.0, 10.0);
+    assert_eq!(w.ttc.as_ref().map(|t| t.breaks.clone()), Some(vec![10, 20]));
+    // Click at character 5 adds a break; drag it to 6; double-click removes the one at 20.
+    let press = |w: &mut SheetWindow, cx: f32, count: u8| {
+        let (x, y) = {
+            let f = w.form.as_ref().expect("form");
+            let d = f.dev([32.0 + 1.0 + cx * 8.0, 315.0 + 60.0, 0.0, 0.0]);
+            (d[0], d[1])
+        };
+        w.handle(
+            Input::Press {
+                x,
+                y,
+                count,
+                shift: false,
+            },
+            &Fixed,
+        );
+        (x, y)
+    };
+    let (_, y) = press(&mut w, 5.0, 1);
+    let x6 = w
+        .form
+        .as_ref()
+        .expect("form")
+        .dev([32.0 + 1.0 + 48.0, 0.0, 0.0, 0.0])[0];
+    w.handle(Input::Drag { x: x6, y }, &Fixed);
+    w.handle(Input::Release { x: x6, y }, &Fixed);
+    assert_eq!(
+        w.ttc.as_ref().map(|t| t.breaks.clone()),
+        Some(vec![6, 10, 20])
+    );
+    press(&mut w, 20.0, 1);
+    w.handle(Input::Release { x: 0.0, y }, &Fixed);
+    press(&mut w, 20.0, 2);
+    assert_eq!(w.ttc.as_ref().map(|t| t.breaks.clone()), Some(vec![6, 10]));
+    click_form(&mut w, "finish", 10.0, 10.0);
     assert_eq!(
         (
             input(&w, 0, 0),
             input(&w, 0, 1),
             input(&w, 0, 2),
-            input(&w, 1, 1)
+            input(&w, 1, 2)
         ),
-        ("a".into(), "b".into(), "c".into(), "e".into())
+        (
+            "Alice".into(),
+            String::new(),
+            "Hanoi     2024".into(),
+            "Hue       2023".into()
+        )
     );
 }
 
@@ -1666,11 +1768,13 @@ fn insert_tab_forms_create_tables_pivots_sparklines_links_and_headers() {
         f.set_text("addr", "https://example.com");
     }
     w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
-    assert_eq!(
-        input(&w, 5, 0),
-        "=HYPERLINK(\"https://example.com\",\"Site\")"
-    );
-    assert_eq!(shown(&w, 5, 0), "Site");
+    // A cell hyperlink (§18.3.1.47) showing the text.
+    assert_eq!(input(&w, 5, 0), "Site");
+    let link = w
+        .view
+        .query(json!({ "cmd": "hyperlink", "sheet": 0, "row": 5, "col": 0 }))
+        .expect("link");
+    assert_eq!(link["target"], "https://example.com");
     // Header & Footer sections.
     assert!(w.action("sheet.headerFooter", &Fixed));
     w.form.as_mut().expect("hf").set_text("hc", "Report");
@@ -2122,7 +2226,7 @@ fn data_formulas_and_view_tabs_round_6() {
     w.data_form_event(&form_impl::Event::Cancel, &Fixed);
     // Zoom: 75 %.
     assert!(w.action("sheet.zoomDialog", &Fixed));
-    w.form.as_mut().expect("zoom").set_sel("mag", Some(2));
+    click_form(&mut w, "z2", 5.0, 10.0);
     w.data_form_event(&form_impl::Event::Ok, &Fixed);
     assert!((w.view.zoom() - 0.75).abs() < 0.01);
     // Consolidate the list by name into D1.
@@ -3304,4 +3408,242 @@ fn subtotal_defaults_to_count_for_a_text_column() {
     w.view.select((1, 0), (1, 0), (1, 0));
     assert!(w.action("outline.subtotal", &Fixed));
     assert_eq!(w.form.as_ref().and_then(|f| f.sel("fn")), Some(1));
+}
+
+#[test]
+fn data_validation_dialog_greys_data_applies_to_all_and_circles_invalid_cells() {
+    let mut w = window();
+    put(&mut w, &[(0, 0, "5"), (1, 0, "12"), (2, 0, "3")]);
+    w.view_mut().select((0, 0), (0, 0), (0, 0));
+    assert!(w.action("sheet.dataValidation", &Fixed));
+    {
+        // Any value: Data shown but greyed, Ignore blank greyed, Apply… greyed (no rule).
+        let f = w.form.as_ref().expect("dialog");
+        let op = f.get("op").expect("data box");
+        assert!(op.visible && !op.enabled);
+        assert!(!f.get("blank").expect("blank").enabled);
+        assert!(!f.get("apply").expect("apply").enabled);
+        assert_eq!(f.size, (604.0, 420.0));
+    }
+    // Whole number between 1 and 10 on A1:A3.
+    w.form = None;
+    w.view_mut().select((0, 0), (2, 0), (0, 0));
+    assert!(w.action("sheet.dataValidation", &Fixed));
+    if let Some(f) = w.form.as_mut() {
+        f.set_sel("allow", Some(1));
+    }
+    w.validation_refresh();
+    if let Some(f) = w.form.as_mut() {
+        f.set_text("f1", "1");
+        f.set_text("f2", "10");
+        assert!(f.get("op").is_some_and(|c| c.enabled));
+    }
+    click_form(&mut w, "ok", 10.0, 10.0);
+    assert!(w.form.is_none());
+    // Circle Invalid Data finds A2 (12).
+    assert!(w.action("sheet.circleInvalid", &Fixed));
+    assert_eq!(w.invalid_circles, vec![(1, 0)]);
+    assert!(w.action("sheet.clearCircles", &Fixed));
+    assert_eq!(w.invalid_circles, Vec::new());
+    // From A1 alone, Apply to all other cells changes A1:A3 to a maximum of 20.
+    w.view_mut().select((0, 0), (0, 0), (0, 0));
+    assert!(w.action("sheet.dataValidation", &Fixed));
+    if let Some(f) = w.form.as_mut() {
+        assert_eq!(f.text("f2"), "10");
+        assert!(f.get("apply").is_some_and(|c| c.enabled));
+        f.set_text("f2", "20");
+        f.set_on("apply", true);
+    }
+    click_form(&mut w, "ok", 10.0, 10.0);
+    assert!(w.action("sheet.circleInvalid", &Fixed));
+    assert!(
+        w.invalid_circles.is_empty(),
+        "12 is valid up to 20 on A2 too"
+    );
+}
+
+#[test]
+fn protect_sheet_dialog_permissions_password_and_unprotect() {
+    let mut w = window();
+    assert!(w.action("sheet.protectSheet", &Fixed));
+    assert_eq!(w.form_kind, form_impl::FormKind::Protect);
+    {
+        let f = w.form.as_ref().expect("dialog");
+        assert!(f.on("p0") && f.on("p1") && !f.on("p2"));
+        assert!(
+            !f.get("p10").expect("sort").visible,
+            "rows past 9 scrolled away"
+        );
+    }
+    assert!(w.prot_wheel(120.0));
+    assert!(w
+        .form
+        .as_ref()
+        .is_some_and(|f| f.get("p9").is_some_and(|c| c.visible)));
+    if let Some(f) = w.form.as_mut() {
+        f.set_on("p10", true);
+    }
+    type_in(&mut w, "abc");
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    // Confirm Password.
+    assert!(w.form.as_ref().is_some_and(|f| f.text("pw").is_empty()));
+    type_in(&mut w, "abc");
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert!(w.form.is_none());
+    let info = w
+        .view
+        .query(serde_json::json!({ "cmd": "protection", "sheet": 0 }))
+        .expect("info");
+    assert_eq!(info["sheet"]["protected"], true);
+    assert_eq!(info["sheet"]["hasPassword"], true);
+    assert_eq!(info["sheet"]["allow"]["sort"], true);
+    // Unprotect asks for the password.
+    assert!(w.action("sheet.protectSheet", &Fixed));
+    type_in(&mut w, "wrong");
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert!(w.status.contains("not correct"), "{}", w.status);
+    assert!(w.action("sheet.protectSheet", &Fixed));
+    type_in(&mut w, "abc");
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    let info = w
+        .view
+        .query(serde_json::json!({ "cmd": "protection", "sheet": 0 }))
+        .expect("info");
+    assert_eq!(info["sheet"]["protected"], false);
+}
+
+#[test]
+fn review_tab_spelling_changes_words_and_greys_what_is_missing() {
+    let mut w = window();
+    put(&mut w, &[(0, 0, "Helo world"), (2, 1, "fine")]);
+    w.view_mut().select((0, 0), (0, 0), (0, 0));
+    assert!(w.action("sheet.spelling", &Fixed));
+    assert_eq!(w.form_kind, form_impl::FormKind::Spelling);
+    assert_eq!(w.form.as_ref().map(|f| f.text("word")), Some("Helo".into()));
+    if let Some(f) = w.form.as_mut() {
+        f.set_text("word", "Hello");
+    }
+    click_form(&mut w, "change", 10.0, 10.0);
+    assert!(w.form.is_none(), "nothing else to check");
+    assert_eq!(input(&w, 0, 0), "Hello world");
+    assert!(w.status.contains("complete"), "{}", w.status);
+    // Greyed commands do nothing; statistics and accessibility open.
+    assert!(!w.action("sheet.thesaurus", &Fixed));
+    assert!(w.action("sheet.workbookStats", &Fixed));
+    assert!(w.form.is_some());
+    w.form = None;
+    assert!(w.action("sheet.checkAccessibility", &Fixed));
+    assert!(w.form.is_some());
+}
+
+#[test]
+fn scripted_form_clicks_tick_wizard_delimiters() {
+    let mut w = window();
+    put(&mut w, &[(0, 0, "a,b"), (1, 0, "c,d")]);
+    for id in [
+        "goto.A1:A2",
+        "sheet.textToColumns",
+        "form.click.next",
+        "form.click.dComma",
+    ] {
+        w.run_command(id, &Fixed);
+    }
+    let f = w.form.as_ref().expect("wizard");
+    assert!(f.on("dComma"));
+    assert!(w.ttc.as_ref().is_some_and(|t| t.delims[2]));
+}
+
+/// BLUESHEET_FILE=<xlsx> BLUESHEET_ACTIONS="a;b": run scripted actions and paint (debugging).
+#[test]
+fn scripted_actions_on_a_file_paint() {
+    let Some(path) = std::env::var_os("BLUESHEET_FILE") else {
+        return;
+    };
+    let bytes = std::fs::read(path).expect("file");
+    let mut e = SheetEngine::with_bundled_fonts();
+    e.open(&bytes, "t.xlsx").expect("open");
+    let mut w = window_with(e);
+    let acts = std::env::var("BLUESHEET_ACTIONS").unwrap_or_default();
+    for id in acts.split(';').filter(|s| !s.is_empty()) {
+        w.run_command(id, &Fixed);
+    }
+    let mut hash = PaintHash::default();
+    w.paint_top(&mut hash);
+    w.paint_overlay(&mut hash);
+}
+
+#[test]
+fn review_comment_buttons_follow_the_sheets_comments() {
+    let mut w = window();
+    let f = w.format_state();
+    assert!(!sheet_enabled("sheet.deleteComment", &f));
+    assert!(!sheet_enabled("sheet.nextComment", &f));
+    assert!(!sheet_enabled("sheet.showHideComment", &f));
+    assert!(!sheet_enabled("sheet.unshareWorkbook", &f));
+    w.view_mut().select((1, 1), (1, 1), (1, 1));
+    assert!(w.action("sheet.newComment", &Fixed));
+    type_in(&mut w, "Look");
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    w.view_mut().select((1, 1), (1, 1), (1, 1));
+    let f = w.format_state();
+    assert!(sheet_enabled("sheet.deleteComment", &f));
+    assert!(sheet_enabled("sheet.nextComment", &f));
+    w.view_mut().select((4, 4), (4, 4), (4, 4));
+    let f = w.format_state();
+    assert!(!sheet_enabled("sheet.deleteComment", &f));
+    assert!(sheet_enabled("sheet.prevComment", &f));
+    assert!(sheet_ribbon::is_menu("sheet.checkAccessibility"));
+    assert!(sheet_ribbon::is_menu("sheet.hideInk"));
+}
+
+#[test]
+fn hyperlink_browser_lists_the_folder_and_creates_a_new_document() {
+    let dir = std::env::temp_dir().join(format!("bo-link-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("sub")).expect("dir");
+    std::fs::write(dir.join("report.xlsx"), b"x").expect("file");
+    let mut w = window();
+    w.set_folder(&dir);
+    assert!(w.action("sheet.link", &Fixed));
+    // Folders first, then files.
+    assert_eq!(
+        w.link_entries,
+        vec![("sub".to_owned(), true), ("report.xlsx".to_owned(), false)]
+    );
+    w.form.as_mut().expect("link").set_sel("used", Some(1));
+    w.link_event(&form_impl::Event::Changed("used"));
+    assert_eq!(
+        w.form.as_ref().map(|f| f.text("addr")),
+        Some("report.xlsx".into())
+    );
+    // Bookmark… adds a place in that workbook.
+    w.link_event(&form_impl::Event::Clicked("bookmark"));
+    w.form.as_mut().expect("bm").set_text("bmCell", "B2");
+    w.link_event(&form_impl::Event::Ok);
+    assert_eq!(
+        w.form.as_ref().map(|f| f.text("addr")),
+        Some("report.xlsx#Sheet1!B2".into())
+    );
+    w.link_event(&form_impl::Event::Ok);
+    let link = w
+        .view
+        .query(json!({ "cmd": "hyperlink", "sheet": 0, "row": 0, "col": 0 }))
+        .expect("link");
+    assert_eq!(link["target"], "report.xlsx");
+    assert_eq!(link["location"], "Sheet1!B2");
+    // Create New Document writes an empty workbook beside and links it.
+    w.view_mut().select((2, 0), (2, 0), (2, 0));
+    assert!(w.action("sheet.link", &Fixed));
+    w.link_event(&form_impl::Event::Canvas("bar", 10.0, 2.5 * 78.0));
+    assert_eq!(w.form.as_ref().map(|f| f.tab), Some(2));
+    w.form.as_mut().expect("new").set_text("newName", "Budget");
+    w.link_event(&form_impl::Event::Ok);
+    let made = dir.join("Budget.xlsx");
+    assert!(made.exists());
+    let link = w
+        .view
+        .query(json!({ "cmd": "hyperlink", "sheet": 0, "row": 2, "col": 0 }))
+        .expect("link");
+    assert_eq!(link["target"], made.display().to_string());
+    let _ = std::fs::remove_dir_all(&dir);
 }

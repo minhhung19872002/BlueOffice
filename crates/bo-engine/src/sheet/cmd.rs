@@ -717,6 +717,44 @@ pub enum SheetCommand {
         range: Rng,
         /// The validation rule.
         spec: ValidationSpec,
+        /// More ranges given the same rule in the same undo step ("Apply these changes to
+        /// all other cells with the same settings").
+        #[serde(default)]
+        also: Vec<Rng>,
+    },
+    /// The hyperlink on a cell (read only): `{ target, location, display, tooltip }` or
+    /// `null` (§18.3.1.47 `hyperlink`).
+    Hyperlink {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// 0-based row.
+        row: u32,
+        /// 0-based column.
+        col: u32,
+    },
+    /// Sets the hyperlink of a cell (§18.3.1.47): an external `target` (URL, file,
+    /// `mailto:`) or a `location` in the workbook (`Sheet2!A1`, a name); neither removes it.
+    /// The cell shows `display` (default: the target or location) when given or empty.
+    /// One undo step.
+    SetHyperlink {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// 0-based row.
+        row: u32,
+        /// 0-based column.
+        col: u32,
+        /// External address.
+        #[serde(default)]
+        target: Option<String>,
+        /// Place in this workbook.
+        #[serde(default)]
+        location: Option<String>,
+        /// Text shown in the cell.
+        #[serde(default)]
+        display: Option<String>,
+        /// ScreenTip.
+        #[serde(default)]
+        tooltip: Option<String>,
     },
     /// Enters a legacy array formula over a range (Ctrl+Shift+Enter): `{ "range": … }`.
     SetArrayFormula {
@@ -2157,6 +2195,23 @@ pub enum SheetCommand {
         /// Only return the split fields.
         #[serde(default)]
         preview: bool,
+        /// Decimal separator of numbers in the text (default: the locale's).
+        #[serde(default)]
+        decimal: Option<char>,
+        /// Thousands separator of numbers in the text (default: the locale's).
+        #[serde(default)]
+        thousands: Option<char>,
+        /// A minus sign after a number makes it negative (`12-` is −12).
+        #[serde(default)]
+        trailing_minus: bool,
+    },
+    /// What Text to Columns guesses for a one-column range (read only):
+    /// `{ mode: "delimited" | "fixed", delimiters, breaks }`.
+    TextToColumnsGuess {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// The cells to split (one column).
+        range: Rng,
     },
     /// Remove the rows of a list that repeat the values of an earlier row in `columns`.
     /// One undo step; `{ removed, remaining }`.
@@ -2778,6 +2833,7 @@ impl SheetEngine {
             | C::EditCf { sheet, .. }
             | C::ClearCf { sheet, .. }
             | C::SetValidation { sheet, .. } => check(ws(*sheet)?, A::FormatCells),
+            C::SetHyperlink { sheet, .. } => check(ws(*sheet)?, A::InsertHyperlinks),
             C::Resize { sheet, rows, .. }
             | C::Autofit { sheet, rows, .. }
             | C::Hide { sheet, rows, .. } => check(ws(*sheet)?, rows_or_cols(*rows)),
@@ -3656,6 +3712,9 @@ impl SheetEngine {
                 formats,
                 dest,
                 preview,
+                decimal,
+                thousands,
+                trailing_minus,
             } => self.text_to_columns(
                 sheet,
                 &super::datatools_cmd::TextToColumns {
@@ -3664,8 +3723,12 @@ impl SheetEngine {
                     formats,
                     dest,
                     preview,
+                    decimal,
+                    thousands,
+                    trailing_minus,
                 },
             ),
+            C::TextToColumnsGuess { sheet, range } => self.text_to_columns_guess(sheet, range),
             C::RemoveDuplicates {
                 sheet,
                 range,
@@ -4555,18 +4618,99 @@ impl SheetEngine {
                 };
                 let list = bo_sheet::validation::has_dropdown(dv)
                     .then(|| bo_sheet::validation::list_items(wb, sheet, dv, &locale));
+                let sqref: Vec<Value> = dv
+                    .sqref
+                    .iter()
+                    .map(|r| {
+                        json!({ "r0": r.first.row, "c0": r.first.col,
+                                "r1": r.last.row, "c1": r.last.col })
+                    })
+                    .collect();
                 Ok(json!({
                     "kind": dv.kind,
                     "list": list,
                     "prompt": dv.prompt,
                     "promptTitle": dv.prompt_title,
+                    "operator": dv.operator.clone().unwrap_or_else(|| "between".into()),
+                    "formula1": dv.formula1,
+                    "formula2": dv.formula2,
+                    "allowBlank": dv.allow_blank,
+                    "showInput": dv.show_input_message,
+                    "showError": dv.show_error_message,
+                    "inCellDropdown": !dv.show_drop_down,
+                    "errorStyle": dv.error_style.clone().unwrap_or_else(|| "stop".into()),
+                    "errorTitle": dv.error_title,
+                    "error": dv.error,
+                    "sqref": sqref,
                 }))
             }
-            C::SetValidation { sheet, range, spec } => self.edit(sheet, Recalc::No, |wb, _| {
-                bo_sheet::validation::set_rule(wb, sheet, range.range(), &spec)
-                    .then_some(json!({ "ok": true }))
+            C::SetValidation {
+                sheet,
+                range,
+                spec,
+                also,
+            } => self.edit(sheet, Recalc::No, |wb, _| {
+                let ok = std::iter::once(range)
+                    .chain(also)
+                    .all(|r| bo_sheet::validation::set_rule(wb, sheet, r.range(), &spec));
+                ok.then_some(json!({ "ok": true }))
                     .ok_or_else(|| bad("invalid validation rule"))
             }),
+            C::Hyperlink { sheet, row, col } => {
+                let ws = self.sheet(sheet)?;
+                let at = CellRef::new(row, col);
+                Ok(ws
+                    .hyperlinks
+                    .iter()
+                    .rev()
+                    .find(|h| h.range.contains(at))
+                    .map_or(Value::Null, |h| {
+                        json!({ "target": h.target, "location": h.location,
+                                "display": h.display, "tooltip": h.tooltip })
+                    }))
+            }
+            C::SetHyperlink {
+                sheet,
+                row,
+                col,
+                target,
+                location,
+                display,
+                tooltip,
+            } => {
+                let clean = |s: Option<String>| s.map(|t| t.trim().to_owned()).filter(|t| !t.is_empty());
+                let (target, location) = (clean(target), clean(location));
+                let display = display.filter(|d| !d.is_empty());
+                self.edit(sheet, Recalc::All, |wb, _| {
+                    let ws = &mut wb.sheets[sheet];
+                    let at = CellRef::new(row, col);
+                    ws.hyperlinks.retain(|h| !h.range.contains(at));
+                    let Some(shown) = display
+                        .clone()
+                        .or_else(|| target.clone())
+                        .or_else(|| location.clone())
+                    else {
+                        return Ok(json!({ "ok": true }));
+                    };
+                    let empty = ws
+                        .cell(row, col)
+                        .is_none_or(|c| matches!(c.value, CellValue::Empty) && c.formula.is_none());
+                    if empty || display.is_some() {
+                        let mut cell = ws.cell(row, col).cloned().unwrap_or_default();
+                        cell.formula = None;
+                        cell.value = CellValue::Text(shown.clone());
+                        ws.set_cell(row, col, cell);
+                    }
+                    ws.hyperlinks.push(bo_model::sheet::Hyperlink {
+                        range: CellRange::single(at),
+                        target,
+                        location,
+                        display: Some(shown),
+                        tooltip: tooltip.filter(|t| !t.is_empty()),
+                    });
+                    Ok(json!({ "ok": true }))
+                })
+            }
             C::SetArrayFormula {
                 sheet,
                 range,

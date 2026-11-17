@@ -54,8 +54,9 @@ WebView2 (Chromium) vẽ — Chromium đã dùng GPU và DirectWrite cho chữ g
 
 Chữ: target bỏ alpha (`D2D1_ALPHA_MODE_IGNORE`) để Direct2D dùng được ClearType. ClearType mặc
 định của hệ thống cho viền màu gấp khoảng 2,3 lần phép đo trên ảnh chụp trình soạn thảo đối
-chứng cùng màn hình, nên mặc định là `TextRendering::document_default()`: ClearType mức 0,35,
-gamma 1,8, contrast 2,0; xám khi người dùng tắt ClearType. Chế độ `DWRITE_RENDERING_MODE_NATURAL`
+chứng cùng màn hình. Mặc định hiện tại là `TextRendering::document_default()`: ClearType mức 0,2,
+gamma 1,8, contrast 0,5; xám khi người dùng tắt ClearType. Cấu hình mới cần đối chiếu trực tiếp
+với Word ở nhiều DPI và trên các màn hình khác. Chế độ `DWRITE_RENDERING_MODE_NATURAL`
 + grid-fit (khử răng cưa theo chiều dòng, bám lưới chiều dọc như trình soạn thảo desktop), baseline
 và đường kẻ/ô thẳng làm tròn theo pixel thiết bị (≤ nửa pixel, không đổi dàn trang). Canvas hiển
 thị 1:1 pixel thiết bị (`alignToDevicePixels`): co giãn theo khung trang lẻ làm nhòe cả trang.

@@ -316,6 +316,108 @@ compositor riêng; nhãn nhóm dùng màu gần màu chữ chính. Nhãn nhóm: 
 (đối chứng 0,372), điểm tối nhất 91 → 48 (đối chứng 38); tab có ClearType (độ lệch kênh 15 → 75,
 đối chứng 68). Ô chọn phông vẫn xám (control riêng của WebView). Chưa đo DPI 100/150/200 %.
 
+#### Điều chỉnh chữ tài liệu native (2026-11-14)
+
+Vẫn giữ ghép bitmap trang 1:1, baseline bám hàng pixel và DirectWrite NATURAL có grid-fit.
+Đổi mặc định ClearType từ gamma 1,8 / contrast 0 / level 0,4 sang 1,8 / 0,5 / 0,2:
+mẫu Times New Roman tiếng Việt trong `text_modes_tnr` nhìn đậm hơn và bớt viền màu.
+Trên pixel mẫu có ít nhất một kênh dưới 245, độ tối trung bình tăng 138,0 → 160,2;
+độ lệch |R−B| trung bình giảm 33,5 → 17,8. Đây là phép đo ảnh mẫu offscreen,
+không phải so sánh mới với Word; cần kiểm tra trực tiếp cùng font, zoom, DPI và màn hình
+trước khi kết luận tương đương. Khi người dùng tắt ClearType vẫn dùng grayscale.
+
+Tiếp tục kiểm tra: thông số vẽ chữ tùy chỉnh dùng thứ tự điểm ảnh do DirectWrite
+báo thay vì luôn giả định RGB; điều này tránh đảo viền màu trên màn hình BGR.
+Host native chọn thứ tự của màn hình chứa cửa sổ khi tạo và khi di chuyển, và
+vẽ lại toàn bộ trang trong cache nếu thứ tự thay đổi; đường offscreen không gắn
+cửa sổ dùng màn hình chính. Test kiểm tra việc làm mới cache; vẫn cần thử thực tế
+khi kéo giữa hai màn hình. Các test GPU không chứng minh chữ đã giống đối chứng.
+
+Đã chạy lại mẫu `text_modes_tnr` với font Times New Roman hệ thống, zoom 110%,
+ở tỉ lệ DPI 100/125/150/200% (`BO_TEXT_MODES_DPI_SCALE=1.0|1.25|1.5|2.0`).
+Với các pixel có ít nhất một kênh dưới 245, độ lệch |R−B| trung bình của cấu hình
+hiện tại lần lượt là **19,0 / 17,8 / 16,1 / 13,9**, so với cấu hình trước
+**36,1 / 33,5 / 31,0 / 27,2**. Đây là ảnh DirectWrite ngoài màn hình của cùng
+một đoạn mẫu, không phải ảnh chụp Word hoặc xác nhận trên bốn màn hình vật lý.
+Mẫu còn có các chế độ hệ thống và grayscale để lặp lại phép đối chiếu khi có ảnh
+tham chiếu; không đổi tham số mặc định chỉ từ phép so nội bộ này.
+
+Phép kiểm thử vẽ lại sau sửa được mở rộng từ một cấu hình lên DPI/zoom
+**100%/100%, 125%/110%, 150%/75% và 200%/100%**. Chuỗi lệnh gồm chèn, xóa,
+chữ Việt dựng sẵn, dấu Unicode kết hợp, undo và redo; sau mỗi lệnh, ảnh ghép dải
+trùng từng pixel với ảnh vẽ lại toàn trang, dùng cấu hình chữ mặc định của tài liệu.
+Đây là lệnh sửa mô phỏng, không phải
+phép thử bộ gõ Telex hay xác nhận chất lượng chữ so với Word.
+
+Ribbon native đã sửa phép cộng vị trí dọc: các điều khiển bám mép trên ribbon,
+không phụ thuộc chiều cao vùng nút. Test kiểm tra vị trí và vùng nhấn ở 100, 125,
+150 và 200% với mép trên thay đổi. Đo nhãn nút menu cũng dùng đúng ký tự mũi tên
+được vẽ. Chưa có ảnh đối chiếu mới cho bản native sau sửa.
+
+Khi thu hẹp cửa sổ, gallery kiểu chữ trên tab Home giảm dần số ô xem trước để ưu tiên
+giữ các lệnh phía sau; nút mở danh sách kiểu vẫn còn. Test bố cục kiểm tra hai ngôn ngữ
+và 100/125/150/200%, kể cả vùng nhấn của nút danh sách. Nếu vẫn không đủ chỗ,
+hai nút mũi tên cho phép dịch vùng nhóm lệnh; phần ngoài vùng hiển thị bị cắt và
+không nhận nhấn. Test kiểm tra đi tới lệnh cuối rồi trở lại ở hai ngôn ngữ và bốn
+mức DPI. Thanh tab phía trên có điều hướng riêng khi tràn, giữ nút Tệp cố định;
+khi đổi kích thước, tab đang chọn được đưa vào vùng nhìn thấy. Kiểm thử bao gồm
+chọn tab cuối, quay lại và thu hẹp cửa sổ ở hai ngôn ngữ và bốn mức DPI. Chưa chụp
+và đối chiếu giao diện thực tế sau thay đổi.
+
+Ảnh cửa sổ hẹp 800 px cho thấy một phần icon của nhóm kế tiếp lộ ra ở mép vùng
+cuộn. Các nút/tab bị cắt một phần nay được ẩn và chỉ nhận nhấn khi đã cuộn đủ vào
+khung; nút rộng hơn chính khung vẫn cho phép cắt để còn thao tác được. Test headless
+đi qua từng bước cuộn và xác nhận mọi lệnh/tab có thể nhấn tại 480 CSS px, hai ngôn
+ngữ và 100–200% DPI; ảnh Direct2D 800 px dựng lại không còn nửa icon ở mép.
+Mở rộng phép thử xuống 320 CSS px phát hiện bước cuộn nửa khung có thể bỏ qua
+một nút rộng. Bước cuộn nhóm giờ dừng tại cạnh của điều khiển ẩn gần nhất; test
+đã đi qua mọi nút/tab ở cả 320 và 480 CSS px, hai ngôn ngữ và bốn mức DPI.
+
+Ảnh ribbon Home dựng ngoài màn hình bằng cùng `Frame` Direct2D/DirectWrite của
+host (720 và 1.366 px ở 100%, 1.708 px ở 125%) cho thấy chuỗi xem trước kiểu
+`AaBbĐđ` bị cắt ở một số ô. Đổi mẫu thành `AaĐđ`, vẫn có chữ tiếng Việt; dựng
+lại và đo bằng DirectWrite cho năm kiểu của tài liệu thử cho thấy mẫu nằm trong ô.
+Chạy lại bằng `BO_RIBBON_OUT=<thư mục> cargo test -p bo-gpu-win ribbon_offscreen -- --ignored`.
+Ảnh là ribbon dựng riêng, không phải ảnh toàn cửa sổ hay so sánh với Word.
+Với font khác, gallery đo chiều rộng mẫu theo font thật và chọn lần lượt `AaĐđ`,
+`AĐ`, `Đ`; nếu ký tự đơn vẫn quá rộng, cỡ mẫu được giảm. Test headless bao gồm
+các font giả lập rộng và kiểm tra lựa chọn cùng cỡ; chưa so tất cả font hệ thống.
+
+Đã bổ sung phép dựng **toàn bộ cửa sổ** ngoài màn hình: tài liệu
+`phase1-sample.docx`, phông hệ thống, giao diện tiếng Anh, zoom 100%, tỉ lệ 125%,
+1.708 × 1.125 pixel. Ảnh gồm thanh tiêu đề, ribbon, thước, trang và thanh trạng thái;
+backend dùng cùng `Frame` và bitmap trang như host. Lệnh dựng:
+`BO_RIBBON_OUT=<thư mục> cargo test -p bo-gpu-win window_offscreen -- --ignored`.
+Ảnh hữu ích để phát hiện lỗi cắt chữ và bố cục, nhưng không bao gồm compositor,
+độ nét màn hình vật lý hay ảnh Word đối chứng; không dùng làm bằng chứng tương đương.
+
+Ribbon Home native đã thêm tăng/giảm cỡ chữ theo các mốc của editor chung và xóa
+định dạng, đặt cạnh hộp cỡ chữ. Danh sách cỡ bổ sung 13 và 48 pt cho khớp web.
+Test nhấn nút kiểm tra 13 → 14 → 13 pt và xóa chữ đậm; test riêng kiểm tra các
+biên 1, 8, 72 và 1.638 pt. Ảnh toàn cửa sổ ngoài màn hình được dựng lại sau sửa;
+`cargo check -p bo-native-win` và test `bo-ui` đạt. Bản native đang mở chưa có
+thay đổi này.
+
+Nhóm Đoạn văn có thêm menu giãn dòng đơn, 1,5 và đôi, hiển thị lựa chọn hiện tại;
+lệnh đi qua engine và hỗ trợ hoàn tác. Kiểm thử nhấn menu, áp dụng 1,5 và undo,
+cùng kiểm tra chuỗi hai ngôn ngữ và nguồn icon, đều đạt. Ảnh Direct2D ngoài màn
+hình đã dựng lại sau thay đổi; cửa sổ release đang mở chưa chứa menu này.
+
+Menu native được đặt lại trong khung cửa sổ khi nút neo gần mép phải, và mở lên
+trên nếu không đủ chỗ phía dưới. Kiểm thử vị trí và nhấn chọn qua 100–200% DPI;
+ảnh toàn cửa sổ ngoài màn hình 800 × 600 với menu ngữ cảnh ở góc dưới phải cho
+thấy toàn bộ menu nằm trong cửa sổ. Đây chưa phải thử tương tác trên màn hình thật.
+
+Ảnh Direct2D của cả tám tab ở 125% cho thấy tab Xem lại có nút hàng thứ ba đè
+lên nhãn nhóm. Các nút bình luận và thay đổi đã được sắp xếp trong hai hàng;
+ảnh dựng lại không còn lỗi chồng lấn này. Test kiểm tra cạnh dưới mọi điều khiển
+không vượt lên vùng nhãn nhóm, trên mọi tab, hai ngôn ngữ và bốn mức DPI. Đây là
+kiểm tra bố cục BlueDoc, chưa phải đối chiếu với Word.
+
+Trong ảnh tab Xem, nút ký hiệu định dạng và đặt lại thu phóng từng thiếu icon.
+Đã ánh xạ chúng tới biểu tượng sẵn có của BlueOffice; ảnh dựng lại hiển thị cả hai.
+Test kiểm tra mọi nút trong ribbon có biểu tượng tương ứng, bên cạnh nhãn và lệnh.
+
 ## Giao diện Rust tự vẽ — mốc N1 (ADR-0018, 2026-11-14)
 
 `bluedoc-native.exe` (release, `apps/native-win`), `phase1-sample.docx`, 125 %, Ryzen 7 7435HS:

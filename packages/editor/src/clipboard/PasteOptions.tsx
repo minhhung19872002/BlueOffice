@@ -63,6 +63,11 @@ export function PasteOptionsButton({
     frame.current = requestAnimationFrame(() => setPos(anchor()));
   }, [anchor]);
 
+  // A mode switch can move the caret without replacing this button.
+  useEffect(() => {
+    locate();
+  }, [current, locate]);
+
   useEffect(() => {
     window.addEventListener('scroll', locate, true);
     window.addEventListener('resize', locate);

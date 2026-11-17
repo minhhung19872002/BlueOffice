@@ -16,6 +16,8 @@ import {
   savePasteDefaults,
 } from '../src/clipboard/docPaste';
 import { PasteOptionsButton } from '../src/clipboard/PasteOptions';
+import { DocClipboardUi } from '../src/clipboard/DocClipboardUi';
+import type { DocPasteRecord } from '../src/clipboard/docPaste';
 
 afterEach(cleanup);
 
@@ -241,6 +243,82 @@ describe('paste options button', () => {
     expect(screen.getByTestId('paste-options-menu')).toBeTruthy();
     fireEvent.keyDown(screen.getByTestId('paste-options-menu'), { key: 'Escape' });
     expect(screen.queryByTestId('paste-options-menu')).toBeNull();
+  });
+});
+
+describe('BlueDoc paste mode changes', () => {
+  it('keeps a keyboard-opened menu when the asynchronous mode change completes', async () => {
+    let listener: ((record: DocPasteRecord | null) => void) | null = null;
+    let finish!: () => void;
+    const original: DocPasteRecord = {
+      text: 'hello',
+      html: '<b>hello</b>',
+      internal: '',
+      pictureOnly: false,
+      source: 'other',
+      mode: 'keep',
+    };
+    const fake = {
+      setPasteDefaults: () => {},
+      onPasteChange: (next: typeof listener) => {
+        listener = next;
+      },
+      switchPaste: () =>
+        new Promise((resolve) => {
+          finish = () => {
+            listener?.({ ...original, mode: 'text' });
+            resolve(null);
+          };
+        }),
+    };
+    const focus = vi.fn();
+    const view = { current: { pageRect: () => ({ left: 0, top: 0, width: 100 }), focus } };
+    const store = {
+      getState: () => ({
+        edit: { caret: { page: 0, x: 1, y: 2, h: 3 } },
+        doc: { pages: [{ width: 100 }] },
+      }),
+    };
+    wrap(
+      <DocClipboardUi
+        controller={{ current: fake } as never}
+        ready
+        view={view as never}
+        store={store as never}
+        panel={false}
+        onOpenPanel={() => {}}
+        onClosePanel={() => {}}
+      />,
+    );
+    act(() => listener?.(original));
+    fireEvent.click(screen.getByTestId('paste-options'));
+    fireEvent.click(document.querySelector('[data-paste-option="text"]')!);
+    act(() =>
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', {
+          key: 'V',
+          code: 'KeyV',
+          altKey: true,
+          shiftKey: true,
+        }),
+      ),
+    );
+    expect(screen.getByTestId('paste-options-menu')).toBeTruthy();
+    await act(async () => {
+      finish();
+      await Promise.resolve();
+    });
+    expect(screen.getByTestId('paste-options-menu')).toBeTruthy();
+    expect(focus).not.toHaveBeenCalled();
+
+    // A separate paste must start with a fresh, closed menu, even if React batches
+    // the notifications for clearing the old record and setting the new one.
+    act(() => {
+      listener?.(null);
+      listener?.(original);
+    });
+    expect(screen.queryByTestId('paste-options-menu')).toBeNull();
+    expect(screen.getByTestId('paste-options')).toBeTruthy();
   });
 });
 

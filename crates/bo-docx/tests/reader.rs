@@ -273,3 +273,18 @@ fn floating_table_and_vertical_text_round_trip() {
         Some(bo_model::TextDirection::TbRl)
     );
 }
+
+#[test]
+fn self_closing_body_paragraph_is_a_paragraph() {
+    // `<w:p/>` after a table (python-docx writes empty paragraphs this way): an empty,
+    // editable paragraph as on the reference, and still there after a save.
+    let body = r#"<w:tbl><w:tr><w:tc><w:p><w:r><w:t>c</w:t></w:r></w:p></w:tc></w:tr></w:tbl><w:p/><w:p><w:r><w:t>Last</w:t></w:r></w:p>"#;
+    let doc = read_docx(&docx(body)).unwrap();
+    let blocks = &doc.sections[0].blocks;
+    assert_eq!(blocks.len(), 3);
+    assert!(matches!(&blocks[1], Block::Paragraph(p) if p.runs.is_empty()));
+    let out = bo_docx::write_docx(&doc).unwrap();
+    let again = read_docx(&out).unwrap();
+    assert_eq!(again.sections[0].blocks.len(), 3);
+    assert!(matches!(&again.sections[0].blocks[1], Block::Paragraph(_)));
+}

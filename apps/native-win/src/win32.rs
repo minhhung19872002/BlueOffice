@@ -334,7 +334,41 @@ pub fn enable_slide_keys() {
     SLIDE_KEYS.store(true, std::sync::atomic::Ordering::Relaxed);
 }
 
+/// The word processor's extra keys (BlueDoc round 8): Ctrl+[ / Ctrl+] (font size by one point),
+/// Ctrl+Space (reset character formatting, its WM_CHAR space dropped) and the Alt+Shift+arrow
+/// outline keys, which come as system keys.
+static DOC_KEYS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Turn on [`DOC_KEYS`] for this process.
+#[allow(dead_code)] // BlueDoc only.
+pub fn enable_doc_keys() {
+    DOC_KEYS.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// A system key (Alt held) that the word processor handles itself: Alt+Shift+arrows.
+fn doc_sys_key(vk: u16) -> Option<Key> {
+    if !DOC_KEYS.load(std::sync::atomic::Ordering::Relaxed) {
+        return None;
+    }
+    match VIRTUAL_KEY(vk) {
+        VK_LEFT => Some(Key::Left),
+        VK_RIGHT => Some(Key::Right),
+        VK_UP => Some(Key::Up),
+        VK_DOWN => Some(Key::Down),
+        _ => None,
+    }
+}
+
 fn key(vk: u16, m: Mods) -> Option<Key> {
+    if m.ctrl && DOC_KEYS.load(std::sync::atomic::Ordering::Relaxed) {
+        // VK_OEM_6 ], VK_OEM_4 [, VK_SPACE.
+        match vk {
+            0xDD => return Some(Key::Letter(']')),
+            0xDB => return Some(Key::Letter('[')),
+            0x20 => return Some(Key::Letter(' ')),
+            _ => {}
+        }
+    }
     if m.ctrl && vk == 0xBA && SHEET_KEYS.load(std::sync::atomic::Ordering::Relaxed) {
         return Some(Key::Letter(';'));
     }
@@ -606,6 +640,8 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                 }
                 // Control characters (Backspace, Enter, Ctrl+letters) come as WM_KEYDOWN.
                 0..=0x1F | 0x7F => None,
+                // Ctrl+Space is a shortcut of the word processor (its key-down ran it).
+                0x20 if DOC_KEYS.load(std::sync::atomic::Ordering::Relaxed) && mods().ctrl => None,
                 _ => String::from_utf16(&[unit]).ok(),
             };
             if let Some(text) = text {
@@ -616,6 +652,12 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
         WM_SYSKEYDOWN | 0x0105 if ribbon_sys_key(msg, wparam.0 as u16) => {
             if ribbon_sys_key_last(msg, wparam.0 as u16) {
                 input(hwnd, Input::Key(Key::F(10), Mods::default()));
+            }
+            LRESULT(0)
+        }
+        WM_SYSKEYDOWN if doc_sys_key(wparam.0 as u16).is_some() && mods().shift => {
+            if let Some(k) = doc_sys_key(wparam.0 as u16) {
+                input(hwnd, Input::Key(k, mods()));
             }
             LRESULT(0)
         }

@@ -119,6 +119,12 @@ pub enum CharFormat {
     Superscript,
     /// Toggle subscript (`w:vertAlign="subscript"`).
     Subscript,
+    /// Toggle all capitals (§17.3.2.5 caps; Ctrl+Shift+A).
+    AllCaps,
+    /// Toggle small capitals (§17.3.2.33 smallCaps; Ctrl+Shift+K).
+    SmallCaps,
+    /// Toggle double underline (§17.3.2.40 u w:val="double"; Ctrl+Shift+D).
+    DoubleUnderline,
     /// Set the font family (`w:rFonts`).
     Font {
         /// Font family name.
@@ -3556,6 +3562,35 @@ impl Session {
                 let v = !on(|r| r.strike.unwrap_or(false));
                 Box::new(move |r| r.strike = Some(v))
             }
+            // §17.3.2.5 caps and §17.3.2.33 smallCaps exclude each other.
+            CharFormat::AllCaps => {
+                let v = !on(|r| r.caps.unwrap_or(false));
+                Box::new(move |r| {
+                    r.caps = Some(v);
+                    if v {
+                        r.small_caps = Some(false);
+                    }
+                })
+            }
+            CharFormat::SmallCaps => {
+                let v = !on(|r| r.small_caps.unwrap_or(false));
+                Box::new(move |r| {
+                    r.small_caps = Some(v);
+                    if v {
+                        r.caps = Some(false);
+                    }
+                })
+            }
+            CharFormat::DoubleUnderline => {
+                let v = !on(|r| r.underline == Some(Underline::Double));
+                Box::new(move |r| {
+                    r.underline = Some(if v {
+                        Underline::Double
+                    } else {
+                        Underline::None
+                    });
+                })
+            }
             CharFormat::Superscript | CharFormat::Subscript => {
                 let want = if *f == CharFormat::Superscript {
                     VertAlign::Superscript
@@ -4756,17 +4791,33 @@ impl Session {
     }
 
     /// Ctrl+Backspace / Ctrl+Delete: delete the selection, else from the caret to the
-    /// previous / next word boundary (one undo step).
+    /// previous / next word boundary (one undo step). Like the reference's smart spacing, a
+    /// whole word deleted between a space and punctuation or another space takes the space
+    /// before it along ("Hôm nay, …" → "Hôm, …"), so no stray space is left.
     pub fn delete_word(&mut self, forward: bool) -> Result<Selection> {
         if self.selection.is_collapsed() {
             let at = self.selection.focus;
             let to = self.word_boundary(at, forward);
             // At a paragraph edge the word step crosses the paragraph mark: delete just it.
             if to.para == at.para && to != at {
-                self.set_selection(Selection {
-                    anchor: at,
-                    focus: to,
-                });
+                let (mut lo, hi) = (at.offset.min(to.offset), at.offset.max(to.offset));
+                let text = self.para_text(at.para).unwrap_or_default();
+                let word = text.get(lo..hi).unwrap_or("");
+                let before = text.get(..lo).and_then(|t| t.chars().next_back());
+                let after = text.get(hi..).and_then(|t| t.chars().next());
+                let whole = word.chars().any(char::is_alphanumeric)
+                    && word.trim_end().chars().all(char::is_alphanumeric);
+                let closes =
+                    |c: char| c == ' ' || matches!(c, ',' | '.' | ';' | ':' | '!' | '?' | ')' | ']');
+                if whole && before == Some(' ') && after.is_some_and(closes) {
+                    lo -= 1;
+                }
+                let (anchor, focus) = if forward {
+                    (Pos::new(at.para, lo), Pos::new(at.para, hi))
+                } else {
+                    (Pos::new(at.para, hi), Pos::new(at.para, lo))
+                };
+                self.set_selection(Selection { anchor, focus });
             }
         }
         if forward {

@@ -661,6 +661,36 @@ fn ctrl_backspace_and_ctrl_delete_delete_a_word() {
 }
 
 #[test]
+fn ctrl_backspace_and_ctrl_delete_keep_single_spacing_like_the_reference() {
+    // Measured on the reference (round 98): a whole word deleted before punctuation takes
+    // the space before it; part of a word, or a word at the paragraph end, does not.
+    let line = "Hôm nay, trời đẹp quá";
+    let mut s = Session::new(doc(&[line]));
+    caret(&mut s, 0, "Hôm nay".len());
+    s.delete_word(false).unwrap();
+    assert_eq!(texts(&s)[0], "Hôm, trời đẹp quá");
+    assert_eq!(s.selection().focus, Pos::new(0, "Hôm".len()));
+    assert!(s.undo());
+    caret(&mut s, 0, "Hôm ".len());
+    s.delete_word(true).unwrap();
+    assert_eq!(texts(&s)[0], "Hôm, trời đẹp quá");
+    assert!(s.undo());
+    caret(&mut s, 0, "Hôm na".len());
+    s.delete_word(false).unwrap();
+    assert_eq!(texts(&s)[0], "Hôm y, trời đẹp quá");
+    assert!(s.undo());
+    // ", " is a word of its own (the comma and its space).
+    caret(&mut s, 0, "Hôm nay".len());
+    s.delete_word(true).unwrap();
+    assert_eq!(texts(&s)[0], "Hôm naytrời đẹp quá");
+    assert!(s.undo());
+    // Between two spaces one space stays.
+    caret(&mut s, 0, "Hôm nay, trời".len());
+    s.delete_word(false).unwrap();
+    assert_eq!(texts(&s)[0], "Hôm nay, đẹp quá");
+}
+
+#[test]
 fn tab_at_the_start_of_a_paragraph_indents_and_backspace_removes_it() {
     let mut s = Session::new(doc(&["đoạn", ""]));
     caret(&mut s, 0, 0);

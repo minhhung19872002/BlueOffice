@@ -757,6 +757,15 @@ fn read_body(
                                 ));
                                 sec.blocks = std::mem::take(&mut blocks);
                                 sections.push(sec);
+                            } else if name(&e) == b"p" {
+                                // §17.3.1.22 p written as `<w:p/>` (an empty paragraph, as
+                                // python-docx and others write it) is a paragraph, not opaque.
+                                let mut p = Paragraph::default();
+                                p.src = Some(Raw::new(
+                                    r.slice(before, r.pos()),
+                                    p.content_fingerprint(),
+                                ));
+                                blocks.push(Block::Paragraph(p));
                             } else {
                                 blocks.push(Block::Opaque(Raw::new(r.slice(before, r.pos()), 0)));
                             }

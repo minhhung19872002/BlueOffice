@@ -535,7 +535,19 @@ export interface FindMatch {
 }
 
 export type CharFormat =
-  | { kind: 'bold' | 'italic' | 'underline' | 'strike' | 'superscript' | 'subscript' | 'clear' }
+  | {
+      kind:
+        | 'bold'
+        | 'italic'
+        | 'underline'
+        | 'strike'
+        | 'superscript'
+        | 'subscript'
+        | 'clear'
+        | 'allCaps'
+        | 'smallCaps'
+        | 'doubleUnderline';
+    }
   | { kind: 'font'; name: string }
   | { kind: 'size'; halfPoints: number }
   | { kind: 'color'; hex: string | null }

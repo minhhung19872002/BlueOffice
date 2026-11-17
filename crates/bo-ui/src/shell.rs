@@ -36,6 +36,8 @@ mod r5;
 mod r6;
 #[path = "doc_r7.rs"]
 mod r7;
+#[path = "doc_r8.rs"]
+mod r8;
 pub(crate) use r6::{
     install_icons as install_round6_icons, install_strings as install_round6_strings,
 };
@@ -242,6 +244,7 @@ pub struct DocWindow {
     r5: r5::R5,
     r6: r6::R6,
     r7: r7::R7,
+    r8: r8::R8,
 }
 
 /// Font sizes offered by the size box (points).
@@ -434,6 +437,7 @@ impl DocWindow {
             r5: r5::R5::default(),
             r6: r6::R6::default(),
             r7: r7::R7::default(),
+            r8: r8::R8::default(),
         }
     }
 
@@ -2825,6 +2829,9 @@ impl DocWindow {
         if let Some(r) = self.r7_input(&input) {
             return r;
         }
+        if let Some(r) = self.r8_input(&input) {
+            return r;
+        }
         // The File screen covers everything below the title bar.
         if let Some(b) = self.backstage.as_mut() {
             match input {
@@ -3095,6 +3102,8 @@ impl DocWindow {
         ) = input
         {
             let id = match (c, shift) {
+                // Ctrl+Shift+K is small capitals (round 8), not a hyperlink.
+                ('k', true) => return self.r8_doc_input(input),
                 ('s', _) => "file.save",
                 ('c', true) => "format.painter",
                 ('c', _) => "edit.copy",
@@ -3367,7 +3376,7 @@ impl DocWindow {
             | Input::Key(..)
             | Input::Blink
             | Input::Preedit(_)
-            | Input::Drag { .. } => self.view.handle(input),
+            | Input::Drag { .. } => self.r8_doc_input(input),
         };
         redraw || tip_before != self.tooltip.is_some()
     }

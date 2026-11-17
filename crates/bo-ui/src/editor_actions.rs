@@ -59,7 +59,7 @@ pub(crate) struct Extras {
     fields: Option<(u32, Vec<FormField>)>,
 }
 
-const OFFICE_FILTERS: [(&str, &str); 1] = [(
+pub(crate) const OFFICE_FILTERS: [(&str, &str); 1] = [(
     "Documents (*.docx; *.doc; *.odt; *.xlsx; *.xls; *.ods; *.csv; *.pptx; *.ppt; *.odp; *.txt)",
     "*.docx;*.doc;*.odt;*.rtf;*.txt;*.xlsx;*.xls;*.ods;*.csv;*.pptx;*.ppt;*.odp",
 )];

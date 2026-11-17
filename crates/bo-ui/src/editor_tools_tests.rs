@@ -276,7 +276,18 @@ fn recognize_fields_and_new_field_kinds() {
 fn optimize_saves_a_smaller_copy() {
     let mut w = window(2);
     w.run("file.optimize", &Fixed);
-    answer(&mut w, &["150", "75"]);
+    // Round 9: the reference's PDF Optimizer (Compress Images panel, 150 ppi above 225).
+    let mut rec = Rec::default();
+    w.paint(&mut rec);
+    for t in [
+        "PDF Optimizer",
+        "Compress Images",
+        "Color/Grayscale Images:",
+        "Clean Up",
+    ] {
+        assert!(rec.texts.iter().any(|x| x == t), "{t}: {:?}", rec.texts);
+    }
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
     let saves: Vec<_> = w
         .take_requests()
         .into_iter()

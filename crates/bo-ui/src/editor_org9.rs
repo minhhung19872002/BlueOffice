@@ -179,6 +179,8 @@ impl EditorWindow {
             "conv.combine" | "org.combine" => self.open_combine9(),
             "org.crop" => self.open_crop9(),
             "org.pageNumbers" => self.open_pagenum9(),
+            "org.delete" => self.open_delete9(),
+            "org.swap" => self.open_swap9(),
             c if c.starts_with("org9.insertTab.") => {
                 if let Ok(i) = c["org9.insertTab.".len()..].parse::<usize>() {
                     self.insert_tab9(i);

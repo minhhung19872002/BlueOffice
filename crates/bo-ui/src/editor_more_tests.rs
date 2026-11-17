@@ -56,8 +56,15 @@ fn duplicate_swap_move_and_page_numbers() {
     key(&mut w, Key::Letter('z'), true, false);
     assert_eq!(texts(&mut w).len(), 3);
     // Swap pages 1 and 3.
+    // Round 9: the reference's Swap Two Pages (Swap / For number boxes).
     w.run("org.swap", &Fixed);
-    type_in(&mut w, &["1", "3"]);
+    {
+        use crate::editor_form8::Val;
+        let f = &mut w.form8.last_mut().expect("Swap Two Pages").0;
+        f.set("a", Val::Text("1".into()));
+        f.set("b", Val::Text("3".into()));
+    }
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
     assert_eq!(texts(&mut w), ["Page 3", "Page 2", "Page 1"]);
     // Move page 1 before page 3 (it lands second).
     w.run("org.move", &Fixed);
@@ -103,7 +110,15 @@ fn replace_interleave_and_resize() {
         matches!(&req[..], [ReaderRequest::PickFile { purpose, .. }] if purpose == "replacePages")
     );
     w.file_picked("replacePages", std::path::Path::new("x.pdf"), &pdf(3));
-    // The selected last page is replaced by the first page of the file.
+    // Round 9: the reference's Replace Pages (From / To = the selected last page); its
+    // Page field picks page 1 of the file (empty: every page, as the reference).
+    {
+        use crate::editor_form8::Val;
+        let f = &mut w.form8.last_mut().expect("Replace Pages").0;
+        assert_eq!((f.text("from"), f.text("to")), ("2".into(), "2".into()));
+        f.set("pick", Val::Text("1".into()));
+    }
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
     assert_eq!(texts(&mut w), ["Page 1", "Page 1"]);
     key(&mut w, Key::Letter('z'), true, false);
     w.run("org.interleave", &Fixed);

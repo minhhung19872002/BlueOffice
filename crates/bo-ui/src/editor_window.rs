@@ -1099,6 +1099,7 @@ impl EditorWindow {
             return;
         }
         if self.org9_command(cmd)
+            || self.conv9_command(cmd)
             || self.dlg8_command(cmd)
             || self.action(cmd, m)
             || self.search_command(cmd)
@@ -1200,7 +1201,7 @@ impl EditorWindow {
                     filters: pdf_filters(),
                 });
             }
-            "org.delete" => {
+            "org.delete" | "org.deleteNow" => {
                 let pages = self.target_pages();
                 let Some(v) = self.r.view_mut() else { return };
                 let r = v.doc_mut().delete_pages(&pages);
@@ -1489,6 +1490,9 @@ impl EditorWindow {
 
     /// Pages rendered as PNG for `purpose` (`images`: one file per page).
     pub fn pages_rendered(&mut self, purpose: &str, pngs: Vec<Vec<u8>>) {
+        if self.conv9_rendered(purpose, &pngs) {
+            return;
+        }
         let stem = self.doc_name();
         if purpose == "slides" {
             self.slides_rendered(pngs);
@@ -1522,7 +1526,9 @@ impl EditorWindow {
             self.picture_picked(purpose, bytes);
             return;
         }
-        if self.org9_file_picked(purpose, bytes) || self.combine9_file_picked(purpose, &name, bytes)
+        if self.org9_file_picked(purpose, bytes)
+            || self.combine9_file_picked(purpose, &name, bytes)
+            || self.pages9_file_picked(purpose, &name, bytes)
         {
             return;
         }
@@ -1882,7 +1888,7 @@ impl EditorWindow {
 
     fn org_key(&mut self, k: Key, mods: Mods, n: usize, m: &dyn TextMeasure) -> bool {
         match (k, mods.ctrl) {
-            (Key::Delete, _) => self.command("org.delete", m),
+            (Key::Delete, _) => self.command("org.deleteNow", m),
             (Key::Letter('a'), true) => self.org.select_range(0, n.saturating_sub(1)),
             (Key::Letter('c'), true) => self.copy_pages(false),
             (Key::Letter('x'), true) => self.copy_pages(true),

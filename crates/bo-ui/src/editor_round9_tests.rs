@@ -382,3 +382,149 @@ fn set_page_dimensions_has_the_reference_layout_and_removes_white_margins() {
     );
     assert!(a < 200.0 && (b - 612.0).abs() < 0.1, "{a} {b}");
 }
+
+#[test]
+fn delete_pages_dialog_deletes_the_range_and_its_even_pages() {
+    use crate::editor_form8::Val;
+    let mut w = organize(5);
+    w.run("org.delete", &Fixed);
+    let t = paint(&mut w).texts;
+    for l in [
+        "Delete Pages",
+        "Page Range",
+        "Page:",
+        "Delete:",
+        "Show Preview",
+    ] {
+        assert!(t.iter().any(|x| x == l), "{l}: {t:?}");
+    }
+    let f = &w.form8.last().expect("dialog").0;
+    assert!((f.frame[2] - 453.0).abs() < 1.0 && (f.frame[3] - 364.0).abs() < 1.0);
+    assert_eq!(f.text("pages"), "1,");
+    {
+        let f = &mut w.form8.last_mut().expect("dialog").0;
+        f.set("pages", Val::Text("2-5".into()));
+        f.set("subset", Val::Pick(1));
+    }
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert!(w.form8.is_empty());
+    // Pages 2 and 4 went.
+    assert_eq!(page_count(&mut w), 3);
+    // The Delete key in the page grid still deletes at once.
+    w.handle(Input::Key(Key::Delete, Mods::default()), &Fixed);
+    assert!(w.form8.is_empty());
+    assert_eq!(page_count(&mut w), 2);
+}
+
+#[test]
+fn swap_two_pages_has_the_reference_layout() {
+    let mut w = organize(3);
+    w.run("org.swap", &Fixed);
+    let t = paint(&mut w).texts;
+    for l in ["Swap Two Pages", "Swap:", "For:", "of", "3"] {
+        assert!(t.iter().any(|x| x == l), "{l}: {t:?}");
+    }
+    let f = &w.form8.last().expect("dialog").0;
+    assert!((f.frame[2] - 419.0).abs() < 1.0 && (f.frame[3] - 178.0).abs() < 1.0);
+    assert_eq!((f.text("a"), f.text("b")), ("1".into(), "1".into()));
+}
+
+#[test]
+fn replace_pages_dialog_takes_every_page_of_the_file_by_default() {
+    let mut w = organize(3);
+    w.run("org.replace", &Fixed);
+    w.take_requests();
+    w.file_picked(
+        "replacePages",
+        std::path::Path::new("src.pdf"),
+        &crate::editor_tests::pdf(2),
+    );
+    let t = paint(&mut w).texts;
+    for l in [
+        "Replace Pages",
+        "Select pages to replace",
+        "Select replacement pages",
+        "src.pdf",
+        "Browse...",
+    ] {
+        assert!(t.iter().any(|x| x == l), "{l}: {t:?}");
+    }
+    let f = &w.form8.last().expect("dialog").0;
+    assert!((f.frame[2] - 763.0).abs() < 1.0 && (f.frame[3] - 311.0).abs() < 1.0);
+    // Browse asks for another file.
+    w.pages9_button("replace9browse");
+    assert!(matches!(
+        &w.take_requests()[..],
+        [crate::reader_window::ReaderRequest::PickFile { purpose, .. }] if purpose == "replacePages9"
+    ));
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    // Page 1 gave way to both pages of the file.
+    assert_eq!(page_count(&mut w), 4);
+}
+
+#[test]
+fn rotate_pages_dialog_turns_the_even_pages_of_a_range() {
+    use crate::editor_form8::Val;
+    let mut w = organize(4);
+    w.run("conv9.rotateMulti", &Fixed);
+    let t = paint(&mut w).texts;
+    for l in [
+        "Rotate Pages",
+        "Direction",
+        "Clockwise 90 degrees",
+        "Counterclockwise 90 degrees",
+        "180 degrees",
+        "Landscape and portrait pages",
+    ] {
+        assert!(t.iter().any(|x| x == l), "{l}: {t:?}");
+    }
+    {
+        let f = &mut w.form8.last_mut().expect("dialog").0;
+        assert!((f.frame[2] - 481.0).abs() < 1.0 && (f.frame[3] - 469.0).abs() < 1.0);
+        f.set("dir", Val::Pick(1));
+        f.set("subset", Val::Pick(1));
+    }
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    let rot: Vec<u16> = {
+        let d = w.view().expect("view").doc();
+        (0..4).map(|i| d.page_info(i).expect("p").rotate).collect()
+    };
+    assert_eq!(rot, [0, 270, 0, 270]);
+}
+
+#[test]
+fn convert_menus_have_the_reference_rows_and_write_tiff_bmp_rtf() {
+    use crate::editor_conv9::{encode_bmp, encode_tiff, menu_rows, to_rtf};
+    let office: Vec<&str> = menu_rows("conv.officeMenu")
+        .expect("rows")
+        .iter()
+        .map(|r| r.0)
+        .collect();
+    assert_eq!(office.len(), 6);
+    assert_eq!(menu_rows("conv.imageMenu").expect("rows").len(), 5);
+    assert_eq!(menu_rows("conv.otherMenu").expect("rows").len(), 4);
+    // 2 × 1 pixels: red, half-transparent blue over white.
+    let px = [255, 0, 0, 255, 0, 0, 255, 128];
+    let bmp = encode_bmp(&px, 2, 1);
+    assert_eq!(&bmp[..2], b"BM");
+    assert_eq!(bmp.len(), 54 + 8);
+    assert_eq!(&bmp[54..57], &[0, 0, 255]);
+    let back = bo_raster::codecs::decode(&bmp).expect("bmp decodes");
+    assert_eq!((back.width, back.height), (2, 1));
+    let tif = encode_tiff(&px, 2, 1);
+    let img = bo_raster::codecs::decode(&tif).expect("tiff decodes");
+    assert_eq!((img.width, img.height), (2, 1));
+    assert_eq!(&img.pixels[..4], &[255, 0, 0, 255]);
+    let rtf = to_rtf("Hà {x}\n\u{c}Page 2\n");
+    assert!(rtf.starts_with(r"{\rtf1"));
+    assert!(rtf.contains(r"H\u224?") && rtf.contains(r"\{x\}") && rtf.contains(r"\page"));
+    // The menu opens on the ribbon button.
+    let mut w = window(1);
+    w.show_tab(1, &Fixed);
+    paint(&mut w);
+    w.run("conv.imageMenu", &Fixed);
+    let t = paint(&mut w).texts;
+    for l in ["PNG...", "JPEG...", "JPEG2000...", "TIFF...", "BMP..."] {
+        assert!(t.iter().any(|x| x == l), "{l}: {t:?}");
+    }
+}

@@ -717,6 +717,16 @@ impl Form {
                             Rgba(0xFB, 0xFB, 0xFB, 255)
                         },
                     );
+                    if on && !focused && !*multi {
+                        // Round 9: the reference's boxes have a #838383 line along the bottom.
+                        p.fill_rect(
+                            b[0] + 1.0,
+                            b[1] + b[3] - 1.0,
+                            b[2] - 2.0,
+                            1.0,
+                            Rgba(0x83, 0x83, 0x83, 255),
+                        );
+                    }
                     let v = self.text(id);
                     p.push_clip(b[0] + 1.0, b[1] + 1.0, b[2] - 2.0, b[3] - 2.0);
                     let lines: Vec<&str> = v.split('\n').collect();

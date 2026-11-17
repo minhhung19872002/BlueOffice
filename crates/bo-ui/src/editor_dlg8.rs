@@ -38,6 +38,16 @@ pub(crate) enum FormWhat {
     Crop9,
     /// Page Numbers (round 9, `editor_pagenum9`).
     PageNum9,
+    /// Delete Pages (round 9, `editor_pages9`).
+    Delete9,
+    /// Swap Two Pages (round 9, `editor_pages9`).
+    Swap9,
+    /// Replace Pages with the picked file (round 9, `editor_pages9`).
+    Replace9(Vec<u8>),
+    /// Rotate Pages (Multi-page rotate, round 9, `editor_conv9`).
+    Rotate9,
+    /// PDF Optimizer (round 9, `editor_opt9`).
+    Optimize9,
 }
 
 /// Font sizes offered by the Size lists.
@@ -1580,7 +1590,7 @@ impl EditorWindow {
     }
 
     fn form8_button(&mut self, id: &'static str) {
-        if self.combine9_button(id) || self.crop9_button(id) {
+        if self.combine9_button(id) || self.crop9_button(id) || self.pages9_button(id) {
             return;
         }
         if id == "cancel" && matches!(self.form8.last(), Some((_, FormWhat::Combine9))) {
@@ -1663,6 +1673,11 @@ impl EditorWindow {
                     FormWhat::Combine9 => self.combine9_ok(&f),
                     FormWhat::Crop9 => self.crop9_ok(&f),
                     FormWhat::PageNum9 => self.pagenum9_ok(&f),
+                    FormWhat::Delete9 => self.delete9_ok(&f),
+                    FormWhat::Swap9 => self.swap9_ok(&f),
+                    FormWhat::Replace9(bytes) => self.replace9_ok(&f, &bytes),
+                    FormWhat::Rotate9 => self.rotate9_ok(&f),
+                    FormWhat::Optimize9 => self.opt9_ok(&f),
                 }
             }
             _ => self.dlg8b_button(id),

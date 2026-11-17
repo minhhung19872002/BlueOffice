@@ -917,10 +917,16 @@ impl EditorWindow {
     }
 
     fn optimize(&mut self, ppi: f32, quality: u8) {
+        self.optimize9(ppi, 1.5, quality, true);
+    }
+
+    /// Optimize with the PDF Optimizer's values (round 9) and save the copy.
+    pub(crate) fn optimize9(&mut self, ppi: f32, threshold: f32, quality: u8, streams: bool) {
         let o = bo_pdfread::OptimizeOptions {
             max_ppi: ppi,
+            threshold,
             jpeg_quality: quality,
-            ..bo_pdfread::OptimizeOptions::default()
+            object_streams: streams,
         };
         let enc = |rgba: &[u8], w: u32, h: u32, q: u8| bo_raster::jpeg::encode_jpeg(rgba, w, h, q);
         let name = format!("{}-optimized.pdf", self.doc_stem());

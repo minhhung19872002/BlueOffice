@@ -633,3 +633,29 @@ fn tracked_equation_replacement_is_one_revision() {
     let kinds: Vec<_> = s.revisions().iter().map(|r| r.kind).collect();
     assert!(!kinds.contains(&RevKind::Equation), "{kinds:?}");
 }
+
+#[test]
+fn tracked_typing_over_a_selection_inserts_before_the_deletion() {
+    let original = Document {
+        sections: vec![Section::new(vec![para("bang BlueWrite de")])],
+        ..Document::default()
+    };
+    let mut s = Session::new(original);
+    s.set_track_changes(true);
+    s.set_author("An");
+    s.set_selection(Selection {
+        anchor: Pos::new(0, 5),
+        focus: Pos::new(0, 14),
+    });
+    let sel = s.insert_text("BlueDoc").unwrap();
+    // The inserted text comes first, the deleted text after it, the caret between them.
+    assert_eq!(s.para_text(0).unwrap(), "bang BlueDocBlueWrite de");
+    assert_eq!(sel, Selection::caret(Pos::new(0, 12)));
+    let mut kinds: Vec<(usize, RevKind)> = s
+        .revisions()
+        .iter()
+        .map(|r| (r.start.offset, r.kind))
+        .collect();
+    kinds.sort_by_key(|k| k.0);
+    assert_eq!(kinds, vec![(5, RevKind::Insert), (12, RevKind::Delete)]);
+}

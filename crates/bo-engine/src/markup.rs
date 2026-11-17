@@ -55,8 +55,9 @@ impl Default for MarkupOptions {
     }
 }
 
-/// Width of the markup area holding balloons (points).
-pub const AREA_WIDTH: f32 = 180.0;
+/// Width of the markup area holding balloons (points): 394 px at 125 % on the reference
+/// word processor (BlueDoc round 6).
+pub const AREA_WIDTH: f32 = 236.0;
 /// Width of the simple-markup strip holding comment icons (points).
 pub const ICON_AREA_WIDTH: f32 = 24.0;
 /// Change bar colours: neutral in all markup, red in simple markup.
@@ -70,6 +71,36 @@ const BAR_SIMPLE: Color = Color {
     g: 0x21,
     b: 0x21,
 };
+
+/// Balloon text of a formatting change, worded as the reference words it
+/// ("Formatted: Font: Bold, Italic").
+fn format_text(keys: &[&str]) -> String {
+    const FONT: [(&str, &str); 8] = [
+        ("bold", "Bold"),
+        ("italic", "Italic"),
+        ("underline", "Underline"),
+        ("strike", "Strikethrough"),
+        ("font", "Font"),
+        ("size", "Size"),
+        ("color", "Font color"),
+        ("highlight", "Highlight"),
+    ];
+    let font: Vec<&str> = keys
+        .iter()
+        .filter_map(|k| FONT.iter().find(|(f, _)| f == k).map(|(_, v)| *v))
+        .collect();
+    let mut parts = Vec::new();
+    if !font.is_empty() {
+        parts.push(format!("Font: {}", font.join(", ")));
+    }
+    for k in keys.iter().filter(|k| !FONT.iter().any(|(f, _)| f == *k)) {
+        let mut c = k.chars();
+        if let Some(f) = c.next() {
+            parts.push(f.to_uppercase().chain(c).collect());
+        }
+    }
+    format!("Formatted: {}", parts.join(", "))
+}
 
 fn kind_of(k: RevKind) -> MarkKind {
     match k {
@@ -154,9 +185,17 @@ impl MarkupOptions {
                 end: pos(r.end),
                 author: r.author.clone(),
                 date: r.date.clone(),
-                text: r.text.clone(),
+                text: if kind == MarkKind::Format {
+                    format_text(&r.detail)
+                } else {
+                    r.text.clone()
+                },
                 done: false,
-                balloon: all && self.deletion_balloons && kind != MarkKind::Insert,
+                // All markup: formatting changes always in balloons ("Formatted: Font: Bold"),
+                // deletions too when asked, as the reference shows revisions.
+                balloon: all
+                    && (kind == MarkKind::Format
+                        || (self.deletion_balloons && kind != MarkKind::Insert)),
             });
         }
         if self.comments {
@@ -197,10 +236,12 @@ impl MarkupOptions {
                 bar_color: Some(BAR_ALL),
                 icons: false,
             },
+            // Simple markup keeps the comments' balloons (only comments have one here), as
+            // the reference shows them beside the clean text.
             MarkupMode::Simple => MarkupStyle {
-                area_width: if balloons { ICON_AREA_WIDTH } else { 0.0 },
+                area_width: if balloons { AREA_WIDTH } else { 0.0 },
                 bar_color: Some(BAR_SIMPLE),
-                icons: true,
+                icons: false,
             },
             MarkupMode::None | MarkupMode::Original => MarkupStyle {
                 area_width: 0.0,

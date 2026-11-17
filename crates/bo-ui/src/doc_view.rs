@@ -105,6 +105,11 @@ pub struct DocView {
     /// Input-method composition shown at the caret.
     preedit: String,
     comments: Vec<bo_edit::comments::CommentInfo>,
+    /// Revisions of the document and whether tracking is locked (Reviewing Pane, round 6).
+    revisions: Vec<bo_edit::RevisionItem>,
+    tracking_locked: bool,
+    /// Comment anchors to tint (rectangle, author colour), refreshed after each edit.
+    comment_marks: Vec<(bo_engine::nav::SelRect, Rgba)>,
     selection: Option<bo_edit::Selection>,
     format: FormatState,
     words: usize,
@@ -165,6 +170,9 @@ impl DocView {
             track: false,
             preedit: String::new(),
             comments: Vec::new(),
+            revisions: Vec::new(),
+            tracking_locked: false,
+            comment_marks: Vec::new(),
             selection: None,
             format: FormatState::default(),
             words: 0,
@@ -205,6 +213,17 @@ impl DocView {
     /// Number of pages.
     pub fn page_count(&self) -> usize {
         self.pages.len()
+    }
+
+    /// The engine for host work that does not change the document's content or layout
+    /// (choosing the package variant of a saved copy).
+    pub fn engine_for_export(&mut self) -> &mut Engine {
+        &mut self.engine
+    }
+
+    /// Page sizes in points (File › Print preview, printing).
+    pub fn page_sizes_pt(&self) -> Vec<(f32, f32)> {
+        self.pages.iter().map(|p| (p.width, p.height)).collect()
     }
 
     /// Words in the main story.
@@ -392,6 +411,16 @@ impl DocView {
     /// Track changes is on.
     pub fn track_changes(&self) -> bool {
         self.track
+    }
+
+    /// Revisions of the document (Reviewing Pane).
+    pub fn revisions(&self) -> &[bo_edit::RevisionItem] {
+        &self.revisions
+    }
+
+    /// Tracking is locked (Review › Track Changes › Lock Tracking).
+    pub fn tracking_locked(&self) -> bool {
+        self.tracking_locked
     }
 
     /// Run a command and return the engine's result (applied to the view).
@@ -1019,6 +1048,8 @@ impl DocView {
         let tops = self.page_tops();
         let cols = self.columns.max(1);
         let gap = self.gap();
+        // The markup area right of the pages takes room in the row: pages move left.
+        let markup = self.markup_px();
         self.pages
             .iter()
             .zip(tops)
@@ -1028,11 +1059,14 @@ impl DocView {
                 // The row is centred; pages follow each other with a gap between them.
                 let first = index - index % cols;
                 let row = &self.pages[first..(first + cols).min(self.pages.len())];
-                let row_w: f32 = row.iter().map(|q| self.page_px(*q).0 as f32).sum::<f32>()
+                let row_w: f32 = row
+                    .iter()
+                    .map(|q| self.page_px(*q).0 as f32 + markup)
+                    .sum::<f32>()
                     + gap * (row.len() as f32 - 1.0);
                 let before: f32 = self.pages[first..index]
                     .iter()
-                    .map(|q| self.page_px(*q).0 as f32 + gap)
+                    .map(|q| self.page_px(*q).0 as f32 + markup + gap)
                     .sum();
                 let x = (((viewport.0 - row_w) / 2.0).max(gap) + before).floor();
                 PageSlot {
@@ -1252,11 +1286,14 @@ impl DocView {
         if let Some(review) = &r.review {
             self.track = review.track_changes;
             self.comments.clone_from(&review.comments);
+            self.revisions.clone_from(&review.revisions);
+            self.tracking_locked = review.tracking_locked;
             self.markup.clone_from(&review.markup);
         }
         self.selection = Some(r.selection);
         self.words = r.info.word_count;
         self.story.clone_from(&r.story);
+        self.refresh_comment_marks();
     }
 
     fn reveal_caret(&mut self) {
@@ -1405,6 +1442,7 @@ impl DocView {
         p.fill_rect(ox, oy, vw, vh, canvas);
         let s = self.scale();
         let visible = self.visible();
+        let markup = self.markup_px();
         for slot in &visible {
             let edge = if self.plain {
                 0.0
@@ -1414,13 +1452,14 @@ impl DocView {
             p.fill_rect(
                 slot.x as f32 - edge,
                 slot.y as f32 - edge,
-                slot.width as f32 + 2.0 * edge,
+                slot.width as f32 + markup + 2.0 * edge,
                 slot.height as f32 + 2.0 * edge,
                 PAGE_SHADOW,
             );
             if self.shown.contains_key(&slot.index) {
                 p.page(slot.index, slot.x, slot.y);
             }
+            self.paint_markup(p, (slot.index, slot.x, slot.y, slot.width, slot.height));
             // Wavy lines under misspelt words (red) and grammar issues (blue), as a desktop
             // word processor checks as you type.
             let marks = if self.hide_spelling {
@@ -1449,6 +1488,7 @@ impl DocView {
                     Rgba(255, 238, 0, 110),
                 );
             }
+            self.paint_comment_marks(p, (slot.index, slot.x, slot.y));
             for r in self.rects.iter().filter(|r| r.page == slot.index) {
                 p.fill_rect(
                     slot.x as f32 + r.x * s,
@@ -1495,6 +1535,8 @@ impl DocView {
     }
 }
 
+#[path = "doc_markup6.rs"]
+mod markup6;
 #[cfg(test)]
 mod tests {
     use super::*;

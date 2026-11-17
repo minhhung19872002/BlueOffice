@@ -140,10 +140,11 @@ fn track_changes_over_the_bridge_and_docx() {
     );
     let revs = r["review"]["revisions"].as_array().unwrap();
     assert_eq!(revs.len(), 2);
-    assert_eq!(revs[0]["kind"], "delete");
-    assert_eq!(revs[1]["kind"], "insert");
-    assert_eq!(revs[1]["author"], "Trần Thị B");
-    assert_eq!(revs[1]["date"], "2026-11-08T09:30:15Z");
+    // The new text comes before the deleted text, as desktop word processors show it.
+    assert_eq!(revs[0]["kind"], "insert");
+    assert_eq!(revs[1]["kind"], "delete");
+    assert_eq!(revs[0]["author"], "Trần Thị B");
+    assert_eq!(revs[0]["date"], "2026-11-08T09:30:15Z");
     // Markup view shows both; the final view hides the deletion.
     let page = e.page_json(0).unwrap();
     assert!(page.contains("số 1") && page.contains("mới"));

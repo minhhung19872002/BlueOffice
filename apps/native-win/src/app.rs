@@ -11,6 +11,13 @@ use std::io::Write;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Instant;
 
+#[path = "doc_host6.rs"]
+mod host6;
+// Printer status (Win32 calls confined to this child module, like win32.rs).
+#[path = "doc_printers6.rs"]
+#[allow(unsafe_code)]
+mod printers6;
+
 /// Interface text size factor (the Windows text size setting), as `f32` bits.
 static TEXT_SCALE: AtomicU32 = AtomicU32::new(0x3f80_0000);
 
@@ -32,6 +39,7 @@ fn ui_size(size: f32) -> f32 {
 }
 
 /// Open the file named on the command line (or a new document) and run the window.
+#[allow(clippy::too_many_lines)]
 pub fn run() -> Result<(), String> {
     let mut engine = Engine::with_bundled_fonts();
     // DATE / TIME fields show the local time, as desktop word processors do.
@@ -51,7 +59,23 @@ pub fn run() -> Result<(), String> {
         ));
     }
     let mut file = None;
-    let name = if let Some(path) = std::env::args_os().nth(1) {
+    // `--template <id>`: a new document from one of BlueOffice's templates (File › New).
+    let args: Vec<std::ffi::OsString> = std::env::args_os().collect();
+    let template = (args.get(1).is_some_and(|a| a == "--template"))
+        .then(|| args.get(2).map(|a| a.to_string_lossy().into_owned()))
+        .flatten();
+    let file_arg = if template.is_some() {
+        None
+    } else {
+        args.get(1).cloned()
+    };
+    // `--print in.docx <printer> <out-file|-> [--pages 1-3] [--copies n]`: print without a
+    // window (to a print-to-file printer such as the system's PDF printer when out-file is
+    // given).
+    if args.get(1).is_some_and(|a| a == "--print") {
+        return print_tool(&args, engine);
+    }
+    let name = if let Some(path) = file_arg {
         {
             let path = std::path::PathBuf::from(path);
             let bytes = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
@@ -71,10 +95,31 @@ pub fn run() -> Result<(), String> {
     };
     // Interface language: English by default (owner's choice, 2026-11-14); BLUEOFFICE_LOCALE
     // selects another locale of packages/i18n (e.g. vi-VN).
-    let locale = std::env::var("BLUEOFFICE_LOCALE").unwrap_or_else(|_| "en-US".into());
+    // File › Options › Language chooses it when the variable is not set.
+    let prefs = host6::read_prefs();
+    let locale = std::env::var("BLUEOFFICE_LOCALE")
+        .ok()
+        .or_else(|| host6::prefs_locale(&prefs))
+        .unwrap_or_else(|| "en-US".into());
     let new_document = file.is_none();
     let mut view = DocWindow::new(DocView::new(engine)?, &locale, &name);
     view.set_utc_offset_minutes(win32::utc_offset_minutes());
+    // Round 6: preferences, the app's own recent list, the file shown on File › Info, the
+    // printers of File › Print.
+    view.set_prefs(&prefs);
+    let recent = match &file {
+        Some(p) => host6::touch_recent(p),
+        None => host6::read_recent(),
+    };
+    view.set_recent(recent);
+    if let Some(p) = &file {
+        view.set_file_info(Some(&p.to_string_lossy()), host6::file_size(p));
+        view.set_file_details(host6::file_details(p));
+    }
+    let (printers, default_printer) = host6::printers();
+    // Read-only spooler state (status bits, jobs waiting) for the status line.
+    view.set_printer_states(printers.iter().map(|n| printers6::state(n)).collect());
+    view.set_printers(printers, default_printer);
     // A new document takes the theme, style set and effects set as the default.
     if let Some(v) = defaults_path().and_then(|p| std::fs::read_to_string(p).ok()) {
         if new_document {
@@ -82,6 +127,9 @@ pub fn run() -> Result<(), String> {
         }
         // Defaults for every document (Date and Time format).
         view.apply_interface_defaults(&v);
+    }
+    if let Some(t) = &template {
+        view.apply_template(t);
     }
     // Sizes in the region's unit and decimal separator, as the reference shows them
     // (iMeasure 1: US system, inches). BLUEOFFICE_UNITS=cm|in overrides.
@@ -113,6 +161,7 @@ pub fn run() -> Result<(), String> {
             pending_input: None,
             last_frame: [std::time::Duration::ZERO; 3],
             clock: Instant::now(),
+            hwnd: 0,
         }),
     )
 }
@@ -275,6 +324,8 @@ struct Shell {
     last_frame: [std::time::Duration; 3],
     /// Clock of animations.
     clock: Instant,
+    /// The window (driver dialogs of File › Print are owned by it).
+    hwnd: isize,
 }
 
 impl Shell {
@@ -297,6 +348,40 @@ impl Shell {
                 eprintln!("save {}: {e}", path.display());
                 false
             }
+        }
+    }
+
+    /// File › Export › Change File Type: save a copy as `ext` under a picked name.
+    fn save_as_type(&mut self, ext: &str) -> bool {
+        let stem = self.file.as_ref().and_then(|p| p.file_stem()).map_or_else(
+            || "Document1".to_owned(),
+            |n| n.to_string_lossy().into_owned(),
+        );
+        let name = format!("{stem}.{ext}");
+        let Some(path) = win32::file_dialog(true, &[host6::filter_of(ext)], &name) else {
+            return false;
+        };
+        match host6::export_as(self.view.view_mut().engine_for_export(), ext) {
+            Ok(bytes) => {
+                if let Err(e) = std::fs::write(&path, bytes) {
+                    eprintln!("export {}: {e}", path.display());
+                }
+            }
+            Err(e) => eprintln!("export: {e}"),
+        }
+        false
+    }
+
+    /// File › Print: the job with the File screen's settings, on the chosen printer.
+    fn print_job(&mut self, job: &bo_ui::PrintJob) {
+        let title = self.file.as_ref().and_then(|p| p.file_name()).map_or_else(
+            || "Document1".to_owned(),
+            |n| n.to_string_lossy().into_owned(),
+        );
+        let sizes = self.view.view().page_sizes_pt();
+        if let Err(e) = host6::print_document(self.view.view().engine(), &sizes, job, &title, None)
+        {
+            eprintln!("print: {e}");
         }
     }
 
@@ -383,6 +468,7 @@ impl Shell {
     }
 
     /// Carry out the interface's requests (files, clipboard, printing); `true` to redraw.
+    #[allow(clippy::too_many_lines)]
     fn handle_requests(&mut self) -> bool {
         let mut redraw = false;
         for r in self.view.take_requests() {
@@ -398,6 +484,28 @@ impl Shell {
                     redraw |= self.view.paste(internal, html, text);
                 }
                 Request::New => spawn_self(None),
+                Request::OpenPath(p) => spawn_self(Some(std::path::Path::new(&p))),
+                Request::NewFromTemplate(id) => {
+                    if let Ok(exe) = std::env::current_exe() {
+                        let _ = std::process::Command::new(exe)
+                            .arg("--template")
+                            .arg(id)
+                            .spawn();
+                    }
+                }
+                Request::SaveAsType(ext) => redraw |= self.save_as_type(&ext),
+                Request::OpenLocation(p) => host6::open_location(&p),
+                Request::PrinterProperties(name) => {
+                    // The driver's own settings dialog; nothing is printed.
+                    let _ = host6::print::properties(self.hwnd, &name, None);
+                }
+                Request::Email { subject, body } => host6::email(&subject, &body),
+                Request::PrintJob(job) => self.print_job(&job),
+                Request::SavePrefs => {
+                    if let Some(text) = self.view.take_prefs() {
+                        host6::write_prefs(&text);
+                    }
+                }
                 Request::Open => {
                     let filters = [
                         (
@@ -411,10 +519,18 @@ impl Shell {
                     }
                 }
                 Request::SaveAs => {
-                    let name = self.file.as_ref().and_then(|p| p.file_name()).map_or_else(
+                    let mut name = self.file.as_ref().and_then(|p| p.file_name()).map_or_else(
                         || "Document1.docx".to_owned(),
                         |n| n.to_string_lossy().into_owned(),
                     );
+                    // A new document starts in File › Options › Save's default folder.
+                    let folder = self.view.default_folder();
+                    if self.file.is_none() && !folder.is_empty() {
+                        name = std::path::Path::new(folder)
+                            .join(&name)
+                            .to_string_lossy()
+                            .into_owned();
+                    }
                     if let Some(path) =
                         win32::file_dialog(true, &[("Word document (*.docx)", "*.docx")], &name)
                     {
@@ -424,6 +540,11 @@ impl Shell {
                                 .file_name()
                                 .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
                             self.view.set_name(&shown);
+                            self.view.set_recent(host6::touch_recent(&path));
+                            self.view.set_file_info(
+                                Some(&path.to_string_lossy()),
+                                host6::file_size(&path),
+                            );
                             redraw = true;
                         }
                     }
@@ -522,6 +643,55 @@ fn defaults_path() -> Option<std::path::PathBuf> {
 }
 
 /// Start another BlueDoc window (with `file`, or a new document).
+/// `--print in.docx <printer> <out-file|-> [--pages 1-3,5] [--copies n] [--nup n]`.
+fn print_tool(args: &[std::ffi::OsString], mut engine: Engine) -> Result<(), String> {
+    let arg = |i: usize| args.get(i).map(|a| a.to_string_lossy().into_owned());
+    let input = arg(2).ok_or("missing input file")?;
+    let printer = arg(3).ok_or("missing printer name")?;
+    let out = arg(4).ok_or("missing output file (or -)")?;
+    let bytes = std::fs::read(&input).map_err(|e| format!("{input}: {e}"))?;
+    let name = std::path::Path::new(&input).file_name().map_or_else(
+        || "document.docx".into(),
+        |n| n.to_string_lossy().into_owned(),
+    );
+    engine.open(&bytes, &name).map_err(|e| e.to_string())?;
+    let view = DocView::new(engine)?;
+    let sizes = view.page_sizes_pt();
+    let mut job = bo_ui::PrintJob {
+        printer,
+        copies: 1,
+        pages: (0..sizes.len()).collect(),
+        collate: true,
+        duplex: 0,
+        per_sheet: 1,
+    };
+    let mut i = 5;
+    while let Some(a) = arg(i) {
+        let v = arg(i + 1).unwrap_or_default();
+        match a.as_str() {
+            "--pages" => {
+                job.pages = v
+                    .split(',')
+                    .flat_map(|r| {
+                        let (a, b) = r.split_once('-').unwrap_or((r, r));
+                        let a = a.trim().parse::<usize>().unwrap_or(1).max(1);
+                        let b = b.trim().parse::<usize>().unwrap_or(a).max(a);
+                        (a - 1)..b
+                    })
+                    .collect();
+            }
+            "--copies" => job.copies = v.parse().unwrap_or(1),
+            "--nup" => job.per_sheet = v.parse().unwrap_or(1),
+            _ => {}
+        }
+        i += 2;
+    }
+    let output = (out != "-").then_some(out);
+    let n = host6::print_document(view.engine(), &sizes, &job, &name, output)?;
+    println!("printed {n} sheet(s)");
+    Ok(())
+}
+
 fn spawn_self(file: Option<&std::path::Path>) {
     if let Ok(exe) = std::env::current_exe() {
         let mut cmd = std::process::Command::new(exe);
@@ -543,6 +713,7 @@ struct PendingInput {
 
 impl Handler for Shell {
     fn created(&mut self, hwnd: isize, width: u32, height: u32, scale: f32) -> Result<(), String> {
+        self.hwnd = hwnd;
         refresh_text_scale();
         let device = Device::new()?;
         if let Err(e) = device.update_window_monitor(hwnd) {

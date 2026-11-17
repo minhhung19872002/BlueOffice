@@ -2772,6 +2772,17 @@ impl crate::Engine {
         Ok(r)
     }
 
+    /// Rectangles of the main-text range `a..b` (comment anchors in the native view).
+    pub fn range_rects(&self, a: Pos, b: Pos) -> Vec<SelRect> {
+        nav::selection_rects(
+            self.layout.document(),
+            Selection {
+                anchor: a,
+                focus: b,
+            },
+        )
+    }
+
     /// Highlight rectangles of find matches in the laid-out main text.
     pub fn match_rects(&self, matches: &[Match]) -> Vec<SelRect> {
         let layout = self.layout.document();

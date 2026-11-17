@@ -23,3 +23,9 @@ Rules that never change:
   traced or copied (Microsoft or Foxit). Never copy names, fonts, brand colours of the title bar.
 - Every comparison produces a side-by-side image (reference top/left, ours bottom/right, ≤ 1600 px) that is shown
   to the owner.
+
+Scripts that post mouse messages must be per-monitor DPI aware (`SetProcessDpiAwarenessContext(-4)`,
+as `cap2.ps1` / `menu.ps1`): Windows scales the coordinates of mouse messages posted by a DPI-unaware
+process (Windows PowerShell) to a per-monitor-aware window — at 125 % a click posted at x 209 arrives at
+261 and lands on the next ribbon tab (BlueDoc round 4; `BLUEOFFICE_INPUT_LOG=1` prints each pointer
+input of BlueDoc on stderr).

@@ -787,7 +787,8 @@ fn page_list(
             item_commands(item, &mut commands);
         }
     }
-    for item in page.items.iter().filter(|i| i.layer() == Layer::Back) {
+    // Floating objects in their stacking order (§20.4.2.3 relativeHeight).
+    for item in bo_layout::stacked(&page.items, Layer::Back) {
         let start = commands.len();
         item_commands(item, &mut commands);
         if let Some(src) = item_source(item) {
@@ -800,7 +801,8 @@ fn page_list(
         line_commands(line, fonts, &mut commands);
         span(&commands, start, SpanSource::Line(line.source));
     }
-    for item in page.items.iter().filter(|i| i.layer() == Layer::Front) {
+    // Floating objects in their stacking order (§20.4.2.3 relativeHeight).
+    for item in bo_layout::stacked(&page.items, Layer::Front) {
         let start = commands.len();
         item_commands(item, &mut commands);
         if let Some(src) = item_source(item) {
@@ -866,6 +868,7 @@ mod tests {
             rotation: 0.0,
             layer: Layer::Back,
             alpha: 0.3,
+            z: 0,
         };
         let mut page = Page {
             width: 100.0,

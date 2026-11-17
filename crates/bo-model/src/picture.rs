@@ -215,6 +215,12 @@ pub struct PictureFormat {
     /// the picture is its PNG fallback.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub svg: Option<String>,
+    /// Mirrored left to right (`a:xfrm@flipH` of `pic:spPr`, §20.1.7.6).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub flip_h: bool,
+    /// Mirrored top to bottom (`a:xfrm@flipV`, §20.1.7.6).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub flip_v: bool,
 }
 
 impl PictureFormat {
@@ -224,6 +230,8 @@ impl PictureFormat {
             && self.shape.as_deref().is_none_or(|s| s == "rect")
             && self.removal.is_none()
             && self.svg.is_none()
+            && !self.flip_h
+            && !self.flip_v
     }
 }
 
@@ -281,11 +289,35 @@ pub fn display_id(media: &str, format: &PictureFormat, crop: Option<[i32; 4]>) -
         }
         key.push_str(&format!("shape={s}@{l},{t},{r},{b}"));
     }
+    // §20.1.7.6 xfrm flipH / flipV: the picture is drawn mirrored.
+    let flip = match (format.flip_h, format.flip_v) {
+        (true, true) => "hv",
+        (true, false) => "h",
+        (false, true) => "v",
+        (false, false) => "",
+    };
+    if !flip.is_empty() {
+        if !key.is_empty() {
+            key.push(';');
+        }
+        key.push_str("flip=");
+        key.push_str(flip);
+    }
     if key.is_empty() {
         media.to_owned()
     } else {
         format!("{media}{FX_MARK}{key}")
     }
+}
+
+/// Mirroring of a derived image id: (left to right, top to bottom).
+pub fn flip_of_id(id: &str) -> (bool, bool) {
+    let Some((_, key)) = id.split_once(FX_MARK) else {
+        return (false, false);
+    };
+    key.split(';')
+        .find_map(|i| i.strip_prefix("flip="))
+        .map_or((false, false), |v| (v.contains('h'), v.contains('v')))
 }
 
 /// The crop shape of a derived image id, if any.

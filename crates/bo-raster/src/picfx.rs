@@ -9,7 +9,7 @@
 //! luma `0.299 R + 0.587 G + 0.114 B`.
 
 use crate::codecs::{self, Rgba};
-use bo_model::picture::{clip_of_id, split_fx_id, ClipShape, PictureFx, PCT};
+use bo_model::picture::{clip_of_id, flip_of_id, split_fx_id, ClipShape, PictureFx, PCT};
 use bo_render::ImageSource;
 use std::borrow::Cow;
 
@@ -265,7 +265,32 @@ pub fn derive_id_png(bytes: &[u8], id: &str) -> Option<Vec<u8>> {
     if let Some(c) = clip_of_id(id) {
         mask_shape(&mut img, &c);
     }
+    mirror(&mut img, flip_of_id(id));
     crate::rgba_to_png(img)
+}
+
+/// Mirror the pixels left to right and / or top to bottom (§20.1.7.6 xfrm flipH /
+/// flipV of a picture).
+pub fn mirror(img: &mut Rgba, (h, v): (bool, bool)) {
+    let (w, ht) = (img.width as usize, img.height as usize);
+    if img.pixels.len() < w * ht * 4 {
+        return;
+    }
+    if h {
+        for row in img.pixels.chunks_exact_mut(w * 4).take(ht) {
+            for x in 0..w / 2 {
+                for c in 0..4 {
+                    row.swap(x * 4 + c, (w - 1 - x) * 4 + c);
+                }
+            }
+        }
+    }
+    if v {
+        for y in 0..ht / 2 {
+            let (top, bottom) = img.pixels.split_at_mut((ht - 1 - y) * w * 4);
+            top[y * w * 4..(y + 1) * w * 4].swap_with_slice(&mut bottom[..w * 4]);
+        }
+    }
 }
 
 /// Encoded bytes of image `id`: the source's bytes, or for a derived id
@@ -291,6 +316,7 @@ pub fn resolve_rgba(src: &dyn ImageSource, id: &str) -> Option<Rgba> {
     if let Some(c) = clip_of_id(id) {
         mask_shape(&mut img, &c);
     }
+    mirror(&mut img, flip_of_id(id));
     Some(img)
 }
 

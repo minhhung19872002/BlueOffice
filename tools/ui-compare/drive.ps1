@@ -2,8 +2,12 @@
 param([string]$S,[string]$Name,[string]$Clicks)
 Add-Type @"
 using System; using System.Runtime.InteropServices;
-public class PM3 { [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h,uint m,IntPtr w,IntPtr l); }
+public class PM3 { [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h,uint m,IntPtr w,IntPtr l);
+ [DllImport("user32.dll")] public static extern bool SetProcessDpiAwarenessContext(IntPtr v); }
 "@
+# Per-monitor aware like the app: a DPI-unaware sender has its posted mouse coordinates
+# scaled by the system (209 px arrived as 261 at 125 %), so clicks hit the next control.
+[PM3]::SetProcessDpiAwarenessContext([IntPtr]-4) | Out-Null
 $env:BLUEOFFICE_ZOOM="100"
 $f="$S\$Name.docx"; Copy-Item "D:\Source\BlueOffice\tests\corpus\doc\phase1-sample.docx" $f -Force
 $p=Start-Process "D:\Source\BlueOffice\target\release\bluedoc-native.exe" $f -PassThru; Start-Sleep 4

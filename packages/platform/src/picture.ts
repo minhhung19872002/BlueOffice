@@ -143,7 +143,9 @@ export type PictureCommand =
       page?: boolean;
     }
   /** Turn the picture clockwise by `degrees` (§20.1.7.6 xfrm rot). */
-  | { cmd: 'pictureRotate'; degrees: number };
+  | { cmd: 'pictureRotate'; degrees: number }
+  | { cmd: 'pictureOrder'; order: 'forward' | 'front' | 'backward' | 'back' }
+  | { cmd: 'pictureFlip'; axis: 'horizontal' | 'vertical' };
 
 /** Text wrapping of a picture (Wrap Text menu). */
 export type PictureWrap =

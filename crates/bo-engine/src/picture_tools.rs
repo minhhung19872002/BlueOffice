@@ -194,6 +194,18 @@ pub enum PictureCommand {
         /// Degrees to add (multiples of 90 in the Rotate menu).
         degrees: i32,
     },
+    /// Stacking order of the floating picture among the floating objects
+    /// (§20.4.2.3 relativeHeight): `forward`, `front`, `backward`, `back`.
+    PictureOrder {
+        /// Move.
+        order: String,
+    },
+    /// Mirror the picture (§20.1.7.6 xfrm flipH / flipV): `horizontal` or `vertical`;
+    /// a second flip on the same axis undoes the first.
+    PictureFlip {
+        /// Axis.
+        axis: String,
+    },
     /// Insert an SVG picture (with a PNG fallback).
     PictureInsertSvg {
         /// SVG document, base64.

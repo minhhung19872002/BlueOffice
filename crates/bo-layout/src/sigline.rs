@@ -191,6 +191,7 @@ pub(crate) fn signature_line_drawing(
                 rotation: 0.0,
                 layer: layer_of(img),
                 alpha: 1.0,
+                z: 0,
             });
         } else {
             let size = avail_h.min(28.0);
@@ -253,6 +254,7 @@ pub(crate) fn signature_line_drawing(
         },
         layer: layer_of(img),
         alpha: 1.0,
+        z: 0,
     });
     out.items.extend(items);
     out

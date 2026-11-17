@@ -28,6 +28,8 @@ use serde_json::json;
 
 #[path = "doc_r3.rs"]
 mod r3;
+#[path = "doc_r4.rs"]
+mod r4;
 
 /// Something only the platform host can do.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -202,6 +204,7 @@ pub struct DocWindow {
     painter_lock: bool,
     /// Parity round 3 (paste options, panes, dialogs, outline view).
     r3: r3::R3,
+    r4: r4::R4,
 }
 
 /// Font sizes offered by the size box (points).
@@ -301,6 +304,10 @@ impl DocWindow {
         crate::doc_table::install_icons(&mut icons);
         crate::doc_r3_menus::install_icons(&mut icons);
         crate::doc_r3_menus::install_strings(&mut strings);
+        crate::doc_r4_menus::install_icons(&mut icons);
+        crate::doc_r4_menus::install_strings(&mut strings);
+        crate::doc_r4_fit::install_strings(&mut strings);
+        crate::doc_r4_fit::install_icons(&mut icons);
         Self {
             view,
             title: TitleBar::new(),
@@ -311,7 +318,14 @@ impl DocWindow {
                 .with_labeled_widths(crate::doc_table::labeled_w)
                 .with_large_widths(crate::doc_table::large_w)
                 .with_label_drop(4.0)
-                .with_trailing(crate::doc_table::trailing),
+                .with_trailing(crate::doc_table::trailing)
+                .with_mark_on_own_line()
+                .with_row_widths(crate::doc_r4_fit::row_w)
+                .with_scaling(
+                    crate::doc_r4_fit::scaling,
+                    crate::doc_r4_fit::shrink,
+                    crate::doc_r4_fit::group_of,
+                ),
             theme: Theme::light("doc"),
             icons,
             strings,
@@ -376,6 +390,7 @@ impl DocWindow {
             recent_symbols: crate::symbol_grid::DEFAULT_RECENT.to_vec(),
             painter_lock: false,
             r3: r3::R3::default(),
+            r4: r4::R4::default(),
         }
     }
 
@@ -1476,6 +1491,17 @@ impl DocWindow {
                 .filter(|i| i.entry.level.is_some())
                 .map(|i| (i.entry.para, 0))
                 .collect(),
+            // Footnote … Object (round 4): found in the document model.
+            5..=11 => {
+                let (t, n) = self
+                    .view
+                    .engine()
+                    .document()
+                    .map(|d| crate::doc_goto::named_targets(d, what))
+                    .unwrap_or_default();
+                names = n;
+                t
+            }
             _ => return false,
         };
         if targets.is_empty() {
@@ -2006,6 +2032,9 @@ impl DocWindow {
         if let Some(r) = self.r3_action(id) {
             return r;
         }
+        if let Some(r) = self.r4_action(id) {
+            return r;
+        }
         // Space before / after toggles: remove when the paragraph has some, else 12 pt.
         let toggle = match id {
             "format.spaceBefore.toggle" => Some((true, self.view.format().space_before)),
@@ -2190,12 +2219,8 @@ impl DocWindow {
                 self.open_command_menu(id, anchor);
                 true
             }
-            id if crate::doc_table::SPINS.contains(&id) => {
-                let sid = if id == crate::doc_table::SPINS[0] {
-                    crate::doc_table::SPINS[0]
-                } else {
-                    crate::doc_table::SPINS[1]
-                };
+            id if crate::doc_table::spin_id(id).is_some() => {
+                let sid = crate::doc_table::spin_id(id).unwrap_or(crate::doc_table::SPINS[0]);
                 let Some(r) = self.ribbon.rect_of(RibbonHit::Command(sid)) else {
                     return false;
                 };
@@ -2532,7 +2557,8 @@ impl DocWindow {
 
     /// Bottom of the title bar and ribbon (the title bar alone in Read Mode).
     fn chrome_bottom(&self) -> f32 {
-        if self.read_mode.is_some() {
+        // Read Mode and View › Focus show no ribbon.
+        if self.read_mode.is_some() || self.r4.focus {
             self.title.height()
         } else {
             self.ribbon.bottom()
@@ -2665,9 +2691,7 @@ impl DocWindow {
                 match action {
                     crate::spin_box::SpinKey::Commit => {
                         self.cell_spin = None;
-                        if let Some(c) = self
-                            .units
-                            .parse(&typed)
+                        if let Some(c) = crate::doc_table::spin_parse(id, self.units, &typed)
                             .and_then(|tw| crate::doc_table::spin_command(id, tw))
                         {
                             self.view.run_command(c);
@@ -2681,7 +2705,7 @@ impl DocWindow {
                             self.view.run_command(c);
                             let v = crate::doc_table::spin_value(id, self.view.format(), None);
                             if let Some(e) = self.cell_spin.as_mut() {
-                                e.text = units.number(v);
+                                e.text = crate::doc_table::spin_number(id, units, v);
                             }
                         }
                     }
@@ -2694,9 +2718,7 @@ impl DocWindow {
             Input::Press { .. } => {
                 let (id, typed) = (edit.id, edit.text.clone());
                 self.cell_spin = None;
-                if let Some(c) = self
-                    .units
-                    .parse(&typed)
+                if let Some(c) = crate::doc_table::spin_parse(id, self.units, &typed)
                     .and_then(|tw| crate::doc_table::spin_command(id, tw))
                 {
                     self.view.run_command(c);
@@ -2965,7 +2987,7 @@ impl DocWindow {
         }
         let in_title = |w: &Self, y: f32| y < w.title.height();
         let in_ribbon = |w: &Self, y: f32| {
-            w.read_mode.is_none() && y >= w.ribbon.top() && y < w.ribbon.bottom()
+            w.read_mode.is_none() && !w.r4.focus && y >= w.ribbon.top() && y < w.ribbon.bottom()
         };
         if let Input::Key(
             Key::Letter(c @ ('s' | 'c' | 'x' | 'v' | 'f' | 'h' | 'k' | 'g')),
@@ -3008,6 +3030,9 @@ impl DocWindow {
             if self.read_mode.is_some() {
                 self.leave_read_mode();
                 return true;
+            }
+            if self.r4.focus {
+                return self.action("view.focus");
             }
             if self.story_options().is_some() && !self.painter {
                 return self.view.run_command(Command::CloseHeaderFooter);
@@ -3451,6 +3476,7 @@ impl DocWindow {
     pub fn paint(&self, p: &mut dyn Painter) {
         p.clear(self.theme.bg);
         self.view.paint(p);
+        self.r4_paint_grid(p);
         self.paint_read_arrows(p);
         self.paint_story_frame(p);
         // Title bar and ribbon: one cached layer, redrawn only when what it shows changes
@@ -3468,7 +3494,7 @@ impl DocWindow {
                 self.view.modified(),
                 self.view.format(),
             );
-            if self.read_mode.is_none() {
+            if self.read_mode.is_none() && !self.r4.focus {
                 self.ribbon.paint(
                     p,
                     &self.theme,
@@ -3492,6 +3518,32 @@ impl DocWindow {
                     self.scale,
                 );
             }
+            {
+                let caret = self.cell_spin_w;
+                crate::doc_table::paint_para_spins(
+                    p,
+                    &self.ribbon,
+                    self.view.format(),
+                    self.units,
+                    self.cell_spin.as_ref(),
+                    (&self.theme, &self.icons, &self.strings),
+                    &|_| caret,
+                    self.scale,
+                );
+            }
+            // View › Show: check boxes as the reference (round 4).
+            crate::doc_table::paint_checks(
+                p,
+                &self.ribbon,
+                &[
+                    ("view.ruler", self.show_ruler),
+                    ("view.gridlines", self.r4.gridlines),
+                    ("view.navigationPane", self.nav.is_some()),
+                ],
+                &self.theme,
+                &self.strings,
+                self.scale,
+            );
             if self.context.table {
                 let caret = self.cell_spin_w;
                 crate::doc_table::paint_spins(

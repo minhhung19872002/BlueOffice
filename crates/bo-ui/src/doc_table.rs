@@ -97,6 +97,65 @@ pub(crate) const ALIGN: [(&str, &str, &str, &str); 9] = [
 /// Cell Size number boxes: row height, column width (centimetres).
 pub(crate) const SPINS: [&str; 2] = ["table.rowHeight", "table.colWidth"];
 
+/// Layout › Paragraph boxes (round 4): Indent Left / Right in the interface unit, Spacing
+/// Before / After in points, as the reference's Layout tab.
+pub(crate) const PARA_SPINS: [&str; 4] = [
+    "layout.indentLeft",
+    "layout.indentRight",
+    "layout.spaceBefore",
+    "layout.spaceAfter",
+];
+
+/// The `&'static` id of a ribbon number box.
+pub(crate) fn spin_id(id: &str) -> Option<&'static str> {
+    SPINS
+        .iter()
+        .chain(PARA_SPINS.iter())
+        .find(|s| **s == id)
+        .copied()
+}
+
+fn in_points(id: &str) -> bool {
+    id == PARA_SPINS[2] || id == PARA_SPINS[3]
+}
+
+/// One arrow step of box `id` (twips): 0.1 unit, or 6 pt for spacing.
+fn step_of(id: &str, units: Units) -> i32 {
+    if in_points(id) {
+        120
+    } else {
+        units.step()
+    }
+}
+
+/// The number of box `id` while typing (`0,35` / `6`).
+pub(crate) fn spin_number(id: &str, units: Units, twips: i32) -> String {
+    if in_points(id) {
+        format!("{}", twips / 20)
+    } else {
+        units.number(twips)
+    }
+}
+
+/// The value of box `id` as shown (`0,35 cm` / `6 pt`).
+pub(crate) fn spin_text(id: &str, units: Units, twips: i32) -> String {
+    if in_points(id) {
+        format!("{} pt", twips / 20)
+    } else {
+        units.fmt(twips)
+    }
+}
+
+/// A typed value of box `id` in twips.
+pub(crate) fn spin_parse(id: &str, units: Units, text: &str) -> Option<i32> {
+    if in_points(id) {
+        let t = text.trim().trim_end_matches("pt").trim().replace(',', ".");
+        let v: f64 = t.parse().ok()?;
+        return (v.is_finite() && (0.0..=1584.0).contains(&v)).then(|| (v * 20.0).round() as i32);
+    }
+    units.parse(text)
+}
+
 /// Measurement unit of the interface, as the reference follows the region's system:
 /// inches (US) or centimetres, with the region's decimal separator.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -175,6 +234,13 @@ pub(crate) fn spin_rect(r: [f32; 4], scale: f32) -> [f32; 4] {
 /// Current value (twips) of Cell Size box `id`; an automatic row shows its measured
 /// height (`measured`), as the reference does.
 pub(crate) fn spin_value(id: &str, f: &FormatState, measured: Option<i32>) -> i32 {
+    match PARA_SPINS.iter().position(|s| *s == id) {
+        Some(0) => return f.indent_left,
+        Some(1) => return f.indent_right,
+        Some(2) => return f.space_before,
+        Some(_) => return f.space_after,
+        None => {}
+    }
     let Some(t) = f.table.as_ref() else { return 0 };
     if id == SPINS[0] {
         if t.row_height > 0 {
@@ -189,6 +255,17 @@ pub(crate) fn spin_value(id: &str, f: &FormatState, measured: Option<i32>) -> i3
 
 /// The engine command setting Cell Size box `id` to `twips` (0 row height: automatic).
 pub(crate) fn spin_command(id: &str, twips: i32) -> Option<Command> {
+    // ECMA-376 Part 1, §17.3.1.12 ind, §17.3.1.33 spacing.
+    let para = match PARA_SPINS.iter().position(|s| *s == id) {
+        Some(0) => Some(bo_edit::ParaFormat::IndentLeft { twips }),
+        Some(1) => Some(bo_edit::ParaFormat::IndentRight { twips }),
+        Some(2) => Some(bo_edit::ParaFormat::SpaceBefore { twips }),
+        Some(_) => Some(bo_edit::ParaFormat::SpaceAfter { twips }),
+        None => None,
+    };
+    if let Some(format) = para {
+        return Some(Command::FormatParagraph { format });
+    }
     let edit = if id == SPINS[0] {
         json!({ "kind": "rowHeight", "twips": (twips > 0).then_some(twips) })
     } else {
@@ -207,21 +284,26 @@ pub(crate) fn spin_press(
     scale: f32,
     (x, y): (f32, f32),
 ) -> Result<Option<Command>, crate::spin_box::SpinEdit> {
-    let step = units.step();
-    match crate::spin_box::spin_hit(spin_rect(r, scale), scale, x, y) {
+    let step = step_of(id, units);
+    let rect = if PARA_SPINS.contains(&id) {
+        para_rect(r, scale)
+    } else {
+        spin_rect(r, scale)
+    };
+    match crate::spin_box::spin_hit(rect, scale, x, y) {
         Some(crate::spin_box::SpinHit::Up) => Ok(spin_command(id, v + step)),
         Some(crate::spin_box::SpinHit::Down) => Ok(spin_command(id, (v - step).max(0))),
         _ => Err(crate::spin_box::SpinEdit {
             id,
-            text: units.number(v),
+            text: spin_number(id, units, v),
         }),
     }
 }
 
 /// Step a value being typed (Up / Down keys).
 pub(crate) fn spin_step(id: &str, text: &str, up: bool, units: Units) -> Option<Command> {
-    let v = units.parse(text)?;
-    let step = units.step();
+    let v = spin_parse(id, units, text)?;
+    let step = step_of(id, units);
     spin_command(id, if up { v + step } else { (v - step).max(0) })
 }
 
@@ -296,6 +378,120 @@ pub(crate) fn paint_spins(
     }
 }
 
+/// The value box of a Layout › Paragraph item `r` (after its icon and label).
+pub(crate) fn para_rect(r: [f32; 4], scale: f32) -> [f32; 4] {
+    let px = |v: f32| (v * scale).round();
+    let h = px(22.0).min(r[3]);
+    [
+        r[0] + px(70.0),
+        (r[1] + (r[3] - h) / 2.0).round(),
+        r[2] - px(72.0),
+        h,
+    ]
+}
+
+/// Draw the Layout › Paragraph boxes over their placeholders: icon, "Left:" label, box.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn paint_para_spins(
+    p: &mut dyn Painter,
+    ribbon: &Ribbon,
+    f: &FormatState,
+    units: Units,
+    edit: Option<&crate::spin_box::SpinEdit>,
+    (t, icons, strings): (&Theme, &Icons, &Strings),
+    text: &dyn Fn(&str) -> f32,
+    scale: f32,
+) {
+    let px = |v: f32| (v * scale).round();
+    let labels = [
+        ("docR4.left", "Left:"),
+        ("docR4.right", "Right:"),
+        ("docR4.before", "Before:"),
+        ("docR4.after", "After:"),
+    ];
+    let icon_of = [
+        "format.indent",
+        "format.outdent",
+        "format.lineSpacing",
+        "format.lineSpacing",
+    ];
+    // Column headings over the boxes (Indent, Spacing), as the reference.
+    for id in crate::doc_r4_fit::HEADINGS {
+        let Some(r) = ribbon.rect_of(RibbonHit::Command(id)) else {
+            continue;
+        };
+        p.fill_rect(r[0], r[1], r[2], r[3], t.ribbon);
+        let style = TextStyle {
+            size: px(12.0),
+            bold: false,
+        };
+        p.text(
+            strings.get(&format!("commands.{id}")),
+            r[0] + px(2.0),
+            r[1] + (r[3] - px(16.0)) / 2.0,
+            style,
+            t.text,
+        );
+    }
+    for (i, id) in PARA_SPINS.iter().enumerate() {
+        let Some(r) = ribbon.rect_of(RibbonHit::Command(id)) else {
+            continue;
+        };
+        p.fill_rect(r[0], r[1], r[2], r[3], t.ribbon);
+        let s = px(16.0);
+        icons.draw(
+            p,
+            icon_of[i],
+            r[0] + px(2.0),
+            (r[1] + (r[3] - s) / 2.0).round(),
+            s,
+            crate::icons::IconColors {
+                ink: t.text,
+                accent: t.accent,
+                on: t.accent_on,
+                tinted: true,
+            },
+        );
+        let style = TextStyle {
+            size: px(12.0),
+            bold: false,
+        };
+        let label = {
+            let v = strings.get(labels[i].0);
+            if v == labels[i].0 {
+                labels[i].1
+            } else {
+                v
+            }
+        };
+        p.text(
+            label,
+            r[0] + px(22.0),
+            r[1] + (r[3] - px(16.0)) / 2.0,
+            style,
+            t.text,
+        );
+        let editing = edit.filter(|e| e.id == *id);
+        let shown = match editing {
+            Some(e) => e.text.clone(),
+            None => spin_text(id, units, spin_value(id, f, None)),
+        };
+        crate::spin_box::paint_spin(
+            p,
+            para_rect(r, scale),
+            scale,
+            &crate::spin_box::BoxLook {
+                text: &shown,
+                style,
+                ink: t.text,
+                enabled: true,
+                caret: editing.map(|e| text(&e.text)),
+                hover: None,
+            },
+        );
+    }
+}
+
 /// Table commands that open a dialog of the window (Properties, Cell Margins).
 pub(crate) const DIALOGS: [&str; 2] = ["table.properties", "table.cellMargins"];
 
@@ -325,6 +521,11 @@ pub(crate) fn labeled_w(id: &str) -> Option<f32> {
     if SPINS.contains(&id) {
         return Some(112.0);
     }
+    // Layout › Paragraph boxes: icon, label, number box (reference: 190 px at 125 %); the
+    // Indent / Spacing headings above them take the same column.
+    if PARA_SPINS.contains(&id) || crate::doc_r4_fit::HEADINGS.contains(&id) {
+        return Some(152.0);
+    }
     match OPTIONS.iter().position(|(o, _)| *o == id)? {
         i if i % 2 == 0 => Some(110.0),
         _ => Some(130.0),
@@ -334,7 +535,10 @@ pub(crate) fn labeled_w(id: &str) -> Option<f32> {
 /// Large buttons placed after their group's rows: Text Direction follows the nine
 /// alignment buttons, as on the reference.
 pub(crate) fn trailing(id: &str) -> bool {
-    matches!(id, "table.textDirection" | "table.cellMargins")
+    matches!(
+        id,
+        "table.textDirection" | "table.cellMargins" | "view.switchWindows"
+    )
 }
 
 /// Width (logical px) of a gallery tile (the reference's step 108 px at 125 %).

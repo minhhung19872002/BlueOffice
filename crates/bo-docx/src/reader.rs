@@ -1889,6 +1889,9 @@ fn read_drawing_frame(
                     v_relative: "paragraph".into(),
                     behind: attr(&e, b"behindDoc").is_some_and(|v| v == "1" || v == "true"),
                     dist: wrap_dist(&e, [Emu(0); 4]),
+                    relative_height: attr(&e, b"relativeHeight")
+                        .and_then(|v| v.trim().parse().ok())
+                        .unwrap_or(0),
                     ..Default::default()
                 });
             }

@@ -1611,7 +1611,7 @@ impl crate::Engine {
         }
         // Read-only files and restricted editing: headers, notes and drawings
         // cannot be opened for editing (CORE-SEC-001).
-        if (self.sec.read_only || self.sec.regions_enforced())
+        if (self.sec.read_only || self.sec.regions_enforced() || self.doc_restricted().is_some())
             && matches!(
                 cmd,
                 Command::EditHeaderFooter { .. }
@@ -1795,7 +1795,16 @@ impl crate::Engine {
             let auto_language = self.spell.auto_language;
             // CORE-SEC-001: edits of a read-only file, or outside the editable
             // regions of a protected one, are applied then taken back.
-            let guard = self.sec.read_only || self.sec.regions_enforced();
+            // Restricted editing of the Restrict Editing pane (§17.15.1.29 `readOnly` /
+            // `comments`, enforced) works the same way.
+            let restricted = s
+                .doc()
+                .protection
+                .as_ref()
+                .filter(|p| p.enforced && (p.edit == "readOnly" || p.edit == "comments"))
+                .map(|p| p.edit == "comments");
+            let comments_ok = restricted == Some(true);
+            let guard = self.sec.read_only || self.sec.regions_enforced() || restricted.is_some();
             let history = s.history_len();
             let step = match cmd {
                 Command::Undo => -1,
@@ -1805,8 +1814,10 @@ impl crate::Engine {
             if guard {
                 s.end_typing();
                 if !self.sec.read_only && self.sec.skeleton.is_none_or(|(v, _)| v != s.version()) {
-                    self.sec.skeleton =
-                        Some((s.version(), crate::perm::skeleton(s.doc(), &self.identity)));
+                    self.sec.skeleton = Some((
+                        s.version(),
+                        crate::perm::skeleton_for(s.doc(), &self.identity, comments_ok),
+                    ));
                 }
             }
             let before_version = s.version();
@@ -2592,7 +2603,7 @@ impl crate::Engine {
             }
             if guard && s.version() != before_version {
                 let refused = self.sec.read_only || {
-                    let h = crate::perm::skeleton(s.doc(), &self.identity);
+                    let h = crate::perm::skeleton_for(s.doc(), &self.identity, comments_ok);
                     let same = self.sec.skeleton.is_some_and(|(_, old)| old == h);
                     if same {
                         self.sec.skeleton = Some((s.version(), h));
@@ -2658,12 +2669,24 @@ impl crate::Engine {
         Ok(r)
     }
 
+    /// Restricted editing set in the document (§17.15.1.29 documentProtection
+    /// `readOnly` / `comments`, enforced): `Some(true)` when comments may be added.
+    pub(crate) fn doc_restricted(&self) -> Option<bool> {
+        self.session
+            .as_ref()?
+            .doc()
+            .protection
+            .as_ref()
+            .filter(|p| p.enforced && (p.edit == "readOnly" || p.edit == "comments"))
+            .map(|p| p.edit == "comments")
+    }
+
     /// Insert a picture (PNG, JPEG; GIF, BMP, TIFF converted to PNG) at the selection;
     /// sized at 96 dpi, capped to the text width.
     pub fn insert_image(&mut self, bytes: Vec<u8>, name: &str) -> crate::Result<EditResult> {
         // CORE-SEC-001: read-only files; restricted editing allows pictures only
         // inside a region the user may edit.
-        if self.sec.read_only || self.sec.regions_enforced() {
+        if self.sec.read_only || self.sec.regions_enforced() || self.doc_restricted().is_some() {
             let inside = !self.sec.read_only
                 && self.session.as_ref().is_some_and(|s| {
                     let (a, b) = s.selection().ordered();

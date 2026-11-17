@@ -746,7 +746,9 @@ impl crate::Engine {
                 PictureCommand::PictureWrap { .. }
                 | PictureCommand::PicturePosition { .. }
                 | PictureCommand::PictureAlign { .. }
-                | PictureCommand::PictureRotate { .. } => {
+                | PictureCommand::PictureRotate { .. }
+                | PictureCommand::PictureOrder { .. }
+                | PictureCommand::PictureFlip { .. } => {
                     out.error = Some(EditError::Refused("noPicture").to_string());
                 }
             }

@@ -571,6 +571,13 @@ pub(crate) fn enabled(id: &str, f: &FormatState) -> Option<bool> {
         _ if id.starts_with("design.styleSet.") => true,
         _ if crate::doc_design::UNAVAILABLE.contains(&id) => false,
         _ if crate::doc_r3_menus::static_id(id).is_some() => true,
+        // Arrange acts on the selected picture or shape (round 4, as the reference).
+        _ if crate::doc_r4_fit::ARRANGE.contains(&id) => f.picture.is_some() || f.picture_tools,
+        _ if crate::doc_r4_fit::UNAVAILABLE.contains(&id) => false,
+        _ if crate::doc_r4_fit::static_id(id).is_some() => true,
+        _ if crate::doc_r4_menus::enabled(id).is_some() => {
+            crate::doc_r4_menus::enabled(id).unwrap_or(false)
+        }
         _ => return None,
     })
 }
@@ -578,6 +585,8 @@ pub(crate) fn enabled(id: &str, f: &FormatState) -> Option<bool> {
 /// Ids drawn as on: repeat header row, header/footer options.
 pub(crate) fn on_ids(f: &FormatState, story: Option<(bool, bool, bool)>) -> Vec<&'static str> {
     let mut on = Vec::new();
+    // Page Movement › Vertical is the only movement: shown pressed, as the reference.
+    on.push("view.vertical");
     on.extend(crate::doc_table::align_on(f));
     if f.table.as_ref().is_some_and(|t| t.header_row) {
         on.push("table.headerRow");

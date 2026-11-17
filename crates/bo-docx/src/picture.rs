@@ -83,6 +83,16 @@ fn props_of(pic: &XmlElement) -> PicProps {
             p.crop = c.iter().any(|x| *x != 0).then_some(c);
         }
     }
+    // §20.1.7.6 xfrm flipH / flipV.
+    if let Some(x) = pic
+        .elements()
+        .find(|e| e.local() == "spPr")
+        .and_then(|sp| sp.elements().find(|e| e.local() == "xfrm"))
+    {
+        let on = |n: &str| x.attr(n).is_some_and(|v| v == "1" || v == "true");
+        p.format.flip_h = on("flipH");
+        p.format.flip_v = on("flipV");
+    }
     if let Some(geom) = pic
         .elements()
         .find(|e| e.local() == "spPr")
@@ -167,6 +177,16 @@ pub(crate) fn patch(
         }
     }
     if let Some(sp) = child_mut(pic, "spPr") {
+        // §20.1.7.6 xfrm flipH / flipV.
+        if let Some(x) = child_mut(sp, "xfrm") {
+            x.attrs.retain(|(k, _)| k != "flipH" && k != "flipV");
+            if format.flip_h {
+                x.attrs.push(("flipH".into(), "1".into()));
+            }
+            if format.flip_v {
+                x.attrs.push(("flipV".into(), "1".into()));
+            }
+        }
         let want = format.shape.as_deref().unwrap_or("rect");
         if let Some(g) = child_mut(sp, "prstGeom") {
             if g.attr("prst") != Some(want) {

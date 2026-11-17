@@ -111,6 +111,8 @@ pub(crate) fn caption_of(atoms: &[Atom]) -> Option<(String, String)> {
 /// A table of contents / figures target: a heading or a caption with its `_Toc` bookmark.
 #[derive(Debug, Clone)]
 pub(crate) struct Target {
+    /// Keys of the paragraph's style (id and name, [`fields::style_key`]).
+    pub styles: Vec<String>,
     /// Heading level 1–9.
     pub level: Option<u8>,
     /// Caption label and caption text after the number.
@@ -401,8 +403,21 @@ pub(crate) fn toc(
         }
     } else {
         let (lo, hi) = fields::toc_levels(instr);
+        // §17.16.5.68 \t: listed styles take their level (over the outline level); \o
+        // alone keeps outline levels in its range.
+        let map = fields::toc_style_map(instr);
+        let has_o = fields::field_args(instr)
+            .iter()
+            .any(|a| a.eq_ignore_ascii_case("\\o"));
         for t in targets {
-            let Some(level) = t.level.filter(|l| (lo..=hi).contains(l)) else {
+            let by_style = t
+                .styles
+                .iter()
+                .find_map(|k| map.iter().find(|(m, _)| m == k).map(|(_, l)| *l));
+            let by_outline = t
+                .level
+                .filter(|l| (has_o || map.is_empty()) && (lo..=hi).contains(l));
+            let Some(level) = by_style.or(by_outline) else {
                 continue;
             };
             out.push(line(

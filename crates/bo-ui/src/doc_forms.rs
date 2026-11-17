@@ -39,6 +39,10 @@ pub(crate) enum DocFormKind {
     Unprotect,
     Recipients,
     TocOptions,
+    /// Insert › Date & Time (round 4).
+    DateTime,
+    /// View › Zoom (round 4).
+    Zoom,
 }
 
 /// What the owner does after an input.
@@ -65,6 +69,8 @@ pub(crate) enum FormOut {
     TocMap(String),
     /// Compare two files (the original `None`: this document) into a new window.
     Compare(Option<(String, String)>, (String, String)),
+    /// Date and Time › Set As Default: this format (index into [`DATE_PICTURES`]).
+    DateDefault(usize),
 }
 
 /// A radio button drawn on a canvas control.
@@ -170,6 +176,102 @@ pub(crate) struct FormContext {
     pub(crate) paste_defaults: [usize; 3],
     /// Mail merge recipients: field names and rows.
     pub(crate) recipients: (Vec<String>, Vec<Vec<String>>),
+    /// Local date and time now (year, month, day, weekday 0 = Sunday, hour, minute,
+    /// second) for the Date and Time formats.
+    pub(crate) now: [i32; 7],
+    /// The view's zoom (1.0 = 100 %).
+    pub(crate) zoom: f32,
+    /// Date and Time format chosen with Set As Default (index into [`DATE_PICTURES`]).
+    pub(crate) date_default: usize,
+}
+
+/// Date and Time formats offered, in the reference's order (`\@` pictures, §17.16.4.1).
+pub(crate) const DATE_PICTURES: [&str; 17] = [
+    "M/d/yyyy",
+    "dddd, MMMM d, yyyy",
+    "MMMM d, yyyy",
+    "M/d/yy",
+    "yyyy-MM-dd",
+    "d-MMM-yy",
+    "M.d.yyyy",
+    "MMM. d, yy",
+    "d MMMM yyyy",
+    "MMMM yy",
+    "MMM-yy",
+    "M/d/yyyy h:mm am/pm",
+    "M/d/yyyy h:mm:ss am/pm",
+    "h:mm am/pm",
+    "h:mm:ss am/pm",
+    "HH:mm",
+    "HH:mm:ss",
+];
+
+/// Date `now` written with picture `pic` (the subset of §17.16.4.1 the list uses).
+pub(crate) fn format_date(pic: &str, now: [i32; 7]) -> String {
+    const MONTHS: [&str; 12] = [
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December",
+    ];
+    const DAYS: [&str; 7] = [
+        "Sunday",
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday",
+    ];
+    let [y, mo, d, wd, h, mi, se] = now;
+    let month = MONTHS[usize::try_from(mo - 1).unwrap_or(0).min(11)];
+    let day = DAYS[usize::try_from(wd).unwrap_or(0).min(6)];
+    let chars: Vec<char> = pic.chars().collect();
+    let mut out = String::new();
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        if pic[pic.char_indices().nth(i).map_or(0, |(b, _)| b)..].starts_with("am/pm") {
+            out.push_str(if h < 12 { "AM" } else { "PM" });
+            i += 5;
+            continue;
+        }
+        let mut n = 1;
+        while i + n < chars.len() && chars[i + n] == c {
+            n += 1;
+        }
+        match (c, n) {
+            ('y', 4) => out.push_str(&y.to_string()),
+            ('y', _) => out.push_str(&format!("{:02}", y % 100)),
+            ('M', 1) => out.push_str(&mo.to_string()),
+            ('M', 2) => out.push_str(&format!("{mo:02}")),
+            ('M', 3) => out.push_str(&month[..3]),
+            ('M', _) => out.push_str(month),
+            ('d', 1) => out.push_str(&d.to_string()),
+            ('d', 2) => out.push_str(&format!("{d:02}")),
+            ('d', 3) => out.push_str(&day[..3]),
+            ('d', _) => out.push_str(day),
+            ('h', _) => out.push_str(&(if h % 12 == 0 { 12 } else { h % 12 }).to_string()),
+            ('H', _) => out.push_str(&format!("{h:02}")),
+            ('m', _) => out.push_str(&format!("{mi:02}")),
+            ('s', _) => out.push_str(&format!("{se:02}")),
+            _ => {
+                for _ in 0..n {
+                    out.push(c);
+                }
+            }
+        }
+        i += n;
+    }
+    out
 }
 
 impl DocForm {
@@ -495,6 +597,12 @@ impl DocForm {
         }
     }
 
+    /// Button `id` pressed (tests).
+    #[cfg(test)]
+    pub(crate) fn click_for_test(&mut self, id: &str) -> FormOut {
+        self.clicked(id)
+    }
+
     fn clicked(&mut self, id: &str) -> FormOut {
         match (self.kind, id) {
             (DocFormKind::Sources, "new") => FormOut::Open(DocFormKind::NewSource),
@@ -523,6 +631,11 @@ impl DocForm {
                 FormOut::NewDocument(self.labels())
             }
             (DocFormKind::CrossRef | DocFormKind::Language, "list") => self.ok(),
+            (DocFormKind::DateTime, "setDefault") => FormOut::DateDefault(
+                self.sel("formats")
+                    .unwrap_or(0)
+                    .min(DATE_PICTURES.len() - 1),
+            ),
             _ => FormOut::Redraw,
         }
     }
@@ -866,6 +979,33 @@ impl DocForm {
                 vec![json!({ "cmd": "unprotectDocument", "password": self.text("pw") })],
                 true,
             ),
+            DocFormKind::DateTime => {
+                let i = self
+                    .sel("formats")
+                    .unwrap_or(0)
+                    .min(DATE_PICTURES.len() - 1);
+                let cmd = if self.on("update") {
+                    json!({ "cmd": "insertField", "instr": format!("DATE \\@ \"{}\"", DATE_PICTURES[i]) })
+                } else {
+                    json!({ "cmd": "insertText", "text": self.text("formats") })
+                };
+                FormOut::Run(vec![cmd], true)
+            }
+            DocFormKind::Zoom => {
+                let pct = match self.chosen("zoom") {
+                    Some("z200") => "200".to_owned(),
+                    Some("z75") => "75".to_owned(),
+                    Some("pageWidth") => "pageWidth".to_owned(),
+                    Some("textWidth") => "textWidth".to_owned(),
+                    Some("wholePage") => "wholePage".to_owned(),
+                    Some("z100") => "100".to_owned(),
+                    _ => self.text("pct"),
+                };
+                FormOut::Run(
+                    vec![json!({ "cmd": "ui.action", "id": format!("view.zoomTo.{pct}") })],
+                    true,
+                )
+            }
         }
     }
 
@@ -2673,6 +2813,127 @@ pub(crate) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
             );
             f.edit("pw", [20.0, 78.0, 320.0, 24.0], "");
             f.ok_cancel(s);
+            f
+        }
+        // Measured on the reference at 125 %: 673 × 475.
+        DocFormKind::DateTime => {
+            let mut f = DocForm::new(
+                kind,
+                &tr("docR4.dateTimeTitle", "Date and Time"),
+                (673.0, 475.0),
+                vec![],
+            );
+            f.label(
+                "formatsL",
+                [18.0, 47.0, 300.0, 18.0],
+                &tr("docR4.availableFormats", "Available formats:"),
+            );
+            f.list(
+                "formats",
+                [18.0, 67.0, 444.0, 343.0],
+                DATE_PICTURES
+                    .iter()
+                    .map(|p| format_date(p, c.now))
+                    .collect(),
+                Some(c.date_default.min(DATE_PICTURES.len() - 1)),
+            );
+            f.label(
+                "langL",
+                [481.0, 47.0, 170.0, 18.0],
+                &tr("docR4.language", "Language:"),
+            );
+            f.combo(
+                "lang",
+                [481.0, 67.0, 173.0, 30.0],
+                vec![tr("docR4.langEnglish", "English (United States)")],
+                0,
+            );
+            f.check(
+                "update",
+                [481.0, 393.0, 180.0, 20.0],
+                &tr("docR4.updateAuto", "Update automatically"),
+                true,
+            );
+            f.button(
+                "setDefault",
+                [18.0, 426.0, 112.0, 30.0],
+                &tr("docR3.setAsDefault", "Set As Default"),
+                false,
+            );
+            f.button(
+                "ok",
+                [415.0, 426.0, 112.0, 30.0],
+                &tr("common.ok", "OK"),
+                true,
+            );
+            f.button(
+                "cancel",
+                [542.0, 426.0, 112.0, 30.0],
+                &tr("common.cancel", "Cancel"),
+                false,
+            );
+            f
+        }
+        // Measured on the reference at 125 %: 381 × 258.
+        DocFormKind::Zoom => {
+            let mut f = DocForm::new(kind, &tr("docR4.zoomTitle", "Zoom"), (381.0, 258.0), vec![]);
+            f.label(
+                "zoomTo",
+                [18.0, 46.0, 120.0, 18.0],
+                &tr("docR4.zoomTo", "Zoom to"),
+            );
+            let pct = (c.zoom * 100.0).round() as i32;
+            let radios = [
+                ("z200", [32.0, 74.0, 100.0, 20.0], "200%", pct == 200),
+                ("z100", [32.0, 103.0, 100.0, 20.0], "100%", pct == 100),
+                ("z75", [32.0, 132.0, 100.0, 20.0], "75%", pct == 75),
+                ("pageWidth", [148.0, 74.0, 110.0, 20.0], "Page width", false),
+                (
+                    "textWidth",
+                    [148.0, 103.0, 110.0, 20.0],
+                    "Text width",
+                    false,
+                ),
+                (
+                    "wholePage",
+                    [148.0, 132.0, 110.0, 20.0],
+                    "Whole page",
+                    false,
+                ),
+                (
+                    "manyPages",
+                    [262.0, 74.0, 110.0, 20.0],
+                    "Many pages:",
+                    false,
+                ),
+            ];
+            for (id, r, label, on) in radios {
+                let text = if label.ends_with('%') {
+                    label.to_owned()
+                } else {
+                    tr(&format!("docR4.zoom_{id}"), label)
+                };
+                f.radio(id, "zoom", r, &text, on);
+            }
+            f.disable("manyPages");
+            f.label(
+                "pctL",
+                [32.0, 168.0, 60.0, 18.0],
+                &tr("docR4.percent", "Percent:"),
+            );
+            f.spin("pct", [92.0, 164.0, 82.0, 26.0], pct, 10, 500);
+            f.button(
+                "ok",
+                [137.0, 210.0, 112.0, 30.0],
+                &tr("common.ok", "OK"),
+                true,
+            );
+            f.button(
+                "cancel",
+                [250.0, 210.0, 112.0, 30.0],
+                &tr("common.cancel", "Cancel"),
+                false,
+            );
             f
         }
     }

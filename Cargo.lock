@@ -840,6 +840,7 @@ dependencies = [
  "bo-text",
  "bo-ui",
  "png",
+ "serde_json",
  "windows",
 ]
 

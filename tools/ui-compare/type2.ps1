@@ -1,8 +1,12 @@
 param([string]$S,[string]$Exe,[string]$Name,[string]$Zoom="100",[int]$W=1500,[int]$H=1102)
 Add-Type @"
 using System; using System.Runtime.InteropServices;
-public class PM8 { [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h,uint m,IntPtr w,IntPtr l); }
+public class PM8 { [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h,uint m,IntPtr w,IntPtr l);
+ [DllImport("user32.dll")] public static extern bool SetProcessDpiAwarenessContext(IntPtr v); }
 "@
+# Per-monitor aware like the app: a DPI-unaware sender has its posted mouse coordinates
+# scaled by the system (209 px arrived as 261 at 125 %), so clicks hit the next control.
+[PM8]::SetProcessDpiAwarenessContext([IntPtr]-4) | Out-Null
 $log="$S\perf-$Name.jsonl"; Remove-Item $log -EA SilentlyContinue
 $env:BLUEOFFICE_NATIVE_PERF=$log; $env:BLUEOFFICE_ZOOM=$Zoom
 Copy-Item "D:\Source\BlueOffice\tests\corpus\doc\phase1-sample.docx" "$S\ty-$Name.docx" -Force

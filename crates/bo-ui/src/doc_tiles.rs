@@ -67,7 +67,22 @@ pub(crate) struct TileMenu {
     hover: Option<usize>,
     /// The tile shown as current.
     pub(crate) current: Option<String>,
+    /// Tile rows shown at once (one section; a scroll bar beside them), as the reference's
+    /// Cover Page gallery; `None`: every row.
+    max_rows: Option<usize>,
+    /// First tile row shown.
+    first_row: usize,
+    /// Icons of the menu rows (own drawings), drawn in the 40 px column at their left; a
+    /// negative scale asks for the dimmed look.
+    pub(crate) row_icon: Option<TileFn>,
+    /// Menu rows that open a submenu (a right-pointing mark at the right edge).
+    pub(crate) row_more: Vec<String>,
 }
+
+/// Scroll bar width (logical px) of a scrolling gallery, and its arrow parts' ids.
+const BAR: f32 = 16.0;
+pub(crate) const SCROLL_UP: &str = "tiles.scrollUp";
+pub(crate) const SCROLL_DOWN: &str = "tiles.scrollDown";
 
 const HEADER_H: f32 = 22.0;
 const ROW_H: f32 = 29.0;
@@ -98,6 +113,10 @@ impl TileMenu {
             draw,
             hover: None,
             current: None,
+            max_rows: None,
+            first_row: 0,
+            row_icon: None,
+            row_more: Vec::new(),
         };
         let cols = m.look.cols;
         let w = m.px(GAP + cols as f32 * (look.tile.0 + GAP) + 2.0);
@@ -117,6 +136,43 @@ impl TileMenu {
         (v * self.scale).round()
     }
 
+    fn tile_rows(&self) -> usize {
+        self.sections
+            .first()
+            .map_or(0, |s| s.tiles.len().div_ceil(self.look.cols))
+    }
+
+    /// Show `rows` tile rows at once with a scroll bar (one-section galleries); the menu
+    /// keeps its top-left corner.
+    pub(crate) fn scroll_rows(&mut self, rows: usize, viewport: (f32, f32)) {
+        if self.sections.len() != 1 || self.tile_rows() <= rows {
+            return;
+        }
+        self.max_rows = Some(rows.max(1));
+        let tile = self.look.tile;
+        self.rect[2] = self.px(GAP + self.look.cols as f32 * (tile.0 + GAP) + 2.0 + BAR);
+        self.rect[0] = self.rect[0].min(viewport.0 - self.rect[2]).max(0.0);
+        let h = self.px(2.0)
+            + self.px(HEADER_H)
+            + rows as f32 * self.px(tile.1 + GAP)
+            + self.px(GAP)
+            + self.rows.len() as f32 * self.px(ROW_H)
+            + self.px(2.0);
+        self.rect[3] = h.min(viewport.1 - self.rect[1]).max(self.px(40.0));
+    }
+
+    /// Scroll the tile rows by `rows` (negative: up); `true` when they moved.
+    pub(crate) fn scroll_by(&mut self, rows: i32) -> bool {
+        let Some(shown) = self.max_rows else {
+            return false;
+        };
+        let last = self.tile_rows().saturating_sub(shown);
+        let next = (i64::try_from(self.first_row).unwrap_or(0) + i64::from(rows))
+            .clamp(0, i64::try_from(last).unwrap_or(0));
+        let next = usize::try_from(next).unwrap_or(0);
+        std::mem::replace(&mut self.first_row, next) != next
+    }
+
     fn parts(&self) -> Vec<Part<'_>> {
         let [x, mut y, ..] = self.rect;
         y += 1.0;
@@ -124,8 +180,17 @@ impl TileMenu {
         let mut out = Vec::new();
         for s in &self.sections {
             y += self.px(HEADER_H);
+            let total = s.tiles.len().div_ceil(cols);
+            let (first, shown) = match self.max_rows {
+                Some(n) => (self.first_row, n),
+                None => (0, total),
+            };
             for (i, t) in s.tiles.iter().enumerate() {
                 let (c, r) = (i % cols, i / cols);
+                if r < first || r >= first + shown {
+                    continue;
+                }
+                let r = r - first;
                 let rect = [
                     x + self.px(GAP + c as f32 * (tile.0 + GAP)),
                     y + self.px(GAP / 2.0) + r as f32 * self.px(tile.1 + GAP),
@@ -134,7 +199,15 @@ impl TileMenu {
                 ];
                 out.push((rect, t.id.as_str(), t.label.as_str(), true, true));
             }
-            y += s.tiles.len().div_ceil(cols) as f32 * self.px(tile.1 + GAP) + self.px(GAP);
+            let area = shown.min(total) as f32 * self.px(tile.1 + GAP);
+            if self.max_rows.is_some() {
+                // Scroll bar arrows: parts without a label, drawn by `paint`.
+                let b = self.px(BAR);
+                let bx = x + self.rect[2] - b - 1.0;
+                out.push(([bx, y, b, b], SCROLL_UP, "", false, true));
+                out.push(([bx, y + area - b, b, b], SCROLL_DOWN, "", false, true));
+            }
+            y += area + self.px(GAP);
         }
         for (id, label, enabled) in &self.rows {
             out.push((
@@ -177,6 +250,48 @@ impl TileMenu {
             .map(|p| (p.0[0] + p.0[2] / 2.0, p.0[1] + p.0[3] / 2.0))
     }
 
+    /// The scroll bar of a scrolling gallery: track, thumb, arrows.
+    fn paint_bar(&self, p: &mut dyn Painter, parts: &[Part<'_>]) {
+        let (Some(shown), Some(up), Some(down)) = (
+            self.max_rows,
+            parts.iter().find(|q| q.1 == SCROLL_UP),
+            parts.iter().find(|q| q.1 == SCROLL_DOWN),
+        ) else {
+            return;
+        };
+        let s = self.scale;
+        let (bx, top, b) = (up.0[0], up.0[1], up.0[2]);
+        let bottom = down.0[1] + down.0[3];
+        p.fill_rect(bx, top, b, bottom - top, Rgba(0xf0, 0xf0, 0xf0, 255));
+        let total = self.tile_rows().max(1);
+        let track = (bottom - top - 2.0 * b).max(1.0);
+        let th = (track * shown as f32 / total as f32).max(self.px(12.0));
+        let ty = top
+            + b
+            + (track - th) * self.first_row as f32 / total.saturating_sub(shown).max(1) as f32;
+        p.fill_rect(
+            bx + 3.0 * s,
+            ty,
+            b - 6.0 * s,
+            th,
+            Rgba(0xc2, 0xc2, 0xc2, 255),
+        );
+        for (r, upward) in [(up.0, true), (down.0, false)] {
+            let (cx, cy, k) = (r[0] + r[2] / 2.0, r[1] + r[3] / 2.0, 3.0 * s);
+            let d = if upward { -k / 2.0 } else { k / 2.0 };
+            p.path(
+                &[
+                    PathSeg::M(cx - k, cy - d),
+                    PathSeg::L(cx, cy + d),
+                    PathSeg::L(cx + k, cy - d),
+                    PathSeg::Z,
+                ],
+                Some(Rgba(0x60, 0x60, 0x60, 255)),
+                None,
+            );
+        }
+    }
+
     pub(crate) fn paint(&self, p: &mut dyn Painter) {
         let [x, y, w, h] = self.rect;
         let s = self.scale;
@@ -206,12 +321,13 @@ impl TileMenu {
                 &bold,
                 Rgba(0x44, 0x44, 0x44, 255),
             );
-            hy += self.px(HEADER_H)
-                + sct.tiles.len().div_ceil(self.look.cols) as f32 * self.px(self.look.tile.1 + GAP)
-                + self.px(GAP);
+            let rows = sct.tiles.len().div_ceil(self.look.cols);
+            let rows = self.max_rows.map_or(rows, |n| n.min(rows));
+            hy += self.px(HEADER_H) + rows as f32 * self.px(self.look.tile.1 + GAP) + self.px(GAP);
         }
         let parts = self.parts();
-        if let Some(first) = parts.iter().find(|p| !p.3) {
+        self.paint_bar(p, &parts);
+        if let Some(first) = parts.iter().find(|p| !p.3 && !p.2.is_empty()) {
             p.fill_rect(x + 1.0, first.0[1] - 1.0, w - 2.0, 1.0, SEP);
         }
         for (i, (r, id, label, tile, enabled)) in parts.iter().enumerate() {
@@ -252,9 +368,33 @@ impl TileMenu {
                         p.text_font(label, tx, r[1] + r[3] - cap, &small, INK);
                     }
                 }
+            } else if label.is_empty() {
+                // Scroll bar arrows (painted with the bar).
             } else {
-                if self.hover == Some(i) {
+                if self.hover == Some(i) && *enabled {
                     p.fill_rect(r[0], r[1], r[2], r[3], HOVER);
+                }
+                if let Some(icon) = self.row_icon {
+                    let k = self.px(16.0);
+                    icon(
+                        p,
+                        id,
+                        [r[0] + self.px(12.0), r[1] + (r[3] - k) / 2.0, k, k],
+                        if *enabled { s } else { -s },
+                    );
+                }
+                if self.row_more.iter().any(|m| m == id) {
+                    let (cx, cy, k) = (r[0] + r[2] - self.px(14.0), r[1] + r[3] / 2.0, 3.5 * s);
+                    p.path(
+                        &[
+                            PathSeg::M(cx - k / 2.0, cy - k),
+                            PathSeg::L(cx + k / 2.0, cy),
+                            PathSeg::L(cx - k / 2.0, cy + k),
+                            PathSeg::Z,
+                        ],
+                        Some(if *enabled { INK } else { DIM }),
+                        None,
+                    );
                 }
                 p.text_font(
                     label,

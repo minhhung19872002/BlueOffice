@@ -130,6 +130,14 @@ pub(crate) enum Ctl {
     Warn { x: f32, y: f32 },
     /// Round 10: a panel frame, 1 px #DCDCDC on white (the reference's PDF Optimizer).
     Box { r: [f32; 4] },
+    /// Round 11: a tab of a tabbed dialog (field Properties), its box from `x` to `x + w`;
+    /// clicking shows page `k` (the form's `tab` value).
+    Tab {
+        k: usize,
+        x: f32,
+        w: f32,
+        label: String,
+    },
 }
 
 /// Icons of the classic dialogs' small buttons (our own drawings).
@@ -195,6 +203,11 @@ pub(crate) struct Form {
     /// The focused box's whole text is selected (round 9: as the reference on opening a
     /// dialog and on Tab); typing replaces it.
     pub all: bool,
+    /// Round 11: swatches that can be "no colour" (`Val::Text("none")`).
+    pub nullable: Vec<&'static str>,
+    /// Round 11: the field Properties look (measured): drop-down lists #FDFDFD in #D2D2D2,
+    /// list boxes framed #828790, Close the default button.
+    pub light: bool,
 }
 
 const WHITE: Rgba = Rgba(255, 255, 255, 255);
@@ -244,6 +257,8 @@ impl Form {
             frame: [0.0; 4],
             ticks: Vec::new(),
             all: false,
+            nullable: Vec::new(),
+            light: false,
         }
     }
 
@@ -466,6 +481,10 @@ impl Form {
                         self.set("panel", Val::Pick(k));
                         return FormOut::Button("panel");
                     }
+                    Some(Ctl::Tab { .. }) => {
+                        self.set("tab", Val::Pick(k));
+                        return FormOut::Button("tab");
+                    }
                     Some(Ctl::ListBox { id, .. }) => {
                         let id = *id;
                         self.set(id, Val::Pick(k + 1));
@@ -503,9 +522,16 @@ impl Form {
                         FormOut::Changed
                     }
                     Ctl::Swatch { id, .. } => {
+                        let none = matches!(self.vals.get(id), Some(Val::Text(t)) if t == "none");
                         let now = self.color(id);
                         let at = SWATCHES.iter().position(|c| *c == now).unwrap_or(0);
-                        self.set(id, Val::Color(SWATCHES[(at + 1) % SWATCHES.len()]));
+                        if none {
+                            self.set(id, Val::Color(SWATCHES[0]));
+                        } else if at + 1 == SWATCHES.len() && self.nullable.contains(&id) {
+                            self.set(id, Val::Text("none".into()));
+                        } else {
+                            self.set(id, Val::Color(SWATCHES[(at + 1) % SWATCHES.len()]));
+                        }
                         FormOut::Changed
                     }
                     Ctl::Button { id, .. } | Ctl::Link { id, .. } | Ctl::Icon { id, .. } => {
@@ -931,6 +957,8 @@ impl Form {
                     let b = at(*r);
                     let edge = if hot && on {
                         FOCUS
+                    } else if self.light {
+                        Rgba(0xD2, 0xD2, 0xD2, 255)
                     } else {
                         Rgba(0x99, 0x99, 0x99, 255)
                     };
@@ -940,7 +968,9 @@ impl Form {
                         b[1] + 1.0,
                         b[2] - 2.0,
                         b[3] - 2.0,
-                        if on {
+                        if on && self.light {
+                            Rgba(0xFD, 0xFD, 0xFD, 255)
+                        } else if on {
                             Rgba(0xE2, 0xE2, 0xE2, 255)
                         } else {
                             Rgba(0xCC, 0xCC, 0xCC, 255)
@@ -1077,7 +1107,7 @@ impl Form {
                 }
                 Ctl::Button { r, label, id, .. } => {
                     let b = at(*r);
-                    let default = *id == "ok";
+                    let default = *id == "ok" || (self.light && *id == "close");
                     // Round 10 (measured): a button that cannot be used is framed #E9E9E9
                     // on a #F9F9F9 face.
                     let edge = if !on {
@@ -1152,7 +1182,60 @@ impl Form {
                         b[3] - 2.0,
                         Rgba(c[0], c[1], c[2], 255),
                     );
+                    if matches!(self.vals.get(*id), Some(Val::Text(t)) if t == "none") {
+                        // No colour / mixed (round 11, our own mark): a grey and white
+                        // checkerboard with a dark "?" over it.
+                        let inner = [b[0] + 1.0, b[1] + 1.0, b[2] - 2.0, b[3] - 2.0];
+                        p.fill_rect(inner[0], inner[1], inner[2], inner[3], WHITE);
+                        let n = 4;
+                        let (cw, ch) = (inner[2] / n as f32, inner[3] / n as f32);
+                        for row in 0..n {
+                            for col in 0..n {
+                                if (row + col) % 2 == 0 {
+                                    p.fill_rect(
+                                        inner[0] + cw * col as f32,
+                                        inner[1] + ch * row as f32,
+                                        cw,
+                                        ch,
+                                        Rgba(0xC8, 0xC8, 0xC8, 255),
+                                    );
+                                }
+                            }
+                        }
+                        let mark = TextStyle {
+                            size: (b[3] * 0.62).round(),
+                            bold: true,
+                        };
+                        let mw = text_w("?", mark.size);
+                        p.text(
+                            "?",
+                            (b[0] + (b[2] - mw) / 2.0).round(),
+                            (b[1] + (b[3] - mark.size * 1.33) / 2.0).round(),
+                            mark,
+                            Rgba(0x30, 0x30, 0x30, 255),
+                        );
+                    }
                     hits.push((b, Hit::Ctl(i)));
+                }
+                Ctl::Tab { k, x, w: tw, label } => {
+                    // Measured on the reference's field Properties (125 %): tab boxes 1 px
+                    // #E0E0E0 from y 45 to the page frame at y 72, labels centred at y 58.
+                    let shown = self.pick("tab") == *k;
+                    let bx = [x0 + q(*x), y0 + q(45.0), q(*tw), q(28.0)];
+                    if shown {
+                        let edge = Rgba(0xE0, 0xE0, 0xE0, 255);
+                        p.fill_rect(bx[0], bx[1], bx[2], bx[3] + 1.0, edge);
+                        p.fill_rect(bx[0] + 1.0, bx[1] + 1.0, bx[2] - 2.0, bx[3] + 1.0, WHITE);
+                    }
+                    let lw = est(label);
+                    p.text(
+                        label,
+                        (bx[0] + (bx[2] - lw) / 2.0).round(),
+                        (y0 + q(58.0) - th / 2.0).round(),
+                        text,
+                        INK,
+                    );
+                    hits.push((bx, Hit::Item(i, *k)));
                 }
                 Ctl::Slider { id, r } => {
                     let b = at(*r);
@@ -1237,8 +1320,14 @@ impl Form {
                 }
                 Ctl::ListBox { id, r, items, .. } => {
                     let b = at(*r);
-                    // The reference's list boxes: #DCDCDC whether usable or not.
-                    p.fill_rect(b[0], b[1], b[2], b[3], GROUP_EDGE);
+                    // The reference's list boxes: #DCDCDC whether usable or not (#828790 in the
+                    // field Properties).
+                    let edge = if self.light {
+                        Rgba(0x82, 0x87, 0x90, 255)
+                    } else {
+                        GROUP_EDGE
+                    };
+                    p.fill_rect(b[0], b[1], b[2], b[3], edge);
                     p.fill_rect(b[0] + 1.0, b[1] + 1.0, b[2] - 2.0, b[3] - 2.0, WHITE);
                     let rh = q(20.0);
                     let sel = self.pick(id);

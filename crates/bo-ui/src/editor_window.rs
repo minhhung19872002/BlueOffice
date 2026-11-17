@@ -23,7 +23,7 @@ const EDITOR_ACCENT_TEXT: Rgba = Rgba(0xA8, 0x4A, 0x05, 255);
 pub const EDITOR_TITLE: Rgba = Rgba(0x2F, 0x3E, 0x5C, 255);
 
 /// Ribbon tabs after File.
-pub(crate) const TABS: [&str; 9] = [
+pub(crate) const TABS: [&str; 10] = [
     "pdfReader.tabs.home",
     "pdfEditor.tabs.convert",
     "pdfEditor.tabs.edit",
@@ -32,6 +32,8 @@ pub(crate) const TABS: [&str; 9] = [
     "pdfReader.tabs.view",
     "pdfEditor.tabs.form",
     "pdfEditor.tabs.protect",
+    // Round 11: the reference's Share tab.
+    "pdfEditor11.tabShare",
     "pdfReader.tabs.help",
 ];
 /// Index of the Organize tab in [`TABS`].
@@ -246,7 +248,7 @@ fn ribbon(tab: usize) -> Vec<(&'static str, Kind)> {
                 "cm.typewriter",
                 Big("typewriter", "pdfReader.typewriter", false),
             ),
-            ("tool.textbox", Big("textbox", "pdfReader.textbox", false)),
+            ("tool.textbox", Big("textbox", "pdfEditor11.textbox", false)),
             ("cm.callout", Big("callout", "pdfEditor.callout", false)),
             ("sep4", Sep),
             ("cm.drawing", Row("drawing", "pdfEditor.drawing", true)),
@@ -299,6 +301,7 @@ fn ribbon(tab: usize) -> Vec<(&'static str, Kind)> {
             ),
             ("sep2", Sep),
             ("menu.rotate", Big("rotate", "pdfReader.rotateView", true)),
+            ("sep2b", Sep),
             ("view.rulers", Big("ruler", "pdfEditor.toggleRuler", false)),
             ("sep3", Sep),
             ("view.single", Small("single")),
@@ -336,7 +339,8 @@ fn ribbon(tab: usize) -> Vec<(&'static str, Kind)> {
         // The reference's Protect tab (round 10 grouping; Sensitivity labels are not offered).
         7 => v.extend(crate::editor_prot10::protect_tab_items()),
         // Round 9: the contextual Combine Files tab.
-        9 => v = crate::editor_combine9::ribbon_items(),
+        8 => v.extend(crate::editor_share11::share_tab_items()),
+        n if n == TABS.len() => v = crate::editor_combine9::ribbon_items(),
         _ => {
             v.clear();
             v.push(("help.about", Big("info", "pdfReader.about", false)));
@@ -508,6 +512,10 @@ pub struct EditorWindow {
     pub(crate) conv9_settings: crate::editor_conv9b::ConvSettings,
     /// Form field tool.
     pub(crate) design: crate::editor_design::DesignState,
+    /// Field mode selection, tab order and the Properties dialog (round 11).
+    pub(crate) f11: crate::editor_fields11::Fields11,
+    /// Add Shapes grid and the new shapes' style (round 11).
+    pub(crate) s11: crate::editor_shapes11::Shapes11,
     /// Caret shown (blink phase).
     pub(crate) caret_on: bool,
     /// Forms, comments, redaction and signing state.
@@ -600,6 +608,8 @@ impl EditorWindow {
             conv9_settings: crate::editor_conv9b::ConvSettings::default(),
             close_box: None,
             design: crate::editor_design::DesignState::default(),
+            f11: crate::editor_fields11::Fields11::default(),
+            s11: crate::editor_shapes11::Shapes11::default(),
             caret_on: true,
             x: crate::editor_actions::Extras::default(),
             dialog2: None,
@@ -864,6 +874,10 @@ impl EditorWindow {
         if self.backstage_input(&input) {
             return true;
         }
+        if self.shapes11_input(&input) {
+            self.sync();
+            return true;
+        }
         // The command search box keeps the keyboard while its results list is open.
         if self.tools.search_on && matches!(input, Input::Text(_) | Input::Key(..)) {
             used = self.search_input(&input);
@@ -885,7 +899,7 @@ impl EditorWindow {
                 used = self.comment_input(&input);
             }
             if !used && self.design.tool.is_some() && self.r.showing_doc() && !self.organize_on() {
-                used = self.design_input(&input);
+                used = self.fields11_input(&input) || self.design_input(&input);
             }
             if !used && self.tools.tool.is_some() && self.r.showing_doc() && !self.organize_on() {
                 used = self.tools_input(&input);
@@ -1075,6 +1089,7 @@ impl EditorWindow {
             return;
         }
         if self.prot10_command(cmd)
+            || self.share11_command(cmd)
             || self.edit10_command(cmd)
             || self.org9_command(cmd)
             || self.combine9_command(cmd)
@@ -1088,6 +1103,7 @@ impl EditorWindow {
             || self.comment_command(cmd)
             || self.edit_tab_command(cmd)
             || self.design_command(cmd)
+            || self.fields11_command(cmd)
             || self.more_command(cmd)
             || self.more2_command(cmd)
             || self.split_command(cmd)
@@ -1754,6 +1770,7 @@ impl EditorWindow {
         for id in crate::editor_format::EDIT_TAB_LATER
             .iter()
             .chain(&crate::editor_design::FORM_TAB_LATER)
+            .chain(&crate::editor_share11::SHARE_LATER)
         {
             self.r.enabled_override.insert(id, false);
         }
@@ -1859,7 +1876,11 @@ impl EditorWindow {
                 }
                 true
             }
-            Input::Wheel(dy) if inside(self.org.frame, self.pointer.0, self.pointer.1) => {
+            // Round 11: also before any pointer move (the pages behind the grid are hidden).
+            Input::Wheel(dy)
+                if inside(self.org.frame, self.pointer.0, self.pointer.1)
+                    || self.pointer == (0.0, 0.0) =>
+            {
                 self.org.scroll_by(dy);
                 true
             }
@@ -1891,6 +1912,9 @@ impl EditorWindow {
                     self.open_page(i, m);
                 }
             }
+            // Round 11: Page Up / Down scroll the grid a screen (the pages behind are hidden).
+            (Key::PageDown, false) => self.org.scroll_by(self.org.frame[3] * 0.9),
+            (Key::PageUp, false) => self.org.scroll_by(-self.org.frame[3] * 0.9),
             _ => return false,
         }
         true
@@ -1958,10 +1982,16 @@ impl EditorWindow {
         self.paint_comment(p);
         self.paint_tw(p);
         self.paint_design(p);
+        self.paint_fields11(p);
+        // Round 11: a menu stays over the field boxes and the Edit Text frames.
+        if self.design.tool.is_some() || self.tool.is_some() {
+            self.r.paint_open_menu(p);
+        }
         self.paint_tools(p, &Estimate);
         self.paint_format(p);
         self.paint_more_tip(p);
         self.paint_backstage(p);
+        self.paint_shapes11(p);
         // Round 7: every BlueEditor dialog has the reference editor's caption and buttons.
         let (size, scale) = (self.r.window_size(), self.r.ui_scale());
         for d in [

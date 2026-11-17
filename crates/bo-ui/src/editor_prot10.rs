@@ -129,7 +129,7 @@ impl EditorWindow {
             "prot.restrictMenu" => self.menu11(
                 &[
                     ("prot.unrestricted", "pdfEditor11.unrestricted", None, true),
-                    ("prot.drm", "pdfEditor11.drmTemplates", None, true),
+                    ("prot.drm12", "pdfEditor11.drmTemplates", None, false),
                 ],
                 &[0],
                 "prot.restrictMenu",

@@ -30,6 +30,7 @@ mod color;
 mod convert;
 mod crypt;
 mod design;
+mod docprops12;
 mod edit;
 mod encoding;
 #[allow(clippy::unreadable_literal, clippy::large_const_arrays)]
@@ -41,6 +42,7 @@ mod extract;
 mod fallback;
 mod field_detect;
 mod field_props;
+mod fields12;
 mod filters;
 mod font;
 mod font_subset;
@@ -67,6 +69,7 @@ mod security10;
 mod sfnt;
 mod shapes11;
 mod sigappear;
+mod stamps12;
 mod store;
 mod stroke_outline;
 mod templates;
@@ -92,6 +95,7 @@ pub use arrange::{flip_about, rotation_about};
 
 pub use convert::{StyledBlock, StyledRun};
 pub use design::{NewField, NewFieldKind, PageMarks};
+pub use docprops12::{InitialView, PrintPresets, PAGE_LAYOUTS, PAGE_MODES, ZOOMS};
 pub use edit::{Cipher, Permissions, SaveOptions};
 pub use exchange::SummaryLabels;
 pub use exchange_data::ImportReport;
@@ -100,6 +104,7 @@ pub use field_props::{
     format_example, format_scripts, FieldAction, FieldActionKind, FieldCalc, FieldFormat,
     FieldProps, FieldValidate, CALC_OPS, DATE_FORMATS, FIELD_FONTS, TRIGGERS,
 };
+pub use fields12::FieldClip;
 pub use forms::{FieldKind, FormField};
 pub use forms11::{
     calc_text, parse_simple_calculate, typed_outline, typed_outline_in, typed_width, Calculation,
@@ -124,6 +129,7 @@ pub use sanitize::{ButtonAction, HiddenCounts, HiddenData};
 pub use security10::SecurityInfo;
 pub use shapes11::ShapeStyle;
 pub use sigappear::{signature_appearance, SignatureLook};
+pub use stamps12::StampLook;
 pub use templates::EmbeddedFile;
 pub use text::TextLayer;
 pub use textbox_annot::TextBoxLook;

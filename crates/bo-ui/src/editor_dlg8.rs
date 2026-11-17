@@ -66,6 +66,8 @@ pub(crate) enum FormWhat {
     Pick11(Vec<String>),
     /// An action of the Actions page: trigger, kind, the action edited.
     Action11(String, usize, Option<usize>),
+    /// Round 12 dialogs (`editor_fields12`).
+    R12(crate::editor_fields12::Dlg12),
 }
 
 /// Font sizes offered by the Size lists.
@@ -1417,7 +1419,7 @@ impl EditorWindow {
                 "output",
                 [17.0, 378.0, 128.0, 28.0],
                 t("pdfEditor8.outputOptions"),
-                On::Never,
+                On::Always,
             ),
         ];
         c.extend(self.ok_cancel(378.0, 286.0));
@@ -1518,7 +1520,8 @@ impl EditorWindow {
         let mut files = Vec::new();
         for (i, g) in groups.iter().enumerate() {
             match v.doc().extract_pages(g, SaveOptions::default()) {
-                Ok(b) => files.push((format!("{stem}-part{}.pdf", i + 1), b)),
+                // Round 12: named as Output Options says.
+                Ok(b) => files.push((self.f12.out.name(&stem, i + 1, None), b)),
                 Err(e) => {
                     self.r.set_status(&e);
                     return;
@@ -1620,6 +1623,7 @@ impl EditorWindow {
             || self.crop9_button(id)
             || self.pages9_button(id)
             || self.opt10_button(id)
+            || self.r12_button(id)
         {
             return;
         }
@@ -1714,6 +1718,7 @@ impl EditorWindow {
                     | FormWhat::Script11(_)
                     | FormWhat::Pick11(_)
                     | FormWhat::Action11(..) => {}
+                    FormWhat::R12(k) => self.r12_ok(&f, &k),
                 }
             }
             _ => self.dlg8b_button(id),

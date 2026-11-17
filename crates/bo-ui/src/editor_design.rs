@@ -288,6 +288,8 @@ impl EditorWindow {
                 };
                 match self.doc_edit(|d| d.add_field(&f)) {
                     Ok(()) => {
+                        // Round 12: the look saved as the new defaults for this kind.
+                        self.apply_defaults12(*page, &f.name);
                         if let Some(v) = self.r.view_mut() {
                             v.invalidate_page(*page);
                         }

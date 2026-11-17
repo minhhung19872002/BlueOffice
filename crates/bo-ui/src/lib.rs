@@ -35,6 +35,7 @@ mod editor_arrange;
 #[cfg(test)]
 mod editor_arrange_tests;
 mod editor_backstage;
+mod editor_bsprops12;
 mod editor_close;
 #[cfg(test)]
 mod editor_close_tests;
@@ -56,6 +57,7 @@ mod editor_dlg8b;
 mod editor_edit;
 mod editor_edit10;
 mod editor_fields11;
+mod editor_fields12;
 mod editor_file7;
 mod editor_five;
 #[cfg(test)]
@@ -95,6 +97,7 @@ mod editor_selhi9;
 mod editor_shapes11;
 mod editor_share11;
 mod editor_sign;
+mod editor_stamps12;
 #[cfg(test)]
 mod editor_tests;
 mod editor_textbox;

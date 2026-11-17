@@ -281,7 +281,7 @@ fn page_commands_make_files_and_requests() {
         panic!("{req:?}");
     };
     assert_eq!(files.len(), 2);
-    assert_eq!(files[1].0, "document-part2.pdf");
+    assert_eq!(files[1].0, "document_Part2.pdf");
     // Insert from a file: the host picks it and hands the bytes back.
     w.run("org.insertFile", &Fixed);
     let req = w.take_requests();

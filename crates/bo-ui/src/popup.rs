@@ -99,6 +99,10 @@ pub struct Menu {
     sep_gap: f32,
     /// A faint shadow on every side (BlueEditor round 9) in place of the default one.
     soft_shadow: bool,
+    /// Rows that open a sub-menu: a small solid triangle at the right (BlueEditor round 12).
+    arrows: Vec<bool>,
+    /// Band under the highlighted row in place of the theme's hover colour.
+    hover_fill: Option<Rgba>,
 }
 
 /// Draws icon `name` into a `size`-pixel square at (`x`, `y`), greyed when `dim`.
@@ -171,6 +175,8 @@ impl Menu {
             key_right: 0.0,
             sep_gap: 0.0,
             soft_shadow: false,
+            arrows: Vec::new(),
+            hover_fill: None,
         };
         // Show the current value in the middle of the list.
         if let Some(i) = current {
@@ -198,6 +204,16 @@ impl Menu {
     #[must_use]
     pub fn with_soft_shadow(mut self) -> Self {
         self.soft_shadow = true;
+        self
+    }
+
+    /// Sub-menu marks (a solid right-pointing triangle 4 × 8.8 px, 6.4 px from the right edge)
+    /// on the rows set in `arrows`, and the highlighted row's band in `hover` (BlueEditor
+    /// round 12, the reference editor's field context menu).
+    #[must_use]
+    pub fn with_arrows(mut self, arrows: Vec<bool>, hover: Rgba) -> Self {
+        self.arrows = arrows;
+        self.hover_fill = Some(hover);
         self
     }
 
@@ -397,7 +413,22 @@ impl Menu {
                     y,
                     self.w - 2.0 * self.pad(),
                     self.item_h,
-                    t.hover,
+                    self.hover_fill.unwrap_or(t.hover),
+                );
+            }
+            if self.arrows.get(i).copied().unwrap_or(false) {
+                let (aw, ah) = ((4.0 * s).round(), (8.8 * s).round());
+                let ax = self.x + self.w - (6.4 * s).round() - aw;
+                let ay = (y + (self.item_h - ah) / 2.0).round();
+                p.path(
+                    &[
+                        PathSeg::M(ax, ay),
+                        PathSeg::L(ax + aw, ay + ah / 2.0),
+                        PathSeg::L(ax, ay + ah),
+                        PathSeg::Z,
+                    ],
+                    Some(if item.dim { t.text_muted } else { t.text }),
+                    None,
                 );
             }
             if item.checked && item.dim {

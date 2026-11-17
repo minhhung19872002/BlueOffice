@@ -509,6 +509,9 @@ pub(crate) const SELECT: [(&str, &str); 4] = [
 /// Width (logical px) of the check box items, measured on the reference at 125 %: the
 /// first column 138 px ("Banded Rows" with its box), the second 162 px ("Banded Columns").
 pub(crate) fn labeled_w(id: &str) -> Option<f32> {
+    if let Some(w) = crate::doc_tabs7::labeled_w(id) {
+        return Some(w);
+    }
     if let Some(w) = crate::doc_r3_menus::labeled_w(id) {
         return Some(w);
     }
@@ -535,10 +538,11 @@ pub(crate) fn labeled_w(id: &str) -> Option<f32> {
 /// Large buttons placed after their group's rows: Text Direction follows the nine
 /// alignment buttons, as on the reference.
 pub(crate) fn trailing(id: &str) -> bool {
-    matches!(
-        id,
-        "table.textDirection" | "table.cellMargins" | "view.switchWindows"
-    )
+    crate::doc_tabs7::trailing(id)
+        || matches!(
+            id,
+            "table.textDirection" | "table.cellMargins" | "view.switchWindows"
+        )
 }
 
 /// Width (logical px) of a gallery tile (the reference's step 108 px at 125 %).
@@ -548,6 +552,7 @@ pub(crate) fn large_w(id: &str) -> Option<f32> {
         .any(|(t, _)| *t == id)
         .then_some(84.0)
         .or_else(|| crate::doc_design::large_w(id))
+        .or_else(|| crate::doc_tabs7::large_w(id))
 }
 
 /// The quick look last applied and the style options (the reference keeps them in the

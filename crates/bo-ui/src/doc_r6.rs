@@ -366,56 +366,65 @@ impl DocWindow {
         let protected = b.facts.protected;
         let p = &b.print;
         let items: Vec<MenuItem> = match id {
-            "bs6.protect" => vec![
-                item(
-                    self.t("docR6.m.readOnly", "Always Open Read-Only"),
-                    "bs6.none",
-                    false,
-                    true,
-                ),
-                item(
-                    self.t("docR6.m.encrypt", "Encrypt with Password"),
-                    "bs6.none",
-                    false,
-                    true,
-                ),
-                item(
-                    self.t("docR6.m.restrict", "Restrict Editing"),
-                    "bs6.restrict",
-                    protected,
-                    false,
-                ),
-                item(
-                    self.t("docR6.m.signature", "Add a Digital Signature"),
-                    "bs6.none",
-                    false,
-                    true,
-                ),
-                item(
-                    self.t("docR6.m.final", "Mark as Final"),
-                    "bs6.none",
-                    false,
-                    true,
-                ),
-            ],
+            // Round 7: every entry works but the digital signature (no certificate store).
+            "bs6.protect" => {
+                let sec = self
+                    .view
+                    .run_json(&json!({ "cmd": "security" }))
+                    .map(|v| v["security"].clone())
+                    .unwrap_or_default();
+                let flag = |k: &str| sec[k].as_bool().unwrap_or(false);
+                vec![
+                    item(
+                        self.t("docR6.m.readOnly", "Always Open Read-Only"),
+                        "file.readOnlyRecommended",
+                        flag("readOnlyRecommended"),
+                        false,
+                    ),
+                    item(
+                        self.t("docR6.m.encrypt", "Encrypt with Password"),
+                        "file.encrypt",
+                        self.view.engine().save_password_set(),
+                        false,
+                    ),
+                    item(
+                        self.t("docR6.m.restrict", "Restrict Editing"),
+                        "bs6.restrict",
+                        protected,
+                        false,
+                    ),
+                    item(
+                        self.t("docR6.m.signature", "Add a Digital Signature"),
+                        "bs6.none",
+                        false,
+                        true,
+                    ),
+                    item(
+                        self.t("docR6.m.final", "Mark as Final"),
+                        "file.markFinal",
+                        flag("markedFinal"),
+                        false,
+                    ),
+                ]
+            }
             "bs6.inspect" => vec![
                 item(
                     self.t("docR6.m.inspect", "Inspect Document"),
-                    "bs6.none",
+                    "file.inspect",
                     false,
-                    true,
+                    false,
                 ),
                 item(
                     self.t("docR6.m.accessibility", "Check Accessibility"),
-                    "bs6.none",
+                    "file.accessibility",
                     false,
-                    true,
+                    false,
                 ),
                 item(
                     self.t("docR6.m.compatibility", "Check Compatibility"),
-                    "bs6.none",
+                    "file.compatibility",
                     false,
-                    true,
+                    false,
                 ),
             ],
             "bs6.manage" => vec![item(
@@ -807,11 +816,22 @@ impl DocWindow {
                 decimal,
             };
         }
-        if p.show_marks != self.marks {
-            self.marks = p.show_marks;
-            let on = self.marks;
-            self.view.run_command(Command::ShowFormattingMarks { on });
-        }
+        // Each kind of mark on its own (round 7), and all of them with the ¶ button.
+        let k = p.mark_kinds;
+        let kinds = bo_engine::views::MarkKinds {
+            tabs: k[0],
+            spaces: k[1],
+            paragraphs: k[2],
+            hidden: k[3],
+            optional_hyphens: k[4],
+            anchors: k[5],
+        };
+        self.marks = p.show_marks;
+        let on = self.marks;
+        self.view.run_command(Command::ShowFormattingMarks {
+            on,
+            kinds: Some(kinds),
+        });
     }
 
     /// Preferences changed in File › Options: store them through the host.

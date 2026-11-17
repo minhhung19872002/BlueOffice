@@ -501,7 +501,7 @@ impl DocWindow {
             return;
         }
         self.refresh_info();
-        let right = self.size.0 - self.r3_pane_w() + self.r5_pane_w();
+        let right = self.size.0 - self.r3_pane_w() + self.r5_pane_w() + self.r7_pane_w();
         let (top, bottom, scale) = (
             self.chrome_bottom(),
             self.size.1 - self.status_h(),

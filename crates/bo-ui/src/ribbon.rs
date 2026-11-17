@@ -595,6 +595,12 @@ fn review_tab() -> Tab {
                 large: vec![L("review.spellingDialog")],
                 rows: vec![vec![S("review.wordCount")]],
             },
+            // Check Accessibility opens the Accessibility pane (round 7).
+            Group {
+                label: "docR7.g.accessibility",
+                large: vec![L("review.checkAccessibility")],
+                rows: vec![],
+            },
             Group {
                 label: "docR3.groupLanguage",
                 large: vec![L("review.languageMenu")],
@@ -1045,7 +1051,6 @@ impl Ribbon {
     }
 
     /// Label (i18n key) of the active tab.
-    #[cfg(test)]
     pub(crate) fn active_label(&self) -> &'static str {
         self.tabs.get(self.active).map_or("", |t| t.label)
     }

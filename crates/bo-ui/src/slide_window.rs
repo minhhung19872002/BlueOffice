@@ -355,7 +355,7 @@ mod fmt;
 mod selpane;
 
 #[path = "slide_picture.rs"]
-mod pic;
+pub(crate) mod pic;
 
 #[path = "slide_views5.rs"]
 mod views5;

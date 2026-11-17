@@ -49,6 +49,10 @@ pub(crate) struct Context {
     pub(crate) picture: bool,
     /// The outline view is on (Outlining tab).
     pub(crate) outline: bool,
+    /// A drawing shape is selected (Shape Format).
+    pub(crate) shape: bool,
+    /// An equation is selected or edited (Equation).
+    pub(crate) equation: bool,
 }
 
 impl Context {
@@ -63,6 +67,8 @@ impl Context {
             table: f.table.is_some(),
             picture: f.picture.is_some() || f.picture_tools,
             outline: false,
+            shape: false,
+            equation: false,
         }
     }
 }
@@ -74,175 +80,22 @@ pub(crate) fn tabs(c: Context) -> Vec<Tab> {
         out.push(outlining_tab());
     }
     if c.story.is_some() {
-        out.push(header_footer_tab());
+        out.push(crate::doc_tabs7::header_footer_tab());
     }
     if c.table {
-        out.push(table_design_tab());
-        out.push(table_layout_tab());
+        out.push(crate::doc_tabs7::table_design_tab());
+        out.push(crate::doc_tabs7::table_layout_tab());
     }
     if c.picture {
-        out.push(picture_tab());
+        out.push(crate::doc_tabs7::picture_tab());
+    }
+    if c.shape {
+        out.push(crate::doc_tabs7::shape_tab());
+    }
+    if c.equation {
+        out.push(crate::doc_tabs7::equation_tab());
     }
     out
-}
-
-fn table_design_tab() -> Tab {
-    use Item::{Labeled as S, Large as L};
-    let mut looks: Vec<Item> = crate::doc_table::LOOK_TILES
-        .iter()
-        .map(|(id, _)| L(id))
-        .collect();
-    looks.push(L("table.shadingMenu"));
-    Tab {
-        label: TABLE_DESIGN,
-        groups: vec![
-            // Check boxes in three rows of two, as on the reference.
-            Group {
-                label: "ribbon.groups.tableStyleOptions",
-                large: vec![],
-                rows: vec![
-                    vec![S("table.opt.headerRow"), S("table.opt.firstColumn")],
-                    vec![S("table.opt.totalRow"), S("table.opt.lastColumn")],
-                    vec![S("table.opt.bandedRows"), S("table.opt.bandedColumns")],
-                ],
-            },
-            Group {
-                label: "ribbon.groups.tableStyles",
-                large: looks,
-                rows: vec![],
-            },
-            Group {
-                label: "sheetEditor.borders",
-                large: vec![L("table.borders")],
-                rows: vec![],
-            },
-        ],
-    }
-}
-
-fn table_layout_tab() -> Tab {
-    use Item::{Button as B, Labeled as S, Large as L};
-    let a = |i: usize| B(crate::doc_table::ALIGN[i].0);
-    Tab {
-        label: TABLE_LAYOUT,
-        groups: vec![
-            Group {
-                label: "ribbon.groups.table",
-                large: vec![],
-                rows: vec![vec![S("table.select")], vec![S("table.properties")]],
-            },
-            Group {
-                label: "ribbon.groups.rowsColumns",
-                large: vec![L("table.delete"), L("table.insertRowAbove")],
-                rows: vec![
-                    vec![S("table.insertRowBelow")],
-                    vec![S("table.insertColumnLeft")],
-                    vec![S("table.insertColumnRight")],
-                ],
-            },
-            Group {
-                label: "ribbon.groups.merge",
-                large: vec![],
-                rows: vec![
-                    vec![S("table.mergeCells")],
-                    vec![S("table.splitCell")],
-                    vec![S("table.splitTable")],
-                ],
-            },
-            // Height / width boxes with the distribute buttons beside them, AutoFit under
-            // them, as on the reference.
-            Group {
-                label: "ribbon.groups.cellSize",
-                large: vec![],
-                rows: vec![
-                    vec![S("table.rowHeight"), B("table.distributeRows")],
-                    vec![S("table.colWidth"), B("table.distributeColumns")],
-                    vec![S("table.autoFit")],
-                ],
-            },
-            // Nine alignment buttons in three rows, then Text Direction (reference order).
-            Group {
-                label: "ribbon.groups.cellAlignment",
-                large: vec![L("table.textDirection"), L("table.cellMargins")],
-                rows: vec![
-                    vec![a(0), a(1), a(2)],
-                    vec![a(3), a(4), a(5)],
-                    vec![a(6), a(7), a(8)],
-                ],
-                // (Text Direction and Cell Margins follow the grid.)
-            },
-            // One Data menu, as on the reference.
-            Group {
-                label: "ribbon.groups.tableData",
-                large: vec![L("table.data")],
-                rows: vec![],
-            },
-        ],
-    }
-}
-
-fn header_footer_tab() -> Tab {
-    use Item::{Labeled as S, Large as L};
-    Tab {
-        label: HEADER_FOOTER,
-        groups: vec![
-            Group {
-                label: "ribbon.groups.headerFooter",
-                large: vec![L("insert.pageNumber")],
-                rows: vec![],
-            },
-            Group {
-                label: "ribbon.tabs.insert",
-                large: vec![L("insert.dateTime")],
-                rows: vec![],
-            },
-            Group {
-                label: "hf.navigation",
-                large: vec![L("hf.gotoHeader"), L("hf.gotoFooter")],
-                rows: vec![vec![S("hf.linkToPrevious")]],
-            },
-            Group {
-                label: "hf.options",
-                large: vec![],
-                rows: vec![vec![S("hf.differentFirst")], vec![S("hf.differentOddEven")]],
-            },
-            Group {
-                label: "slideEditor.close",
-                large: vec![L("hf.close")],
-                rows: vec![],
-            },
-        ],
-    }
-}
-
-fn picture_tab() -> Tab {
-    use Item::{Button as B, Labeled as S, Large as L};
-    Tab {
-        label: PICTURE_FORMAT,
-        groups: vec![
-            Group {
-                label: "pictureTools.groupAdjust",
-                large: vec![L("picture.reset")],
-                rows: vec![],
-            },
-            // Arrange as the reference: Position and Wrap Text, then Bring Forward / Send
-            // Backward beside Align / Group / Rotate.
-            Group {
-                label: "docR3.groupArrange",
-                large: vec![L("picture.position"), L("picture.wrap")],
-                rows: vec![
-                    vec![S("picture.bringForward"), B("picture.align")],
-                    vec![S("picture.sendBackward"), B("picture.group")],
-                    vec![B("picture.rotate")],
-                ],
-            },
-            Group {
-                label: "pictureTools.groupSize",
-                large: vec![L("picture.crop")],
-                rows: vec![],
-            },
-        ],
-    }
 }
 
 /// Tab label key of the Outlining tab.
@@ -408,6 +261,7 @@ pub(crate) fn static_id(id: &str) -> Option<&'static str> {
         .chain(["review.trackChanges"].iter())
         .find(|m| **m == id)
         .copied()
+        .or_else(|| crate::doc_tabs7::static_id(id))
 }
 
 /// What a contextual command runs.
@@ -569,6 +423,9 @@ pub(crate) fn checked(id: &str, m: &MarkupOptions) -> bool {
 
 /// Whether contextual command `id` can run (`None`: not a contextual command).
 pub(crate) fn enabled(id: &str, f: &FormatState) -> Option<bool> {
+    if let Some(on) = crate::doc_tabs7::enabled(id, f) {
+        return Some(on);
+    }
     let in_table = f.table.is_some();
     Some(match id {
         "table.mergeCells" => f.table.as_ref().is_some_and(|t| t.multi_cell),

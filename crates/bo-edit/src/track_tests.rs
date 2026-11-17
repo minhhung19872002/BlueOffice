@@ -221,6 +221,7 @@ fn run(s: &mut Session, a: &Act) {
                 BorderPreset::Outside,
                 BorderPreset::Inside,
             ][usize::from(*k)],
+            pen: None,
         }),
         Act::Align(k) => s.edit_table(&TableEdit::Properties {
             width_pct: Some(80),

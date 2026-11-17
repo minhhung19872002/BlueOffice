@@ -30,7 +30,7 @@ const BADGES: [Rgba; 5] = [
 const BODY_FACE: &str = "Times New Roman";
 
 /// What a press in the pane asks the window to do.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum CommentAction {
     Close,
     /// Select the text thread `id` is anchored to.
@@ -41,7 +41,19 @@ pub(crate) enum CommentAction {
     Resolve(i32, bool),
     /// Delete thread `id` with its replies.
     Delete(i32),
+    /// Post the text of the comment being written: a new comment on the selection
+    /// (`None`) or a reply to thread `id` (round 7, the reference's in-card editor).
+    Post(Option<i32>, String),
     Redraw,
+}
+
+/// The comment being written in a card (round 7): a new comment or a reply.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Draft {
+    /// Thread replied to (`None`: a new comment on the selection).
+    pub(crate) parent: Option<i32>,
+    /// Text typed so far.
+    pub(crate) text: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -49,7 +61,14 @@ enum Part {
     Reply,
     Resolve,
     Delete,
+    /// The text box of the card (a new comment or the reply box).
+    Field,
+    Post,
+    Cancel,
 }
+
+/// Card id of the new comment's card (threads have ids from 0).
+const NEW_CARD: i32 = -1;
 
 const PARTS: [(Part, &str, &str); 3] = [
     (Part::Reply, "comments.reply", "Reply"),
@@ -72,6 +91,9 @@ struct Card {
     bars: Vec<[f32; 3]>,
     /// Buttons of the selected thread: part, rectangle, label.
     buttons: Vec<(Part, [f32; 4], String)>,
+    /// The card's text box: rectangle, lines shown (the placeholder when empty), empty,
+    /// focused.
+    field: Option<([f32; 4], Vec<String>, bool, bool)>,
 }
 
 /// The comments pane.
@@ -84,6 +106,12 @@ pub(crate) struct CommentsPane {
     hover: Option<(i32, Option<Part>)>,
     cards: Vec<Card>,
     content_h: f32,
+    /// The comment being written, when the editor is open.
+    pub(crate) draft: Option<Draft>,
+    /// Author of new comments and replies (File › Options › User name).
+    pub(crate) author: String,
+    /// Width of the draft text's last line (caret position).
+    caret_x: f32,
 }
 
 fn inside(r: [f32; 4], x: f32, y: f32) -> bool {
@@ -95,7 +123,12 @@ fn initials(c: &CommentInfo) -> String {
     if let Some(i) = c.initials.as_deref().filter(|i| !i.trim().is_empty()) {
         return i.chars().take(2).collect::<String>().to_uppercase();
     }
-    let words: Vec<&str> = c.author.split_whitespace().collect();
+    name_initials(&c.author)
+}
+
+/// Initials of a name: the first letters of its first and last word.
+fn name_initials(name: &str) -> String {
+    let words: Vec<&str> = name.split_whitespace().collect();
     let first = words.first().and_then(|w| w.chars().next());
     let last = words
         .get(1..)
@@ -142,7 +175,54 @@ impl CommentsPane {
             hover: None,
             cards: Vec::new(),
             content_h: 0.0,
+            draft: None,
+            author: String::new(),
+            caret_x: 0.0,
         }
+    }
+
+    /// Open the editor for a new comment on the selection.
+    pub(crate) fn start_new(&mut self) {
+        self.draft = Some(Draft {
+            parent: None,
+            text: String::new(),
+        });
+        self.selected = None;
+        self.scroll = 0.0;
+    }
+
+    /// Type into the comment being written; `false` when no editor is open.
+    pub(crate) fn type_text(&mut self, s: &str) -> bool {
+        let Some(d) = self.draft.as_mut() else {
+            return false;
+        };
+        d.text.push_str(&s.replace('\r', ""));
+        true
+    }
+
+    /// A key while the editor is open: Backspace, Enter (new line), Ctrl+Enter (post),
+    /// Escape (cancel); `None` when no editor is open or the key is not for it.
+    pub(crate) fn key(&mut self, k: crate::Key, ctrl: bool) -> Option<CommentAction> {
+        let d = self.draft.as_mut()?;
+        Some(match k {
+            crate::Key::Backspace => {
+                d.text.pop();
+                CommentAction::Redraw
+            }
+            crate::Key::Enter if ctrl => {
+                let d = self.draft.take()?;
+                CommentAction::Post(d.parent, d.text)
+            }
+            crate::Key::Enter => {
+                d.text.push('\n');
+                CommentAction::Redraw
+            }
+            crate::Key::Escape => {
+                self.draft = None;
+                CommentAction::Redraw
+            }
+            _ => return None,
+        })
     }
 
     /// Width of the pane at display `scale` (the reference's markup area: 394 px at 125 %).
@@ -260,6 +340,54 @@ impl CommentsPane {
         let gap = self.px(22.0);
         let mut y = self.px(10.0);
         let mut cards = Vec::new();
+        let field_lines = |t: &str, width: f32, placeholder: &str| -> (Vec<String>, bool) {
+            if t.is_empty() {
+                return (vec![placeholder.to_owned()], true);
+            }
+            let measure = |s: &str| text.measure_font(s, &body).0;
+            (wrap(t, width, &measure), false)
+        };
+        let label = |key: &str, fallback: &str| {
+            let v = strings.get(key);
+            if v == key { fallback } else { v }.to_owned()
+        };
+        // The new comment's card first, as the reference opens it beside the selection.
+        if let Some(dr) = self.draft.as_ref().filter(|dr| dr.parent.is_none()) {
+            let start = y;
+            let mut card = Card {
+                id: NEW_CARD,
+                ..Card::default()
+            };
+            let me = if self.author.is_empty() {
+                label("docR7.c.author", "Author")
+            } else {
+                self.author.clone()
+            };
+            let ini = name_initials(&me);
+            let ini_w = text.measure(&ini, self.badge_style()).0;
+            card.badges
+                .push((pad + d / 2.0, y + d / 2.0, ini, BADGES[0], ini_w));
+            card.lines.push((me, text_x, y, true, Rgba(0, 0, 0, 255)));
+            y += author_h + self.px(4.0);
+            let fw = right - text_x;
+            let (lines, empty) = field_lines(
+                &dr.text,
+                fw - self.px(12.0),
+                &label("docR7.c.start", "Start a conversation"),
+            );
+            let fh = (lines.len().max(2) as f32 * body_h + self.px(12.0)).round();
+            card.field = Some(([text_x, y, fw, fh], lines, empty, true));
+            y += fh + self.px(8.0);
+            y = self.post_cancel(&mut card, strings, text, right, y);
+            card.rect = [
+                self.px(4.0),
+                start - self.px(6.0),
+                pane_w - self.px(8.0),
+                y - start + self.px(12.0),
+            ];
+            cards.push(card);
+            y += self.px(6.0) + gap;
+        }
         for top in comments.iter().filter(|c| c.parent.is_none()) {
             let mut card = Card {
                 id: top.id,
@@ -301,6 +429,38 @@ impl CommentsPane {
                 ));
                 y += body_h + self.px(4.0);
             }
+            // The reply box of the selected open thread (typing there writes a reply).
+            if selected && !top.done {
+                y += self.px(8.0);
+                let writing = self
+                    .draft
+                    .as_ref()
+                    .filter(|dr| dr.parent == Some(top.id))
+                    .map(|dr| dr.text.clone());
+                let fw = right - text_x;
+                let (lines, empty) = field_lines(
+                    writing.as_deref().unwrap_or(""),
+                    fw - self.px(12.0),
+                    &label("comments.reply", "Reply"),
+                );
+                let fh = (lines.len() as f32 * body_h + self.px(10.0)).round();
+                card.field = Some(([text_x, y, fw, fh], lines, empty, writing.is_some()));
+                y += fh + self.px(4.0);
+                if writing.is_some() {
+                    y += self.px(4.0);
+                    y = self.post_cancel(&mut card, strings, text, right, y);
+                    y += self.px(6.0);
+                    card.rect = [
+                        self.px(4.0),
+                        start - self.px(6.0),
+                        pane_w - self.px(8.0),
+                        y - start + self.px(6.0),
+                    ];
+                    cards.push(card);
+                    y += gap;
+                    continue;
+                }
+            }
             if selected {
                 y += self.px(8.0);
                 let bs = self.button_style();
@@ -332,7 +492,46 @@ impl CommentsPane {
         }
         self.content_h = y;
         self.cards = cards;
+        // Caret after the draft's last line.
+        self.caret_x = self
+            .draft
+            .as_ref()
+            .and_then(|dr| {
+                let width = right - text_x - self.px(12.0);
+                let measure = |s: &str| text.measure_font(s, &body).0;
+                wrap(&dr.text, width, &measure)
+                    .last()
+                    .map(|l| text.measure_font(l, &body).0)
+            })
+            .unwrap_or(0.0);
         self.clamp_scroll();
+    }
+
+    /// Post and Cancel buttons right-aligned at `y` (Post filled with the accent, as the
+    /// reference's send button); returns the y under them.
+    fn post_cancel(
+        &self,
+        card: &mut Card,
+        strings: &Strings,
+        text: &dyn TextMeasure,
+        right: f32,
+        y: f32,
+    ) -> f32 {
+        let bs = self.button_style();
+        let bh = self.px(26.0);
+        let mut x = right;
+        for (part, key, fallback) in [
+            (Part::Cancel, "comments.cancel", "Cancel"),
+            (Part::Post, "docR7.c.post", "Post"),
+        ] {
+            let v = strings.get(key);
+            let label = if v == key { fallback } else { v }.to_owned();
+            let w = (text.measure(&label, bs).0 + self.px(24.0)).max(self.px(64.0));
+            x -= w;
+            card.buttons.push((part, [x, y, w, bh], label));
+            x -= self.px(8.0);
+        }
+        y + bh
     }
 
     fn list_rect(&self) -> [f32; 4] {
@@ -375,7 +574,13 @@ impl CommentsPane {
             .buttons
             .iter()
             .find(|(_, r, _)| inside(*r, lx, ly))
-            .map(|(p, _, _)| *p);
+            .map(|(p, _, _)| *p)
+            .or_else(|| {
+                card.field
+                    .as_ref()
+                    .filter(|f| inside(f.0, lx, ly))
+                    .map(|_| Part::Field)
+            });
         Some((card.id, part))
     }
 
@@ -398,11 +603,34 @@ impl CommentsPane {
             .iter()
             .find(|c| c.id == id)
             .is_some_and(|c| c.done);
+        if id == NEW_CARD || part == Some(Part::Post) || part == Some(Part::Cancel) {
+            return match part {
+                Some(Part::Post) => match self.draft.take() {
+                    Some(dr) => CommentAction::Post(dr.parent, dr.text),
+                    None => CommentAction::Redraw,
+                },
+                Some(Part::Cancel) => {
+                    self.draft = None;
+                    CommentAction::Redraw
+                }
+                _ => CommentAction::Redraw,
+            };
+        }
+        if part == Some(Part::Field) {
+            if self.draft.as_ref().is_none_or(|dr| dr.parent != Some(id)) {
+                self.draft = Some(Draft {
+                    parent: Some(id),
+                    text: String::new(),
+                });
+            }
+            self.selected = Some(id);
+            return CommentAction::Redraw;
+        }
         match part {
             Some(Part::Reply) => CommentAction::Reply(id),
             Some(Part::Resolve) => CommentAction::Resolve(id, !done),
             Some(Part::Delete) => CommentAction::Delete(id),
-            None => {
+            Some(Part::Field | Part::Post | Part::Cancel) | None => {
                 self.selected = Some(id);
                 CommentAction::Select(id)
             }
@@ -448,7 +676,7 @@ impl CommentsPane {
             Some((t.text, self.scale.max(1.0))),
         );
         let l = self.list_rect();
-        if self.cards.is_empty() {
+        if self.cards.is_empty() && self.draft.is_none() {
             p.text(
                 strings.get("comments.none"),
                 x + self.px(14.0),
@@ -498,9 +726,42 @@ impl CommentsPane {
                     p.text_font(s, ox + lx, oy + ly, &self.body_font(), *color);
                 }
             }
+            if let Some((fr, lines, empty, focused)) = &card.field {
+                let b = [ox + fr[0], oy + fr[1], fr[2], fr[3]];
+                let edge = if *focused { t.accent } else { EDGE };
+                p.fill_rect(b[0], b[1], b[2], b[3], edge);
+                p.fill_rect(b[0] + 1.0, b[1] + 1.0, b[2] - 2.0, b[3] - 2.0, WHITE);
+                let body = self.body_font();
+                let lh = (body.size * 1.3).round();
+                let mut ly = b[1] + self.px(5.0);
+                for l in lines {
+                    let ink = if *empty { MUTED } else { Rgba(0, 0, 0, 255) };
+                    p.text_font(l, b[0] + self.px(6.0), ly, &body, ink);
+                    ly += lh;
+                }
+                if *focused {
+                    let cx = if *empty { 0.0 } else { self.caret_x };
+                    p.fill_rect(
+                        (b[0] + self.px(6.0) + cx).round(),
+                        ly - lh + self.px(1.0),
+                        1.0,
+                        lh - self.px(2.0),
+                        Rgba(0, 0, 0, 255),
+                    );
+                }
+            }
             for (part, br, label) in &card.buttons {
                 let hovered = self.hover == Some((card.id, Some(*part)));
                 let b = [ox + br[0], oy + br[1], br[2], br[3]];
+                let st = self.button_style();
+                let ty = b[1] + (b[3] - st.size * 1.33) / 2.0;
+                if *part == Part::Post {
+                    // The send button: filled with the accent, white label.
+                    p.fill_rect(b[0], b[1], b[2], b[3], t.accent_strong);
+                    let tw = label.chars().count() as f32 * st.size * 0.5;
+                    p.text(label, b[0] + (b[2] - tw) / 2.0, ty, st, WHITE);
+                    continue;
+                }
                 p.fill_rect(b[0], b[1], b[2], b[3], EDGE);
                 p.fill_rect(
                     b[0] + 1.0,
@@ -509,14 +770,7 @@ impl CommentsPane {
                     b[3] - 2.0,
                     if hovered { t.hover } else { WHITE },
                 );
-                let st = self.button_style();
-                p.text(
-                    label,
-                    b[0] + self.px(8.0),
-                    b[1] + (b[3] - st.size * 1.33) / 2.0,
-                    st,
-                    LINK,
-                );
+                p.text(label, b[0] + self.px(8.0), ty, st, LINK);
             }
         }
         p.pop_clip();

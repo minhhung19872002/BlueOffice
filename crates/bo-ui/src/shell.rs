@@ -34,6 +34,8 @@ mod r4;
 mod r5;
 #[path = "doc_r6.rs"]
 mod r6;
+#[path = "doc_r7.rs"]
+mod r7;
 pub(crate) use r6::{
     install_icons as install_round6_icons, install_strings as install_round6_strings,
 };
@@ -239,6 +241,7 @@ pub struct DocWindow {
     r4: r4::R4,
     r5: r5::R5,
     r6: r6::R6,
+    r7: r7::R7,
 }
 
 /// Font sizes offered by the size box (points).
@@ -342,6 +345,8 @@ impl DocWindow {
         crate::doc_r4_menus::install_strings(&mut strings);
         crate::doc_r4_fit::install_strings(&mut strings);
         crate::doc_r4_fit::install_icons(&mut icons);
+        crate::doc_tabs7::install_icons(&mut icons);
+        crate::doc_tabs7::install_strings(&mut strings);
         icons.set_grey_disabled(true);
         Self {
             view,
@@ -428,6 +433,7 @@ impl DocWindow {
             r4: r4::R4::default(),
             r5: r5::R5::default(),
             r6: r6::R6::default(),
+            r7: r7::R7::default(),
         }
     }
 
@@ -630,6 +636,12 @@ impl DocWindow {
                 json!({ "cmd": "resolveComment", "id": id, "done": done })
             }
             CommentAction::Delete(id) => json!({ "cmd": "deleteComment", "id": id }),
+            // The in-card editor's Post (round 7): an empty comment is not posted.
+            CommentAction::Post(_, ref text) if text.trim().is_empty() => return true,
+            CommentAction::Post(None, text) => json!({ "cmd": "addComment", "text": text }),
+            CommentAction::Post(Some(id), text) => {
+                json!({ "cmd": "replyComment", "id": id, "text": text })
+            }
         };
         if let Some(c) = catalog::from_json(cmd) {
             self.view.run_command(c);
@@ -953,6 +965,14 @@ impl DocWindow {
 
     /// Insert a picture file the host read (`name` with its extension).
     pub fn insert_picture(&mut self, bytes: Vec<u8>, name: &str) -> bool {
+        // Picture Format › Change Picture: the picked file replaces the selected picture.
+        if std::mem::take(&mut self.r7.change_pending) {
+            use base64::Engine as _;
+            let data = base64::engine::general_purpose::STANDARD.encode(&bytes);
+            return self.view.picture_command(&json!({
+                "cmd": "pictureChange", "data": data, "name": name,
+            }));
+        }
         self.activate_context = true;
         let ok = self.view.insert_picture(bytes, name);
         self.sync_context();
@@ -1050,13 +1070,24 @@ impl DocWindow {
     fn sync_context(&mut self) {
         let mut c = Context::of(self.view.format(), self.view.story().map(|s| s.kind));
         c.outline = self.r3.outline.is_some();
+        let engine = self.view.engine();
+        // A drawing shape (not a picture) gets Shape Format instead of Picture Format.
+        c.shape = c.picture
+            && engine
+                .session()
+                .and_then(bo_edit::Session::tools_picture)
+                .is_some_and(|i| i.shape.is_some() && i.media.is_empty());
+        c.picture &= !c.shape;
+        c.equation = engine.equation_selected();
         if c == self.context && !self.activate_context {
             return;
         }
         // Opening a header or footer, inserting a table or a picture brings its tab
         // forward; moving the caret into an existing table only shows the tabs.
         let story_opened = c.story.is_some() && self.context.story.is_none();
-        let new_object = (c.table && !self.context.table) || (c.picture && !self.context.picture);
+        let new_object = (c.table && !self.context.table)
+            || (c.picture && !self.context.picture)
+            || (c.shape && !self.context.shape);
         let activate = story_opened
             || (self.activate_context && new_object)
             || (c.outline && !self.context.outline);
@@ -2031,6 +2062,7 @@ impl DocWindow {
             on.push("mailings.preview");
         }
         on.extend(doc_tools::on_ids(self.view.format(), self.story_options()));
+        on.extend(self.r7_on_ids());
         on
     }
 
@@ -2067,6 +2099,9 @@ impl DocWindow {
 
     /// Run interface command `id` from the ribbon, title bar, a menu or a shortcut.
     fn action(&mut self, id: &str) -> bool {
+        if let Some(r) = self.r7_action(id) {
+            return r;
+        }
         if let Some(r) = self.r6_action(id) {
             return r;
         }
@@ -2204,7 +2239,8 @@ impl DocWindow {
             "view.formattingMarks" => {
                 self.marks = !self.marks;
                 let on = self.marks;
-                self.view.run_command(Command::ShowFormattingMarks { on });
+                self.view
+                    .run_command(Command::ShowFormattingMarks { on, kinds: None });
                 true
             }
             "view.zoomIn" | "view.zoomOut" | "view.zoomReset" => {
@@ -2681,6 +2717,7 @@ impl DocWindow {
         }
         self.r3_layout(text);
         self.r5_layout();
+        self.r7_layout();
         if let Some(d) = self.dialog.as_mut() {
             d.layout(text, self.size, self.scale);
         }
@@ -2783,6 +2820,9 @@ impl DocWindow {
 
     fn route(&mut self, input: Input, text: &dyn TextMeasure) -> bool {
         if let Some(r) = self.r6_input(&input, text) {
+            return r;
+        }
+        if let Some(r) = self.r7_input(&input) {
             return r;
         }
         // The File screen covers everything below the title bar.
@@ -3503,7 +3543,8 @@ impl DocWindow {
 
     /// Update page images of the visible pages.
     pub fn prepare(&mut self, store: &mut dyn PageStore) -> Result<(), String> {
-        self.view.prepare(store)
+        self.view.prepare(store)?;
+        self.r7_prepare(store)
     }
 
     /// Paint the whole window.
@@ -3599,6 +3640,7 @@ impl DocWindow {
                     self.scale,
                 );
             }
+            self.r7_paint_ribbon(p);
             // Design › Document Formatting: the style set gallery in the theme's faces.
             if crate::doc_design::more_rect(&self.ribbon, self.scale).is_some() {
                 let (major, minor) = self
@@ -3656,6 +3698,7 @@ impl DocWindow {
         self.r3_paint_panes(p);
         self.r5_paint(p);
         self.r6_paint_panes(p);
+        self.r7_paint(p);
         // Status bar.
         let (w, h) = self.size;
         let sh = self.status_h();
@@ -3937,7 +3980,9 @@ impl DocWindow {
             let bottom =
                 (slot.y as f32 + slot.height as f32 - sec.margin_bottom as f32 / 20.0 * s).round();
             if bottom > top {
-                p.fill_rect(x, top, w, bottom - top, Rgba(255, 255, 255, 128));
+                // Show Document Text off (round 7) hides the body instead of dimming it.
+                let a = if self.r7.hide_body { 255 } else { 128 };
+                p.fill_rect(x, top, w, bottom - top, Rgba(255, 255, 255, a));
             }
             for y in [top, bottom] {
                 let mut dx = 0.0;

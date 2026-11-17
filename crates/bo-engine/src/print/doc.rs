@@ -184,23 +184,28 @@ impl Engine {
         }
         // Hidden text shown with the formatting marks is not printed (§17.3.2.41 vanish).
         let marks = self.show_marks;
-        if unmark || marks {
+        let kinds = self.mark_kinds;
+        let hidden_shown = marks || kinds.hidden;
+        if unmark || hidden_shown {
             if unmark {
                 self.markup.mode = MarkupMode::None;
                 self.view = self.markup.layout_view();
             }
             self.show_marks = false;
+            self.mark_kinds.hidden = false;
             self.view_changed = true;
             self.relayout()?;
         }
         let pages = self.doc_pages_now(o);
-        if marks && !unmark {
-            self.show_marks = true;
+        if hidden_shown && !unmark {
+            self.show_marks = marks;
+            self.mark_kinds = kinds;
             self.view_changed = true;
             self.relayout()?;
         }
         if unmark {
             self.show_marks = marks;
+            self.mark_kinds = kinds;
             self.markup = saved_markup;
             self.view = self.markup.layout_view();
             self.view_changed = true;

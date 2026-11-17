@@ -375,6 +375,9 @@ pub struct Engine {
     view_changed: bool,
     /// Formatting marks travel with the page display lists of the view.
     show_marks: bool,
+    /// Kinds of formatting marks shown on their own (File › Options › Display), when
+    /// all of them are not (`show_marks`).
+    mark_kinds: views::MarkKinds,
     /// Slide show video / GIF export in progress (BlueSlide).
     video: Option<Box<slide_edit::video::VideoSession>>,
     /// Building blocks: the user's store, the shipped library, previews (BlueDoc).
@@ -591,6 +594,11 @@ impl Engine {
         self.info()
     }
 
+    /// The next save encrypts the file with a password ([MS-OFFCRYPTO] agile encryption).
+    pub fn save_password_set(&self) -> bool {
+        self.save_password.is_some()
+    }
+
     /// Password for the next `.docx` saves (`None` or empty: no encryption).
     pub fn set_save_password(&mut self, password: Option<&str>) {
         self.save_password = password.filter(|p| !p.is_empty()).map(str::to_owned);
@@ -681,7 +689,7 @@ impl Engine {
     /// the formatting marks are (§17.3.2.41 vanish).
     pub(crate) fn mark_filter(&self) -> bo_layout::MarkFilter {
         let mut f = self.markup.filter();
-        f.show_hidden = self.show_marks;
+        f.show_hidden = self.show_marks || self.mark_kinds.hidden;
         f
     }
 
@@ -1082,6 +1090,20 @@ impl Engine {
         self.session.as_ref()
     }
 
+    /// The caret is inside an equation being edited in place (CORE-MATH-010).
+    pub fn math_active(&self) -> bool {
+        self.math.is_some()
+    }
+
+    /// An equation is selected or the caret is in one (the Equation tab shows).
+    pub fn equation_selected(&self) -> bool {
+        self.math.is_some()
+            || self
+                .session
+                .as_ref()
+                .is_some_and(|s| s.selected_equation().is_some())
+    }
+
     /// The current layout.
     pub fn layout(&self) -> Option<&LayoutDocument> {
         self.session.as_ref().map(|_| self.layout.document())
@@ -1156,7 +1178,7 @@ impl Engine {
         }
         let page = self.page(index)?;
         let markup = self.session.as_ref().and(self.page_markup(index));
-        let marks = if self.show_marks {
+        let marks = if self.show_marks || self.mark_kinds.any() {
             self.formatting_marks(index)
         } else {
             Vec::new()

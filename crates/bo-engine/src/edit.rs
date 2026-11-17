@@ -1100,8 +1100,12 @@ pub enum Command {
     },
     /// Show or hide formatting marks (¶ · → ↵) in the view's page display lists.
     ShowFormattingMarks {
-        /// Show them.
+        /// Show them all (the ¶ button).
         on: bool,
+        /// Kinds shown on their own while not all are (File › Options › Display);
+        /// absent: unchanged.
+        #[serde(default)]
+        kinds: Option<crate::views::MarkKinds>,
     },
     /// Document outline (`outline`): top-level paragraphs with their outline level.
     Outline,

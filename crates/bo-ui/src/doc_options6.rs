@@ -30,6 +30,9 @@ pub(crate) struct DocPrefs {
     pub(crate) initials: String,
     /// Show all formatting marks.
     pub(crate) show_marks: bool,
+    /// Formatting marks always shown (round 7): tab characters, spaces, paragraph marks,
+    /// hidden text, optional hyphens, object anchors (the reference's default: anchors).
+    pub(crate) mark_kinds: [bool; 6],
     /// Wavy spelling marks while typing.
     pub(crate) check_spelling: bool,
     /// Format Save As offers first (index into the Save page's list: 0 docx, 1 dotx).
@@ -53,6 +56,7 @@ impl Default for DocPrefs {
             user_name: String::new(),
             initials: String::new(),
             show_marks: false,
+            mark_kinds: [false, false, false, false, false, true],
             check_spelling: true,
             save_format: 0,
             folder: String::new(),
@@ -102,6 +106,11 @@ impl DocPrefs {
                 "userName" => v.clone_into(&mut p.user_name),
                 "initials" => v.clone_into(&mut p.initials),
                 "showMarks" => p.show_marks = v == "1",
+                "markKinds" => {
+                    for (i, c) in v.chars().take(6).enumerate() {
+                        p.mark_kinds[i] = c == '1';
+                    }
+                }
                 "checkSpelling" => p.check_spelling = v != "0",
                 "saveFormat" => p.save_format = v.parse().unwrap_or(0).min(1),
                 "folder" => v.clone_into(&mut p.folder),
@@ -131,11 +140,12 @@ impl DocPrefs {
     pub(crate) fn to_text(&self) -> String {
         let b = |v: bool| if v { "1" } else { "0" };
         format!(
-            "screentips={}\nuserName={}\ninitials={}\nshowMarks={}\ncheckSpelling={}\nsaveFormat={}\nfolder={}\nlocale={}\nunits={}\nrecentCount={}\nquick={}\n",
+            "screentips={}\nuserName={}\ninitials={}\nshowMarks={}\nmarkKinds={}\ncheckSpelling={}\nsaveFormat={}\nfolder={}\nlocale={}\nunits={}\nrecentCount={}\nquick={}\n",
             self.screentips,
             self.user_name.replace('\n', " "),
             self.initials.replace('\n', " "),
             b(self.show_marks),
+            self.mark_kinds.iter().map(|k| b(*k)).collect::<String>(),
             b(self.check_spelling),
             self.save_format,
             self.folder.replace('\n', " "),
@@ -484,33 +494,38 @@ impl OptionsDialog {
                 (
                     "dTab",
                     t("docR6.opt.markTab", "Tab characters"),
-                    false,
-                    false,
+                    p.mark_kinds[0],
+                    true,
                 ),
-                ("dSpace", t("docR6.opt.markSpace", "Spaces"), false, false),
+                (
+                    "dSpace",
+                    t("docR6.opt.markSpace", "Spaces"),
+                    p.mark_kinds[1],
+                    true,
+                ),
                 (
                     "dPara",
                     t("docR6.opt.markPara", "Paragraph marks"),
-                    false,
-                    false,
+                    p.mark_kinds[2],
+                    true,
                 ),
                 (
                     "dHidden",
                     t("docR6.opt.markHidden", "Hidden text"),
+                    p.mark_kinds[3],
                     true,
-                    false,
                 ),
                 (
                     "dHyphen",
                     t("docR6.opt.markHyphen", "Optional hyphens"),
-                    false,
-                    false,
+                    p.mark_kinds[4],
+                    true,
                 ),
                 (
                     "dAnchor",
                     t("docR6.opt.markAnchor", "Object anchors"),
+                    p.mark_kinds[5],
                     true,
-                    false,
                 ),
                 (
                     "dAll",
@@ -1223,6 +1238,12 @@ impl OptionsDialog {
         p.user_name = f.text("gUser").trim().to_owned();
         p.initials = f.text("gInit").trim().to_owned();
         p.show_marks = f.on("dAll");
+        for (i, id) in ["dTab", "dSpace", "dPara", "dHidden", "dHyphen", "dAnchor"]
+            .into_iter()
+            .enumerate()
+        {
+            p.mark_kinds[i] = f.on(id);
+        }
         p.check_spelling = f.on("pSpell");
         p.save_format = f.sel("sFormat").unwrap_or(0).min(1) as u8;
         p.folder = f.text("sFolder").trim().to_owned();
@@ -1498,6 +1519,7 @@ mod tests {
             user_name: "An Nguyen".into(),
             initials: String::new(),
             show_marks: true,
+            mark_kinds: [true, false, true, false, false, true],
             check_spelling: false,
             save_format: 1,
             folder: "D:\\Docs".into(),

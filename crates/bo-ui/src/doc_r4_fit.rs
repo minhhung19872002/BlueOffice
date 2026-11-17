@@ -235,7 +235,7 @@ pub(crate) fn menu(id: &str) -> Vec<Entry> {
             e("picture.order.back", "Send to Back"),
             e("picture.wrap.behind", "Send Behind Text"),
         ],
-        _ => Vec::new(),
+        _ => crate::doc_tabs7::menu(id),
     }
 }
 

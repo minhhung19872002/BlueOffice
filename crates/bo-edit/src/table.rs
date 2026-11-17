@@ -31,6 +31,43 @@ pub enum BorderPreset {
     Outside,
     /// Inner gridlines only.
     Inside,
+    /// Top edge only (toggles it; the other edges stay).
+    Top,
+    /// Bottom edge only (toggles it).
+    Bottom,
+    /// Left edge only (toggles it).
+    Left,
+    /// Right edge only (toggles it).
+    Right,
+    /// Inner horizontal gridlines only (toggles them).
+    InsideH,
+    /// Inner vertical gridlines only (toggles them).
+    InsideV,
+}
+
+/// Line drawn by the table border commands (the Borders group's pen): style
+/// (§17.18.2 ST_Border), width in eighths of a point (§17.4.38 sz) and colour.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BorderPen {
+    /// `single`, `double`, `dotted`, `dashed`, `thickThinSmallGap`…
+    pub style: String,
+    /// Width in eighths of a point.
+    pub size: u32,
+    /// `RRGGBB`; `None` is automatic.
+    #[serde(default)]
+    pub color: Option<String>,
+}
+
+impl BorderPen {
+    fn border(&self) -> Border {
+        Border {
+            style: self.style.clone(),
+            size: self.size.clamp(2, 96),
+            color: self.color.as_deref().and_then(Color::from_hex),
+            space: 0,
+        }
+    }
 }
 
 /// A table editing command.
@@ -81,6 +118,9 @@ pub enum TableEdit {
     Borders {
         /// Which edges get borders.
         preset: BorderPreset,
+        /// Line drawn (a ½ pt single line when absent).
+        #[serde(default)]
+        pen: Option<BorderPen>,
     },
     /// Preferred width (`width_pct` percent of the text width, else `width` twips,
     /// neither = auto) and alignment.
@@ -1084,24 +1124,66 @@ impl Session {
                     }
                 }
             }
-            TableEdit::Borders { preset } => {
-                let on = Border::single(4);
+            TableEdit::Borders { preset, pen } => {
+                let on = pen
+                    .as_ref()
+                    .map_or_else(|| Border::single(4), BorderPen::border);
                 let off = nil_border();
                 let pick = |b: bool| Some(if b { on.clone() } else { off.clone() });
-                let (outer, inner) = match preset {
-                    BorderPreset::All => (true, true),
-                    BorderPreset::None => (false, false),
-                    BorderPreset::Outside => (true, false),
-                    BorderPreset::Inside => (false, true),
+                let shown = |b: &Option<Border>| b.as_ref().is_some_and(Border::is_visible);
+                // One edge toggles it and keeps the others, as the reference's Borders menu.
+                let current = t.props.borders.clone().unwrap_or_default();
+                // An edge already drawn with this pen goes; any other edge takes the pen.
+                let edge = |b: &Option<Border>| {
+                    if shown(b) && b.as_ref() == Some(&on) {
+                        off.clone()
+                    } else {
+                        on.clone()
+                    }
                 };
-                t.props.borders = Some(Borders {
-                    top: pick(outer),
-                    left: pick(outer),
-                    bottom: pick(outer),
-                    right: pick(outer),
-                    inside_h: pick(inner),
-                    inside_v: pick(inner),
-                });
+                let next = match preset {
+                    BorderPreset::Top => Borders {
+                        top: Some(edge(&current.top)),
+                        ..current
+                    },
+                    BorderPreset::Bottom => Borders {
+                        bottom: Some(edge(&current.bottom)),
+                        ..current
+                    },
+                    BorderPreset::Left => Borders {
+                        left: Some(edge(&current.left)),
+                        ..current
+                    },
+                    BorderPreset::Right => Borders {
+                        right: Some(edge(&current.right)),
+                        ..current
+                    },
+                    BorderPreset::InsideH => Borders {
+                        inside_h: Some(edge(&current.inside_h)),
+                        ..current
+                    },
+                    BorderPreset::InsideV => Borders {
+                        inside_v: Some(edge(&current.inside_v)),
+                        ..current
+                    },
+                    _ => {
+                        let (outer, inner) = match preset {
+                            BorderPreset::None => (false, false),
+                            BorderPreset::Outside => (true, false),
+                            BorderPreset::Inside => (false, true),
+                            _ => (true, true),
+                        };
+                        Borders {
+                            top: pick(outer),
+                            left: pick(outer),
+                            bottom: pick(outer),
+                            right: pick(outer),
+                            inside_h: pick(inner),
+                            inside_v: pick(inner),
+                        }
+                    }
+                };
+                t.props.borders = Some(next);
                 for row in &mut t.rows {
                     for c in &mut row.cells {
                         c.props.borders = None;

@@ -141,6 +141,8 @@ pub struct DocView {
     /// View › Split: the other pane on the same document (origin, viewport, scroll), drawn
     /// without the caret; input goes to the pane of the main frame.
     secondary: Option<Pane>,
+    /// Formatting marks of the pages in view (round 7).
+    marks: marks7::Marks,
 }
 
 /// A second pane of View › Split: origin, viewport and scroll offset (device pixels).
@@ -190,6 +192,7 @@ impl DocView {
             thumbs_refresh: false,
             markup: bo_engine::markup::MarkupOptions::default(),
             secondary: None,
+            marks: marks7::Marks::default(),
         };
         view.apply(&state);
         Ok(view)
@@ -344,6 +347,9 @@ impl DocView {
             self.engine.doc_style_command(c).ok()?
         } else if let Some(c) = bo_engine::picture_tools::PictureCommand::parse(v) {
             self.engine.doc_picture_command(c).ok()?
+        } else if let Some(c) = bo_engine::security::SecurityCommand::parse(v) {
+            // File-level protection (File › Info › Protect Document, round 7).
+            self.engine.doc_security(c).ok()?
         } else if bo_engine::doc_chart::DocChartCommand::parse(v).is_some()
             || bo_engine::doc_smartart::DocSmartArtCommand::parse(v).is_some()
         {
@@ -1369,6 +1375,8 @@ impl DocView {
                 }
             }
         }
+        let wanted_marks = wanted.clone();
+        let mut updated = Vec::new();
         for index in wanted {
             if index >= self.pages.len() {
                 continue;
@@ -1395,7 +1403,9 @@ impl DocView {
             store.update(index, list, &self.engine, scale, band)?;
             self.shown.insert(index, (scale, list.clone()));
             self.stale.remove(&index);
+            updated.push(index);
         }
+        self.refresh_marks(&updated, &wanted_marks);
         self.repaint_all = false;
         self.prepare_thumbnails(store)
     }
@@ -1459,6 +1469,7 @@ impl DocView {
             if self.shown.contains_key(&slot.index) {
                 p.page(slot.index, slot.x, slot.y);
             }
+            self.paint_marks(p, (slot.index, slot.x, slot.y));
             self.paint_markup(p, (slot.index, slot.x, slot.y, slot.width, slot.height));
             // Wavy lines under misspelt words (red) and grammar issues (blue), as a desktop
             // word processor checks as you type.
@@ -1535,6 +1546,8 @@ impl DocView {
     }
 }
 
+#[path = "doc_marks7.rs"]
+mod marks7;
 #[path = "doc_markup6.rs"]
 mod markup6;
 #[cfg(test)]

@@ -59,7 +59,7 @@ pub use refs::{CitationMark, IndexMark, NoteConversion};
 use revisions::Tracker;
 pub use revisions::{RevKind, RevisionItem, StoryRef};
 pub use section::{HfVariant, PageSetupSpec, PasteMode, SetupScope};
-pub use table::{BorderPreset, TableEdit};
+pub use table::{BorderPen, BorderPreset, TableEdit};
 
 use bo_model::change::BlockChanges;
 use bo_model::index::{blocks_at, body_paragraphs, para_at, ParaPath};

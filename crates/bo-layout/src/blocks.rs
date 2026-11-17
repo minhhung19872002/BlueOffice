@@ -64,6 +64,9 @@ pub(crate) enum Brk {
 #[derive(Debug, Clone)]
 pub(crate) struct Band {
     pub h: f32,
+    /// Height that must stay clear of top-and-bottom wrapped objects (§20.4.2.19
+    /// wrapTopAndBottom): `h` but for lines whose extra line spacing may overlap them.
+    pub text_h: f32,
     pub lines: Vec<Line>,
     pub items: Vec<PageItem>,
     pub notes: Vec<NoteKey>,
@@ -74,6 +77,7 @@ impl Band {
     pub fn empty(h: f32) -> Band {
         Band {
             h,
+            text_h: h,
             lines: Vec::new(),
             items: Vec::new(),
             notes: Vec::new(),
@@ -294,6 +298,7 @@ fn rel_line_band(rl: &RelLine, source: LineSource) -> Band {
     lines.extend(boxed);
     Band {
         h: rl.height,
+        text_h: rl.text_h,
         lines,
         items,
         notes: rl.notes.clone(),
@@ -1143,7 +1148,14 @@ pub(crate) fn layout_table(
             } else {
                 span_rows(ri, g)
             };
-            let needed = content_h;
+            // The row's content starts below its top border and the table's bottom
+            // border closes the last row: the reference word processor makes a single-line
+            // Table Grid row 0.5 pt (sz 4) taller than its line (measured black-box,
+            // docs/ui/REPORT.md Fidelity round 1; §17.4.38 tcBorders, §17.4.39 tblBorders).
+            let bw = |b: &Option<Border>| b.as_ref().map_or(0.0, |b| b.size as f32 / 8.0);
+            let mt = bw(&edges[0]);
+            let mb = if last_row { bw(&edges[2]) } else { 0.0 };
+            let needed = content_h + mt + mb;
             if rows_spanned > 1 {
                 tall.push((ri, rows_spanned, needed));
             } else if !continued {
@@ -1162,7 +1174,7 @@ pub(crate) fn layout_table(
                 w,
                 content,
                 content_h,
-                margins: [ml, mr, 0.0, 0.0],
+                margins: [ml, mr, mt, mb],
                 shading: if pl.hidden { None } else { cell.props.shading },
                 edges: if pl.hidden {
                     [None, None, None, None]

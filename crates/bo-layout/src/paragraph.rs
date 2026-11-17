@@ -287,6 +287,9 @@ struct Hyph {
 #[derive(Debug, Clone)]
 pub(crate) struct RelLine {
     pub height: f32,
+    /// Height the line's text needs where a top-and-bottom wrapped object begins below
+    /// it (see [`crate::blocks::Band::text_h`]).
+    pub text_h: f32,
     /// Baseline offset from line top.
     pub baseline: f32,
     /// x relative to content left, y = 0 (baseline-relative glyph offsets).
@@ -1263,6 +1266,7 @@ fn layout_uncached(
         stops: &tabs,
         default: inp.default_tab.max(1.0),
         hanging_at: if first < 0.0 { Some(indent_left) } else { None },
+        right_edge: inp.width - indent_right,
     };
     let avail = |first_line: bool| {
         (inp.width - indent_left - indent_right - if first_line { first } else { 0.0 }).max(1.0)
@@ -1790,6 +1794,13 @@ fn layout_uncached(
         carets.dedup_by_key(|c| c.0);
         out.push(RelLine {
             height,
+            // A multiple of single spacing adds its space below the text, which may
+            // reach into a top-and-bottom wrapped object below the line (measured
+            // black-box: a 1.5-line Calibri 11 pt line sits above a box 14 pt down).
+            text_h: match spacing {
+                LineSpacing::Auto(_) => natural.min(height),
+                _ => height,
+            },
             baseline,
             fragments: frags.into_iter().map(Draft::finish).collect(),
             carets: carets.into(),
@@ -2187,6 +2198,8 @@ struct TabCtx<'a> {
     stops: &'a [TabStop],
     default: f32,
     hanging_at: Option<f32>,
+    /// Right edge of the text (content-relative): the right indent.
+    right_edge: f32,
 }
 
 /// Next tab stop after `x` (content-relative): custom stops, the hanging-indent stop, then defaults
@@ -2197,7 +2210,12 @@ fn next_stop(t: &TabCtx<'_>, x: f32) -> (f32, TabAlign) {
         if s.align == TabAlign::Clear || s.align == TabAlign::Bar {
             continue;
         }
-        let p = s.pos.to_pt();
+        let mut p = s.pos.to_pt();
+        // A right tab set past the right indent aligns at the indent (measured black-box:
+        // the reference word processor's header "Right" stop at 6.5 in on a 6.27 in line).
+        if s.align == TabAlign::Right && p > t.right_edge && x < t.right_edge - 0.01 {
+            p = t.right_edge;
+        }
         if p > x + 0.01 && best.is_none_or(|b| p < b.0) {
             best = Some((p, s.align));
         }
@@ -2670,6 +2688,7 @@ mod tests {
             stops: &[],
             default: 36.0,
             hanging_at: None,
+            right_edge: f32::INFINITY,
         };
         assert_eq!(next_stop(&t, 0.0).0, 36.0);
         assert_eq!(next_stop(&t, 36.0).0, 72.0);
@@ -2682,11 +2701,19 @@ mod tests {
             stops: &stops,
             default: 36.0,
             hanging_at: Some(18.0),
+            right_edge: f32::INFINITY,
         };
         assert_eq!(next_stop(&t, 0.0), (18.0, TabAlign::Left));
         assert_eq!(next_stop(&t, 20.0), (100.0, TabAlign::Right));
         assert_eq!(next_stop(&t, 120.0).0, 144.0);
         assert_eq!(leader_at(&t, 100.0), Some(TabLeader::Dot));
+        // A right stop past the right indent aligns at the indent, keeping its leader.
+        let t = TabCtx {
+            right_edge: 90.0,
+            ..t
+        };
+        assert_eq!(next_stop(&t, 20.0), (90.0, TabAlign::Right));
+        assert_eq!(leader_at(&t, 90.0), Some(TabLeader::Dot));
     }
 
     #[test]

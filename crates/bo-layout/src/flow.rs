@@ -39,6 +39,9 @@ pub(crate) fn collapse_spacing(y: &mut f32, added_after: f32, after: f32, before
     after.max(before)
 }
 
+/// (header height, footer height) of a section's default, first and even variants.
+pub(crate) type HfHeights = [(f32, f32); 3];
+
 /// Pagination state between two top-level blocks, without the pages themselves.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Snap {
@@ -133,8 +136,12 @@ pub(crate) struct Flow {
     prev: Option<Prev>,
     /// Page index at which each section started on a fresh page.
     pub section_start: Vec<Option<usize>>,
-    /// (header height, footer height) per section, used to push the body.
-    pub hf_heights: Vec<(f32, f32)>,
+    /// (header height, footer height) per section and variant, used to push the body.
+    pub hf_heights: Vec<HfHeights>,
+    /// §17.10.1 evenAndOddHeaders: even pages show the even header/footer.
+    pub even_odd: bool,
+    /// §17.10.6 titlePg of the current section.
+    title_page: bool,
     /// Body id of the first paragraph of the block being placed (lines carry relative ids).
     id_base: u32,
     /// Notes in the order their stacks were computed (`foot_cache` keys).
@@ -546,7 +553,7 @@ enum Built {
 }
 
 impl Flow {
-    pub fn new(hf_heights: Vec<(f32, f32)>, sections: usize) -> Flow {
+    pub fn new(hf_heights: Vec<HfHeights>, sections: usize) -> Flow {
         Flow {
             pages: Vec::new(),
             setup: PageSetup::default(),
@@ -571,6 +578,8 @@ impl Flow {
             prev: None,
             section_start: vec![None; sections],
             hf_heights,
+            even_odd: false,
+            title_page: false,
             id_base: 0,
             foot_order: Vec::new(),
             built: Vec::new(),
@@ -909,6 +918,7 @@ impl Flow {
         self.finish_page();
         self.number += 1;
         self.push_page();
+        self.page_area();
     }
 
     fn next_column(&mut self) {
@@ -1171,7 +1181,7 @@ impl Flow {
                     seen.push(*key);
                 }
             }
-            let ly = self.skip_excl(y, l.h);
+            let ly = self.skip_excl(y, l.text_h);
             if ly + l.h > self.bottom - foot + slack + EPS {
                 return Ok(i);
             }
@@ -1347,7 +1357,7 @@ impl Flow {
             let col_x = self.col_x();
             let mut y0 = None;
             for line in &pb.lines[i..i + take] {
-                let y = self.skip_excl(self.y, line.h);
+                let y = self.skip_excl(self.y, line.text_h);
                 y0.get_or_insert(y);
                 self.put(ctx, line, y)?;
                 if pb.numbered {
@@ -1604,7 +1614,7 @@ impl Flow {
             self.close_columns();
             self.y = self.cols_top;
         }
-        let hf = self.hf_heights.get(si).copied().unwrap_or((0.0, 0.0));
+        let hf = self.hf_heights.get(si).map_or((0.0, 0.0), |h| h[0]);
         let (top, bottom) = body_area(&sec.page, hf);
         if rot == 0 {
             self.vertical = None;
@@ -1656,8 +1666,37 @@ impl Flow {
                 self.number += 1;
             }
         }
+        self.title_page = sec.title_page;
         self.push_page();
         self.section_start[si] = Some(self.pages.len() - 1);
+        self.page_area();
+    }
+
+    /// Body area of the fresh current page from the header and footer it shows (default,
+    /// first or even variant, §17.10.5 headerReference): a taller first-page header
+    /// pushes only the first page's body down, as in the reference word processor.
+    fn page_area(&mut self) {
+        if self.vertical.is_some() || self.page_has_content {
+            return;
+        }
+        let Some(hf) = self.hf_heights.get(self.section) else {
+            return;
+        };
+        let pi = self.pages.len().checked_sub(1);
+        let v = if self.title_page && self.section_start.get(self.section).copied().flatten() == pi
+        {
+            1
+        } else if self.even_odd && self.number.is_multiple_of(2) {
+            2
+        } else {
+            0
+        };
+        let (top, bottom) = body_area(&self.setup, hf[v]);
+        self.top = top;
+        self.bottom = bottom;
+        self.y = top;
+        self.cols_top = top;
+        self.cols_low = top;
     }
 
     /// Paginate all sections, or continue from block `from = (section, block)` after

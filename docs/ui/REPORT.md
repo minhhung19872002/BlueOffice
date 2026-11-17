@@ -260,3 +260,56 @@ Vòng 84: **công cụ ngăn Styles** — Style Inspector (Paragraph formatting 
 Vòng 85: **Mailings › Rules** đủ chín mục theo thứ tự bản đối chiếu (thêm Next Record If…, Set Bookmark…); hộp thoại đo trên bản đối chiếu ở 125 %: Ask 742 × 314 (Bookmark + danh sách, Prompt, Default bookmark text, Ask once; OK mờ tới khi có tên dấu trang), Fill-in 414 × 334, IF 814 × 377 (Field name / Comparison / Compare to, Insert this text, Otherwise insert this text), Next Record If và Skip Record If 440 × 263, Set 756 × 297; tám phép so sánh (Equal to … Is blank / Is not blank) thành trường ASK / FILLIN / IF / NEXTIF / SET / SKIPIF qua `mergeInsertRule` (engine đã đánh giá khi trộn, §17.16.5). **Match Fields** 384 × 601: 13 phần địa chỉ, cột tự khớp theo chữ (First Name ↔ FirstName), lựa chọn dùng cho Address Block. **Find Recipient** (Find in Field 414 × 210): tìm bản ghi kế tiếp có trường chứa chữ (không phân biệt hoa thường), xem trước bản ghi đó, hộp thoại giữ mở.
 Vòng 86 (rà soát của điều phối): Split mới giữ chữ của khung dưới tại chỗ như bản đối chiếu (khung dưới cuộn thêm chiều cao khung trên + thanh chia). Manage Styles: danh sách có các kiểu dựng sẵn tiềm ẩn ("(Hide Until Used)" khi tài liệu chưa có: No Spacing, Heading 2–9, Subtitle, Emphasis…, Default Paragraph Font), tên giao diện ("heading 1" → "Heading 1", §17.7.4.9), dấu loại ¶ / a / ¶a / bảng, dòng mô tả từ thuộc tính kiểu (`styleDetails`: phông, cỡ, căn lề; giãn dòng, khoảng cách, Show in the Styles gallery, Based on), Modify… mở hộp thoại Create New Style ở chế độ **Modify Style** (`styleModify`), Delete sáng với kiểu không dựng sẵn; tab Recommend / Restrict liệt kê kiểu theo thứ tự ưu tiên. Outline view có vạch cuối tài liệu dưới mục cuối. Ảnh `doc-94…100`. Còn khác: hai ô chữ của IF là ô nhiều dòng có thanh cuộn ở bản đối chiếu (form dùng chung chưa có ô nhiều dòng); mũi tên điều hướng bản ghi của BlueDoc màu xám (bản đối chiếu xanh); Insert Merge Field chưa là nút tách.
 Vòng 87 (tốc độ, tệp 300 trang `bo-cli sample-big`, 15,2 MB; máy KHÔNG rảnh — các agent khác đang biên dịch): BlueDoc bản release, trang 150, 62 phím gửi bằng thông điệp: xử lý → present trung vị 9,1 ms, p95 11,7 ms (lớn nhất 35,7 ms ở phím đầu: dựng ảnh trang); 30 nấc bánh xe: xử lý trung vị 1,0 ms; bộ nhớ working set 169 MB (private 187 MB). Bản đối chiếu cùng tệp (COM, phân trang thành 225 trang với phông của nó): mở 3,65 s, `Selection.TypeText` + `ScreenRefresh` mỗi ký tự trung vị 63 ms, p95 79 ms, working set 310 MB. Không thấy điểm nghẽn mới cần sửa trong vòng này.
+
+## Fidelity round 1 — bố cục trang BlueDoc so với trình soạn thảo đối chiếu (2026-11-17)
+
+Cách đo: 56 tệp .docx — 36 tệp của `tests/corpus/doc` (para, layout, lists, notes, images, sections, tables,
+styles, text, fields-03, page-01, phase1-sample) và 20 tệp OOXML viết tay (`gen-01…20`: tiếng Việt căn đều
+Times 13 pt giãn 1,5, giãn dòng single / 1,15 / exact / at least, khoảng cách đoạn + contextual, keep / widow,
+ngắt section đổi hướng và lề, cột, bảng dài lặp tiêu đề / tách hàng, ô gộp / autofit, danh sách nhiều cấp,
+header / footer / số trang, chú thích, tab có dẫn, phông lẫn cỡ, drop cap, text box, ảnh nổi square / tight /
+top-and-bottom, mục lục). Bản sao trong scratch được xuất PDF bằng COM trong instance riêng (ẩn, chỉ đọc,
+`ExportAsFixedFormat`, không in); BlueDoc xuất PDF bằng `bo-cli convert`. Hai PDF cùng được raster hoá 96 dpi và
+trích ký tự bằng `bo-pdfread` (ví dụ mới `cargo run -p bo-pdfread --example pdf_pages -- in.pdf out/ 1.3333`);
+ảnh BlueDoc lấy từ `bo-cli render`. Điểm: số trang; tỉ lệ đầu dòng khớp (chuỗi ký tự không khoảng trắng của
+hai bên được gióng bằng SequenceMatcher, đầu dòng của bản đối chiếu phải rơi đúng đầu dòng của BlueDoc); tỉ lệ
+điểm ảnh lệch (> 64 mức xám) trên trang. Mỗi quy tắc dưới đây được đo trước bằng tài liệu hiệu chuẩn riêng.
+
+| | Số trang khớp | Đầu dòng khớp (TB tệp) | Đầu dòng khớp (theo dòng) | Điểm ảnh lệch TB |
+|---|---|---|---|---|
+| Trước | 52 / 56 | 89,9 % | 88,6 % | 0,0428 |
+| Sau | 54 / 56 | 94,8 % | 95,2 % | 0,0161 |
+
+Sửa (mỗi mục có test trong `crates/bo-layout/tests/word_fidelity.rs` hoặc test đơn vị):
+1. **Khoảng cách giữa hai đoạn = max(after, before)**, không cộng (12/6, 6/12, 12/12 pt đều cho 12 pt; như nhau ở
+   compat 12 / 14 / 15 / không khai báo). Cả trong ô bảng.
+2. **Space before ở đầu trang**: giữ ở đầu tài liệu và trang đầu của section bắt đầu trang mới; bỏ sau ngắt
+   trang tự nhiên, ngắt trang cứng và pageBreakBefore.
+3. **Hộp dòng** theo `TEXTMETRIC` của GDI: usWinAscent / usWinDescent + external leading
+   (`max(0, hhea.lineGap − ((winA + winD) − (hhea.asc − hhea.desc)))`) đặt **trên** ascent; bội số giãn dòng
+   thêm khoảng trống **dưới** chữ (trước: trên); Exactly đặt đường cơ sở ở 80 % chiều cao dòng với mọi phông;
+   At least thêm khoảng trống phía trên. Caladea (thay Cambria) nhận chiều cao dòng của Cambria 1,1724 em.
+   (`FaceInfo::line_metrics`, bo-text.)
+4. **Căn đều ở compat 15 được nén khoảng trắng** để giữ chữ cuối trên dòng: nén tối đa min(25 % độ rộng các
+   khoảng trắng, (chữ cuối + khoảng trắng trước nó) / 2,85) — đo với từ 1–8 ký tự, 8–24 pt. Tệp compat < 15
+   hoặc không khai báo thì không nén; mô hình đọc `compatibilityMode` (`Document::compat_mode`, ghi lại khi lưu).
+   gen-01 (tiếng Việt căn đều) 42,9 → 100 %, gen-17 70,6 → 100 %.
+5. **pPr của kiểu bảng** (§17.7.6; Table Grid: after 0, single) áp cho đoạn trong ô, dưới kiểu đoạn và định dạng
+   trực tiếp.
+6. **Hàng bảng chứa viền**: nội dung bắt đầu dưới viền trên, hàng cuối chứa viền dưới (+0,5 pt với sz 4).
+7. **Tab phải vượt lề phải** canh tại lề phải (header mẫu tab 6,5" trên dòng 6,27" không còn xuống dòng).
+8. **Header trang đầu cao hơn (titlePg)** chỉ đẩy thân trang đầu; mỗi trang dùng header/footer của biến thể của nó.
+9. **Bao trên–dưới (top-and-bottom)**: dòng giãn bội số được để phần giãn chạm vào đối tượng, chỉ phần chữ phải
+   ở trên (dòng 1,5 Calibri 11 pt nằm trên hộp cách 14 pt); dòng Exactly cần đủ chiều cao.
+
+Ảnh (đối chiếu trái): `scratchpad/show/docfid-01-worst6-before.png`, `docfid-02-spacing-justify-before-after.png`,
+`docfid-03-tables-header-before-after.png`, `docfid-04-floats-textbox-dropcap-before-after.png`,
+`docfid-05-worst6-after.png`.
+
+Còn lệch (vòng sau): cân bằng cột ở section liên tục (gen-06: Word cân hai / ba cột trước ngắt section liên tục,
+BlueDoc không — 3 trang so với 2; Word cũng không co cột rộng hơn vùng chữ); chú thích dài (notes-05: Word cho
+chú thích chiếm hết trang có tham chiếu và đẩy thân văn bản sau tham chiếu sang trang sau); bảng autofit theo nội
+dung (gen-08: Word nới cột theo chữ); độ rộng glyph Cambria / Calibri Light / Caladea Italic khác (gen-13, 3 trang
+so với 2); ký hiệu đầu dòng phông Symbol / Wingdings / Courier New được thay bằng phông có dòng cao hơn (+0,4 pt
+mỗi dòng ở gen-09); lề ô trên/dưới (`tblCellMar` top/bottom) chưa có trong mô hình; độ rộng glyph của bản đối
+chiếu được làm tròn theo lưới 600 dpi (Times 13 pt "n" 6,48 so với 6,50 pt) — chưa mô phỏng.

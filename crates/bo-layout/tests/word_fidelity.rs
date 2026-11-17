@@ -7,8 +7,9 @@
 
 use bo_layout::{layout_document, LayoutCache, LayoutDocument, Line, LineSource};
 use bo_model::{
-    Alignment, Block, Cell, CellProps, Document, HalfPoints, LineSpacing, PageSetup, ParaProps,
-    Paragraph, Run, RunProps, Section, Style, StyleKind, Table, Twips,
+    Alignment, Anchor, Block, Border, Borders, Cell, CellProps, Document, Emu, HalfPoints, Image,
+    LineSpacing, PageSetup, ParaProps, Paragraph, Run, RunContent, RunProps, Section, Style,
+    StyleKind, Table, Twips, Wrap,
 };
 use bo_text::FontManager;
 
@@ -59,6 +60,10 @@ fn doc(blocks: Vec<Block>) -> Document {
         }],
         ..Default::default()
     }
+}
+
+fn run_layout(d: &Document) -> LayoutDocument {
+    run(d)
 }
 
 fn run(d: &Document) -> LayoutDocument {
@@ -243,4 +248,105 @@ fn table_style_paragraph_properties_apply_in_cells() {
         "{}",
         b.top - a.top
     );
+}
+
+/// A single-line row of a table with 0.5 pt borders is its line plus the top border; the
+/// last row also holds the bottom border (§17.4.38 tcBorders, measured black-box).
+#[test]
+fn table_rows_hold_their_borders() {
+    let mut t = Table::simple(3, 1, Twips(4000));
+    let b = Some(Border::single(4));
+    t.props.borders = Some(Borders {
+        top: b.clone(),
+        left: b.clone(),
+        bottom: b.clone(),
+        right: b.clone(),
+        inside_h: b.clone(),
+        inside_v: b,
+    });
+    for (i, row) in t.rows.iter_mut().enumerate() {
+        row.cells[0].blocks = vec![para(&format!("row {i}"), 0, 0, SINGLE)];
+    }
+    let l = run(&doc(vec![Block::Table(t), para("after", 0, 0, SINGLE)]));
+    let line = 2355.0 * 12.0 / 2048.0;
+    let (r0, r1, r2) = (lines(&l, 0)[0], lines(&l, 1)[0], lines(&l, 2)[0]);
+    assert!(near(r0.top, 72.0 + 0.5), "{}", r0.top);
+    assert!(near(r1.top - r0.top, line + 0.5));
+    assert!(near(r2.top - r1.top, line + 0.5));
+    // The paragraph after the table starts below the bottom border.
+    let after = lines(&l, 3)[0].top - r2.top;
+    assert!(near(after, line + 0.5), "{after}");
+}
+
+/// §17.10.6 titlePg: a tall first-page header pushes only the first page's body down.
+#[test]
+fn a_tall_first_page_header_moves_only_the_first_page() {
+    let mut blocks = Vec::new();
+    for i in 0..80 {
+        blocks.push(para(&format!("line {i}"), 0, 0, SINGLE));
+    }
+    let mut d = doc(blocks);
+    let s = &mut d.sections[0];
+    s.title_page = true;
+    s.headers.default = Some(vec![para("small", 0, 0, SINGLE)]);
+    s.headers.first = Some(vec![para("tall", 0, 0, LineSpacing::Exact(Twips(1600)))]);
+    let l = run(&d);
+    let first_top = |page: usize| {
+        l.pages[page]
+            .lines
+            .iter()
+            .filter(|x| matches!(x.source, LineSource::Body(_)))
+            .map(|x| x.top)
+            .fold(f32::MAX, f32::min)
+    };
+    // Header at 36 pt: the first page's 80 pt header ends at 116 pt; the others at 72 pt.
+    assert!(near(first_top(0), 116.0), "{}", first_top(0));
+    assert!(near(first_top(1), 72.0), "{}", first_top(1));
+}
+
+/// §20.4.2.19 wrapTopAndBottom: a line spaced 1.5 lines stays above a picture 14 pt below
+/// the paragraph top — its extra spacing may reach into the picture, its text may not.
+#[test]
+fn line_spacing_may_reach_into_a_top_and_bottom_picture() {
+    let place = |offset_pt: i64, line: LineSpacing| {
+        let anchor = Anchor {
+            h_relative: "column".into(),
+            v_relative: "paragraph".into(),
+            x: Emu(0),
+            y: Emu(offset_pt * 12_700),
+            wrap: Wrap::TopAndBottom,
+            ..Default::default()
+        };
+        let pic = RunContent::Image(Box::new(Image {
+            media: "/word/media/image1.png".into(),
+            width: Emu(914_400),
+            height: Emu(228_600),
+            anchor: Some(anchor),
+            crop: None,
+            rotation: 0,
+            description: String::new(),
+            shape: None,
+            format: None,
+            src: None,
+            ole: None,
+        }));
+        let mut run = Run::text("text ".repeat(60), RunProps::default());
+        run.content.insert(0, pic);
+        let d = doc(vec![Block::Paragraph(Paragraph::new(
+            ParaProps {
+                space_before: Some(Twips(0)),
+                space_after: Some(Twips(0)),
+                line_spacing: Some(line),
+                ..ParaProps::default()
+            },
+            vec![run],
+        ))]);
+        let l = run_layout(&d);
+        lines(&l, 0)[0].top
+    };
+    // Times 12 pt: 13.80 pt of text; 1.5 lines are 20.7 pt high.
+    assert!(near(place(14, LineSpacing::Auto(360)), 72.0));
+    assert!(place(13, LineSpacing::Auto(360)) > 72.0 + 13.0);
+    // An exact line needs its whole height.
+    assert!(place(14, LineSpacing::Exact(Twips(400))) > 72.0 + 14.0);
 }

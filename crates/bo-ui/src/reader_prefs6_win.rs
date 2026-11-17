@@ -10,12 +10,11 @@
 //! Batch Print prints several open documents with one Print dialog: a list of the open
 //! documents to tick, then the usual dialog; the host prints every ticked document with its
 //! settings (all pages of each).
-use super::{inside, rounded, ReaderRequest, ReaderWindow, MUTED, TEXT, WHITE};
+use super::{inside, ReaderRequest, ReaderWindow};
 use crate::dialog::{Dialog, DialogButton, DialogKind};
 use crate::popup::{Choice, MenuItem};
 use crate::reader_view::{Fit, Layout};
 use crate::{Input, Key, Painter, TextMeasure};
-use bo_render::Rgba;
 
 /// Default zoom choices: label key, value (`auto` keeps the document's own fit).
 const ZOOMS: [(&str, &str); 9] = [
@@ -201,21 +200,11 @@ pub(crate) struct Prefs6 {
 /// Colour of Insert Text carets.
 const CARET: [u8; 3] = [0, 85, 220];
 
-/// Categories of the dialog: label key and the rows on it. Round 12: the reference's
-/// categories that BlueReader's features use, in its (alphabetical) order.
-const PAGES: [(&str, &[&str]); 9] = [
-    ("pdfPrefs12.forms", &["formsHighlight"]),
-    ("pdfPrefs12.fullScreen", &["fsEscape", "fsClick"]),
-    ("pdfPrefs.general", &["smooth"]),
-    ("pdfPrefs12.history", &["history", "clearHistory"]),
-    ("pdfPrefs.identity", &["author"]),
-    ("pdfPrefs.measure", &["units"]),
-    ("pdfPrefs.pageDisplay", &["zoom", "layout"]),
-    ("pdfPrefs12.search", &["searchWhole", "searchCase"]),
-    ("pdfPrefs12.speech", &["speechRate"]),
-];
+// Round 12: the dialog's categories, groups and painting, like the reference's.
+#[path = "reader_prefs12_win.rs"]
+mod prefs12;
 /// The category the dialog opens on.
-const FIRST_PAGE: usize = 2;
+const FIRST_PAGE: usize = prefs12::FIRST;
 /// Rows drawn as check boxes.
 const CHECKS: [&str; 6] = [
     "smooth",
@@ -522,6 +511,9 @@ impl ReaderWindow {
                     // History › Clear History: the recent list empties at once.
                     self.recent.clear();
                     self.status = self.t("pdfPrefs12.cleared");
+                } else if id == "setDefault" {
+                    // File Associations: Windows' Default apps page (as Help › Set to Default).
+                    self.command("help.default", m);
                 } else if id == "author" {
                     let cur = self
                         .prefs6
@@ -717,200 +709,7 @@ impl ReaderWindow {
     #[allow(clippy::too_many_lines)]
     pub(crate) fn paint_prefs6(&mut self, p: &mut dyn Painter) {
         if let Some(mut d) = self.prefs6.dialog.take() {
-            let (w, h) = self.size;
-            p.fill_rect(0.0, 0.0, w, h, Rgba(0, 0, 0, 40));
-            let (dw, dh) = (self.px(600.0), self.px(400.0));
-            let r = [((w - dw) / 2.0).round(), ((h - dh) / 2.0).round(), dw, dh];
-            d.rect = r;
-            d.hits.clear();
-            p.fill_rect(
-                r[0] - 1.0,
-                r[1] - 1.0,
-                r[2] + 2.0,
-                r[3] + 2.0,
-                self.look.edge,
-            );
-            p.fill_rect(r[0], r[1], r[2], r[3], WHITE);
-            let title = self.style(15.0, false);
-            let body = self.style(13.0, false);
-            let line = body.size * 1.33;
-            p.text(
-                &self.t("pdfPrefs.title"),
-                r[0] + self.px(16.0),
-                r[1] + self.px(10.0),
-                title,
-                TEXT,
-            );
-            // Categories.
-            let lx = r[0] + self.px(12.0);
-            let lw = self.px(150.0);
-            let top = r[1] + self.px(44.0);
-            p.fill_rect(lx, top, lw, r[3] - self.px(100.0), Rgba(245, 246, 250, 255));
-            for (k, (key, _)) in PAGES.iter().enumerate() {
-                let row = [lx, top + k as f32 * self.px(28.0), lw, self.px(28.0)];
-                if k == d.page {
-                    p.fill_rect(row[0], row[1], row[2], row[3], Rgba(230, 233, 240, 255));
-                }
-                p.text(
-                    &self.t(key),
-                    row[0] + self.px(10.0),
-                    row[1] + ((row[3] - line) / 2.0).round(),
-                    body,
-                    TEXT,
-                );
-                d.hits.push((row, format!("page.{k}")));
-            }
-            // Rows of the page.
-            let cx = lx + lw + self.px(20.0);
-            let vx = cx + self.px(140.0);
-            let vw = r[0] + r[2] - vx - self.px(20.0);
-            let mut y = top + self.px(4.0);
-            for id in PAGES[d.page].1 {
-                let (label, value) = match *id {
-                    "zoom" => (
-                        self.t("pdfPrefs.zoom"),
-                        self.zoom_label(ZOOMS[d.edit.zoom].0, ZOOMS[d.edit.zoom].1),
-                    ),
-                    "layout" => (self.t("pdfPrefs.layout"), self.t(LAYOUTS[d.edit.layout].0)),
-                    "author" => (
-                        self.t("pdfPrefs.author"),
-                        if d.edit.author.is_empty() {
-                            std::env::var("USERNAME").unwrap_or_default()
-                        } else {
-                            d.edit.author.clone()
-                        },
-                    ),
-                    "units" => (self.t("pdfPrefs.units"), self.t(UNITS[d.edit.units].0)),
-                    "history" => (
-                        self.t("pdfPrefs12.historyMax"),
-                        HISTORY[d.edit.history.min(HISTORY.len() - 1)].to_string(),
-                    ),
-                    "speechRate" => (
-                        self.t("pdfPrefs12.rate"),
-                        self.t(RATES[d.edit.speech_rate.min(RATES.len() - 1)].0),
-                    ),
-                    "smooth" => (self.t("pdfPrefs.smooth"), String::new()),
-                    other => (self.t(&format!("pdfPrefs12.{other}")), String::new()),
-                };
-                let bh = self.px(26.0);
-                if *id == "clearHistory" {
-                    // A push button.
-                    let bw = self.width_of(&label, body) + self.px(28.0);
-                    let b = [cx, y, bw, bh];
-                    p.path(
-                        &rounded(b[0], b[1], b[2], b[3], self.px(3.0)),
-                        Some(Rgba(230, 233, 240, 255)),
-                        None,
-                    );
-                    p.text(
-                        &label,
-                        b[0] + self.px(14.0),
-                        y + ((bh - line) / 2.0).round(),
-                        body,
-                        TEXT,
-                    );
-                    d.hits.push((b, (*id).to_owned()));
-                    y += self.px(38.0);
-                    continue;
-                }
-                if CHECKS.contains(id) {
-                    let on = check_mut(&mut d.edit.clone(), id).is_some_and(|c| *c);
-                    let b = self.px(14.0);
-                    let bx = [cx, y + (bh - b) / 2.0, b, b];
-                    p.fill_rect(bx[0], bx[1], b, b, Rgba(120, 120, 120, 255));
-                    p.fill_rect(bx[0] + 1.0, bx[1] + 1.0, b - 2.0, b - 2.0, WHITE);
-                    if on {
-                        let k = b / 4.0;
-                        p.path(
-                            &[
-                                bo_render::PathSeg::M(bx[0] + k, bx[1] + 2.0 * k),
-                                bo_render::PathSeg::L(bx[0] + 1.8 * k, bx[1] + 3.0 * k),
-                                bo_render::PathSeg::L(bx[0] + 3.2 * k, bx[1] + k),
-                            ],
-                            None,
-                            Some((TEXT, self.px(1.6))),
-                        );
-                    }
-                    p.text(
-                        &label,
-                        cx + b + self.px(8.0),
-                        y + ((bh - line) / 2.0).round(),
-                        body,
-                        TEXT,
-                    );
-                    d.hits.push(([cx, y, vw + vx - cx, bh], (*id).to_owned()));
-                } else {
-                    p.text(&label, cx, y + ((bh - line) / 2.0).round(), body, TEXT);
-                    let field = [vx, y, vw, bh];
-                    p.fill_rect(
-                        field[0],
-                        field[1],
-                        field[2],
-                        field[3],
-                        Rgba(190, 190, 190, 255),
-                    );
-                    p.fill_rect(
-                        field[0] + 1.0,
-                        field[1] + 1.0,
-                        field[2] - 2.0,
-                        field[3] - 2.0,
-                        WHITE,
-                    );
-                    p.text(
-                        &value,
-                        field[0] + self.px(8.0),
-                        y + ((bh - line) / 2.0).round(),
-                        body,
-                        TEXT,
-                    );
-                    if *id != "author" {
-                        // Drop-down arrow.
-                        let (ax, ay) = (field[0] + field[2] - self.px(14.0), y + bh / 2.0);
-                        let k = self.px(3.5);
-                        p.path(
-                            &[
-                                bo_render::PathSeg::M(ax - k, ay - k / 2.0),
-                                bo_render::PathSeg::L(ax + k, ay - k / 2.0),
-                                bo_render::PathSeg::L(ax, ay + k / 2.0),
-                                bo_render::PathSeg::Z,
-                            ],
-                            Some(MUTED),
-                            None,
-                        );
-                    }
-                    d.hits.push((field, (*id).to_owned()));
-                }
-                y += self.px(38.0);
-            }
-            // OK / Cancel.
-            let (bw, bh) = (self.px(80.0), self.px(28.0));
-            let by = r[1] + r[3] - bh - self.px(14.0);
-            for (k, (key, id)) in [("pdfReader.ok", "ok"), ("pdfPrint.cancel", "cancel")]
-                .iter()
-                .enumerate()
-            {
-                let bx = r[0] + r[2] - (2.0 - k as f32) * (bw + self.px(10.0));
-                let accent = k == 0;
-                p.path(
-                    &rounded(bx, by, bw, bh, self.px(3.0)),
-                    Some(if accent {
-                        self.theme.accent
-                    } else {
-                        Rgba(230, 233, 240, 255)
-                    }),
-                    None,
-                );
-                let label = self.t(key);
-                let lw = label.chars().count() as f32 * body.size * 0.55;
-                p.text(
-                    &label,
-                    (bx + (bw - lw) / 2.0).round(),
-                    by + ((bh - line) / 2.0).round(),
-                    body,
-                    if accent { WHITE } else { TEXT },
-                );
-                d.hits.push(([bx, by, bw, bh], (*id).to_owned()));
-            }
+            self.paint_dialog12(p, &mut d);
             self.prefs6.dialog = Some(d);
             // Its drop-down lists over it (the window paints menus before dialogs).
             if let Some((menu, "prefs")) = &self.menu {
@@ -979,7 +778,7 @@ mod tests {
         assert_eq!(w.view4.rate, -6);
         assert_eq!(w.recent().len(), 5);
         assert_eq!(w.full_screen_prefs6(), (false, true));
-        // The dialog: nine categories, opening on General; a check box row toggles.
+        // The dialog: the reference's 26 categories, opening on General; a check box row toggles.
         w.run_command("bs.prefs", &crate::reader_tests::Fixed);
         let mut p = crate::reader_tests::Rec::default();
         w.paint_prefs6(&mut p);
@@ -987,10 +786,10 @@ mod tests {
         assert_eq!(d.page, FIRST_PAGE);
         assert_eq!(
             d.hits.iter().filter(|h| h.1.starts_with("page.")).count(),
-            9
+            prefs12::CATS.len()
         );
         // Full Screen page: Escape exits is off (set above); a click turns it on, OK keeps it.
-        let page = d.hits.iter().find(|h| h.1 == "page.1").map(|h| h.0);
+        let page = d.hits.iter().find(|h| h.1 == "page.6").map(|h| h.0);
         let r = page.expect("full screen page");
         let click = |w: &mut ReaderWindow, r: [f32; 4]| {
             let (x, y) = (r[0] + 4.0, r[1] + r[3] / 2.0);

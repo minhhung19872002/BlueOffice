@@ -374,13 +374,13 @@ impl Look {
         status_box_top: None,
         icon_stroke: 1.5,
         // Round 12: label centres 13–15 px further apart than the labels' half widths (the
-        // reference's buttons are label + 13 px, 2 px apart; Hand keeps 52 px).
-        big_pad: 8.8,
+        // reference's buttons are label + 10 px, 2 px apart; Hand keeps 52 px).
+        big_pad: 8.0,
         big_min: 36.8,
         big_gap: 1.6,
         sep_space: (2.4, 6.4),
         arrow_w: 0.0,
-        big_pad_one: 8.8,
+        big_pad_one: 8.0,
     };
 }
 
@@ -1218,7 +1218,8 @@ impl ReaderWindow {
                     if small_col > 0 {
                         // Past the columns of the small-button grid.
                         let cols = small_col.div_ceil(2) as f32;
-                        x += cols * self.px(34.0) - self.px(2.0);
+                        let (gap, lead, tail) = self.grid12();
+                        x += self.px(lead + cols * (28.0 + gap) - 2.0 + tail);
                         small_col = 0;
                     }
                     let text = self.t(label);
@@ -1261,7 +1262,8 @@ impl ReaderWindow {
                     let s = self.px(28.0);
                     let col = small_col / 2;
                     let row = small_col % 2;
-                    let gx = x + col as f32 * (s + self.px(6.0));
+                    let (gap, lead, _) = self.grid12();
+                    let gx = x + self.px(lead) + col as f32 * (s + self.px(gap));
                     let gy = by + self.px(6.0) + row as f32 * (s + self.px(8.0));
                     self.controls.push(Control {
                         id,
@@ -1275,7 +1277,8 @@ impl ReaderWindow {
                         // Two-column grids keep their measured width; wider ones grow by
                         // a column each.
                         let cols = small_col.div_ceil(2).max(2) as f32;
-                        x += self.px(28.0 * cols + 6.0 * (cols - 1.0) + 4.0);
+                        let (gap, lead, tail) = self.grid12();
+                        x += self.px(lead + 28.0 * cols + gap * (cols - 1.0) + 4.0 + tail);
                         small_col = 0;
                     }
                     x += self.px(self.look.sep_space.0);

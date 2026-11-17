@@ -84,7 +84,24 @@ pub fn active() -> bool {
 /// The window's elements now.
 pub fn update(items: Vec<AccessItem>) {
     if let Ok(mut i) = ITEMS.lock() {
+        if i.len() != items.len() {
+            log(&format!("snapshot {} elements", items.len()));
+        }
         *i = items;
+    }
+}
+
+/// `BO_UIA_LOG=<file>`: append what clients ask (diagnostics).
+fn log(s: &str) {
+    if let Some(p) = std::env::var_os("BO_UIA_LOG") {
+        use std::io::Write as _;
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(p)
+        {
+            let _ = writeln!(f, "{s}");
+        }
     }
 }
 
@@ -97,6 +114,9 @@ pub fn take_invokes() -> Vec<String> {
 }
 
 extern "system" fn proc_(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    if msg == WM_GETOBJECT {
+        log(&format!("WM_GETOBJECT {:#x} {:#x}", wparam.0, lparam.0));
+    }
     if msg == WM_GETOBJECT && lparam.0 as i32 == UIA_ROOT_OBJECT_ID {
         if !ACTIVE.swap(true, Ordering::Relaxed) {
             // First client: a tick makes the window take its first snapshot now.
@@ -185,6 +205,7 @@ impl IRawElementProviderSimple_Impl for Root_Impl {
 impl IRawElementProviderFragment_Impl for Root_Impl {
     fn Navigate(&self, d: NavigateDirection) -> Result<IRawElementProviderFragment> {
         let n = count();
+        log(&format!("root navigate {} ({n} elements)", d.0));
         if d == NavigateDirection_FirstChild && n > 0 {
             element(0)
         } else if d == NavigateDirection_LastChild && n > 0 {

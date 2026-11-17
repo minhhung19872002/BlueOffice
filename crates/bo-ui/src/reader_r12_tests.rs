@@ -98,7 +98,7 @@ fn click(w: &mut ReaderWindow, x: f32, y: f32) {
 #[test]
 fn ribbon_buttons_follow_the_reference_metrics() {
     let w = window();
-    // Hand keeps the reference's 52 px; the other large buttons are label + 13 px, 2 px apart.
+    // Hand keeps the reference's 52 px; the other large buttons are label + 10 px, 2 px apart.
     let hand = w.control_rect("tool.hand").expect("hand");
     assert!((hand[2] - 52.0).abs() < 0.6, "{hand:?}");
     let sel = w.control_rect("tool.select").expect("select");

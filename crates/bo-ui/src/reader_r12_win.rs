@@ -1,7 +1,7 @@
 //! BlueReader round 12 (a child of `reader_window`), measured on the reference reader at 125 %:
 //!
 //! - Ribbon metrics: icons drawn 31 px high from y 112, labels from y 154, second lines 19 px
-//!   apart, buttons label + 13 px wide and 2 px apart (Hand 52 px).
+//!   apart, buttons label + 10 px wide and 2 px apart (Hand 52 px).
 //! - Home / every tab: Select opens Select Text and Image / Select Annotation from its label.
 //! - Comment: Summarize Comments, Import, Export as large buttons, then FDF via Email, Manage
 //!   Comments and Keep Tool Selected as labelled rows.
@@ -134,6 +134,18 @@ impl ReaderWindow {
             41.6
         } else {
             self.look.big_min
+        }
+    }
+
+    /// Small-button grids (text markup, page display): gap between columns, space before the
+    /// first column and after the last (logical px). BlueReader, measured: columns 44 px apart,
+    /// the Comment tab's grid from x 138 and Note 49 px after it; windows built on it keep 6 / 0
+    /// / 0.
+    pub(crate) fn grid12(&self) -> (f32, f32, f32) {
+        if self.profile.is_none() {
+            (7.2, 9.2, 10.8)
+        } else {
+            (6.0, 0.0, 0.0)
         }
     }
 

@@ -321,3 +321,14 @@ fn compact_report_gear_menu_and_value_number_format() {
     // Two decimals in the workbook's locale.
     assert!(["17.00", "17,00"].contains(&shown(&w, 3, 1).as_str()));
 }
+
+#[test]
+fn default_sheet_names_do_not_make_the_status_investigate() {
+    // The reference says "Accessibility: Good to go" on this book (two default-named
+    // sheets with data and a pivot table); the pane still lists the names as a tip.
+    let mut w = pivot_window();
+    w.pivot_toggle(0);
+    w.pivot_toggle(2);
+    assert_eq!(w.acc_issue_count(), 0);
+    assert_eq!(w.acc_check()[6].len(), 2, "sheet name tips in the pane");
+}

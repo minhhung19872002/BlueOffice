@@ -1226,6 +1226,13 @@ dải 3 hàng × ~20 cột chữ số: dựng display list + vẽ glyph). Việc
   là câu riêng của BlueOffice. Test `area_item_menus_drags_and_value_field_settings`,
   `new_pivot_sheet_goes_left_of_its_source_and_fits_its_columns`.
 
+### Vòng 62 — trạng thái Accessibility
+
+Trên sổ PivotTable (hai trang tên mặc định có dữ liệu) đối chứng ghi "Accessibility: Good to go", BlueSheet ghi
+"Investigate": quy tắc tên trang mặc định là gợi ý (tip) — vẫn liệt kê trong ngăn Accessibility, không tính vào
+thanh trạng thái. Sổ `f100k`, `big-1m` (Sheet1) nay cũng "Good to go" như đối chứng. Test
+`default_sheet_names_do_not_make_the_status_investigate`.
+
 ## Còn lại (sau vòng 12)
 
 - Enter 22–24 ms trên sổ lớn (mục tiêu ≤ 16 ms): ghi 100 000 kết quả về mô hình, vẽ lại lưới; lần Enter đầu 50–60 ms.

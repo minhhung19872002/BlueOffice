@@ -187,7 +187,8 @@ fn accessibility_pane_docks_lists_issues_and_fixes_them() {
     // Default sheet name ("Sheet1" with data) is the only issue.
     assert_eq!(p.issues[6].len(), 1);
     assert_eq!(p.issues.iter().map(Vec::len).sum::<usize>(), 1);
-    assert!(w.acc_status_text().contains("Investigate"));
+    // A tip only: the status bar stays "Good to go", as the reference's (round 61).
+    assert!(w.acc_status_text().contains("Good to go"));
     // Details, then Rename Sheet starts renaming the tab.
     w.pane_detail(6);
     assert_eq!(w.acc.as_ref().and_then(|p| p.detail), Some((6, 0)));

@@ -539,12 +539,16 @@ impl ReaderWindow {
                 selected: false,
             });
         }
+        out.extend(self.access14());
         out
     }
 
     /// Run an element of [`Self::accessibility12`] (UI Automation Invoke): a tab is selected,
     /// a command runs as if clicked. Unknown or grey elements do nothing; `true` when run.
     pub fn invoke12(&mut self, key: &str, m: &dyn TextMeasure) -> bool {
+        if self.invoke14(key, m) {
+            return true;
+        }
         if let Some(i) = key
             .strip_prefix("tab:")
             .and_then(|v| v.parse::<usize>().ok())

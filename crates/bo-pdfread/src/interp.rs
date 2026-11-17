@@ -606,7 +606,12 @@ impl<'s, 'a> Interp<'s, 'a> {
         // Round 14: a line thinner than the one device pixel it is widened to keeps its ink
         // (the pixel's coverage), as the reference reader draws fine grids at low zoom. A
         // zero-width line (§8.4.3.2, the thinnest line) stays solid.
-        let thin = if self.gs.lw > 0.0 && self.gs.lw * s < self.sh.opts.min_line {
+        // Measured: at 60 % a 0.25 pt line is still solid there; only pages drawn very small
+        // (under 1 px for 4 pt, a 200-inch page fitted) fade their fine lines.
+        let thin = if self.gs.lw > 0.0
+            && self.sh.opts.min_line > 4.0
+            && self.gs.lw * s < self.sh.opts.min_line
+        {
             (self.gs.lw * s / self.sh.opts.min_line.max(1e-6)).max(0.15)
         } else {
             1.0

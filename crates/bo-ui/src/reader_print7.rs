@@ -70,7 +70,7 @@ impl PrintDialog {
     /// pages; the page list unless Pages is chosen; the flip edges without both sides).
     fn tab_stop(&self, p: Part) -> bool {
         match p {
-            Part::Summarize => self.has_comments,
+            Part::Summarize => self.summarize_on14(),
             Part::Collate => self.copies > 1,
             // Round 12: Bleed Marks only with Scale; both sides fixed by Tile / Booklet.
             Part::Bleed => self.handling == super::Handling::Scale,

@@ -3129,6 +3129,9 @@ impl ReaderWindow {
         if let Some(e) = self.twelve_enabled(id) {
             return e && self.showing_doc();
         }
+        if self.fourteen_disabled(id) {
+            return false;
+        }
         if let Some(e) = self.tabs5_enabled(id) {
             return e && self.showing_doc();
         }

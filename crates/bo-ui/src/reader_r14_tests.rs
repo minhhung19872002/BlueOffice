@@ -122,3 +122,38 @@ fn closing_a_tab_frees_its_page_images() {
     w.prepare(&mut store);
     assert!(store.keys.is_empty(), "{:?}", store.keys);
 }
+
+#[test]
+fn one_page_documents_grey_the_multi_page_layouts() {
+    let doc = PdfDocument::open(pdf(1), bo_pdfread::standard_fonts()).expect("pdf");
+    let mut w = window();
+    w.open(doc, "one.pdf", None);
+    w.set_ribbon_tab(2, &Fixed);
+    let grey = [
+        "view.reverse",
+        "view.continuous",
+        "view.facing",
+        "view.contFacing",
+    ];
+    for id in grey {
+        assert!(!w.is_enabled(id), "{id}");
+    }
+    for id in ["view.single", "view.cover", "menu.split", "view.readMode"] {
+        assert!(w.is_enabled(id), "{id}");
+    }
+    // The 3-page tab offers them all.
+    w.run_command("file.close", &Fixed);
+    for id in grey {
+        assert!(w.is_enabled(id), "{id}");
+    }
+}
+
+#[test]
+fn the_document_tab_close_button_is_exposed_and_invokable() {
+    let mut w = window();
+    let items = w.accessibility12();
+    assert!(items.iter().any(|a| a.key == "doc:close" && a.enabled));
+    assert!(w.invoke12("doc:close", &Fixed));
+    assert_eq!(w.tab_count(), 0);
+    assert!(!w.invoke12("doc:close", &Fixed));
+}

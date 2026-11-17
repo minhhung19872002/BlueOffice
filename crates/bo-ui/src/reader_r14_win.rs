@@ -67,6 +67,62 @@ impl ReaderWindow {
         self.menu = Some((menu, id));
     }
 
+    /// Commands the reference greys for the open document (measured on its View tab): with one
+    /// page, Reverse View and the continuous / two-page layouts (Single Page, the cover page
+    /// layout and Split stay on).
+    pub(crate) fn fourteen_disabled(&self, id: &str) -> bool {
+        if self.profile.is_some() {
+            return false;
+        }
+        let one_page = self.view().is_some_and(|v| v.page_count() <= 1);
+        one_page
+            && matches!(
+                id,
+                "view.reverse" | "view.continuous" | "view.facing" | "view.contFacing"
+            )
+    }
+
+    /// Round 14 elements for assistive technology: the active document tab's close button
+    /// (`doc:close`).
+    pub(crate) fn access14(&self) -> Vec<super::AccessItem> {
+        if self.tabs.is_empty() || self.show_start {
+            return Vec::new();
+        }
+        // Its box from the last paint (none before the first frame).
+        let close = self
+            .doc_tab_rects
+            .get(self.active)
+            .map_or([0.0; 4], |(_, c)| *c);
+        vec![super::AccessItem {
+            key: "doc:close".into(),
+            name: self.t("pdfReader.close"),
+            role: super::AccessRole::Button,
+            rect: close,
+            enabled: true,
+            selected: false,
+        }]
+    }
+
+    /// Invoke a round 14 element; `true` when it was one.
+    pub(crate) fn invoke14(&mut self, key: &str, m: &dyn crate::TextMeasure) -> bool {
+        if key == "doc:close" && !self.tabs.is_empty() {
+            self.command("file.close", m);
+            return true;
+        }
+        false
+    }
+
+    /// The subject of comment `a` shown in its pop-up note's header.
+    pub(crate) fn subject14(&self, a: &bo_pdfread::Annot) -> Option<String> {
+        self.view()?.doc().annot_subject(a)
+    }
+
+    /// Whether command `id` is offered now (tests).
+    #[cfg(test)]
+    pub(crate) fn is_enabled(&self, id: &str) -> bool {
+        self.enabled(id)
+    }
+
     /// Icons of the menu open now (tests).
     #[cfg(test)]
     pub(crate) fn menu_has_icons14(&self) -> bool {

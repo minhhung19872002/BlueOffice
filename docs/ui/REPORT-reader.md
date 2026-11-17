@@ -817,3 +817,27 @@ thật), nên phần này dựa vào tệp của trình ghi khác (tệp 24, 0,3
 Còn lại: ribbon tab View lệch 5–15 px và nhãn rộng hơn 1–3 px (đo lại: lệch dồn từ Hand: Read Mode −5, Rotate −10, View
 Setting −14 px), biểu tượng trong menu Select / Assistant, phần in (Margins / "Custom…" của N-up, giấy ngang khi Booklet,
 viền trang khi in), nhóm isolated có blend đầy đủ.
+
+## Vòng 14 (2026-11-17)
+
+Phần thêm ở mô-đun riêng `reader_r14_win.rs` (+ `reader_r14_tests.rs`); `bo-pdfread/src/repair.rs` (dựng lại bảng
+xref). Sửa chung chỉ cộng thêm: `ReaderView::stored_keys`, `Menu::has_icons`, `PdfDocument::annot_subject`. Ảnh:
+`scratchpad/show/reader-90…9x-*.png` (bản đối chiếu trên / trái).
+
+**Ribbon tab View** (`reader-90`). Đo lại 1:1 (tâm nhãn): Select rộng thêm 4 px, Reflow 4, Word Count / View Setting 5,
+khoảng trước Read Mode +2, nhóm lưới +7,5, trước Assistant −7,5 (chỉ tab View; Home giữ số đo vòng 12). Nay mọi nhãn
+lệch ≤ 1,5 px (AutoScroll 673,5 / 673, View Setting 951 / 949,5). **Trạng thái mờ** (đo trên bản sao 1 trang và 12
+trang): tài liệu một trang mờ Reverse View, Continuous, Two Page, Continuous Two Page; Single, trang bìa riêng và Split
+vẫn bật — làm như vậy (test `one_page_documents_grey_the_multi_page_layouts`).
+
+**Menu Select / Assistant** (`reader-91`, chụp 1:1). Hàng 30 px, nhãn cách khung 41–42 px, độ rộng nhãn trùng (Marquee
+51 px) — menu của bản đối chiếu không lớn hơn; khác duy nhất là biểu tượng (mực 20 px từ 10 px; của ta trước 17 px).
+Biểu tượng tự vẽ (I-beam / ghi chú gấp góc + con trỏ, khung đứt + kính lúp, cửa sổ nhỏ có kính lúp, kính lúp có dấu +)
+ở ô 24 px.
+
+**Hộp In** (`reader-92`, `reader-93`; chỉ mở / Cancel ở bản đối chiếu, không in). Multiple Pages Per Sheet: mục
+"Custom..." cuối danh sách, hiện ô cột × hàng có nút tăng giảm; Margins (ô đánh dấu, mặc định bật, 0.200 inch) là
+khoảng giữa các trang (tắt: các trang sát nhau); Print Page Border. Booklet: thứ tự Binding, Booklet subset ("Both"),
+Margins (lề ngoài mỗi nửa, hai trang vẫn gặp nhau ở nếp gấp); xem trước trên tờ ngang (Paper 11.7 × 8.3 inch), trang
+đứng, và lệnh in đặt khổ ngang; "Print on both sides" đánh dấu và mờ; Collate một bản: đánh dấu và mờ (xám 195, dấu
+trắng); bộ đếm "Page n of m" cho mọi chế độ. Test `custom_grid_margins_and_landscape_booklet` (bố cục + hộp).

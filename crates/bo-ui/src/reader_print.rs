@@ -790,6 +790,13 @@ impl PrintDialog {
         })
     }
 
+    /// Summarize Comments is offered: the reference enables it whether or not the document has
+    /// comments (round 14, measured on a document without any).
+    pub(super) fn summarize_on14(&self) -> bool {
+        let _ = self.has_comments;
+        true
+    }
+
     /// The document has comments (Summarize Comments is offered).
     pub fn set_has_comments(&mut self, on: bool) {
         self.has_comments = on;
@@ -1117,7 +1124,7 @@ impl PrintDialog {
             Part::Bleed if self.handling != Handling::Scale => {}
             Part::Bleed => self.bleed = !self.bleed,
             Part::Summarize => {
-                if self.has_comments {
+                if self.summarize_on14() {
                     return Some(PrintAction::Summarize);
                 }
             }
@@ -1619,6 +1626,9 @@ impl PrintDialog {
                 self.collate,
                 s.get("pdfPrint.collate"),
             );
+        } else if self.collate {
+            // Round 14: the reference shows it ticked and grey with one copy.
+            self.check_grey_on14(p, self.rect(Part::Collate), s.get("pdfPrint.collate"));
         } else {
             self.check_off(p, self.rect(Part::Collate), s.get("pdfPrint.collate"));
         }
@@ -1708,7 +1718,10 @@ impl PrintDialog {
         // Both sides, rotate and centre (an untitled group like the reference's).
         self.group(p, "", [479.0, 132.0, 316.0, 235.0]);
         // Round 12: Tile Large Pages and Booklet fix both sides (grey, like the reference).
-        if matches!(self.handling, Handling::Tile | Handling::Booklet) {
+        if self.handling == Handling::Booklet {
+            // Round 14: a booklet is printed on both sides: ticked and grey (the reference).
+            self.check_grey_on14(p, self.rect(Part::Duplex), s.get("pdfPrint.duplex"));
+        } else if self.handling == Handling::Tile {
             self.check_off(p, self.rect(Part::Duplex), s.get("pdfPrint.duplex"));
         } else {
             self.check(
@@ -1763,7 +1776,7 @@ impl PrintDialog {
             &what,
             self.drop == Some(Part::What),
         );
-        if self.has_comments {
+        if self.summarize_on14() {
             self.button(p, Part::Summarize, s.get("pdfPrint.summarize"), false);
         } else {
             self.button_off(p, Part::Summarize, s.get("pdfPrint.summarize"));
@@ -1959,11 +1972,8 @@ impl PrintDialog {
         );
         let nr = self.rect(Part::NextPage);
         let page_of = s
-            .get(if self.handling == Handling::Scale {
-                "pdfPrint.pageOf"
-            } else {
-                "pdfPrint.sheetOf"
-            })
+            // Round 14: the reference says "Page n of m" for sheets too.
+            .get("pdfPrint.pageOf")
             .replace("{{n}}", &at_n.to_string())
             .replace("{{total}}", &n.to_string());
         self.text_in(
@@ -1986,6 +1996,24 @@ impl PrintDialog {
     }
 
     /// A check box that is not offered: grey box and label.
+    /// A ticked check box that cannot be changed (measured: 195 grey box, white tick).
+    fn check_grey_on14(&self, p: &mut dyn Painter, r: [f32; 4], label: &str) {
+        let b = self.px(12.8);
+        let (bx, by) = (r[0] + 1.0, (r[1] + (r[3] - b) / 2.0).round());
+        p.fill_rect(bx, by, b, b, Rgba(195, 195, 195, 255));
+        let k = b / 4.0;
+        p.path(
+            &[
+                PathSeg::M(bx + k * 0.9, by + b / 2.0),
+                PathSeg::L(bx + b / 2.0 - k / 4.0, by + b - k * 1.1),
+                PathSeg::L(bx + b - k * 0.9, by + k * 1.1),
+            ],
+            None,
+            Some((WHITE, self.scale.max(1.0))),
+        );
+        self.text_in(p, label, r, b + self.px(6.4), GREY_TEXT);
+    }
+
     fn check_off(&self, p: &mut dyn Painter, r: [f32; 4], label: &str) {
         let b = self.px(12.8);
         let (bx, by) = (r[0] + 1.0, (r[1] + (r[3] - b) / 2.0).round());
@@ -2491,8 +2519,8 @@ mod tests {
         assert_eq!(&order[order.len() - 2..], &[Part::Ok, Part::Cancel]);
         let pos = |p: Part| order.iter().position(|q| *q == p).expect("part");
         // Greyed controls are not tab stops (Bleed Marks is offered since round 9; Summarize
-        // only with comments).
-        assert!(!order.contains(&Part::Summarize) && !order.contains(&Part::Collate));
+        // always since round 14, like the reference's).
+        assert!(order.contains(&Part::Summarize) && !order.contains(&Part::Collate));
         assert!(order.contains(&Part::Bleed));
         // Bleed Marks marks every page printed; Summarize Comments closes the dialog.
         let (x, y) = centre(&d, Part::Bleed);

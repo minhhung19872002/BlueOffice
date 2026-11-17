@@ -247,7 +247,7 @@ impl ReaderWindow {
 
     /// Tooltip text of ribbon control `id` (labelled commands; small icons with a
     /// `pdfTip.<id>` string).
-    fn tip_text9(&self, id: &str) -> Option<String> {
+    pub(crate) fn tip_text9(&self, id: &str) -> Option<String> {
         let c = self.controls.iter().find(|c| c.id == id)?;
         // A `pdfTip.<id>` string wins (greyed commands say why).
         let tip = format!("pdfTip.{id}");
@@ -483,9 +483,9 @@ mod tests {
         Rgba(160, 160, 162, 255),
     ];
 
-    fn dark_window(open: bool) -> ReaderWindow {
+    fn skin_window(skin: usize, open: bool) -> ReaderWindow {
         let mut w = ReaderWindow::new("en-US");
-        w.prefs6.prefs.skin = DARK;
+        w.prefs6.prefs.skin = skin;
         w.handle(Input::Scale(1.25), &Fixed);
         w.handle(
             Input::Resize {
@@ -517,11 +517,42 @@ mod tests {
 
     #[test]
     fn every_reader_surface_keeps_text_contrast_in_the_dark_skin() {
+        let (checked, bad) = audit_skin(DARK);
+        assert!(checked > 500, "{checked} texts");
+        assert!(
+            bad.is_empty(),
+            "{} low-contrast texts:\n{}",
+            bad.len(),
+            bad.join("\n")
+        );
+    }
+
+    /// Round 11 high-contrast check: the classic, light and blue skins keep 4.5 : 1 for every
+    /// enabled text on every surface too (WCAG 2.2 SC 1.4.3), not only the dark skin.
+    #[test]
+    fn every_reader_surface_keeps_text_contrast_in_every_skin() {
+        for skin in (0..crate::reader_window::skins8::SKINS.len()).filter(|&s| s != DARK) {
+            let (checked, bad) = audit_skin(skin);
+            assert!(checked > 500, "skin {skin}: {checked} texts");
+            assert!(
+                bad.is_empty(),
+                "skin {skin}: {} low-contrast texts:\n{}",
+                bad.len(),
+                bad.join("\n")
+            );
+        }
+    }
+
+    /// Paints every surface of a window in `skin`; returns the number of enabled texts
+    /// checked and those under 4.5 : 1 on their background.
+    #[allow(clippy::too_many_lines)]
+    fn audit_skin(skin: usize) -> (usize, Vec<String>) {
+        let dark_window = |open: bool| skin_window(skin, open);
         let mut p = Probe::default();
         let mut w = dark_window(false);
         probe(&mut w, "start", &mut p);
         let mut w = dark_window(true);
-        assert!(w.dark_skin());
+        assert_eq!(w.dark_skin(), skin == DARK);
         probe(&mut w, "document", &mut p);
         let tabs = w.tab_label_keys().len();
         // Every ribbon tab, and every command of it run on a fresh window (its menu, dialog,
@@ -603,7 +634,10 @@ mod tests {
         assert!(w.tip9().is_some());
         probe(&mut w, "tooltip", &mut p);
 
-        let disabled: Vec<Rgba> = DISABLED.iter().map(|&c| dark_ink(c)).collect();
+        let disabled: Vec<Rgba> = DISABLED
+            .iter()
+            .map(|&c| if skin == DARK { dark_ink(c) } else { c })
+            .collect();
         let mut bad = Vec::new();
         let mut checked = 0;
         for (surface, text, ink, bg) in &p.texts {
@@ -630,13 +664,10 @@ mod tests {
                     a
                 }
             });
-        eprintln!("checked {checked} of {} worst {worst:?}", p.texts.len());
-        assert!(checked > 500, "{checked} texts");
-        assert!(
-            bad.is_empty(),
-            "{} low-contrast texts:\n{}",
-            bad.len(),
-            bad.join("\n")
+        eprintln!(
+            "skin {skin}: checked {checked} of {} worst {worst:?}",
+            p.texts.len()
         );
+        (checked, bad)
     }
 }

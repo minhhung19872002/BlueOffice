@@ -88,6 +88,15 @@ pub trait PdfWindow {
     fn text(&self, key: &str, _args: &[(&str, &str)]) -> String {
         key.to_owned()
     }
+    /// Reading aloud: the voice is at UTF-16 offset `pos` of the spoken text, a word `len`
+    /// long (highlighted on the page); true when a new frame is needed.
+    fn speech_word(&mut self, _pos: usize, _len: usize) -> bool {
+        false
+    }
+    /// Reading aloud is on (the host follows the voice's position).
+    fn reading(&self) -> bool {
+        false
+    }
 }
 
 impl PdfWindow for ReaderWindow {
@@ -164,7 +173,8 @@ impl PdfWindow for ReaderWindow {
         ReaderWindow::set_pointer_mods10(self, m);
     }
     fn file_picked(&mut self, purpose: &str, path: &Path, bytes: &[u8]) {
-        if ReaderWindow::file_picked9(self, purpose, path)
+        if ReaderWindow::file_picked11(self, purpose, bytes)
+            || ReaderWindow::file_picked9(self, purpose, path)
             || ReaderWindow::file_picked10(self, purpose, bytes)
         {
             return;
@@ -175,6 +185,12 @@ impl PdfWindow for ReaderWindow {
     }
     fn text(&self, key: &str, args: &[(&str, &str)]) -> String {
         ReaderWindow::strings_fmt(self, key, args)
+    }
+    fn speech_word(&mut self, pos: usize, len: usize) -> bool {
+        ReaderWindow::speech_word11(self, pos, len)
+    }
+    fn reading(&self) -> bool {
+        ReaderWindow::reading11(self)
     }
 }
 

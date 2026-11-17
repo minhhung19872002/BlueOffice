@@ -264,6 +264,12 @@ impl ReaderWindow {
     /// Input for the additions first: `Some(redraw)` when handled.
     #[allow(clippy::too_many_lines)]
     pub(crate) fn route_extra(&mut self, input: &Input, m: &dyn TextMeasure) -> Option<bool> {
+        // Forms, Fill & Sign, the signature dialog (BlueReader round 11).
+        if self.extra.print.is_none() {
+            if let Some(r) = self.route_eleven(input, m) {
+                return Some(r);
+            }
+        }
         if self.extra.print.is_none() && self.menu.is_none() && self.dialog.is_none() {
             if let Some(r) = self.route_search9(input, m) {
                 return Some(r);
@@ -451,10 +457,9 @@ impl ReaderWindow {
             .filter(|a| a.page == page)
             .rev()
             .find(|a| {
-                px >= a.rect[0] - pad
-                    && px <= a.rect[2] + pad
-                    && py >= a.rect[1] - pad
-                    && py <= a.rect[3] + pad
+                // NoZoom notes: the drawn icon, not the whole /Rect (round 11).
+                let r = self.shown_rect11(a);
+                px >= r[0] - pad && px <= r[2] + pad && py >= r[1] - pad && py <= r[3] + pad
             })
     }
 
@@ -560,7 +565,8 @@ impl ReaderWindow {
 
     /// Commands of the additions; `true` when handled.
     pub(crate) fn command_extra(&mut self, cmd: &str, m: &dyn TextMeasure) -> bool {
-        if self.command_prefs6(cmd, m)
+        if self.command_eleven(cmd, m)
+            || self.command_prefs6(cmd, m)
             || self.command_menus9(cmd)
             || self.command_tabs9(cmd)
             || self.command_marks9(cmd)

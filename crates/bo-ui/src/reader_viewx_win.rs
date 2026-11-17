@@ -221,10 +221,45 @@ impl ReaderWindow {
                     self.reflow_scroll_by(-step, m);
                     return Some(true);
                 }
+                // Round 11, keyboard reading: Space / Shift+Space a screen, Left / Right the
+                // page before / after, Home / End the first / last page.
+                Input::Text(s) if s == " " => {
+                    self.reflow_scroll_by(d[3] * 0.9, m);
+                    return Some(true);
+                }
+                Input::Key(Key::Left | Key::Right | Key::Home | Key::End, mods) if !mods.ctrl => {
+                    let n = self
+                        .tabs
+                        .get(self.active)
+                        .map_or(0, |t| t.view.page_count());
+                    let cur = self.viewx.reflow_page.unwrap_or(0);
+                    let page = match input {
+                        Input::Key(Key::Left, _) => cur.saturating_sub(1),
+                        Input::Key(Key::Right, _) => (cur + 1).min(n.saturating_sub(1)),
+                        Input::Key(Key::Home, _) => 0,
+                        _ => n.saturating_sub(1),
+                    };
+                    if let Some(t) = self.tabs.get_mut(self.active) {
+                        t.view.go_to(page, None);
+                    }
+                    self.viewx.reflow_page = None;
+                    self.viewx.reflow_scroll = 0.0;
+                    self.reflow_layout(m);
+                    return Some(true);
+                }
                 _ => {}
             }
         }
         None
+    }
+
+    /// Reflow: the page whose text is shown.
+    #[cfg(test)]
+    pub(crate) fn reflow_page11(&self) -> Option<usize> {
+        self.viewx
+            .reflow
+            .then_some(self.viewx.reflow_page)
+            .flatten()
     }
 
     /// A timer tick: AutoScroll in Reflow moves the text (pages move every frame,

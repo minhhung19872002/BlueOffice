@@ -41,6 +41,7 @@ mod field_detect;
 mod filters;
 mod font;
 mod forms;
+mod forms11;
 mod function;
 mod image;
 mod interp;
@@ -87,6 +88,10 @@ pub use exchange::SummaryLabels;
 pub use exchange_data::ImportReport;
 pub use extract::ExtractedImage;
 pub use forms::{FieldKind, FormField};
+pub use forms11::{
+    calc_text, parse_simple_calculate, typed_outline, typed_outline_in, typed_width, Calculation,
+    SignatureInk,
+};
 pub use image::Image;
 pub use links_edit::{find_web_addresses, FoundLink};
 pub use markup::{Markup, MarkupKind};
@@ -153,6 +158,9 @@ pub struct RenderExtra {
     /// keep a fixed size, their rectangle scaled by this about its top left corner (the viewer
     /// passes the inverse of its zoom); 0 draws them at their rectangle.
     pub no_zoom: f32,
+    /// On screen: form field widgets get this background under their appearance (a viewer's
+    /// Highlight Fields, BlueReader round 11); `None` draws them as they are.
+    pub field_tint: Option<Rgba>,
 }
 
 /// Parts of a page printed (the reference reader's Print What choices).
@@ -757,7 +765,14 @@ impl PdfDocument {
                     && (!extra.printing || print_flag)
                 {
                     let rect = no_zoom_rect(d, rect, extra.no_zoom);
+                    if let (Some(c), false, b"Widget") = (extra.field_tint, extra.printing, subtype)
+                    {
+                        field_tint(&mut it, d, rect, c);
+                    }
                     draw_annotation(&mut it, doc, d, rect);
+                    if extra.field_tint.is_some() && !extra.printing && subtype == b"Widget" {
+                        combo_button(&mut it, doc, d, rect);
+                    }
                 }
             }
         }
@@ -914,6 +929,81 @@ fn no_zoom_rect(d: &Dictionary, rect: [f32; 4], k: f32) -> [f32; 4] {
         rect[1].max(rect[3]),
     );
     [x0, y1 - (y1 - y0) * k, x0 + (x1 - x0) * k, y1]
+}
+
+/// A viewer's field highlight behind a widget (not for hidden widgets, push buttons or
+/// signature fields, like the reference reader's Highlight Fields).
+fn field_tint(it: &mut Interp<'_, '_>, d: &Dictionary, rect: [f32; 4], c: Rgba) {
+    let flags = d.get(b"F").ok().and_then(|o| o.as_i64().ok()).unwrap_or(0);
+    let ff = d.get(b"Ff").ok().and_then(|o| o.as_i64().ok()).unwrap_or(0);
+    let ft = d.get(b"FT").and_then(Object::as_name).unwrap_or(b"");
+    if flags & 2 != 0 || ft == b"Sig" || (ft == b"Btn" && ff & (1 << 16) != 0) {
+        return;
+    }
+    let f = |v: u8| f32::from(v) / 255.0;
+    let content = format!(
+        "{} {} {} rg {} {} {} {} re f",
+        f(c.0),
+        f(c.1),
+        f(c.2),
+        rect[0],
+        rect[1],
+        rect[2] - rect[0],
+        rect[3] - rect[1]
+    );
+    it.run_form(content.as_bytes(), interp::IDENTITY, None, None);
+}
+
+/// A viewer's drop-down button at the right end of a combo box widget (§12.7.4.4, `/FT /Ch`
+/// with the Combo flag, bit 18), drawn with Highlight Fields on as the reference reader draws
+/// it on screen (measured on a 20 pt field: 9.3 pt wide, black frame 0.9 pt, face 217, 192,
+/// 219, a black arrow 5.3 × 2.7 pt in the middle). Our own drawing; nothing is printed.
+fn combo_button(it: &mut Interp<'_, '_>, doc: &Document, d: &Dictionary, rect: [f32; 4]) {
+    // Field keys may sit on the parent field (§12.7.4.1 inheritable entries).
+    let parent = d
+        .get(b"Parent")
+        .ok()
+        .map(|o| resolve(doc, o))
+        .and_then(|o| o.as_dict().ok());
+    let get = |k: &[u8]| {
+        d.get(k)
+            .ok()
+            .filter(|o| !matches!(o, Object::Null))
+            .or_else(|| parent.and_then(|p| p.get(k).ok()))
+    };
+    let ft = get(b"FT").and_then(|o| o.as_name().ok()).unwrap_or(b"");
+    let ff = get(b"Ff").and_then(|o| o.as_i64().ok()).unwrap_or(0);
+    let flags = d.get(b"F").ok().and_then(|o| o.as_i64().ok()).unwrap_or(0);
+    if ft != b"Ch" || ff & (1 << 17) == 0 || flags & (2 | 32) != 0 {
+        return;
+    }
+    let (x0, y0, x1, y1) = (
+        rect[0].min(rect[2]),
+        rect[1].min(rect[3]),
+        rect[0].max(rect[2]),
+        rect[1].max(rect[3]),
+    );
+    let h = y1 - y0;
+    let w = (h * 0.465).clamp(6.0, (x1 - x0) / 2.0);
+    let (bx, cy) = (x1 - w, y0 + h / 2.0);
+    let line = (h * 0.045).clamp(0.5, 1.2);
+    let (aw, ah) = (w * 0.57, w * 0.29);
+    let content = format!(
+        "0.851 0.753 0.859 rg {bx} {y0} {w} {h} re f \
+         0 G {line} w {} {} {} {} re S \
+         0 g {} {} m {} {} l {} {} l f",
+        bx + line / 2.0,
+        y0 + line / 2.0,
+        w - line,
+        h - line,
+        bx + (w - aw) / 2.0,
+        cy + ah / 2.0,
+        bx + f32::midpoint(w, aw),
+        cy + ah / 2.0,
+        bx + w / 2.0,
+        cy - ah / 2.0,
+    );
+    it.run_form(content.as_bytes(), interp::IDENTITY, None, None);
 }
 
 fn draw_annotation<'a>(

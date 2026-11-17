@@ -519,7 +519,12 @@ impl Font {
         };
         let symbolic_std =
             matches!(self.program, Program::None) && self.face.is_some() && self.symbol_cmap;
-        let base = base_name.and_then(encoding::base);
+        // A non-embedded Symbol / ZapfDingbats keeps its built-in encoding even when the font
+        // dictionary names a base encoding (symbolic fonts, §9.6.6.1; PyMuPDF writes
+        // `/WinAnsiEncoding` on its ZapfDingbats check marks and readers show the ✓ glyph);
+        // `/Differences` still apply.
+        let std_symbol = matches!(self.program, Program::None) && builtin.is_some();
+        let base = base_name.filter(|_| !std_symbol).and_then(encoding::base);
         if let Some(b) = base {
             for (i, n) in b.iter().enumerate() {
                 if !n.is_empty() {

@@ -116,17 +116,27 @@ pub(crate) struct Tabs5 {
 impl ReaderWindow {
     /// Items of the Fill & Sign contextual tab, after Hand and Select.
     pub(crate) fn fill_items() -> Vec<(&'static str, super::Kind)> {
-        use super::Kind::{Big, Sep};
+        use super::Kind::{Big, Sep, Small};
+        // Round 11, as the reference's tab: the signature gallery, Manage Signatures, Keep
+        // Tool Selected, Apply All Signatures | Add Text, Comb Field, Predefined Text | the
+        // marks in a 3 × 2 grid | Close.
         vec![
             ("sep1", Sep),
-            ("fill.text", Big("addText", "pdfFill.text", false)),
-            ("fill.check", Big("check", "pdfFill.check", false)),
-            ("fill.cross", Big("cross", "pdfFill.cross", false)),
-            ("fill.dot", Big("dot", "pdfFill.dot", false)),
-            ("fill.line", Big("line", "pdfFill.line", false)),
+            ("fill.gallery", Big("", "", false)),
+            ("fill.manage", Big("manageSig", "pdfFill.manage", false)),
+            ("fill.keep", Big("pin", "pdfFill.keep", false)),
+            ("fill.applyAll", Big("applySigs", "pdfFill.applyAll", false)),
             ("sep2", Sep),
-            ("fill.sign", Big("fillSign", "pdfFill.signature", false)),
+            ("fill.text", Big("addText", "pdfFill.addText", false)),
+            ("fill.comb", Big("combField", "pdfFill.comb", false)),
+            ("menu.fillPredef", Big("predefText", "pdfFill.predef", true)),
             ("sep3", Sep),
+            ("fill.check", Small("check")),
+            ("fill.line", Small("line")),
+            ("fill.cross", Small("cross")),
+            ("fill.box", Small("box")),
+            ("fill.dot", Small("dot")),
+            ("sep4", Sep),
             ("fill.close", Big("close", "pdfFill.close", false)),
         ]
     }
@@ -491,7 +501,7 @@ impl ReaderWindow {
     }
 
     /// Place the Fill & Sign mark at a page point.
-    fn place_fill(&mut self, f: Fill, page: usize, x: f32, y: f32, m: &dyn TextMeasure) {
+    pub(crate) fn place_fill(&mut self, f: Fill, page: usize, x: f32, y: f32, m: &dyn TextMeasure) {
         let base = Markup {
             kind: MarkupKind::Pencil,
             page,
@@ -504,8 +514,9 @@ impl ReaderWindow {
             contents: String::new(),
             font_size: 12.0,
         };
-        // Marks are 12 points square, centred on the click like the reference's.
-        let (l, t, s) = (x - 6.0, y - 6.0, 12.0);
+        // Marks are 18 points square (33 device px at 137 %, round 11), centred on the click like
+        // the reference's.
+        let (l, t, s) = (x - 9.0, y - 9.0, 18.0);
         match f {
             Fill::Text => {
                 let title = self.t("pdfFill.text");
@@ -536,13 +547,14 @@ impl ReaderWindow {
             }
             Fill::Dot => self.add_markup5(&Markup {
                 kind: MarkupKind::Ellipse,
-                rect: [x - 2.5, y - 2.5, x + 2.5, y + 2.5],
-                width: 2.5,
+                rect: [x - 4.0, y - 4.0, x + 4.0, y + 4.0],
+                width: 4.0,
                 ..base
             }),
             Fill::Line => self.add_markup5(&Markup {
                 kind: MarkupKind::Line,
-                points: vec![[x - 15.0, y], [x + 15.0, y]],
+                points: vec![[x - 11.0, y], [x + 11.0, y]],
+                width: 2.0,
                 ..base
             }),
         }

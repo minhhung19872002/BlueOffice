@@ -106,6 +106,12 @@ fn status_bar_language_and_accessibility() {
         "{:?}",
         w.side.rect()
     );
+    // The list is longer than the pane: a scroll bar on its right edge; a press on its
+    // lower arrow scrolls one row.
+    let (track, _) = w.a9_bar().expect("scroll bar");
+    press(&mut w, track[0] + 4.0, track[1] + track[3] - 4.0);
+    assert!(w.a11y9.scroll > 0.0);
+    w.a11y9.scroll = 0.0;
     // The switch keeps only the current slide's issues.
     let all = w.a11y9.issues.len();
     let r = w.side.rect();

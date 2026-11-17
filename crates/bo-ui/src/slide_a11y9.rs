@@ -133,6 +133,8 @@ pub(super) struct A11yPane {
     ptr: bool,
     /// Issue count by the status bar's last check, and the history key it was made at.
     pub status: Option<(u64, usize)>,
+    /// When the deck changed since that check (the check waits for a pause in typing).
+    stale: Option<std::time::Instant>,
 }
 
 impl A11yPane {
@@ -309,9 +311,18 @@ impl SlideWindow {
         let key = self.view.content_rev();
         if let Some((k, n)) = self.a11y9.status {
             if k == key {
+                self.a11y9.stale = None;
+                return n;
+            }
+            // Checking a 300-slide deck takes ~15 ms: not on every keystroke. The count is
+            // brought up to date once the deck has stayed changed for 0.8 s (the caret's
+            // blink brings the next input).
+            let since = *self.a11y9.stale.get_or_insert_with(std::time::Instant::now);
+            if since.elapsed() < std::time::Duration::from_millis(800) {
                 return n;
             }
         }
+        self.a11y9.stale = None;
         let n = self
             .view
             .engine()
@@ -340,8 +351,12 @@ impl SlideWindow {
                 None
             }
             Input::Wheel(d) if self.a11y9.ptr => {
-                let max = (self.a9_content() - r[3] / k).max(0.0);
+                let max = self.a9_max_scroll();
                 self.a11y9.scroll = (self.a11y9.scroll - d * ROW).clamp(0.0, max);
+                Some(true)
+            }
+            Input::Press { x, y, .. } if inside(x, y) && self.a9_bar_press(x, y) => {
+                self.area_press = false;
                 Some(true)
             }
             Input::Press { x, y, .. } if inside(x, y) => {
@@ -352,6 +367,65 @@ impl SlideWindow {
             Input::Drag { x, y } | Input::Release { x, y } if inside(x, y) => Some(false),
             _ => None,
         }
+    }
+
+    /// Most the list scrolls (reference px).
+    fn a9_max_scroll(&self) -> f32 {
+        let k = self.scale / 1.25;
+        (self.a9_content() + 20.0 - self.a9_rect()[3] / k).max(0.0)
+    }
+
+    /// The list's classic scroll bar on the pane's right edge (reference: x 371, 19 px
+    /// wide, from y 77 to 12 px above the bottom): track and thumb in device px; `None`
+    /// when the list fits or a details view shows.
+    pub(super) fn a9_bar(&self) -> Option<([f32; 4], [f32; 4])> {
+        if self.a11y9.detail.is_some() {
+            return None;
+        }
+        let max = self.a9_max_scroll();
+        if max <= 0.0 {
+            return None;
+        }
+        let r = self.a9_rect();
+        let k = self.scale / 1.25;
+        let w = (19.0 * k).round();
+        let track = [
+            (r[0] + 371.0 * k).round(),
+            (r[1] + 77.0 * k).round(),
+            w,
+            (r[3] - 89.0 * k).round(),
+        ];
+        let room = track[3] - 2.0 * w;
+        let view = r[3] / k;
+        let len = (room * view / (view + max)).max(20.0 * k).min(room);
+        let y = track[1] + w + (room - len) * (self.a11y9.scroll / max).clamp(0.0, 1.0);
+        Some((track, [track[0], y.round(), w, len.round()]))
+    }
+
+    /// A press on the scroll bar: arrows move a row, the track pages.
+    fn a9_bar_press(&mut self, x: f32, y: f32) -> bool {
+        let Some((t, th)) = self.a9_bar() else {
+            return false;
+        };
+        if x < t[0] || x >= t[0] + t[2] || y < t[1] || y >= t[1] + t[3] {
+            return false;
+        }
+        let k = self.scale / 1.25;
+        let page = (self.a9_rect()[3] / k - 120.0).max(ROW);
+        let step = if y < t[1] + t[2] {
+            -ROW
+        } else if y >= t[1] + t[3] - t[2] {
+            ROW
+        } else if y < th[1] {
+            -page
+        } else if y >= th[1] + th[3] {
+            page
+        } else {
+            0.0
+        };
+        let max = self.a9_max_scroll();
+        self.a11y9.scroll = (self.a11y9.scroll + step).clamp(0.0, max);
+        true
     }
 
     /// A press at (lx, ly) reference pixels from the pane's top-left corner.
@@ -481,6 +555,29 @@ impl SlideWindow {
             let sc = self.a11y9.scroll;
             self.paint_a9_list(p, &|x, y| at(x, y - sc));
             p.pop_clip();
+            if let Some((track, thumb)) = self.a9_bar() {
+                let edge = Rgba(0x94, 0x94, 0x94, 255);
+                let [x, y0, w, h] = track;
+                p.fill_rect(x, y0, w, h, edge);
+                p.fill_rect(x + 1.0, y0 + 1.0, w - 2.0, h - 2.0, WHITE);
+                p.fill_rect(x, thumb[1], w, thumb[3], edge);
+                p.fill_rect(x + 2.0, thumb[1] + 1.0, w - 4.0, thumb[3] - 2.0, WHITE);
+                let a = 3.5 * k;
+                let cx = x + w / 2.0;
+                for (cy, up) in [(y0 + w / 2.0, true), (y0 + h - w / 2.0, false)] {
+                    let d = if up { -a } else { a };
+                    p.path(
+                        &[
+                            PathSeg::M(cx - a, cy - d / 2.0),
+                            PathSeg::L(cx + a, cy - d / 2.0),
+                            PathSeg::L(cx, cy + d / 2.0),
+                            PathSeg::Z,
+                        ],
+                        Some(INK),
+                        None,
+                    );
+                }
+            }
         }
         p.pop_clip();
     }

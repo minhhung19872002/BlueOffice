@@ -23,6 +23,39 @@ pub(super) struct Status9 {
     pub nav: [[f32; 4]; 3],
 }
 
+/// The Slide Show view button: a projector screen with a bar on top, a line on the screen
+/// and a stand with its foot (own drawing), centred in `r`.
+pub(super) fn paint_screen(p: &mut dyn Painter, r: [f32; 4], scale: f32, ink: bo_render::Rgba) {
+    let k = scale / 1.25;
+    let (cx, cy) = ((r[0] + r[2] / 2.0).round(), (r[1] + r[3] / 2.0).round());
+    let pen = Some((ink, k.max(1.0)));
+    let (w, h) = (16.0 * k, 9.0 * k);
+    let top = cy - 9.0 * k;
+    p.fill_rect(
+        (cx - w / 2.0 - k).round(),
+        top,
+        (w + 2.0 * k).round(),
+        (1.5 * k).max(1.0).round(),
+        ink,
+    );
+    p.path(
+        &[
+            PathSeg::M(cx - w / 2.0 + 1.0, top + 1.5 * k),
+            PathSeg::L(cx - w / 2.0 + 1.0, top + 1.5 * k + h),
+            PathSeg::L(cx + w / 2.0 - 1.0, top + 1.5 * k + h),
+            PathSeg::L(cx + w / 2.0 - 1.0, top + 1.5 * k),
+            PathSeg::M(cx - 4.0 * k, top + 6.0 * k),
+            PathSeg::L(cx + 4.0 * k, top + 6.0 * k),
+            PathSeg::M(cx, top + 1.5 * k + h),
+            PathSeg::L(cx, cy + 7.0 * k),
+            PathSeg::M(cx - 4.0 * k, cy + 7.0 * k),
+            PathSeg::L(cx + 4.0 * k, cy + 7.0 * k),
+        ],
+        None,
+        pen,
+    );
+}
+
 /// Display name of a BCP 47 tag (the Language dialog's list), else the tag.
 pub(super) fn language_name(tag: &str) -> String {
     crate::doc_forms::LANGUAGES
@@ -88,21 +121,15 @@ impl SlideWindow {
                     .and_then(|t| first_lang(t, None))
             })
         };
-        found
-            .or_else(|| {
-                let d = pres.default_text_style.as_ref()?;
-                d.def
-                    .as_ref()
-                    .and_then(|p| p.def_rpr.as_ref())
-                    .and_then(|r| r.lang.clone())
-                    .or_else(|| {
-                        d.levels[0]
-                            .as_ref()
-                            .and_then(|p| p.def_rpr.as_ref())
-                            .and_then(|r| r.lang.clone())
-                    })
-            })
-            .unwrap_or_else(|| "en-US".into())
+        // Nothing edited: the editing language of the interface, as the reference shows
+        // its own ("English (United States)" over a Vietnamese deck).
+        found.unwrap_or_else(|| {
+            if self.metric {
+                "vi-VN".into()
+            } else {
+                "en-US".into()
+            }
+        })
     }
 
     /// Whether the status bar shows the proofing / language / accessibility items.
@@ -138,11 +165,15 @@ impl SlideWindow {
         let lw = text.measure(&lang, style).0;
         let ax = (lx + lw + 23.0 * k).round();
         let aw = 27.0 * k + text.measure(&a11y, bold).0;
-        // Comments: after Notes, in the room before the view buttons.
-        let notes = self.status[0];
+        // Comments ends 25 px before the view buttons, Notes 25 px before Comments
+        // (reference at 125 %).
         let cl = self.t("slideNative.commentsStatus", "Comments");
         let cw = 25.0 * k + text.measure(&cl, style).0;
-        let cx = (notes[0] + notes[2] - self.px(6.0) + 25.0 * k).round();
+        let cx = (self.status[6][0] - 25.0 * k - cw).round();
+        if self.view.mode() == ViewMode::Normal {
+            let nw = self.status[0][2];
+            self.status[0][0] = (cx - 25.0 * k - nw + self.px(6.0)).round();
+        }
         self.status9 = Status9 {
             rects: [
                 proof,

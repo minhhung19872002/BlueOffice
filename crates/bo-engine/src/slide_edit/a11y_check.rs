@@ -47,7 +47,23 @@ pub const RULES: [(&str, usize, bool); 12] = [
 ];
 
 /// Kinds of shape that need alternative text.
+/// Kinds of shape that need alternative text; drawn shapes need it too when they carry no
+/// text and are not placeholders (the reference flags an empty ellipse, not an arrow with
+/// a word on it, a text box or a table).
 pub const NEEDS_ALT: [&str; 6] = ["picture", "chart", "smartart", "media", "object", "model3d"];
+
+/// A drawn shape (not a placeholder) with no text of its own.
+fn empty_drawing(n: &ShapeNode) -> bool {
+    match n {
+        ShapeNode::Shape(s) => {
+            s.nv.placeholder.is_none()
+                && s.text
+                    .as_ref()
+                    .is_none_or(|t| super::text::body_text(t).trim().is_empty())
+        }
+        _ => false,
+    }
+}
 
 /// One issue found.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -190,7 +206,7 @@ fn slide_issues(pres: &Presentation, i: usize, out: &mut Vec<A11yIssue>) {
             return;
         }
         let kind = kind_of(n);
-        if NEEDS_ALT.contains(&kind)
+        if (NEEDS_ALT.contains(&kind) || empty_drawing(n))
             && nv.descr.as_deref().is_none_or(|d| d.trim().is_empty())
             && !decorative(n)
         {
@@ -204,12 +220,18 @@ fn slide_issues(pres: &Presentation, i: usize, out: &mut Vec<A11yIssue>) {
                     .filter(|t| !super::text::body_text(t).trim().is_empty())
                 {
                     let st = super::format_state(pres, i, sh);
-                    let back = sh
-                        .props
-                        .fill
-                        .as_ref()
-                        .and_then(|f| solid(pres, i, f))
-                        .unwrap_or(bg);
+                    // The shape's own fill, else its style's fillRef colour (§20.1.4.2.10),
+                    // else the slide's background.
+                    let back = match sh.props.fill.as_ref() {
+                        Some(f) => solid(pres, i, f),
+                        None => sh
+                            .style
+                            .as_ref()
+                            .filter(|s| s.fill_ref.idx > 0)
+                            .and_then(|s| s.fill_ref.color.clone())
+                            .and_then(|c| solid(pres, i, &Fill::Solid(c))),
+                    }
+                    .unwrap_or(bg);
                     if let Some(fg) = st.color.as_deref().and_then(hex) {
                         let size = st.size.unwrap_or(18.0);
                         let large = size >= 18.0 || (st.bold && size >= 14.0);
@@ -372,6 +394,73 @@ mod tests {
         assert!((contrast(0x00_0000, 0xFF_FFFF) - 21.0).abs() < 0.01);
         assert!((contrast(0x77_7777, 0xFF_FFFF) - 4.48).abs() < 0.02);
         assert!(contrast(0xFF_FF00, 0xFF_FFFF) < 1.1);
+    }
+
+    /// The reference on its sample slide: an arrow with "Tiếp" in white on its style fill
+    /// (accent 1) is readable, an empty ellipse lacks alternative text (round 19).
+    #[test]
+    fn styled_fill_contrast_and_empty_shape_alt_text() {
+        use bo_model::slide::{Color, ShapeStyle, StyleRef};
+        let mut e = open("slide-text-bullets.pptx");
+        let pres = e.presentation_mut().unwrap();
+        let template = pres.slides[0]
+            .data
+            .shapes
+            .iter()
+            .find_map(|n| match n {
+                ShapeNode::Shape(s) if s.text.is_some() => Some((**s).clone()),
+                _ => None,
+            })
+            .expect("a text shape");
+        let style = |c: &str| ShapeStyle {
+            ln_ref: StyleRef {
+                idx: 2,
+                color: None,
+            },
+            fill_ref: StyleRef {
+                idx: 1,
+                color: Some(Color::scheme(c)),
+            },
+            effect_ref: StyleRef {
+                idx: 0,
+                color: None,
+            },
+            font_ref: bo_model::slide::FontRef {
+                idx: "minor".into(),
+                color: Some(Color::scheme("lt1")),
+            },
+        };
+        let mut arrow = template.clone();
+        arrow.nv.id = 900;
+        arrow.nv.name = "rightArrow 5".into();
+        arrow.nv.placeholder = None;
+        arrow.props.fill = None;
+        arrow.style = Some(style("accent1"));
+        super::super::text::set_text(arrow.text.get_or_insert_with(TextBody::default), "Tiếp");
+        let mut ellipse = template;
+        ellipse.nv.id = 901;
+        ellipse.nv.name = "ellipse 6".into();
+        ellipse.nv.placeholder = None;
+        ellipse.style = Some(style("accent6"));
+        ellipse.text = None;
+        pres.slides[0]
+            .data
+            .shapes
+            .push(ShapeNode::Shape(Box::new(arrow)));
+        pres.slides[0]
+            .data
+            .shapes
+            .push(ShapeNode::Shape(Box::new(ellipse)));
+        let got = check(pres);
+        assert!(
+            !got.iter().any(|x| x.rule == "contrast" && x.id == 900),
+            "{got:?}"
+        );
+        assert!(
+            got.iter().any(|x| x.rule == "altText" && x.id == 901),
+            "{got:?}"
+        );
+        assert!(!got.iter().any(|x| x.rule == "altText" && x.id == 900));
     }
 
     #[test]

@@ -315,15 +315,15 @@ impl AnimPane {
             if a.trigger == "onClick" {
                 let n = a.click.to_string();
                 let nw = text.measure(&n, body).0;
-                ops.push(Op::Text(n, lx + d(29.0) - nw, ty, body, ink));
+                ops.push(Op::Text(n, lx + d(21.0) - nw, ty, body, ink));
             }
-            let sc = (lx + d(41.0), ry + row_h / 2.0);
+            let sc = (lx + d(34.0), ry + row_h / 2.0);
             ops.push(Op::Path(
                 star(sc.0, sc.1, d(9.0)),
                 Some(class_color(a.class)),
                 None,
             ));
-            let name_x = lx + d(55.0);
+            let name_x = lx + d(51.0);
             let name_end = if self.hide_timeline {
                 lx + lw - d(30.0)
             } else {

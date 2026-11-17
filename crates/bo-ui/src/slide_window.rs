@@ -3039,6 +3039,12 @@ impl SlideWindow {
         .enumerate()
         {
             let r = self.status[6 + i];
+            if *name == "show.fromStart" {
+                // Slide Show: a projector screen on its stand (own drawing, the
+                // reference's meaning; round 19).
+                status9::paint_screen(p, r, self.scale, ink);
+                continue;
+            }
             self.icons.draw(
                 p,
                 name,
@@ -3050,7 +3056,10 @@ impl SlideWindow {
         }
         // The notes toggle is a plain icon and label (no band), as on the reference; the
         // sorter has no notes, so no toggle.
-        if self.view.mode() == ViewMode::Normal && self.page_master.is_none() {
+        if self.view.mode() == ViewMode::Normal
+            && self.page_master.is_none()
+            && self.pane == viewtab::Pane::Normal
+        {
             self.icons.draw(
                 p,
                 "format.lineSpacing",
@@ -3111,12 +3120,26 @@ impl SlideWindow {
             PathSeg::L(cx + r, cy + r),
             PathSeg::L(cx - r, cy + r),
             PathSeg::Z,
-            PathSeg::M(cx - r + self.px(3.0), cy),
-            PathSeg::L(cx + r - self.px(3.0), cy),
-            PathSeg::M(cx, cy - r + self.px(3.0)),
-            PathSeg::L(cx, cy + r - self.px(3.0)),
         ];
         p.path(&segs, None, Some((ink, line)));
+        // Four small arrowheads at the middle of the sides pointing out: fit the slide to
+        // the frame (round 19, the reference's meaning in own shapes).
+        let a = self.px(2.0);
+        let e = r - self.px(1.5);
+        for (dx, dy) in [(0.0, -1.0), (0.0, 1.0), (-1.0, 0.0), (1.0, 0.0)] {
+            let (tx, ty) = (cx + dx * e, cy + dy * e);
+            let (bx, by) = (cx + dx * (e - 2.0 * a), cy + dy * (e - 2.0 * a));
+            p.path(
+                &[
+                    PathSeg::M(tx, ty),
+                    PathSeg::L(bx - dy * a, by - dx * a),
+                    PathSeg::L(bx + dy * a, by + dx * a),
+                    PathSeg::Z,
+                ],
+                Some(ink),
+                None,
+            );
+        }
     }
 
     /// The host's clock (ms) before a frame: transitions and effects advance with it;

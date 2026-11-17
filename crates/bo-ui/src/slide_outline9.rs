@@ -50,6 +50,34 @@ pub(super) enum Op<'a> {
     Enter,
 }
 
+/// Italic and underline of a slide title's first run (§21.1.2.3.9 rPr `i`, `u`).
+pub(super) fn title_emphasis(s: &bo_model::slide::Slide) -> (bool, bool) {
+    use bo_model::slide::{ShapeNode, TextRun};
+    s.data
+        .shapes
+        .iter()
+        .find_map(|n| {
+            let ShapeNode::Shape(sh) = n else { return None };
+            let k = sh.nv.placeholder.as_ref()?.kind.as_deref();
+            if !matches!(k, Some("title" | "ctrTitle")) {
+                return None;
+            }
+            sh.text
+                .as_ref()?
+                .paragraphs
+                .iter()
+                .flat_map(|p| &p.runs)
+                .find_map(|r| match r {
+                    TextRun::Run { props, .. } => Some((
+                        props.i.unwrap_or(false),
+                        props.u.as_deref().is_some_and(|u| u != "none"),
+                    )),
+                    _ => None,
+                })
+        })
+        .unwrap_or((false, false))
+}
+
 fn byte_at(s: &str, at: usize) -> usize {
     s.char_indices().nth(at).map_or(s.len(), |(i, _)| i)
 }

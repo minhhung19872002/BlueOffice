@@ -431,3 +431,49 @@ XFA tĩnh → biểu mẫu thường đã làm ở vòng 7; OCR vẫn xám (cầ
 
 Còn lại: Clip Path của Edit Object; vùng chọn chữ của bản đối chiếu là nền `#1B3471` chữ trắng (ta vẫn
 phủ xanh trong); Optimize / Save As chưa đối chiếu.
+
+## Vòng 9 (2026-11-17)
+
+Ảnh so sánh (bản đối chiếu trái / trên, BlueEditor phải / dưới): `scratchpad/show/editor-70…*.png`.
+
+**Edit Object / Edit Text** (`editor_rot8.rs`, `editor_selhi9.rs`, `editor_edit.rs`). Vùng chọn đối tượng như bản đối
+chiếu (đo ở 125 %): khung 1 px `#2E6DAD`, ô vuông đặc 6 px ở bốn góc và giữa cạnh (ô giữa cạnh kéo một chiều), dấu
+xoay là vòng hở có mũi tên (hình của ta) trên cuống nét đứt 15/5 px xuống hình thoi ở tâm. Chữ được chọn trong Edit
+Text là chữ trắng trên dải `#003371` vẽ vào ảnh trang (`ReaderView::set_text_mark9`); trong phiên gõ mỗi ký tự gõ / xoá
+là một bước hoàn tác như Undo của bản đối chiếu. Nhấp đúp / nhấp ba, Ctrl+←/→, Home / End, Shift chọn, Delete cuối đoạn
+nối đoạn, Enter tách, dán chữ thường, phông / cỡ / màu / đậm từ khung Format trên vùng chọn: đã có từ vòng 6–8, kiểm lại.
+
+**Organize** (`editor_org9.rs`, `editor_pages9.rs`, `editor_conv9.rs`, `editor_crop9.rs`, `editor_pagenum9.rs`).
+- Insert ▾ đủ hàng của bản đối chiếu (From File, From Folder, From Open Files, From Web Page, From Scanner, From
+  Clipboard, Blank Page, Into File; Folder / Web Page / Scanner / Into File xám); Watermark / Background / Header &
+  Footer ▾ có Add / Update / Remove All (Update mở lại hộp với giá trị đã áp và thay dấu cũ).
+- Delete mở “Delete Pages” 453 × 364 px (ô Page điền sẵn trang chọn kèm dấu phẩy, of N, Sample, Delete: tất cả /
+  chẵn / lẻ, Show Preview); phím Delete trong lưới trang vẫn xoá ngay. Swap mở “Swap Two Pages” 419 × 178 px (hai ô số
+  Swap / For). Replace: chọn tệp rồi “Replace Pages” 763 × 311 px (From / To of N, in <tệp>, Select file, Browse…,
+  Page of M; ô Page trống = mọi trang của tệp — đo trên bản đối chiếu: thay 1 trang bằng tệp 6 trang ra 11 trang);
+  bản đối chiếu hỏi “cannot be undone”, ta hoàn tác được nên không hỏi.
+- Rotate Pages ▾: Left / Right / Multi-page rotate → hộp “Rotate Pages” 481 × 469 px (hướng, khoảng trang, chẵn / lẻ,
+  trang ngang / dọc).
+- Crop Pages là công cụ như bản đối chiếu: trang hiện ra (cả khi đang ở Organize), kéo khung → “Set Page Dimensions”
+  843 × 673 px điền lề theo khung (bản đối chiếu điền 0.99 / 8.58 / 0.80 / 2.55 in là do khung đã vẽ), nhấp → hộp
+  với lề 0; Change Page Size dùng được (Fixed Size None / A4 / A3 / A5 / Letter / Legal / Tabloid, Custom rộng × cao,
+  nội dung canh giữa); Format Page Numbers mở “Page Numbers” 691 × 538 px (`/PageLabels`).
+- Ô nhập của các hộp cổ điển có đường đáy `#838383` như bản đối chiếu.
+
+**Convert**: menu đúng hàng của bản đối chiếu — From Files ▾ (From File, From Multiple Files, Convert to PDF
+Settings xám), To MS Office ▾ (Word, Word 97-2003 xám, Excel, XML Spreadsheet 2003 xám, PowerPoint, XPS xám), To
+Image ▾ (PNG, JPEG, JPEG2000 xám, TIFF, BMP — TIFF 6.0 baseline RGB và BMP 24-bit tự ghi), To Other ▾ (Plain Text,
+Rich Text — RTF 1.9 của chữ trang —, Accessible Text, XML 1.0 xám). Combine Files như bản đối chiếu: tab tài liệu
+“Combine Files” + tab ribbon ngữ cảnh cùng tên (Add Files, Add Folder, Add WebPage, Add PDF from Scanner, Add From
+Clipboard, Add Open Files, Remove | Settings ▾, Move Up, Move Down | nút Combine tô màu nhấn của ta và Cancel bo tròn
+116 × 48 px), danh sách toàn bề rộng 9 cột (Name / Operation / Modified / Page Range / Size / Bookmark for File / Bates
+Numbering / Warnings/Errors / Location; đầu 50 px chữ `#999999`, hàng 59 px chữ `#222222`, đường `#DEDEDE`); nhấp đúp
+cột Page Range hoặc Enter để đặt khoảng trang. Folder / WebPage / Scanner / Settings xám (host chỉ chọn tệp).
+
+**Optimize / Save As**: mục trang File của bản đối chiếu không nhận cú bấm gửi bằng thông điệp nhưng nhận phím ↓
+gửi tới danh sách — mở được PDF Optimizer: Reduce File Size (hộp 544 × 262, chỉ “Make compatible with”) và Advanced
+Optimization (“PDF Optimizer” 1158 × 795). File › PDF Optimizer của BlueEditor nay là hộp theo bố cục Advanced
+Optimization: Predefined Settings, Current PDF version, Make compatible with, cột bảng có ô đánh dấu (Compress
+Images, Unembed Fonts xám, Transparency xám, Discard Objects, Discard User Data, Clean Up), khung Compress Images
+(giảm mẫu tới 150 ppi cho ảnh trên 225 ppi, JPEG, chất lượng Minimum…Maximum; Monochrome / JBIG2 xám; chỉ nén khi
+nhỏ đi). Save As của bản đối chiếu là trang File (thư mục gần đây) rồi hộp chọn tệp của Windows — giữ hộp hiện có.

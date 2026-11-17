@@ -31,6 +31,8 @@ pub(crate) struct CombineItem {
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Comb9 {
     pub row: usize,
+    /// Whether a row is selected (the reference starts with none).
+    pub picked: bool,
     pub doc_on: bool,
     pub clip: bool,
     tab: [f32; 4],
@@ -188,6 +190,7 @@ impl EditorWindow {
         let n = self.combine9.len();
         if let Some(c) = &mut self.comb9 {
             c.row = row.min(n.saturating_sub(1));
+            c.picked = n > 0;
         }
     }
 
@@ -200,6 +203,10 @@ impl EditorWindow {
             return true;
         }
         let row = self.comb_row();
+        let picked = self.comb9.as_ref().is_some_and(|c| c.picked);
+        if !picked && matches!(cmd, "comb9.remove" | "comb9.up" | "comb9.down") {
+            return true;
+        }
         match cmd {
             "comb9.addFiles" => self.push(ReaderRequest::PickFile {
                 purpose: "combine9".into(),
@@ -254,10 +261,11 @@ impl EditorWindow {
             return None;
         }
         let (row, n) = (self.comb_row(), self.combine9.len());
+        let picked = self.comb9.as_ref().is_some_and(|c| c.picked) && n > 0;
         Some(match id {
-            "comb9.remove" => n > 0,
-            "comb9.up" => row > 0 && n > 0,
-            "comb9.down" => row + 1 < n,
+            "comb9.remove" => picked,
+            "comb9.up" => picked && row > 0,
+            "comb9.down" => picked && row + 1 < n,
             _ => !DIMMED.contains(&id),
         })
     }
@@ -410,7 +418,7 @@ impl EditorWindow {
                     Key::Delete => {
                         self.combine9_command("comb9.remove");
                     }
-                    Key::Enter => self.ask_range9(row),
+                    Key::Enter if c.picked => self.ask_range9(row),
                     _ => return false,
                 }
                 true
@@ -604,7 +612,7 @@ impl EditorWindow {
             let mut y = top + head_h;
             for (k, it) in self.combine9.iter().enumerate() {
                 let r = [list[0], y, list[2], row_h];
-                if k == c.row {
+                if c.picked && k == c.row {
                     p.fill_rect(r[0], r[1], r[2], r[3] - 1.0, SEL);
                 }
                 p.fill_rect(r[0], y + row_h - 1.0, r[2], 1.0, LINE);

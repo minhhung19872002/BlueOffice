@@ -125,8 +125,7 @@ impl EditorWindow {
             .collect();
         let icons = rows.iter().map(|r| r.2).collect();
         let menu = self
-            .r
-            .reader_menu(items, r)
+            .menu_open9(items, r)
             .with_decor(icons, seps)
             .with_icon_fn(crate::reader_icons::menu_icon);
         self.r.set_menu9(menu, id);

@@ -12,6 +12,21 @@ use crate::editor_window::EditorWindow;
 use crate::popup::{Choice, MenuItem};
 use crate::reader_window::ReaderRequest;
 
+/// Drop-down menus of the reference editor at 100 % (measured at 125 %: rows 29 px, labels
+/// from x 35 with an 11 px cap height, icons from x 5, white with a #E0E0E0 frame, no padding).
+pub(crate) const EDITOR_MENU9: crate::popup::MenuLook = crate::popup::MenuLook {
+    item_h: 23.2,
+    text: 11.0,
+    text_x: (27.6, 27.6),
+    icon_x: 4.0,
+    icon: 14.4,
+    pad: 0.8,
+    min_w: 96.0,
+    char_w: 7.5 * 1.15,
+    fill: Some(bo_render::Rgba(255, 255, 255, 255)),
+    frame: Some(bo_render::Rgba(224, 224, 224, 255)),
+};
+
 /// One menu row: command, label key, icon, dimmed.
 type Row = (&'static str, &'static str, Option<&'static str>, bool);
 
@@ -231,6 +246,17 @@ pub(crate) fn to_rtf(text: &str) -> String {
 }
 
 impl EditorWindow {
+    /// A menu with the reference editor's row sizes under `anchor`.
+    pub(crate) fn menu_open9(&self, items: Vec<MenuItem>, anchor: [f32; 4]) -> crate::popup::Menu {
+        crate::popup::Menu::open_with(
+            items,
+            anchor,
+            self.r.window_size(),
+            self.r.ui_scale(),
+            EDITOR_MENU9,
+        )
+    }
+
     fn menu_conv9(&mut self, rows: &[Row], id: &'static str) {
         let Some(r) = self.r.control_rect(id) else {
             return;
@@ -246,8 +272,7 @@ impl EditorWindow {
             .collect();
         let icons = rows.iter().map(|r| r.2).collect();
         let menu = self
-            .r
-            .reader_menu(items, r)
+            .menu_open9(items, r)
             .with_decor(icons, Vec::new())
             .with_icon_fn(crate::reader_icons::menu_icon);
         self.r.set_menu9(menu, id);

@@ -231,6 +231,15 @@ fn tables(wb: &Workbook) -> Vec<(usize, DataTable)> {
     out
 }
 
+/// The workbook holds at least one data table (`{=TABLE(…)}`, §18.17.2.4).
+pub fn has_data_tables(wb: &Workbook) -> bool {
+    wb.sheets.iter().any(|ws| {
+        ws.cells
+            .values()
+            .any(|c| c.formula.as_ref().and_then(DataTable::of).is_some())
+    })
+}
+
 /// Calculate the data tables: for each result cell the input cells take the values of its row
 /// / column headers, the formula in the table's corner row or column is recalculated and its
 /// value stored; the inputs are restored afterwards. Formulas that use the results are then

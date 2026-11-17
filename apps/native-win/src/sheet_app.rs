@@ -29,7 +29,9 @@ fn ui_size(size: f32) -> f32 {
 }
 
 /// Open the workbook named on the command line (or a new one) and run the window.
+#[allow(clippy::too_many_lines)]
 pub fn run() -> Result<(), String> {
+    let started = Instant::now();
     let mut engine = SheetEngine::with_bundled_fonts();
     // Interface language: English by default; BLUEOFFICE_LOCALE selects another one.
     let locale = std::env::var("BLUEOFFICE_LOCALE").unwrap_or_else(|_| "en-US".into());
@@ -74,13 +76,16 @@ pub fn run() -> Result<(), String> {
         ));
     }
     let mut file = None;
+    let mut open_ms = 0.0;
     let name = if let Some(path) = std::env::args_os().nth(1) {
         let path = std::path::PathBuf::from(path);
         let bytes = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
         let name = path
             .file_name()
             .map_or_else(|| "Book1.xlsx".into(), |n| n.to_string_lossy().into_owned());
+        let t = Instant::now();
         engine.open(&bytes, &name).map_err(|e| e.to_string())?;
+        open_ms = t.elapsed().as_secs_f64() * 1e3;
         file = Some(path);
         name
     } else {
@@ -141,6 +146,7 @@ pub fn run() -> Result<(), String> {
             blit: std::env::var("BLUEOFFICE_SHEET_BLIT").as_deref() != Ok("0"),
             ring: std::env::var("BLUEOFFICE_SHEET_RING").as_deref() != Ok("0"),
             layer: std::env::var("BLUEOFFICE_SHEET_LAYER").as_deref() != Ok("0"),
+            started: Some((started, open_ms)),
         }),
     )
 }
@@ -416,6 +422,8 @@ struct Shell {
     blit: bool,
     /// The title bar and ribbon are cached as an image (BLUEOFFICE_SHEET_LAYER=0: off).
     layer: bool,
+    /// Process start and the file's load time, logged with the first frame (perf log).
+    started: Option<(Instant, f64)>,
     /// Scrolling turns the grid image as a ring instead of copying it (BLUEOFFICE_SHEET_RING=0).
     ring: bool,
 }
@@ -849,6 +857,14 @@ impl Handler for Shell {
         }
         if self.perf.is_some() && std::env::var_os("BLUEOFFICE_NATIVE_GPU").is_some() {
             self.gpu_ms = self.gpu.as_ref().map_or(0.0, |g| g.device.wait_gpu_ms());
+        }
+        if let (Some(file), Some((t0, open_ms))) = (self.perf.as_mut(), self.started.take()) {
+            let _ = writeln!(
+                file,
+                r#"{{"input":"first_frame","open_ms":{:.1},"since_start_ms":{:.1}}}"#,
+                open_ms,
+                t0.elapsed().as_secs_f64() * 1e3,
+            );
         }
         if let (Some(file), Some(p)) = (self.perf.as_mut(), self.pending_input.take()) {
             let total = p.first.elapsed();

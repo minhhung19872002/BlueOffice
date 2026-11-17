@@ -20,7 +20,7 @@ const LEVELS: [(&str, &str, &str, &str); 5] = [
 
 /// Argument names of common functions for the Insert Function help (BlueOffice's own
 /// wording, as the web edition's formula hint; `[x]` optional, `…` repeats).
-const FUNCTION_ARGS: [(&str, &str); 58] = [
+pub(super) const FUNCTION_ARGS: [(&str, &str); 58] = [
     ("SUM", "number1, [number2], …"),
     ("AVERAGE", "number1, [number2], …"),
     ("COUNT", "value1, [value2], …"),
@@ -1355,6 +1355,18 @@ impl SheetWindow {
 
     /// Open Insert Function: search, category, function list and its arguments.
     pub(super) fn open_insert_function(&mut self) -> bool {
+        if !self.view.editing() {
+            let (r, c) = self.view.active();
+            let input = self
+                .view
+                .engine()
+                .cell(self.view.sheet(), r, c)
+                .map(|d| d.input)
+                .unwrap_or_default();
+            if let Some((name, args)) = super::fnargs_impl::split_call(&input) {
+                return self.open_fn_args(&name, args);
+            }
+        }
         let t = |k: &str, d: &str| self.t(k, d);
         // Geometry of the reference's Insert Function at 125 % (round 39, `sheet-35`):
         // 645 × 483 px, a two-line search box, the category box right of its label, a
@@ -1580,7 +1592,8 @@ impl SheetWindow {
                 self.form = None;
                 if !name.is_empty() {
                     self.note_recent_function(&name);
-                    self.view.edit_with(&format!("={name}("), text);
+                    let _ = text;
+                    self.open_fn_args(&name, Vec::new());
                 }
             }
             Event::Cancel => self.form = None,
@@ -1684,6 +1697,11 @@ impl SheetWindow {
             }
             FormKind::TextToColumns => self.ttc_event(ev, self.form_count),
             FormKind::TtcAdvanced => self.ttc_advanced_event(ev),
+            FormKind::TtcConfirm => self.ttc_confirm_event(ev),
+            FormKind::FnArgs => self.fnargs_event(ev, text),
+            FormKind::ErrorCheck => self.errcheck_event(ev, text),
+            FormKind::FindReplace => self.find_event(ev),
+            FormKind::PivotNew => self.new_pivot_event(ev, text),
             FormKind::RangePick => self.range_pick_event(ev),
             FormKind::Protect => self.protect_event(ev),
             FormKind::Spelling => self.spelling_event(ev),

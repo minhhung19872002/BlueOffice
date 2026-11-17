@@ -40,6 +40,9 @@ pub struct LiveCalc {
     /// Manual mode: the engine was reloaded after a structural edit without
     /// calculating; the next calculation recalculates every formula.
     stale: bool,
+    /// The workbook has What-If data tables (`None`: not looked yet). Finding them reads
+    /// every cell, which a cell edit on a large sheet should not pay for each time.
+    has_tables: Option<bool>,
 }
 
 impl LiveCalc {
@@ -73,6 +76,7 @@ impl LiveCalc {
     /// Loads the whole workbook, recalculates everything and writes every
     /// formula result back.
     pub fn rebuild(&mut self, wb: &mut Workbook) {
+        self.has_tables = None;
         let mut fw = load(wb, self.now);
         fw.set_web_provider(self.web.clone());
         fw.recalculate_all();
@@ -121,6 +125,7 @@ impl LiveCalc {
     /// recalculation this way (the dependency graph is still built so edits
     /// recalculate their dependents).
     pub fn rebuild_from_file(&mut self, wb: &mut Workbook) {
+        self.has_tables = None;
         let mut fw = load_with(wb, self.now, true);
         fw.set_web_provider(self.web.clone());
         fw.recalculate();
@@ -167,6 +172,14 @@ impl LiveCalc {
         if reads_pivots {
             fw.set_pivots(crate::pivot::formula_info::formula_pivots(wb));
         }
+        // A data table typed or pasted in makes the next calculation look for them again.
+        if cells.iter().any(|&(r, c)| {
+            ws.cell(r, c)
+                .and_then(|cell| cell.formula.as_ref())
+                .is_some_and(|f| crate::whatif::DataTable::of(f).is_some())
+        }) {
+            self.has_tables = Some(true);
+        }
         for &(r, c) in cells {
             match ws.cell(r, c) {
                 Some(cell) => match &cell.formula {
@@ -208,7 +221,10 @@ impl LiveCalc {
         write_ids(fw, wb, &ids, None);
         if mode == CalcMode::AutoNoTable {
             self.tables_pending = true;
-        } else {
+        } else if *self
+            .has_tables
+            .get_or_insert_with(|| crate::whatif::has_data_tables(wb))
+        {
             crate::whatif::calculate_data_tables(fw, wb);
         }
     }

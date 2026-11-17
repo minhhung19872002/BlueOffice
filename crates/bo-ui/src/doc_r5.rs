@@ -54,6 +54,9 @@ pub(super) struct Split {
     pub(super) active_top: bool,
     /// The bar is being dragged.
     drag: bool,
+    /// Just split: the lower pane keeps the text where it was on screen (scrolled by the top
+    /// pane and the bar), as the reference splits its window.
+    fresh: bool,
     /// Document area (x, y, width, height).
     pub(super) area: [f32; 4],
     /// The bar between the panes.
@@ -149,6 +152,13 @@ impl DocWindow {
         if let Some(q) = id.strip_prefix("mailings.find:") {
             let (field, what) = q.split_once('\u{1f}').unwrap_or((q, ""));
             return Some(self.find_recipient(field, what));
+        }
+        // Scripted captures (BLUEOFFICE_ACTIONS): an engine command as JSON (e.g. a recipient
+        // table for the Mailings dialogs).
+        if let Some(j) = id.strip_prefix("engine:") {
+            return Some(
+                serde_json::from_str::<serde_json::Value>(j).is_ok_and(|v| self.r3_run(vec![v])),
+            );
         }
         // Scripted measurements (BLUEOFFICE_ACTIONS): show page N (1-based) at the top.
         if let Some(n) = id.strip_prefix("view.goPage.") {
@@ -479,6 +489,7 @@ impl DocWindow {
                 other: scroll,
                 active_top: false,
                 drag: false,
+                fresh: true,
                 area: [0.0; 4],
                 bar: [0.0; 4],
             });
@@ -521,6 +532,10 @@ impl DocWindow {
             (bottom, top)
         };
         self.view.set_frame(main[0], main[1], main[2], main[3]);
+        if s.fresh && area[3] > 1.0 {
+            s.fresh = false;
+            self.view.scroll_to(s.other + top_h + bar);
+        }
         s.other = self.view.set_secondary(Some((other, s.other)));
         s.area = area;
         // The bar spans the scroll bar too, as the reference's.

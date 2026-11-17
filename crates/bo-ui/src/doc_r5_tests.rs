@@ -278,7 +278,13 @@ fn split_shows_two_panes_that_swap_on_a_click_and_a_double_click_on_the_bar_remo
         pane < whole * 0.6,
         "the main view takes the bottom half: {pane} of {whole}"
     );
-    assert!(w.view.secondary_scroll().is_some());
+    // The lower pane continues where the upper one ends, as the window was split.
+    let (main, ..) = w.view.scroll_info();
+    let top = w.view.secondary_scroll().expect("second pane");
+    assert!(
+        (main - top - (s.bar[1] + s.bar[3] - s.area[1])).abs() < 1.5,
+        "{main} {top}"
+    );
     // The bar can be dragged up.
     let bar = s.bar;
     let (bx, by) = (bar[0] + 40.0, bar[1] + bar[3] / 2.0);

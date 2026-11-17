@@ -217,6 +217,8 @@ pub struct SlideWindow {
     form8: Option<forms8::Open>,
     form8_layout: bool,
     form8_ptr: (f32, f32),
+    /// Set Up Show > Disable hardware graphics acceleration (kept for the session).
+    no_hw_accel: bool,
     /// Outline View: the chosen line (slide, body paragraph or `None` for the title).
     outline_sel: Option<outline8::Line>,
     /// Draw tab: the pens of the gallery and the one in use.
@@ -368,7 +370,7 @@ mod draw;
 mod anim8;
 
 #[path = "sheet_form.rs"]
-#[allow(dead_code)]
+#[allow(dead_code, clippy::duplicate_mod)] // BlueSheet includes the same form
 mod sform;
 
 #[path = "slide_forms8.rs"]
@@ -449,9 +451,6 @@ enum MenuKind {
     AnimEffect,
     /// Every transition / effect of the galleries.
     TransitionMore,
-    AnimMore,
-    /// Add Animation: every effect, added to the selection's effects.
-    AnimAdd,
     /// Design: theme effects; every theme (the gallery's "more" column).
     Effects,
     Themes,
@@ -500,9 +499,8 @@ fn slide_enabled(id: &str, f: &bo_edit::FormatState) -> bool {
         "review.deleteComment" => return flags.contains("cmt "),
         "sl.hideInk" => return flags.contains("ink "),
         "draw.replay" => return flags.contains("slink "),
-        "draw.inkToMath" => return false,
         // Screenshot needs other windows' pictures from the host: not available yet.
-        "sl.screenshot" => return false,
+        "draw.inkToMath" | "draw.inkHelp" | "sl.screenshot" => return false,
         id if review::GREYED.contains(&id) => return false,
         _ => {}
     }
@@ -586,6 +584,7 @@ impl SlideWindow {
             form8: None,
             form8_layout: false,
             form8_ptr: (0.0, 0.0),
+            no_hw_accel: false,
             outline_sel: None,
             active_pen: None,
             gallery_w: Vec::new(),
@@ -637,7 +636,8 @@ impl SlideWindow {
             fmt_painter: None,
             bg_pane: crate::slide_bgpane::BgPane::default(),
             media_controls: true,
-            use_presenter: false,
+            // Use Presenter View is on by default, as on the reference.
+            use_presenter: true,
             pending_timings: None,
             pane: viewtab::Pane::Normal,
             master_view: false,
@@ -863,7 +863,17 @@ impl SlideWindow {
         if std::mem::take(&mut self.form8_layout) {
             if let Some(o) = self.form8.as_mut() {
                 o.form.layout(text, self.size, self.scale);
-                let labels: Vec<String> = o.radios.iter().flat_map(|r| r.labels.clone()).collect();
+                let labels: Vec<String> = o
+                    .form
+                    .ctls
+                    .iter()
+                    .filter_map(|c| match &c.kind {
+                        sform::Kind::Check { label, .. } | sform::Kind::Label(label) => {
+                            Some(label.clone())
+                        }
+                        _ => None,
+                    })
+                    .collect();
                 o.form.measure(text, &labels);
             }
         }
@@ -1924,7 +1934,7 @@ impl SlideWindow {
                 })
                 .unwrap_or_default()
             }
-            MenuKind::TransitionMore | MenuKind::AnimMore | MenuKind::AnimAdd => Vec::new(),
+            MenuKind::TransitionMore => Vec::new(),
             MenuKind::Duration => {
                 let cur = self
                     .view
@@ -1957,17 +1967,6 @@ impl SlideWindow {
         };
         let items = match kind {
             MenuKind::TransitionMore => gallery(&mut sr::TRANSITIONS.iter().map(|(c, _)| *c)),
-            MenuKind::AnimMore => gallery(&mut sr::EFFECTS.iter().map(|(c, _)| *c)),
-            MenuKind::AnimAdd => sr::EFFECTS
-                .iter()
-                .filter(|(_, e)| e.is_some())
-                .map(|(id, _)| MenuItem {
-                    label: self.strings.get(&format!("commands.{id}")).to_owned(),
-                    choice: Choice::Command(format!("add:{id}")),
-                    checked: false,
-                    dim: false,
-                })
-                .collect(),
             _ => items,
         };
         if items.is_empty() {
@@ -2861,7 +2860,12 @@ impl SlideWindow {
             Some(t) => t,
             None => self
                 .strings
-                .get("slideEditor.slideOf")
+                // Notes Page counts notes pages, as the reference ("Notes 1 of 4").
+                .get(if self.pane == viewtab::Pane::NotesPage {
+                    "slideNative.notesOf"
+                } else {
+                    "slideEditor.slideOf"
+                })
                 // Reading view counts the slide it shows.
                 .replace(
                     "{{n}}",
@@ -3009,6 +3013,10 @@ impl SlideWindow {
 #[cfg(test)]
 #[path = "slide_window_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "slide_round17_tests.rs"]
+mod round17_tests;
 
 #[cfg(test)]
 #[path = "slide_round7_tests.rs"]

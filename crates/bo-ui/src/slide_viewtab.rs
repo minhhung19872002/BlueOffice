@@ -3,7 +3,6 @@
 //! Views (Slide Master, with its contextual tab and Close Master View), Show (Gridlines,
 //! Guides, Notes) and Zoom (Zoom, Fit to Window).
 use super::SlideWindow;
-use crate::popup::{Choice, Menu, MenuItem};
 use crate::ribbon::{Group, Item, RibbonHit, Tab};
 use crate::spin_box::paint_check;
 use crate::{Painter, TextStyle};
@@ -200,30 +199,6 @@ impl SlideWindow {
             "view.gridSettings" => self.open_form8(super::forms8::Dlg::Grid),
             _ => return None,
         })
-    }
-
-    fn open_zoom_menu(&mut self) {
-        let Some(anchor) = self.ribbon.rect_of(RibbonHit::Command("view.zoom")) else {
-            return;
-        };
-        let cur = (self.view.zoom() * 100.0).round() as u32;
-        let mut items: Vec<MenuItem> = [400u32, 200, 100, 66, 50, 33]
-            .iter()
-            .map(|z| MenuItem {
-                label: format!("{z}%"),
-                choice: Choice::Command(format!("zoom:{z}")),
-                checked: cur == *z,
-                dim: false,
-            })
-            .collect();
-        items.push(MenuItem {
-            label: self.strings.get("commands.view.fitSlide").to_owned(),
-            choice: Choice::Command("zoom:fit".into()),
-            checked: self.view.fits(),
-            dim: false,
-        });
-        self.menu_kind = super::MenuKind::Duration;
-        self.menu = Some(Menu::open(items, anchor, self.size, self.scale));
     }
 
     /// Menu choices of the tab.
@@ -473,16 +448,45 @@ impl SlideWindow {
         );
         self.view
             .paint_slide_into(p, [ix, iy, iw.round(), ih.round()]);
-        let style = TextStyle {
-            size: self.text_size,
+        // The notes placeholder as the reference frames it (round 17): a dashed box from
+        // 46 % to 92 % of the page under the slide, "Click to add text" while empty.
+        let (nx, ny) = (ix, (py0 + ph * 0.46).round());
+        let (nw, nh) = (iw.round(), (ph * 0.46).round());
+        let dash = Rgba(0x80, 0x80, 0x80, 255);
+        let d = self.px(3.2);
+        let mut t = 0.0;
+        while t < nw {
+            let l = d.min(nw - t);
+            p.fill_rect(nx + t, ny, l, 1.0, dash);
+            p.fill_rect(nx + t, ny + nh, l, 1.0, dash);
+            t += 2.0 * d;
+        }
+        let mut t = 0.0;
+        while t < nh {
+            let l = d.min(nh - t);
+            p.fill_rect(nx, ny + t, 1.0, l, dash);
+            p.fill_rect(nx + nw, ny + t, 1.0, l, dash);
+            t += 2.0 * d;
+        }
+        let small = TextStyle {
+            size: (self.text_size * 0.85).round(),
             bold: false,
         };
-        let mut y = iy + ih + ph * 0.06;
-        let line = (self.text_size * 1.5).round();
-        let tx = px0 + pw * 0.1;
-        p.push_clip(tx, y, pw * 0.8, (py0 + ph - y - ph * 0.08).max(0.0));
-        for para in self.view.notes().lines() {
-            p.text(para, tx, y, style, self.theme.text);
+        let line = (small.size * 1.4).round();
+        let (tx, mut y) = (nx + self.px(8.0), ny + self.px(6.0));
+        p.push_clip(nx, ny, nw, nh);
+        let notes = self.view.notes();
+        if notes.trim().is_empty() {
+            p.text(
+                &self.t("slideNative.clickToAddText", "Click to add text"),
+                tx,
+                y,
+                small,
+                self.theme.text,
+            );
+        }
+        for para in notes.lines() {
+            p.text(para, tx, y, small, self.theme.text);
             y += line;
         }
         p.pop_clip();

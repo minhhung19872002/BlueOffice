@@ -226,7 +226,7 @@ impl SlideView {
             | Input::Move { x, y }
             | Input::Release { x, y } => {
                 let c = self.canvas_rect();
-                if !(x >= c[0] && x < c[0] + c[2] && y >= c[1] && y < c[1] + c[3])
+                if (x < c[0] || x >= c[0] + c[2] || y < c[1] || y >= c[1] + c[3])
                     && !matches!(input, Input::Drag { .. } | Input::Release { .. })
                 {
                     return None;
@@ -401,7 +401,6 @@ impl SlideView {
     /// Review > Hide Ink ▾ > Delete All Ink on Slide / in Presentation: remove the ink
     /// objects (one undo step per slide).
     pub fn delete_ink(&mut self, all: bool) -> bool {
-        use bo_engine::slide_edit::SlideCommand;
         let here = self.current;
         let slides: Vec<usize> = if all {
             (0..self.slide_count()).collect()
@@ -422,21 +421,26 @@ impl SlideView {
                 continue;
             }
             self.go_to(s);
-            let ids: Vec<u32> = match self
-                .engine
-                .slide_ink_command(InkCommand::InkInfo { backdrop: false })
-            {
-                Ok(r) => r
-                    .ink
-                    .map(|i| i.objects.iter().map(|o| o.id).collect())
-                    .unwrap_or_default(),
-                Err(_) => Vec::new(),
-            };
-            if ids.is_empty() {
-                continue;
+            // An eraser sweep over the whole slide removes every stroke.
+            let (w, h) = self.slide_size_pt();
+            let mut points = Vec::new();
+            let mut y = 0.0;
+            while y <= h {
+                let mut x = 0.0;
+                while x <= w {
+                    points.push([x, y]);
+                    x += 20.0;
+                }
+                y += 20.0;
             }
-            self.run(SlideCommand::Select { ids });
-            done |= self.run(SlideCommand::Delete);
+            if let Ok(r) = self.engine.slide_ink_command(InkCommand::EraseInk {
+                points,
+                radius: 20.0,
+                mode: bo_engine::slide_edit::ink::EraseMode::Stroke,
+            }) {
+                done |= r.error.is_none();
+                self.apply(r);
+            }
         }
         if all {
             self.go_to(here);

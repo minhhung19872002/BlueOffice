@@ -18,6 +18,17 @@ impl SlideWindow {
         self.open_picker(PickKind::Effects, anchor);
     }
 
+    /// More … Effects of a class (`entr`, `emph`, `exit`, `path`) from the gallery.
+    pub(super) fn open_more_effects(&mut self, class: &str, add: bool) -> bool {
+        let class: &'static str = match class {
+            "emph" => "emph",
+            "exit" => "exit",
+            "path" => "path",
+            _ => "entr",
+        };
+        self.open_form8(super::forms8::Dlg::MoreEffects(class, add))
+    }
+
     /// An effect chosen in the gallery.
     pub(super) fn pick_effect(&mut self, effect: &str, class: &str, add: bool) -> bool {
         if self.view.selection().is_empty() {
@@ -92,15 +103,23 @@ impl SlideWindow {
         })
     }
 
+    /// Whether the click-number tags are drawn: on the Animations tab in Normal view, and
+    /// not while a gallery, menu or dialog is open over the slide (those are drawn above).
+    pub(super) fn anim_tags_shown(&self) -> bool {
+        // Animations is the fourth fixed tab from the end (then Slide Show, Review, View).
+        Some(self.ribbon.active_tab()) == self.base_tabs.checked_sub(4)
+            && self.view.mode() == crate::slide_view::ViewMode::Normal
+            && self.picker.is_none()
+            && self.menu.is_none()
+            && self.form8.is_none()
+            && self.dialog.is_none()
+    }
+
     /// On the Animations tab, each animated shape's click numbers in small tags left of its
     /// top-left corner (one per effect, stacked), the chosen effect's tag filled — as the
     /// reference marks them.
     pub(super) fn paint_anim_tags(&self, p: &mut dyn Painter) {
-        // Animations is the fourth fixed tab from the end (then Slide Show, Review, View).
-        if Some(self.ribbon.active_tab()) != self.base_tabs.checked_sub(4)
-            || self.view.mode() != crate::slide_view::ViewMode::Normal
-            || self.picker.is_some()
-        {
+        if !self.anim_tags_shown() {
             return;
         }
         let Some(st) = self.view.state() else {

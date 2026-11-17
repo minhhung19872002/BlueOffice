@@ -27,87 +27,104 @@ pub enum PickKind {
     Effects,
 }
 
-/// The full animation gallery by section (heading key, effects as engine id), as the
-/// reference's drop-down lays it out; every id is in `bo_pptx::anim_catalog` (or a built-in
-/// effect of the engine). Exit reuses the entrance effects played backwards.
-pub const EFFECT_SECTIONS: [(&str, &str, &[&str]); 5] = [
-    ("slideNative.fxNone", "none", &["none"]),
+/// A gallery section: heading key, class and effects (engine id, name key).
+pub type EffectSection = (
+    &'static str,
+    &'static str,
+    &'static [(&'static str, &'static str)],
+);
+
+/// The animation gallery by section (heading key, class, effects as engine id and `slideFx`
+/// name key), in the reference's order and names; effects the engine's catalog lacks
+/// (Color Pulse, Desaturate, …) are left out, and the catalog's other effects are in the
+/// More … Effects dialogs.
+pub const EFFECT_SECTIONS: [EffectSection; 5] = [
+    ("slideNative.fxNone", "none", &[("none", "none")]),
     (
         "slideNative.fxEntrance",
         "entr",
         &[
-            "appear",
-            "fade",
-            "flyIn",
-            "float",
-            "wipe",
-            "randomBars",
-            "growTurn",
-            "zoom",
-            "swivel",
-            "bounce",
-            "blinds",
-            "box",
-            "circle",
-            "diamond",
-            "dissolve",
-            "peek",
-            "plus",
-            "wedge",
-            "expand",
-            "spinner",
+            ("appear", "appear"),
+            ("fade", "fade"),
+            ("flyIn", "flyIn"),
+            ("float", "floatIn"),
+            ("split", "split"),
+            ("wipe", "wipe"),
+            ("circle", "shape"),
+            ("wheel", "wheel"),
+            ("randomBars", "randomBars"),
+            ("growTurn", "growTurn"),
+            ("zoom", "zoom"),
+            ("swivel", "swivel"),
+            ("bounce", "bounce"),
         ],
     ),
     (
         "slideNative.fxEmphasis",
         "emph",
-        &["pulse", "teeter", "spin", "growShrink", "blink"],
+        &[
+            ("pulse", "pulse"),
+            ("colorPulse", "colorPulse"),
+            ("teeter", "teeter"),
+            ("spin", "spin"),
+            ("growShrink", "growShrink"),
+            ("desaturate", "desaturate"),
+            ("darken", "darken"),
+            ("lighten", "lighten"),
+            ("transparency", "transparency"),
+            ("objectColor", "objectColor"),
+            ("complementary", "complementary"),
+            ("lineColor", "lineColor"),
+            ("fillColor", "fillColor"),
+            ("brushColor", "brushColor"),
+            ("fontColor", "fontColor"),
+            ("underline", "underline"),
+            ("boldFlash", "boldFlash"),
+            ("boldReveal", "boldReveal"),
+            ("waveText", "waveText"),
+        ],
     ),
     (
         "slideNative.fxExit",
         "exit",
         &[
-            "appear",
-            "fade",
-            "flyIn",
-            "float",
-            "wipe",
-            "randomBars",
-            "growTurn",
-            "zoom",
-            "swivel",
-            "bounce",
-            "blinds",
-            "box",
-            "circle",
-            "diamond",
-            "dissolve",
-            "peek",
-            "plus",
-            "wedge",
-            "expand",
-            "spinner",
+            ("appear", "disappear"),
+            ("fade", "fade"),
+            ("flyIn", "flyOut"),
+            ("float", "floatOut"),
+            ("split", "split"),
+            ("wipe", "wipe"),
+            ("circle", "shape"),
+            ("wheel", "wheel"),
+            ("randomBars", "randomBars"),
+            ("growTurn", "shrinkTurn"),
+            ("zoom", "zoom"),
+            ("swivel", "swivel"),
+            ("bounce", "bounce"),
         ],
     ),
     (
         "slideNative.fxPaths",
         "path",
         &[
-            "lineDown",
-            "lineUp",
-            "lineLeft",
-            "lineRight",
-            "arcDown",
-            "arcUp",
-            "turnDown",
-            "circlePath",
-            "squarePath",
-            "diamondPath",
-            "triangle",
-            "loop",
-            "wave",
+            ("lineDown", "lines"),
+            ("arcDown", "arcs"),
+            ("turnDown", "turns"),
+            ("circlePath", "shapes"),
+            ("loop", "loops"),
+            ("custom", "customPath"),
         ],
     ),
+];
+
+/// Rows under the gallery: the More … Effects dialogs (`slideNative` keys); OLE Action Verbs
+/// is greyed.
+pub const EFFECT_MORE: [(&str, &str); 5] = [
+    ("moreEntrance", "entr"),
+    ("moreEmphasis", "emph"),
+    ("moreExit", "exit"),
+    ("morePaths", "path"),
+    ("oleVerbs", ""),
 ];
 
 /// Columns of the effects gallery (reference: 5 tiles of 124 × 84 px at 125 %).
@@ -117,11 +134,288 @@ pub const EFFECT_COLS: usize = 5;
 #[must_use]
 pub fn class_color(class: &str) -> Rgba {
     match class {
-        "emph" => Rgba(0xe8, 0xb3, 0x1e, 255),
-        "exit" => Rgba(0xd2, 0x4a, 0x3c, 255),
+        // The reference's meaning of the classes: muted green entrance, golden emphasis,
+        // red exit.
+        "emph" => Rgba(0xe8, 0xb4, 0x4a, 255),
+        "exit" => Rgba(0xd0, 0x53, 0x3f, 255),
         "path" => Rgba(0x5b, 0x8f, 0xd0, 255),
         "none" => Rgba(0xa6, 0xa6, 0xa6, 255),
-        _ => Rgba(0x68, 0xa4, 0x90, 255),
+        _ => Rgba(0x5a, 0x9e, 0x8c, 255),
+    }
+}
+
+/// A five-pointed star path centred on (`cx`, `cy`), outer radius `r`, turned `rot` radians.
+fn star_path(cx: f32, cy: f32, r: f32, rot: f32) -> Vec<PathSeg> {
+    let mut v = Vec::with_capacity(11);
+    for k in 0..10 {
+        let a = std::f32::consts::PI * (k as f32) / 5.0 - std::f32::consts::FRAC_PI_2 + rot;
+        let rr = if k % 2 == 0 { r } else { r * 0.45 };
+        let (x, y) = (cx + rr * a.cos(), cy + rr * a.sin());
+        v.push(if k == 0 {
+            PathSeg::M(x, y)
+        } else {
+            PathSeg::L(x, y)
+        });
+    }
+    v.push(PathSeg::Z);
+    v
+}
+
+/// One effect's tile picture (own drawings in BlueSlide's family): the shaded star of its
+/// class with a mark of what the effect does — rays (Appear), a fading half (Fade, and
+/// Transparency), an arrow (Fly In), a lift (Float In), a split, a wipe, a shape cut-out,
+/// spokes (Wheel), bars, a small star turning (Grow & Turn), corner ticks (Zoom), a turning
+/// arc (Swivel, Spin), hops (Bounce), a halo (Pulse), a tilt (Teeter), a grown outline
+/// (Grow/Shrink), a second colour (Fill Color).
+pub fn paint_effect_icon(p: &mut dyn Painter, id: &str, class: &str, cx: f32, cy: f32, r: f32) {
+    let base = class_color(class);
+    let white = Rgba(255, 255, 255, 255);
+    let dark = Rgba(0x40, 0x40, 0x40, 255);
+    let line = (r / 9.0).max(1.0).round();
+    let star_r = if matches!(id, "flyIn" | "float" | "growTurn" | "bounce") {
+        r * 0.82
+    } else {
+        r
+    };
+    match id {
+        "teeter" => {
+            p.path(&star_path(cx, cy, r, 0.28), Some(base), Some((dark, 1.0)));
+        }
+        "growTurn" => {
+            crate::slide_ribbon::paint_star(p, cx + r * 0.2, cy - r * 0.1, star_r, base, true);
+            p.path(
+                &star_path(cx - r * 0.8, cy + r * 0.6, r * 0.38, 0.4),
+                Some(base),
+                Some((dark, 1.0)),
+            );
+        }
+        "growShrink" => {
+            crate::slide_ribbon::paint_star(p, cx - r * 0.25, cy + r * 0.2, r * 0.7, base, true);
+            p.path(
+                &star_path(cx + r * 0.25, cy - r * 0.15, r * 0.95, 0.0),
+                None,
+                Some((dark, 1.0)),
+            );
+        }
+        _ => crate::slide_ribbon::paint_star(
+            p,
+            cx,
+            if id == "float" { cy - r * 0.15 } else { cy },
+            star_r,
+            base,
+            true,
+        ),
+    }
+    let seg = |pts: &[(f32, f32)]| -> Vec<PathSeg> {
+        pts.iter()
+            .enumerate()
+            .map(|(i, (a, b))| {
+                let (x, y) = (cx + a * r, cy + b * r);
+                if i == 0 {
+                    PathSeg::M(x, y)
+                } else {
+                    PathSeg::L(x, y)
+                }
+            })
+            .collect()
+    };
+    match id {
+        "appear" => {
+            for (a, b, c, d) in [
+                (-1.25, -0.9, -1.0, -0.7),
+                (1.25, -0.9, 1.0, -0.7),
+                (-1.2, 0.6, -0.95, 0.45),
+                (1.2, 0.6, 0.95, 0.45),
+                (0.0, -1.35, 0.0, -1.1),
+            ] {
+                p.path(&seg(&[(a, b), (c, d)]), None, Some((base, line)));
+            }
+        }
+        "fade" | "transparency" => {
+            p.push_clip(cx, cy - r, r + 1.0, 2.0 * r);
+            p.path(
+                &star_path(cx, cy, r, 0.0),
+                Some(Rgba(255, 255, 255, 150)),
+                None,
+            );
+            p.pop_clip();
+        }
+        "flyIn" => {
+            p.path(&seg(&[(0.0, 1.35), (0.0, 0.75)]), None, Some((dark, line)));
+            p.path(
+                &seg(&[(-0.18, 0.95), (0.0, 0.72), (0.18, 0.95)]),
+                None,
+                Some((dark, line)),
+            );
+        }
+        "float" => {
+            for x in [-0.35, 0.0, 0.35] {
+                p.path(&seg(&[(x, 1.25), (x, 0.95)]), None, Some((base, line)));
+            }
+        }
+        "split" => {
+            p.fill_rect((cx - line / 2.0).round(), cy - r, line, 2.0 * r, white);
+        }
+        "wipe" => {
+            p.push_clip(cx - r, cy + r * 0.1, 2.0 * r, r);
+            p.path(
+                &star_path(cx, cy, r, 0.0),
+                Some(Rgba(255, 255, 255, 150)),
+                None,
+            );
+            p.pop_clip();
+        }
+        "circle" => {
+            let k = (r * 0.36).round();
+            p.fill_rect(cx - k / 2.0, cy - k / 2.0 + r * 0.08, k, k, white);
+        }
+        "wheel" => {
+            for (a, b) in [(0.0, -0.75), (0.7, 0.2), (-0.7, 0.2)] {
+                p.path(&seg(&[(0.0, 0.08), (a, b)]), None, Some((white, line)));
+            }
+        }
+        "randomBars" => {
+            for y in [-0.3, 0.05, 0.4] {
+                p.fill_rect(cx - r * 0.7, (cy + y * r).round(), 1.4 * r, line, white);
+            }
+        }
+        "zoom" => {
+            for (sx, sy) in [(-1.0, -1.0), (1.0, -1.0), (-1.0, 1.0), (1.0, 1.0)] {
+                p.path(
+                    &seg(&[(sx * 1.3, sy * 1.1), (sx * 1.0, sy * 0.85)]),
+                    None,
+                    Some((dark, line)),
+                );
+            }
+        }
+        "swivel" | "spin" => {
+            let arc: Vec<(f32, f32)> = (0..=10)
+                .map(|i| {
+                    let a = -2.6 + 2.2 * i as f32 / 10.0;
+                    (1.25 * a.cos(), 1.15 * a.sin())
+                })
+                .collect();
+            p.path(&seg(&arc), None, Some((dark, line)));
+            let (ex, ey) = arc[arc.len() - 1];
+            p.path(
+                &seg(&[(ex - 0.25, ey - 0.05), (ex, ey), (ex - 0.05, ey + 0.25)]),
+                None,
+                Some((dark, line)),
+            );
+        }
+        "bounce" => {
+            for (x, y) in [(-1.3, 0.2), (-1.15, -0.25), (-0.95, 0.15), (-1.25, 0.95)] {
+                let d = line.max(2.0);
+                p.fill_rect(cx + x * r, cy + y * r, d, d, dark);
+            }
+        }
+        "pulse" => {
+            p.path(
+                &star_path(cx, cy, r * 1.25, 0.0),
+                None,
+                Some((Rgba(base.0, base.1, base.2, 140), line)),
+            );
+        }
+        "fillColor" | "objectColor" | "complementary" | "desaturate" | "darken" => {
+            let c = match id {
+                "objectColor" => Rgba(0x70, 0x30, 0xa0, 255),
+                "desaturate" => Rgba(0xa6, 0xa6, 0xa6, 255),
+                "darken" => Rgba(0x6e, 0x55, 0x2a, 255),
+                _ => Rgba(0x44, 0x80, 0xc0, 255),
+            };
+            // A second colour on one half (left for fills, right for the colour changes).
+            let x0 = if id == "fillColor" { cx - r } else { cx };
+            p.push_clip(x0, cy - r, r + 1.0, 2.0 * r);
+            p.path(&star_path(cx, cy, r, 0.0), Some(c), None);
+            p.pop_clip();
+        }
+        "lighten" => {
+            p.push_clip(cx, cy - r, r + 1.0, 2.0 * r);
+            p.path(
+                &star_path(cx, cy, r, 0.0),
+                Some(Rgba(255, 245, 220, 200)),
+                None,
+            );
+            p.pop_clip();
+        }
+        "colorPulse" => {
+            p.path(
+                &star_path(cx, cy, r * 1.25, 0.0),
+                None,
+                Some((Rgba(0x44, 0x80, 0xc0, 200), line)),
+            );
+        }
+        "lineColor" => {
+            p.path(
+                &star_path(cx, cy, r, 0.0),
+                None,
+                Some((Rgba(0x44, 0x80, 0xc0, 255), line * 2.0)),
+            );
+        }
+        "brushColor" | "fontColor" => {
+            let c = if id == "brushColor" {
+                Rgba(0x70, 0x30, 0xa0, 255)
+            } else {
+                Rgba(0xd0, 0x30, 0x30, 255)
+            };
+            // A letter on the star and the new colour under it.
+            let t = (r * 0.9).round();
+            p.path(
+                &seg(&[(-0.3, 0.35), (0.0, -0.35), (0.3, 0.35)]),
+                None,
+                Some((dark, line)),
+            );
+            p.path(&seg(&[(-0.18, 0.1), (0.18, 0.1)]), None, Some((dark, line)));
+            p.fill_rect(
+                cx - t * 0.6,
+                cy + r * 0.75,
+                t * 1.2,
+                (line * 2.0).max(2.0),
+                c,
+            );
+        }
+        "underline" => {
+            p.fill_rect(cx - r * 0.8, (cy + r * 1.05).round(), r * 1.6, line, dark);
+        }
+        "boldFlash" | "boldReveal" => {
+            // A bold B on the star (flash: rays beside it).
+            p.path(
+                &seg(&[(-0.2, -0.35), (-0.2, 0.35)]),
+                None,
+                Some((white, line * 2.0)),
+            );
+            p.path(
+                &seg(&[
+                    (-0.2, -0.35),
+                    (0.15, -0.3),
+                    (0.15, -0.05),
+                    (-0.2, 0.0),
+                    (0.2, 0.05),
+                    (0.2, 0.3),
+                    (-0.2, 0.35),
+                ]),
+                None,
+                Some((white, line * 1.5)),
+            );
+            if id == "boldFlash" {
+                for (a, b, c, d) in [(-1.25, -0.9, -1.0, -0.7), (1.25, -0.9, 1.0, -0.7)] {
+                    p.path(&seg(&[(a, b), (c, d)]), None, Some((base, line)));
+                }
+            }
+        }
+        "waveText" => {
+            let pts: Vec<(f32, f32)> = (0..=12)
+                .map(|i| {
+                    let t = i as f32 / 12.0;
+                    (
+                        t * 1.8 - 0.9,
+                        1.15 + (t * std::f32::consts::TAU).sin() * 0.12,
+                    )
+                })
+                .collect();
+            p.path(&seg(&pts), None, Some((dark, line)));
+        }
+        _ => {}
     }
 }
 
@@ -626,11 +920,11 @@ impl Picker {
                 for (si, (_, class, ids)) in EFFECT_SECTIONS.iter().enumerate() {
                     heads.push((label(si), [0.0, y, 0.0, head_h]));
                     y += head_h + px(2.0, scale);
-                    for (i, id) in ids.iter().enumerate() {
+                    for (i, (id, _)) in ids.iter().enumerate() {
                         let (c, r) = (i % EFFECT_COLS, i / EFFECT_COLS);
                         cells.push(Cell {
                             r: [pad + c as f32 * cw, y + r as f32 * ch, cw, ch],
-                            value: format!("fx:{id}:{class}"),
+                            value: format!("afx:{id}:{class}"),
                             label: Some(label(n)),
                         });
                         n += 1;
@@ -638,7 +932,19 @@ impl Picker {
                     let rows = ids.len().div_ceil(EFFECT_COLS);
                     y += rows as f32 * ch + px(4.0, scale);
                 }
-                (2.0 * pad + EFFECT_COLS as f32 * cw, y + pad)
+                // The More … Effects rows (labels after the effects' names).
+                let rh = px(28.8, scale);
+                let w = 2.0 * pad + EFFECT_COLS as f32 * cw;
+                for (_, class) in EFFECT_MORE {
+                    cells.push(Cell {
+                        r: [pad, y, w - 2.0 * pad, rh],
+                        value: format!("afxmore:{class}"),
+                        label: Some(label(n)),
+                    });
+                    n += 1;
+                    y += rh;
+                }
+                (w, y + pad)
             }
             PickKind::Fill | PickKind::Outline => {
                 // Theme colours: dark 1, light 1, six accents; tints / shades under them;
@@ -869,14 +1175,35 @@ impl Picker {
                     Rgba(0xfc, 0xe4, 0xd6, 255),
                 );
             }
-            if let (Some(label), Some(fx)) = (&c.label, c.value.strip_prefix("fx:")) {
+            if let (Some(label), Some(more)) = (&c.label, c.value.strip_prefix("afxmore:")) {
+                // A small star in the class colour (an outline for paths), then the name;
+                // OLE Action Verbs greyed.
+                let r = px(7.0, s);
+                let (mx, my) = (cx + px(12.0, s), (cy + ch / 2.0).round());
+                if !more.is_empty() {
+                    crate::slide_ribbon::paint_star(p, mx, my, r, class_color(more), true);
+                }
+                p.text(
+                    label,
+                    cx + px(28.0, s),
+                    cy + (ch - line) / 2.0,
+                    style,
+                    if more.is_empty() {
+                        Rgba(0xa6, 0xa6, 0xa6, 255)
+                    } else {
+                        t.text
+                    },
+                );
+                continue;
+            }
+            if let (Some(label), Some(fx)) = (&c.label, c.value.strip_prefix("afx:")) {
                 let (id, class) = fx.split_once(':').unwrap_or((fx, "entr"));
                 let r = px(17.0, s);
                 let (mx, my) = ((cx + cw / 2.0).round(), cy + px(6.0, s) + r);
                 if class == "path" {
                     paint_path_tile(p, id, mx, my, r);
                 } else {
-                    crate::slide_ribbon::paint_star(p, mx, my, r, class_color(class), true);
+                    paint_effect_icon(p, id, class, mx, my, r);
                 }
                 let small = TextStyle {
                     size: px(12.0, s),

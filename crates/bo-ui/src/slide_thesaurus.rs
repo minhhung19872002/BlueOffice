@@ -65,7 +65,7 @@ fn parse(json: &[u8]) -> Option<Data> {
                 .and_then(|w| w.as_array())
                 .map(|a| {
                     a.iter()
-                        .filter_map(|n| n.as_u64())
+                        .filter_map(serde_json::Value::as_u64)
                         .map(|n| n as usize)
                         .collect()
                 })
@@ -82,7 +82,7 @@ fn parse(json: &[u8]) -> Option<Data> {
                 .as_array()
                 .map(|a| {
                     a.iter()
-                        .filter_map(|s| s.get(0).and_then(|n| n.as_u64()))
+                        .filter_map(|s| s.get(0).and_then(serde_json::Value::as_u64))
                         .map(|n| n as usize)
                         .collect()
                 })
@@ -193,7 +193,7 @@ mod tests {
         let m = meanings("documents", 3);
         assert!(!m.is_empty(), "document has meanings");
         assert!(m.iter().all(|x| !x.gloss.is_empty()));
-        assert!(meanings("zzqxv", 3).is_empty());
+        assert_eq!(meanings("zzqxv", 3).len(), 0);
         assert_eq!(bases("cities")[1], "city");
     }
 }

@@ -119,6 +119,12 @@ impl SlideView {
             return None;
         }
         match *input {
+            // Esc puts the pen down: back to selecting shapes, as on the reference.
+            Input::Key(crate::Key::Escape, _) => {
+                self.ink_tool = None;
+                self.ink_stroke.clear();
+                Some(true)
+            }
             Input::Press { x, y, .. } => {
                 let c = self.canvas_rect();
                 if !(x >= c[0] && x < c[0] + c[2] && y >= c[1] && y < c[1] + c[3]) {

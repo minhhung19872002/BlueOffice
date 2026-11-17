@@ -552,8 +552,8 @@ fn draw_tab_pens_and_erases_ink() {
     click_command(&mut w, "draw.eraser");
     drag(&mut w, (x0 + 100.0, y0 - 60.0), (x0 + 100.0, y0 + 10.0));
     assert_eq!(shapes(&w), n);
-    // Select: back to shapes.
-    click_command(&mut w, "draw.select");
+    // Esc: back to selecting shapes (the reference's Draw tab has no Select button).
+    w.handle(Input::Key(Key::Escape, Mods::default()), &Fixed);
     assert!(w.view().ink_tool().is_none());
 }
 
@@ -767,13 +767,12 @@ fn shows_skip_hidden_slides_loop_and_rehearse() {
     assert!(!w.view().showing());
     // Set Up Slide Show: loop until Esc.
     w.run_action("show.setUp");
-    let mut v = w.dialog.as_ref().map(|(d, _)| d.values()).expect("dialog");
-    v[2] = "1".into();
-    w.dialog_button(
-        ins::SlideDialog::Show(showtab::ShowDialog::SetUp),
-        crate::dialog::DialogButton::Ok,
-        &v,
-    );
+    w.form8
+        .as_mut()
+        .expect("Set Up Show")
+        .form
+        .set_on("loop", true);
+    w.form8_event(&sform::Event::Ok);
     let plan = w.view().show_plan(None);
     assert!(plan.looped);
     // Rehearse: the show times each slide; ending it asks to keep the timings.

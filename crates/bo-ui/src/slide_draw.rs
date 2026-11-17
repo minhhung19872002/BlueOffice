@@ -57,7 +57,8 @@ const PEN_MM: [f64; 5] = [0.25, 0.35, 0.5, 0.7, 1.0];
 const HIGHLIGHT_MM: [f64; 5] = [2.0, 4.0, 6.0, 8.0, 10.0];
 
 /// Commands of the tab handled here.
-pub const COMMANDS: [&str; 5] = [
+pub const COMMANDS: [&str; 6] = [
+    "draw.inkHelp",
     "draw.add",
     "draw.ruler",
     "draw.inkToMath",
@@ -141,6 +142,12 @@ pub(crate) fn draw_tab(pens: usize) -> Tab {
                 large: vec![L("draw.replay")],
                 rows: vec![],
             },
+            // Ink Help, as the reference's last group (greyed: no help pages yet).
+            Group {
+                label: "slideNative.helpGroup",
+                large: vec![L("draw.inkHelp")],
+                rows: vec![],
+            },
         ],
     }
 }
@@ -150,11 +157,6 @@ pub(crate) fn large_width(id: &str) -> Option<f32> {
     PEN_IDS.contains(&id).then_some(54.4)
 }
 
-/// Drop-down marks (Eraser, Add).
-pub(crate) fn has_menu(id: &str) -> bool {
-    matches!(id, "draw.eraser" | "draw.add")
-}
-
 /// Name the commands (pen tiles have no label, only a tooltip).
 pub(super) fn install_strings(s: &mut crate::strings::Strings) {
     for (id, key) in [
@@ -162,6 +164,7 @@ pub(super) fn install_strings(s: &mut crate::strings::Strings) {
         ("draw.ruler", "ruler"),
         ("draw.inkToMath", "inkToMath"),
         ("draw.replay", "inkReplay"),
+        ("draw.inkHelp", "inkHelp"),
     ] {
         let v = s.get(&format!("slideNative.{key}")).to_owned();
         s.set(&format!("commands.{id}"), &v);
@@ -231,6 +234,14 @@ pub(super) fn install_icons(icons: &mut crate::icons::Icons) {
         ],
     );
     icons.add_solid(
+        "draw.inkHelp",
+        &[
+            ("M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0Z", Some(blue)),
+            ("M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .8-1 1.5v.7", None),
+            ("M11 16.2h2v2h-2Z", Some(Rgba(255, 255, 255, 255))),
+        ],
+    );
+    icons.add_solid(
         "draw.add",
         &[(
             "M10.5 4h3v6.5h6.5v3h-6.5v6.5h-3v-6.5h-6.5v-3h6.5Z",
@@ -261,6 +272,9 @@ fn shape(pts: &[(f32, f32)], x: f32, y: f32, k: f32) -> Vec<PathSeg> {
     segs
 }
 
+/// Outline points of a pen picture.
+type Pts<'a> = &'a [(f32, f32)];
+
 fn rgb(hex: &str) -> Rgba {
     let v = u32::from_str_radix(hex, 16).unwrap_or(0);
     Rgba((v >> 16) as u8, (v >> 8) as u8, v as u8, 255)
@@ -276,7 +290,7 @@ pub(crate) fn paint_pen(p: &mut dyn Painter, pen: &PenSlot, x: f32, y: f32, size
     } else {
         Rgba(0x44, 0x44, 0x44, 255)
     };
-    let (body, tip): (&[(f32, f32)], &[(f32, f32)]) = match pen.kind {
+    let (body, tip): (Pts, Pts) = match pen.kind {
         PenKind::Highlighter => (
             &[
                 (14.0, 3.0),
@@ -400,7 +414,7 @@ impl SlideWindow {
                 true
             }
             "draw.replay" => self.view.start_ink_replay(),
-            "draw.inkToMath" => false,
+            "draw.inkToMath" | "draw.inkHelp" => false,
             _ => return None,
         })
     }
@@ -558,12 +572,12 @@ impl SlideWindow {
             let Some(r) = self.ribbon.rect_of(RibbonHit::Command(pen.id)) else {
                 continue;
             };
-            let size = (44.0 * self.scale).round();
+            let size = (52.0 * self.scale).round();
             paint_pen(
                 p,
                 pen,
                 (r[0] + (r[2] - size) / 2.0).round(),
-                r[1] + (6.0 * self.scale).round(),
+                r[1] + (1.0 * self.scale).round(),
                 size,
                 false,
             );
@@ -606,7 +620,8 @@ mod tests {
                 "slideNative.pens",
                 "slideNative.stencils",
                 "slideNative.convert",
-                "slideNative.replay"
+                "slideNative.replay",
+                "slideNative.helpGroup"
             ]
         );
         assert_eq!(tab.groups[2].large.len(), 7);

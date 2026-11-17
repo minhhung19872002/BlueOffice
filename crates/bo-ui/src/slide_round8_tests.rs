@@ -246,6 +246,9 @@ fn large_buttons_dim_only_where_the_reference_does() {
         dim,
         [
             "anim.preview",
+            "draw.inkHelp",
+            "draw.inkToMath",
+            "draw.replay",
             "review.deleteComment",
             "sl.altText",
             "sl.hideInk",

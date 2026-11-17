@@ -1,8 +1,9 @@
 //! BlueSlide dialogs of round 17 (N6), laid out on the reference presentation app's dialogs
 //! measured at 125 % (`docs/ui/REPORT-slide.md` round 17) with BlueSheet's self-drawn form
 //! controls (`sheet_form.rs`): Set Up Show (Slide Show tab), Custom Shows and Define Custom
-//! Show, Zoom and Grid and Guides (View tab). Option buttons are drawn by the owner (round
-//! dots in an owner area per group).
+//! Show, Zoom and Grid and Guides (View tab). Option buttons are the form's check boxes drawn
+//! as Windows 11 option buttons (one chosen per group), in BlueSlide's accent; labels carry
+//! the reference's access keys; the text is the reference's larger dialog size.
 use super::sform::{Event, Form, Kind};
 use super::SlideWindow;
 use crate::{Input, Painter};
@@ -19,13 +20,100 @@ pub(super) enum Dlg {
     DefineShow(Option<u32>),
     Zoom,
     Grid,
+    /// More Entrance / Emphasis / Exit Effects, More Motion Paths: every effect of a class
+    /// (`entr`, `emph`, `exit`, `path`) by group; with `add`, the choice is added.
+    MoreEffects(&'static str, bool),
 }
 
-/// An option-button group: owner area id, the options' labels, the chosen one, the row
-/// pitch (reference px), enabled options.
+/// The catalog's effects by class and group (heading key, engine ids), our own grouping in
+/// the reference's Basic / Subtle / Moderate / Exciting manner.
+const MORE_GROUPS: &[(&str, &str, &[&str])] = &[
+    (
+        "entr",
+        "fxBasic",
+        &[
+            "appear",
+            "blinds",
+            "box",
+            "checkerboard",
+            "circle",
+            "diamond",
+            "dissolve",
+            "flyIn",
+            "peek",
+            "plus",
+            "randomBars",
+            "split",
+            "strips",
+            "wedge",
+            "wheel",
+            "wipe",
+        ],
+    ),
+    ("entr", "fxSubtle", &["expand", "fade", "swivel", "zoom"]),
+    ("entr", "fxModerate", &["float", "growTurn", "crawl"]),
+    ("entr", "fxExciting", &["bounce", "spinner"]),
+    (
+        "emph",
+        "fxBasic",
+        &[
+            "fillColor",
+            "fontColor",
+            "growShrink",
+            "lineColor",
+            "spin",
+            "transparency",
+        ],
+    ),
+    (
+        "emph",
+        "fxSubtle",
+        &[
+            "boldFlash",
+            "brushColor",
+            "complementary",
+            "darken",
+            "desaturate",
+            "lighten",
+            "objectColor",
+            "pulse",
+            "underline",
+        ],
+    ),
+    (
+        "emph",
+        "fxModerate",
+        &["colorPulse", "teeter", "boldReveal"],
+    ),
+    ("emph", "fxExciting", &["blink", "waveText"]),
+    (
+        "path",
+        "fxBasic",
+        &["circlePath", "diamondPath", "squarePath", "triangle"],
+    ),
+    (
+        "path",
+        "fxLinesCurves",
+        &[
+            "arcDown",
+            "arcUp",
+            "lineDown",
+            "lineLeft",
+            "lineRight",
+            "lineUp",
+            "turnDown",
+            "wave",
+        ],
+    ),
+    ("path", "fxSpecial", &["loop"]),
+];
+
+/// An option-button group: the options' control ids, top-left of the first (reference px),
+/// their labels, the chosen one, the row pitch (reference px), enabled options.
 #[derive(Debug, Clone)]
 pub(super) struct Radios {
-    pub(super) id: &'static str,
+    pub(super) ids: &'static [&'static str],
+    pub(super) at: [f32; 2],
     pub(super) labels: Vec<String>,
     pub(super) chosen: usize,
     pub(super) pitch: f32,
@@ -40,7 +128,34 @@ pub(super) struct Open {
     /// Custom shows listed (ids), Define Custom Show's slides in the show (0-based).
     pub(super) ids: Vec<u32>,
     pub(super) chosen_slides: Vec<usize>,
+    /// More … Effects: the effect of each list row (`None` on group headings).
+    pub(super) fx: Vec<Option<&'static str>>,
 }
+
+/// Access keys of the dialogs' labels (control, letter index), as the reference underlines
+/// them in English: Presented, Browsed, kiosk, Loop, narration, Show without animation, Pen
+/// color, Laser pointer, All, From, To, Custom show, Manually, Using timings.
+const ACCESS: &[(&str, usize, char)] = &[
+    ("t_speaker", 0, 'P'),
+    ("t_browse", 0, 'B'),
+    ("t_kiosk", 13, 'k'),
+    ("loop", 0, 'L'),
+    ("nonarr", 13, 'n'),
+    ("noanim", 0, 'S'),
+    ("penL", 1, 'e'),
+    ("laserL", 4, 'r'),
+    ("s_all", 0, 'A'),
+    ("s_from", 0, 'F'),
+    ("toL", 0, 'T'),
+    ("s_custom", 0, 'C'),
+    ("a_manual", 0, 'M'),
+    ("a_timings", 0, 'U'),
+    ("z0", 0, 'F'),
+    ("pctL", 0, 'P'),
+    ("snap", 0, 'S'),
+    ("grid", 0, 'D'),
+    ("guides", 1, 'i'),
+];
 
 /// Zoom levels of the Zoom dialog (0 = fit).
 const ZOOMS: [u32; 7] = [0, 400, 200, 100, 66, 50, 33];
@@ -101,7 +216,63 @@ impl SlideWindow {
         let mut radios = Vec::new();
         let mut ids = Vec::new();
         let mut chosen_slides = Vec::new();
+        let mut fx = Vec::new();
         let form = match kind {
+            Dlg::MoreEffects(class, add) => {
+                let (title_key, title) = match (class, add) {
+                    ("emph", false) => ("changeEmphasis", "Change Emphasis Effect"),
+                    ("emph", true) => ("addEmphasis", "Add Emphasis Effect"),
+                    ("exit", false) => ("changeExit", "Change Exit Effect"),
+                    ("exit", true) => ("addExit", "Add Exit Effect"),
+                    ("path", false) => ("changePath", "Change Motion Path"),
+                    ("path", true) => ("addPath", "Add Motion Path"),
+                    (_, false) => ("changeEntrance", "Change Entrance Effect"),
+                    (_, true) => ("addEntrance", "Add Entrance Effect"),
+                };
+                let mut f = Form::new(&self.l8(title_key, title), (420.0, 600.0), Vec::new());
+                let groups = if class == "exit" { "entr" } else { class };
+                let mut items = Vec::new();
+                for (c, head, ids) in MORE_GROUPS {
+                    if *c != groups {
+                        continue;
+                    }
+                    items.push(self.l8(head, head));
+                    fx.push(None);
+                    for id in *ids {
+                        items.push(format!("      {}", self.t(&format!("slideFx.{id}"), id)));
+                        fx.push(Some(*id));
+                    }
+                }
+                f.add(
+                    "list",
+                    None,
+                    [16.0, 50.0, 388.0, 482.0],
+                    Kind::List {
+                        items,
+                        sel: Some(1),
+                        top: 0,
+                    },
+                );
+                f.add(
+                    "ok",
+                    None,
+                    [178.0, 550.0, 106.0, 33.0],
+                    Kind::Button {
+                        label: ok,
+                        default: true,
+                    },
+                );
+                f.add(
+                    "cancel",
+                    None,
+                    [298.0, 550.0, 106.0, 33.0],
+                    Kind::Button {
+                        label: cancel,
+                        default: false,
+                    },
+                );
+                f
+            }
             Dlg::SetUp => {
                 let setup = self
                     .view
@@ -116,6 +287,10 @@ impl SlideWindow {
                     .map(present::custom_shows)
                     .unwrap_or_default();
                 let n = self.view.slide_count() as i32;
+                let has_show_pr = self.view.engine().presentation().is_some_and(|p| {
+                    p.part_data("/ppt/presProps.xml")
+                        .is_some_and(|d| d.windows(7).any(|w| w == b"showPr " || w == b"showPr>"))
+                });
                 let mut f = Form::new(
                     &self.l8("setUpShowTitle", "Set Up Show"),
                     (702.0, 587.0),
@@ -127,9 +302,9 @@ impl SlideWindow {
                     [16.0, 47.0, 327.0, 138.0],
                     Kind::Group(self.l8("showType", "Show type")),
                 );
-                f.add("r_type", None, [26.0, 82.0, 310.0, 93.0], Kind::Canvas);
                 radios.push(Radios {
-                    id: "r_type",
+                    ids: &["t_speaker", "t_browse", "t_kiosk"],
+                    at: [30.0, 87.0],
                     labels: vec![
                         self.l8("typeSpeaker", "Presented by a speaker (full screen)"),
                         self.l8("typeBrowse", "Browsed by an individual (window)"),
@@ -160,7 +335,9 @@ impl SlideWindow {
                         "nonarr",
                         "noNarration",
                         "Show without narration",
-                        !setup.narration,
+                        // A deck without show settings plays its narrations on the
+                        // reference (the box is clear); the attribute's default is off.
+                        !setup.narration && has_show_pr,
                     ),
                     (
                         "noanim",
@@ -172,7 +349,7 @@ impl SlideWindow {
                         "nohw",
                         "noHardware",
                         "Disable hardware graphics acceleration",
-                        false,
+                        self.no_hw_accel,
                     ),
                 ];
                 for (i, (id, k, d, on)) in checks.iter().enumerate() {
@@ -186,7 +363,6 @@ impl SlideWindow {
                         },
                     );
                 }
-                f.enable("nohw", false);
                 f.add(
                     "penL",
                     None,
@@ -224,14 +400,14 @@ impl SlideWindow {
                     [358.0, 47.0, 328.0, 173.0],
                     Kind::Group(self.l8("showSlides", "Show slides")),
                 );
-                f.add("r_slides", None, [368.0, 82.0, 84.0, 96.0], Kind::Canvas);
                 let (from, to, custom) = match setup.range {
                     SlideRange::All => (1, n, 0),
                     SlideRange::Range { from, to } => (from as i32, to as i32, 1),
                     SlideRange::Custom { .. } => (1, n, 2),
                 };
                 radios.push(Radios {
-                    id: "r_slides",
+                    ids: &["s_all", "s_from", "s_custom"],
+                    at: [372.0, 87.0],
                     labels: vec![
                         self.l8("allSlides", "All"),
                         self.l8("fromSlideShort", "From:"),
@@ -287,9 +463,9 @@ impl SlideWindow {
                     [358.0, 228.0, 328.0, 107.0],
                     Kind::Group(self.l8("advanceSlides", "Advance slides")),
                 );
-                f.add("r_adv", None, [368.0, 262.0, 300.0, 62.0], Kind::Canvas);
                 radios.push(Radios {
-                    id: "r_adv",
+                    ids: &["a_manual", "a_timings"],
+                    at: [372.0, 267.0],
                     labels: vec![
                         self.l8("manually", "Manually"),
                         self.l8("usingTimings", "Using timings, if present"),
@@ -552,10 +728,10 @@ impl SlideWindow {
                     [16.0, 50.0, 248.0, 0.0],
                     Kind::Group(self.l8("zoomTo", "Zoom to")),
                 );
-                f.add("r_zoom", None, [24.0, 80.0, 80.0, 217.0], Kind::Canvas);
                 let pct = (self.view.zoom() * 100.0).round() as i32;
                 radios.push(Radios {
-                    id: "r_zoom",
+                    ids: &["z0", "z1", "z2", "z3", "z4", "z5", "z6"],
+                    at: [28.0, 84.0],
                     labels: ZOOMS
                         .iter()
                         .map(|z| {
@@ -718,12 +894,49 @@ impl SlideWindow {
                 f
             }
         };
+        let mut form = form;
+        // Option buttons: check boxes drawn as Windows 11 option buttons.
+        let mut all: Vec<&'static str> = Vec::new();
+        for g in &radios {
+            for (k, (id, label)) in g.ids.iter().zip(&g.labels).enumerate() {
+                let w = if *id == "s_from" { 76.0 } else { 300.0 };
+                form.add(
+                    id,
+                    None,
+                    [g.at[0], g.at[1] + k as f32 * g.pitch, w, 20.0],
+                    Kind::Check {
+                        label: label.clone(),
+                        on: k == g.chosen,
+                    },
+                );
+                form.enable(id, g.enabled.get(k).copied().unwrap_or(true));
+            }
+            all.extend(g.ids.iter().copied());
+        }
+        form.set_radios(&all);
+        // BlueSlide's accent (#C2185B) for checked boxes and the chosen option buttons, the
+        // reference's larger dialog text and its access keys.
+        form.set_accent(Rgba(0xc2, 0x18, 0x5b, 255), Rgba(0x9c, 0x13, 0x49, 255));
+        form.set_font_scale(1.1);
+        // Only where the label has the reference's letter there (English labels).
+        for (id, at, ch) in ACCESS {
+            let has = form.get(id).is_some_and(|c| match &c.kind {
+                Kind::Check { label, .. } | Kind::Label(label) => {
+                    label.chars().nth(*at) == Some(*ch)
+                }
+                _ => false,
+            });
+            if has {
+                form.set_access(id, *at);
+            }
+        }
         let mut open = Open {
             form,
             kind,
             radios,
             ids,
             chosen_slides,
+            fx,
         };
         if kind == Dlg::SetUp {
             sync_setup(&mut open);
@@ -792,17 +1005,19 @@ impl SlideWindow {
         Some(self.form8_event(&ev))
     }
 
-    fn form8_event(&mut self, ev: &Event) -> bool {
+    pub(super) fn form8_event(&mut self, ev: &Event) -> bool {
         let Some(open) = self.form8.as_mut() else {
             return false;
         };
         let kind = open.kind;
         match ev {
-            Event::Canvas(id, _, y) => {
-                if let Some(r) = open.radios.iter_mut().find(|r| r.id == *id) {
-                    let i = (*y / r.pitch).floor().max(0.0) as usize;
-                    if i < r.labels.len() && r.enabled.get(i).copied().unwrap_or(false) {
-                        r.chosen = i;
+            Event::Changed(id) if open.radios.iter().any(|g| g.ids.contains(id)) => {
+                for g in &mut open.radios {
+                    if let Some(k) = g.ids.iter().position(|x| x == id) {
+                        g.chosen = k;
+                        for (j, other) in g.ids.iter().enumerate() {
+                            open.form.set_on(other, j == k);
+                        }
                     }
                 }
                 match kind {
@@ -819,6 +1034,9 @@ impl SlideWindow {
             }
             Event::Changed("pct") => {
                 open.radios[0].chosen = usize::MAX;
+                for id in open.radios[0].ids {
+                    open.form.set_on(id, false);
+                }
                 true
             }
             Event::Cancel => {
@@ -829,6 +1047,7 @@ impl SlideWindow {
                 let c: &str = c;
                 self.custom_shows_click(c)
             }
+            Event::Clicked("list") if matches!(kind, Dlg::MoreEffects(..)) => self.form8_ok(),
             Event::Clicked(c) if matches!(kind, Dlg::DefineShow(_)) => {
                 let c: &str = c;
                 self.define_show_click(c)
@@ -979,6 +1198,8 @@ impl SlideWindow {
                 };
                 setup.use_timings = open.radios[2].chosen == 1;
                 self.use_presenter = f.on("presenter");
+                // Kept for the session (the show is drawn by the same device either way).
+                self.no_hw_accel = f.on("nohw");
                 self.view.run(SlideCommand::SetShowSetup { setup });
             }
             Dlg::DefineShow(id) => {
@@ -993,6 +1214,11 @@ impl SlideWindow {
                 return self.open_form8(Dlg::CustomShows);
             }
             Dlg::CustomShows => {}
+            Dlg::MoreEffects(class, add) => {
+                if let Some(Some(id)) = f.sel("list").and_then(|i| open.fx.get(i)) {
+                    self.pick_effect(id, class, add);
+                }
+            }
             Dlg::Zoom => {
                 if open.radios[0].chosen == 0 {
                     self.view.set_zoom(None);
@@ -1014,18 +1240,83 @@ impl SlideWindow {
         true
     }
 
-    /// Draw the open dialog with its option buttons.
+    /// Draw the open dialog; the pen / laser colour buttons show a paint bucket over a bar
+    /// of their colour, as the reference's.
     pub(super) fn paint_form8(&self, p: &mut dyn Painter) {
         let Some(open) = self.form8.as_ref() else {
             return;
         };
         let f = &open.form;
-        f.paint(p, self.size, true, &mut |id, r, p| {
-            if let Some(g) = open.radios.iter().find(|g| g.id == id) {
-                paint_radios(f, g, r, p);
-            }
-        });
+        f.paint(p, self.size, true, &mut |_, _, _| {});
+        for id in ["pen", "laser"] {
+            let Some(c) = f.get(id) else {
+                continue;
+            };
+            let enabled = c.enabled;
+            let r = f.dev(c.rect);
+            let k = f.dev([0.0, 0.0, 1.0, 1.0])[2];
+            let bw = (22.0 * k).round();
+            let sr = [
+                r[0] + (3.0 * k).round(),
+                r[1] + (3.0 * k).round(),
+                r[2] - bw - (6.0 * k).round(),
+                r[3] - (6.0 * k).round(),
+            ];
+            p.fill_rect(sr[0], sr[1], sr[2], sr[3], Rgba(255, 255, 255, 255));
+            let hex = f.color(id);
+            let col = u32::from_str_radix(&hex, 16).map_or(Rgba(0xff, 0, 0, 255), |v| {
+                Rgba((v >> 16) as u8, (v >> 8) as u8, v as u8, 255)
+            });
+            paint_bucket(p, sr, col, enabled);
+        }
     }
+}
+
+/// A tilted paint bucket over a colour bar (own drawing) in `r`.
+fn paint_bucket(p: &mut dyn Painter, r: [f32; 4], col: Rgba, enabled: bool) {
+    let ink = if enabled {
+        Rgba(0x40, 0x40, 0x40, 255)
+    } else {
+        Rgba(0xa0, 0xa0, 0xa0, 255)
+    };
+    let s = (r[3] * 0.72).min(r[2]);
+    let (x, y) = (r[0] + (r[2] - s) / 2.0, r[1]);
+    let k = s / 24.0;
+    let pt = |a: f32, b: f32| (x + a * k, y + b * k);
+    let poly = |pts: &[(f32, f32)]| -> Vec<PathSeg> {
+        let mut v: Vec<PathSeg> = pts
+            .iter()
+            .enumerate()
+            .map(|(i, &(a, b))| {
+                let (px, py) = pt(a, b);
+                if i == 0 {
+                    PathSeg::M(px, py)
+                } else {
+                    PathSeg::L(px, py)
+                }
+            })
+            .collect();
+        v.push(PathSeg::Z);
+        v
+    };
+    // Bucket body (a diamond tilted to the right), its handle and a drop.
+    p.path(
+        &poly(&[(4.0, 11.0), (11.0, 4.0), (19.0, 12.0), (12.0, 19.0)]),
+        Some(Rgba(255, 255, 255, 255)),
+        Some((ink, 1.0)),
+    );
+    p.path(
+        &poly(&[(8.0, 7.0), (6.0, 2.0), (9.0, 1.5), (10.5, 5.5)]),
+        None,
+        Some((ink, 1.0)),
+    );
+    p.path(
+        &poly(&[(20.0, 13.0), (21.5, 16.0), (20.0, 17.5), (18.5, 16.0)]),
+        Some(ink),
+        None,
+    );
+    let bar = (r[3] * 0.2).max(3.0).round();
+    p.fill_rect(r[0] + 2.0, r[1] + r[3] - bar, r[2] - 4.0, bar, col);
 }
 
 /// Enable the Set Up Show controls that depend on the option buttons (From / To with
@@ -1036,63 +1327,6 @@ fn sync_setup(open: &mut Open) {
         open.form.enable(id, slides == 1);
     }
     open.form.enable("custom", slides == 2);
-}
-
-/// Option buttons of group `g` in device rect `r`: a 13 px ring (reference: dark ring, the
-/// chosen one filled in the accent colour with a white centre dot) and the label.
-fn paint_radios(f: &Form, g: &Radios, r: [f32; 4], p: &mut dyn Painter) {
-    // Device pixels per reference pixel.
-    let pitch = g.pitch * f.dev([0.0, 0.0, 1.0, 1.0])[2];
-    let font = f.font();
-    let line = font.size * 1.33;
-    for (i, label) in g.labels.iter().enumerate() {
-        let y = r[1] + i as f32 * pitch;
-        let cy = (y + pitch / 2.0).round();
-        let rad = (pitch * 0.22).round().max(5.0);
-        let cx = r[0] + rad + 4.0;
-        let enabled = g.enabled.get(i).copied().unwrap_or(true);
-        let ring = if enabled {
-            Rgba(0x33, 0x33, 0x33, 255)
-        } else {
-            Rgba(0xa0, 0xa0, 0xa0, 255)
-        };
-        let circle = |rr: f32| -> Vec<PathSeg> {
-            let mut v = Vec::with_capacity(26);
-            for s in 0..=24 {
-                let a = std::f32::consts::TAU * s as f32 / 24.0;
-                let (x, y) = (cx + rr * a.cos(), cy + rr * a.sin());
-                v.push(if s == 0 {
-                    PathSeg::M(x, y)
-                } else {
-                    PathSeg::L(x, y)
-                });
-            }
-            v.push(PathSeg::Z);
-            v
-        };
-        if g.chosen == i {
-            p.path(&circle(rad), Some(Rgba(0x00, 0x5f, 0xb8, 255)), None);
-            p.path(&circle(rad * 0.4), Some(Rgba(255, 255, 255, 255)), None);
-        } else {
-            p.path(
-                &circle(rad - 0.5),
-                Some(Rgba(255, 255, 255, 255)),
-                Some((ring, 1.0)),
-            );
-        }
-        let ink = if enabled {
-            Rgba(0, 0, 0, 255)
-        } else {
-            Rgba(0x83, 0x83, 0x83, 255)
-        };
-        p.text_font(
-            label,
-            cx + rad + 10.0,
-            (cy - line / 2.0).round(),
-            &font,
-            ink,
-        );
-    }
 }
 
 #[cfg(test)]

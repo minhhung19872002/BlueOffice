@@ -9,14 +9,12 @@ use crate::ribbon::{Group, Item, RibbonHit, Tab};
 use crate::slide_view::ShowPlan;
 use crate::spin_box::paint_check;
 use crate::Painter;
-use bo_engine::slide_edit::present::{self, SlideRange};
+use bo_engine::slide_edit::present;
 use bo_engine::slide_edit::SlideCommand;
 
 /// Dialogs of the tab.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum ShowDialog {
-    SetUp,
-    CustomShow,
     KeepTimings,
 }
 
@@ -301,41 +299,6 @@ impl SlideWindow {
             ]
         };
         let d = match kind {
-            ShowDialog::SetUp => {
-                let setup = self
-                    .view
-                    .engine()
-                    .presentation()
-                    .map(present::show_setup)
-                    .unwrap_or_default();
-                let (from, to) = match setup.range {
-                    SlideRange::Range { from, to } => (from.to_string(), to.to_string()),
-                    _ => (String::new(), String::new()),
-                };
-                Dialog::new(
-                    DialogKind::Comment,
-                    l(self, "setUpShowTitle"),
-                    vec![(l(self, "fromSlide"), from), (l(self, "toSlide"), to)],
-                    buttons(self, "ok", "cancel"),
-                    Vec::new(),
-                )
-                .with_checks(vec![
-                    (l(self, "loopShow"), setup.looped),
-                    (l(self, "noNarration"), !setup.narration),
-                    (l(self, "noAnimation"), !setup.animation),
-                    (l(self, "advanceTimings"), setup.use_timings),
-                ])
-            }
-            ShowDialog::CustomShow => Dialog::new(
-                DialogKind::Comment,
-                l(self, "defineCustomShow"),
-                vec![
-                    (l(self, "customShowName"), l(self, "customShowDefault")),
-                    (l(self, "customShowSlides"), String::new()),
-                ],
-                buttons(self, "ok", "cancel"),
-                Vec::new(),
-            ),
             ShowDialog::KeepTimings => Dialog::new(
                 DialogKind::WordCount,
                 l(self, "rehearse"),
@@ -354,7 +317,7 @@ impl SlideWindow {
         &mut self,
         kind: ShowDialog,
         b: DialogButton,
-        values: &[String],
+        _values: &[String],
     ) {
         self.dialog = None;
         if b != DialogButton::Ok {
@@ -364,49 +327,6 @@ impl SlideWindow {
             return;
         }
         match kind {
-            ShowDialog::SetUp => {
-                let Some(mut setup) = self.view.engine().presentation().map(present::show_setup)
-                else {
-                    return;
-                };
-                let num = |i: usize| values.get(i).and_then(|v| v.trim().parse::<u32>().ok());
-                let on = |i: usize| values.get(i).is_some_and(|v| v == "1");
-                setup.range = match (num(0), num(1)) {
-                    (Some(from), Some(to)) if from >= 1 && to >= from => {
-                        SlideRange::Range { from, to }
-                    }
-                    _ => SlideRange::All,
-                };
-                setup.looped = on(2);
-                setup.narration = !on(3);
-                setup.animation = !on(4);
-                setup.use_timings = on(5);
-                self.view.run(SlideCommand::SetShowSetup { setup });
-            }
-            ShowDialog::CustomShow => {
-                let name = values.first().cloned().unwrap_or_default();
-                let n = self.view.slide_count();
-                let slides: Vec<usize> = values
-                    .get(1)
-                    .map(|v| {
-                        v.split([',', ' ', ';'])
-                            .filter_map(|s| s.trim().parse::<usize>().ok())
-                            .filter(|i| (1..=n).contains(i))
-                            .map(|i| i - 1)
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                let slides = if slides.is_empty() {
-                    self.view.selected_slides()
-                } else {
-                    slides
-                };
-                self.view.run(SlideCommand::SetCustomShow {
-                    id: None,
-                    name,
-                    slides,
-                });
-            }
             ShowDialog::KeepTimings => {
                 if let Some(timings) = self.pending_timings.take() {
                     self.view.run(SlideCommand::SetTimings {

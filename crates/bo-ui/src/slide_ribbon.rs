@@ -246,37 +246,6 @@ pub fn large_width(id: &str) -> Option<f32> {
     }
 }
 
-/// Draw tab: Select and the drawing tools (pens, highlighter, eraser).
-pub(crate) fn draw_tab() -> Tab {
-    use Item::Large as L;
-    Tab {
-        label: "slideNative.draw",
-        groups: vec![
-            Group {
-                label: "slideNative.tools",
-                large: vec![L("draw.eraser"), L("draw.select"), L("draw.lasso")],
-                rows: vec![],
-            },
-            Group {
-                label: "slideNative.pens",
-                large: vec![
-                    L("draw.pen"),
-                    L("draw.red"),
-                    L("draw.highlight"),
-                    L("draw.blue"),
-                    L("draw.green"),
-                ],
-                rows: vec![],
-            },
-            Group {
-                label: "slideNative.convert",
-                large: vec![L("draw.inkToShape")],
-                rows: vec![],
-            },
-        ],
-    }
-}
-
 /// Commands of the Draw tab.
 pub const DRAW_TOOLS: [&str; 8] = [
     "draw.select",

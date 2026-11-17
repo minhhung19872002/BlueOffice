@@ -701,9 +701,10 @@ impl SlideWindow {
                 .map(|(k, _, _)| self.strings.get(k).to_owned())
                 .chain(pk::EFFECT_SECTIONS.iter().flat_map(|(_, _, ids)| {
                     ids.iter()
-                        .map(|id| self.t(&format!("slideFx.{id}"), id))
+                        .map(|(_, key)| self.t(&format!("slideFx.{key}"), key))
                         .collect::<Vec<_>>()
                 }))
+                .chain(pk::EFFECT_MORE.iter().map(|(k, _)| self.label(k)))
                 .collect(),
         };
         if kind == PickKind::Icons && self.library.is_empty() {
@@ -789,10 +790,11 @@ impl SlideWindow {
                     })
             }
             "sym" => self.insert_text(value),
-            "fx" => {
+            "afx" => {
                 let (effect, class) = value.split_once(':').unwrap_or((value, "entr"));
                 self.pick_effect(effect, class, anchor == "anim.add")
             }
+            "afxmore" if !value.is_empty() => self.open_more_effects(value, anchor == "anim.add"),
             "style" => {
                 let mut it = value.split(':').filter_map(|n| n.parse::<usize>().ok());
                 let (a, r) = (it.next().unwrap_or(0), it.next().unwrap_or(0));

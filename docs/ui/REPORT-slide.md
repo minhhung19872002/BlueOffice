@@ -491,3 +491,65 @@ có `SWP_SHOWWINDOW | SWP_FRAMECHANGED` và `RedrawWindow` — không thì `Prin
   có ảnh so với tham chiếu (menu bật lên là cửa sổ riêng); Draw: Undo, Ruler, Ink to Math, Ink Help; cửa sổ
   ta mở không kích hoạt đôi khi bị thu nhỏ / đóng giữa các lần chụp (không thấy sự kiện lỗi; có thể do kịch
   bản khác) — kịch bản chụp đã chịu được.
+
+## Vòng 17 — Draw, Hide Ink, Animations, Slide Show, View, Spelling (`slide-37…`, 1500 × 1102, 125 %)
+
+Tham chiếu được điều khiển qua COM / UI Automation (Invoke, Expand) trên bản sao; hộp thoại modal mở bằng
+`ExecuteMso` trong một job nền rồi chụp bằng `PrintWindow` và đóng bằng `IDCANCEL`; thư viện thả xuống của
+tham chiếu là cửa sổ lớp (layered) nên chụp màn hình vùng của nó (không nhập liệu). Kịch bản của ta
+(`ours2.ps1`) đặt cỡ cửa sổ một lần rồi gửi nhấp / phím — kịch bản cũ đổi cỡ khi tưởng khung cũ và làm
+đóng menu đang mở.
+
+| Đo (thiết bị) | Tham chiếu | BlueSlide |
+|---|---|---|
+| Draw: nhóm | Tools (Eraser▾, Lasso Select), Undo, Pens (7 bút + Add▾), Stencils (Ruler), Convert (Ink to Shape, Ink to Math), Help | như vậy (6 bút tự vẽ: đen, đỏ, bút chì, đánh dấu vàng, xanh, xanh lá; Ink to Math mờ — không có bộ nhận dạng công thức), thêm nhóm Replay (Ink Replay); Ink Help mờ |
+| Bút đang dùng, nhấp lần hai | bảng độ dày / màu | menu 5 độ dày (0,25–1 mm; bút đánh dấu 2–10 mm) + Pen Color (bảng màu) |
+| Ruler | thước mờ 45° vượt ra ngoài trang, vạch hai cạnh, mặt số góc ở giữa | như vậy (hình tự vẽ): rộng 72 pt, dài 1,6 × đường chéo trang, vạch mm / 5 mm / cm, vòng tròn ghi góc; kéo để dời, bánh xe xoay 1° (hút 0 / 45 / 90°); nét bút bắt đầu cách cạnh ≤ 14 px chạy dọc cạnh |
+| Review > Hide Ink | mờ khi không có mực; bật: mực biến khỏi trang và hình thu nhỏ, nút nhấn; menu Hide Ink / Delete All Ink on Slide / in Presentation | như vậy (`Engine::set_slide_hide_ink`, không lưu; trình chiếu cũng ẩn) |
+| Thư viện hiệu ứng (More) | 5 cột, ô 124 × 84, mục None / Entrance / Emphasis / Exit / Motion Paths, dòng More … Effects, OLE Action Verbs mờ | như vậy; sao mỗi hiệu ứng có dấu riêng (tự vẽ), xanh lục xám #5A9E8C / vàng / đỏ; Emphasis đủ 19 như tham chiếu — 13 hiệu ứng mới trong catalog (`colorPulse`, `desaturate`, `darken`, `lighten`, `objectColor`, `complementary`, `lineColor`, `brushColor`, `fontColor`, `underline`, `boldFlash`, `boldReveal`, `waveText`: §19.5.2 animClr, §19.5.66 set, §19.5.1 anim; kiểm thử khứ hồi `gallery_emphasis_effects_round_trip`); Exit đủ 13 tên của tham chiếu (Disappear, Fly Out, Float Out, Shrink & Turn…); Motion Paths: Lines, Arcs, Turns, Shapes, Loops, Custom Path (Custom Path chưa vẽ được); các hiệu ứng còn lại của catalog trong hộp More … Effects (Basic / Subtle / Moderate / Exciting) |
+| Animation Pane | hàng chọn có nút ▾ (Start On Click / With / After Previous, Remove) | như vậy (cả chuột phải trên hàng) |
+| Số thứ tự trên hình (tab Animations) | ô 32 × 22 bên trái góc trên của hình, xếp chồng | như vậy, không vẽ khi thư viện / menu / hộp thoại mở (kiểm thử) |
+| Notes Page | trang dọc, khung ghi chú nét đứt 46–92 % trang, "Click to add text", thanh trạng thái "Notes 1 of 4" | như vậy (ngăn hình thu nhỏ vẫn hiện) |
+| Set Up Show | 702 × 587; Show type, Show options (bút, laser), Show slides, Advance slides, Multiple monitors | cùng kích thước và vị trí ô; nút chọn / ô đánh dấu kiểu Windows 11 màu nhấn BlueSlide, chữ lớn hơn 10 %, phím tắt gạch dưới, nút màu có thùng sơn tự vẽ; mặc định narration bật, Use Presenter View bật |
+| Custom Shows / Define Custom Show | 500 × 260; New / Edit / Remove / Copy / Close / Show | như vậy; Define: tên, hai danh sách, Add >>, lên / xoá / xuống |
+| Record ▾ | ghi từ trang hiện tại / từ đầu, Clear | Clear Timing on Current Slide / on All Slides; ghi âm mờ |
+| Zoom | 280 × 359; Fit, 400…33 %, Percent | như vậy |
+| Grid and Guides (nút ↘ nhóm Show) | Snap objects to grid, Spacing 1/12", Display grid, guides, smart guides | như vậy; kéo hình hút góc trên trái vào lưới |
+| Outline View | Tab / Shift+Tab hạ / nâng cấp | Tab, Shift+Tab, Alt+Shift+→/←: đoạn xuống / lên cấp; đoạn cấp 1 nâng thành tiêu đề trang mới; tiêu đề hạ thành đoạn của trang trước (một bước hoàn tác, `applyOutline`) |
+| Spelling (phần dưới) | nghĩa của từ gợi ý, ngôn ngữ ở chân ngăn | 3 nghĩa + từ đồng nghĩa (dữ liệu Open English WordNet sẵn có `assets/thesaurus/en`), tên ngôn ngữ kiểm tra |
+
+- Kiểm thử: `slide_ink.rs` (Hide Ink), `slide_round17_tests.rs` (bút, Hide Ink, thứ tự vẽ thư viện / số thứ
+  tự, Set Up Show, lưới), `slide_ruler.rs`, `slide_outline8.rs`, `slide_view8.rs`, `slide_thesaurus.rs`.
+- Khứ hồi `p:timing` (Start / Duration / Delay, thứ tự, motion path) đã có kiểm thử trong
+  `crates/bo-engine/tests/slide_show.rs`; vòng này không đổi engine hoạt hình.
+- Máy chỉ có một màn hình: Presenter View vẫn trong cửa sổ.
+- Còn lại: Notes Page / Reading View chưa so ảnh vòng này; Outline View của ta hẹp bằng ngăn hình thu nhỏ
+  (tham chiếu rộng hơn); Split / Wheel… vẽ bằng catalog engine; hiệu ứng màu phát lại bằng màu đích cố định (không theo HSL);
+  Custom Path chưa có công cụ vẽ; Record chỉ có Clear; Thesaurus trên Review vẫn mờ (dữ liệu đã có, chưa có ngăn).
+
+## Vòng 18 — Notes Page, Outline View, Thesaurus (`slide-47…`, 1500 × 1102, 125 %)
+
+Tiếp tục vòng 8 của loạt (agent trước bị ngắt): phần chưa commit của vòng 17 được commit, sửa lint của
+clippy 1.99, gộp `work/desktop-performance` (BlueSheet vòng 10). Tham chiếu chụp qua COM trên bản sao
+(`th.pptx` = bản sao `pp8.pptx` thêm hộp chữ tiếng Anh), của ta qua `PostMessage`.
+
+| Đo (thiết bị) | Tham chiếu | BlueSlide |
+|---|---|---|
+| Notes Page: ngăn | không có ngăn hình thu nhỏ, không có ngăn ghi chú | như vậy (`SlideView::set_full_page`) |
+| Notes Page: trang | 600 × 800, cách mép trên vùng 11 px; hình trang 480 × 270 ở 8,4 %; khung ghi chú nét đứt 46–92 % | 608 × 811, 11 px; 8,4 %; như vậy |
+| Notes Page: thanh trạng thái | "Notes 1 of 4", 67 % | "Notes 1 of 4", 68 % (độ rộng trang / 7,5 in) |
+| Notes Page: khung hình trang, chữ | viền 1 px đen; "Click to add text" đen, chữ hoa 625–633 | viền đen; chữ đen, 624–633 |
+| Outline View: bố cục | dàn bài chiếm cả cửa sổ (không có trang bên cạnh), nền xám 230 | như vậy |
+| Outline View: dòng | số trang x = 17, biểu tượng trang 27 × 23 viền 5 px (viền màu nhấn ở trang hiện tại, xám 210/213/216 ở trang khác), tiêu đề đậm x = 66; đoạn thân cùng x, mỗi cấp thụt 19 px, không có dấu đầu dòng nhưng giữ số tự động ("1.", "a)") và đậm / nghiêng / gạch dưới của run; chữ xám 68 (điểm tối nhất đo được); dòng 28–29 px, giữa hai trang thêm 11 px; đoạn rỗng không liệt kê | như vậy (`slide_outline_paras` của engine: số theo bộ đếm của bố cục chữ, run b/i/u; chữ 1,3 × cỡ giao diện, dòng 1,45 ×; viền màu nhấn BlueSlide) |
+| Outline View: thanh trạng thái | "Outline" | "Outline" |
+| Animation Pane | hàng của hình đang chọn trên trang được chọn (tô màu), tên hàng "Title 1: Báo cáo…" | như vậy |
+| Thesaurus (Review, Shift+F7) | ngăn 245 px; tiêu đề + ∨ + ×; nút lùi 34 × 34 và hộp tìm có kính lúp; danh sách khung 350–775, hàng 27 px: "từ đồng nghĩa đầu (n.)" có ∨ gập, các từ đồng nghĩa thụt cùng cột; hộp ngôn ngữ "English (United States)" ở chân; hàng "decrease (Antonym)" | như vậy (dữ liệu Open English WordNet có sẵn, giấy phép CC BY 4.0 + thông báo Princeton trong `THIRD_PARTY_NOTICES.md`; nghĩa cùng tiêu đề gộp lại; nghĩa động từ chỉ có từ trái nghĩa vẫn liệt kê); nhấp một từ: tra từ đó (nút lùi quay lại); nhấp đúp: thay từ ở con trỏ; từ đồng nghĩa khác tham chiếu vì nguồn dữ liệu khác |
+
+- Web: 13 hiệu ứng nhấn mạnh mới của catalog (vòng 17) thêm vào `SlideAnimEffect` và danh sách Emphasis của
+  `AnimationPane` (nhãn `slideEditor.effect.*`).
+- Kiểm thử: `slide_window_tests.rs` (Notes Page / Outline toàn cửa sổ, zoom trang ghi chú),
+  `slide_round17_tests.rs` (Thesaurus: tra, lùi, gập), `slide_thespane.rs` (từ ở con trỏ, UTF-16).
+- Outline View làm mờ Ruler / Gridlines / Guides / Notes và nhóm Color/Grayscale như tham chiếu.
+- Còn lại: Outline View chưa sửa chữ tại chỗ và chỉ đánh số theo `buAutoNum` đặt trên đoạn (không theo
+  kế thừa master); thanh trạng thái của ta chưa có mục ngôn ngữ / Accessibility (cả ở Normal); Thesaurus chưa
+  có menu Insert / Copy khi rê chuột và chưa cuộn danh sách dài; Reading View chưa so ảnh.

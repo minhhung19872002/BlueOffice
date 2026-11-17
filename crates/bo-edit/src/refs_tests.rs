@@ -643,3 +643,21 @@ fn insert_index_in_two_columns_and_update() {
         .insert_reference_table("PAGE", None, 1, &mut pages_of)
         .is_err());
 }
+
+/// TOC Options style → level pairs (`\t`, §17.16.5.68): listed styles take their level;
+/// with `\o` too, outline levels in its range join them.
+#[test]
+fn toc_lists_styles_by_name() {
+    let (d, pages) = figures_doc(r#"TOC \t "Caption,2""#);
+    let out = generated(&d, &pages, true);
+    assert_eq!(out.len(), 3, "{:?}", texts(&out));
+    assert!(out.iter().all(|o| o.0 == "TOC2"));
+    let (d, pages) = figures_doc(r#"TOC \o "1-3" \t "caption,3""#);
+    let out = generated(&d, &pages, true);
+    assert_eq!(out.len(), 4, "{:?}", texts(&out));
+    assert_eq!(out.last().map(|o| o.0.as_str()), Some("TOC1"));
+    assert_eq!(
+        fields::toc_style_map(r#"TOC \t "Heading 1,2,My Style,1""#),
+        vec![("heading1".to_owned(), 2), ("mystyle".to_owned(), 1)]
+    );
+}

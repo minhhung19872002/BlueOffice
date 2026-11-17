@@ -234,6 +234,47 @@ pub(crate) fn toc_ranges(blocks: &[Block]) -> Vec<TocRange> {
     out
 }
 
+/// Style → level pairs of a TOC instruction's `\t "Style,1,Other,2"` (§17.16.5.68),
+/// style names normalised by [`style_key`].
+pub(crate) fn toc_style_map(instr: &str) -> Vec<(String, u8)> {
+    let args = field_args(instr);
+    let Some(list) = args
+        .iter()
+        .position(|a| a.eq_ignore_ascii_case("\\t"))
+        .and_then(|i| args.get(i + 1))
+    else {
+        return Vec::new();
+    };
+    list.split(',')
+        .collect::<Vec<_>>()
+        .chunks(2)
+        .filter_map(|c| {
+            let level = c.get(1)?.trim().parse::<u8>().ok()?.clamp(1, 9);
+            Some((style_key(c.first()?), level))
+        })
+        .collect()
+}
+
+/// A style name compared without case or spaces (`Heading 1` = `heading1`).
+pub(crate) fn style_key(name: &str) -> String {
+    name.chars()
+        .filter(|c| !c.is_whitespace())
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+/// Keys a paragraph's style answers to: its id and its name.
+fn style_keys(doc: &Document, p: &Paragraph) -> Vec<String> {
+    let Some(id) = p.props.style.as_deref() else {
+        return Vec::new();
+    };
+    let mut out = vec![style_key(id)];
+    if let Some(s) = doc.styles.chain(id).first() {
+        out.push(style_key(&s.name));
+    }
+    out
+}
+
 /// Heading levels included by a TOC instruction (`\o "1-3"`; default 1–9).
 pub(crate) fn toc_levels(instr: &str) -> (u8, u8) {
     let args = field_args(instr);
@@ -904,6 +945,12 @@ fn update_all(
         // Headings go into tables of contents, captions of the listed labels into tables
         // of figures (`TOC \c` / `\a`, §17.16.5.68).
         let heading_toc = tocs_only().any(|(_, t)| refs::figure_label(&t.instr).is_none());
+        // Styles a heading TOC lists by name (`\t`), whatever their outline level.
+        let mapped: Vec<String> = tocs_only()
+            .filter(|(_, t)| refs::figure_label(&t.instr).is_none())
+            .flat_map(|(_, t)| toc_style_map(&t.instr))
+            .map(|(k, _)| k)
+            .collect();
         let labels: Vec<String> = tocs_only()
             .filter_map(|(_, t)| refs::figure_label(&t.instr))
             .map(|(l, _)| l.to_lowercase())
@@ -930,7 +977,9 @@ fn update_all(
             } else {
                 refs::caption_of(&atoms).filter(|c| labels.contains(&c.0.to_lowercase()))
             };
-            if level.is_none() && caption.is_none() {
+            let styles = style_keys(doc, p);
+            let listed = styles.iter().any(|k| mapped.contains(k));
+            if level.is_none() && caption.is_none() && !listed {
                 continue;
             }
             let text = display_text(&atoms).trim().to_owned();
@@ -964,6 +1013,7 @@ fn update_all(
             };
             let pg = bm_page.get(&name).copied().unwrap_or(0);
             targets.push(refs::Target {
+                styles,
                 level: level.map(|l| l + 1),
                 caption,
                 text,

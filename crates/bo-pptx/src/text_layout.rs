@@ -387,7 +387,7 @@ fn spacing(s: Option<Spacing>, size: f64) -> f64 {
 }
 
 /// §21.1.2.4.1 buAutoNum schemes (common subset).
-fn auto_number(scheme: &str, n: i32) -> String {
+pub fn auto_number(scheme: &str, n: i32) -> String {
     fn roman(mut n: i32) -> String {
         const T: [(i32, &str); 13] = [
             (1000, "m"),

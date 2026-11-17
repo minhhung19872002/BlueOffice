@@ -261,6 +261,18 @@ pub struct ValidationSpec {
     /// Input message shown when the cell is selected (`prompt`).
     #[serde(default)]
     pub prompt: Option<String>,
+    /// Title of the input message (`promptTitle`).
+    #[serde(default)]
+    pub prompt_title: Option<String>,
+    /// Show the input message when the cell is selected (`showInputMessage`).
+    #[serde(default = "yes")]
+    pub show_input: bool,
+    /// Show the error alert after invalid data is entered (`showErrorMessage`).
+    #[serde(default = "yes")]
+    pub show_error: bool,
+    /// Lists: offer the in-cell drop-down (`showDropDown` false, §18.3.1.32).
+    #[serde(default = "yes")]
+    pub in_cell_dropdown: bool,
 }
 
 fn yes() -> bool {
@@ -303,7 +315,22 @@ pub fn set_rule(wb: &mut Workbook, sheet: usize, range: CellRange, spec: &Valida
         dv.sqref = dv.sqref.iter().flat_map(|r| subtract(*r, range)).collect();
     }
     ws.data_validations.retain(|dv| !dv.sqref.is_empty());
+    let prompt = spec.prompt.clone().filter(|s| !s.is_empty());
+    let prompt_title = spec.prompt_title.clone().filter(|s| !s.is_empty());
     if spec.kind == "none" {
+        // Any value with an input message keeps a rule of type none (§18.18.21).
+        if spec.show_input && (prompt.is_some() || prompt_title.is_some()) {
+            ws.data_validations.push(DataValidation {
+                sqref: vec![range],
+                kind: Some("none".into()),
+                allow_blank: spec.allow_blank,
+                show_input_message: true,
+                show_error_message: spec.show_error,
+                prompt,
+                prompt_title,
+                ..DataValidation::default()
+            });
+        }
         return true;
     }
     let f1 = spec.formula1.trim();
@@ -326,12 +353,14 @@ pub fn set_rule(wb: &mut Workbook, sheet: usize, range: CellRange, spec: &Valida
             None
         },
         allow_blank: spec.allow_blank,
-        show_input_message: spec.prompt.is_some(),
-        show_error_message: true,
+        show_input_message: spec.show_input,
+        show_error_message: spec.show_error,
+        show_drop_down: spec.kind == "list" && !spec.in_cell_dropdown,
+        prompt_title,
         error_style: spec.error_style.clone().filter(|s| s != "stop"),
         error_title: spec.error_title.clone().filter(|s| !s.is_empty()),
         error: spec.error.clone().filter(|s| !s.is_empty()),
-        prompt: spec.prompt.clone().filter(|s| !s.is_empty()),
+        prompt,
         formula1: Some(formula1),
         formula2: spec
             .formula2
@@ -373,6 +402,10 @@ mod tests {
             error: Some("Giá trị không hợp lệ".into()),
             error_style: None,
             prompt: None,
+            prompt_title: None,
+            show_input: true,
+            show_error: true,
+            in_cell_dropdown: true,
         }
     }
 

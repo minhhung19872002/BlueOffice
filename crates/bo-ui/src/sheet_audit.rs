@@ -63,7 +63,12 @@ impl SheetWindow {
             "sheet.errorCheck" => self.error_check(),
             "sheet.evaluateFormula" => self.open_evaluate_formula(),
             "sheet.sortDialog" => self.open_sort_dialog(),
-            "sheet.dataValidation" => self.open_validation_dialog(),
+            "sheet.dataValidation" | "sheet.dataValidationDlg" => self.open_validation_dialog(),
+            "sheet.circleInvalid" => self.circle_invalid(),
+            "sheet.clearCircles" => {
+                self.invalid_circles.clear();
+                true
+            }
             "sheet.goalSeek" => self.open_goal_seek(),
             "sheet.showComments" => self.toggle_all_comments(),
             "sheet.printTitles" => self.open_print_titles(),
@@ -407,6 +412,39 @@ impl SheetWindow {
                 ],
                 Some(color),
                 None,
+            );
+        }
+        p.pop_clip();
+    }
+
+    /// Circle Invalid Data: a red ellipse 2 px wide round each circled cell, a little
+    /// larger than the cell (round 45).
+    pub(super) fn paint_invalid_circles(&self, p: &mut dyn Painter) {
+        if self.invalid_circles.is_empty() {
+            return;
+        }
+        let [fx, fy, fw, fh] = self.view.grid_frame();
+        p.push_clip(fx, fy, fw, fh);
+        let k = self.scale.max(1.0);
+        let red = Rgba(0xE0, 0x10, 0x10, 255);
+        for &(r, c) in &self.invalid_circles {
+            let Some(cell) = self.view.cell_rect(r, c) else {
+                continue;
+            };
+            let (cx, cy) = (cell[0] + cell[2] / 2.0, cell[1] + cell[3] / 2.0);
+            let (rx, ry) = (cell[2] / 2.0 + 5.0 * k, cell[3] / 2.0 + 3.0 * k);
+            let (kx, ky) = (rx * 0.552_284_8, ry * 0.552_284_8);
+            p.path(
+                &[
+                    PathSeg::M(cx + rx, cy),
+                    PathSeg::C(cx + rx, cy + ky, cx + kx, cy + ry, cx, cy + ry),
+                    PathSeg::C(cx - kx, cy + ry, cx - rx, cy + ky, cx - rx, cy),
+                    PathSeg::C(cx - rx, cy - ky, cx - kx, cy - ry, cx, cy - ry),
+                    PathSeg::C(cx + kx, cy - ry, cx + rx, cy - ky, cx + rx, cy),
+                    PathSeg::Z,
+                ],
+                None,
+                Some((red, (1.6 * k).round().max(1.0))),
             );
         }
         p.pop_clip();

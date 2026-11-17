@@ -193,6 +193,11 @@ impl Menu {
         self
     }
 
+    /// Whether any row has an icon.
+    pub fn has_icons(&self) -> bool {
+        self.icons.iter().any(Option::is_some)
+    }
+
     /// A faint shadow spread on every side, as Windows 11 menus (BlueEditor round 9).
     #[must_use]
     pub fn with_soft_shadow(mut self) -> Self {

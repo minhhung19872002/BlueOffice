@@ -1273,6 +1273,9 @@ fn print_tool(args: &[String], doc: &mut PdfDocument, device: &Device) -> Result
                     per_sheet: val().parse().map_err(|_| "--nup wants a number")?,
                     order,
                     border,
+                    // The dialog's default Margins: 0.2 inch.
+                    margin: 14.4,
+                    custom: None,
                 }
             }
             "--order" => {
@@ -1299,6 +1302,7 @@ fn print_tool(args: &[String], doc: &mut PdfDocument, device: &Device) -> Result
                 s.layout = bo_ui::PrintLayout::Booklet {
                     sides,
                     right_binding,
+                    margin: 14.4,
                 };
             }
             "--scale" => {

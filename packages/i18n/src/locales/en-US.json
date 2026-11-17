@@ -7697,12 +7697,12 @@
     "tabBooklet": "Booklet",
     "custom": "Custom scale",
     "perSheet": "Pages per sheet:",
-    "order": "Page order:",
+    "order": "Page Order:",
     "orderH": "Horizontal",
     "orderHR": "Horizontal reversed",
     "orderV": "Vertical",
     "orderVR": "Vertical reversed",
-    "border": "Print page border",
+    "border": "Print Page Border",
     "bookletSubset": "Booklet subset:",
     "bothSides": "Both sides",
     "frontOnly": "Front side only",
@@ -13893,5 +13893,9 @@
     "linksView": "View Web Links",
     "page": "Page",
     "address": "Address"
+  },
+  "pdfPrint14": {
+    "custom": "Custom...",
+    "margins": "Margins:"
   }
 }

@@ -29,6 +29,10 @@ impl PrintDialog {
                         | Part::TileZoomDown
                         | Part::OverlapUp
                         | Part::OverlapDown
+                        | Part::ColsUp
+                        | Part::ColsDown
+                        | Part::RowsUp
+                        | Part::RowsDown
                 )
             })
             .map(|&(p, r)| {
@@ -76,6 +80,8 @@ impl PrintDialog {
             ),
             Part::PagesText => self.range == super::Range::Pages,
             Part::Flip(_) => self.duplex,
+            // Round 14: the Margins box of several pages per sheet follows its check box.
+            Part::MarginText => self.handling != super::Handling::Multiple || self.margin_on,
             _ => true,
         }
     }
@@ -98,6 +104,9 @@ impl PrintDialog {
                     Field::Scale => Part::ScaleText,
                     Field::TileZoom => Part::TileZoom,
                     Field::Overlap => Part::Overlap,
+                    Field::Cols => Part::Cols,
+                    Field::Rows => Part::Rows,
+                    Field::Margin => Part::MarginText,
                 };
                 order.iter().position(|q| *q == p)
             });
@@ -115,6 +124,9 @@ impl PrintDialog {
             Part::ScaleText => Field::Scale,
             Part::TileZoom => Field::TileZoom,
             Part::Overlap => Field::Overlap,
+            Part::Cols => Field::Cols,
+            Part::Rows => Field::Rows,
+            Part::MarginText => Field::Margin,
             _ => self.focus,
         };
     }
@@ -124,7 +136,14 @@ impl PrintDialog {
         matches!(
             self.kbd,
             None | Some(
-                Part::Copies | Part::PagesText | Part::ScaleText | Part::TileZoom | Part::Overlap
+                Part::Copies
+                    | Part::PagesText
+                    | Part::ScaleText
+                    | Part::TileZoom
+                    | Part::Overlap
+                    | Part::Cols
+                    | Part::Rows
+                    | Part::MarginText
             )
         )
     }

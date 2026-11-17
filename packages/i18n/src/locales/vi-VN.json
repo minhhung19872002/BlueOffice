@@ -13893,5 +13893,9 @@
     "linksView": "Xem các liên kết web",
     "page": "Trang",
     "address": "Địa chỉ"
+  },
+  "pdfPrint14": {
+    "custom": "Tùy chỉnh...",
+    "margins": "Lề:"
   }
 }

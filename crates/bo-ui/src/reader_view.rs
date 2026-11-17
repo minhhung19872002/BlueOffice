@@ -1097,6 +1097,23 @@ impl ReaderView {
         more
     }
 
+    /// Every image key this view has in the store (pages, thumbnails, previews), so a closed
+    /// tab frees them (BlueReader round 14).
+    pub fn stored_keys(&self) -> Vec<usize> {
+        let mut v: Vec<usize> = self.drawn.keys().copied().collect();
+        if self.preview_drawn.is_some() {
+            v.push(PREVIEW_KEY);
+        }
+        v.extend(
+            self.previews_drawn
+                .iter()
+                .enumerate()
+                .filter(|(_, d)| d.is_some())
+                .map(|(k, _)| PREVIEW_KEY + 1 + k),
+        );
+        v
+    }
+
     /// Ask for the print preview's page images this frame: `(page, scale)` drawn under keys
     /// [`PREVIEW_KEY`] + 1 + their position.
     pub fn want_previews(&mut self, wanted: &[(usize, f32)]) {

@@ -221,9 +221,10 @@ fn unequal_columns_and_the_separator_line() {
 }
 
 #[test]
-fn unequal_columns_wider_than_the_text_are_scaled() {
+fn unequal_columns_wider_than_the_text_keep_their_widths() {
     let mut sec = section((0..120).map(|i| p(&format!("{i}"))).collect());
-    // 4 + 1 + 8 in = 13 in for 6.5 in of text: everything halves.
+    // 4 + 1 + 8 in = 13 in for 6.5 in of text: the reference word processor keeps the
+    // widths as given (measured black-box, docs/ui/REPORT.md Fidelity round 1).
     sec.columns.cols = vec![
         ColumnDef {
             width: Twips(5760),
@@ -239,8 +240,8 @@ fn unequal_columns_wider_than_the_text_are_scaled() {
     let mut xs: Vec<f32> = l.pages[0].lines.iter().map(x0).collect();
     xs.sort_by(f32::total_cmp);
     xs.dedup_by(|a, b| (*a - *b).abs() < 0.01);
-    // 72 + 144 + 36.
-    assert!((xs[1] - 252.0).abs() < 0.01, "{xs:?}");
+    // 72 + 288 + 72.
+    assert!((xs[1] - 432.0).abs() < 0.01, "{xs:?}");
 }
 
 fn numbers(l: &LayoutDocument, page: usize) -> Vec<(String, f32, f32)> {

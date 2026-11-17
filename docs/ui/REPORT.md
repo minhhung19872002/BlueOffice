@@ -278,7 +278,7 @@ hai bên được gióng bằng SequenceMatcher, đầu dòng của bản đối
 | | Số trang khớp | Đầu dòng khớp (TB tệp) | Đầu dòng khớp (theo dòng) | Điểm ảnh lệch TB |
 |---|---|---|---|---|
 | Trước | 52 / 56 | 89,9 % | 88,6 % | 0,0428 |
-| Sau | 54 / 56 | 94,8 % | 95,2 % | 0,0161 |
+| Sau | 56 / 56 | 96,1 % | 96,9 % | 0,0150 |
 
 Sửa (mỗi mục có test trong `crates/bo-layout/tests/word_fidelity.rs` hoặc test đơn vị):
 1. **Khoảng cách giữa hai đoạn = max(after, before)**, không cộng (12/6, 6/12, 12/12 pt đều cho 12 pt; như nhau ở
@@ -306,10 +306,22 @@ Sửa (mỗi mục có test trong `crates/bo-layout/tests/word_fidelity.rs` ho�
 `docfid-03-tables-header-before-after.png`, `docfid-04-floats-textbox-dropcap-before-after.png`,
 `docfid-05-worst6-after.png`.
 
-Còn lệch (vòng sau): cân bằng cột ở section liên tục (gen-06: Word cân hai / ba cột trước ngắt section liên tục,
-BlueDoc không — 3 trang so với 2; Word cũng không co cột rộng hơn vùng chữ); chú thích dài (notes-05: Word cho
-chú thích chiếm hết trang có tham chiếu và đẩy thân văn bản sau tham chiếu sang trang sau); bảng autofit theo nội
-dung (gen-08: Word nới cột theo chữ); độ rộng glyph Cambria / Calibri Light / Caladea Italic khác (gen-13, 3 trang
-so với 2); ký hiệu đầu dòng phông Symbol / Wingdings / Courier New được thay bằng phông có dòng cao hơn (+0,4 pt
-mỗi dòng ở gen-09); lề ô trên/dưới (`tblCellMar` top/bottom) chưa có trong mô hình; độ rộng glyph của bản đối
-chiếu được làm tròn theo lưới 600 dpi (Times 13 pt "n" 6,48 so với 6,50 pt) — chưa mô phỏng.
+10. **Cân bằng cột** trước ngắt section liên tục: các dòng của section trên trang đó được rót lại vào các cột
+    cao bằng nhau (trừ khi có ngắt cột đặt chúng); cột không đều rộng hơn vùng chữ giữ nguyên độ rộng (bản đối
+    chiếu không co, cột cuối chạy ra lề phải — test cũ của page_layout.rs sửa theo phép đo). gen-06: 3 → 2 trang.
+11. **Dấu dẫn tab** chỉ vẽ cho tab tới điểm dừng có dẫn (trước: tab tới điểm giữa vẽ dấu chấm của điểm sau).
+    para-03 75 → 100 %.
+12. **Bảng AutoFit theo nội dung** (§17.4.53; ô không có độ rộng): cột lấy chiều rộng từ chữ dài nhất và dòng
+    không ngắt dài nhất (+ lề ô), chia phần còn lại theo tỉ lệ. gen-08 87 → 100 %.
+13. **Chiều cao dòng theo phông của run**, không theo phông dự phòng chỉ cấp glyph thiếu (Caladea thiếu vài glyph
+    tiếng Việt khiến dòng Cambria cao thêm 0,5 pt). gen-13: 3 → 2 trang.
+14. **Chú thích dài giữ trọn trang có tham chiếu**: dòng thân văn bản sau tham chiếu chuyển sang trang sau khi chú
+    thích vừa một trang (chỉ chú thích quá dài mới nối sang trang sau). notes-05 88 → 99 %.
+15. **Gạch nối tuỳ ý (§17.3.3.29)** khi hiện dấu định dạng: hiện "¬" và chiếm chỗ như bản đối chiếu; ẩn dấu thì
+    không chiếm chỗ, ngắt dòng tại đó vẫn vẽ "-".
+
+Còn lệch (vòng sau): độ rộng glyph Cambria / Calibri Light / Caladea Italic khác (gen-13 76 % đầu dòng);
+ký hiệu đầu dòng phông Symbol / Wingdings / Courier New được thay bằng phông có dòng cao hơn (+0,4 pt mỗi dòng ở
+gen-09); lề ô trên/dưới (`tblCellMar` top/bottom) chưa có trong mô hình; độ rộng glyph của bản đối chiếu làm tròn
+theo lưới 600 dpi (Times 13 pt "n" 6,48 so với 6,50 pt) — chưa mô phỏng; gen-07 tách hàng bảng cuối trang khác một
+hàng.

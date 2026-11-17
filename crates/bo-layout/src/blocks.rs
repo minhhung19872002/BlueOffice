@@ -767,6 +767,101 @@ fn grid_widths(t: &Table, geo: &TableGeometry, avail: f32) -> Vec<f32> {
     grid
 }
 
+/// AutoFit to contents (ECMA-376 Part 1, §17.4.53 tblLayout `autofit`, §17.4.72 tcW
+/// `auto`): columns whose cells give no preferred width are sized by their content as
+/// the reference word processor does — each takes its widest unwrapped line when all
+/// fit beside the other columns, else its longest word plus a share of the room left in
+/// proportion to how much more its lines want (cell margins included). Columns with a
+/// preferred width keep their grid width.
+fn autofit_columns(
+    ctx: &mut Ctx<'_>,
+    t: &Table,
+    geo: &TableGeometry,
+    grid: &mut [f32],
+    avail: f32,
+    body: bool,
+) -> Result<(), LayoutError> {
+    if t.props.fixed_layout
+        || matches!(t.props.width, Some(TableWidth::Pct(_)))
+        || matches!(t.props.width, Some(TableWidth::Dxa(w)) if w.0 > 0)
+    {
+        return Ok(());
+    }
+    let n = grid.len();
+    let (ml, mr) = t
+        .props
+        .cell_margin
+        .map_or((DEFAULT_CELL_MARGIN, DEFAULT_CELL_MARGIN), |(l, r)| {
+            (l.to_pt(), r.to_pt())
+        });
+    // A column is sized by content when every single-column cell in it has no width.
+    let mut auto = vec![None::<bool>; n];
+    for (ri, places) in geo.rows.iter().enumerate() {
+        for (k, pl) in places.iter().enumerate() {
+            if pl.span != 1 || pl.hidden || pl.start >= n {
+                continue;
+            }
+            let Some(cell) = t.rows.get(ri).and_then(|r| r.cells.get(k)) else {
+                continue;
+            };
+            let free = match cell.props.width {
+                None | Some(TableWidth::Auto) => true,
+                Some(TableWidth::Dxa(w)) => w.0 <= 0,
+                Some(TableWidth::Pct(p)) => p == 0,
+            };
+            let a = &mut auto[pl.start];
+            *a = Some(a.unwrap_or(true) && free);
+        }
+    }
+    if !auto.contains(&Some(true)) {
+        return Ok(());
+    }
+    let table_ppr = table_style_ppr(ctx.doc, t);
+    let mut min = vec![0.0f32; n];
+    let mut max = vec![0.0f32; n];
+    for (ri, places) in geo.rows.iter().enumerate() {
+        for (k, pl) in places.iter().enumerate() {
+            if pl.span != 1 || pl.hidden || pl.start >= n || auto[pl.start] != Some(true) {
+                continue;
+            }
+            let Some(cell) = t.rows.get(ri).and_then(|r| r.cells.get(k)) else {
+                continue;
+            };
+            let styled;
+            let blocks: &[Block] = match &table_ppr {
+                Some(tp) => {
+                    styled = with_table_ppr(ctx.doc, &cell.blocks, tp);
+                    &styled
+                }
+                None => &cell.blocks,
+            };
+            let st = measure_stack(ctx, blocks, 20_000.0, body)?;
+            let (lo, hi) = (longest_word(&st.bands), widest_line(&st.bands));
+            min[pl.start] = min[pl.start].max(lo + ml + mr);
+            max[pl.start] = max[pl.start].max(hi + ml + mr);
+        }
+    }
+    let fixed: f32 = (0..n)
+        .filter(|&c| auto[c] != Some(true))
+        .map(|c| grid[c])
+        .sum();
+    let room = (avail - fixed).max(0.0);
+    let cols: Vec<usize> = (0..n).filter(|&c| auto[c] == Some(true)).collect();
+    let sum_max: f32 = cols.iter().map(|&c| max[c]).sum();
+    let sum_min: f32 = cols.iter().map(|&c| min[c]).sum();
+    for &c in &cols {
+        grid[c] = if sum_max <= room {
+            max[c]
+        } else if sum_min >= room || sum_max - sum_min < 0.01 {
+            min[c]
+        } else {
+            min[c] + (max[c] - min[c]) * (room - sum_min) / (sum_max - sum_min)
+        }
+        .max(ml + mr + 1.0);
+    }
+    Ok(())
+}
+
 /// Right edge of the widest line in `bands` (points from the box's left edge).
 fn widest_line(bands: &[(f32, Band)]) -> f32 {
     bands
@@ -775,6 +870,62 @@ fn widest_line(bands: &[(f32, Band)]) -> f32 {
         .flat_map(|l| &l.fragments)
         .map(|f| f.x + f.width)
         .fold(0.0f32, f32::max)
+}
+
+/// Width of the widest word (run of glyphs between spaces) in `bands`: the narrowest a
+/// column can be without breaking a word.
+fn longest_word(bands: &[(f32, Band)]) -> f32 {
+    let mut best = 0.0f32;
+    for f in bands
+        .iter()
+        .flat_map(|(_, b)| &b.lines)
+        .flat_map(|l| &l.fragments)
+    {
+        let mut start: Option<f32> = None;
+        for g in f.glyphs.iter() {
+            let space = f
+                .text
+                .get(g.cluster as usize..)
+                .and_then(|t| t.chars().next())
+                .is_some_and(char::is_whitespace);
+            if space {
+                if let Some(s) = start.take() {
+                    best = best.max(g.x - s);
+                }
+            } else if start.is_none() {
+                start = Some(g.x);
+            }
+        }
+        if let Some(s) = start {
+            best = best.max(f.width - s);
+        }
+    }
+    best
+}
+
+/// Stack `blocks` at `width` without side effects on `ctx` (ids, list counters).
+fn measure_stack(
+    ctx: &mut Ctx<'_>,
+    blocks: &[Block],
+    width: f32,
+    body: bool,
+) -> Result<Stack, LayoutError> {
+    let saved = (
+        ctx.next_id,
+        ctx.lists.clone(),
+        ctx.other_lists.clone(),
+        ctx.endnote_order.len(),
+        ctx.note,
+        ctx.textbox,
+    );
+    let st = stack_blocks(ctx, blocks, width, body, None);
+    ctx.next_id = saved.0;
+    ctx.lists = saved.1;
+    ctx.other_lists = saved.2;
+    ctx.endnote_order.truncate(saved.3);
+    ctx.note = saved.4;
+    ctx.textbox = saved.5;
+    st
 }
 
 /// Stack `blocks` at `width` without side effects on `ctx` (ids, list counters):
@@ -966,7 +1117,8 @@ pub(crate) fn layout_table(
         RevisionView::Final => TableView::Final,
         RevisionView::Original => TableView::Original,
     });
-    let grid = grid_widths(t, &geo, avail);
+    let mut grid = grid_widths(t, &geo, avail);
+    autofit_columns(ctx, t, &geo, &mut grid, avail, body)?;
     let ncols = grid.len();
     let total: f32 = grid.iter().sum();
     let indent = t.props.indent.map_or(0.0, Twips::to_pt);

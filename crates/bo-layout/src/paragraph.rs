@@ -149,7 +149,9 @@ fn row_height(
             obj_depth = obj_depth.max(p.obj_d);
         } else {
             let st = &styles[p.style];
-            metric(p.face, st.size, st.shift);
+            // The run's own face: a fallback face that only supplies missing glyphs
+            // does not make the line taller (see the positioning pass).
+            metric(st.face, st.size, st.shift);
         }
     }
     if pieces
@@ -1127,6 +1129,15 @@ fn layout_uncached(
                 None,
                 None,
             ),
+            // §17.3.3.29 softHyphen: with the formatting marks shown, an optional hyphen
+            // shows as "¬" and takes its width, as in the reference word processor (same
+            // UTF-8 length, so offsets stay); otherwise it is invisible.
+            _ if inp.marks.show_hidden => (
+                index_text[sp.start..sp.end].replace('\u{00AD}', "\u{00AC}"),
+                false,
+                None,
+                None,
+            ),
             _ => (index_text[sp.start..sp.end].to_owned(), false, None, None),
         };
         atoms.push(Atom {
@@ -1593,10 +1604,15 @@ fn layout_uncached(
                     ascent = ascent.max(p.obj_h);
                     descent = descent.max(p.obj_d);
                 } else {
-                    let (a, d, g) = info.line_metrics();
-                    ascent = ascent.max(a * scale - st.shift.min(0.0));
-                    descent = descent.max(d * scale + st.shift.max(0.0));
-                    gap = gap.max(g * scale);
+                    // Line extents come from the run's font, not from a fallback face that
+                    // only supplies missing glyphs (measured black-box: Cambria lines keep
+                    // Cambria's height where our stand-in lacks Vietnamese glyphs).
+                    let line_info = fonts.info(st.face);
+                    let k = st.size / f32::from(line_info.units_per_em);
+                    let (a, d, g) = line_info.line_metrics();
+                    ascent = ascent.max(a * k - st.shift.min(0.0));
+                    descent = descent.max(d * k + st.shift.max(0.0));
+                    gap = gap.max(g * k);
                 }
                 let x0 = offset + xs[i] + extra;
                 let x_next = offset + xs[i + 1] + extra;
@@ -1756,9 +1772,10 @@ fn layout_uncached(
         if !is_last
             && brk.is_none()
             && (hyph_lines.contains(&li)
-                || index_text
-                    .get(..end as usize)
-                    .is_some_and(|t| t.ends_with('\u{00AD}')))
+                || (!inp.marks.show_hidden
+                    && index_text
+                        .get(..end as usize)
+                        .is_some_and(|t| t.ends_with('\u{00AD}'))))
         {
             if let Some(last) = frags.iter().max_by(|a, b| a.x.total_cmp(&b.x)) {
                 let (face, size, color, x) =

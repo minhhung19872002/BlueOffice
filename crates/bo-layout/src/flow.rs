@@ -218,8 +218,7 @@ fn body_area(setup: &PageSetup, hf: (f32, f32)) -> (f32, f32) {
 }
 
 /// Column boxes (§17.6.4 cols): equal widths separated by `space`, or the widths
-/// and spaces of each §17.6.3 col (`w:equalWidth` false), scaled down to the text
-/// width when they add up to more.
+/// and spaces of each §17.6.3 col (`w:equalWidth` false), as given.
 pub(crate) fn columns(setup: &PageSetup, sec: &Section) -> Vec<(f32, f32)> {
     let left = setup.margin_left.to_pt();
     let width =
@@ -227,30 +226,15 @@ pub(crate) fn columns(setup: &PageSetup, sec: &Section) -> Vec<(f32, f32)> {
     let c = &sec.columns;
     if c.unequal() {
         let defs = &c.cols[..c.len()];
-        let n = defs.len();
-        let total: f32 = defs
-            .iter()
-            .enumerate()
-            .map(|(i, d)| {
-                d.width.to_pt().max(0.0)
-                    + if i + 1 < n {
-                        d.space.to_pt().max(0.0)
-                    } else {
-                        0.0
-                    }
-            })
-            .sum();
-        let k = if total > width + 0.5 {
-            width / total
-        } else {
-            1.0
-        };
+        // Widths wider than the text area are kept as given: the reference word
+        // processor lets the last column run into the right margin (measured black-box,
+        // gen-06: 2000 / 3000 / 3646 twips + 2 × 360 on a 9026-twip line).
         let mut x = left;
-        let mut out = Vec::with_capacity(n);
+        let mut out = Vec::with_capacity(defs.len());
         for d in defs {
-            let w = (d.width.to_pt() * k).max(18.0);
+            let w = d.width.to_pt().max(18.0);
             out.push((x, w));
-            x += w + d.space.to_pt().max(0.0) * k;
+            x += w + d.space.to_pt().max(0.0);
         }
         return out;
     }
@@ -1157,7 +1141,7 @@ impl Flow {
                 self.foot_h += NOTE_SEPARATOR;
             }
             self.foot_h += h;
-            self.foot_slack = h - self.remaining(*key, 0).1;
+            self.foot_slack = self.later_slack(h, self.remaining(*key, 0).1);
             self.notes_on_page.push(*key);
         }
         Ok(())
@@ -1331,6 +1315,9 @@ impl Flow {
         let mut seen: Vec<NoteKey> = self.notes_on_page.clone();
         seen.extend(self.carry.iter().map(|c| c.0));
         for (i, l) in lines.iter().enumerate() {
+            // The line holding a note's reference may leave the note's rest to the next
+            // page; the lines after it only when the note could not fit on one page.
+            let mut here = slack;
             for key in &l.notes {
                 if !key.0 && !seen.contains(key) {
                     if foot <= 0.0 {
@@ -1338,12 +1325,14 @@ impl Flow {
                     }
                     let h = self.note_stack(ctx, *key)?;
                     foot += h;
-                    slack = h - self.remaining(*key, 0).1;
+                    let first = self.remaining(*key, 0).1;
+                    here = h - first;
+                    slack = self.later_slack(h, first);
                     seen.push(*key);
                 }
             }
             let ly = self.skip_excl(y, l.text_h);
-            if ly + l.h > self.bottom - foot + slack + EPS {
+            if ly + l.h > self.bottom - foot + here + EPS {
                 return Ok(i);
             }
             y = ly + l.h;
@@ -1352,6 +1341,20 @@ impl Flow {
             }
         }
         Ok(lines.len())
+    }
+
+    /// Part of a footnote `h` tall (first band `first`) that body lines placed after its
+    /// reference may push to the next page. The reference word processor keeps a note
+    /// that fits on a page whole with its reference and moves the following body lines
+    /// to the next page instead (measured black-box, notes-05: 24-paragraph note); only
+    /// a note too tall for that continues on the next page (§17.11.1
+    /// continuationSeparator).
+    fn later_slack(&self, h: f32, first: f32) -> f32 {
+        if h + NOTE_SEPARATOR + 2.0 * first < self.full_height() {
+            0.0
+        } else {
+            h - first
+        }
     }
 
     fn full_height(&self) -> f32 {

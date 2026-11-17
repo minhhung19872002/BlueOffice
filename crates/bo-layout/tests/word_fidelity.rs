@@ -5,7 +5,10 @@
 // Integration tests may unwrap.
 #![allow(clippy::unwrap_used)]
 
-use bo_layout::{layout_document, LayoutCache, LayoutDocument, Line, LineSource};
+use bo_layout::{
+    layout_document, layout_document_with, LayoutCache, LayoutDocument, LayoutOptions, Line,
+    LineSource, MarkFilter,
+};
 use bo_model::{
     Alignment, Anchor, Block, Border, Borders, Cell, CellProps, Columns, Document, Emu, HalfPoints,
     Image, LineSpacing, PageSetup, ParaProps, Paragraph, Run, RunContent, RunProps, Section,
@@ -421,4 +424,115 @@ fn only_the_leadered_stop_gets_a_leader() {
     // One leader, after "b" (centred at 234 pt from the margin).
     assert_eq!(dots.len(), 1, "{dots:?}");
     assert!(dots[0] > 72.0 + 234.0, "{dots:?}");
+}
+
+/// §17.4.53 tblLayout autofit with cells of no preferred width: columns take their
+/// content's width — a short word is not broken, a long text gets the rest of the line.
+#[test]
+fn autofit_columns_follow_their_content() {
+    let mut t = Table::simple(2, 2, Twips(2000));
+    let text = "Layout engines must agree on where every line breaks, because a single word                 moved to the next line can push a heading onto another page.";
+    for row in &mut t.rows {
+        row.cells[0].blocks = vec![para("short", 0, 0, SINGLE)];
+        row.cells[0].props.width = None;
+        row.cells[1].blocks = vec![para(text, 0, 0, SINGLE)];
+        row.cells[1].props.width = None;
+    }
+    let l = run(&doc(vec![Block::Table(t)]));
+    // "short" stays on one line; the long text starts right after the narrow column.
+    assert_eq!(lines(&l, 0).len(), 1);
+    let x_long = lines(&l, 1)[0].fragments[0].x;
+    assert!(x_long < 72.0 + 60.0, "{x_long}");
+    // The long cell wraps inside the text width.
+    let right = lines(&l, 1)
+        .iter()
+        .flat_map(|ln| &ln.fragments)
+        .map(|f| f.x + f.width)
+        .fold(0.0f32, f32::max);
+    assert!(right <= 72.0 + 451.3 + 3.0, "{right}");
+}
+
+/// Line height follows the run's font even where a fallback face supplies glyphs.
+#[test]
+fn a_cambria_line_keeps_cambria_height() {
+    let d = {
+        let mut d = doc(vec![para(
+            "Việc chuẩn hoá phông chữ, ạ ặ ẫ ỵ",
+            0,
+            0,
+            SINGLE,
+        )]);
+        d.default_run.font = Some("Cambria".into());
+        d
+    };
+    let l = run(&d);
+    let h = lines(&l, 0)[0].height;
+    assert!((h - 1.1724 * 12.0).abs() < 0.05, "{h}");
+}
+
+/// §17.3.3.29 softHyphen: invisible and without width normally; with the formatting
+/// marks shown it takes the width of its "¬" mark, as in the reference.
+#[test]
+fn an_optional_hyphen_shows_with_the_formatting_marks() {
+    let d = doc(vec![para("optional\u{00AD}hyphen", 0, 0, SINGLE)]);
+    let width = |show: bool| {
+        let opts = LayoutOptions {
+            marks: MarkFilter {
+                show_hidden: show,
+                ..MarkFilter::default()
+            },
+            ..LayoutOptions::default()
+        };
+        let l = layout_document_with(&d, &mut fonts(), &mut LayoutCache::new(), opts).unwrap();
+        let line = lines(&l, 0)[0];
+        let text: String = line.fragments.iter().map(|f| f.text.as_str()).collect();
+        let w = line
+            .fragments
+            .iter()
+            .map(|f| f.x + f.width)
+            .fold(0.0f32, f32::max);
+        (text, w)
+    };
+    let (hidden, w0) = width(false);
+    let (shown, w1) = width(true);
+    assert!(!hidden.contains('\u{00AC}'), "{hidden}");
+    assert!(shown.contains('\u{00AC}'), "{shown}");
+    assert!(w1 > w0 + 3.0, "{w0} {w1}");
+}
+
+/// §17.11.1: a footnote that fits on a page stays whole with its reference; the body
+/// lines after the reference go to the next page instead (measured black-box).
+#[test]
+fn a_long_footnote_stays_whole_with_its_reference() {
+    use bo_model::RunContent;
+    let note: Vec<Block> = (0..33)
+        .map(|i| para(&format!("note paragraph {i}"), 0, 0, SINGLE))
+        .collect();
+    let mut blocks = Vec::new();
+    // 15 + 1 lines and the 33-line note fill 688 of the page's 698 pt.
+    for i in 0..15 {
+        blocks.push(para(&format!("before {i}"), 0, 0, SINGLE));
+    }
+    let mut r = Run::text("reference", RunProps::default());
+    r.content.push(RunContent::FootnoteRef(1));
+    blocks.push(Block::Paragraph(Paragraph::new(
+        ParaProps {
+            space_before: Some(Twips(0)),
+            space_after: Some(Twips(0)),
+            line_spacing: Some(SINGLE),
+            ..ParaProps::default()
+        },
+        vec![r],
+    )));
+    for i in 0..30 {
+        blocks.push(para(&format!("after {i}"), 0, 0, SINGLE));
+    }
+    let mut d = doc(blocks);
+    d.footnotes.insert(1, note);
+    let l = run(&d);
+    // Page 1 holds the reference and all 33 note lines; no "after" line follows it there.
+    let p0 = l.page_text(0);
+    assert!(p0.contains("reference"), "{p0}");
+    assert!(p0.contains("note paragraph 32"), "{p0}");
+    assert!(!p0.contains("after 0"), "{p0}");
 }

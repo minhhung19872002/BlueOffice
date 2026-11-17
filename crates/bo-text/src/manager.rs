@@ -47,6 +47,45 @@ pub struct FaceInfo {
     /// `OS/2.fsSelection` bit 7 USE_TYPO_METRICS: the font asks for its typographic
     /// metrics (`ascender` / `descender` above) rather than the Windows ones.
     pub use_typo_metrics: bool,
+    /// GDI's external leading in font units: the part of `hhea.lineGap` that the Windows
+    /// metrics (`usWinAscent + usWinDescent`) do not already cover — see [`FaceInfo::line_metrics`].
+    pub external_leading: i16,
+}
+
+/// Faces bundled as metric-compatible stand-ins whose own vertical metrics differ from
+/// the family they replace: (stand-in family, ascent, descent) in em of the replaced
+/// family's text lines, measured black-box in the reference word processor
+/// (docs/ui/REPORT.md, Fidelity round 1): Caladea stands in for Cambria, whose single
+/// lines are 1.1724 em high with the baseline 0.9502 em below the line top.
+const STAND_IN_LINES: &[(&str, f32, f32)] = &[("Caladea", 0.9502, 0.2222)];
+
+impl FaceInfo {
+    /// Line extents a desktop word processor lays text lines out with, in font units:
+    /// (ascent, descent, external leading). These are GDI's `TEXTMETRIC` values —
+    /// `tmAscent = OS/2.usWinAscent`, `tmDescent = OS/2.usWinDescent`,
+    /// `tmExternalLeading = max(0, hhea.lineGap − ((usWinAscent + usWinDescent) −
+    /// (hhea.ascender − hhea.descender)))` (OpenType `OS/2` and `hhea` tables) — which
+    /// the reference application uses whatever `USE_TYPO_METRICS` says. A face without
+    /// Windows metrics keeps its ascender / descender / line gap.
+    #[must_use]
+    pub fn line_metrics(&self) -> (f32, f32, f32) {
+        let upem = f32::from(self.units_per_em);
+        if let Some(&(_, a, d)) = STAND_IN_LINES.iter().find(|(f, ..)| *f == self.family) {
+            return (a * upem, d * upem, 0.0);
+        }
+        if self.win_ascent == 0 && self.win_descent == 0 {
+            return (
+                f32::from(self.ascender),
+                -f32::from(self.descender),
+                f32::from(self.line_gap.max(0)),
+            );
+        }
+        (
+            f32::from(self.win_ascent),
+            f32::from(self.win_descent),
+            f32::from(self.external_leading),
+        )
+    }
 }
 
 /// A big-endian `u16` of the face's `OS/2` table at byte `at` (0 when absent).
@@ -183,6 +222,12 @@ impl FontManager {
                 win_ascent: os2_u16(&face, 74),
                 win_descent: os2_u16(&face, 76),
                 use_typo_metrics: os2_u16(&face, 62) & 0x80 != 0,
+                external_leading: {
+                    let h = face.tables().hhea;
+                    let win = i32::from(os2_u16(&face, 74)) + i32::from(os2_u16(&face, 76));
+                    let mac = i32::from(h.ascender) - i32::from(h.descender);
+                    i16::try_from((i32::from(h.line_gap) - (win - mac)).max(0)).unwrap_or(0)
+                },
                 family,
             };
             let id = FaceId(self.faces.len() as u32);

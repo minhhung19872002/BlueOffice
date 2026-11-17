@@ -58,6 +58,14 @@ pub(crate) enum FormWhat {
     Sanitize10,
     /// Converting To PDF on kind `.0` (round 9, `editor_conv9b`).
     ConvSettings9(usize),
+    /// Field Properties (round 11, `editor_fields11`).
+    FieldProps11,
+    /// JavaScript editor writing back into box `.0` of the dialog under it.
+    Script11(&'static str),
+    /// Field Selection of Calculate › Pick (the offered names).
+    Pick11(Vec<String>),
+    /// An action of the Actions page: trigger, kind, the action edited.
+    Action11(String, usize, Option<usize>),
 }
 
 /// Font sizes offered by the Size lists.
@@ -1585,6 +1593,7 @@ impl EditorWindow {
             _ => {}
         }
         let saved = f.pick("saved");
+        let units = f.pick("units");
         let out = f.input(input);
         if let FormOut::Button(id) = out {
             self.form8_button(id);
@@ -1598,11 +1607,16 @@ impl EditorWindow {
         }
         // Round 10: the optimizer shows the panel and rows its values call for.
         self.opt10_after_input(saved);
+        // Round 11: the field Properties dialog shows the page and rows its values call for.
+        if out != FormOut::Kept && matches!(self.form8.last(), Some((_, FormWhat::FieldProps11))) {
+            self.fprops11_after_input(units);
+        }
         true
     }
 
     fn form8_button(&mut self, id: &'static str) {
         if (id == "row" && self.conv_settings9_row())
+            || self.fprops11_button(id)
             || self.crop9_button(id)
             || self.pages9_button(id)
             || self.opt10_button(id)
@@ -1696,6 +1710,10 @@ impl EditorWindow {
                     FormWhat::SearchRedact10 => self.search_redact_ok(&f),
                     FormWhat::Sanitize10 => self.sanitize_ok(),
                     FormWhat::ConvSettings9(row) => self.conv_settings9_keep(&f, row),
+                    FormWhat::FieldProps11
+                    | FormWhat::Script11(_)
+                    | FormWhat::Pick11(_)
+                    | FormWhat::Action11(..) => {}
                 }
             }
             _ => self.dlg8b_button(id),

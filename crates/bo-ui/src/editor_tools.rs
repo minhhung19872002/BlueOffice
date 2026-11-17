@@ -210,6 +210,11 @@ impl EditorWindow {
         self.dialog2 = Some((d, Ask2::Tools(what)));
     }
 
+    /// Round 11: choose a box tool from another module (the Add Shapes grid).
+    pub(crate) fn set_box_tool11(&mut self, t: BoxTool) {
+        self.choose_box_tool(t);
+    }
+
     fn choose_box_tool(&mut self, t: BoxTool) {
         let was = self.tools.tool;
         self.set_tool(None);
@@ -561,14 +566,14 @@ impl EditorWindow {
                 });
             }
             BoxTool::Shape(kind) => {
-                let c = self.comment.color;
-                let w = self.comment.width;
+                // Round 11: the style of the Format pane's Shape section.
+                let style = self.shape_style11();
                 let r = if kind == ShapeKind::Line {
                     r
                 } else {
                     norm([r[0], r[1]], [r[2], r[3]])
                 };
-                let res = self.doc_edit(|d| d.add_shape(page, kind, r, Some(c), None, w));
+                let res = self.doc_edit(|d| d.add_shape11(page, kind, r, &style));
                 self.page_done(page, res);
             }
             BoxTool::Whiteout => {

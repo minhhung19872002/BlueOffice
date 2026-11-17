@@ -130,6 +130,14 @@ pub(crate) enum Ctl {
     Warn { x: f32, y: f32 },
     /// Round 10: a panel frame, 1 px #DCDCDC on white (the reference's PDF Optimizer).
     Box { r: [f32; 4] },
+    /// Round 11: a tab of a tabbed dialog (field Properties), its box from `x` to `x + w`;
+    /// clicking shows page `k` (the form's `tab` value).
+    Tab {
+        k: usize,
+        x: f32,
+        w: f32,
+        label: String,
+    },
 }
 
 /// Icons of the classic dialogs' small buttons (our own drawings).
@@ -195,6 +203,8 @@ pub(crate) struct Form {
     /// The focused box's whole text is selected (round 9: as the reference on opening a
     /// dialog and on Tab); typing replaces it.
     pub all: bool,
+    /// Round 11: swatches that can be "no colour" (`Val::Text("none")`).
+    pub nullable: Vec<&'static str>,
 }
 
 const WHITE: Rgba = Rgba(255, 255, 255, 255);
@@ -244,6 +254,7 @@ impl Form {
             frame: [0.0; 4],
             ticks: Vec::new(),
             all: false,
+            nullable: Vec::new(),
         }
     }
 
@@ -466,6 +477,10 @@ impl Form {
                         self.set("panel", Val::Pick(k));
                         return FormOut::Button("panel");
                     }
+                    Some(Ctl::Tab { .. }) => {
+                        self.set("tab", Val::Pick(k));
+                        return FormOut::Button("tab");
+                    }
                     Some(Ctl::ListBox { id, .. }) => {
                         let id = *id;
                         self.set(id, Val::Pick(k + 1));
@@ -503,9 +518,16 @@ impl Form {
                         FormOut::Changed
                     }
                     Ctl::Swatch { id, .. } => {
+                        let none = matches!(self.vals.get(id), Some(Val::Text(t)) if t == "none");
                         let now = self.color(id);
                         let at = SWATCHES.iter().position(|c| *c == now).unwrap_or(0);
-                        self.set(id, Val::Color(SWATCHES[(at + 1) % SWATCHES.len()]));
+                        if none {
+                            self.set(id, Val::Color(SWATCHES[0]));
+                        } else if at + 1 == SWATCHES.len() && self.nullable.contains(&id) {
+                            self.set(id, Val::Text("none".into()));
+                        } else {
+                            self.set(id, Val::Color(SWATCHES[(at + 1) % SWATCHES.len()]));
+                        }
                         FormOut::Changed
                     }
                     Ctl::Button { id, .. } | Ctl::Link { id, .. } | Ctl::Icon { id, .. } => {
@@ -1152,7 +1174,39 @@ impl Form {
                         b[3] - 2.0,
                         Rgba(c[0], c[1], c[2], 255),
                     );
+                    if matches!(self.vals.get(*id), Some(Val::Text(t)) if t == "none") {
+                        // No colour (round 11, our own mark): white with a red diagonal.
+                        p.fill_rect(b[0] + 1.0, b[1] + 1.0, b[2] - 2.0, b[3] - 2.0, WHITE);
+                        p.path(
+                            &[
+                                PathSeg::M(b[0] + q(3.0), b[1] + b[3] - q(3.0)),
+                                PathSeg::L(b[0] + b[2] - q(3.0), b[1] + q(3.0)),
+                            ],
+                            None,
+                            Some((Rgba(0xE0, 0x20, 0x20, 255), (1.5 * s).max(1.0))),
+                        );
+                    }
                     hits.push((b, Hit::Ctl(i)));
+                }
+                Ctl::Tab { k, x, w: tw, label } => {
+                    // Measured on the reference's field Properties (125 %): tab boxes 1 px
+                    // #E0E0E0 from y 45 to the page frame at y 72, labels centred at y 58.
+                    let shown = self.pick("tab") == *k;
+                    let bx = [x0 + q(*x), y0 + q(45.0), q(*tw), q(28.0)];
+                    if shown {
+                        let edge = Rgba(0xE0, 0xE0, 0xE0, 255);
+                        p.fill_rect(bx[0], bx[1], bx[2], bx[3] + 1.0, edge);
+                        p.fill_rect(bx[0] + 1.0, bx[1] + 1.0, bx[2] - 2.0, bx[3] + 1.0, WHITE);
+                    }
+                    let lw = est(label);
+                    p.text(
+                        label,
+                        (bx[0] + (bx[2] - lw) / 2.0).round(),
+                        (y0 + q(58.0) - th / 2.0).round(),
+                        text,
+                        INK,
+                    );
+                    hits.push((bx, Hit::Item(i, *k)));
                 }
                 Ctl::Slider { id, r } => {
                     let b = at(*r);

@@ -196,6 +196,8 @@ pub(crate) struct Editing {
     pub reflow: bool,
     /// Round 10: Edit Object ▾ picks only this kind (All: `None`).
     pub filter10: Option<ObjectKind>,
+    /// Round 11: text boxes framed while Edit Text is on, per page (edit count, boxes).
+    pub frames11: std::collections::HashMap<usize, (u32, Vec<[f32; 4]>)>,
 }
 
 fn inside(r: [f32; 4], x: f32, y: f32) -> bool {
@@ -1250,6 +1252,7 @@ impl Editing {
         tool: EditTool,
         caret_on: bool,
     ) {
+        self.paint_frames11(p, v, tool);
         let Some(page) = self.page else { return };
         // Selections are drawn in the reference's selection blue, not the app accent.
         let _ = accent;

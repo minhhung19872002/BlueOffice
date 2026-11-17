@@ -39,6 +39,7 @@ mod exchange_data;
 mod extract;
 mod fallback;
 mod field_detect;
+mod field_props;
 mod filters;
 mod font;
 mod font_subset;
@@ -62,6 +63,7 @@ mod paragraph_push;
 mod sanitize;
 mod security10;
 mod sfnt;
+mod shapes11;
 mod sigappear;
 mod store;
 mod templates;
@@ -91,6 +93,10 @@ pub use edit::{Cipher, Permissions, SaveOptions};
 pub use exchange::SummaryLabels;
 pub use exchange_data::ImportReport;
 pub use extract::ExtractedImage;
+pub use field_props::{
+    format_example, format_scripts, FieldAction, FieldActionKind, FieldCalc, FieldFormat,
+    FieldProps, FieldValidate, CALC_OPS, DATE_FORMATS, FIELD_FONTS, TRIGGERS,
+};
 pub use forms::{FieldKind, FormField};
 pub use forms11::{
     calc_text, parse_simple_calculate, typed_outline, typed_outline_in, typed_width, Calculation,
@@ -112,6 +118,7 @@ pub use paragraph::{text_blocks, Align, BlockEdit, RunStyle, StyleChange, TextBl
 pub use paragraph_push::PushMode;
 pub use sanitize::{ButtonAction, HiddenCounts, HiddenData};
 pub use security10::SecurityInfo;
+pub use shapes11::ShapeStyle;
 pub use sigappear::{signature_appearance, SignatureLook};
 pub use templates::EmbeddedFile;
 pub use text::TextLayer;

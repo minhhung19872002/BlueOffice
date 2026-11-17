@@ -508,6 +508,10 @@ pub struct EditorWindow {
     pub(crate) conv9_settings: crate::editor_conv9b::ConvSettings,
     /// Form field tool.
     pub(crate) design: crate::editor_design::DesignState,
+    /// Field mode selection, tab order and the Properties dialog (round 11).
+    pub(crate) f11: crate::editor_fields11::Fields11,
+    /// Add Shapes grid and the new shapes' style (round 11).
+    pub(crate) s11: crate::editor_shapes11::Shapes11,
     /// Caret shown (blink phase).
     pub(crate) caret_on: bool,
     /// Forms, comments, redaction and signing state.
@@ -600,6 +604,8 @@ impl EditorWindow {
             conv9_settings: crate::editor_conv9b::ConvSettings::default(),
             close_box: None,
             design: crate::editor_design::DesignState::default(),
+            f11: crate::editor_fields11::Fields11::default(),
+            s11: crate::editor_shapes11::Shapes11::default(),
             caret_on: true,
             x: crate::editor_actions::Extras::default(),
             dialog2: None,
@@ -864,6 +870,10 @@ impl EditorWindow {
         if self.backstage_input(&input) {
             return true;
         }
+        if self.shapes11_input(&input) {
+            self.sync();
+            return true;
+        }
         // The command search box keeps the keyboard while its results list is open.
         if self.tools.search_on && matches!(input, Input::Text(_) | Input::Key(..)) {
             used = self.search_input(&input);
@@ -885,7 +895,7 @@ impl EditorWindow {
                 used = self.comment_input(&input);
             }
             if !used && self.design.tool.is_some() && self.r.showing_doc() && !self.organize_on() {
-                used = self.design_input(&input);
+                used = self.fields11_input(&input) || self.design_input(&input);
             }
             if !used && self.tools.tool.is_some() && self.r.showing_doc() && !self.organize_on() {
                 used = self.tools_input(&input);
@@ -1088,6 +1098,7 @@ impl EditorWindow {
             || self.comment_command(cmd)
             || self.edit_tab_command(cmd)
             || self.design_command(cmd)
+            || self.fields11_command(cmd)
             || self.more_command(cmd)
             || self.more2_command(cmd)
             || self.split_command(cmd)
@@ -1958,10 +1969,12 @@ impl EditorWindow {
         self.paint_comment(p);
         self.paint_tw(p);
         self.paint_design(p);
+        self.paint_fields11(p);
         self.paint_tools(p, &Estimate);
         self.paint_format(p);
         self.paint_more_tip(p);
         self.paint_backstage(p);
+        self.paint_shapes11(p);
         // Round 7: every BlueEditor dialog has the reference editor's caption and buttons.
         let (size, scale) = (self.r.window_size(), self.r.ui_scale());
         for d in [

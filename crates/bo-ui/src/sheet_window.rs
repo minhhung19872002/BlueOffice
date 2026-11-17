@@ -760,6 +760,13 @@ impl SheetWindow {
             self.layout_form(text);
             return true;
         }
+        if let Some(n) = id
+            .strip_prefix("pivot.toggle.")
+            .and_then(|n| n.parse().ok())
+        {
+            self.pivot_toggle(n);
+            return true;
+        }
         if id == "watch.add" {
             self.watch_add_selection();
             return true;
@@ -2131,6 +2138,7 @@ impl SheetWindow {
     /// (over the top band).
     pub fn paint_overlay(&self, p: &mut dyn Painter) {
         self.paint_arrows(p);
+        self.paint_pivot_placeholder(p);
         self.paint_invalid_circles(p);
         self.paint_chart_selection(p);
         self.paint_cards(p);

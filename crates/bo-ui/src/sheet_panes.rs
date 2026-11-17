@@ -401,6 +401,7 @@ impl SheetWindow {
                 }
                 Some(true)
             }
+            Input::Press { x, y, .. } if inside(x, y) && self.acc_bar_press(x, y) => Some(true),
             Input::Press { x, y, .. } if inside(x, y) => {
                 let lx = (x - r[0]) / (self.scale / 1.25);
                 let ly = (y - r[1]) / (self.scale / 1.25);
@@ -461,6 +462,61 @@ impl SheetWindow {
             }
         }
         false
+    }
+
+    /// The pane's scroll bar: track (arrows included) and thumb, device pixels; `None` when
+    /// the list fits.
+    pub(super) fn acc_bar(&self) -> Option<([f32; 4], [f32; 4])> {
+        let pane = self.acc.as_ref().filter(|p| p.detail.is_none())?;
+        let r = self.pane_rect();
+        let k = self.scale / 1.25;
+        let view = r[3] / k - 60.0;
+        let max = pane.content - 60.0 - view;
+        if max <= 0.0 {
+            return None;
+        }
+        let w = (19.0 * k).round();
+        let track = [
+            (r[0] + 371.0 * k).round(),
+            (r[1] + 77.0 * k).round(),
+            w,
+            (r[3] - 89.0 * k).round(),
+        ];
+        let room = track[3] - 2.0 * w;
+        let len = (room * view / (pane.content - 60.0))
+            .max(20.0 * k)
+            .min(room);
+        let y = track[1] + w + (room - len) * (pane.scroll / max).clamp(0.0, 1.0);
+        Some((track, [track[0], y.round(), w, len.round()]))
+    }
+
+    /// A press on the pane's scroll bar: arrows move a row, the track pages.
+    fn acc_bar_press(&mut self, x: f32, y: f32) -> bool {
+        let Some((t, th)) = self.acc_bar() else {
+            return false;
+        };
+        if x < t[0] || x >= t[0] + t[2] || y < t[1] || y >= t[1] + t[3] {
+            return false;
+        }
+        let k = self.scale / 1.25;
+        let page = (self.pane_rect()[3] / k - 120.0).max(56.0);
+        let step = if y < t[1] + t[2] {
+            -56.0
+        } else if y >= t[1] + t[3] - t[2] {
+            56.0
+        } else if y < th[1] {
+            -page
+        } else if y >= th[1] + th[3] {
+            page
+        } else {
+            0.0
+        };
+        let view = self.pane_rect()[3] / k - 60.0;
+        if let Some(p) = self.acc.as_mut() {
+            let max = (p.content - 60.0 - view).max(0.0);
+            p.scroll = (p.scroll + step).clamp(0.0, max);
+        }
+        true
     }
 
     /// Scroll the pane's list to `px` reference pixels (scripted captures).
@@ -588,16 +644,31 @@ impl SheetWindow {
             p.push_clip(r[0], r[1] + 60.0 * k, r[2], r[3] - 60.0 * k);
             self.paint_acc_list(p, pane, &|x, y| at(x, y - pane.scroll));
             p.pop_clip();
-            // Scroll thumb when the content is taller than the pane.
-            let view = r[3] / k - 60.0;
-            if pane.content - 60.0 > view {
-                let track = r[3] - 64.0 * k;
-                let len = (track * view / (pane.content - 60.0)).max(20.0 * k);
-                let max = pane.content - 60.0 - view;
-                let y = r[1] + 62.0 * k + (track - len) * (pane.scroll / max).clamp(0.0, 1.0);
-                let x = r[0] + 374.0 * k;
-                p.fill_rect(x, y, 12.0 * k, len, Rgba(0x94, 0x94, 0x94, 255));
-                p.fill_rect(x + 1.0, y + 1.0, 12.0 * k - 2.0, len - 2.0, WHITE);
+            // The reference's classic scroll bar on the pane's right edge (measured: x 371,
+            // 19 px wide, from y 77 to 12 px above the bottom): arrow boxes and a thumb
+            // framed #949494 on a white track.
+            if let Some((track, thumb)) = self.acc_bar() {
+                let edge = Rgba(0x94, 0x94, 0x94, 255);
+                let [x, y0, w, h] = track;
+                p.fill_rect(x, y0, w, h, edge);
+                p.fill_rect(x + 1.0, y0 + 1.0, w - 2.0, h - 2.0, WHITE);
+                p.fill_rect(x, thumb[1], w, thumb[3], edge);
+                p.fill_rect(x + 2.0, thumb[1] + 1.0, w - 4.0, thumb[3] - 2.0, WHITE);
+                let a = 3.5 * k;
+                let cx = x + w / 2.0;
+                for (cy, up) in [(y0 + w / 2.0, true), (y0 + h - w / 2.0, false)] {
+                    let d = if up { -a } else { a };
+                    p.path(
+                        &[
+                            PathSeg::M(cx - a, cy - d / 2.0),
+                            PathSeg::L(cx + a, cy - d / 2.0),
+                            PathSeg::L(cx, cy + d / 2.0),
+                            PathSeg::Z,
+                        ],
+                        Some(INK),
+                        None,
+                    );
+                }
             }
         }
         p.pop_clip();
@@ -1005,7 +1076,7 @@ impl SheetWindow {
         // Toolbar: Add Watch… (an own eye-and-plus mark), Delete Watch (dim without a row).
         let ui = self.style(14.0 / 1.1 * 1.0, false);
         let ui = TextStyle {
-            size: self.d(19.0 / 1.1),
+            size: self.d(16.0 / 1.1),
             ..ui
         };
         let (ax, ay) = at(36.0, 55.0);
@@ -1037,7 +1108,7 @@ impl SheetWindow {
             ("sheetFn.colFormula", "Formula"),
         ];
         let list = TextStyle {
-            size: self.d(17.0 / 1.1),
+            size: self.d(14.5 / 1.1),
             bold: false,
         };
         for (i, (key, d)) in cols.iter().enumerate() {

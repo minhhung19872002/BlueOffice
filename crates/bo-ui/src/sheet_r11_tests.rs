@@ -128,6 +128,20 @@ fn function_arguments_show_live_values_grow_and_write_the_formula() {
         w.fnargs.as_ref().map(|s| s.args[..2].to_vec()),
         Some(vec!["A1:A3".to_owned(), "B1".to_owned()])
     );
+    // The first box opens with its text selected: typing replaces it; the help is our own
+    // text for this function's argument.
+    assert!(w.form.as_ref().is_some_and(form_impl::Form::all_selected));
+    type_into(&mut w, "A2");
+    assert_eq!(
+        w.fnargs.as_ref().map(|s| s.args[0].clone()),
+        Some("A2".into())
+    );
+    let help = w
+        .fnargs
+        .as_ref()
+        .map(|s| w.fnargs_help(s))
+        .unwrap_or_default();
+    assert!(help.contains("added up"), "{help}");
 }
 
 #[test]

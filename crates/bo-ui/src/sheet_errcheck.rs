@@ -89,20 +89,17 @@ impl SheetWindow {
             [18.0, 110.0, 377.0, 110.0],
             Kind::Group(String::new()),
         );
-        f.add(
-            "desc",
-            None,
-            [28.0, 130.0, 355.0, 80.0],
-            Kind::Note(String::new()),
-        );
+        for (i, id) in ["desc", "desc2", "desc3"].into_iter().enumerate() {
+            f.add(
+                id,
+                None,
+                [28.0, 130.0 + 21.0 * i as f32, 355.0, 20.0],
+                Kind::Label(String::new()),
+            );
+        }
         let buttons = [
             ("help", "sheetFn.errHelp", "Help on this Error", 57.0),
-            (
-                "steps",
-                "sheetFn.errSteps",
-                "Show Calculation Steps...",
-                96.0,
-            ),
+            ("steps", "sheetFn.errSteps", "Show Calculation Steps", 96.0),
             ("ignore", "sheetFn.errIgnore", "Ignore Error", 135.0),
             ("edit", "sheetFn.errEdit", "Edit in Formula Bar", 174.0),
         ];
@@ -194,11 +191,23 @@ impl SheetWindow {
             if let Some(Kind::Label(s)) = f.get_mut("formula").map(|c| &mut c.kind) {
                 *s = input;
             }
-            if let Some(Kind::Note(s)) = f.get_mut("desc").map(|c| &mut c.kind) {
-                *s = desc;
+            // Wrapped at about 52 characters, as the reference's box shows it.
+            let mut lines: Vec<String> = Vec::new();
+            for w in desc.split_whitespace() {
+                match lines.last_mut() {
+                    Some(l) if l.chars().count() + 1 + w.chars().count() <= 52 => {
+                        l.push(' ');
+                        l.push_str(w);
+                    }
+                    _ => lines.push(w.to_owned()),
+                }
             }
-            f.enable("prev", !first);
-            f.enable("next", !last);
+            for (i, id) in ["desc", "desc2", "desc3"].into_iter().enumerate() {
+                if let Some(Kind::Label(s)) = f.get_mut(id).map(|c| &mut c.kind) {
+                    *s = lines.get(i).cloned().unwrap_or_default();
+                }
+            }
+            let _ = (first, last);
         }
     }
 
@@ -212,11 +221,12 @@ impl SheetWindow {
             Event::Clicked("next" | "prev") => {
                 let fwd = *ev == Event::Clicked("next");
                 if let Some(st) = self.errc.as_mut() {
-                    if fwd && st.at + 1 < st.list.len() {
-                        st.at += 1;
-                    } else if !fwd && st.at > 0 {
-                        st.at -= 1;
-                    }
+                    let n = st.list.len().max(1);
+                    st.at = if fwd {
+                        (st.at + 1) % n
+                    } else {
+                        (st.at + n - 1) % n
+                    };
                 }
                 self.err_show();
             }

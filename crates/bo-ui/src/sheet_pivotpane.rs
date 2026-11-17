@@ -450,6 +450,87 @@ impl SheetWindow {
         p.pop_clip();
     }
 
+    /// An empty pivot table (no field chosen yet) shows a placeholder over its cells, as the
+    /// reference: a framed box three columns by eighteen rows with the report's name and
+    /// "To build a report, choose fields from the PivotTable Field List".
+    pub(super) fn paint_pivot_placeholder(&self, p: &mut dyn Painter) {
+        let Some(pane) = &self.pivot else {
+            return;
+        };
+        if pane.sheet != self.view.sheet()
+            || !(pane.rows.is_empty()
+                && pane.cols.is_empty()
+                && pane.values.is_empty()
+                && pane.filters.is_empty())
+        {
+            return;
+        }
+        let Some((r, c, name)) = self
+            .view
+            .engine()
+            .workbook()
+            .and_then(|wb| wb.sheets.get(pane.sheet))
+            .and_then(|ws| ws.pivots.get(pane.index))
+            .map(|pt| {
+                (
+                    pt.location.first.row,
+                    pt.location.first.col,
+                    pt.name.clone(),
+                )
+            })
+        else {
+            return;
+        };
+        let (Some(a), Some(b)) = (
+            self.view.cell_rect(r, c),
+            self.view.cell_rect(r + 17, c + 2),
+        ) else {
+            return;
+        };
+        let k = self.scale / 1.25;
+        let [fx, fy, fw, fh] = self.view.grid_frame();
+        p.push_clip(fx, fy, fw, fh);
+        let (x0, y0, x1, y1) = (a[0], a[1], b[0] + b[2], b[1] + b[3]);
+        p.fill_rect(x0, y0, x1 - x0, y1 - y0, Rgba(0xA6, 0xA6, 0xA6, 255));
+        p.fill_rect(x0 + 1.0, y0 + 1.0, x1 - x0 - 2.0, y1 - y0 - 2.0, WHITE);
+        let ts = TextStyle {
+            size: 15.0 * k / 1.1,
+            bold: false,
+        };
+        let center = |s: &str| x0 + ((x1 - x0) - s.chars().count() as f32 * ts.size * 0.5) / 2.0;
+        // The name in a small framed box.
+        let (bw, bh) = (180.0 * k, 26.0 * k);
+        let (bx, by) = (x0 + ((x1 - x0) - bw) / 2.0, y0 + 30.0 * k);
+        p.fill_rect(bx, by, bw, bh, Rgba(0x80, 0x80, 0x80, 255));
+        p.fill_rect(bx + 1.0, by + 1.0, bw - 2.0, bh - 2.0, WHITE);
+        p.text(
+            &name,
+            center(&name),
+            by + 3.0 * k,
+            ts,
+            Rgba(0x80, 0x80, 0x80, 255),
+        );
+        let msg = self.t(
+            "sheetPivot.placeholder",
+            "To build a report, choose fields from the PivotTable Field List",
+        );
+        let words: Vec<&str> = msg.split_whitespace().collect();
+        let half = words.len().div_ceil(2);
+        for (i, line) in [words[..half].join(" "), words[half..].join(" ")]
+            .iter()
+            .enumerate()
+        {
+            p.text(
+                line,
+                center(line),
+                by + bh + (12.0 + 24.0 * i as f32) * k,
+                ts,
+                INK,
+            );
+        }
+        p.pop_clip();
+    }
+
     /// Own marks before the area captions: a funnel, columns, rows, a sigma.
     fn paint_area_mark(p: &mut dyn Painter, area: usize, (x, y): (f32, f32), k: f32) {
         let ink = Rgba(0x6E, 0x6E, 0x6E, 255);
@@ -517,7 +598,9 @@ impl SheetWindow {
             (513.0, 416.0),
             vec![],
         );
-        f.set_font_scale(1.15);
+        f.set_font_scale(1.3);
+        // The newer dialogs' white face (as Insert Hyperlink, round 49).
+        f.add("face", None, [0.0, 38.0, 513.0, 378.0], Kind::Canvas);
         let edit = |s: &str| Kind::Edit {
             value: s.chars().collect(),
             caret: s.chars().count(),
@@ -608,7 +691,7 @@ impl SheetWindow {
         if let Some(c) = f.get_mut("cancel") {
             c.rect = [425.0, 362.0, 71.0, 35.0];
         }
-        f.focus("table");
+        f.select_all("table");
         self.form = Some(f);
         self.form_kind = FormKind::PivotNew;
         true

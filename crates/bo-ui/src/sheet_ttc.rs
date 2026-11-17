@@ -816,6 +816,7 @@ impl SheetWindow {
         // a filled OK and a grey Cancel button (97 × 35 px).
         let t = |k: &str, f: &str| self.t(k, f);
         let mut f = Form::new("", (CONFIRM.0, CONFIRM.1), vec![]);
+        f.set_font_scale(1.25);
         f.add("face", None, [0.0, 0.0, CONFIRM.0, CONFIRM.1], Kind::Canvas);
         f.add("head", None, [33.0, 36.0, 300.0, 40.0], Kind::Canvas);
         f.add("warn", None, [34.0, 104.0, 42.0, 42.0], Kind::Canvas);

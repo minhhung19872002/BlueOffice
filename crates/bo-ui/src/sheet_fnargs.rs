@@ -276,7 +276,8 @@ impl SheetWindow {
         self.fnargs = Some(st);
         self.fnargs_show();
         if let Some(f) = self.form.as_mut() {
-            f.focus("a0");
+            // The first box opens with its text selected, as the reference's.
+            f.select_all("a0");
         }
         true
     }
@@ -503,8 +504,25 @@ impl SheetWindow {
     }
 
     /// Help line of the focused argument (our own wording from its name and kind).
-    fn fnargs_help(&self, st: &FnArgs) -> String {
+    pub(super) fn fnargs_help(&self, st: &FnArgs) -> String {
         let name = st.param_name(st.focus);
+        // Our own help for the argument: of this function first, then of any argument
+        // with that name (`sheetFnArg.SUM_number`, `sheetFnArg.number`).
+        let base = name.trim_end_matches(|c: char| c.is_ascii_digit());
+        for key in [
+            format!("sheetFnArg.{}_{base}", st.name.replace('.', "_")),
+            format!("sheetFnArg.{base}"),
+        ] {
+            let s = self.t(&key, "");
+            if !s.is_empty() {
+                let optional = if st.required(st.focus) {
+                    String::new()
+                } else {
+                    format!(" {}", self.t("sheetFn.optional", "(Optional.)"))
+                };
+                return format!("{s}{optional}");
+            }
+        }
         let kind = self.t(
             &format!("sheetFn.type_{}", type_hint(&name)),
             type_hint(&name),

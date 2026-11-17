@@ -225,6 +225,9 @@ pub(super) struct Form {
     /// Height of the tab page frame (reference pixels) when it does not reach the
     /// buttons' band (Find and Replace with its Find All list below).
     pub page_h: Option<f32>,
+    /// The edit box (control index) whose whole text is selected: typing replaces it
+    /// (opened with the text selected, or reached by Tab, as Windows dialogs do).
+    all: Option<usize>,
     pub ctls: Vec<Ctl>,
     focus: Option<usize>,
     /// Open drop-down list (control index) and its highlighted item.
@@ -333,6 +336,7 @@ impl Form {
             pos: None,
             masked: Vec::new(),
             page_h: None,
+            all: None,
         }
     }
 
@@ -655,6 +659,24 @@ impl Form {
     /// Focus control `id`.
     pub fn focus(&mut self, id: &str) {
         self.focus = self.index(id);
+        self.all = None;
+    }
+
+    /// Focus edit box `id` with its whole text selected.
+    pub fn select_all(&mut self, id: &str) {
+        self.focus = self.index(id);
+        self.all = self.focus.filter(
+            |i| matches!(&self.ctls[*i].kind, Kind::Edit { value, .. } if !value.is_empty()),
+        );
+        if let Some(Kind::Edit { value, caret }) = self.focus.map(|i| &mut self.ctls[i].kind) {
+            *caret = value.len();
+        }
+    }
+
+    /// The focused box's text is selected as a whole (tests).
+    #[cfg(test)]
+    pub fn all_selected(&self) -> bool {
+        self.all.is_some() && self.all == self.focus
     }
 
     /// Centre in a window of `size` device pixels at display `scale`.
@@ -881,6 +903,7 @@ impl Form {
             return Event::None;
         };
         self.focus = Some(i);
+        self.all = None;
         let c = &mut self.ctls[i];
         let id = c.id;
         let r = c.rect;
@@ -981,8 +1004,13 @@ impl Form {
             return Event::None;
         };
         let id = self.ctls[i].id;
+        let replace = self.all.take() == Some(i);
         match &mut self.ctls[i].kind {
             Kind::Edit { value, caret } => {
+                if replace {
+                    value.clear();
+                    *caret = 0;
+                }
                 for ch in s.chars().filter(|c| !c.is_control()) {
                     value.insert(*caret, ch);
                     *caret += 1;
@@ -1095,6 +1123,14 @@ impl Form {
                     }
                 }
                 self.focus = Some(i);
+                self.all =
+                    matches!(&self.ctls[i].kind, Kind::Edit { value, .. } if !value.is_empty())
+                        .then_some(i);
+                if let Some(Kind::Edit { value, caret }) =
+                    self.focus.map(|i| &mut self.ctls[i].kind)
+                {
+                    *caret = value.len();
+                }
                 return Event::None;
             }
             Key::Escape => return Event::Cancel,
@@ -1109,8 +1145,17 @@ impl Form {
         };
         let id = self.ctls[i].id;
         let rows = ((self.ctls[i].rect[3] - 4.0) / ROW_H).floor().max(1.0) as usize;
+        let all = self.all.take() == Some(i);
         match &mut self.ctls[i].kind {
             Kind::Edit { value, caret } => {
+                if all && matches!(key, Key::Backspace | Key::Delete) {
+                    value.clear();
+                    *caret = 0;
+                    return Event::Changed(id);
+                }
+                if all && key == Key::Enter {
+                    self.all = Some(i);
+                }
                 match key {
                     Key::Left => *caret = caret.saturating_sub(1),
                     Key::Right => *caret = (*caret + 1).min(value.len()),
@@ -1383,9 +1428,21 @@ impl Form {
                             );
                             p.text_font(hint, tx, text_y(r), &font, ink);
                         }
+                        _ if focused && self.all == Some(i) && !s.is_empty() => {
+                            // Whole text selected: white on the selection blue.
+                            let w = self.width(&s);
+                            p.fill_rect(
+                                tx,
+                                text_y(r),
+                                w,
+                                font.size * 1.33,
+                                Rgba(0x00, 0x78, 0xD7, 255),
+                            );
+                            p.text_font(&s, tx, text_y(r), &font, WHITE);
+                        }
                         _ => p.text_font(&s, tx, text_y(r), &font, ink),
                     }
-                    if focused && caret_on {
+                    if focused && caret_on && self.all != Some(i) {
                         let cx = (tx + self.caret_w).round();
                         p.fill_rect(cx, r[1] + 4.0 * self.k, 1.0, r[3] - 8.0 * self.k, INK);
                     }

@@ -48,7 +48,7 @@ impl SheetWindow {
         self.find_state = st;
         self.find_form();
         if let Some(f) = self.form.as_mut() {
-            f.focus("what");
+            f.select_all("what");
         }
         true
     }

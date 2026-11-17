@@ -23,7 +23,7 @@ const EDITOR_ACCENT_TEXT: Rgba = Rgba(0xA8, 0x4A, 0x05, 255);
 pub const EDITOR_TITLE: Rgba = Rgba(0x2F, 0x3E, 0x5C, 255);
 
 /// Ribbon tabs after File.
-const TABS: [&str; 9] = [
+pub(crate) const TABS: [&str; 9] = [
     "pdfReader.tabs.home",
     "pdfEditor.tabs.convert",
     "pdfEditor.tabs.edit",
@@ -381,6 +381,8 @@ fn ribbon(tab: usize) -> Vec<(&'static str, Kind)> {
             ),
             ("sep6", Sep),
         ]),
+        // Round 9: the contextual Combine Files tab.
+        9 => v = crate::editor_combine9::ribbon_items(),
         _ => {
             v.clear();
             v.push(("help.about", Big("info", "pdfReader.about", false)));
@@ -542,6 +544,8 @@ pub struct EditorWindow {
     pub(crate) clip_insert9: bool,
     /// Files of Combine Files (`editor_combine9`).
     pub(crate) combine9: Vec<crate::editor_combine9::CombineItem>,
+    /// The Combine Files tab while it is open (round 9).
+    pub(crate) comb9: Option<crate::editor_combine9::Comb9>,
     /// Form field tool.
     pub(crate) design: crate::editor_design::DesignState,
     /// Caret shown (blink phase).
@@ -630,6 +634,7 @@ impl EditorWindow {
             org9_update: None,
             clip_insert9: false,
             combine9: Vec::new(),
+            comb9: None,
             close_box: None,
             design: crate::editor_design::DesignState::default(),
             caret_on: true,
@@ -734,7 +739,10 @@ impl EditorWindow {
 
     /// The page grid is shown.
     pub fn organize_on(&self) -> bool {
-        self.r.showing_doc() && self.r.ribbon_tab() == TAB_ORGANIZE
+        // Round 9: with the Crop Pages tool the page itself shows, to draw the crop box on.
+        self.r.showing_doc()
+            && self.r.ribbon_tab() == TAB_ORGANIZE
+            && self.tools.tool != Some(crate::editor_tools::BoxTool::Crop)
     }
 
     /// The editing tool in use.
@@ -878,6 +886,10 @@ impl EditorWindow {
             }
         }
         if self.portfolio_input(&input) {
+            self.sync();
+            return true;
+        }
+        if self.combine9_input(&input, m) {
             self.sync();
             return true;
         }
@@ -1099,6 +1111,7 @@ impl EditorWindow {
             return;
         }
         if self.org9_command(cmd)
+            || self.combine9_command(cmd)
             || self.conv9_command(cmd)
             || self.dlg8_command(cmd)
             || self.action(cmd, m)
@@ -1754,6 +1767,13 @@ impl EditorWindow {
         for id in ["ed.scanner", "ed.ocr"] {
             self.r.enabled_override.insert(id, false);
         }
+        if self.comb9.is_some() {
+            for (id, _) in crate::editor_combine9::ribbon_items() {
+                if let Some(on) = self.combine9_enabled(id) {
+                    self.r.enabled_override.insert(id, on);
+                }
+            }
+        }
         // Round 4: commands shown grey with a tooltip; the reader's Time Stamp works here.
         for (id, _) in crate::editor_more::NOT_OFFERED
             .iter()
@@ -1794,6 +1814,7 @@ impl EditorWindow {
                 B::Shape(_) => "ed.addShapes",
                 B::Whiteout => "prot.whiteout",
                 B::Join => "ed.linkJoin",
+                B::Crop => "org.crop",
             });
         }
         if self.tools.reflow {
@@ -1946,6 +1967,10 @@ impl EditorWindow {
                 self.org.paint(p, v, base, &labels, self.r.theme());
             }
             // Round 8: a ribbon menu stays over the page grid (it was cut at the tabs).
+            self.r.paint_open_menu(p);
+        }
+        if self.comb9.is_some() {
+            self.paint_combine9(p);
             self.r.paint_open_menu(p);
         }
         if let Some(tool) = self.tool {

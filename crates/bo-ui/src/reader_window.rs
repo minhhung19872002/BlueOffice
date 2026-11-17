@@ -3892,3 +3892,38 @@ impl ReaderWindow {
         }
     }
 }
+
+/// BlueEditor round 9: a contextual ribbon tab and the document tab rectangles (Combine
+/// Files shown as its own tab, as in the reference editor).
+impl ReaderWindow {
+    /// Add (`Some`) or take away (`None`) a last ribbon tab of a product profile; with `show`
+    /// that tab becomes the selected one.
+    pub(crate) fn set_context_tab9(
+        &mut self,
+        base: &[&'static str],
+        extra: Option<&'static str>,
+        show: bool,
+        m: &dyn TextMeasure,
+    ) {
+        if let Some(p) = &mut self.profile {
+            p.tabs = base.to_vec();
+            p.tabs.extend(extra);
+            let n = p.tabs.len();
+            if extra.is_none() && self.ribbon_tab >= n {
+                self.ribbon_tab = 0;
+            }
+            if show && extra.is_some() {
+                self.ribbon_tab = n - 1;
+            }
+        }
+        self.relayout(m);
+    }
+
+    /// The Start tab and the document tabs as last painted (x, y, w, h).
+    pub(crate) fn doc_tab_rects9(&self) -> ([f32; 4], Vec<[f32; 4]>) {
+        (
+            self.start_tab,
+            self.doc_tab_rects.iter().map(|(r, _)| *r).collect(),
+        )
+    }
+}

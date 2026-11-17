@@ -288,19 +288,26 @@ fn update_replaces_the_watermark_with_the_last_values() {
 }
 
 #[test]
-fn combine_files_lists_ranges_reorders_and_makes_a_new_document() {
+fn combine_files_tab_lists_ranges_reorders_and_makes_a_new_document() {
     use crate::editor_form8::Val;
     use crate::reader_window::ReaderRequest;
     let mut w = window(3);
     w.run("conv.combine", &Fixed);
     assert_eq!(w.combine9.len(), 1, "the open document comes first");
+    // A contextual ribbon tab and a document tab, as the reference.
+    assert_eq!(w.r.ribbon_tab(), crate::editor_window::TABS.len());
+    assert!(w.combine9_shown());
     let t = paint(&mut w).texts;
     for l in [
         "Combine Files",
-        "Add Files...",
-        "Move Up",
+        "Add",
+        "Move",
         "Page Range",
+        "Bookmark for File",
+        "Warnings/Errors",
         "ALL",
+        "Combine",
+        "Cancel",
     ] {
         assert!(t.iter().any(|x| x == l), "{l}: {t:?}");
     }
@@ -311,19 +318,21 @@ fn combine_files_lists_ranges_reorders_and_makes_a_new_document() {
         &crate::editor_tests::pdf(2),
     );
     assert_eq!(w.combine9.len(), 2);
-    assert_eq!(w.form8.last().expect("dialog").0.pick("row"), 1);
-    // Its range: page 2 only; then it moves up to the top.
+    assert_eq!(w.comb9.as_ref().expect("tab").row, 1);
+    // Its range: page 2 only (Enter asks for it); then it moves up to the top.
+    paint(&mut w);
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
     w.form8
         .last_mut()
-        .expect("dialog")
+        .expect("page range")
         .0
         .set("c9range", Val::Text("2".into()));
-    w.combine9_button("c9set");
-    assert_eq!(w.combine9[1].range, "2");
-    w.combine9_button("c9up");
-    assert_eq!(w.combine9[0].name, "two.pdf");
-    assert_eq!(w.form8.last().expect("dialog").0.pick("row"), 0);
     w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert_eq!(w.combine9[1].range, "2");
+    w.run("comb9.up", &Fixed);
+    assert_eq!(w.combine9[0].name, "two.pdf");
+    assert_eq!(w.comb9.as_ref().expect("tab").row, 0);
+    w.run("comb9.combine", &Fixed);
     let req = w.take_requests();
     let Some(ReaderRequest::OpenDocument { bytes, .. }) = req.into_iter().next() else {
         panic!("no new document");
@@ -339,7 +348,8 @@ fn combine_files_lists_ranges_reorders_and_makes_a_new_document() {
         .iter()
         .any(|c| matches!(c, bo_render::Command::Glyphs { text, .. } if text.contains("Page 2"))));
     assert!(w.combine9.is_empty());
-    assert!(w.form8.is_empty());
+    assert!(w.comb9.is_none());
+    assert!(w.r.ribbon_tab() < crate::editor_window::TABS.len());
 }
 
 #[test]
@@ -347,6 +357,9 @@ fn set_page_dimensions_has_the_reference_layout_and_removes_white_margins() {
     use crate::editor_form8::Val;
     let mut w = organize(2);
     w.run("org.crop", &Fixed);
+    // The Crop Pages tool shows the page; a click opens the dialog.
+    assert!(!w.organize_on());
+    crate::editor_tools_tests::drag(&mut w, 0, [100.0, 100.0, 101.0, 101.0]);
     let t = paint(&mut w).texts;
     for l in [
         "Set Page Dimensions",
@@ -527,4 +540,35 @@ fn convert_menus_have_the_reference_rows_and_write_tiff_bmp_rtf() {
     for l in ["PNG...", "JPEG...", "JPEG2000...", "TIFF...", "BMP..."] {
         assert!(t.iter().any(|x| x == l), "{l}: {t:?}");
     }
+}
+
+#[test]
+fn crop_tool_box_fills_the_margins_and_change_page_size_resizes() {
+    use crate::editor_form8::Val;
+    let mut w = organize(2);
+    w.run("org.crop", &Fixed);
+    // A box 1 inch in from the left and top, 3 from the right, 4 from the bottom.
+    crate::editor_tools_tests::drag(&mut w, 0, [72.0, 72.0, 396.0, 504.0]);
+    {
+        let f = &w.form8.last().expect("Set Page Dimensions").0;
+        let v: Vec<String> = ["left", "top", "right", "bottom"]
+            .iter()
+            .map(|s| f.text(s))
+            .collect();
+        assert_eq!(v, ["1.00", "1.00", "3.00", "4.00"]);
+        assert_eq!(f.pick("size"), 0);
+    }
+    // Fixed Size A4 for page 1 only, no cropping.
+    {
+        let f = &mut w.form8.last_mut().expect("dialog").0;
+        for s in ["left", "top", "right", "bottom"] {
+            f.set(s, Val::Text("0".into()));
+        }
+        f.set("fixed", Val::Pick(1));
+    }
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    let d = w.view().expect("view").doc();
+    let p = d.page_info(0).expect("p");
+    assert!((p.width - 595.28).abs() < 0.5 && (p.height - 841.89).abs() < 0.5);
+    assert!((d.page_info(1).expect("p").width - 612.0).abs() < 0.1);
 }

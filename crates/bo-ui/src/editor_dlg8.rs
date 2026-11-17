@@ -1590,11 +1590,8 @@ impl EditorWindow {
     }
 
     fn form8_button(&mut self, id: &'static str) {
-        if self.combine9_button(id) || self.crop9_button(id) || self.pages9_button(id) {
+        if self.crop9_button(id) || self.pages9_button(id) {
             return;
-        }
-        if id == "cancel" && matches!(self.form8.last(), Some((_, FormWhat::Combine9))) {
-            self.combine9_cancel();
         }
         let Some((f, what)) = self.form8.last_mut() else {
             return;

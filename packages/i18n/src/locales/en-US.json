@@ -12737,6 +12737,19 @@
     "lossy": "Lossy",
     "onlySmaller": "Compress images only if there is a reduction in size",
     "toLabelOpt": "to",
-    "showPreview": "Show Preview"
+    "showPreview": "Show Preview",
+    "c9AddFiles": "Add Files",
+    "c9AddFolder": "Add Folder",
+    "c9AddWeb": "Add WebPage",
+    "c9AddScanner": "Add PDF from Scanner",
+    "c9AddClipboard": "Add From Clipboard",
+    "c9AddOpen": "Add Open Files",
+    "c9Settings": "Settings",
+    "colOperation": "Operation",
+    "colModified": "Modified",
+    "colBookmark": "Bookmark for File",
+    "colBates": "Bates Numbering",
+    "colWarnings": "Warnings/Errors",
+    "colLocation": "Location"
   }
 }

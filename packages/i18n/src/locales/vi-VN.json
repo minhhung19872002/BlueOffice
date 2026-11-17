@@ -12737,6 +12737,19 @@
     "lossy": "Có mất mát",
     "onlySmaller": "Chỉ nén ảnh khi nhỏ đi",
     "toLabelOpt": "đến",
-    "showPreview": "Xem trước"
+    "showPreview": "Xem trước",
+    "c9AddFiles": "Thêm tệp",
+    "c9AddFolder": "Thêm thư mục",
+    "c9AddWeb": "Thêm trang web",
+    "c9AddScanner": "Thêm PDF từ máy quét",
+    "c9AddClipboard": "Thêm từ bộ nhớ tạm",
+    "c9AddOpen": "Thêm tệp đang mở",
+    "c9Settings": "Thiết lập",
+    "colOperation": "Thao tác",
+    "colModified": "Sửa đổi",
+    "colBookmark": "Dấu trang cho tệp",
+    "colBates": "Đánh số Bates",
+    "colWarnings": "Cảnh báo/Lỗi",
+    "colLocation": "Vị trí"
   }
 }

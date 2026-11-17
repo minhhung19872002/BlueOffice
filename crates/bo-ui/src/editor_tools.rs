@@ -28,6 +28,8 @@ pub(crate) enum BoxTool {
     Join,
     /// Whiteout: a white box drawn into the page content.
     Whiteout,
+    /// Crop Pages (round 9): the drawn box fills in Set Page Dimensions.
+    Crop,
 }
 
 /// What a dialog of this module asks.
@@ -246,6 +248,7 @@ impl EditorWindow {
             "ed.add3d" => Some(BoxTool::Model3d),
             "ed.linkJoin" => Some(BoxTool::Join),
             "prot.whiteout" => Some(BoxTool::Whiteout),
+            "org.crop" => Some(BoxTool::Crop),
             "ed.shape.rect" => shape(ShapeKind::Rectangle),
             "ed.shape.rounded" => shape(ShapeKind::RoundedRectangle),
             "ed.shape.ellipse" => shape(ShapeKind::Ellipse),
@@ -471,6 +474,14 @@ impl EditorWindow {
                     return false;
                 };
                 let mut r = norm(a, b);
+                if tool == BoxTool::Crop {
+                    if r[2] - r[0] < 4.0 && r[3] - r[1] < 4.0 {
+                        self.open_crop9();
+                    } else {
+                        self.open_crop9_at(page, r);
+                    }
+                    return true;
+                }
                 if r[2] - r[0] < 4.0 && r[3] - r[1] < 4.0 {
                     // A click: a box of the usual size.
                     let (w, h) = match tool {
@@ -573,7 +584,7 @@ impl EditorWindow {
                 });
                 self.page_done(page, res);
             }
-            BoxTool::Join => {}
+            BoxTool::Join | BoxTool::Crop => {}
         }
     }
 

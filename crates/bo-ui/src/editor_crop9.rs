@@ -1,8 +1,8 @@
 //! BlueEditor round 9: Organize › Crop Pages opens "Set Page Dimensions" laid out as the
 //! reference editor's (black-box at 125 %: 843 × 673 px): Margin Controls (box, Constrain
 //! Proportions, Top / Bottom / Left / Right, Remove White Margins, Set To Zero, Reset), Change
-//! Page Size (shown, not offered: dimmed), Page Range (All Pages / Page: … of N, Crop: all,
-//! even or odd pages of the range), Show All Boxes, Units, a preview of the page with the
+//! Page Size (Fixed Size: None or a standard size; Custom width × height; content centred),
+//! Page Range (All Pages / Page: … of N, Crop: all, even or odd pages of the range), Show All Boxes, Units, a preview of the page with the
 //! crop box, the preview page "1 of N pages" and the cropped page size; OK writes `/CropBox`
 //! (ISO 32000-1 §14.11.2) through `PdfDocument::crop_pages`.
 use crate::editor_dlg8::FormWhat;
@@ -21,17 +21,6 @@ const UNITS: [(&str, f32); 4] = [
 ];
 
 const SIDES: [&str; 4] = ["left", "top", "right", "bottom"];
-
-fn dim_radio(id: &'static str, k: usize, x: f32, y: f32, label: String) -> Ctl {
-    Ctl::Radio {
-        id,
-        k,
-        x,
-        y,
-        label,
-        on: On::Never,
-    }
-}
 
 impl EditorWindow {
     /// Open Set Page Dimensions for the current page (or the pages chosen in the grid).
@@ -103,30 +92,33 @@ impl EditorWindow {
                 On::Always,
             ),
             group(t("pdfEditor9.changePageSize"), [17.0, 309.0, 472.0, 130.0]),
-            dim_radio("size", 0, 29.0, 344.0, t("pdfEditor9.fixedSize")),
+            radio("size", 0, 29.0, 344.0, t("pdfEditor9.fixedSize")),
             combo(
                 "fixed",
                 [197.0, 331.0, 173.0, 26.0],
-                vec![t("pdfEditor9.none")],
-                On::Never,
+                std::iter::once(t("pdfEditor9.none"))
+                    .chain(crate::editor_more::SIZES.iter().map(|s| s.0.to_owned()))
+                    .collect(),
+                On::If("size", 0),
             ),
-            dim_radio("size", 1, 29.0, 380.0, t("pdfEditor9.custom")),
-            rlabel(192.0, 380.0, t("pdfEditor9.width"), On::Never),
+            radio("size", 1, 29.0, 380.0, t("pdfEditor9.custom")),
+            rlabel(192.0, 380.0, t("pdfEditor9.width"), On::If("size", 1)),
             spin(
                 "cw",
                 [197.0, 367.0, 98.0, 26.0],
                 0.01,
                 (0.0, 200.0),
-                On::Never,
+                On::If("size", 1),
             ),
-            rlabel(373.0, 380.0, t("pdfEditor9.height"), On::Never),
+            rlabel(373.0, 380.0, t("pdfEditor9.height"), On::If("size", 1)),
             spin(
                 "ch",
                 [378.0, 367.0, 98.0, 26.0],
                 0.01,
                 (0.0, 200.0),
-                On::Never,
+                On::If("size", 1),
             ),
+            // Content stays centred on the new page size (ticked and dimmed, as the reference).
             Ctl::Check {
                 id: "center",
                 x: 29.0,
@@ -209,10 +201,29 @@ impl EditorWindow {
             .with("ppage", Val::Text(cur.to_string()))
             .with("sizes", Val::Text(sizes.join(";")))
             .with("cropLabel", Val::Text(t("pdfEditor9.croppedSize")));
-        for s in SIDES {
+        for s in SIDES.into_iter().chain(["cw", "ch", "cx", "cy"]) {
             f.set(s, Val::Text("0.00".into()));
         }
+        f.set("size", Val::Pick(0));
+        f.set("fixed", Val::Pick(0));
+        f.set("center", Val::Pick(1));
         self.form8.push((f, FormWhat::Crop9));
+    }
+
+    /// Set Page Dimensions after a rectangle was drawn with the Crop Pages tool: the margins
+    /// are the parts of page `page` outside the rectangle (points, top-down), as the reference
+    /// fills them in.
+    pub(crate) fn open_crop9_at(&mut self, page: usize, r: [f32; 4]) {
+        let (w, h) = self.r.view().map_or((612.0, 792.0), |v| v.page_size(page));
+        self.open_crop9();
+        if let Some((f, _)) = self.form8.last_mut() {
+            let m = [r[0], r[1], w - r[2], h - r[3]];
+            for (k, side) in SIDES.into_iter().enumerate() {
+                f.set(side, Val::Text(format!("{:.2}", (m[k] / 72.0).max(0.0))));
+            }
+            f.set("pages", Val::Text(format!("{},", page + 1)));
+            f.set("ppage", Val::Text((page + 1).to_string()));
+        }
     }
 
     /// Set To Zero / Reset of Set Page Dimensions; true when it was one.
@@ -248,6 +259,29 @@ impl EditorWindow {
         if pages.is_empty() {
             return;
         }
+        // Change Page Size: a standard size or a custom one (content centred).
+        let per = UNITS.get(f.pick("units")).map_or(72.0, |u| u.1);
+        let size = if f.pick("size") == 0 {
+            crate::editor_more::SIZES
+                .get(f.pick("fixed").wrapping_sub(1))
+                .map(|s| (s.1, s.2))
+        } else {
+            let (w, h) = (f.num("cw", 0.0) * per, f.num("ch", 0.0) * per);
+            (w > 0.0 && h > 0.0).then_some((w, h))
+        };
+        if let Some((w, h)) = size {
+            match self.doc_edit(|d| d.resize_pages(&pages, w, h, false)) {
+                Ok(()) => self.after_doc_edit(),
+                Err(e) => {
+                    self.set_status(&e);
+                    return;
+                }
+            }
+        }
+        let cropping = f.pick("white") == 1 || margins_pt(f).iter().any(|v| *v > 0.0);
+        if !cropping {
+            return;
+        }
         let r = if f.pick("white") == 1 {
             self.doc_edit(|d| {
                 for &i in &pages {
@@ -258,9 +292,6 @@ impl EditorWindow {
             })
         } else {
             let m = margins_pt(f);
-            if m.iter().all(|v| *v <= 0.0) {
-                return;
-            }
             self.doc_edit(|d| d.crop_pages(&pages, m))
         };
         match r {

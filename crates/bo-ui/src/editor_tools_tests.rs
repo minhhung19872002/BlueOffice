@@ -7,7 +7,7 @@ use crate::editor_tools::{BoxTool, ToolAsk};
 use crate::{Input, Key, Mods};
 use bo_pdfread::LinkTarget;
 
-fn drag(w: &mut crate::EditorWindow, page: usize, r: [f32; 4]) {
+pub(crate) fn drag(w: &mut crate::EditorWindow, page: usize, r: [f32; 4]) {
     let q = w
         .view()
         .and_then(|v| v.doc_rect_to_window(page, r))
@@ -449,8 +449,10 @@ fn whiteout_crop_and_comment_summary() {
         .page_objects(0)
         .expect("o");
     assert!(objs.iter().any(|o| o.kind == bo_pdfread::ObjectKind::Path));
-    // Round 9: Set Page Dimensions as the reference's (margins in the chosen unit, range).
+    // Round 9: Set Page Dimensions as the reference's (margins in the chosen unit, range);
+    // the Crop Pages tool opens it on a click (a drawn box fills the margins in).
     w.run("org.crop", &Fixed);
+    drag(&mut w, 0, [100.0, 100.0, 101.0, 101.0]);
     {
         use crate::editor_form8::Val;
         let f = &mut w.form8.last_mut().expect("Set Page Dimensions").0;
@@ -473,6 +475,7 @@ fn whiteout_crop_and_comment_summary() {
         (a - 612.0).abs() < 0.1 && (b - (612.0 - 20.0 * 72.0 / 25.4)).abs() < 0.1,
         "{a} {b}"
     );
+    w.run("org.crop", &Fixed);
     w.run("cm.rect", &Fixed);
     drag(&mut w, 0, [300.0, 300.0, 400.0, 350.0]);
     let text = w.comment_summary();

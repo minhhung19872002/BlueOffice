@@ -154,7 +154,8 @@ try {
       const r=canvas.getBoundingClientRect(), dpr=devicePixelRatio;
       if (Math.abs(canvas.width-r.width*dpr)>2 || Math.abs(canvas.height-r.height*dpr)>2) return null;
       return {dpr, width:innerWidth, height:innerHeight, canvasWidth:canvas.width, canvasHeight:canvas.height,
-        cssWidth:r.width, cssHeight:r.height, theme:document.querySelector('[data-theme]')?.getAttribute('data-theme') ?? null};`,
+        cssWidth:r.width, cssHeight:r.height, renderer:canvas.closest('.bo-page')?.dataset.renderer ?? null,
+        theme:document.querySelector('[data-theme]')?.getAttribute('data-theme') ?? null};`,
             [zoom],
           ),
         `zoom ${zoom}`,

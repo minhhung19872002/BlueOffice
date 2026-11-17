@@ -300,3 +300,41 @@ fn rendered_pages_become_jpeg_tiff_and_bmp_files() {
         assert!(files[0].1.len() > 20, "{purpose}");
     }
 }
+
+#[test]
+fn protect_tab_marks_by_search_and_pages_and_shows_security() {
+    let mut w = window();
+    // Search & Redact marks "Hi", Apply removes the text.
+    w.run("prot.searchRedact", &Fixed);
+    w.handle(Input::Text("hi".into()), &Fixed);
+    enter(&mut w);
+    assert_eq!(w.x.marks.len(), 1, "{:?}", w.x.marks);
+    w.run("prot.applyRedact", &Fixed);
+    let objs = w
+        .view_mut()
+        .expect("v")
+        .doc_mut()
+        .page_objects(0)
+        .expect("objects");
+    assert!(!bo_pdfread::text_lines(&objs)
+        .iter()
+        .any(|l| l.text.contains("Hi")));
+    // Pages: the whole current page.
+    w.run("prot.redactPages", &Fixed);
+    enter(&mut w);
+    assert_eq!(w.x.marks.len(), 1);
+    assert!(w.x.marks[0].1[2] > 600.0, "{:?}", w.x.marks);
+    // Security Properties of an unencrypted file.
+    w.run("prot.securityProps", &Fixed);
+    let p = paint(&mut w);
+    assert!(p.texts.iter().any(|x| x == "No Security"), "{:?}", p.texts);
+    enter(&mut w);
+    // Sanitize asks first, then runs.
+    w.run("prot.sanitize", &Fixed);
+    assert_eq!(
+        w.form8.last().map(|f| f.0.title.clone()),
+        Some("Sanitize Document".to_owned())
+    );
+    enter(&mut w);
+    assert!(w.form8.is_empty());
+}

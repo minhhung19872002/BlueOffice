@@ -333,54 +333,8 @@ fn ribbon(tab: usize) -> Vec<(&'static str, Kind)> {
             ("sep9", Sep),
         ]),
         6 => v.extend(crate::editor_design::form_tab_items()),
-        // The reference's Protect tab (Sensitivity labels and Batch Encrypt are not offered).
-        7 => v.extend([
-            ("sep1", Sep),
-            (
-                "prot.redact",
-                Big("redact", "pdfEditor.markRedaction", false),
-            ),
-            (
-                "prot.whiteout",
-                Big("whiteout", "pdfEditor.whiteout", false),
-            ),
-            (
-                "prot.applyRedact",
-                Big("applyRedact", "pdfEditor.applyRedactions", false),
-            ),
-            ("sep2", Sep),
-            (
-                "prot.hiddenData",
-                Big("hiddenData", "pdfEditor.hiddenData", false),
-            ),
-            ("sep3", Sep),
-            ("prot.secureMenu", Big("secure", "pdfEditor.secure", true)),
-            ("sep4", Sep),
-            (
-                "prot.restrict",
-                Big("restrictAccess", "pdfEditor.restrictAccess", false),
-            ),
-            (
-                "prot.removeSecurity",
-                Big("unsecure", "pdfEditor.removeSecurity", false),
-            ),
-            ("sep5", Sep),
-            ("form.fill", Big("fillSign", "pdfEditor.fillSign", false)),
-            ("prot.sign", Big("sign", "pdfEditor.signCertify", false)),
-            (
-                "prot.timestamp",
-                Big("timestamp", "pdfEditor.timeStamp", false),
-            ),
-            (
-                "prot.validate",
-                Big("validate", "pdfProtect.validate", false),
-            ),
-            (
-                "prot.sigPanel",
-                Big("signPanel", "pdfEditor.signaturePanel", false),
-            ),
-            ("sep6", Sep),
-        ]),
+        // The reference's Protect tab (round 10 grouping; Sensitivity labels are not offered).
+        7 => v.extend(crate::editor_prot10::protect_tab_items()),
         // Round 9: the contextual Combine Files tab.
         9 => v = crate::editor_combine9::ribbon_items(),
         _ => {
@@ -1120,7 +1074,8 @@ impl EditorWindow {
             }
             return;
         }
-        if self.org9_command(cmd)
+        if self.prot10_command(cmd)
+            || self.org9_command(cmd)
             || self.combine9_command(cmd)
             || self.conv9_command(cmd)
             || self.dlg8_command(cmd)

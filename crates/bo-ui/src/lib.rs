@@ -76,6 +76,7 @@ mod editor_pagenum9;
 mod editor_pages5;
 mod editor_pages9;
 mod editor_portfolio;
+mod editor_prot10;
 mod editor_rot8;
 #[cfg(test)]
 mod editor_round10_tests;

@@ -50,6 +50,12 @@ pub(crate) enum FormWhat {
     Optimize9,
     /// Reduce File Size (round 10, `editor_opt10`).
     Reduce10,
+    /// Mark for Redaction › Pages (round 10, `editor_prot10`).
+    RedactPages10,
+    /// Search & Redact (round 10).
+    SearchRedact10,
+    /// Sanitize Document (round 10).
+    Sanitize10,
     /// Converting To PDF on kind `.0` (round 9, `editor_conv9b`).
     ConvSettings9(usize),
 }
@@ -1686,6 +1692,9 @@ impl EditorWindow {
                     FormWhat::Rotate9 => self.rotate9_ok(&f),
                     FormWhat::Optimize9 => self.opt10_ok(&f),
                     FormWhat::Reduce10 => self.reduce10_ok(&f),
+                    FormWhat::RedactPages10 => self.redact_pages_ok(&f),
+                    FormWhat::SearchRedact10 => self.search_redact_ok(&f),
+                    FormWhat::Sanitize10 => self.sanitize_ok(),
                     FormWhat::ConvSettings9(row) => self.conv_settings9_keep(&f, row),
                 }
             }

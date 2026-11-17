@@ -7,6 +7,41 @@ use crate::editor_window::{EditTool, EditorWindow};
 use crate::{Input, Painter};
 use bo_render::{PathSeg, Rgba};
 
+/// The reference's selection blue of Edit Object (frame, handles, turn mark): `#2E6DAD`.
+pub(crate) const SEL_BLUE: Rgba = Rgba(0x2E, 0x6D, 0xAD, 255);
+
+/// Path of a circular arc from `a0` to `a1` degrees (clockwise on screen, y down).
+pub(crate) fn arc(cx: f32, cy: f32, r: f32, a0: f32, a1: f32) -> Vec<PathSeg> {
+    let n = ((a1 - a0).abs() / 90.0).ceil().max(1.0);
+    let step = (a1 - a0) / n;
+    let pt = |a: f32| {
+        let (s, c) = a.to_radians().sin_cos();
+        (cx + r * c, cy + r * s)
+    };
+    let (x, y) = pt(a0);
+    let mut v = vec![PathSeg::M(x, y)];
+    let t = 4.0 / 3.0 * (step.to_radians() / 4.0).tan();
+    let mut a = a0;
+    // n is a small whole number of quarter turns at most.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    for _ in 0..(n as usize) {
+        let b = a + step;
+        let (p0, p1) = (pt(a), pt(b));
+        let (s0, c0) = a.to_radians().sin_cos();
+        let (s1, c1) = b.to_radians().sin_cos();
+        v.push(PathSeg::C(
+            p0.0 - t * r * s0,
+            p0.1 + t * r * c0,
+            p1.0 + t * r * s1,
+            p1.1 - t * r * c1,
+            p1.0,
+            p1.1,
+        ));
+        a = b;
+    }
+    v
+}
+
 /// A window point.
 pub(crate) type Pt = (f32, f32);
 
@@ -122,32 +157,43 @@ impl EditorWindow {
             return;
         };
         let k = self.ui_scale() / 1.25;
-        let blue = Rgba(0x1E, 0x6F, 0xC8, 255);
-        // Dashed line from the handle to the centre.
-        let mut y = h.1 + 6.0 * k;
-        while y < c.1 {
-            p.fill_rect(c.0.round(), y, 1.0, (4.0 * k).min(c.1 - y), blue);
-            y += 8.0 * k;
-        }
-        let r = (5.5 * k).round();
-        let ring = crate::editor_form8::circle(h.0, h.1, r);
-        p.path(
-            &ring,
-            Some(Rgba(255, 255, 255, 255)),
-            Some((blue, (1.5 * k).max(1.0))),
-        );
-        // A small arrow head on the ring (our own mark of "turn").
+        let blue = SEL_BLUE;
+        // The turn mark: an open ring with an arrow head (our own drawing), about 20 px
+        // across at 125 % like the reference's handle.
+        let r = 8.5 * k;
+        let w = (2.4 * k).max(1.0);
+        p.path(&arc(h.0, h.1, r, -60.0, 230.0), None, Some((blue, w)));
+        // The arrow head at the open end (pointing on, clockwise).
+        let (s, c0) = (-60.0_f32).to_radians().sin_cos();
+        let (ex, ey) = (h.0 + r * c0, h.1 + r * s);
         p.path(
             &[
-                PathSeg::M(h.0 + r - 2.5 * k, h.1 - 2.0 * k),
-                PathSeg::L(h.0 + r, h.1 + 1.0 * k),
-                PathSeg::L(h.0 + r + 2.5 * k, h.1 - 2.0 * k),
+                PathSeg::M(ex - 4.2 * k, ey - 3.6 * k),
+                PathSeg::L(ex + 3.4 * k, ey - 4.4 * k),
+                PathSeg::L(ex + 1.2 * k, ey + 3.4 * k),
+                PathSeg::Z,
             ],
+            Some(blue),
             None,
-            Some((blue, (1.3 * k).max(1.0))),
         );
+        // Dashed line from the mark to the centre: 15 px dashes, 5 px gaps at 125 %.
+        let mut y = (h.1 + r + w / 2.0 + 1.0).round();
+        let x = c.0.round();
+        while y < c.1 - 1.0 {
+            p.fill_rect(x, y, 1.0, (15.0 * k).min(c.1 - y), blue);
+            y += 20.0 * k;
+        }
+        // The centre: a small diamond.
+        let d = 4.5 * k;
+        let (cx, cy) = (x + 0.5, c.1.round() + 0.5);
         p.path(
-            &crate::editor_form8::circle(c.0, c.1, 2.5 * k),
+            &[
+                PathSeg::M(cx, cy - d),
+                PathSeg::L(cx + d, cy),
+                PathSeg::L(cx, cy + d),
+                PathSeg::L(cx - d, cy),
+                PathSeg::Z,
+            ],
             Some(blue),
             None,
         );

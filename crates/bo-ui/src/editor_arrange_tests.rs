@@ -88,7 +88,7 @@ fn shift_drag_keeps_the_line_and_ctrl_drag_copies() {
     w.format_open8 = true;
     w.run("ed.editObject", &Fixed);
     let b = select_line(&mut w);
-    let a = (b[0] + 3.0, (b[1] + b[3]) / 2.0);
+    let a = (b[0] + (b[2] - b[0]) / 4.0, (b[1] + b[3]) / 2.0);
     // 40 pt across, 15 down with Shift: only across.
     drag(
         &mut w,
@@ -103,7 +103,7 @@ fn shift_drag_keeps_the_line_and_ctrl_drag_copies() {
     assert!((n[1] - b[1]).abs() < 0.1, "{n:?} {b:?}");
     assert!((n[0] - (b[0] + 40.0)).abs() < 0.1, "{n:?} {b:?}");
     // Ctrl+drag 100 pt down: a copy, the original stays.
-    let a = (n[0] + 3.0, (n[1] + n[3]) / 2.0);
+    let a = (n[0] + (n[2] - n[0]) / 4.0, (n[1] + n[3]) / 2.0);
     drag(
         &mut w,
         a,
@@ -129,7 +129,7 @@ fn a_move_snaps_to_the_page_centre_with_a_guide() {
     w.format_open8 = true;
     w.run("ed.editObject", &Fixed);
     let b = select_line(&mut w);
-    let a = (b[0] + 3.0, (b[1] + b[3]) / 2.0);
+    let a = (b[0] + (b[2] - b[0]) / 4.0, (b[1] + b[3]) / 2.0);
     // Put the line's centre 2 pt left of the page's centre (306).
     let dx = 306.0 - 2.0 - (b[0] + b[2]) / 2.0;
     w.set_pointer_mods(Mods::default());

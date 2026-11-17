@@ -23,7 +23,7 @@ const EDITOR_ACCENT_TEXT: Rgba = Rgba(0xA8, 0x4A, 0x05, 255);
 pub const EDITOR_TITLE: Rgba = Rgba(0x2F, 0x3E, 0x5C, 255);
 
 /// Ribbon tabs after File.
-const TABS: [&str; 9] = [
+pub(crate) const TABS: [&str; 9] = [
     "pdfReader.tabs.home",
     "pdfEditor.tabs.convert",
     "pdfEditor.tabs.edit",
@@ -381,6 +381,8 @@ fn ribbon(tab: usize) -> Vec<(&'static str, Kind)> {
             ),
             ("sep6", Sep),
         ]),
+        // Round 9: the contextual Combine Files tab.
+        9 => v = crate::editor_combine9::ribbon_items(),
         _ => {
             v.clear();
             v.push(("help.about", Big("info", "pdfReader.about", false)));
@@ -534,6 +536,20 @@ pub struct EditorWindow {
     pub(crate) presets_loaded8: bool,
     /// The Edit Object rotation handle being dragged (`editor_rot8`).
     pub(crate) rot8: Option<crate::editor_rot8::RotDrag>,
+    /// Values last applied per page design kind, for Update (`editor_org9`).
+    pub(crate) org9_last: std::collections::BTreeMap<&'static str, crate::editor_dlg8b::Vals>,
+    /// The open page design dialog came from Update: replace that kind on OK.
+    pub(crate) org9_update: Option<&'static str>,
+    /// The clipboard picture asked for is for Insert › From Clipboard.
+    pub(crate) clip_insert9: bool,
+    /// Files of Combine Files (`editor_combine9`).
+    pub(crate) combine9: Vec<crate::editor_combine9::CombineItem>,
+    /// The Combine Files tab while it is open (round 9).
+    pub(crate) comb9: Option<crate::editor_combine9::Comb9>,
+    /// Combine Files › Settings options (kept for the session).
+    pub(crate) comb9_opts: crate::editor_combine9::CombineOpts,
+    /// Converting To PDF choices (round 9).
+    pub(crate) conv9_settings: crate::editor_conv9b::ConvSettings,
     /// Form field tool.
     pub(crate) design: crate::editor_design::DesignState,
     /// Caret shown (blink phase).
@@ -618,6 +634,13 @@ impl EditorWindow {
             wm_image8: None,
             presets_loaded8: false,
             rot8: None,
+            org9_last: std::collections::BTreeMap::new(),
+            org9_update: None,
+            clip_insert9: false,
+            combine9: Vec::new(),
+            comb9: None,
+            comb9_opts: crate::editor_combine9::CombineOpts::default(),
+            conv9_settings: crate::editor_conv9b::ConvSettings::default(),
             close_box: None,
             design: crate::editor_design::DesignState::default(),
             caret_on: true,
@@ -722,7 +745,10 @@ impl EditorWindow {
 
     /// The page grid is shown.
     pub fn organize_on(&self) -> bool {
-        self.r.showing_doc() && self.r.ribbon_tab() == TAB_ORGANIZE
+        // Round 9: with the Crop Pages tool the page itself shows, to draw the crop box on.
+        self.r.showing_doc()
+            && self.r.ribbon_tab() == TAB_ORGANIZE
+            && self.tools.tool != Some(crate::editor_tools::BoxTool::Crop)
     }
 
     /// The editing tool in use.
@@ -843,6 +869,7 @@ impl EditorWindow {
 
     /// Handle an input event; true when the window needs a new frame.
     pub fn handle(&mut self, input: Input, m: &dyn TextMeasure) -> bool {
+        self.edit.object_lines = self.tool == Some(EditTool::Object);
         if let Input::Move { x, y } | Input::Drag { x, y } = input {
             self.pointer = (x, y);
         }
@@ -866,6 +893,10 @@ impl EditorWindow {
             }
         }
         if self.portfolio_input(&input) {
+            self.sync();
+            return true;
+        }
+        if self.combine9_input(&input, m) {
             self.sync();
             return true;
         }
@@ -1086,7 +1117,10 @@ impl EditorWindow {
             }
             return;
         }
-        if self.dlg8_command(cmd)
+        if self.org9_command(cmd)
+            || self.combine9_command(cmd)
+            || self.conv9_command(cmd)
+            || self.dlg8_command(cmd)
             || self.action(cmd, m)
             || self.search_command(cmd)
             || self.tools_command(cmd)
@@ -1187,7 +1221,7 @@ impl EditorWindow {
                     filters: pdf_filters(),
                 });
             }
-            "org.delete" => {
+            "org.delete" | "org.deleteNow" => {
                 let pages = self.target_pages();
                 let Some(v) = self.r.view_mut() else { return };
                 let r = v.doc_mut().delete_pages(&pages);
@@ -1476,6 +1510,9 @@ impl EditorWindow {
 
     /// Pages rendered as PNG for `purpose` (`images`: one file per page).
     pub fn pages_rendered(&mut self, purpose: &str, pngs: Vec<Vec<u8>>) {
+        if self.conv9_rendered(purpose, &pngs) || self.conv9b_rendered(purpose, &pngs) {
+            return;
+        }
         let stem = self.doc_name();
         if purpose == "slides" {
             self.slides_rendered(pngs);
@@ -1507,6 +1544,12 @@ impl EditorWindow {
             .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
         if purpose == "addImage" || purpose == "replaceImage" {
             self.picture_picked(purpose, bytes);
+            return;
+        }
+        if self.org9_file_picked(purpose, bytes)
+            || self.combine9_file_picked(purpose, &name, bytes)
+            || self.pages9_file_picked(purpose, &name, bytes)
+        {
             return;
         }
         if purpose == "batchPrintAdd" {
@@ -1731,6 +1774,13 @@ impl EditorWindow {
         for id in ["ed.scanner", "ed.ocr"] {
             self.r.enabled_override.insert(id, false);
         }
+        if self.comb9.is_some() {
+            for (id, _) in crate::editor_combine9::ribbon_items() {
+                if let Some(on) = self.combine9_enabled(id) {
+                    self.r.enabled_override.insert(id, on);
+                }
+            }
+        }
         // Round 4: commands shown grey with a tooltip; the reader's Time Stamp works here.
         for (id, _) in crate::editor_more::NOT_OFFERED
             .iter()
@@ -1771,6 +1821,7 @@ impl EditorWindow {
                 B::Shape(_) => "ed.addShapes",
                 B::Whiteout => "prot.whiteout",
                 B::Join => "ed.linkJoin",
+                B::Crop => "org.crop",
             });
         }
         if self.tools.reflow {
@@ -1865,7 +1916,7 @@ impl EditorWindow {
 
     fn org_key(&mut self, k: Key, mods: Mods, n: usize, m: &dyn TextMeasure) -> bool {
         match (k, mods.ctrl) {
-            (Key::Delete, _) => self.command("org.delete", m),
+            (Key::Delete, _) => self.command("org.deleteNow", m),
             (Key::Letter('a'), true) => self.org.select_range(0, n.saturating_sub(1)),
             (Key::Letter('c'), true) => self.copy_pages(false),
             (Key::Letter('x'), true) => self.copy_pages(true),
@@ -1902,11 +1953,14 @@ impl EditorWindow {
                 v.want_preview(i, s);
             }
         }
+        // Round 9: selected text of the paragraph being typed goes into the page image.
+        self.sync_text_mark9();
         self.r.prepare(store) || closed
     }
 
     /// Paint the window.
     pub fn paint(&mut self, p: &mut dyn Painter) {
+        self.edit.object_lines = self.tool == Some(EditTool::Object);
         self.r.paint(p);
         self.paint_portfolio(p);
         if self.organize_on() {
@@ -1921,6 +1975,10 @@ impl EditorWindow {
                 self.org.paint(p, v, base, &labels, self.r.theme());
             }
             // Round 8: a ribbon menu stays over the page grid (it was cut at the tabs).
+            self.r.paint_open_menu(p);
+        }
+        if self.comb9.is_some() {
+            self.paint_combine9(p);
             self.r.paint_open_menu(p);
         }
         if let Some(tool) = self.tool {

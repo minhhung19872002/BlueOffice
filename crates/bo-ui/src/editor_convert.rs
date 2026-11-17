@@ -239,6 +239,14 @@ pub(crate) fn to_xlsx(doc: &mut PdfDocument) -> Result<Vec<u8>, String> {
     sheet
         .new_workbook("Converted.xlsx")
         .map_err(|e| e.to_string())?;
+    let cells = pdf_cells(doc)?;
+    sheet.set_inputs(0, &cells).map_err(|e| e.to_string())?;
+    sheet.save("xlsx", 0).map_err(|e| e.to_string())
+}
+
+/// The pages' text lines as worksheet cells (row, column, text): columns from the lines' left
+/// edges, rows from their baselines, two blank rows between pages.
+pub(crate) fn pdf_cells(doc: &mut PdfDocument) -> Result<Vec<(u32, u32, String)>, String> {
     let mut cells = Vec::new();
     let mut row = 0_u32;
     for i in 0..doc.page_count() {
@@ -264,8 +272,7 @@ pub(crate) fn to_xlsx(doc: &mut PdfDocument) -> Result<Vec<u8>, String> {
         }
         row += 2;
     }
-    sheet.set_inputs(0, &cells).map_err(|e| e.to_string())?;
-    sheet.save("xlsx", 0).map_err(|e| e.to_string())
+    Ok(cells)
 }
 
 #[cfg(test)]

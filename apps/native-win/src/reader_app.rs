@@ -767,6 +767,35 @@ impl Shell {
                     }
                 }
                 ReaderRequest::Command(_) => {}
+                // BlueEditor round 9: a folder; every file in it matching the filters is
+                // handed over in name order with the purpose before ".folder".
+                ReaderRequest::PickFile { purpose, filters } if purpose.ends_with(".folder") => {
+                    let Some(dir) = win32::folder_dialog() else {
+                        continue;
+                    };
+                    let exts: Vec<String> = filters
+                        .iter()
+                        .flat_map(|(_, p)| p.split(';'))
+                        .filter_map(|p| p.trim().strip_prefix("*."))
+                        .map(str::to_ascii_lowercase)
+                        .collect();
+                    let mut files: Vec<std::path::PathBuf> = std::fs::read_dir(&dir)
+                        .map(|rd| rd.filter_map(Result::ok).map(|e| e.path()).collect())
+                        .unwrap_or_default();
+                    files.retain(|f| {
+                        f.is_file()
+                            && f.extension().is_some_and(|e| {
+                                exts.contains(&e.to_string_lossy().to_ascii_lowercase())
+                            })
+                    });
+                    files.sort();
+                    let base = purpose.trim_end_matches(".folder").to_owned();
+                    for f in files {
+                        if let Ok(bytes) = std::fs::read(&f) {
+                            self.window.file_picked(&base, &f, &bytes);
+                        }
+                    }
+                }
                 ReaderRequest::PickFile { purpose, filters } => {
                     let f: Vec<(&str, &str)> = filters
                         .iter()

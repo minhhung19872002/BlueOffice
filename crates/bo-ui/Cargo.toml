@@ -18,6 +18,8 @@ bo-opc.workspace = true
 bo-sheet.workspace = true
 bo-formula.workspace = true
 bo-pdfread = { path = "../bo-pdfread" }
+# Converting To PDF choices (tagged PDF, bookmarks) for office files.
+bo-pdf.workspace = true
 # BlueEditor signs PDFs with certificates from .p12 / .pfx files.
 bo-sign = { path = "../bo-sign", features = ["pkcs12", "http"] }
 bo-text.workspace = true
@@ -31,6 +33,7 @@ serde_json.workspace = true
 [dev-dependencies]
 bo-engine = { workspace = true, features = ["bundled-fonts"] }
 zip.workspace = true
+bo-xlsx.workspace = true
 bo-raster.workspace = true
 png.workspace = true
 rand = "0.8"

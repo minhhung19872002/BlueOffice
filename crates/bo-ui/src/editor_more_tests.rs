@@ -56,16 +56,38 @@ fn duplicate_swap_move_and_page_numbers() {
     key(&mut w, Key::Letter('z'), true, false);
     assert_eq!(texts(&mut w).len(), 3);
     // Swap pages 1 and 3.
+    // Round 9: the reference's Swap Two Pages (Swap / For number boxes).
     w.run("org.swap", &Fixed);
-    type_in(&mut w, &["1", "3"]);
+    {
+        use crate::editor_form8::Val;
+        let f = &mut w.form8.last_mut().expect("Swap Two Pages").0;
+        f.set("a", Val::Text("1".into()));
+        f.set("b", Val::Text("3".into()));
+    }
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
     assert_eq!(texts(&mut w), ["Page 3", "Page 2", "Page 1"]);
     // Move page 1 before page 3 (it lands second).
     w.run("org.move", &Fixed);
     type_in(&mut w, &["1", "3"]);
     assert_eq!(texts(&mut w), ["Page 2", "Page 3", "Page 1"]);
     // Pages 1-2 numbered i, ii; page 3 keeps its number.
+    // Round 9: the reference's Page Numbers dialog (Pages From / To, Style i, ii, iii).
     w.run("org.pageNumbers", &Fixed);
-    type_in(&mut w, &["1", "2", "i", "", "1"]);
+    {
+        use crate::editor_form8::Val;
+        let f = &mut w.form8.last_mut().expect("Page Numbers").0;
+        f.set("pages", Val::Pick(2));
+        f.set("from", Val::Text("1".into()));
+        f.set("to", Val::Text("2".into()));
+        f.set("style", Val::Pick(1));
+    }
+    let t = {
+        let mut rec = crate::editor_tests::Rec::default();
+        w.paint(&mut rec);
+        rec.texts
+    };
+    assert!(t.iter().any(|s| s == "i,ii,iii,..."), "{t:?}");
+    w.handle(Input::Key(Key::Enter, crate::Mods::default()), &Fixed);
     let labels: Vec<String> = (0..3)
         .map(|i| {
             w.view()
@@ -88,7 +110,15 @@ fn replace_interleave_and_resize() {
         matches!(&req[..], [ReaderRequest::PickFile { purpose, .. }] if purpose == "replacePages")
     );
     w.file_picked("replacePages", std::path::Path::new("x.pdf"), &pdf(3));
-    // The selected last page is replaced by the first page of the file.
+    // Round 9: the reference's Replace Pages (From / To = the selected last page); its
+    // Page field picks page 1 of the file (empty: every page, as the reference).
+    {
+        use crate::editor_form8::Val;
+        let f = &mut w.form8.last_mut().expect("Replace Pages").0;
+        assert_eq!((f.text("from"), f.text("to")), ("2".into(), "2".into()));
+        f.set("pick", Val::Text("1".into()));
+    }
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
     assert_eq!(texts(&mut w), ["Page 1", "Page 1"]);
     key(&mut w, Key::Letter('z'), true, false);
     w.run("org.interleave", &Fixed);
@@ -211,20 +241,21 @@ fn typing_words_selection_clipboard_and_session_undo() {
     w.file_picked("pasteText", std::path::Path::new("c.txt"), b"X\tY");
     key(&mut w, Key::Escape, false, false);
     assert_eq!(texts(&mut w), ["Page one X Y"]);
-    // Inside a session Ctrl+Z steps back a word at a time, Ctrl+Y forward.
+    // Inside a session Ctrl+Z steps back a character at a time like the reference (round 9),
+    // Ctrl+Y forward.
     start_typing(&mut w);
     key(&mut w, Key::End, false, false);
     typed(&mut w, " ab cd");
     key(&mut w, Key::Letter('z'), true, false);
     key(&mut w, Key::Escape, false, false);
-    assert_eq!(texts(&mut w), ["Page one X Y ab"]);
+    assert_eq!(texts(&mut w), ["Page one X Y ab c"]);
     start_typing(&mut w);
     key(&mut w, Key::End, false, false);
     typed(&mut w, " ef");
     key(&mut w, Key::Letter('z'), true, false);
     key(&mut w, Key::Letter('y'), true, false);
     key(&mut w, Key::Escape, false, false);
-    assert_eq!(texts(&mut w), ["Page one X Y ab ef"]);
+    assert_eq!(texts(&mut w), ["Page one X Y ab c ef"]);
 }
 
 #[test]

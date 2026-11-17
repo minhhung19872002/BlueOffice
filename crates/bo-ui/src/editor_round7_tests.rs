@@ -29,7 +29,7 @@ pub(crate) fn build(objs: &[String]) -> Vec<u8> {
 
 /// A Letter page: a three-line paragraph, a second one close below, a rule and a paragraph
 /// after a large gap.
-fn paragraphs_pdf() -> Vec<u8> {
+pub(crate) fn paragraphs_pdf() -> Vec<u8> {
     let content = "BT /F1 12 Tf 15 TL 72 700 Td (The first paragraph has three lines of text) Tj \
                    T* (so that typing at its end makes it grow by a) Tj T* (line or two.) Tj ET \
                    BT /F1 12 Tf 15 TL 72 647 Td (The second paragraph starts close below it) Tj \
@@ -50,7 +50,7 @@ fn paragraphs_pdf() -> Vec<u8> {
     ])
 }
 
-fn window_with(bytes: Vec<u8>) -> EditorWindow {
+pub(crate) fn window_with(bytes: Vec<u8>) -> EditorWindow {
     let doc = PdfDocument::open(bytes, bo_pdfread::standard_fonts()).expect("pdf");
     let mut w = EditorWindow::new("en-US");
     w.handle(Input::Scale(1.25), &Fixed);

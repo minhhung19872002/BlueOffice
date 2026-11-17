@@ -34,10 +34,14 @@ mod editor_backstage;
 mod editor_close;
 #[cfg(test)]
 mod editor_close_tests;
+mod editor_combine9;
 mod editor_comment;
 #[cfg(test)]
 mod editor_comment_tests;
+mod editor_conv9;
+mod editor_conv9b;
 mod editor_convert;
+mod editor_crop9;
 mod editor_design;
 #[cfg(test)]
 mod editor_design_tests;
@@ -63,14 +67,21 @@ mod editor_more_tests;
 mod editor_objtext;
 #[cfg(test)]
 mod editor_objtext_tests;
+mod editor_opt9;
+mod editor_org9;
 mod editor_organize;
 #[cfg(test)]
 mod editor_organize5_tests;
+mod editor_pagenum9;
 mod editor_pages5;
+mod editor_pages9;
 mod editor_portfolio;
 mod editor_rot8;
 #[cfg(test)]
 mod editor_round7_tests;
+#[cfg(test)]
+mod editor_round9_tests;
+mod editor_selhi9;
 mod editor_sign;
 #[cfg(test)]
 mod editor_tests;

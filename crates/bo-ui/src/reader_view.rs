@@ -183,6 +183,8 @@ pub struct ReaderView {
     cover: bool,
     /// Night Mode: pages drawn in the dark scheme (dark paper, grey text).
     night: bool,
+    /// BlueEditor's selected text drawn into a page image (`editor_selhi9`).
+    pub(crate) text_mark9: Option<(usize, Vec<[f32; 4]>)>,
     /// Scroll position of the last `prepare` and the direction scrolled (up: true), for the
     /// page drawn ahead.
     prepared_y: f32,
@@ -249,6 +251,7 @@ impl ReaderView {
             cover: true,
             night: false,
             field_tint: None,
+            text_mark9: None,
             prepared_y: 0.0,
             scrolled_up: false,
             reverse: false,
@@ -824,7 +827,8 @@ impl ReaderView {
                 return false;
             }
         };
-        let list = rotate_list(page.list, self.rotation);
+        let list = self.with_text_mark9(i, page.list);
+        let list = rotate_list(list, self.rotation);
         let list = if self.night {
             crate::reader_viewx::night_list(list)
         } else {

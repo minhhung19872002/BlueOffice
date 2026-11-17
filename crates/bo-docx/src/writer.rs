@@ -993,6 +993,16 @@ impl Writer<'_> {
         } else {
             format!(" rot=\"{}\"", img.rotation)
         };
+        // §20.1.7.6 xfrm flipH / flipV.
+        let mut rot = rot;
+        if let Some(f) = img.format.as_deref() {
+            if f.flip_h {
+                rot.push_str(" flipH=\"1\"");
+            }
+            if f.flip_v {
+                rot.push_str(" flipV=\"1\"");
+            }
+        }
         // §20.1.8.13 blip children (colour transforms, a14 effects) and the
         // §20.1.9.18 prstGeom the picture is cropped to (CORE-PIC-001).
         let layer = img
@@ -1286,6 +1296,13 @@ impl Writer<'_> {
                     WrapText::Largest => "largest",
                 };
                 let [dt, db, dl, dr] = a.dist.map(|d| d.0);
+                // §20.4.2.3 relativeHeight: the stacking order the model holds, else the
+                // drawing's number (later objects over earlier ones).
+                let z = if a.relative_height > 0 {
+                    a.relative_height
+                } else {
+                    id
+                };
                 let wrap = match a.wrap {
                     Wrap::None => "<wp:wrapNone/>".to_owned(),
                     // §20.4.2.17 wrapSquare
@@ -1322,7 +1339,7 @@ impl Writer<'_> {
                     None => format!("<wp:posOffset>{off}</wp:posOffset>"),
                 };
                 format!(
-                    "<w:drawing><wp:anchor xmlns:wp=\"{WP_NS}\" distT=\"{dt}\" distB=\"{db}\" distL=\"{dl}\" distR=\"{dr}\" simplePos=\"0\" relativeHeight=\"{id}\" behindDoc=\"{}\" locked=\"0\" layoutInCell=\"1\" allowOverlap=\"1\"><wp:simplePos x=\"0\" y=\"0\"/><wp:positionH relativeFrom=\"{}\">{}</wp:positionH><wp:positionV relativeFrom=\"{}\">{}</wp:positionV><wp:extent cx=\"{cx}\" cy=\"{cy}\"/><wp:effectExtent l=\"0\" t=\"0\" r=\"0\" b=\"0\"/>{wrap}<wp:docPr id=\"{id}\" name=\"{kind} {id}\" descr=\"{descr}\"/><wp:cNvGraphicFramePr/>{graphic}</wp:anchor></w:drawing>",
+                    "<w:drawing><wp:anchor xmlns:wp=\"{WP_NS}\" distT=\"{dt}\" distB=\"{db}\" distL=\"{dl}\" distR=\"{dr}\" simplePos=\"0\" relativeHeight=\"{z}\" behindDoc=\"{}\" locked=\"0\" layoutInCell=\"1\" allowOverlap=\"1\"><wp:simplePos x=\"0\" y=\"0\"/><wp:positionH relativeFrom=\"{}\">{}</wp:positionH><wp:positionV relativeFrom=\"{}\">{}</wp:positionV><wp:extent cx=\"{cx}\" cy=\"{cy}\"/><wp:effectExtent l=\"0\" t=\"0\" r=\"0\" b=\"0\"/>{wrap}<wp:docPr id=\"{id}\" name=\"{kind} {id}\" descr=\"{descr}\"/><wp:cNvGraphicFramePr/>{graphic}</wp:anchor></w:drawing>",
                     u8::from(a.behind),
                     escape(&a.h_relative),
                     pos(&a.h_align, a.x.0),

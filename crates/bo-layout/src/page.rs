@@ -358,6 +358,7 @@ fn art_edge(
         source: LineSource::Other,
         layer,
         alpha: 1.0,
+        z: 0,
     }
 }
 

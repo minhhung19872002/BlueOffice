@@ -313,6 +313,7 @@ pub(crate) fn float_item(
                     rotation: crate::blocks::rotation_of(img),
                     layer,
                     alpha: 1.0,
+                    z: 0,
                 }],
                 Vec::new(),
             ),
@@ -359,7 +360,12 @@ pub(crate) fn float_item(
         Some(al) => aligned(al, vref, h),
         None => vref.0 + a.y.to_pt(),
     };
-    let (items, lines) = draw(x, y, if a.behind { Layer::Back } else { Layer::Front });
+    let (mut items, lines) = draw(x, y, if a.behind { Layer::Back } else { Layer::Front });
+    // §20.4.2.3 relativeHeight: the stacking order among floating objects.
+    let z = a.relative_height.saturating_add(1);
+    for i in &mut items {
+        i.set_z(z);
+    }
     let [dt, db, dl, dr] = a.dist.map(Emu::to_pt);
     let excl = match a.wrap {
         Wrap::None => None,

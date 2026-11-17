@@ -51,8 +51,8 @@ pub use paragraph::{FieldContext, LayoutCache};
 pub use sigline::signature_line_page;
 pub use style::{author_color, para_props, ListCounters};
 pub use types::{
-    Carets, Fragment, GlyphPos, Layer, LayoutDocument, Line, LineRotation, LineSource, NoteKey,
-    Page, PageDecor, PageItem, PathCmd, ShapePath, SharedStr,
+    stacked, Carets, Fragment, GlyphPos, Layer, LayoutDocument, Line, LineRotation, LineSource,
+    NoteKey, Page, PageDecor, PageItem, PathCmd, ShapePath, SharedStr,
 };
 
 use bo_model::change::BlockChanges;

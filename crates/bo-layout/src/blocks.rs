@@ -166,7 +166,18 @@ impl ParaBlock {
 
 /// Crop fractions l,t,r,b from `a:srcRect` (1/1000 of a percent, DrawingML §20.1.8.55).
 pub(crate) fn crop_of(img: &Image) -> Option<[f32; 4]> {
-    img.crop.map(|c| c.map(|v| v as f32 / 100_000.0))
+    // The display image of a flipped picture is the mirrored media (§20.1.7.6 xfrm
+    // flipH / flipV): the crop is applied to the mirrored picture, so its sides swap.
+    let (fh, fv) = img
+        .format
+        .as_deref()
+        .map_or((false, false), |f| (f.flip_h, f.flip_v));
+    img.crop.map(|c| {
+        let [l, t, r, b] = c.map(|v| v as f32 / 100_000.0);
+        let (l, r) = if fh { (r, l) } else { (l, r) };
+        let (t, b) = if fv { (b, t) } else { (t, b) };
+        [l, t, r, b]
+    })
 }
 
 /// Rotation in degrees from `a:xfrm/@rot` (60 000ths of a degree, §20.1.7.6).
@@ -242,6 +253,7 @@ fn rel_line_band(rl: &RelLine, source: LineSource) -> Band {
                 rotation: rotation_of(&o.image),
                 layer: Layer::Front,
                 alpha: 1.0,
+                z: 0,
             });
         }
         // A tracked picture is framed in its author's colour, a deleted one crossed out.
@@ -1020,6 +1032,7 @@ pub(crate) fn layout_table(
                         Layer::Front
                     },
                     alpha: 1.0,
+                    z: 0,
                 });
                 content.push((top + iy, band));
             }

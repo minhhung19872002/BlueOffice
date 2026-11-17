@@ -536,3 +536,65 @@ fn doc_wrap_position_align_rotate() {
     let v = doc_json(&mut e, r#"{"cmd":"pictureWrap","wrap":"sideways"}"#);
     assert!(v.get("error").is_some(), "{v}");
 }
+
+/// Bring Forward / Send to Back (§20.4.2.3 relativeHeight) and Flip (§20.1.7.6
+/// xfrm flipH / flipV) of floating pictures: written to the file, drawn in that
+/// order and mirrored, one undo step each.
+#[test]
+fn doc_order_and_flip() {
+    let mut e = doc_with_picture();
+    doc_json(&mut e, r#"{"cmd":"pictureWrap","wrap":"inFront"}"#);
+    e.insert_image(photo(200, 100), "b.png").unwrap();
+    doc_json(&mut e, r#"{"cmd":"pictureWrap","wrap":"inFront"}"#);
+    let heights = |e: &mut Engine| -> Vec<u64> {
+        let xml = document_xml(&e.save_docx().unwrap());
+        xml.split("relativeHeight=\"")
+            .skip(1)
+            .filter_map(|s| s.split('"').next()?.parse().ok())
+            .collect()
+    };
+    // Already on top: Bring to Front changes nothing.
+    let v = doc_json(&mut e, r#"{"cmd":"pictureOrder","order":"front"}"#);
+    assert!(v.get("error").is_none(), "{v}");
+    // Send to Back: the second picture goes under the first.
+    doc_json(&mut e, r#"{"cmd":"pictureOrder","order":"back"}"#);
+    let h = heights(&mut e);
+    assert_eq!(h.len(), 2, "{h:?}");
+    assert!(h[0] > h[1], "{h:?}");
+    // The page draws the second picture first.
+    let images = |e: &mut Engine| -> Vec<String> {
+        e.page(0)
+            .unwrap()
+            .commands
+            .iter()
+            .filter_map(|c| match c {
+                bo_render::Command::Image { image, .. } => Some(image.clone()),
+                _ => None,
+            })
+            .collect()
+    };
+    let before = images(&mut e);
+    assert_eq!(before.len(), 2, "{before:?}");
+    // Bring Forward again: back on top.
+    doc_json(&mut e, r#"{"cmd":"pictureOrder","order":"forward"}"#);
+    let h = heights(&mut e);
+    assert!(h[0] < h[1], "{h:?}");
+    let after = images(&mut e);
+    assert_eq!(after, [before[1].clone(), before[0].clone()]);
+    // Flip: written and drawn mirrored; flipping twice is the plain picture again.
+    doc_json(&mut e, r#"{"cmd":"pictureFlip","axis":"horizontal"}"#);
+    let bytes = e.save_docx().unwrap();
+    validate(&bytes, "pic-order-flip.docx");
+    assert!(document_xml(&bytes).contains("flipH=\"1\""));
+    let mut e2 = Engine::with_bundled_fonts();
+    e2.open(&bytes, "r.docx").unwrap();
+    assert!(document_xml(&e2.save_docx().unwrap()).contains("flipH=\"1\""));
+    let drawn = |e: &mut Engine| images(e).iter().any(|s| s.contains("flip=h"));
+    assert!(drawn(&mut e));
+    doc_json(&mut e, r#"{"cmd":"pictureFlip","axis":"horizontal"}"#);
+    assert!(!drawn(&mut e));
+    doc_json(&mut e, r#"{"cmd":"undo"}"#);
+    assert!(drawn(&mut e));
+    let v = doc_json(&mut e, r#"{"cmd":"pictureFlip","axis":"diagonal"}"#);
+    assert!(v.get("error").is_some(), "{v}");
+}

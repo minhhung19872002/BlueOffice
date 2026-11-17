@@ -249,6 +249,35 @@ impl crate::Engine {
                         }))
                     })
                 }
+                PictureCommand::PictureOrder { order } => {
+                    need(picture.as_ref()).and_then(|img| {
+                        if img.anchor.is_none() {
+                            // An inline picture moves with the text (the reference
+                            // dims the commands for it).
+                            return Err("inlinePicture".to_owned());
+                        }
+                        s.restack_picture(&order)
+                            .map(|_| ())
+                            .map_err(|e| e.to_string())
+                    })
+                }
+                PictureCommand::PictureFlip { axis } => {
+                    if axis == "horizontal" || axis == "vertical" {
+                        need(picture.as_ref()).and_then(|_| {
+                            run(s.update_picture(None, |img| {
+                                let mut f = format_of(img);
+                                if axis == "horizontal" {
+                                    f.flip_h = !f.flip_h;
+                                } else {
+                                    f.flip_v = !f.flip_v;
+                                }
+                                set_format(img, f);
+                            }))
+                        })
+                    } else {
+                        Err("badAxis".into())
+                    }
+                }
                 PictureCommand::PicturePreviews { presets, size } => {
                     if let Some(img) = &picture {
                         if let Some(d) = s.doc().media.get(&img.media) {

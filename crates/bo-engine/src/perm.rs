@@ -143,6 +143,12 @@ impl Hasher for Fnv {
 /// outside the regions the current user may edit, plus the section settings.
 /// An edit that leaves it unchanged only touched editable regions.
 pub fn skeleton(doc: &Document, identity: &[String]) -> u64 {
+    skeleton_for(doc, identity, false)
+}
+
+/// [`skeleton`]; with `comments`, comment ranges and references are left out too
+/// (§17.15.1.29 documentProtection `w:edit="comments"`: only comments may be added).
+pub fn skeleton_for(doc: &Document, identity: &[String], comments: bool) -> u64 {
     let mut h = Fnv(0xcbf2_9ce4_8422_2325);
     for sec in &doc.sections {
         // Page setup, columns, header/footer references, section break.
@@ -202,7 +208,11 @@ pub fn skeleton(doc: &Document, identity: &[String]) -> u64 {
                     }
                 }
             }
-            if open.is_empty() {
+            let comment = matches!(
+                c,
+                RunContent::CommentStart(_) | RunContent::CommentEnd(_) | RunContent::CommentRef(_)
+            );
+            if open.is_empty() && !(comments && comment) {
                 props.hash(&mut h);
                 c.hash(&mut h);
             }

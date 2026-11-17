@@ -1971,6 +1971,15 @@ pub struct Anchor {
     /// `positionV/align` (§20.4.2.2 align, `ST_AlignV`: top, center, bottom, …).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub v_align: Option<String>,
+    /// `relativeHeight` (§20.4.2.3): stacking order of floating objects, higher drawn
+    /// over lower (equal values keep document order). 0 when not given.
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub relative_height: u32,
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref)]
+fn is_zero_u32(v: &u32) -> bool {
+    *v == 0
 }
 
 /// Outline of a shape (ECMA-376 Part 1, §20.1.2.2.24 ln) resolved to a colour.

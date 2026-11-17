@@ -173,6 +173,7 @@ pub(crate) fn shape_drawing(
             },
             layer: layer_of(img),
             alpha: 1.0,
+            z: 0,
         });
     }
     let Some(blocks) = &shape.text else {
@@ -232,6 +233,7 @@ fn art_drawing(
             rotation: crate::blocks::rotation_of(img),
             layer: layer_of(img),
             alpha,
+            z: 0,
         });
         return out;
     }
@@ -259,6 +261,7 @@ fn art_drawing(
         },
         layer: layer_of(img),
         alpha,
+        z: 0,
     });
     out
 }

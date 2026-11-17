@@ -153,6 +153,11 @@ pub enum PageItem {
         layer: Layer,
         /// Opacity in 0..=1 (washed-out picture watermarks).
         alpha: f32,
+
+        /// Stacking order of a floating object (`relativeHeight` + 1, §20.4.2.3); 0
+        /// for everything else.
+        #[serde(skip_serializing_if = "is_zero")]
+        z: u32,
     },
     /// DrawingML / VML shape outline (ECMA-376 Part 1, §20.1.9 geometry): `paths` are
     /// relative to the shape box at (`x`, `y`), already rotated and flipped.
@@ -174,6 +179,10 @@ pub enum PageItem {
         layer: Layer,
         /// Opacity in 0..=1 (VML fill opacity of text watermarks).
         alpha: f32,
+
+        /// Stacking order of a floating object (see [`PageItem::Image`]).
+        #[serde(skip_serializing_if = "is_zero")]
+        z: u32,
     },
 }
 
@@ -520,6 +529,21 @@ impl PageItem {
         }
     }
 
+    /// Stacking order of a floating object (0: not a floating object).
+    pub fn z(&self) -> u32 {
+        match self {
+            PageItem::Image { z, .. } | PageItem::Shape { z, .. } => *z,
+            _ => 0,
+        }
+    }
+
+    /// Set the stacking order of a floating object's items.
+    pub fn set_z(&mut self, value: u32) {
+        if let PageItem::Image { z, .. } | PageItem::Shape { z, .. } = self {
+            *z = value;
+        }
+    }
+
     /// Paint layer (rules are always drawn in front of text).
     pub fn layer(&self) -> Layer {
         match self {
@@ -529,6 +553,29 @@ impl PageItem {
             PageItem::Rule { .. } => Layer::Front,
         }
     }
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref)]
+fn is_zero(v: &u32) -> bool {
+    *v == 0
+}
+
+/// Items of one paint layer in stacking order: floating objects (z > 0) are drawn
+/// in the order of their `relativeHeight` (§20.4.2.3), each in one of the slots the
+/// floating objects take in `items` (equal values keep document order); other
+/// items keep their place.
+pub fn stacked(items: &[PageItem], layer: Layer) -> Vec<&PageItem> {
+    let mut out: Vec<&PageItem> = items.iter().filter(|i| i.layer() == layer).collect();
+    let slots: Vec<usize> = (0..out.len()).filter(|&i| out[i].z() > 0).collect();
+    let mut floats: Vec<&PageItem> = slots.iter().map(|&i| out[i]).collect();
+    if floats.windows(2).all(|w| w[0].z() <= w[1].z()) {
+        return out;
+    }
+    floats.sort_by_key(|i| i.z());
+    for (slot, item) in slots.into_iter().zip(floats) {
+        out[slot] = item;
+    }
+    out
 }
 
 impl LayoutDocument {

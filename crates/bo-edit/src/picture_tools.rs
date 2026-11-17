@@ -345,6 +345,78 @@ impl Session {
         })
     }
 
+    /// Change the stacking order of the floating picture the tools act on (one undo
+    /// step): `forward` / `backward` one place among the main text's floating objects,
+    /// `front` / `back` to the top / bottom. The objects' `relativeHeight` values
+    /// (§20.4.2.3) are numbered again in steps of 1 024 from 251 658 240 (the range
+    /// the reference writes) when the order changes. `Ok(false)`: nothing moved.
+    pub fn restack_picture(&mut self, order: &str) -> Result<bool> {
+        let (tid, tk) = self
+            .tools_target()
+            .ok_or_else(|| EditError::Unsupported("no picture here".into()))?;
+        // (paragraph index, atom index, relativeHeight) of every floating object.
+        let paths = body_paragraphs(&self.doc);
+        let mut floats: Vec<(usize, usize, u32)> = Vec::new();
+        for (i, path) in paths.iter().enumerate() {
+            if let Some(p) = para_at(&self.doc, path) {
+                for (k, (_, item)) in para::flatten(p).into_iter().enumerate() {
+                    if let RunContent::Image(img) = item {
+                        if let Some(a) = &img.anchor {
+                            floats.push((i, k, a.relative_height));
+                        }
+                    }
+                }
+            }
+        }
+        // Paragraph ids count body paragraphs as `body_paragraphs` lists them.
+        let target = floats
+            .iter()
+            .position(|f| f.0 == tid && f.1 == tk)
+            .ok_or_else(|| EditError::Unsupported("not a floating picture".into()))?;
+        // Current stacking order: by relativeHeight, equal values in document order.
+        let mut stack: Vec<usize> = (0..floats.len()).collect();
+        stack.sort_by_key(|&i| floats[i].2);
+        let at = stack.iter().position(|&i| i == target).unwrap_or(0);
+        let to = match order {
+            "forward" => (at + 1).min(stack.len() - 1),
+            "backward" => at.saturating_sub(1),
+            "front" => stack.len() - 1,
+            "back" => 0,
+            _ => return Err(EditError::Unsupported(format!("order {order}"))),
+        };
+        if to == at {
+            return Ok(false);
+        }
+        let moved = stack.remove(at);
+        stack.insert(to, moved);
+        let mut value = vec![0u32; floats.len()];
+        for (rank, &i) in stack.iter().enumerate() {
+            value[i] = 251_658_240 + 1_024 * u32::try_from(rank).unwrap_or(0);
+        }
+        let mut by_para: std::collections::BTreeMap<usize, Vec<(usize, u32)>> =
+            std::collections::BTreeMap::new();
+        for (i, f) in floats.iter().enumerate() {
+            if f.2 != value[i] {
+                by_para.entry(f.0).or_default().push((f.1, value[i]));
+            }
+        }
+        self.edit(move |tx, sel| {
+            for (pi, changes) in &by_para {
+                let (path, p, mut atoms) = tx.atoms(*pi)?;
+                for &(k, v) in changes {
+                    if let Some((_, RunContent::Image(img))) = atoms.get_mut(k) {
+                        if let Some(a) = img.anchor.as_mut() {
+                            a.relative_height = v;
+                        }
+                    }
+                }
+                tx.replace_para(&path, para::with_atoms(&p, atoms))?;
+            }
+            Ok(sel)
+        })?;
+        Ok(true)
+    }
+
     /// A media part name not used yet, `/word/media/image<n>.<ext>`.
     pub fn new_media_name(&self, ext: &str) -> String {
         let mut n = self.part_number_start(self.doc.media.len() + 1);

@@ -761,6 +761,10 @@ impl Form {
                             Rgba(0xFB, 0xFB, 0xFB, 255)
                         },
                     );
+                    if !on {
+                        // Round 10 (measured): unusable, #ECECEC frame, a #FBFBFB ring, white.
+                        p.fill_rect(b[0] + 2.0, b[1] + 2.0, b[2] - 4.0, b[3] - 4.0, WHITE);
+                    }
                     if on && !focused && !*multi {
                         // Round 9: the reference's boxes have a #838383 line along the bottom.
                         p.fill_rect(

@@ -534,7 +534,21 @@ nhúng đủ, một hình trong suốt), thiết lập Standard:
 
 | Tệp | Gốc | Bản đối chiếu | BlueEditor |
 | --- | --- | --- | --- |
-| opt.pdf | 2 089 231 | 351 501 | (đo ở dưới) |
+| opt.pdf (byte) | 2 089 231 | 351 501 | 243 338 |
+
+Khác biệt điểm ảnh so với bản gốc (vẽ lại 100 dpi xám; trung bình |Δ| / % điểm lệch > 32):
+
+| Trang | Bản đối chiếu | BlueEditor |
+| --- | --- | --- |
+| 1 ảnh màu + chữ | 0,60 / 0,00 % | 0,40 / 0,00 % |
+| 2 bản quét xám | 0,23 / 0,02 % | 0,57 / 0,07 % (nền 254: sửa, xem dưới) |
+| 3 bản quét 1 bit | 1,20 / 1,50 % | 0 / 0 % (MMR không nhỏ hơn Flate gốc nên giữ nguyên) |
+
+Bản đối chiếu rút phông (1,27 MB → 98 KB), giảm ảnh màu 939 × 704, ảnh xám thành JPEG 750 × 938, ảnh 1 bit JBIG2 có
+mất dữ liệu 2250 × 3000 (1 100 byte). BlueEditor: phông 72 KB, ảnh màu 940 × 705, ảnh xám JPEG 750 × 938. Sau góp ý của
+chủ dự án (nền xám nhạt sau bản quét): bộ mã JPEG làm trắng thành 254 — trọng số độ sáng cộng ra 254,99997 và hệ số DC của
+khối trắng nằm đúng nửa bậc lượng tử ở chất lượng 50; nay làm tròn tới 1/1024 trước, trắng giữ 255 ở mọi chất lượng (test).
+Ảnh 1 bit khi giảm mẫu giữ điểm đen từ một phần ba độ phủ (ngưỡng 50 % làm nét chữ mảnh đi).
 
 **Sửa lỗi có từ vòng 4**: host trả trang đã vẽ dưới dạng PNG mà `codecs::decode` chỉ đọc GIF / BMP / TIFF, nên Convert ›
 To Image › JPEG / TIFF / BMP không lưu được tệp nào; nay giải mã PNG (`png_rgba`), có test.
@@ -549,4 +563,30 @@ glyph, ảnh, hình, ghi chú dưới vùng (có từ trước, kiểm lại). S
 RC4) và quyền `/P`.
 
 **Hộp thoại**: nút không dùng được viền `#E9E9E9` mặt `#F9F9F9`, nút chọn không dùng được vòng `#C3C3C3` trên `#F9F9F9`,
-danh sách và khung trang `#DCDCDC` (đo trên PDF Optimizer).
+ô nhập không dùng được viền `#ECECEC`, vành `#FBFBFB`, trong trắng, danh sách và khung trang `#DCDCDC` (đo trên PDF
+Optimizer khi bỏ chọn Compress Images). Audit Space Usage của ta trên cùng tệp ra gần đúng số của bản đối chiếu (Images
+814 435 / 814 429, Fonts 1 267 046 / 1 267 022, Color Spaces 4 878 / 4 870, Cross Reference Table 731 / 730).
+
+**Edit** (`editor_edit10.rs`): ribbon đã đúng thứ tự (ảnh `editor-84`); menu Edit Object ▾ (All / Text / Image / Shape /
+Shading — công cụ chỉ chọn loại đó), Add Images ▾ (Image From File; Draw New Image xám), Web Links ▾ đủ bốn mục (Append All
+Web Links on Current Page, View Web Links là bảng trang / địa chỉ), Add Shapes theo kiểu menu vòng 9 (chưa có bộ hình dạng
+lưới Add Path / Add Shading của bản đối chiếu). Khung khi gõ (Reflow Editing tắt): bản đối chiếu bao cả nhóm đoạn sát nhau,
+kể cả các đoạn phía trên đoạn đang gõ; ta trước chỉ bao từ đoạn đang gõ trở xuống — nay bao từ đoạn đầu nhóm
+(`paragraph_push::leaders_box`, `editor-96`). Gõ thêm dòng ở đoạn cuối nhóm: đường kẻ phía dưới bị đè như bản đối chiếu.
+
+**Tốc độ** (bản release, máy đang build song song — rustc của các agent khác):
+
+| Đo | Vòng 8 | Vòng 10 |
+| --- | --- | --- |
+| Mở sổ tay 1 202 trang / trang đầu (`--bench`, 3 lần) | 34–57 / 46–71 ms | 40–67 / 52–80 ms |
+| Gõ trong Edit Text, xử lý phím / vẽ / gửi khung p50 (p95) | 0,15 / — / — ms | 0,16 (0,24) / 0,42 (0,53) / 0,98 (1,27) ms |
+| Gõ, tổng công việc mỗi phím p50 / p95 (96 ký tự) | 2,4 / 4,8–8,1 ms | 2,2 / 2,7 ms |
+
+Bản đối chiếu không đo được độ trễ phím bằng thông điệp gửi (không có nhật ký thời gian); cuộn ảnh thu nhỏ trang chưa đo.
+
+Còn lại: hộp Properties của trường biểu mẫu (General / Appearance / Options / Actions / Format / Validate / Calculate) —
+công cụ trường và Select Annotation của bản đối chiếu không nhận cú bấm gửi bằng thông điệp nên chưa chụp được để đo, ta vẫn
+dùng hộp đơn giản; Tab order; Add Shapes dạng lưới (Add Path / Add Shading) và các hình mới (đa giác, mũi tên); khung mỏng
+quanh các khối chữ khác khi bật Edit Text (bản đối chiếu vẽ); JBIG2 có mất dữ liệu (mã hoá ký hiệu), JPEG2000; Optimize
+Scanned PDF mở hộp Advanced; Multiple Files; Certificate Protect / Security Policies / chứng nhận chữ ký; nút Edit… của
+Converting To PDF; khung xem trước của Crop.

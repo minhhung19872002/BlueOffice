@@ -208,3 +208,26 @@ fn windows_metrics_and_typo_flag() {
     let cam = fm.resolve("Cambria", false, false).unwrap();
     assert!(fm.info(cam).use_typo_metrics);
 }
+
+/// Hostile files (one text box of megabytes without a break opportunity): the run is
+/// cut and measured in many different pieces, each shaped once. The shaping cache must
+/// neither keep the long texts nor grow past its byte budget.
+#[test]
+fn shape_cache_is_bounded_in_bytes() {
+    let mut fm = manager();
+    let f = fm.resolve("Calibri", false, false).unwrap();
+    let long: String = (0..100_000u32)
+        .map(|i| char::from(b'a' + u8::try_from(i * 7 % 26).unwrap()))
+        .collect();
+    assert!(fm.measure(f, &long, 20.0) > 0.0);
+    assert_eq!(fm.cached_shapes(), 0, "a 100 000-character text was cached");
+    let mut most = 0;
+    for i in 0..300usize {
+        // Distinct 15 000-character texts: about 300 KB of glyphs each, 90 MB in all.
+        let text = format!("{i:03}{}", &long[i..i + 15_000]);
+        fm.measure(f, &text, 20.0);
+        most = most.max(fm.cached_shape_bytes());
+    }
+    assert!(most <= 64 << 20, "{most} bytes cached");
+    assert!(fm.cached_shapes() < 300);
+}

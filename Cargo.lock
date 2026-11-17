@@ -841,6 +841,7 @@ dependencies = [
  "bo-ui",
  "png",
  "windows",
+ "windows-core",
 ]
 
 [[package]]

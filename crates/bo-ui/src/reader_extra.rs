@@ -264,6 +264,12 @@ impl ReaderWindow {
     /// Input for the additions first: `Some(redraw)` when handled.
     #[allow(clippy::too_many_lines)]
     pub(crate) fn route_extra(&mut self, input: &Input, m: &dyn TextMeasure) -> Option<bool> {
+        // Marquee zoom, Select Annotation (BlueReader round 12).
+        if self.extra.print.is_none() {
+            if let Some(r) = self.route_twelve(input, m) {
+                return Some(r);
+            }
+        }
         // Forms, Fill & Sign, the signature dialog (BlueReader round 11).
         if self.extra.print.is_none() {
             if let Some(r) = self.route_eleven(input, m) {
@@ -399,11 +405,20 @@ impl ReaderWindow {
     }
 
     fn full_screen_input(&mut self, input: &Input, m: &dyn TextMeasure) -> bool {
+        // Preferences › Full Screen (round 12): Escape exits, clicks turn pages.
+        let (escape, click) = self.full_screen_prefs6();
         let step = match input {
-            Input::Key(Key::Escape | Key::F(11), _) => {
+            Input::Key(Key::F(11), _) => {
                 self.toggle_full_screen(m);
                 return true;
             }
+            Input::Key(Key::Escape, _) => {
+                if escape {
+                    self.toggle_full_screen(m);
+                }
+                return true;
+            }
+            Input::Press { .. } | Input::Context { .. } if !click => return true,
             Input::Key(Key::Right | Key::Down | Key::PageDown | Key::Enter, _)
             | Input::Press { .. } => 1,
             Input::Text(s) if s == " " => 1,
@@ -565,7 +580,8 @@ impl ReaderWindow {
 
     /// Commands of the additions; `true` when handled.
     pub(crate) fn command_extra(&mut self, cmd: &str, m: &dyn TextMeasure) -> bool {
-        if self.command_eleven(cmd, m)
+        if self.command_twelve(cmd, m)
+            || self.command_eleven(cmd, m)
             || self.command_prefs6(cmd, m)
             || self.command_menus9(cmd)
             || self.command_tabs9(cmd)

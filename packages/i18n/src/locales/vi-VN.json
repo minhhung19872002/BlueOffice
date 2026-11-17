@@ -11995,7 +11995,12 @@
     "tool.squiggly": "Gạch dưới lượn sóng",
     "tool.strikeout": "Gạch ngang",
     "tool.underline": "Gạch dưới",
-    "menu.split": "Chia cửa sổ"
+    "menu.split": "Chia cửa sổ",
+    "share.files": "Tệp đã chia sẻ: cần dịch vụ chia sẻ trực tuyến, bản này chưa có",
+    "share.sharedReview": "Quản lý duyệt chung: cần máy chủ duyệt, bản này chưa có",
+    "share.emailReview": "Quản lý duyệt qua e-mail: cần máy chủ duyệt, bản này chưa có",
+    "share.tracker": "Theo dõi duyệt: theo dõi các lượt duyệt chung, bản này chưa có",
+    "comment.fdfMail": "Gửi FDF qua e-mail: lưu chú thích thành FDF rồi mở thư mới để đính kèm"
   },
   "pdfTen": {
     "options": "Tùy chọn",
@@ -12664,5 +12669,63 @@
     "presetName": "Tên thiết lập:",
     "saveSettingsTitle": "Lưu thiết lập",
     "pickPicture": "Hãy chọn ảnh bằng Duyệt... trước."
+  },
+  "pdfView12": {
+    "assistant": "Hỗ trợ xem",
+    "marquee": "Phóng theo vùng",
+    "loupe": "Kính lúp nhỏ",
+    "magnifier": "Kính lúp"
+  },
+  "pdfShare12": {
+    "sharedFiles": "Tệp đã chia sẻ",
+    "sharedReview": "Quản lý duyệt chung",
+    "emailReview": "Quản lý duyệt qua e-mail",
+    "tracker": "Theo dõi duyệt"
+  },
+  "pdfComment12": {
+    "fdfMail": "Gửi FDF qua e-mail",
+    "manage": "Quản lý chú thích",
+    "keep": "Giữ công cụ",
+    "fdfSubject": "Chú thích cho {{name}}"
+  },
+  "pdfSelect12": {
+    "text": "Chọn chữ và ảnh",
+    "annot": "Chọn chú thích"
+  },
+  "pdfForm12": {
+    "toSheet": "Biểu mẫu thành bảng",
+    "combine": "Gộp biểu mẫu thành một bảng"
+  },
+  "pdfSig12": {
+    "password": "Mật khẩu",
+    "confirm": "Nhập lại mật khẩu",
+    "mismatch": "Hai mật khẩu không khớp",
+    "promptTitle": "Mật khẩu chữ ký",
+    "prompt": "Nhập mật khẩu để dùng chữ ký này",
+    "wrong": "Sai mật khẩu, hãy thử lại"
+  },
+  "pdfPrefs12": {
+    "forms": "Biểu mẫu",
+    "fullScreen": "Toàn màn hình",
+    "history": "Lịch sử",
+    "search": "Tìm kiếm",
+    "speech": "Giọng đọc",
+    "formsHighlight": "Tô sáng mọi trường",
+    "fsEscape": "Phím Esc để thoát",
+    "fsClick": "Nhấp chuột trái sang trang sau; nhấp chuột phải về trang trước",
+    "historyMax": "Số tài liệu trong danh sách gần đây",
+    "clearHistory": "Xoá lịch sử",
+    "cleared": "Đã xoá lịch sử",
+    "searchWhole": "Chỉ nguyên từ",
+    "searchCase": "Phân biệt hoa thường",
+    "rate": "Tốc độ đọc",
+    "rateSlowest": "Chậm nhất",
+    "rateSlow": "Chậm",
+    "rateNormal": "Bình thường",
+    "rateFast": "Nhanh",
+    "rateFastest": "Nhanh nhất"
+  },
+  "pdfA11y12": {
+    "document": "{{name}}, trang {{page}} / {{pages}}"
   }
 }

@@ -882,6 +882,7 @@ impl Handler for Shell {
     fn created(&mut self, hwnd: isize, width: u32, height: u32, scale: f32) -> Result<(), String> {
         refresh_text_scale();
         self.hwnd = hwnd;
+        uia::install(hwnd);
         mem_step("window");
         boot_step("window");
         let device = Device::new()?;
@@ -916,6 +917,20 @@ impl Handler for Shell {
     }
 
     fn input(&mut self, input: Input, age_ms: u32) {
+        // Commands invoked through UI Automation run on the tick the provider posts.
+        if matches!(input, Input::Tick) {
+            if uia::active() {
+                uia::update(self.window.accessibility());
+            }
+            let keys = uia::take_invokes();
+            if !keys.is_empty() {
+                let m = Measure(self.gpu.as_ref().map(|g| &g.device));
+                for k in keys {
+                    self.window.invoke(&k, &m);
+                }
+                self.more = true;
+            }
+        }
         // A second after the last frame, with nothing left to draw, the driver gives back the
         // memory it kept while drawing (`BO_READER_IDLE_TRIM=0` turns it off for measuring).
         if matches!(input, Input::Tick) && !self.more {
@@ -1046,6 +1061,9 @@ impl Handler for Shell {
         if let Err(e) = self.render() {
             eprintln!("render: {e}");
         }
+        if uia::active() {
+            uia::update(self.window.accessibility());
+        }
         if let (Some(file), Some(p)) = (self.perf.as_mut(), self.pending_input.take()) {
             let total = p.first.elapsed();
             let _ = writeln!(
@@ -1073,6 +1091,11 @@ mod clip;
 #[path = "reader_speech.rs"]
 #[allow(unsafe_code)]
 mod speech;
+
+// UI Automation provider (round 12; COM calls confined to this child module).
+#[path = "reader_uia.rs"]
+#[allow(unsafe_code)]
+mod uia;
 
 // GDI printing (Win32 calls confined to this child module, like win32.rs).
 #[path = "reader_print.rs"]

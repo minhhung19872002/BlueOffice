@@ -117,6 +117,7 @@ fn saved_signatures_survive_their_text_form() {
             color: [0, 0, 255],
             keep_size: false,
             session: false,
+            password: None,
         },
         SavedSig {
             ink: SignatureInk::Strokes(vec![vec![[0.0, 0.5], [1.0, 0.25]], vec![[0.5, 0.5]]]),
@@ -124,6 +125,7 @@ fn saved_signatures_survive_their_text_form() {
             color: [255, 0, 0],
             keep_size: false,
             session: false,
+            password: None,
         },
         SavedSig {
             ink: SignatureInk::Image(vec![1, 2, 3, 250]),
@@ -131,6 +133,7 @@ fn saved_signatures_survive_their_text_form() {
             color: [0, 0, 0],
             keep_size: false,
             session: false,
+            password: None,
         },
     ];
     assert_eq!(decode_sigs(&encode_sigs(&sigs)), sigs);
@@ -143,6 +146,7 @@ fn saved_signatures_survive_their_text_form() {
             color: [0, 0, 0],
             keep_size: true,
             session: false,
+            password: None,
         },
         SavedSig {
             ink: SignatureInk::Shape {
@@ -157,6 +161,7 @@ fn saved_signatures_survive_their_text_form() {
             color: [0, 0, 255],
             keep_size: false,
             session: false,
+            password: None,
         },
         SavedSig {
             ink: SignatureInk::Strokes(vec![vec![[0.0, 0.0]]]),
@@ -164,6 +169,7 @@ fn saved_signatures_survive_their_text_form() {
             color: [0, 0, 0],
             keep_size: false,
             session: true,
+            password: None,
         },
     ];
     assert_eq!(decode_sigs(&encode_sigs(&more)), more[..2].to_vec());

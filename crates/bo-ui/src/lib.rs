@@ -133,6 +133,7 @@ pub use reader_print::{
     PrintScaling, PrintSettings,
 };
 pub use reader_view::{Fit, Layout, PdfStore, ReaderView, THUMB_KEY};
+pub use reader_window::{AccessItem, AccessRole};
 pub use reader_window::{Panel, ReaderRequest, ReaderWindow, Tool};
 pub use ribbon::{Ribbon, RibbonHit};
 pub use ruler::Ruler;

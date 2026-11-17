@@ -11995,7 +11995,12 @@
     "tool.squiggly": "Squiggly Underline",
     "tool.strikeout": "Strikeout",
     "tool.underline": "Underline",
-    "menu.split": "Split"
+    "menu.split": "Split",
+    "share.files": "Shared Files: needs an online sharing service, not available in this build",
+    "share.sharedReview": "Manage Shared Review: needs a review server, not available in this build",
+    "share.emailReview": "Manage Email Review: needs a review server, not available in this build",
+    "share.tracker": "Tracker: follows shared reviews, not available in this build",
+    "comment.fdfMail": "FDF via Email: save the comments as FDF and start a message to attach them to"
   },
   "pdfTen": {
     "options": "Options",
@@ -12664,5 +12669,63 @@
     "presetName": "Name of the settings:",
     "saveSettingsTitle": "Save Settings",
     "pickPicture": "Pick a picture with Browse... first."
+  },
+  "pdfView12": {
+    "assistant": "Assistant",
+    "marquee": "Marquee",
+    "loupe": "Loupe",
+    "magnifier": "Magnifier"
+  },
+  "pdfShare12": {
+    "sharedFiles": "Shared Files",
+    "sharedReview": "Manage Shared Review",
+    "emailReview": "Manage Email Review",
+    "tracker": "Tracker"
+  },
+  "pdfComment12": {
+    "fdfMail": "FDF via Email",
+    "manage": "Manage Comments",
+    "keep": "Keep Tool Selected",
+    "fdfSubject": "Comments on {{name}}"
+  },
+  "pdfSelect12": {
+    "text": "Select Text and Image",
+    "annot": "Select Annotation"
+  },
+  "pdfForm12": {
+    "toSheet": "Form to sheet",
+    "combine": "Combine Forms to a Sheet"
+  },
+  "pdfSig12": {
+    "password": "Password",
+    "confirm": "Confirm Password",
+    "mismatch": "The passwords do not match",
+    "promptTitle": "Signature Password",
+    "prompt": "Enter the password to use this signature",
+    "wrong": "Incorrect password, try again"
+  },
+  "pdfPrefs12": {
+    "forms": "Forms",
+    "fullScreen": "Full Screen",
+    "history": "History",
+    "search": "Search",
+    "speech": "Speech",
+    "formsHighlight": "Highlight all fields",
+    "fsEscape": "Escape key exits",
+    "fsClick": "Left click to go forward one page; right click to go back",
+    "historyMax": "Documents in the history list",
+    "clearHistory": "Clear History",
+    "cleared": "History cleared",
+    "searchWhole": "Whole words only",
+    "searchCase": "Case-sensitive",
+    "rate": "Reading speed",
+    "rateSlowest": "Slowest",
+    "rateSlow": "Slow",
+    "rateNormal": "Normal",
+    "rateFast": "Fast",
+    "rateFastest": "Fastest"
+  },
+  "pdfA11y12": {
+    "document": "{{name}}, page {{page}} of {{pages}}"
   }
 }

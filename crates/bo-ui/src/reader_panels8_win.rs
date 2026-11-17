@@ -547,6 +547,12 @@ impl ReaderWindow {
         (self.panels8.find_case, self.panels8.find_word)
     }
 
+    /// Set the search box's options (case-sensitive, whole words; Preferences › Search).
+    pub(crate) fn set_find_options8(&mut self, case: bool, word: bool) {
+        self.panels8.find_case = case;
+        self.panels8.find_word = word;
+    }
+
     /// The options button at the right end of the title bar's search box.
     fn find_button8(&self) -> [f32; 4] {
         let s = self.search;

@@ -243,3 +243,15 @@ fn rights_management_row_opens_a_message() {
         Some((_, FormWhat::R12(Dlg12::Rms)))
     ));
 }
+
+/// A closed tab's page images leave the store on the next frame (memory back after closing).
+#[test]
+fn closing_a_tab_releases_its_page_images() {
+    let mut w = crate::editor_tests::window(3);
+    let mut store = crate::editor_tests::Store::default();
+    while w.prepare(&mut store) {}
+    assert!(!store.keys.is_empty());
+    w.r.close_tab_now(0);
+    w.prepare(&mut store);
+    assert!(store.keys.is_empty(), "{:?}", store.keys.keys());
+}

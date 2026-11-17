@@ -473,6 +473,8 @@ pub struct ReaderWindow {
     doc_tab_rects: Vec<([f32; 4], [f32; 4])>,
     /// Closing a tab asks the owner first (a `Command("ed.closeTab.N")` request).
     pub(crate) close_guard: bool,
+    /// Store keys of closed tabs' page images, removed on the next prepare (round 12).
+    released_keys: Vec<usize>,
     start_tab: [f32; 4],
     search: [f32; 4],
     search_text: String,
@@ -592,6 +594,7 @@ impl ReaderWindow {
             tab_rects: Vec::new(),
             doc_tab_rects: Vec::new(),
             close_guard: false,
+            released_keys: Vec::new(),
             start_tab: [0.0; 4],
             search: [0.0; 4],
             search_text: String::new(),
@@ -2071,6 +2074,11 @@ impl ReaderWindow {
     /// Close document tab `i` without asking.
     pub(crate) fn close_tab_now(&mut self, i: usize) {
         if i < self.tabs.len() {
+            // Its page images leave the store with it (BlueEditor round 12).
+            let t = &self.tabs[i];
+            let base = t.key_base;
+            self.released_keys
+                .extend(t.view.drawn_keys().into_iter().map(|k| base + k));
             self.tabs.remove(i);
             if self.active >= self.tabs.len() {
                 self.active = self.tabs.len().saturating_sub(1);
@@ -2596,6 +2604,9 @@ impl ReaderWindow {
 
     /// Bring page images up to date; true when more work remains.
     pub fn prepare(&mut self, store: &mut dyn PdfStore) -> bool {
+        for k in std::mem::take(&mut self.released_keys) {
+            store.remove(k);
+        }
         if self.show_start {
             return false;
         }

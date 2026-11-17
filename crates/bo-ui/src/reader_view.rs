@@ -1464,6 +1464,13 @@ impl ReaderView {
         }
     }
 
+    /// Keys of the page images this view has in the store (BlueEditor round 12: a closed
+    /// tab gives them back).
+    #[must_use]
+    pub fn drawn_keys(&self) -> Vec<usize> {
+        self.drawn.keys().copied().collect()
+    }
+
     /// Clear search hits.
     pub fn clear_hits(&mut self) {
         self.hits.clear();

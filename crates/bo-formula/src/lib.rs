@@ -25,6 +25,7 @@
 #![forbid(unsafe_code)]
 
 pub mod ast;
+mod cellstore;
 pub mod criteria;
 pub mod date;
 mod eval;
@@ -40,6 +41,7 @@ pub mod provider;
 mod rangeindex;
 pub mod reference;
 mod shift;
+mod simple;
 pub mod stat;
 mod storage;
 mod trace;

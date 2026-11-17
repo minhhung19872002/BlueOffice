@@ -15,14 +15,14 @@ pub(crate) fn share_tab_items() -> Vec<(&'static str, Kind)> {
         ("sep2", Sep),
         (
             "share.sharedReview",
-            Big("sharedReview", "pdfShare12.sharedReview", true),
+            Big("sharedReview", "pdfEditor11.sendShared", true),
         ),
         (
             "share.manageShared",
             Big("sharedReview", "pdfEditor11.manageShared", true),
         ),
         (
-            "share.emailReview",
+            "share.emailReview11",
             Big("emailReview", "pdfEditor11.sendEmailReview", false),
         ),
         (
@@ -35,15 +35,19 @@ pub(crate) fn share_tab_items() -> Vec<(&'static str, Kind)> {
 }
 
 /// Share tab commands shown grey (online review services).
-pub(crate) const SHARE_LATER: [&str; 5] = [
+pub(crate) const SHARE_LATER: [&str; 4] = [
     "share.sharedReview",
     "share.manageShared",
-    "share.emailReview",
     "share.manageEmail",
     "share.tracker",
 ];
 
 impl EditorWindow {
+    /// Run a command of the reader window under the editor.
+    fn run_reader11(&mut self, cmd: &str) {
+        self.r.run_command(cmd, &crate::editor_window::Estimate);
+    }
+
     /// Commands of the Share tab; false when `cmd` is not one.
     pub(crate) fn share11_command(&mut self, cmd: &str) -> bool {
         match cmd {
@@ -60,6 +64,8 @@ impl EditorWindow {
                 &[],
                 "share.mailMenu",
             ),
+            // Send for Email Review: the document goes out as an e-mail attachment.
+            "share.emailReview11" => self.run_reader11("share.mail"),
             _ => return false,
         }
         true

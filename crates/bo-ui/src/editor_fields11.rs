@@ -32,6 +32,8 @@ pub(crate) struct Fields11 {
     pub shown: [String; 6],
     /// Set Tab Order › Manually: the fields clicked so far.
     pub manual: Option<Vec<FormField>>,
+    /// Where the field context menu opened (its sub-menus open there too).
+    pub menu_at: [f32; 2],
 }
 
 /// Pages of the Properties dialog.
@@ -344,6 +346,14 @@ impl EditorWindow {
 
     /// The context menu of selected fields (as the reference's).
     fn field_menu11(&mut self, x: f32, y: f32) {
+        self.f11.menu_at = [x, y];
+        self.field_submenu11("");
+    }
+
+    /// The context menu (`which` empty) or one of its sub-menus (`align`, `center`,
+    /// `distribute`, `size`, `tabs`), as the reference's rows; a sub-menu opens where the
+    /// context menu was.
+    fn field_submenu11(&mut self, which: &str) {
         let n = self.f11.selected.len();
         let order = self
             .f11
@@ -357,43 +367,75 @@ impl EditorWindow {
             checked,
             dim,
         };
-        let mut items = vec![
-            item(self, "fd11.props", "pdfEditor11.properties", n != 1, false),
-            item(self, "fd11.delete", "pdfEditor11.delete", n == 0, false),
-        ];
-        for (cmd, key, need) in [
-            ("fd11.alignLeft", "pdfEditor11.alignLeft", 2),
-            ("fd11.alignRight", "pdfEditor11.alignRight", 2),
-            ("fd11.alignTop", "pdfEditor11.alignTop", 2),
-            ("fd11.alignBottom", "pdfEditor11.alignBottom", 2),
-            ("fd11.alignVCenter", "pdfEditor11.alignVertical", 2),
-            ("fd11.alignHCenter", "pdfEditor11.alignHorizontal", 2),
-            ("fd11.centerH", "pdfEditor11.centerHorizontal", 1),
-            ("fd11.centerV", "pdfEditor11.centerVertical", 1),
-            ("fd11.centerBoth", "pdfEditor11.centerBoth", 1),
-            ("fd11.distV", "pdfEditor11.distributeVertical", 3),
-            ("fd11.distH", "pdfEditor11.distributeHorizontal", 3),
-            ("fd11.sizeH", "pdfEditor11.sizeHeight", 2),
-            ("fd11.sizeW", "pdfEditor11.sizeWidth", 2),
-            ("fd11.sizeBoth", "pdfEditor11.sizeBoth", 2),
-        ] {
-            items.push(item(self, cmd, key, n < need, false));
-        }
-        for (cmd, key, code) in [
-            ("fd11.tabRow", "pdfEditor11.tabRow", "R"),
-            ("fd11.tabColumn", "pdfEditor11.tabColumn", "C"),
-            ("fd11.tabStructure", "pdfEditor11.tabStructure", "S"),
-            ("fd11.tabManual", "pdfEditor11.tabManual", ""),
-        ] {
-            items.push(item(self, cmd, key, n == 0, order == code));
-        }
-        items.push(item(
-            self,
-            "form.highlight",
-            "pdfEditor11.highlightFields",
-            false,
-            self.x.highlight_fields,
-        ));
+        let sub = |w: &Self, cmd: &str, key: &str, dim: bool| MenuItem {
+            label: format!("{}  \u{203A}", w.t(key)),
+            choice: Choice::Command(cmd.to_owned()),
+            checked: false,
+            dim,
+        };
+        let rows: &[(&str, &str, usize)] = match which {
+            "align" => &[
+                ("fd11.alignLeft", "pdfEditor11.alignLeft", 2),
+                ("fd11.alignRight", "pdfEditor11.alignRight", 2),
+                ("fd11.alignTop", "pdfEditor11.alignTop", 2),
+                ("fd11.alignBottom", "pdfEditor11.alignBottom", 2),
+                ("fd11.alignVCenter", "pdfEditor11.alignVertical", 2),
+                ("fd11.alignHCenter", "pdfEditor11.alignHorizontal", 2),
+            ],
+            "center" => &[
+                ("fd11.centerH", "pdfEditor11.centerHorizontal", 1),
+                ("fd11.centerV", "pdfEditor11.centerVertical", 1),
+                ("fd11.centerBoth", "pdfEditor11.centerBoth", 1),
+            ],
+            "distribute" => &[
+                ("fd11.distV", "pdfEditor11.distributeVertical", 3),
+                ("fd11.distH", "pdfEditor11.distributeHorizontal", 3),
+            ],
+            "size" => &[
+                ("fd11.sizeH", "pdfEditor11.sizeHeight", 2),
+                ("fd11.sizeW", "pdfEditor11.sizeWidth", 2),
+                ("fd11.sizeBoth", "pdfEditor11.sizeBoth", 2),
+            ],
+            _ => &[],
+        };
+        let items: Vec<MenuItem> = if which == "tabs" {
+            [
+                ("fd11.tabRow", "pdfEditor11.tabRow", "R"),
+                ("fd11.tabColumn", "pdfEditor11.tabColumn", "C"),
+                ("fd11.tabStructure", "pdfEditor11.tabStructure", "S"),
+                ("fd11.tabManual", "pdfEditor11.tabManual", "-"),
+            ]
+            .iter()
+            .map(|(cmd, key, code)| item(self, cmd, key, n == 0, order == *code))
+            .collect()
+        } else if rows.is_empty() {
+            vec![
+                item(self, "fd11.props", "pdfEditor11.properties", n != 1, false),
+                item(self, "fd11.delete", "pdfEditor11.delete", n == 0, false),
+                sub(self, "fd11.menu.align", "pdfEditor11.align", n < 2),
+                sub(self, "fd11.menu.center", "pdfEditor11.center", n == 0),
+                sub(
+                    self,
+                    "fd11.menu.distribute",
+                    "pdfEditor11.distribute",
+                    n < 3,
+                ),
+                sub(self, "fd11.menu.size", "pdfEditor11.size", n < 2),
+                sub(self, "fd11.menu.tabs", "pdfEditor11.setTabOrder", n == 0),
+                item(
+                    self,
+                    "form.highlight",
+                    "pdfEditor11.highlightFields",
+                    false,
+                    self.x.highlight_fields,
+                ),
+            ]
+        } else {
+            rows.iter()
+                .map(|(cmd, key, need)| item(self, cmd, key, n < *need, false))
+                .collect()
+        };
+        let [x, y] = self.f11.menu_at;
         self.menu_items(items, [x, y, 1.0, 1.0]);
     }
 
@@ -404,6 +446,10 @@ impl EditorWindow {
         }
         let sel = self.f11.selected.clone();
         let user = |w: &Self, f: &FormField| w.view().map(|v| v.doc().field_rect(f));
+        if let Some(which) = cmd.strip_prefix("fd11.menu.") {
+            self.field_submenu11(which);
+            return true;
+        }
         match cmd {
             "fd11.props" => {
                 if let Some(f) = sel.first() {
@@ -683,6 +729,7 @@ impl EditorWindow {
             Vec::new(),
         );
         form.nullable = vec!["bcolor", "fcolor"];
+        form.light = true;
         fill_form(&mut form, &props);
         form.set("tab", Val::Pick(0));
         form.set("units", Val::Pick(1));
@@ -1149,7 +1196,7 @@ impl EditorWindow {
                     button(
                         "actEdit",
                         [341.0, 538.0, 101.0, 34.0],
-                        t("pdfEditor11.edit"),
+                        t("pdfEditor11.editBtn"),
                         chosen,
                     ),
                     button(
@@ -1212,14 +1259,14 @@ impl EditorWindow {
                         on: On::IfNot("multi", 1),
                     },
                     check("spell", 203.0, 425.0, t("pdfEditor11.spell")),
-                    Ctl::Check {
-                        id: "comb",
-                        x: 203.0,
-                        y: 459.0,
-                        label: t("pdfEditor11.combOf"),
-                        on: limit,
-                    },
-                    crate::editor_form8::label_on(411.0, 459.0, t("pdfEditor11.characters"), limit),
+                    check("comb", 203.0, 459.0, t("pdfEditor11.combOf")),
+                    edit("combN", [333.0, 446.0, 66.0, 29.0], On::If("comb", 1)),
+                    crate::editor_form8::label_on(
+                        411.0,
+                        459.0,
+                        t("pdfEditor11.characters"),
+                        On::If("comb", 1),
+                    ),
                     check("multi", 203.0, 496.0, t("pdfEditor11.multiline")),
                     rlabel(328.0, 529.0, t("pdfEditor11.lineSpacing"), On::Never),
                     combo(
@@ -1859,6 +1906,10 @@ impl EditorWindow {
             return;
         };
         let props = self.props_of11(f, &target);
+        if self.view().map(|v| v.doc().field_props(&target)) == Some(props.clone()) {
+            // Nothing changed: the document stays unmodified.
+            return;
+        }
         let page = target.page;
         match self.doc_edit(|d| d.set_field_props(&target, &props)) {
             Ok(()) => {
@@ -1931,7 +1982,9 @@ impl EditorWindow {
             default_value: f.text("dv"),
             scroll: on("scroll"),
             rich: on("rich"),
-            max_len: if on("limit") {
+            max_len: if on("comb") {
+                f.text("combN").trim().parse().unwrap_or(0)
+            } else if on("limit") {
                 f.text("maxLen").trim().parse().unwrap_or(0)
             } else {
                 0
@@ -2027,7 +2080,15 @@ fn fill_form(f: &mut Form, p: &FieldProps) {
     f.set("dv", Val::Text(p.default_value.clone()));
     f.set("scroll", pick(p.scroll));
     f.set("rich", pick(p.rich));
-    f.set("limit", pick(p.max_len > 0));
+    f.set("limit", pick(p.max_len > 0 && !p.comb));
+    f.set(
+        "combN",
+        Val::Text(if p.comb {
+            p.max_len.to_string()
+        } else {
+            String::new()
+        }),
+    );
     f.set(
         "maxLen",
         Val::Text(if p.max_len > 0 {

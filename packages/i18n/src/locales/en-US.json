@@ -14102,6 +14102,14 @@
     "manageEmail": "Manage Email Review",
     "emailCurrent": "Email Current Document",
     "emailAll": "Email All Open Documents",
-    "tabShare": "Share"
+    "tabShare": "Share",
+    "keepTool": "Keep Tool Selected",
+    "editBtn": "Edit",
+    "align": "Align",
+    "distribute": "Distribute",
+    "size": "Size",
+    "setTabOrder": "Set Tab Order",
+    "sendShared": "Send for Shared Review",
+    "textbox": "Textbox"
   }
 }

@@ -14102,6 +14102,14 @@
     "manageEmail": "Quản lý duyệt qua email",
     "emailCurrent": "Gửi tài liệu hiện tại qua email",
     "emailAll": "Gửi mọi tài liệu đang mở qua email",
-    "tabShare": "Chia sẻ"
+    "tabShare": "Chia sẻ",
+    "keepTool": "Giữ công cụ đã chọn",
+    "editBtn": "Sửa",
+    "align": "Canh",
+    "distribute": "Dàn đều",
+    "size": "Cỡ",
+    "setTabOrder": "Đặt thứ tự Tab",
+    "sendShared": "Gửi duyệt chung",
+    "textbox": "Hộp chữ"
   }
 }

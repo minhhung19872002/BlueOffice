@@ -205,6 +205,9 @@ pub(crate) struct Form {
     pub all: bool,
     /// Round 11: swatches that can be "no colour" (`Val::Text("none")`).
     pub nullable: Vec<&'static str>,
+    /// Round 11: the field Properties look (measured): drop-down lists #FDFDFD in #D2D2D2,
+    /// list boxes framed #828790, Close the default button.
+    pub light: bool,
 }
 
 const WHITE: Rgba = Rgba(255, 255, 255, 255);
@@ -255,6 +258,7 @@ impl Form {
             ticks: Vec::new(),
             all: false,
             nullable: Vec::new(),
+            light: false,
         }
     }
 
@@ -953,6 +957,8 @@ impl Form {
                     let b = at(*r);
                     let edge = if hot && on {
                         FOCUS
+                    } else if self.light {
+                        Rgba(0xD2, 0xD2, 0xD2, 255)
                     } else {
                         Rgba(0x99, 0x99, 0x99, 255)
                     };
@@ -962,7 +968,9 @@ impl Form {
                         b[1] + 1.0,
                         b[2] - 2.0,
                         b[3] - 2.0,
-                        if on {
+                        if on && self.light {
+                            Rgba(0xFD, 0xFD, 0xFD, 255)
+                        } else if on {
                             Rgba(0xE2, 0xE2, 0xE2, 255)
                         } else {
                             Rgba(0xCC, 0xCC, 0xCC, 255)
@@ -1099,7 +1107,7 @@ impl Form {
                 }
                 Ctl::Button { r, label, id, .. } => {
                     let b = at(*r);
-                    let default = *id == "ok";
+                    let default = *id == "ok" || (self.light && *id == "close");
                     // Round 10 (measured): a button that cannot be used is framed #E9E9E9
                     // on a #F9F9F9 face.
                     let edge = if !on {
@@ -1291,8 +1299,14 @@ impl Form {
                 }
                 Ctl::ListBox { id, r, items, .. } => {
                     let b = at(*r);
-                    // The reference's list boxes: #DCDCDC whether usable or not.
-                    p.fill_rect(b[0], b[1], b[2], b[3], GROUP_EDGE);
+                    // The reference's list boxes: #DCDCDC whether usable or not (#828790 in the
+                    // field Properties).
+                    let edge = if self.light {
+                        Rgba(0x82, 0x87, 0x90, 255)
+                    } else {
+                        GROUP_EDGE
+                    };
+                    p.fill_rect(b[0], b[1], b[2], b[3], edge);
                     p.fill_rect(b[0] + 1.0, b[1] + 1.0, b[2] - 2.0, b[3] - 2.0, WHITE);
                     let rh = q(20.0);
                     let sel = self.pick(id);

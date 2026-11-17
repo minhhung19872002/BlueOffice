@@ -422,12 +422,20 @@ impl EditorWindow {
                 );
             }
             "form.settings" => {
-                let items = [
-                    ("form.highlight", "pdfEditor.highlightFields"),
-                    ("form.fill", "pdfEditor.fillSign"),
-                    ("form.flatten", "pdfEditor.flatten"),
-                ];
-                self.menu(&items, "form.settings");
+                // Round 11: the reference's two rows, Highlight Fields ticked while on.
+                let on = if self.x.highlight_fields {
+                    vec![0]
+                } else {
+                    Vec::new()
+                };
+                self.menu11(
+                    &[
+                        ("form.highlight", "pdfEditor11.highlightFields", None, false),
+                        ("form.keepTool", "pdfEditor11.keepTool", None, true),
+                    ],
+                    &on,
+                    "form.settings",
+                );
             }
             _ => return false,
         }

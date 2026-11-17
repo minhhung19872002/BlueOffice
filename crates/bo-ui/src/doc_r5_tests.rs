@@ -518,6 +518,11 @@ fn mailings_commands_dim_by_merge_state_as_the_reference() {
         assert!(!w.ribbon.extra_dimmed(id), "{id} lit");
     }
     assert!(!w.action("mailings.rules"), "a dimmed command does nothing");
+    // Select Recipients is a menu button (its label carries the mark).
+    assert!(crate::catalog::is_menu("mailings.recipients"));
+    assert!(w.action("mailings.recipients"));
+    assert_eq!(w.menu.as_ref().map(|m| m.items().len()), Some(3));
+    w.menu = None;
     assert_eq!(w.r5.record_box, None);
     // Data source, no merge field: Highlight, Preview Results, Find Recipient, Update Labels dim.
     w.view.run_json(&json!({

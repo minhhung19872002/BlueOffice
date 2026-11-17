@@ -13172,6 +13172,9 @@
     "previewOf": "Xem trước {name}:",
     "descFont": "Phông:",
     "paragraphStyle": "Kiểu: kiểu đoạn văn",
-    "characterStyle": "Kiểu: kiểu ký tự"
+    "characterStyle": "Kiểu: kiểu ký tự",
+    "typeNewList": "Nhập danh sách mới...",
+    "useExistingList": "Dùng danh sách có sẵn...",
+    "contactsList": "Chọn từ danh bạ..."
   }
 }

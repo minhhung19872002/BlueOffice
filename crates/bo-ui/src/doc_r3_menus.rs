@@ -219,6 +219,12 @@ pub(crate) fn menu(id: &str) -> Vec<Entry> {
         ],
         // Fields come from the data source at open time (see the window).
         "mailings.insertField" => vec![e("mailings.field.none", "docR3.noRecipients")],
+        // Select Recipients (round 5): a menu button as the reference's.
+        "mailings.recipients" => vec![
+            e("mailings.recipients.new", "docR5.typeNewList"),
+            e("mailings.recipients.existing", "docR5.useExistingList"),
+            e("mailings.recipients.contacts", "docR5.contactsList"),
+        ],
         "mailings.rules" => vec![
             e("mailings.rule.ask", "docR3.ruleAsk"),
             e("mailings.rule.fillIn", "docR3.ruleFillIn"),

@@ -13172,6 +13172,9 @@
     "previewOf": "Preview of {name}:",
     "descFont": "Font:",
     "paragraphStyle": "Style: paragraph style",
-    "characterStyle": "Style: character style"
+    "characterStyle": "Style: character style",
+    "typeNewList": "Type a New List...",
+    "useExistingList": "Use an Existing List...",
+    "contactsList": "Choose from Contacts..."
   }
 }

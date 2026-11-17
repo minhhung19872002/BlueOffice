@@ -164,6 +164,12 @@ impl DocWindow {
             return Some(false);
         }
         match id {
+            "mailings.recipients" => return Some(self.open_recipients_menu()),
+            "mailings.recipients.existing" => {
+                self.requests.push(Request::PickMergeData);
+                return Some(false);
+            }
+            "mailings.recipients.new" | "mailings.recipients.contacts" => return Some(false),
             "styles.inspector" => return Some(self.toggle_info(true)),
             "format.revealFormatting" => return Some(self.toggle_info(false)),
             "styles.manage" => return Some(self.open_manage_styles()),
@@ -189,6 +195,30 @@ impl DocWindow {
             _ => return None,
         };
         Some(self.r3_open_form(form))
+    }
+
+    /// Select Recipients menu: Use an Existing List picks a file; typing a new list and the
+    /// address book are not available.
+    fn open_recipients_menu(&mut self) -> bool {
+        let Some(anchor) = self
+            .ribbon
+            .rect_of(crate::ribbon::RibbonHit::Command("mailings.recipients"))
+        else {
+            return false;
+        };
+        let items = crate::doc_r3_menus::menu("mailings.recipients")
+            .into_iter()
+            .map(|e| crate::popup::MenuItem {
+                label: self.r5_t(e.label, e.label),
+                choice: crate::popup::Choice::Command(e.id.to_owned()),
+                checked: false,
+                dim: e.id != "mailings.recipients.existing",
+            })
+            .collect();
+        self.menu = Some(crate::popup::Menu::open(
+            items, anchor, self.size, self.scale,
+        ));
+        true
     }
 
     /// Width the round-5 pane takes at the right.

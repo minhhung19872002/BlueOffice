@@ -17,6 +17,10 @@ mod cfmenu_impl;
 mod chart_impl;
 // BlueSlide's chart tabs reuse the menus and icons.
 pub(crate) use chart_impl::add_icons as add_chart_icons;
+#[path = "sheet_backstage.rs"]
+mod backstage_impl;
+#[path = "sheet_bshost.rs"]
+mod bshost_impl;
 #[path = "sheet_chartdata.rs"]
 mod chartdata_impl;
 #[path = "sheet_commands.rs"]
@@ -92,6 +96,7 @@ use crate::{Font, Input, Key, Mods, Painter, Request, TextMeasure, TextStyle};
 use bo_edit::FormatState;
 use bo_model::Alignment;
 use bo_render::{PathSeg, Rgba};
+pub use bshost_impl::SheetJob;
 use serde_json::json;
 pub use viewmode_impl::ViewMode;
 
@@ -330,6 +335,8 @@ pub fn step_decimals(code: &str, shown: usize, dir: i32) -> String {
 /// Window contents of BlueSheet.
 pub struct SheetWindow {
     view: SheetView,
+    /// The File screen (round 13).
+    bs: bshost_impl::BsState,
     title: TitleBar,
     name: String,
     requests: Vec<Request>,
@@ -537,6 +544,7 @@ impl SheetWindow {
             },
             name: name.to_owned(),
             requests: Vec::new(),
+            bs: bshost_impl::BsState::default(),
             ribbon: Ribbon::with_tabs(sheet_ribbon::tabs_wide())
                 .with_enabled(sheet_enabled)
                 .with_large_dim()
@@ -1507,30 +1515,18 @@ impl SheetWindow {
         self.menu = Some(Menu::open(items, anchor, self.size, self.scale));
     }
 
-    fn open_file_menu(&mut self) {
-        let Some(anchor) = self.ribbon.rect_of(RibbonHit::File) else {
-            return;
-        };
-        let items = [
-            ("file.new", "backstage.nav.new", "New"),
-            ("file.open", "backstage.nav.open", "Open"),
-            ("file.save", "backstage.nav.save", "Save"),
-            ("file.saveAs", "backstage.nav.saveAs", "Save As"),
-            ("file.close", "backstage.nav.close", "Close"),
-            ("file.options", "sheetNative.optMenu", "Options"),
-        ]
-        .iter()
-        .map(|(id, key, fb)| MenuItem {
-            label: self.t(key, fb),
-            choice: Choice::Command((*id).to_owned()),
-            checked: false,
-            dim: false,
-        })
-        .collect();
-        self.menu = Some(Menu::open(items, anchor, self.size, self.scale));
+    fn choose(&mut self, c: Choice, text: &dyn TextMeasure) -> bool {
+        if let Choice::Command(id) = &c {
+            if id.starts_with("bs13.") {
+                return self.bs_choose(id, text);
+            }
+        }
+        let done = self.choose_inner(c, text);
+        self.bs_after_choice(text);
+        done
     }
 
-    fn choose(&mut self, c: Choice, text: &dyn TextMeasure) -> bool {
+    fn choose_inner(&mut self, c: Choice, text: &dyn TextMeasure) -> bool {
         match c {
             Choice::Font(name) => self.patch(json!({ "fontName": name })),
             Choice::Size(half) => self.patch(json!({ "fontSize": f64::from(half) / 2.0 })),
@@ -1642,7 +1638,11 @@ impl SheetWindow {
             input,
             Input::Press { .. } | Input::Drag { .. } | Input::Release { .. }
         );
+        let resized = matches!(input, Input::Resize { .. } | Input::Scale(_));
         let mut redraw = self.route(input, text);
+        if resized {
+            self.bs_layout(text);
+        }
         if pointer && self.pick_state.is_some() {
             self.range_pick_follow();
         }
@@ -1741,6 +1741,9 @@ impl SheetWindow {
             if let Some(r) = self.menu_input(&input, text) {
                 return r;
             }
+        }
+        if let Some(r) = self.bs_input(&input, text) {
+            return r;
         }
         if self.cf_menu.is_some() {
             if let Some(r) = self.cf_menu_input(&input, text) {
@@ -2060,8 +2063,7 @@ impl SheetWindow {
                 let (fired, pressed) = self.ribbon.release(x, y);
                 let ran = match fired {
                     Some(RibbonHit::File) => {
-                        self.open_file_menu();
-                        true
+                        self.open_backstage(backstage_impl::BsPage::Home, text)
                     }
                     Some(RibbonHit::Command(id)) => self.action(id, text),
                     Some(hit @ (RibbonHit::FontBox | RibbonHit::SizeBox)) => {
@@ -2091,6 +2093,9 @@ impl SheetWindow {
 
     /// Redraw the grid image if needed.
     pub fn prepare(&mut self, store: &mut dyn GridStore) -> Result<(), String> {
+        if let Some(r) = self.bs_prepare(store) {
+            return r;
+        }
         self.view.prepare(store)
     }
 
@@ -2193,6 +2198,7 @@ impl SheetWindow {
         self.paint_gallery(p);
         self.paint_cf_menu(p);
         self.paint_picker(p);
+        self.paint_backstage(p);
         if let Some(menu) = &self.menu {
             menu.paint(p, &self.theme, &self.icons);
         } else if let Some((label, tw, anchor)) = &self.tooltip {

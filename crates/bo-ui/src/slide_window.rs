@@ -757,6 +757,9 @@ impl SlideWindow {
             if self.side.kind == selpane::SideKind::Spelling {
                 // The reference's Spelling pane is wider: 437 device px at 125 %.
                 (349.6 * self.scale).round()
+            } else if self.side.kind == selpane::SideKind::Thesaurus {
+                // The reference's Thesaurus pane is narrower: 245 device px at 125 %.
+                (196.0 * self.scale).round()
             } else {
                 CommentsPane::width(self.scale)
             }
@@ -2862,6 +2865,10 @@ impl SlideWindow {
         // Master", "Notes Master", "Slide Master").
         let counter = match self.status_mode_text() {
             Some(t) => t,
+            // Outline View names itself, as the reference ("Outline").
+            None if self.pane == viewtab::Pane::Outline => {
+                self.t("slideNative.statusOutline", "Outline")
+            }
             None => self
                 .strings
                 // Notes Page counts notes pages, as the reference ("Notes 1 of 4").

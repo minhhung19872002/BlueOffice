@@ -95,6 +95,34 @@ impl SidePane {
         let mut hits = Vec::new();
         self.header(&mut ops, &mut hits, &labels[0], ink);
         let [x, y, w, h] = self.rect;
+        // Pane options: a chevron after the title, as the reference's.
+        let tw = text
+            .measure(
+                &labels[0],
+                TextStyle {
+                    size: self.px(20.0),
+                    bold: false,
+                },
+            )
+            .0;
+        let cs = self.px(22.0);
+        let opt = [
+            x + self.px(12.8) + tw + self.px(4.0),
+            y + self.px(12.0),
+            cs,
+            cs,
+        ];
+        let (ox, oy, k) = (opt[0] + cs / 2.0, opt[1] + cs / 2.0, self.px(5.0));
+        ops.push(Op::Path(
+            vec![
+                PathSeg::M(ox - k, oy - k / 2.0),
+                PathSeg::L(ox, oy + k / 2.0),
+                PathSeg::L(ox + k, oy - k / 2.0),
+            ],
+            None,
+            Some((ink, self.scale.max(1.0).round())),
+        ));
+        hits.push((opt, SideHit::PaneMenu));
         let body = TextStyle {
             size: self.px(12.8),
             bold: false,
@@ -296,7 +324,15 @@ impl SlideWindow {
         if w.is_empty() {
             return Vec::new();
         }
+        // The word itself is not offered (reference); a meaning left without synonyms is
+        // not listed.
         thesaurus::meanings(&w, MAX_MEANINGS)
+            .into_iter()
+            .filter_map(|mut m| {
+                m.synonyms.retain(|s| s.to_lowercase() != w);
+                (!m.synonyms.is_empty()).then_some(m)
+            })
+            .collect()
     }
 
     /// A press in the Thesaurus pane (`count` 2: a double press).

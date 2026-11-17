@@ -3256,7 +3256,8 @@
     "helpGroup": "Help",
     "clickToAddText": "Click to add text",
     "notesOf": "Notes {{n}} of {{total}}",
-    "thesNoResults": "No results found."
+    "thesNoResults": "No results found.",
+    "statusOutline": "Outline"
   },
   "slideEditor": {
     "open": "Open",
@@ -3576,7 +3577,20 @@
       "triangle": "Triangle",
       "loop": "Loop",
       "wave": "Wave",
-      "customPath": "Custom path"
+      "customPath": "Custom path",
+      "colorPulse": "Color Pulse",
+      "desaturate": "Desaturate",
+      "darken": "Darken",
+      "lighten": "Lighten",
+      "objectColor": "Object Color",
+      "complementary": "Complementary Color",
+      "lineColor": "Line Color",
+      "brushColor": "Brush Color",
+      "fontColor": "Font Color",
+      "underline": "Underline",
+      "boldFlash": "Bold Flash",
+      "boldReveal": "Bold Reveal",
+      "waveText": "Wave"
     },
     "effectOut": {
       "fade": "Fade out",

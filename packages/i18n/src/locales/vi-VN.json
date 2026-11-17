@@ -3256,7 +3256,8 @@
     "helpGroup": "Trợ giúp",
     "clickToAddText": "Bấm để thêm văn bản",
     "notesOf": "Ghi chú {{n}} / {{total}}",
-    "thesNoResults": "Không tìm thấy kết quả."
+    "thesNoResults": "Không tìm thấy kết quả.",
+    "statusOutline": "Dàn bài"
   },
   "slideEditor": {
     "open": "Mở",
@@ -3576,7 +3577,20 @@
       "triangle": "Tam giác",
       "loop": "Vòng lặp",
       "wave": "Sóng",
-      "customPath": "Đường tự vẽ"
+      "customPath": "Đường tự vẽ",
+      "colorPulse": "Nhịp màu",
+      "desaturate": "Khử bão hòa",
+      "darken": "Tối đi",
+      "lighten": "Sáng lên",
+      "objectColor": "Màu đối tượng",
+      "complementary": "Màu bổ sung",
+      "lineColor": "Màu đường viền",
+      "brushColor": "Màu cọ",
+      "fontColor": "Màu phông",
+      "underline": "Gạch dưới",
+      "boldFlash": "Đậm chớp",
+      "boldReveal": "Hiện đậm",
+      "waveText": "Sóng"
     },
     "effectOut": {
       "fade": "Mờ đi",

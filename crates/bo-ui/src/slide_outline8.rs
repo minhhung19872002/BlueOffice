@@ -100,8 +100,17 @@ impl SlideWindow {
         let o = outline::slide_outline(pres.slides.get(*slide)?);
         Some(match k {
             0 => (*slide, None),
-            k if k <= o.bullets.len() => (*slide, Some(k - 1)),
-            _ => (*slide, None),
+            // The k-th listed (non-empty) paragraph.
+            k => match o
+                .bullets
+                .iter()
+                .enumerate()
+                .filter(|(_, b)| !b.text.trim().is_empty())
+                .nth(k - 1)
+            {
+                Some((i, _)) => (*slide, Some(i)),
+                None => (*slide, None),
+            },
         })
     }
 
@@ -155,7 +164,23 @@ impl SlideWindow {
             return;
         };
         let (_, line) = self.outline_metrics();
-        let y = top + line * b.map_or(0.0, |b| (b + 1) as f32);
+        // Rows of the paragraphs listed before it (empty ones are not).
+        let row = b.map_or(0, |b| {
+            self.view
+                .engine()
+                .presentation()
+                .and_then(|p| p.slides.get(slide))
+                .map_or(b, |s| {
+                    outline::slide_outline(s)
+                        .bullets
+                        .iter()
+                        .take(b)
+                        .filter(|x| !x.text.trim().is_empty())
+                        .count()
+                })
+                + 1
+        });
+        let y = top + line * row as f32;
         let area = self.outline_area();
         let c = Rgba(0x5b, 0x8f, 0xd0, 255);
         let (x, w) = (area[0] + self.px(2.0), area[2] - self.px(4.0));

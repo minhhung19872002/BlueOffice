@@ -373,7 +373,12 @@ impl SlideWindow {
         for (i, s) in pres.slides.iter().enumerate() {
             self.outline_rows.push((y, i));
             let o = bo_engine::slide_edit::outline::slide_outline(s);
-            y += line * (1 + o.bullets.len()) as f32 + self.px(8.0);
+            let shown = o
+                .bullets
+                .iter()
+                .filter(|b| !b.text.trim().is_empty())
+                .count();
+            y += line * (1 + shown) as f32 + self.px(8.0);
         }
     }
 
@@ -411,7 +416,8 @@ impl SlideWindow {
                 ink,
             );
             // The slide icon: 22 × 18 logical px with a 4 px frame (accent when current).
-            let (ix, iy) = (area[0] + self.px(17.0), *top - self.px(2.4));
+            // Its top 3 px over the title's capitals (reference at 125 %).
+            let (ix, iy) = (area[0] + self.px(17.0), *top + self.px(2.4));
             let (iw, ih, fw) = (self.px(21.6), self.px(18.4), self.px(4.0));
             let frame = if current {
                 self.theme.accent
@@ -429,7 +435,8 @@ impl SlideWindow {
             let tx = area[0] + self.px(45.6);
             p.text(&o.title, tx, *top, bold, ink);
             let mut y = *top + line;
-            for b in &o.bullets {
+            // Empty paragraphs are not listed (reference).
+            for b in o.bullets.iter().filter(|b| !b.text.trim().is_empty()) {
                 let x = tx + f32::from(b.level) * self.px(15.2);
                 p.text(&b.text, x, y, style, ink);
                 y += line;

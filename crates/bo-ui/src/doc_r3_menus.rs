@@ -270,18 +270,11 @@ pub(crate) const STYLES: [(&str, &str); 8] = [
     ("references.style.VNThesis", "VN thesis"),
 ];
 
-/// Menu entries shown dimmed (the engine has no stacking order of floating pictures yet,
-/// pictures are not flipped and groups need two pictures).
+/// Menu entries shown dimmed (groups need two pictures).
 pub(crate) fn dim(id: &str) -> bool {
     matches!(
         id,
-        "picture.order.forward"
-            | "picture.order.front"
-            | "picture.order.backward"
-            | "picture.order.back"
-            | "picture.flip.vertical"
-            | "picture.flip.horizontal"
-            | "picture.group"
+        "picture.group"
             | "references.citation.placeholder"
             | "mailings.rule.ask"
             | "mailings.rule.if"

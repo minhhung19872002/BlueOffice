@@ -79,6 +79,7 @@ const TILES: usize = 5;
 /// Gallery preview text (Vietnamese letters show diacritics of the style font).
 const PREVIEWS: [&str; 3] = ["AaĐđ", "AĐ", "Đ"];
 
+#[derive(Clone)]
 pub(crate) struct Group {
     pub(crate) label: &'static str,
     /// Controls spanning the group's full height, before the rows.
@@ -221,6 +222,14 @@ pub struct Ribbon {
     fixed_tabs: usize,
     /// Tab active before a contextual tab took over, restored when it goes away.
     before_context: usize,
+    /// Scaling order of a tab (by tab label): group labels, each entry one collapse step of
+    /// that group, taken in order until the tab fits (the reference's ribbon scaling).
+    scaling: fn(&str) -> &'static [&'static str],
+    /// The group `label` at collapse stage `n` (1, 2, …); `None`: no further stage.
+    shrink: fn(&str, u8) -> Option<Group>,
+    /// The collapsed group button that holds a command (menus of that command open under
+    /// the group button while the command itself is not shown).
+    holder: fn(&str) -> Option<&'static str>,
 }
 
 fn home() -> Tab {
@@ -345,7 +354,7 @@ fn insert_tab() -> Tab {
             },
             Group {
                 label: "ribbon.groups.comments",
-                large: vec![L("review.newComment")],
+                large: vec![L("insert.comment")],
                 rows: vec![],
             },
             Group {
@@ -442,6 +451,7 @@ fn layout_tab() -> Tab {
                 label: "docR4.groupParagraph",
                 large: vec![],
                 rows: vec![
+                    vec![S("layout.indentHeading"), S("layout.spacingHeading")],
                     vec![S("layout.indentLeft"), S("layout.spaceBefore")],
                     vec![S("layout.indentRight"), S("layout.spaceAfter")],
                 ],
@@ -668,13 +678,20 @@ fn view_tab() -> Tab {
                     vec![S("view.pageWidth")],
                 ],
             },
+            // The reference's Window group: three large buttons, a column of three small
+            // ones, Switch Windows ▾.
             Group {
                 label: "docR4.groupWindow",
-                large: vec![],
+                large: vec![
+                    L("view.newWindow"),
+                    L("view.arrangeAll"),
+                    L("view.split"),
+                    L("view.switchWindows"),
+                ],
                 rows: vec![
-                    vec![S("view.newWindow"), S("view.sideBySide")],
-                    vec![S("view.arrangeAll"), S("view.stylesPane")],
-                    vec![S("view.split")],
+                    vec![S("view.sideBySide")],
+                    vec![S("view.syncScroll")],
+                    vec![S("view.resetWindow")],
                 ],
             },
             Group {
@@ -746,7 +763,24 @@ impl Ribbon {
             box_w: None,
             large_metrics: (52.0, 14.0),
             enabled: commands::enabled,
+            scaling: |_| &[],
+            shrink: |_, _| None,
+            holder: |_| None,
         }
+    }
+
+    /// Collapse groups step by step (`scaling` order, `shrink` stages) until a tab fits,
+    /// instead of scrolling it.
+    pub(crate) fn with_scaling(
+        mut self,
+        scaling: fn(&str) -> &'static [&'static str],
+        shrink: fn(&str, u8) -> Option<Group>,
+        holder: fn(&str) -> Option<&'static str>,
+    ) -> Self {
+        self.scaling = scaling;
+        self.shrink = shrink;
+        self.holder = holder;
+        self
     }
 
     /// Large buttons at least `min` logical px wide, `pad` wider than their label.
@@ -1136,10 +1170,25 @@ impl Ribbon {
         // The gallery is the first group to compact as the window narrows. Its
         // menu remains available even when no preview tile fits.
         let mut tile_count = TILES;
+        // Collapse steps taken (scaling order of the active tab).
+        let order = (self.scaling)(self.tabs[self.active].label);
+        let mut steps = 0usize;
         let (mut placed, content_width) = loop {
             let mut gx = self.px(8.0);
             let mut placed = Vec::new();
-            for g in &self.tabs[self.active].groups {
+            let groups: Vec<std::borrow::Cow<'_, Group>> = self.tabs[self.active]
+                .groups
+                .iter()
+                .map(|g| {
+                    let stage = order[..steps].iter().filter(|l| **l == g.label).count();
+                    match u8::try_from(stage).ok().filter(|n| *n > 0) {
+                        Some(n) => (self.shrink)(g.label, n)
+                            .map_or(std::borrow::Cow::Borrowed(g), std::borrow::Cow::Owned),
+                        None => std::borrow::Cow::Borrowed(g),
+                    }
+                })
+                .collect();
+            for g in groups.iter().map(std::convert::AsRef::as_ref) {
                 let mut group_w: f32 = 0.0;
                 let mut lx = gx + self.px(4.0);
                 let trailing = |item: &Item| matches!(item, Item::Large(id) if (self.trailing)(id));
@@ -1331,16 +1380,19 @@ impl Ribbon {
                 }));
                 gx += self.px(6.0);
             }
-            if gx <= width
-                || tile_count == 0
-                || !self.tabs[self.active]
+            let gallery = tile_count > 0
+                && self.tabs[self.active]
                     .groups
                     .iter()
-                    .any(|g| g.large.contains(&Item::Gallery))
-            {
+                    .any(|g| g.large.contains(&Item::Gallery));
+            if gx <= width || (!gallery && steps >= order.len()) {
                 break (placed, gx);
             }
-            tile_count -= 1;
+            if gallery {
+                tile_count -= 1;
+            } else {
+                steps += 1;
+            }
         };
         self.content_clip = None;
         self.scroll_max = 0.0;
@@ -1513,6 +1565,15 @@ impl Ribbon {
 
     /// Rectangle (x, y, w, h) of a control.
     pub fn rect_of(&self, hit: RibbonHit) -> Option<[f32; 4]> {
+        self.placed_rect(hit).or_else(|| match hit {
+            RibbonHit::Command(id) => {
+                (self.holder)(id).and_then(|g| self.placed_rect(RibbonHit::Command(g)))
+            }
+            _ => None,
+        })
+    }
+
+    fn placed_rect(&self, hit: RibbonHit) -> Option<[f32; 4]> {
         self.placed.iter().find_map(|p| {
             let (h, r) = match p {
                 Placed::File(r) => (RibbonHit::File, r),
@@ -2809,6 +2870,7 @@ mod tests {
         crate::doc_tools::install_icons(&mut icons);
         crate::doc_r3_menus::install_icons(&mut icons);
         crate::doc_r4_menus::install_icons(&mut icons);
+        crate::doc_r4_fit::install_icons(&mut icons);
         let format = FormatState {
             section: bo_edit::SectionState {
                 width: 11906,
@@ -2826,6 +2888,7 @@ mod tests {
         crate::doc_tools::install_strings(&mut strings);
         crate::doc_r3_menus::install_strings(&mut strings);
         crate::doc_r4_menus::install_strings(&mut strings);
+        crate::doc_r4_fit::install_strings(&mut strings);
         for tab in &ribbon.tabs {
             assert!(!tab.groups.is_empty(), "{} is empty", tab.label);
             for g in &tab.groups {
@@ -2835,7 +2898,9 @@ mod tests {
                         assert!(
                             commands::enabled(id, &format)
                                 || crate::doc_design::UNAVAILABLE.contains(id)
-                                || crate::doc_r4_menus::UNAVAILABLE.contains(id),
+                                || crate::doc_r4_menus::UNAVAILABLE.contains(id)
+                                || crate::doc_r4_fit::UNAVAILABLE.contains(id)
+                                || crate::doc_r4_fit::ARRANGE.contains(id),
                             "{id} has no action"
                         );
                         let glyph = GLYPH_BUTTONS.iter().any(|(g, _)| g == id);

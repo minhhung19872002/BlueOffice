@@ -76,10 +76,12 @@ pub fn run() -> Result<(), String> {
     let mut view = DocWindow::new(DocView::new(engine)?, &locale, &name);
     view.set_utc_offset_minutes(win32::utc_offset_minutes());
     // A new document takes the theme, style set and effects set as the default.
-    if new_document {
-        if let Some(v) = defaults_path().and_then(|p| std::fs::read_to_string(p).ok()) {
+    if let Some(v) = defaults_path().and_then(|p| std::fs::read_to_string(p).ok()) {
+        if new_document {
             view.apply_design_defaults(&v);
         }
+        // Defaults for every document (Date and Time format).
+        view.apply_interface_defaults(&v);
     }
     // Sizes in the region's unit and decimal separator, as the reference shows them
     // (iMeasure 1: US system, inches). BLUEOFFICE_UNITS=cm|in overrides.
@@ -360,7 +362,19 @@ impl Shell {
                     if let Some(dir) = path.parent() {
                         let _ = std::fs::create_dir_all(dir);
                     }
-                    let _ = std::fs::write(&path, v);
+                    // Keys set in an earlier session (theme, date format) stay.
+                    let mut all: serde_json::Value = std::fs::read_to_string(&path)
+                        .ok()
+                        .and_then(|old| serde_json::from_str(&old).ok())
+                        .filter(serde_json::Value::is_object)
+                        .unwrap_or_else(|| serde_json::json!({}));
+                    if let (Some(o), Ok(serde_json::Value::Object(new))) = (
+                        all.as_object_mut(),
+                        serde_json::from_str::<serde_json::Value>(&v),
+                    ) {
+                        o.extend(new);
+                    }
+                    let _ = std::fs::write(&path, all.to_string());
                 }
             }
             _ => {}

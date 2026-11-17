@@ -415,6 +415,24 @@ pub(crate) fn paint_para_spins(
         "format.lineSpacing",
         "format.lineSpacing",
     ];
+    // Column headings over the boxes (Indent, Spacing), as the reference.
+    for id in crate::doc_r4_fit::HEADINGS {
+        let Some(r) = ribbon.rect_of(RibbonHit::Command(id)) else {
+            continue;
+        };
+        p.fill_rect(r[0], r[1], r[2], r[3], t.ribbon);
+        let style = TextStyle {
+            size: px(12.0),
+            bold: false,
+        };
+        p.text(
+            strings.get(&format!("commands.{id}")),
+            r[0] + px(2.0),
+            r[1] + (r[3] - px(16.0)) / 2.0,
+            style,
+            t.text,
+        );
+    }
     for (i, id) in PARA_SPINS.iter().enumerate() {
         let Some(r) = ribbon.rect_of(RibbonHit::Command(id)) else {
             continue;
@@ -503,8 +521,9 @@ pub(crate) fn labeled_w(id: &str) -> Option<f32> {
     if SPINS.contains(&id) {
         return Some(112.0);
     }
-    // Layout › Paragraph boxes: icon, label, number box (reference: 190 px at 125 %).
-    if PARA_SPINS.contains(&id) {
+    // Layout › Paragraph boxes: icon, label, number box (reference: 190 px at 125 %); the
+    // Indent / Spacing headings above them take the same column.
+    if PARA_SPINS.contains(&id) || crate::doc_r4_fit::HEADINGS.contains(&id) {
         return Some(152.0);
     }
     match OPTIONS.iter().position(|(o, _)| *o == id)? {
@@ -516,7 +535,10 @@ pub(crate) fn labeled_w(id: &str) -> Option<f32> {
 /// Large buttons placed after their group's rows: Text Direction follows the nine
 /// alignment buttons, as on the reference.
 pub(crate) fn trailing(id: &str) -> bool {
-    matches!(id, "table.textDirection" | "table.cellMargins")
+    matches!(
+        id,
+        "table.textDirection" | "table.cellMargins" | "view.switchWindows"
+    )
 }
 
 /// Width (logical px) of a gallery tile (the reference's step 108 px at 125 %).

@@ -201,7 +201,11 @@ fn header_and_footer_tab_while_editing_a_header() {
 fn insert_pictures_asks_the_host_and_shows_picture_format() {
     let mut w = window();
     show_tab(&mut w, "ribbon.tabs.insert");
+    // Pictures ▾ is a menu as on the reference: This Device… asks the host.
     click(&mut w, "insert.picture");
+    assert!(w.menu.is_some());
+    w.menu = None;
+    w.action("insert.picture.device");
     assert_eq!(w.take_requests(), vec![Request::PickPicture]);
     // A 1×1 PNG.
     let png = vec![

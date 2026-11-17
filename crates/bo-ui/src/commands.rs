@@ -83,6 +83,7 @@ pub fn static_id(id: &str) -> &'static str {
         .or_else(|| crate::doc_tools::static_id(id))
         .or_else(|| crate::doc_r3_menus::static_id(id))
         .or_else(|| crate::doc_r4_menus::static_id(id))
+        .or_else(|| crate::doc_r4_fit::static_id(id))
         .unwrap_or("")
 }
 

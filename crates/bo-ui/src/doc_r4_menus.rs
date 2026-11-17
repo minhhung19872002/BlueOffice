@@ -71,7 +71,7 @@ pub(crate) const MORE_BUTTONS: [&str; 3] = ["view.macros", "view.vertical", "vie
 
 /// Features of the reference BlueDoc does not have: shown dimmed, as the brief says
 /// ("-free"), so the tab keeps the reference's layout.
-pub(crate) const UNAVAILABLE: [&str; 15] = [
+pub(crate) const UNAVAILABLE: [&str; 14] = [
     "view.split",
     "insert.icons",
     "insert.models3d",
@@ -85,7 +85,6 @@ pub(crate) const UNAVAILABLE: [&str; 15] = [
     "view.newWindow",
     "view.arrangeAll",
     "view.sideBySide",
-    "view.macros",
     "view.sideToSide",
 ];
 
@@ -168,7 +167,7 @@ pub(crate) fn menu(id: &str) -> Vec<Entry> {
             e("picture.flip.vertical", "Flip Vertical"),
             e("picture.flip.horizontal", "Flip Horizontal"),
         ],
-        _ => Vec::new(),
+        _ => crate::doc_r4_fit::menu(id),
     }
 }
 
@@ -623,77 +622,300 @@ fn lines(p: &mut dyn Painter, x: f32, y: f32, w: f32, n: usize, step: f32, s: f3
     }
 }
 
-/// Cover Page tiles: BlueOffice's own six covers.
-pub(crate) const COVERS: [(&str, &str); 6] = [
+/// Cover Page tiles: BlueOffice's own sixteen covers (the reference's gallery holds as many;
+/// none of its designs is copied).
+pub(crate) const COVERS: [(&str, &str); 16] = [
     ("horizon", "Horizon"),
     ("ledger", "Ledger"),
     ("margin", "Margin"),
     ("block", "Block"),
     ("ribbon", "Ribbon"),
     ("plain", "Plain"),
+    ("slate", "Slate"),
+    ("frame", "Frame"),
+    ("split", "Split"),
+    ("dots", "Dots"),
+    ("stripes", "Stripes"),
+    ("corner", "Corner"),
+    ("center", "Centre Line"),
+    ("column", "Column"),
+    ("picture", "Picture"),
+    ("duo", "Duo"),
 ];
 
+/// Dark slate of the Slate cover.
+const SLATE: Rgba = Rgba(0x3b, 0x47, 0x56, 255);
+
+/// Draw cover `id` into the tile rectangle `r` (window px) at scale `s`. Every size is a
+/// share of the page so the drawing fits the large tiles of the reference's gallery.
+#[allow(clippy::too_many_lines)]
 pub(crate) fn draw_cover(p: &mut dyn Painter, id: &str, r: [f32; 4], s: f32) {
+    let s = s.abs();
     let pr = page_rect(r, s);
-    frame(p, pr, WHITE);
     let [x, y, w, h] = pr;
-    let t = font("Calibri Light", (9.0 * s).round(), 400);
+    let u = w / 100.0;
+    let slate = id.ends_with(".slate");
+    frame(p, pr, if slate { SLATE } else { WHITE });
+    let size = (h * 0.065).round().max(6.0);
+    let t = font("Calibri Light", size, 400);
+    let small = font("Calibri", (size * 0.55).round().max(5.0), 400);
+    let ln = s.max(1.0);
+    let step = (h * 0.035).max(3.0);
     match id.rsplit('.').next() {
         Some("horizon") => {
             p.fill_rect(x + 1.0, y + 1.0, w - 2.0, h * 0.45, ACCENT);
-            p.text_font("TITLE", x + 6.0 * s, y + h * 0.3, &t, WHITE);
-            lines(p, x + 6.0 * s, y + h * 0.55, w * 0.7, 3, 5.0 * s, s, GREY);
+            p.text_font("TITLE", x + 7.0 * u, y + h * 0.3, &t, WHITE);
+            lines(p, x + 7.0 * u, y + h * 0.55, w * 0.7, 3, step, ln, GREY);
         }
         Some("ledger") => {
             p.fill_rect(x + w * 0.62, y + 1.0, w * 0.38 - 1.0, h - 2.0, ACCENT2);
-            p.text_font("Title", x + 6.0 * s, y + h * 0.35, &t, INK);
+            p.text_font("Title", x + 7.0 * u, y + h * 0.35, &t, INK);
             p.fill_rect(
-                x + 6.0 * s,
-                y + h * 0.35 + 14.0 * s,
+                x + 7.0 * u,
+                y + h * 0.35 + size * 1.5,
                 w * 0.45,
-                2.0 * s,
+                2.0 * ln,
                 ACCENT,
             );
-            lines(p, x + w * 0.66, y + h * 0.6, w * 0.28, 4, 5.0 * s, s, WHITE);
+            lines(p, x + w * 0.66, y + h * 0.6, w * 0.28, 4, step, ln, WHITE);
         }
         Some("margin") => {
-            p.fill_rect(x + 1.0, y + 1.0, 8.0 * s, h - 2.0, ACCENT);
-            p.text_font("Title", x + 14.0 * s, y + h * 0.4, &t, ACCENT);
+            p.fill_rect(x + 1.0, y + 1.0, 9.0 * u, h - 2.0, ACCENT);
+            p.text_font("Title", x + 16.0 * u, y + h * 0.4, &t, ACCENT);
             lines(
                 p,
-                x + 14.0 * s,
-                y + h * 0.4 + 16.0 * s,
+                x + 16.0 * u,
+                y + h * 0.4 + size * 1.7,
                 w * 0.6,
                 2,
-                5.0 * s,
-                s,
+                step,
+                ln,
                 GREY,
             );
         }
         Some("block") => {
-            p.fill_rect(x + 6.0 * s, y + h * 0.3, w - 12.0 * s, h * 0.28, ACCENT);
-            p.text_font("TITLE", x + 10.0 * s, y + h * 0.37, &t, WHITE);
-            lines(p, x + 6.0 * s, y + h * 0.75, w * 0.6, 3, 5.0 * s, s, GREY);
+            p.fill_rect(x + 7.0 * u, y + h * 0.3, w - 14.0 * u, h * 0.28, ACCENT);
+            p.text_font("TITLE", x + 12.0 * u, y + h * 0.37, &t, WHITE);
+            lines(p, x + 7.0 * u, y + h * 0.75, w * 0.6, 3, step, ln, GREY);
         }
         Some("ribbon") => {
-            p.fill_rect(x + 1.0, y + h * 0.18, w - 2.0, 4.0 * s, WARM);
-            p.text_font("Title", x + 6.0 * s, y + h * 0.24, &t, INK);
-            p.fill_rect(x + 1.0, y + h * 0.82, w - 2.0, 4.0 * s, WARM);
-            lines(p, x + 6.0 * s, y + h * 0.88, w * 0.5, 1, 5.0 * s, s, GREY);
+            p.fill_rect(x + 1.0, y + h * 0.18, w - 2.0, 4.0 * ln, WARM);
+            p.text_font("Title", x + 7.0 * u, y + h * 0.24, &t, INK);
+            p.fill_rect(x + 1.0, y + h * 0.82, w - 2.0, 4.0 * ln, WARM);
+            lines(p, x + 7.0 * u, y + h * 0.88, w * 0.5, 1, step, ln, GREY);
         }
-        _ => {
-            p.text_font("Title", x + 6.0 * s, y + h * 0.42, &t, INK);
+        Some("slate") => {
+            p.text_font("TITLE", x + 9.0 * u, y + h * 0.42, &t, WHITE);
+            p.fill_rect(
+                x + 9.0 * u,
+                y + h * 0.42 + size * 1.6,
+                w * 0.3,
+                2.0 * ln,
+                WARM,
+            );
+            lines(p, x + 9.0 * u, y + h * 0.8, w * 0.5, 2, step, ln, LIGHT);
+        }
+        Some("frame") => {
+            let m = 6.0 * u;
+            p.fill_rect(x + m, y + m, w - 2.0 * m, h - 2.0 * m, ACCENT);
+            p.fill_rect(
+                x + m + 2.0 * ln,
+                y + m + 2.0 * ln,
+                w - 2.0 * m - 4.0 * ln,
+                h - 2.0 * m - 4.0 * ln,
+                WHITE,
+            );
+            p.text_font("Title", x + 18.0 * u, y + h * 0.4, &t, ACCENT);
             lines(
                 p,
-                x + 6.0 * s,
-                y + h * 0.42 + 16.0 * s,
+                x + 18.0 * u,
+                y + h * 0.4 + size * 1.7,
                 w * 0.5,
                 2,
-                5.0 * s,
-                s,
+                step,
+                ln,
                 GREY,
             );
         }
+        Some("split") => {
+            p.fill_rect(x + 1.0, y + 1.0, w * 0.5, h - 2.0, ACCENT);
+            p.text_font("Title", x + 6.0 * u, y + h * 0.45, &t, WHITE);
+            lines(p, x + w * 0.56, y + h * 0.45, w * 0.36, 4, step, ln, GREY);
+        }
+        Some("dots") => {
+            let d = 4.0 * u;
+            for i in 0..8 {
+                let cx = x + 10.0 * u + i as f32 * 10.0 * u;
+                p.fill_rect(
+                    cx,
+                    y + h * 0.12,
+                    d,
+                    d,
+                    if i % 2 == 0 { ACCENT } else { ACCENT2 },
+                );
+            }
+            p.text_font("Title", x + 10.0 * u, y + h * 0.3, &t, INK);
+            lines(
+                p,
+                x + 10.0 * u,
+                y + h * 0.3 + size * 1.7,
+                w * 0.6,
+                3,
+                step,
+                ln,
+                GREY,
+            );
+        }
+        Some("stripes") => {
+            for i in 0..4 {
+                let c = if i % 2 == 0 { ACCENT } else { ACCENT2 };
+                p.fill_rect(
+                    x + 1.0,
+                    y + h * (0.06 + i as f32 * 0.04),
+                    w - 2.0,
+                    h * 0.02,
+                    c,
+                );
+            }
+            p.text_font("Title", x + 8.0 * u, y + h * 0.4, &t, INK);
+            lines(
+                p,
+                x + 8.0 * u,
+                y + h * 0.4 + size * 1.7,
+                w * 0.55,
+                2,
+                step,
+                ln,
+                GREY,
+            );
+        }
+        Some("corner") => {
+            p.fill_rect(x + w * 0.6, y + 1.0, w * 0.4 - 1.0, h * 0.22, WARM);
+            p.fill_rect(x + 1.0, y + h * 0.78, w * 0.4, h * 0.22 - 1.0, ACCENT);
+            p.text_font("Title", x + 8.0 * u, y + h * 0.42, &t, INK);
+            lines(
+                p,
+                x + 8.0 * u,
+                y + h * 0.42 + size * 1.7,
+                w * 0.55,
+                2,
+                step,
+                ln,
+                GREY,
+            );
+        }
+        Some("center") => {
+            let tw = size * 2.6;
+            p.fill_rect(x + 10.0 * u, y + h * 0.4, w - 20.0 * u, ln, GREY);
+            p.text_font("Title", x + (w - tw) / 2.0, y + h * 0.42, &t, INK);
+            p.fill_rect(
+                x + 10.0 * u,
+                y + h * 0.42 + size * 1.6,
+                w - 20.0 * u,
+                ln,
+                GREY,
+            );
+            lines(p, x + 30.0 * u, y + h * 0.85, w * 0.4, 2, step, ln, GREY);
+        }
+        Some("column") => {
+            p.fill_rect(x + w * 0.74, y + 1.0, w * 0.26 - 1.0, h - 2.0, SLATE);
+            p.text_font("Title", x + 8.0 * u, y + h * 0.18, &t, INK);
+            lines(
+                p,
+                x + 8.0 * u,
+                y + h * 0.18 + size * 1.7,
+                w * 0.55,
+                6,
+                step,
+                ln,
+                GREY,
+            );
+            lines(p, x + w * 0.78, y + h * 0.7, w * 0.18, 3, step, ln, LIGHT);
+        }
+        Some("picture") => {
+            p.fill_rect(x + 8.0 * u, y + h * 0.08, w - 16.0 * u, h * 0.4, LIGHT);
+            // A simple landscape: sun and hill (own drawing).
+            p.fill_rect(x + 70.0 * u, y + h * 0.14, 8.0 * u, 8.0 * u, WARM);
+            p.fill_rect(x + 8.0 * u, y + h * 0.36, w - 16.0 * u, h * 0.12, ACCENT2);
+            p.text_font("Title", x + 8.0 * u, y + h * 0.55, &t, INK);
+            lines(
+                p,
+                x + 8.0 * u,
+                y + h * 0.55 + size * 1.7,
+                w * 0.6,
+                3,
+                step,
+                ln,
+                GREY,
+            );
+        }
+        Some("duo") => {
+            p.fill_rect(x + 1.0, y + 1.0, w - 2.0, h * 0.3, ACCENT2);
+            p.fill_rect(x + 1.0, y + h * 0.3, w - 2.0, h * 0.08, ACCENT);
+            p.text_font("Title", x + 8.0 * u, y + h * 0.48, &t, INK);
+            lines(
+                p,
+                x + 8.0 * u,
+                y + h * 0.48 + size * 1.7,
+                w * 0.6,
+                2,
+                step,
+                ln,
+                GREY,
+            );
+        }
+        _ => {
+            p.text_font("Title", x + 7.0 * u, y + h * 0.42, &t, INK);
+            lines(
+                p,
+                x + 7.0 * u,
+                y + h * 0.42 + size * 1.7,
+                w * 0.5,
+                2,
+                step,
+                ln,
+                GREY,
+            );
+        }
+    }
+    let _ = small;
+}
+
+/// Icons of the Cover Page menu rows (own drawings): a page with a globe mark (more
+/// covers), a page with a cross (remove), a page with a disk (save). A negative `s` asks
+/// for the dimmed look.
+pub(crate) fn draw_cover_row(p: &mut dyn Painter, id: &str, r: [f32; 4], s: f32) {
+    let dim = s < 0.0;
+    let s = s.abs();
+    let [x, y, w, h] = r;
+    let ink = if dim { LIGHT } else { GREY };
+    let (pw, ph) = (w * 0.6, h * 0.85);
+    p.fill_rect(x, y, pw, ph, ink);
+    p.fill_rect(x + s, y + s, pw - 2.0 * s, ph - 2.0 * s, WHITE);
+    let mark = |p: &mut dyn Painter, c: Rgba| {
+        p.fill_rect(x + w * 0.45, y + h * 0.45, w * 0.55, h * 0.55, c);
+    };
+    match id.rsplit('.').next() {
+        Some("remove") => {
+            let c = if dim {
+                LIGHT
+            } else {
+                Rgba(0xc4, 0x2b, 0x1c, 255)
+            };
+            let (cx, cy, k) = (x + w * 0.72, y + h * 0.72, w * 0.22);
+            p.path(
+                &[
+                    PathSeg::M(cx - k, cy - k),
+                    PathSeg::L(cx + k, cy + k),
+                    PathSeg::M(cx + k, cy - k),
+                    PathSeg::L(cx - k, cy + k),
+                ],
+                None,
+                Some((c, 1.5 * s)),
+            );
+        }
+        Some("more") => mark(p, if dim { LIGHT } else { ACCENT }),
+        _ => mark(p, if dim { LIGHT } else { ACCENT2 }),
     }
 }
 
@@ -796,6 +1018,46 @@ pub(crate) fn cover_html(design: &str) -> &'static str {
         "ribbon" => {
             "<p style=\"border-top:4px solid #D88A2A;font-size:36pt\">[Document title]</p>\
              <p style=\"border-bottom:4px solid #D88A2A\">[Company name] | [Date]</p>"
+        }
+        "slate" => {
+            "<p style=\"background:#3B4756;color:#FFFFFF;font-size:36pt\">[DOCUMENT TITLE]</p>\
+             <p style=\"border-bottom:2px solid #D88A2A\">[Document subtitle]</p><p>[Author name]</p>"
+        }
+        "frame" => {
+            "<p style=\"border:3px solid #2F6FBA;color:#2F6FBA;font-size:36pt;text-align:center\">[Document title]</p>\
+             <p style=\"text-align:center\">[Document subtitle]</p>"
+        }
+        "split" => {
+            "<p style=\"background:#2F6FBA;color:#FFFFFF;font-size:36pt\">[Document title]</p>\
+             <p>[Document subtitle]</p><p>[Abstract]</p>"
+        }
+        "dots" => {
+            "<p style=\"color:#2F6FBA\">&#9679; &#9679; &#9679; &#9679;</p>\
+             <p style=\"font-size:36pt\">[Document title]</p><p>[Document subtitle]</p>"
+        }
+        "stripes" => {
+            "<p style=\"border-top:6px double #2F6FBA;font-size:36pt\">[Document title]</p>\
+             <p>[Document subtitle]</p><p>[Author name]</p>"
+        }
+        "corner" => {
+            "<p style=\"text-align:right;color:#D88A2A\">[Date]</p>\
+             <p style=\"font-size:36pt\">[Document title]</p><p style=\"color:#2F6FBA\">[Company name]</p>"
+        }
+        "center" => {
+            "<p style=\"border-top:1px solid #8C8C8C;border-bottom:1px solid #8C8C8C;font-size:36pt;text-align:center\">[Document title]</p>\
+             <p style=\"text-align:center\">[Document subtitle]</p>"
+        }
+        "column" => {
+            "<p style=\"font-size:36pt\">[Document title]</p>\
+             <p style=\"border-left:6px solid #3B4756\">[Abstract]</p><p>[Author name]</p>"
+        }
+        "picture" => {
+            "<p style=\"background:#D9D9D9;text-align:center\">[Picture]</p>\
+             <p style=\"font-size:36pt\">[Document title]</p><p>[Document subtitle]</p>"
+        }
+        "duo" => {
+            "<p style=\"background:#9DC3E6;border-bottom:6px solid #2F6FBA;font-size:36pt\">[Document title]</p>\
+             <p>[Document subtitle]</p>"
         }
         _ => "<p style=\"font-size:36pt\">[Document title]</p><p>[Document subtitle]</p>",
     }

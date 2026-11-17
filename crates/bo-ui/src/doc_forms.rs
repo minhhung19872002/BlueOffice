@@ -69,6 +69,8 @@ pub(crate) enum FormOut {
     TocMap(String),
     /// Compare two files (the original `None`: this document) into a new window.
     Compare(Option<(String, String)>, (String, String)),
+    /// Date and Time › Set As Default: this format (index into [`DATE_PICTURES`]).
+    DateDefault(usize),
 }
 
 /// A radio button drawn on a canvas control.
@@ -179,6 +181,8 @@ pub(crate) struct FormContext {
     pub(crate) now: [i32; 7],
     /// The view's zoom (1.0 = 100 %).
     pub(crate) zoom: f32,
+    /// Date and Time format chosen with Set As Default (index into [`DATE_PICTURES`]).
+    pub(crate) date_default: usize,
 }
 
 /// Date and Time formats offered, in the reference's order (`\@` pictures, §17.16.4.1).
@@ -593,6 +597,12 @@ impl DocForm {
         }
     }
 
+    /// Button `id` pressed (tests).
+    #[cfg(test)]
+    pub(crate) fn click_for_test(&mut self, id: &str) -> FormOut {
+        self.clicked(id)
+    }
+
     fn clicked(&mut self, id: &str) -> FormOut {
         match (self.kind, id) {
             (DocFormKind::Sources, "new") => FormOut::Open(DocFormKind::NewSource),
@@ -621,6 +631,11 @@ impl DocForm {
                 FormOut::NewDocument(self.labels())
             }
             (DocFormKind::CrossRef | DocFormKind::Language, "list") => self.ok(),
+            (DocFormKind::DateTime, "setDefault") => FormOut::DateDefault(
+                self.sel("formats")
+                    .unwrap_or(0)
+                    .min(DATE_PICTURES.len() - 1),
+            ),
             _ => FormOut::Redraw,
         }
     }
@@ -2820,7 +2835,7 @@ pub(crate) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
                     .iter()
                     .map(|p| format_date(p, c.now))
                     .collect(),
-                Some(0),
+                Some(c.date_default.min(DATE_PICTURES.len() - 1)),
             );
             f.label(
                 "langL",
@@ -2845,7 +2860,6 @@ pub(crate) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
                 &tr("docR3.setAsDefault", "Set As Default"),
                 false,
             );
-            f.disable("setDefault");
             f.button(
                 "ok",
                 [415.0, 426.0, 112.0, 30.0],

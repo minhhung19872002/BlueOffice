@@ -35,6 +35,7 @@ bo-pdfread = { path = "../../crates/bo-pdfread" }
 bo-text.workspace = true
 png.workspace = true
 base64 = "0.22"
+serde_json.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 bo-gpu-win = { path = "../../crates/bo-gpu-win" }

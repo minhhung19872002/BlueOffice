@@ -306,6 +306,8 @@ impl DocWindow {
         crate::doc_r3_menus::install_strings(&mut strings);
         crate::doc_r4_menus::install_icons(&mut icons);
         crate::doc_r4_menus::install_strings(&mut strings);
+        crate::doc_r4_fit::install_strings(&mut strings);
+        crate::doc_r4_fit::install_icons(&mut icons);
         Self {
             view,
             title: TitleBar::new(),
@@ -316,7 +318,12 @@ impl DocWindow {
                 .with_labeled_widths(crate::doc_table::labeled_w)
                 .with_large_widths(crate::doc_table::large_w)
                 .with_label_drop(4.0)
-                .with_trailing(crate::doc_table::trailing),
+                .with_trailing(crate::doc_table::trailing)
+                .with_scaling(
+                    crate::doc_r4_fit::scaling,
+                    crate::doc_r4_fit::shrink,
+                    crate::doc_r4_fit::group_of,
+                ),
             theme: Theme::light("doc"),
             icons,
             strings,
@@ -1482,6 +1489,17 @@ impl DocWindow {
                 .filter(|i| i.entry.level.is_some())
                 .map(|i| (i.entry.para, 0))
                 .collect(),
+            // Footnote … Object (round 4): found in the document model.
+            5..=11 => {
+                let (t, n) = self
+                    .view
+                    .engine()
+                    .document()
+                    .map(|d| crate::doc_goto::named_targets(d, what))
+                    .unwrap_or_default();
+                names = n;
+                t
+            }
             _ => return false,
         };
         if targets.is_empty() {

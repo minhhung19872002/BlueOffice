@@ -42,7 +42,7 @@ const WITH_Y: f32 = 132.8;
 pub(crate) const HISTORY: usize = 20;
 
 /// Labels: key and en-US fallback (`&` marks the access key, underlined).
-const LABELS: [(&str, &str); 46] = [
+const LABELS: [(&str, &str); 53] = [
     ("findDlg.title", "Find and Replace"),
     ("findDlg.tabFind", "Fin&d"),
     ("findDlg.tabReplace", "Re&place"),
@@ -92,6 +92,13 @@ const LABELS: [(&str, &str); 46] = [
     ("findDlg.enterBookmark", "&Enter bookmark name:"),
     ("findDlg.enterComment", "&Enter comment number:"),
     ("findDlg.enterHeading", "&Enter heading number:"),
+    ("findDlg.enterFootnote", "&Enter footnote number:"),
+    ("findDlg.enterEndnote", "&Enter endnote number:"),
+    ("findDlg.enterField", "&Enter field name:"),
+    ("findDlg.enterTable", "&Enter table number:"),
+    ("findDlg.enterGraphic", "&Enter graphic number:"),
+    ("findDlg.enterEquation", "&Enter equation number:"),
+    ("findDlg.enterObject", "&Enter object name:"),
 ];
 const L_TITLE: usize = 0;
 const L_TABS: usize = 1;
@@ -125,8 +132,7 @@ pub(crate) const L_NOT_FOUND: usize = 38;
 pub(crate) const L_REPLACED: usize = 39;
 pub(crate) const L_FOUND: usize = 40;
 
-/// Go to what: the reference's targets in its order; only Page is carried out here, the
-/// others are listed greyed.
+/// Go to what: the reference's targets in its order.
 const GO_WHAT: [(&str, &str); 13] = [
     ("findDlg.page", "Page"),
     ("findDlg.section", "Section"),
@@ -146,9 +152,10 @@ const GO_WHAT: [(&str, &str); 13] = [
 const GO_ROWS: usize = 5;
 const GO_BAR: f32 = 16.0;
 
-/// Go to what entries BlueDoc carries out: Page, Section, Line, Bookmark, Comment, Heading.
+/// Go to what entries BlueDoc carries out: all of them (round 4 added Footnote, Endnote,
+/// Field, Table, Graphic, Equation and Object).
 pub(crate) fn go_supported(i: usize) -> bool {
-    matches!(i, 0..=4 | 12)
+    i < GO_WHAT.len()
 }
 
 /// Go to what entry of Bookmark (its box lists the bookmark names).
@@ -162,6 +169,7 @@ fn enter_label(i: usize) -> usize {
         GO_BOOKMARK => 43,
         4 => 44,
         12 => 45,
+        5..=11 => 41 + i,
         _ => L_ENTER,
     }
 }

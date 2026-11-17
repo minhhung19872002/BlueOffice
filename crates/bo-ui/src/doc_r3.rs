@@ -273,6 +273,7 @@ impl DocWindow {
             recipients,
             now: self.r4_now(),
             zoom: self.view.zoom(),
+            date_default: self.r4.date_default.unwrap_or(0),
         }
     }
 
@@ -302,8 +303,28 @@ impl DocWindow {
 
     /// The defaults stored by Design › Set as Default, as JSON (theme, style set, effects).
     pub fn design_defaults(&self) -> Option<String> {
-        let (theme, style_set, effects) = self.r3.defaults.as_ref()?;
-        Some(json!({ "theme": theme, "styleSet": style_set, "effects": effects }).to_string())
+        let mut v = match self.r3.defaults.as_ref() {
+            Some((theme, style_set, effects)) => {
+                json!({ "theme": theme, "styleSet": style_set, "effects": effects })
+            }
+            None => json!({}),
+        };
+        // Insert › Date and Time › Set As Default (round 4).
+        if let Some(i) = self.r4.date_default {
+            v["dateFormat"] = json!(crate::doc_forms::DATE_PICTURES[i]);
+        }
+        (v.as_object().is_some_and(|o| !o.is_empty())).then(|| v.to_string())
+    }
+
+    /// Apply the stored interface defaults (JSON of [`DocWindow::design_defaults`]) that hold
+    /// for every document: the Date and Time format.
+    pub fn apply_interface_defaults(&mut self, json: &str) {
+        let Ok(v) = serde_json::from_str::<Value>(json) else {
+            return;
+        };
+        if let Some(f) = v["dateFormat"].as_str() {
+            self.r4.date_default = crate::doc_forms::DATE_PICTURES.iter().position(|p| *p == f);
+        }
     }
 
     /// Apply stored defaults (JSON of [`DocWindow::design_defaults`]) to a new document, as
@@ -336,7 +357,7 @@ impl DocWindow {
         self.r3.new_document.take()
     }
 
-    fn form_out(&mut self, out: FormOut) -> bool {
+    pub(super) fn form_out(&mut self, out: FormOut) -> bool {
         match out {
             FormOut::None => false,
             FormOut::Redraw => true,
@@ -371,6 +392,12 @@ impl DocWindow {
                 self.r3.form = None;
                 self.r3.paste_mode = Some(mode);
                 self.requests.push(Request::Paste);
+                true
+            }
+            FormOut::DateDefault(i) => {
+                // Kept for this window and stored like Design › Set as Default.
+                self.r4.date_default = Some(i);
+                self.requests.push(Request::SaveDefaults);
                 true
             }
             FormOut::Defaults(d) => {
@@ -964,6 +991,12 @@ impl DocWindow {
             self.r3.align_page = to == "page";
             return Some(true);
         }
+        if let Some(order) = id.strip_prefix("picture.order.") {
+            return Some(self.picture(&json!({ "cmd": "pictureOrder", "order": order })));
+        }
+        if let Some(axis) = id.strip_prefix("picture.flip.") {
+            return Some(self.picture(&json!({ "cmd": "pictureFlip", "axis": axis })));
+        }
         if let Some(dir) = id.strip_prefix("picture.rotate.") {
             let degrees = if dir == "left" { -90 } else { 90 };
             return Some(self.picture(&json!({ "cmd": "pictureRotate", "degrees": degrees })));
@@ -1403,6 +1436,12 @@ impl DocWindow {
                 Input::Move { x, y } | Input::Drag { x, y } => return Some(m.hover(x, y)),
                 Input::Press { x, y, .. } => {
                     let pick = m.pick(x, y);
+                    // The scroll bar of a scrolling gallery keeps it open.
+                    match pick.as_deref() {
+                        Some(crate::doc_tiles::SCROLL_UP) => return Some(m.scroll_by(-1)),
+                        Some(crate::doc_tiles::SCROLL_DOWN) => return Some(m.scroll_by(1)),
+                        _ => {}
+                    }
                     if pick.is_some() || !m.contains(x, y) {
                         self.r3.tiles = None;
                         self.ribbon.clear_pointer();
@@ -1418,9 +1457,10 @@ impl DocWindow {
                     self.r3.tiles = None;
                     return Some(true);
                 }
-                Input::Release { .. } | Input::Text(_) | Input::Key(..) | Input::Wheel(_) => {
-                    return Some(true)
+                Input::Wheel(d) => {
+                    return Some(m.scroll_by(if d > 0.0 { -1 } else { 1 }));
                 }
+                Input::Release { .. } | Input::Text(_) | Input::Key(..) => return Some(true),
                 _ => {}
             }
         }

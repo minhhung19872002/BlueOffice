@@ -23,6 +23,8 @@ pub(super) struct R4 {
     utc_offset: i32,
     /// The ruler shown before Focus hid it.
     ruler: bool,
+    /// Date and Time › Set As Default: the format offered first.
+    pub(super) date_default: Option<usize>,
 }
 
 /// A gallery's sections, menu rows, look and tile drawing.
@@ -73,7 +75,8 @@ impl DocWindow {
 
     fn gallery(&self, id: &str) -> Option<Gallery> {
         let tr = |k: &str, f: &str| self.r4_t(k, f);
-        let built_in = tr("docR3.builtIn", "Built-In");
+        // The reference's round-4 galleries spell it "Built-in".
+        let built_in = tr("docR4.builtIn", "Built-in");
         let section = |header: String, tiles: Vec<Tile>| vec![TileSection { header, tiles }];
         let row = |id: &str, k: &str, f: &str, on: bool| (id.to_owned(), tr(k, f), on);
         Some(match id {
@@ -92,10 +95,17 @@ impl DocWindow {
                         "Remove Current Cover Page",
                         false,
                     ),
+                    row(
+                        "insert.coverPage.save",
+                        "docR4.saveCover",
+                        "Save Selection to Cover Page Gallery...",
+                        false,
+                    ),
                 ],
+                // The reference's tiles: 166 x 235 px at 125 % with the name under the page.
                 TileLook {
                     cols: 3,
-                    tile: (130.0, 145.0),
+                    tile: (133.0, 188.0),
                     caption_top: false,
                 },
                 m4::draw_cover,
@@ -383,6 +393,12 @@ impl DocWindow {
         self.menu = None;
         let mut m = TileMenu::open(anchor, self.size, sections, rows, look, draw, self.scale);
         m.current = self.gallery_current(id);
+        if id == "insert.coverPage" {
+            // Two rows at once with a scroll bar, menu rows with icons, as the reference.
+            m.scroll_rows(2, self.size);
+            m.row_icon = Some(m4::draw_cover_row);
+            m.row_more = vec!["insert.coverPage.more".to_owned()];
+        }
         self.r3.tiles = Some(m);
         true
     }
@@ -395,13 +411,21 @@ impl DocWindow {
             Some(_) => false,
             None => w.view.format().picture.is_none() && e.starts_with("picture."),
         };
-        let items: Vec<MenuItem> = m4::menu(id)
+        let mut entries = m4::menu(id);
+        if entries.is_empty() {
+            entries = crate::doc_r4_fit::menu(id);
+        }
+        let picture = self.view.format().picture.is_some() || self.view.format().picture_tools;
+        let items: Vec<MenuItem> = entries
             .into_iter()
             .map(|e| MenuItem {
                 label: self.r4_t(&format!("docR4.m.{}", e.id.replace('.', "_")), e.label),
                 choice: Choice::Command(e.id.to_owned()),
                 checked: false,
                 dim: m4::UNAVAILABLE.contains(&e.id)
+                    || crate::doc_r4_fit::UNAVAILABLE.contains(&e.id)
+                    || (crate::doc_r4_fit::ARRANGE.contains(&e.id) && !picture)
+                    || (e.id.starts_with("picture.order.") && !picture)
                     || matches!(
                         e.id,
                         "insert.pageNumber.format" | "insert.pageNumber.margins"
@@ -430,6 +454,20 @@ impl DocWindow {
         }
         if let Some(menu) = m4::MENUS.iter().find(|g| **g == id) {
             return Some(self.open_r4_menu(menu));
+        }
+        // Collapsed groups, split buttons and menus added to fit the reference's tabs.
+        if !crate::doc_r4_fit::menu(id).is_empty() {
+            let sid = crate::commands::static_id(id);
+            return Some(!sid.is_empty() && self.open_r4_menu(sid));
+        }
+        match id {
+            "insert.comment" => return Some(self.action("review.newComment")),
+            "insert.picture.device" => {
+                self.requests.push(super::Request::PickPicture);
+                return Some(false);
+            }
+            _ if crate::doc_r4_fit::UNAVAILABLE.contains(&id) => return Some(false),
+            _ => {}
         }
         if m4::UNAVAILABLE.contains(&id) {
             return Some(false);

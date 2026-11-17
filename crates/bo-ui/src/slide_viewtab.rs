@@ -269,6 +269,8 @@ impl SlideWindow {
                 };
                 // The line clicked is chosen for promoting / demoting (round 17).
                 self.outline_sel = self.outline_line_at(y);
+                // The caret goes to the character nearest the press (round 19).
+                self.outline9.click_x = Some(x);
                 self.view.go_to(hit);
                 Some(true)
             }
@@ -386,38 +388,59 @@ impl SlideWindow {
         let tx = area[0] + self.px(45.6);
         let mut rows = Vec::new();
         let mut lines = Vec::new();
+        let mut hits = Vec::new();
+        let caret_line = self.outline_sel;
         for (i, s) in pres.slides.iter().enumerate() {
             rows.push((y, i));
             let o = bo_engine::slide_edit::outline::slide_outline(s);
-            let paras = bo_engine::slide_edit::outline::slide_outline_paras(s);
+            // Numbers inherited from the layout / master list styles too (round 19).
+            let paras = bo_engine::slide_edit::outline::outline_paras(pres, i);
+            let (ti, tu) = super::outline9::title_emphasis(s);
+            hits.push(super::outline9::Hit {
+                line: (i, None),
+                y,
+                pieces: vec![(o.title.replace('\n', " "), tx, true, ti, tu)],
+            });
             let mut ly = y + line;
-            // Empty paragraphs are not listed (reference).
             for (k, b) in o.bullets.iter().enumerate() {
-                if b.text.trim().is_empty() {
+                // Empty paragraphs are not listed (reference) — but the one being typed in.
+                if b.text.trim().is_empty() && caret_line != Some((i, Some(k))) {
                     continue;
                 }
                 let mut x = tx + f32::from(b.level) * self.px(15.2);
                 let mut pieces = Vec::new();
                 let para = paras.get(k);
-                if let Some(n) = para.and_then(|p| p.number.as_ref()) {
-                    let n = format!("{n} ");
+                if let Some(p) = para.filter(|p| p.number.is_some()) {
+                    let n = p.number.clone().unwrap_or_default();
                     let f = outline_font(size, false, false, false);
                     let w = text.measure_font(&n, &f).0;
-                    pieces.push((n, x, false, false, false));
-                    x += w;
+                    lines.push((ly, vec![(n, x, false, false, false)]));
+                    // The text starts after the number, or at the paragraph's hanging
+                    // indent when wider (reference: "1. Bước" with a 0.5" hang, "1.One"
+                    // with the master's 0.25"; 0.5" = one level step, 15.2 px).
+                    let hang = self.px(15.2 * p.hang / 36.0);
+                    x += hang.max(w);
                 }
                 match para {
                     Some(p) if !p.runs.is_empty() => {
                         for r in &p.runs {
                             let t = r.text.replace('\u{b}', " ");
-                            let f = outline_font(size, r.bold, r.italic, r.underline);
+                            // Body text is never bold in the outline (reference: a run's
+                            // b="1" is dropped, italic and underline are kept; titles are
+                            // bold).
+                            let f = outline_font(size, false, r.italic, r.underline);
                             let w = text.measure_font(&t, &f).0;
-                            pieces.push((t, x, r.bold, r.italic, r.underline));
+                            pieces.push((t, x, false, r.italic, r.underline));
                             x += w;
                         }
                     }
-                    _ => pieces.push((b.text.clone(), x, false, false, false)),
+                    _ => pieces.push((b.text.replace('\u{b}', " "), x, false, false, false)),
                 }
+                hits.push(super::outline9::Hit {
+                    line: (i, Some(k)),
+                    y: ly,
+                    pieces: pieces.clone(),
+                });
                 lines.push((ly, pieces));
                 ly += line;
             }
@@ -425,6 +448,8 @@ impl SlideWindow {
         }
         self.outline_rows = rows;
         self.outline_lines = lines;
+        self.outline9.hits = hits;
+        self.place_outline_caret(text, size, line);
     }
 
     /// The outline as the reference draws it: grey ground, slide number, a framed slide
@@ -475,13 +500,9 @@ impl SlideWindow {
                 Rgba(255, 255, 255, 255),
             );
             let tx = area[0] + self.px(45.6);
-            p.text_font(
-                &o.title,
-                tx,
-                *top,
-                &outline_font(size, true, false, false),
-                ink,
-            );
+            // Titles are bold, with their run's italic / underline (reference).
+            let (ti, tu) = super::outline9::title_emphasis(s);
+            p.text_font(&o.title, tx, *top, &outline_font(size, true, ti, tu), ink);
         }
         for (y, pieces) in &self.outline_lines {
             for (t, x, b, it, u) in pieces {

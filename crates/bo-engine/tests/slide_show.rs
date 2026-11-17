@@ -1210,3 +1210,48 @@ fn repeats_triggers_and_the_animation_painter() {
     let r = try_run(&mut e, &format!(r#"{{"cmd":"copyAnimations","from":{c}}}"#));
     assert_eq!(r.error.as_deref(), Some("noAnimation"));
 }
+
+// source: ECMA-376 Part 1, §19.5.2 animClr, §19.5.66 set, §19.5.1 anim — the emphasis effects
+// of the gallery added in round 17 are written with their behaviours and read back by name.
+#[test]
+fn gallery_emphasis_effects_round_trip() {
+    let names = [
+        "colorPulse",
+        "desaturate",
+        "darken",
+        "lighten",
+        "objectColor",
+        "complementary",
+        "lineColor",
+        "brushColor",
+        "fontColor",
+        "underline",
+        "boldFlash",
+        "boldReveal",
+        "waveText",
+    ];
+    let mut e = open("slide-shapes-presets.pptx");
+    let id = free_ids(&e, 0)[0];
+    run(&mut e, &format!(r#"{{"cmd":"select","ids":[{id}]}}"#));
+    for n in names {
+        let r = run(
+            &mut e,
+            &format!(r#"{{"cmd":"addAnimation","effect":"{n}"}}"#),
+        );
+        let a = r.animations.last().unwrap();
+        assert_eq!((a.effect.as_str(), a.class), (n, "emph"));
+        assert!(!a.play.tracks.is_empty(), "{n} plays");
+    }
+    let back = reopen(&e);
+    let got: Vec<String> = back.presentation().unwrap().slides[0]
+        .timing
+        .as_ref()
+        .unwrap()
+        .animations
+        .iter()
+        .map(|x| format!("{:?}", x.effect))
+        .collect();
+    for n in names {
+        assert!(got.contains(&format!("Named(\"{n}\")")), "{n} in {got:?}");
+    }
+}

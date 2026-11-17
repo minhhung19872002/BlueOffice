@@ -35,6 +35,8 @@ pub enum SideKind {
     Spelling,
     /// The Accessibility pane (Review > Check Accessibility).
     Accessibility,
+    /// The Thesaurus pane (Review > Thesaurus, Shift+F7).
+    Thesaurus,
 }
 
 /// A shape listed by the Selection Pane.
@@ -91,6 +93,12 @@ pub enum SideHit {
     Speak,
     /// Accessibility: go to shape `id` (0: the slide itself) of slide `n`.
     Goto(usize, u32),
+    /// Thesaurus: back to the word looked up before.
+    ThesBack,
+    /// Thesaurus: look a synonym up (a double press puts it in the text).
+    ThesLookup(String),
+    /// Thesaurus: fold / unfold meaning `n`.
+    ThesToggle(usize),
 }
 
 /// An issue listed by the Accessibility pane.
@@ -157,7 +165,12 @@ pub struct SidePane {
     scale: f32,
     pub(crate) hits: Vec<([f32; 4], SideHit)>,
     ops: Vec<Op>,
+    /// The Thesaurus pane's word and history.
+    pub thes: thespane::ThesState,
 }
+
+#[path = "slide_thespane.rs"]
+pub(super) mod thespane;
 
 fn inside(r: [f32; 4], x: f32, y: f32) -> bool {
     x >= r[0] && x < r[0] + r[2] && y >= r[1] && y < r[1] + r[3]

@@ -655,6 +655,9 @@ impl SlideWindow {
                         | SideHit::ChangeAll
                         | SideHit::Suggestion(_)),
                     ) => self.spelling_hit(&h),
+                    Some(
+                        h @ (SideHit::ThesBack | SideHit::ThesLookup(_) | SideHit::ThesToggle(_)),
+                    ) => self.thesaurus_hit(&h, *count),
                     Some(h @ (SideHit::Goto(..) | SideHit::PaneMenu | SideHit::Speak)) => {
                         self.review_side_hit(&h).unwrap_or(false)
                     }
@@ -737,6 +740,16 @@ impl SlideWindow {
                 ];
                 self.side
                     .record_spelling(text, &shown, &labels, self.theme.text);
+            }
+            SideKind::Thesaurus => {
+                let meanings = self.thesaurus_meanings();
+                let labels = [
+                    self.t("slideNative.thesaurus", "Thesaurus"),
+                    self.t("slideNative.thesNoResults", "No results found."),
+                    self.t("spell.lang.en-US", "English (United States)"),
+                ];
+                self.side
+                    .record_thesaurus(text, &meanings, &labels, self.theme.text);
             }
             SideKind::AltText => {
                 let alt = self.selected_alt();

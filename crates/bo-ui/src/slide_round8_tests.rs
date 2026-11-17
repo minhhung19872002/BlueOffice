@@ -254,7 +254,6 @@ fn large_buttons_dim_only_where_the_reference_does() {
             "sl.hideInk",
             "sl.quickStyles",
             "sl.textQuick",
-            "sl.thesaurus",
             "sl.translate",
             "transition.preview"
         ],

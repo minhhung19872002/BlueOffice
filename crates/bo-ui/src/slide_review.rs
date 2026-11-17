@@ -7,7 +7,8 @@
 //!   `bo_engine::slide_edit::a11y::slide_shapes`); a row goes to the shape.
 //! - Language sets the proofing language of the text (or leaves it unchecked), engine
 //!   `TextFormat::Lang`.
-//! - Thesaurus and Translate have no engine behind them yet and are greyed. Hide Ink is
+//! - Thesaurus opens its pane on the word at the caret (`slide_thespane.rs`, round 18);
+//!   Translate has no engine behind it yet and is greyed. Hide Ink is
 //!   greyed while the deck holds no ink (as on the reference) and otherwise toggles the ink
 //!   out of the slides, thumbnails and the show (round 17).
 use super::selpane::{A11yRow, SideHit, SideKind};
@@ -21,10 +22,10 @@ use bo_render::Rgba;
 
 /// Commands of these groups that work (Thesaurus and Translate are greyed; Hide Ink needs
 /// ink in the deck).
-pub const COMMANDS: [&str; 3] = ["sl.checkA11y", "sl.language", "sl.hideInk"];
+pub const COMMANDS: [&str; 4] = ["sl.checkA11y", "sl.language", "sl.hideInk", "sl.thesaurus"];
 
 /// Commands shown greyed.
-pub const GREYED: [&str; 2] = ["sl.thesaurus", "sl.translate"];
+pub const GREYED: [&str; 1] = ["sl.translate"];
 
 /// Proofing languages of the Language menu (BCP 47 tag, `spell.lang.*` key); the last
 /// entry leaves the text unchecked.
@@ -123,6 +124,7 @@ impl SlideWindow {
     /// Run one of these commands; `None` when `id` is not one of them.
     pub(super) fn review_action(&mut self, id: &str) -> Option<bool> {
         Some(match id {
+            "sl.thesaurus" => self.open_thesaurus(),
             "sl.checkA11y" => {
                 let items = [
                     ("checkA11y", "rv:check"),

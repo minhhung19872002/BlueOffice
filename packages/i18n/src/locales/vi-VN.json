@@ -3255,7 +3255,8 @@
     "inkHelp": "Trợ giúp mực",
     "helpGroup": "Trợ giúp",
     "clickToAddText": "Bấm để thêm văn bản",
-    "notesOf": "Ghi chú {{n}} / {{total}}"
+    "notesOf": "Ghi chú {{n}} / {{total}}",
+    "thesNoResults": "Không tìm thấy kết quả."
   },
   "slideEditor": {
     "open": "Mở",

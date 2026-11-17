@@ -176,3 +176,32 @@ fn grid_dialog_sets_snapping_and_spacing() {
     assert!(w.form8_event(&sform::Event::Ok));
     assert_eq!(w.view.grid_snap(), Some(36.0));
 }
+
+#[test]
+fn thesaurus_pane_lists_meanings_looks_up_and_goes_back() {
+    let mut w = window();
+    let f = ribbon_format(&w.view, false);
+    assert!(slide_enabled("sl.thesaurus", &f));
+    w.side.thes.word = "increase".into();
+    assert!(w.action("sl.thesaurus"));
+    assert_eq!(w.side.kind, selpane::SideKind::Thesaurus);
+    w.handle(Input::Blink, &Fixed);
+    let syn = w
+        .side
+        .hits
+        .iter()
+        .find_map(|(_, h)| match h {
+            selpane::SideHit::ThesLookup(s) if s != "increase" => Some(s.clone()),
+            _ => None,
+        })
+        .expect("a synonym row");
+    assert!(w.thesaurus_hit(&selpane::SideHit::ThesLookup(syn.clone()), 1));
+    assert_eq!(w.side.thes.word, syn);
+    assert!(w.thesaurus_hit(&selpane::SideHit::ThesBack, 1));
+    assert_eq!(w.side.thes.word, "increase");
+    // A heading folds its meaning.
+    assert!(w.thesaurus_hit(&selpane::SideHit::ThesToggle(0), 1));
+    assert_eq!(w.side.thes.folded, vec![0]);
+    // Without text editing a double press inserts nothing.
+    assert!(!w.thesaurus_hit(&selpane::SideHit::ThesLookup(syn), 2));
+}

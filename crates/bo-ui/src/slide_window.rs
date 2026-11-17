@@ -2284,6 +2284,10 @@ impl SlideWindow {
             if !m.ctrl && !m.shift && !m.alt && !self.view.showing() {
                 return self.start_spelling();
             }
+            // Shift+F7: Thesaurus, as on the reference.
+            if m.shift && !m.ctrl && !m.alt && !self.view.showing() {
+                return self.open_thesaurus();
+            }
         }
         // Clipboard shortcuts outside text editing go to the engine's slide clipboard.
         if let Input::Key(Key::Letter(c @ ('c' | 'x' | 'v')), Mods { ctrl: true, .. }) = input {

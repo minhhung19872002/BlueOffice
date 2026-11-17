@@ -3255,7 +3255,8 @@
     "inkHelp": "Ink Help",
     "helpGroup": "Help",
     "clickToAddText": "Click to add text",
-    "notesOf": "Notes {{n}} of {{total}}"
+    "notesOf": "Notes {{n}} of {{total}}",
+    "thesNoResults": "No results found."
   },
   "slideEditor": {
     "open": "Open",

@@ -603,10 +603,22 @@ impl<'s, 'a> Interp<'s, 'a> {
         }
         let s = scale_of(self.gs.ctm);
         let width = (self.gs.lw * s).max(self.sh.opts.min_line);
-        let color = if self.gs.stroke_pattern.is_some() {
-            Rgba(128, 128, 128, (self.gs.stroke_alpha * 255.0) as u8)
+        // Round 14: a line thinner than the one device pixel it is widened to keeps its ink
+        // (the pixel's coverage), as the reference reader draws fine grids at low zoom. A
+        // zero-width line (§8.4.3.2, the thinnest line) stays solid.
+        let thin = if self.gs.lw > 0.0 && self.gs.lw * s < self.sh.opts.min_line {
+            (self.gs.lw * s / self.sh.opts.min_line.max(1e-6)).max(0.15)
         } else {
-            rgba(&self.gs.stroke_cs, &self.gs.stroke, self.gs.stroke_alpha)
+            1.0
+        };
+        let color = if self.gs.stroke_pattern.is_some() {
+            Rgba(128, 128, 128, (self.gs.stroke_alpha * thin * 255.0) as u8)
+        } else {
+            rgba(
+                &self.gs.stroke_cs,
+                &self.gs.stroke,
+                self.gs.stroke_alpha * thin,
+            )
         };
         let dash: Vec<f32> = if self.gs.dash.iter().all(|d| *d <= 0.0) {
             Vec::new()

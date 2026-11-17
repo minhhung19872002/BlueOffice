@@ -23,7 +23,7 @@ const EDITOR_ACCENT_TEXT: Rgba = Rgba(0xA8, 0x4A, 0x05, 255);
 pub const EDITOR_TITLE: Rgba = Rgba(0x2F, 0x3E, 0x5C, 255);
 
 /// Ribbon tabs after File.
-pub(crate) const TABS: [&str; 9] = [
+pub(crate) const TABS: [&str; 10] = [
     "pdfReader.tabs.home",
     "pdfEditor.tabs.convert",
     "pdfEditor.tabs.edit",
@@ -32,6 +32,8 @@ pub(crate) const TABS: [&str; 9] = [
     "pdfReader.tabs.view",
     "pdfEditor.tabs.form",
     "pdfEditor.tabs.protect",
+    // Round 11: the reference's Share tab.
+    "pdfEditor11.tabShare",
     "pdfReader.tabs.help",
 ];
 /// Index of the Organize tab in [`TABS`].
@@ -336,7 +338,8 @@ fn ribbon(tab: usize) -> Vec<(&'static str, Kind)> {
         // The reference's Protect tab (round 10 grouping; Sensitivity labels are not offered).
         7 => v.extend(crate::editor_prot10::protect_tab_items()),
         // Round 9: the contextual Combine Files tab.
-        9 => v = crate::editor_combine9::ribbon_items(),
+        8 => v.extend(crate::editor_share11::share_tab_items()),
+        n if n == TABS.len() => v = crate::editor_combine9::ribbon_items(),
         _ => {
             v.clear();
             v.push(("help.about", Big("info", "pdfReader.about", false)));
@@ -1085,6 +1088,7 @@ impl EditorWindow {
             return;
         }
         if self.prot10_command(cmd)
+            || self.share11_command(cmd)
             || self.edit10_command(cmd)
             || self.org9_command(cmd)
             || self.combine9_command(cmd)
@@ -1765,6 +1769,7 @@ impl EditorWindow {
         for id in crate::editor_format::EDIT_TAB_LATER
             .iter()
             .chain(&crate::editor_design::FORM_TAB_LATER)
+            .chain(&crate::editor_share11::SHARE_LATER)
         {
             self.r.enabled_override.insert(id, false);
         }

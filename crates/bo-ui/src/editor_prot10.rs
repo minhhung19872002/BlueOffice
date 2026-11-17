@@ -97,7 +97,7 @@ impl EditorWindow {
     }
 
     /// Round 11: a drop-down like [`Self::menu10`] with ticked rows.
-    fn menu11(&mut self, rows: &[Row10], ticked: &[usize], id: &'static str) {
+    pub(crate) fn menu11(&mut self, rows: &[Row10], ticked: &[usize], id: &'static str) {
         let Some(r) = self.r.control_rect(id) else {
             return;
         };

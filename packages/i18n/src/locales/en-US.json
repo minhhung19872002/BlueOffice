@@ -14095,6 +14095,13 @@
     "opacity": "Opacity",
     "dotted": "Dotted",
     "addPath": "Add Path",
-    "addShading": "Add Shading"
+    "addShading": "Add Shading",
+    "email": "Email",
+    "manageShared": "Manage Shared Review",
+    "sendEmailReview": "Send for Email Review",
+    "manageEmail": "Manage Email Review",
+    "emailCurrent": "Email Current Document",
+    "emailAll": "Email All Open Documents",
+    "tabShare": "Share"
   }
 }

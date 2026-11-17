@@ -93,6 +93,7 @@ mod editor_round7_tests;
 mod editor_round9_tests;
 mod editor_selhi9;
 mod editor_shapes11;
+mod editor_share11;
 mod editor_sign;
 #[cfg(test)]
 mod editor_tests;

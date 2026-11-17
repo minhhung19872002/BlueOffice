@@ -77,6 +77,10 @@ mod tabs9;
 // Forms, Fill & Sign, comment tool behaviour, accessibility (BlueReader round 11).
 #[path = "reader_fill11_win.rs"]
 mod fill11;
+// Ribbon metrics, Select / Assistant menus, Comment / Share tab ends (BlueReader round 12).
+#[path = "reader_r12_win.rs"]
+mod r12;
+pub use r12::{AccessItem, AccessRole};
 
 /// Measured greys of the reference reader at 125 %.
 const CHROME: Rgba = Rgba(251, 251, 253, 255);
@@ -341,10 +345,12 @@ impl Look {
         tab_gap: 27.5,
         underline_up: 2.4,
         body_h: 72.8,
-        icon: 25.6,
-        icon_y: 6.4,
+        // Round 12, measured at 125 %: icons drawn 31 px high from y 112, labels from y 154
+        // (8 px lower than before), second lines 19 px apart.
+        icon: 28.0,
+        icon_y: 4.0,
         label: 14.0,
-        label_y: 28.8,
+        label_y: 35.2,
         quick_x: 52.0,
         quick_step: 32.0,
         title_center: false,
@@ -367,12 +373,14 @@ impl Look {
         status_box_h: 19.2,
         status_box_top: None,
         icon_stroke: 1.5,
-        big_pad: 13.6,
-        big_min: 41.6,
+        // Round 12: label centres 13–15 px further apart than the labels' half widths (the
+        // reference's buttons are label + 10 px, 2 px apart; Hand keeps 52 px).
+        big_pad: 8.0,
+        big_min: 36.8,
         big_gap: 1.6,
-        sep_space: (4.8, 6.4),
+        sep_space: (2.4, 6.4),
         arrow_w: 0.0,
-        big_pad_one: 13.6,
+        big_pad_one: 8.0,
     };
 }
 
@@ -544,6 +552,8 @@ pub struct ReaderWindow {
     ten: popups10::Ten,
     /// Forms, Fill & Sign, Read Aloud of round 11.
     eleven: fill11::Eleven,
+    /// Round 12 additions.
+    twelve: r12::Twelve,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -631,6 +641,7 @@ impl ReaderWindow {
             marks9: marks9::Marks9::default(),
             ten: popups10::Ten::default(),
             eleven: fill11::Eleven::default(),
+            twelve: r12::Twelve::default(),
         }
     }
 
@@ -817,7 +828,7 @@ impl ReaderWindow {
         if let Some(p) = path {
             self.recent.retain(|r| r != &p);
             self.recent.insert(0, p);
-            self.recent.truncate(12);
+            self.recent.truncate(self.history_cap6());
         }
         // Form fields highlighted as the reference shows them (round 11).
         self.opened11();
@@ -1088,7 +1099,7 @@ impl ReaderWindow {
                 v.extend(Self::help_items9());
             }
         }
-        v
+        self.ribbon12(v)
     }
 
     fn relayout(&mut self, m: &dyn TextMeasure) {
@@ -1207,7 +1218,8 @@ impl ReaderWindow {
                     if small_col > 0 {
                         // Past the columns of the small-button grid.
                         let cols = small_col.div_ceil(2) as f32;
-                        x += cols * self.px(34.0) - self.px(2.0);
+                        let (gap, lead, tail) = self.grid12();
+                        x += self.px(lead + cols * (28.0 + gap) - 2.0 + tail);
                         small_col = 0;
                     }
                     let text = self.t(label);
@@ -1237,7 +1249,7 @@ impl ReaderWindow {
                     } else {
                         self.look.big_pad_one
                     };
-                    let bw = (lw + self.px(pad)).max(self.px(self.look.big_min)).round();
+                    let bw = (lw + self.px(pad)).max(self.px(self.big_min12(id))).round();
                     self.controls.push(Control {
                         id,
                         kind,
@@ -1250,7 +1262,8 @@ impl ReaderWindow {
                     let s = self.px(28.0);
                     let col = small_col / 2;
                     let row = small_col % 2;
-                    let gx = x + col as f32 * (s + self.px(6.0));
+                    let (gap, lead, _) = self.grid12();
+                    let gx = x + self.px(lead) + col as f32 * (s + self.px(gap));
                     let gy = by + self.px(6.0) + row as f32 * (s + self.px(8.0));
                     self.controls.push(Control {
                         id,
@@ -1264,7 +1277,8 @@ impl ReaderWindow {
                         // Two-column grids keep their measured width; wider ones grow by
                         // a column each.
                         let cols = small_col.div_ceil(2).max(2) as f32;
-                        x += self.px(28.0 * cols + 6.0 * (cols - 1.0) + 4.0);
+                        let (gap, lead, tail) = self.grid12();
+                        x += self.px(lead + 28.0 * cols + gap * (cols - 1.0) + 4.0 + tail);
                         small_col = 0;
                     }
                     x += self.px(self.look.sep_space.0);
@@ -2251,6 +2265,9 @@ impl ReaderWindow {
     }
 
     fn click(&mut self, id: &'static str, r: [f32; 4], m: &dyn TextMeasure) {
+        if self.click12(id, r) {
+            return;
+        }
         match id {
             "menu.zoom" => self.open_zoom_menu(r),
             "menu.fit" => {
@@ -2802,7 +2819,7 @@ impl ReaderWindow {
                     } else {
                         vec![text]
                     };
-                    let lh = (label_style.size * 1.33 * 0.93).round();
+                    let lh = self.label_pitch12(label_style.size);
                     let mut ly = r[1] + self.px(self.look.label_y);
                     let n = lines.len();
                     for (k, l) in lines.iter().enumerate() {
@@ -3028,6 +3045,7 @@ impl ReaderWindow {
         self.paint_popups10(p);
         self.paint_bar10(p);
         self.paint_eleven(p);
+        self.paint_twelve(p);
         if let Some((menu, _)) = &self.menu {
             menu.paint(p, &self.theme, &self.icons);
         }
@@ -3087,6 +3105,9 @@ impl ReaderWindow {
             return e;
         }
         if let Some(e) = self.eleven_enabled(id) {
+            return e && self.showing_doc();
+        }
+        if let Some(e) = self.twelve_enabled(id) {
             return e && self.showing_doc();
         }
         if let Some(e) = self.tabs5_enabled(id) {

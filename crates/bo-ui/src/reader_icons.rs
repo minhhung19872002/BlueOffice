@@ -255,6 +255,28 @@ fn shape(name: &str) -> &'static [Part] {
             A("M14 6.5l2.5 2.5 5-5"),
         ],
         "combField" => &[S("M2.5 7.5h19v9h-19z M8.8 7.5v9 M15.2 7.5v9"), A("M5.65 10v4 M12 10v4 M18.35 10v4")],
+        // Round 12 (ours): frame corners round an accent lens; a folder with linked dots; two
+        // sheets with an accent tick; an envelope with an accent tick; a ticked list.
+        "assistant" => &[
+            S("M2.5 7.5v-5h5 M16.5 2.5h5v5 M2.5 16.5v5h5"),
+            A("M13.5 8.5a5 5 0 1 0 .01 0z M17.2 17.2l4.3 4.3"),
+        ],
+        "sharedFiles" => &[
+            S("M2.5 5.5h7l2 2.5h10v12h-19z"),
+            A("M8.5 15l6.5-3.5 M8.5 15l6.5 3 M8.5 13.5a1.5 1.5 0 1 0 .01 0z M15 10a1.5 1.5 0 1 0 .01 0z M15 17a1.5 1.5 0 1 0 .01 0z"),
+        ],
+        "sharedReview" => &[
+            S("M4.5 17.5v-15h10 M8.5 6.5h11v15h-11z"),
+            A("M11 14.5l2.5 2.5 4.5-5"),
+        ],
+        "emailReview" => &[
+            S("M2.5 5.5h19v13h-19z M3 6l9 7 9-7"),
+            A("M14.5 19l2.5 2.5 5-5.5"),
+        ],
+        "tracker" => &[
+            S("M10 6h11.5 M10 12h11.5 M10 18h11.5"),
+            A("M2.5 6l2 2 3.5-4 M2.5 12l2 2 3.5-4 M2.5 18l2 2 3.5-4"),
+        ],
         _ => crate::editor_icons::shape(name),
     }
 }

@@ -10,12 +10,11 @@
 //! Batch Print prints several open documents with one Print dialog: a list of the open
 //! documents to tick, then the usual dialog; the host prints every ticked document with its
 //! settings (all pages of each).
-use super::{inside, rounded, ReaderRequest, ReaderWindow, MUTED, TEXT, WHITE};
+use super::{inside, ReaderRequest, ReaderWindow};
 use crate::dialog::{Dialog, DialogButton, DialogKind};
 use crate::popup::{Choice, MenuItem};
 use crate::reader_view::{Fit, Layout};
 use crate::{Input, Key, Painter, TextMeasure};
-use bo_render::Rgba;
 
 /// Default zoom choices: label key, value (`auto` keeps the document's own fit).
 const ZOOMS: [(&str, &str); 9] = [
@@ -46,8 +45,19 @@ pub(crate) const UNITS: [(&str, &str, f32); 5] = [
     ("pdfPrefs.pica", "pc", 12.0),
 ];
 
+/// History › documents kept in the recent list (round 12).
+pub(crate) const HISTORY: [usize; 5] = [5, 10, 15, 20, 30];
+/// Speech › reading speeds: label key, SAPI rate (−10…10).
+pub(crate) const RATES: [(&str, i32); 5] = [
+    ("pdfPrefs12.rateSlowest", -6),
+    ("pdfPrefs12.rateSlow", -3),
+    ("pdfPrefs12.rateNormal", 0),
+    ("pdfPrefs12.rateFast", 3),
+    ("pdfPrefs12.rateFastest", 6),
+];
+
 /// The preferences.
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Prefs {
     /// Index into [`ZOOMS`].
     pub zoom: usize,
@@ -61,6 +71,39 @@ pub(crate) struct Prefs {
     pub smooth: bool,
     /// Window skin (index into `skins8::SKINS`).
     pub skin: usize,
+    /// Round 12. Forms › Highlight all fields (on, like the reference).
+    pub forms_highlight: bool,
+    /// Full Screen › Escape key exits; a left click turns to the next page, a right click
+    /// to the previous one.
+    pub fs_escape: bool,
+    pub fs_click: bool,
+    /// History › index into [`HISTORY`].
+    pub history: usize,
+    /// Search › whole words only, case-sensitive (the search box starts with them).
+    pub search_whole: bool,
+    pub search_case: bool,
+    /// Speech › index into [`RATES`].
+    pub speech_rate: usize,
+}
+
+impl Default for Prefs {
+    fn default() -> Self {
+        Self {
+            zoom: 0,
+            layout: 0,
+            author: String::new(),
+            units: 0,
+            smooth: false,
+            skin: 0,
+            forms_highlight: true,
+            fs_escape: true,
+            fs_click: true,
+            history: 3,
+            search_whole: false,
+            search_case: false,
+            speech_rate: 2,
+        }
+    }
 }
 
 impl Prefs {
@@ -77,6 +120,15 @@ impl Prefs {
             "skin={}
 ",
             self.skin
+        ) + &format!(
+            "formsHighlight={}\nfsEscape={}\nfsClick={}\nhistory={}\nsearchWhole={}\nsearchCase={}\nspeechRate={}\n",
+            u8::from(self.forms_highlight),
+            u8::from(self.fs_escape),
+            u8::from(self.fs_click),
+            HISTORY[self.history.min(HISTORY.len() - 1)],
+            u8::from(self.search_whole),
+            u8::from(self.search_case),
+            RATES[self.speech_rate.min(RATES.len() - 1)].1
         )
     }
 
@@ -95,6 +147,19 @@ impl Prefs {
                 "units" => p.units = UNITS.iter().position(|z| z.1 == v).unwrap_or(0),
                 "smooth" => p.smooth = v == "1",
                 "skin" => p.skin = v.parse().unwrap_or(0),
+                "formsHighlight" => p.forms_highlight = v != "0",
+                "fsEscape" => p.fs_escape = v != "0",
+                "fsClick" => p.fs_click = v != "0",
+                "history" => {
+                    let n: usize = v.parse().unwrap_or(20);
+                    p.history = HISTORY.iter().position(|h| *h == n).unwrap_or(3);
+                }
+                "searchWhole" => p.search_whole = v == "1",
+                "searchCase" => p.search_case = v == "1",
+                "speechRate" => {
+                    let r: i32 = v.parse().unwrap_or(0);
+                    p.speech_rate = RATES.iter().position(|x| x.1 == r).unwrap_or(2);
+                }
                 _ => {}
             }
         }
@@ -135,13 +200,33 @@ pub(crate) struct Prefs6 {
 /// Colour of Insert Text carets.
 const CARET: [u8; 3] = [0, 85, 220];
 
-/// Categories of the dialog: label key and the rows on it.
-const PAGES: [(&str, &[&str]); 4] = [
-    ("pdfPrefs.pageDisplay", &["zoom", "layout"]),
-    ("pdfPrefs.identity", &["author"]),
-    ("pdfPrefs.measure", &["units"]),
-    ("pdfPrefs.general", &["smooth"]),
+// Round 12: the dialog's categories, groups and painting, like the reference's.
+#[path = "reader_prefs12_win.rs"]
+mod prefs12;
+/// The category the dialog opens on.
+const FIRST_PAGE: usize = prefs12::FIRST;
+/// Rows drawn as check boxes.
+const CHECKS: [&str; 6] = [
+    "smooth",
+    "formsHighlight",
+    "fsEscape",
+    "fsClick",
+    "searchWhole",
+    "searchCase",
 ];
+
+/// The check box of row `id`.
+fn check_mut<'a>(p: &'a mut Prefs, id: &str) -> Option<&'a mut bool> {
+    Some(match id {
+        "smooth" => &mut p.smooth,
+        "formsHighlight" => &mut p.forms_highlight,
+        "fsEscape" => &mut p.fs_escape,
+        "fsClick" => &mut p.fs_click,
+        "searchWhole" => &mut p.search_whole,
+        "searchCase" => &mut p.search_case,
+        _ => return None,
+    })
+}
 
 impl ReaderWindow {
     /// Preferences stored by the host (`key=value` lines).
@@ -149,6 +234,36 @@ impl ReaderWindow {
         self.prefs6.prefs = Prefs::from_text(text);
         self.apply_author();
         self.apply_skin(self.prefs6.prefs.skin);
+        self.apply_prefs12();
+    }
+
+    /// Round 12's preferences that set the window's state: field highlight, the search box's
+    /// options, the reading speed, the length of the recent list (BlueReader only).
+    fn apply_prefs12(&mut self) {
+        if self.profile.is_some() {
+            return;
+        }
+        let p = self.prefs6.prefs.clone();
+        self.tabs4.highlight_fields = p.forms_highlight;
+        self.set_find_options8(p.search_case, p.search_whole);
+        self.view4.rate = RATES[p.speech_rate.min(RATES.len() - 1)].1;
+        let cap = self.history_cap6();
+        self.recent.truncate(cap);
+    }
+
+    /// Most documents in the recent list (History preference; 12 in windows built on this).
+    pub(crate) fn history_cap6(&self) -> usize {
+        if self.profile.is_some() {
+            12
+        } else {
+            HISTORY[self.prefs6.prefs.history.min(HISTORY.len() - 1)]
+        }
+    }
+
+    /// Full Screen preferences: Escape exits, clicks turn pages.
+    pub(crate) fn full_screen_prefs6(&self) -> (bool, bool) {
+        let p = &self.prefs6.prefs;
+        (p.fs_escape, p.fs_click)
     }
 
     /// The preferences as stored (`key=value` lines).
@@ -271,6 +386,8 @@ impl ReaderWindow {
                     "zoom" => d.edit.zoom = v.min(ZOOMS.len() - 1),
                     "layout" => d.edit.layout = v.min(LAYOUTS.len() - 1),
                     "units" => d.edit.units = v.min(UNITS.len() - 1),
+                    "history" => d.edit.history = v.min(HISTORY.len() - 1),
+                    "speechRate" => d.edit.speech_rate = v.min(RATES.len() - 1),
                     _ => {}
                 }
             }
@@ -280,7 +397,7 @@ impl ReaderWindow {
             "bs.prefs" => {
                 self.prefs6.dialog = Some(PrefsDialog {
                     edit: self.prefs6.prefs.clone(),
-                    page: 0,
+                    page: FIRST_PAGE,
                     rect: [0.0; 4],
                     hits: Vec::new(),
                 });
@@ -318,6 +435,14 @@ impl ReaderWindow {
                 d.edit.zoom,
             ),
             "layout" => (LAYOUTS.iter().map(|z| self.t(z.0)).collect(), d.edit.layout),
+            "history" => (
+                HISTORY.iter().map(ToString::to_string).collect(),
+                d.edit.history,
+            ),
+            "speechRate" => (
+                RATES.iter().map(|z| self.t(z.0)).collect(),
+                d.edit.speech_rate,
+            ),
             _ => (UNITS.iter().map(|z| self.t(z.0)).collect(), d.edit.units),
         };
         let items = list
@@ -368,12 +493,27 @@ impl ReaderWindow {
                     if let Some(d) = self.prefs6.dialog.as_mut() {
                         d.page = k.parse().unwrap_or(0);
                     }
-                } else if matches!(id.as_str(), "zoom" | "layout" | "units") {
+                } else if matches!(
+                    id.as_str(),
+                    "zoom" | "layout" | "units" | "history" | "speechRate"
+                ) {
                     self.pick(&id, r);
-                } else if id == "smooth" {
-                    if let Some(d) = self.prefs6.dialog.as_mut() {
-                        d.edit.smooth = !d.edit.smooth;
+                } else if CHECKS.contains(&id.as_str()) {
+                    if let Some(c) = self
+                        .prefs6
+                        .dialog
+                        .as_mut()
+                        .and_then(|d| check_mut(&mut d.edit, &id))
+                    {
+                        *c = !*c;
                     }
+                } else if id == "clearHistory" {
+                    // History › Clear History: the recent list empties at once.
+                    self.recent.clear();
+                    self.status = self.t("pdfPrefs12.cleared");
+                } else if id == "setDefault" {
+                    // File Associations: Windows' Default apps page (as Help › Set to Default).
+                    self.command("help.default", m);
                 } else if id == "author" {
                     let cur = self
                         .prefs6
@@ -509,6 +649,7 @@ impl ReaderWindow {
         if let Some(d) = self.prefs6.dialog.take() {
             self.prefs6.prefs = d.edit;
             self.apply_author();
+            self.apply_prefs12();
             self.requests
                 .push(ReaderRequest::SavePreferences(self.prefs6.prefs.to_text()));
         }
@@ -568,170 +709,7 @@ impl ReaderWindow {
     #[allow(clippy::too_many_lines)]
     pub(crate) fn paint_prefs6(&mut self, p: &mut dyn Painter) {
         if let Some(mut d) = self.prefs6.dialog.take() {
-            let (w, h) = self.size;
-            p.fill_rect(0.0, 0.0, w, h, Rgba(0, 0, 0, 40));
-            let (dw, dh) = (self.px(560.0), self.px(360.0));
-            let r = [((w - dw) / 2.0).round(), ((h - dh) / 2.0).round(), dw, dh];
-            d.rect = r;
-            d.hits.clear();
-            p.fill_rect(
-                r[0] - 1.0,
-                r[1] - 1.0,
-                r[2] + 2.0,
-                r[3] + 2.0,
-                self.look.edge,
-            );
-            p.fill_rect(r[0], r[1], r[2], r[3], WHITE);
-            let title = self.style(15.0, false);
-            let body = self.style(13.0, false);
-            let line = body.size * 1.33;
-            p.text(
-                &self.t("pdfPrefs.title"),
-                r[0] + self.px(16.0),
-                r[1] + self.px(10.0),
-                title,
-                TEXT,
-            );
-            // Categories.
-            let lx = r[0] + self.px(12.0);
-            let lw = self.px(150.0);
-            let top = r[1] + self.px(44.0);
-            p.fill_rect(lx, top, lw, r[3] - self.px(100.0), Rgba(245, 246, 250, 255));
-            for (k, (key, _)) in PAGES.iter().enumerate() {
-                let row = [lx, top + k as f32 * self.px(28.0), lw, self.px(28.0)];
-                if k == d.page {
-                    p.fill_rect(row[0], row[1], row[2], row[3], Rgba(230, 233, 240, 255));
-                }
-                p.text(
-                    &self.t(key),
-                    row[0] + self.px(10.0),
-                    row[1] + ((row[3] - line) / 2.0).round(),
-                    body,
-                    TEXT,
-                );
-                d.hits.push((row, format!("page.{k}")));
-            }
-            // Rows of the page.
-            let cx = lx + lw + self.px(20.0);
-            let vx = cx + self.px(140.0);
-            let vw = r[0] + r[2] - vx - self.px(20.0);
-            let mut y = top + self.px(4.0);
-            for id in PAGES[d.page].1 {
-                let (label, value) = match *id {
-                    "zoom" => (
-                        self.t("pdfPrefs.zoom"),
-                        self.zoom_label(ZOOMS[d.edit.zoom].0, ZOOMS[d.edit.zoom].1),
-                    ),
-                    "layout" => (self.t("pdfPrefs.layout"), self.t(LAYOUTS[d.edit.layout].0)),
-                    "author" => (
-                        self.t("pdfPrefs.author"),
-                        if d.edit.author.is_empty() {
-                            std::env::var("USERNAME").unwrap_or_default()
-                        } else {
-                            d.edit.author.clone()
-                        },
-                    ),
-                    "units" => (self.t("pdfPrefs.units"), self.t(UNITS[d.edit.units].0)),
-                    _ => (self.t("pdfPrefs.smooth"), String::new()),
-                };
-                let bh = self.px(26.0);
-                if *id == "smooth" {
-                    let b = self.px(14.0);
-                    let bx = [cx, y + (bh - b) / 2.0, b, b];
-                    p.fill_rect(bx[0], bx[1], b, b, Rgba(120, 120, 120, 255));
-                    p.fill_rect(bx[0] + 1.0, bx[1] + 1.0, b - 2.0, b - 2.0, WHITE);
-                    if d.edit.smooth {
-                        let k = b / 4.0;
-                        p.path(
-                            &[
-                                bo_render::PathSeg::M(bx[0] + k, bx[1] + 2.0 * k),
-                                bo_render::PathSeg::L(bx[0] + 1.8 * k, bx[1] + 3.0 * k),
-                                bo_render::PathSeg::L(bx[0] + 3.2 * k, bx[1] + k),
-                            ],
-                            None,
-                            Some((TEXT, self.px(1.6))),
-                        );
-                    }
-                    p.text(
-                        &label,
-                        cx + b + self.px(8.0),
-                        y + ((bh - line) / 2.0).round(),
-                        body,
-                        TEXT,
-                    );
-                    d.hits.push(([cx, y, vw + vx - cx, bh], (*id).to_owned()));
-                } else {
-                    p.text(&label, cx, y + ((bh - line) / 2.0).round(), body, TEXT);
-                    let field = [vx, y, vw, bh];
-                    p.fill_rect(
-                        field[0],
-                        field[1],
-                        field[2],
-                        field[3],
-                        Rgba(190, 190, 190, 255),
-                    );
-                    p.fill_rect(
-                        field[0] + 1.0,
-                        field[1] + 1.0,
-                        field[2] - 2.0,
-                        field[3] - 2.0,
-                        WHITE,
-                    );
-                    p.text(
-                        &value,
-                        field[0] + self.px(8.0),
-                        y + ((bh - line) / 2.0).round(),
-                        body,
-                        TEXT,
-                    );
-                    if *id != "author" {
-                        // Drop-down arrow.
-                        let (ax, ay) = (field[0] + field[2] - self.px(14.0), y + bh / 2.0);
-                        let k = self.px(3.5);
-                        p.path(
-                            &[
-                                bo_render::PathSeg::M(ax - k, ay - k / 2.0),
-                                bo_render::PathSeg::L(ax + k, ay - k / 2.0),
-                                bo_render::PathSeg::L(ax, ay + k / 2.0),
-                                bo_render::PathSeg::Z,
-                            ],
-                            Some(MUTED),
-                            None,
-                        );
-                    }
-                    d.hits.push((field, (*id).to_owned()));
-                }
-                y += self.px(38.0);
-            }
-            // OK / Cancel.
-            let (bw, bh) = (self.px(80.0), self.px(28.0));
-            let by = r[1] + r[3] - bh - self.px(14.0);
-            for (k, (key, id)) in [("pdfReader.ok", "ok"), ("pdfPrint.cancel", "cancel")]
-                .iter()
-                .enumerate()
-            {
-                let bx = r[0] + r[2] - (2.0 - k as f32) * (bw + self.px(10.0));
-                let accent = k == 0;
-                p.path(
-                    &rounded(bx, by, bw, bh, self.px(3.0)),
-                    Some(if accent {
-                        self.theme.accent
-                    } else {
-                        Rgba(230, 233, 240, 255)
-                    }),
-                    None,
-                );
-                let label = self.t(key);
-                let lw = label.chars().count() as f32 * body.size * 0.55;
-                p.text(
-                    &label,
-                    (bx + (bw - lw) / 2.0).round(),
-                    by + ((bh - line) / 2.0).round(),
-                    body,
-                    if accent { WHITE } else { TEXT },
-                );
-                d.hits.push(([bx, by, bw, bh], (*id).to_owned()));
-            }
+            self.paint_dialog12(p, &mut d);
             self.prefs6.dialog = Some(d);
             // Its drop-down lists over it (the window paints menus before dialogs).
             if let Some((menu, "prefs")) = &self.menu {
@@ -763,11 +741,86 @@ mod tests {
             units: 1,
             smooth: true,
             skin: 2,
+            forms_highlight: false,
+            fs_escape: false,
+            fs_click: true,
+            history: 1,
+            search_whole: true,
+            search_case: false,
+            speech_rate: 4,
         };
         let t = p.to_text();
         assert!(t.contains("zoom=width") && t.contains("units=mm"));
+        assert!(t.contains("history=10") && t.contains("speechRate=6"));
         assert_eq!(Prefs::from_text(&t), p);
         assert_eq!(Prefs::from_text("zoom=nonsense\nfoo=1"), Prefs::default());
+        // Files written before round 12 keep the reference's defaults for the new keys.
+        let old = Prefs::from_text("zoom=page\nsmooth=1\n");
+        assert!(old.forms_highlight && old.fs_escape && old.fs_click);
+        assert_eq!(HISTORY[old.history], 20);
+    }
+
+    #[test]
+    fn round12_preferences_change_the_window() {
+        let doc = bo_pdfread::PdfDocument::open(
+            crate::reader_tests::pdf(1),
+            bo_pdfread::standard_fonts(),
+        )
+        .expect("pdf");
+        let mut w = ReaderWindow::new("en-US");
+        w.open(doc, "t.pdf", None);
+        w.set_recent((0..30).map(|i| format!("C:/d/{i}.pdf").into()).collect());
+        w.set_preferences(
+            "formsHighlight=0\nsearchWhole=1\nsearchCase=1\nspeechRate=-6\nhistory=5\nfsEscape=0\n",
+        );
+        assert!(!w.tabs4.highlight_fields);
+        assert_eq!(w.find_options8(), (true, true));
+        assert_eq!(w.view4.rate, -6);
+        assert_eq!(w.recent().len(), 5);
+        assert_eq!(w.full_screen_prefs6(), (false, true));
+        // The dialog: the reference's 26 categories, opening on General; a check box row toggles.
+        w.run_command("bs.prefs", &crate::reader_tests::Fixed);
+        let mut p = crate::reader_tests::Rec::default();
+        w.paint_prefs6(&mut p);
+        let d = w.prefs6.dialog.as_ref().expect("dialog");
+        assert_eq!(d.page, FIRST_PAGE);
+        assert_eq!(
+            d.hits.iter().filter(|h| h.1.starts_with("page.")).count(),
+            prefs12::CATS.len()
+        );
+        // Full Screen page: Escape exits is off (set above); a click turns it on, OK keeps it.
+        let page = d.hits.iter().find(|h| h.1 == "page.6").map(|h| h.0);
+        let r = page.expect("full screen page");
+        let click = |w: &mut ReaderWindow, r: [f32; 4]| {
+            let (x, y) = (r[0] + 4.0, r[1] + r[3] / 2.0);
+            w.handle(
+                Input::Press {
+                    x,
+                    y,
+                    count: 1,
+                    shift: false,
+                },
+                &crate::reader_tests::Fixed,
+            );
+            w.handle(Input::Release { x, y }, &crate::reader_tests::Fixed);
+        };
+        click(&mut w, r);
+        w.paint_prefs6(&mut p);
+        let row = w
+            .prefs6
+            .dialog
+            .as_ref()
+            .and_then(|d| d.hits.iter().find(|h| h.1 == "fsEscape").map(|h| h.0));
+        click(&mut w, row.expect("escape row"));
+        w.handle(
+            Input::Key(Key::Enter, crate::Mods::default()),
+            &crate::reader_tests::Fixed,
+        );
+        assert_eq!(w.full_screen_prefs6(), (true, true));
+        assert!(w
+            .take_requests()
+            .iter()
+            .any(|r| matches!(r, ReaderRequest::SavePreferences(t) if t.contains("fsEscape=1"))));
     }
 
     #[test]

@@ -39,6 +39,8 @@ serde_json.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 bo-gpu-win = { path = "../../crates/bo-gpu-win" }
+# `#[implement]` of BlueReader's UI Automation provider names this crate (already in the tree).
+windows-core = "0.62.2"
 windows = { version = "0.62.2", features = [
   "Win32_Foundation",
   "Win32_Graphics_Gdi",
@@ -48,6 +50,9 @@ windows = { version = "0.62.2", features = [
   "Win32_System_Com",
   "Win32_System_DataExchange",
   "Win32_System_Memory",
+  "Win32_System_Ole",
+  "Win32_System_Variant",
+  "Win32_UI_Accessibility",
   "Win32_System_Registry",
   "Win32_System_LibraryLoader",
   "Win32_System_SystemInformation",

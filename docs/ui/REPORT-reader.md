@@ -633,3 +633,94 @@ Các số chậm hơn đi cùng CPU cả máy cao hơn (72–81 % so với 40–
 Còn lại: UIA thật (COM provider), mật khẩu cho chữ ký, trang Online của Create Signature, đo lại tốc độ khi máy rảnh;
 chữ của hình hiện trường ta sinh lùi 2 pt từ mép trái (quy ước chung, dùng cả ở BlueEditor; bản đối chiếu 0 pt), dấu ✓
 ZapfDingbats của bản đối chiếu đậm hơn glyph thay thế của ta.
+
+## Vòng 12 (2026-11-17)
+
+Phần thêm ở mô-đun riêng: `reader_r12_win.rs` (+ `reader_r12_tests.rs`: số đo ribbon, menu Select / Assistant, cuối tab
+Comment / Share, mật khẩu chữ ký, danh sách phần tử cho công nghệ hỗ trợ), `reader_prefs12_win.rs` (hộp Preferences),
+host `reader_uia.rs` (UI Automation, mô-đun con của `reader_app` có `unsafe` riêng — `win32.rs` không đổi); thêm chung
+(chỉ cộng thêm): `PdfWindow::accessibility` / `invoke` (mặc định rỗng, BlueEditor không đổi), `bo_ui::{AccessItem,
+AccessRole}`, feature `Win32_UI_Accessibility` / `Win32_System_Ole` / `Win32_System_Variant` và `windows-core` (đã có
+trong cây) cho `#[implement]`. Ảnh so sánh: `scratchpad/show/reader-74…83-*.png` (bản đối chiếu trên / trái).
+
+**Phủ so sánh** (mọi tab / trang File / hộp thoại của bản đối chiếu; cột "Vòng" = vòng đã so có ảnh):
+
+| Phần của bản đối chiếu | Vòng | Ghi chú |
+| --- | --- | --- |
+| Thanh tiêu đề, truy cập nhanh, ô tìm | 1, 7, 8 | |
+| Tab Home | 3, 5, 12 | vòng 12: số đo nút lớn, Select ▾ |
+| Tab Comment | 3, 4, 5, 10, 11, 12 | vòng 12: Summarize / Import / Export thành nút lớn, cột FDF via Email / Manage Comments / Keep Tool Selected |
+| Tab View | 3, 4, 9, 12 | vòng 12: Assistant ▾ (Marquee; Loupe / Magnifier mờ) |
+| Tab Form | 4, 9, 11, 12 | vòng 12: Form to sheet ▾ |
+| Tab Protect | 4, 5, 9, 12 | |
+| Tab eSign (dịch vụ tài khoản của hãng) | — | không làm; chữ ký cục bộ ở Fill & Sign |
+| Tab Share | 9, 12 | vòng 12: Shared Files, Manage Shared / Email Review, Tracker mờ (cần dịch vụ trực tuyến); không dùng tên dịch vụ của hãng khác |
+| Tab Help | 9 | Support Center / Plug-Ins / Register là dịch vụ của hãng: không làm |
+| Tab AI Assistant | — | không làm |
+| Tab ngữ cảnh Fill & Sign | 5, 11 | |
+| Trang File (Open … Skins, Preferences) | 5, 6, 8, 12 | vòng 12: thứ tự / đường kẻ như bản đối chiếu (Share mở khối thứ hai, Skins trước Preferences) |
+| Hộp Print + Page Setting / Advanced / Tile / Multiple Pages / Booklet | 2, 3, 4, 9, 12 | vòng 12: các chế độ của bản đối chiếu mở được bằng `BM_CLICK` (thông điệp, không phải thao tác thật) |
+| Hộp Preferences | 6, 12 | hộp của bản đối chiếu không mở được (xem dưới) |
+| Document Properties | 5 | |
+| Create Signature / Options | 11, 12 | vòng 12: mật khẩu |
+| Menu chuột phải, menu thả ribbon | 6, 9, 10, 12 | |
+| Cột trái (Bookmarks / Pages / Comments / Attachments / Layers) | 5, 7, 8, 9 | |
+| Full Screen, Read Mode | 2, 8 | |
+| Ghi chú bật lên, thanh công cụ khi chọn chữ | 10 | |
+| Tìm kiếm nâng cao | 9 | ngăn của bản đối chiếu không mở được bằng nhấp đưa vào |
+| Giao diện Tối | 9 | bản đối chiếu chỉ đặt được trong registry |
+
+**Ribbon** (`reader-74`, `reader-75`, sau góp ý `reader-79`, `reader-81`). Đo ở 125 %: biểu tượng lớn của bản đối chiếu
+cao 31 px từ y 112, nhãn từ y 154 (của ta 146: thấp hơn 8 px), dòng hai cách 19 px (của ta 16), nút = nhãn + 10 px, cách
+2 px (Hand 52 px), lưới nút nhỏ 44 px mỗi cột. Trước đây các nút dồn sang phải dần (Fill & Sign 695 so với 666). Nay
+(`Look::READER`: icon 28 / y 4, nhãn y 35,2, đệm 8; `big_min12`, `label_pitch12`, `grid12`): tâm nhãn tab Home lệch
+0–2,5 px tới nút cuối (Zoom 290 / 290, Typewriter 528 / 529,5, Fill & Sign 661,5 / 659); tab Comment Note 313,5 / 310,
+nút cuối 1 274 / 1 257 (nhãn của ta rộng hơn 1–3 px mỗi nhãn); tab View lệch về trái 5–15 px. Select có ▾: phần biểu
+tượng chọn công cụ, phần nhãn mở Select Text and Image / Select Annotation (Select Annotation: nhấp ngoài chú thích không
+chọn chữ). Assistant ▾: Marquee (kéo khung → zoom vừa khung, nhấp → một bậc zoom; Esc / công cụ khác thoát), Loupe /
+Magnifier mờ. Cuối tab Comment như bản đối chiếu ở 1 518 px: Summarize Comments, Import, Export ▾ thành nút lớn, rồi cột
+FDF via Email (lưu FDF rồi mở thư mới để đính kèm), Manage Comments ▾, Keep Tool Selected. Menu Select / Assistant:
+`reader-76` (bản đối chiếu có biểu tượng trong menu, của ta chưa).
+
+**Preferences** (`reader-77`, sau góp ý `reader-82`). Hộp Preferences của bản đối chiếu không mở được không cần thao
+tác thật: nhấp đưa vào trang File bị bỏ qua, các mục của trang File không có trong cây UI Automation (chỉ các pane),
+Ctrl+K cần trạng thái phím thật. Hộp của ta dựng theo bố cục của nó (hướng dẫn công khai): hộp lớn 950 × 700 px có thanh
+tiêu đề và nút đóng, danh sách 26 mục bên trái theo thứ tự chữ cái của bản đối chiếu, bên phải các nhóm có khung. Tuỳ
+chọn ta làm thật và lưu (`reader-prefs.txt`): Forms › Highlight all fields; Full Screen › Escape key exits, nhấp trái /
+phải lật trang; General › Smooth scrolling; History › số tài liệu gần đây (5–30), Clear History; Identity › tác giả;
+Measure › đơn vị; Page Display › bố cục, zoom mặc định; Search › nguyên từ, phân biệt hoa thường (ô tìm bắt đầu với
+chúng); Speech › tốc độ đọc; File Associations › Set to Default PDF Reader. Các tuỳ chọn khác của bản đối chiếu hiện mờ
+(xám của lệnh mờ, được miễn WCAG 1.4.3) nên không trang nào trống. Test `round12_preferences_change_the_window`.
+
+**Hộp In** (`reader-83`, đối chiếu trên bản sao thử, chỉ Cancel / WM_CLOSE, không in). Khác bản mới nhất của bản đối
+chiếu, đã sửa: Pages điền "1 - 5" (trước: trang hiện tại), Reverse pages bật cả khi All pages, Multiple Pages Per Sheet
+mặc định 2 × 2, Bleed Marks chỉ bật với Scale, Print on both sides mờ khi Tile / Booklet. Còn khác: ô Margins (inch) của
+N-up / Booklet, hàng × cột tuỳ ý ("Custom…"), Booklet đặt giấy ngang trong xem trước, thứ tự Binding / Booklet subset.
+
+**Mật khẩu chữ ký** (`reader-78`). Options của Create Signature như bản đối chiếu: Require password, Password, Confirm
+Password (ô mờ tới khi tick; chấm thay chữ; Tab chuyển ô; OK từ chối khi hai ô khác nhau hoặc rỗng). Chỉ lưu
+`salt$hash`: SHA-256 lặp 10 000 lần với salt 16 byte mới mỗi lần (`hash_password12`), so khớp không thoát sớm; dòng
+`reader-signatures.txt` ghi `flags;pw=…` (tệp cũ vẫn đọc được). Đặt chữ ký có mật khẩu: hỏi mật khẩu trước, sai thì xoá
+ô và báo, Esc huỷ. Test `signature_passwords_are_kept_as_salted_hashes`, `a_protected_signature_asks_for_its_password`.
+
+**UI Automation** (`reader-80`). Host bắt `WM_GETOBJECT` bằng subclass cửa sổ trong `reader_uia.rs`: gốc là fragment
+root trên provider của HWND, con là tab ribbon (TabItem), mọi lệnh ribbon / thanh tiêu đề / cột trái / thanh trạng thái
+(Button: tên, ô, bật / mờ) và vùng trang (Document "tệp, page n of m"); Invoke chạy lệnh trên luồng giao diện (xếp hàng +
+một tick). Danh sách chỉ được cập nhật khi đã có client. Kiểm bằng TreeWalker của UIA: 45 phần tử với tên / ô đúng;
+Invoke `tab:3` mở tab View, Invoke `cmd:view.night` bật Night Mode (không thao tác thật). `BO_UIA_LOG=<tệp>` ghi các yêu
+cầu. Còn thiếu: focus bàn phím (`HasKeyboardFocus`, sự kiện), mẫu Text cho chữ trang, menu / hộp thoại tự vẽ.
+
+**Tốc độ** (bản release cuối, sổ tay 1 202 trang; máy gần rảnh: CPU 21 % trước khi đo, 2–3 tiến trình `rustc` của agent
+khác vẫn chạy):
+
+| | Vòng 12 | Vòng 11 (CPU 72–81 %) |
+| --- | --- | --- |
+| Mở / trang đầu (`--bench`, 5 lần) | 30–39 / 39–52 ms | 33–69 / 44–84 ms |
+| Tìm "snapshot": kết quả đầu / hết 1 202 trang | 15,7 ms / 1,56 s (354 kết quả) | 17–27 ms / 1,80–2,17 s |
+| Bánh xe 80 nấc (đầu vào → khung) | p50 1,8 ms, p95 5,6 ms | p50 2,1–2,2 ms, p95 8,1–8,6 ms |
+| Bộ nhớ riêng sau 80 nấc | 116 MB | 115–117 MB |
+| Khởi động lạnh (PDF 100 trang): cửa sổ / trang đầu | 70–105 / 275–339 ms (CPU 37–65 %) | 104–124 / 368–435 ms |
+
+Còn lại: hộp Preferences thật của bản đối chiếu (không mở được), Loupe / Magnifier, biểu tượng trong menu Select /
+Assistant, ô Margins và "Custom…" của N-up, giấy ngang khi Booklet, tab View lệch 5–15 px và nhãn của ta rộng hơn 1–3 px,
+UIA: focus / mẫu Text / menu và hộp thoại tự vẽ.

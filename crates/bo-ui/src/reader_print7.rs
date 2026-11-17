@@ -68,7 +68,12 @@ impl PrintDialog {
         match p {
             Part::Summarize => self.has_comments,
             Part::Collate => self.copies > 1,
-            Part::Reverse => self.range != super::Range::All,
+            // Round 12: Bleed Marks only with Scale; both sides fixed by Tile / Booklet.
+            Part::Bleed => self.handling == super::Handling::Scale,
+            Part::Duplex => !matches!(
+                self.handling,
+                super::Handling::Tile | super::Handling::Booklet
+            ),
             Part::PagesText => self.range == super::Range::Pages,
             Part::Flip(_) => self.duplex,
             _ => true,

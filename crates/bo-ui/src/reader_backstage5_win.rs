@@ -31,13 +31,15 @@ const ITEMS: [Option<(&str, &str)>; 14] = [
     Some(("file.saveAs", "pdfReader.saveAs")),
     Some(("file.print", "pdfReader.print")),
     Some(("bs.batch", "pdfBatch.menu")),
-    Some(("bs.share", "pdfShare.title")),
+    // Round 12, as the reference's column: Share opens the second block; Skins before
+    // Preferences.
     None,
+    Some(("bs.share", "pdfShare.title")),
     Some(("bs.revert", "pdfBackstage.revert")),
     Some(("file.close", "pdfReader.close")),
     None,
-    Some(("bs.prefs", "pdfPrefs.menu")),
     Some(("bs.skins", "pdfSkins.title")),
+    Some(("bs.prefs", "pdfPrefs.menu")),
 ];
 
 /// The File page: chosen page and the hit boxes of the last paint.

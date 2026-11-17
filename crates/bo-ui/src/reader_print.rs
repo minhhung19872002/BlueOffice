@@ -351,17 +351,16 @@ impl PrintDialog {
             collate: true,
             gray: false,
             range: Range::All,
-            // The reference fills Pages with the current page.
-            pages_text: (current.min(count.saturating_sub(1)) + 1)
-                .to_string()
-                .chars()
-                .collect(),
+            // Round 12: the reference (current build) fills Pages with the whole range,
+            // "1 - 5" for a 5-page document.
+            pages_text: format!("1 - {}", count.max(1)).chars().collect(),
             subset: 0,
             reverse: false,
             scaling: PrintScaling::Fit,
             scale_text: vec!['1', '0', '0'],
             handling: Handling::Scale,
-            per_sheet: 2,
+            // Round 12: Multiple Pages Per Sheet starts at 2 × 2 like the reference's.
+            per_sheet: 4,
             order: PageOrder::Horizontal,
             border: false,
             booklet_sides: BookletSides::Both,
@@ -522,7 +521,7 @@ impl PrintDialog {
             (area[2], area[3]),
             &o,
         );
-        if self.bleed {
+        if self.bleed && self.handling == Handling::Scale {
             bleed_marks(&mut sheets);
         }
         sheets
@@ -709,7 +708,8 @@ impl PrintDialog {
             2 => v.retain(|p| p % 2 == 1),
             _ => {}
         }
-        if self.reverse && self.range != Range::All {
+        // Round 12: the reference offers Reverse pages for All pages too.
+        if self.reverse {
             v.reverse();
         }
         v
@@ -748,7 +748,7 @@ impl PrintDialog {
             color: self.sub.color,
             paper: self.sub.paper_pt(),
             margins: self.sub.margins_pt(),
-            bleed: self.bleed,
+            bleed: self.bleed && self.handling == Handling::Scale,
         })
     }
 
@@ -1052,6 +1052,8 @@ impl PrintDialog {
             Part::Advanced => self.open_sub(sub6::Panel::Advanced),
             Part::PageSetting => self.open_sub(sub6::Panel::PageSetting),
             Part::Item(_) => {}
+            // Round 12: Bleed Marks only with Scale, like the reference.
+            Part::Bleed if self.handling != Handling::Scale => {}
             Part::Bleed => self.bleed = !self.bleed,
             Part::Summarize => {
                 if self.has_comments {
@@ -1115,7 +1117,6 @@ impl PrintDialog {
                 self.range = Range::Pages;
                 self.focus = Field::Pages;
             }
-            Part::Reverse if self.range == Range::All => {}
             Part::Reverse => self.reverse = !self.reverse,
             Part::Scaling(PrintScaling::Custom(_)) | Part::ScaleText => {
                 self.focus = Field::Scale;
@@ -1125,6 +1126,7 @@ impl PrintDialog {
                 }
             }
             Part::Scaling(s) => self.scaling = s,
+            Part::Duplex if matches!(self.handling, Handling::Tile | Handling::Booklet) => {}
             Part::Duplex => self.duplex = !self.duplex,
             Part::Flip(long) => {
                 if self.duplex {
@@ -1449,12 +1451,16 @@ impl PrintDialog {
             self.as_image,
             s.get("pdfPrint.asImage"),
         );
-        self.check(
-            p,
-            self.rect(Part::Bleed),
-            self.bleed,
-            s.get("pdfPrint.bleed"),
-        );
+        if self.handling == Handling::Scale {
+            self.check(
+                p,
+                self.rect(Part::Bleed),
+                self.bleed,
+                s.get("pdfPrint.bleed"),
+            );
+        } else {
+            self.check_off(p, self.rect(Part::Bleed), s.get("pdfPrint.bleed"));
+        }
         let cp = self.rect(Part::Copies);
         self.text_in(
             p,
@@ -1565,27 +1571,28 @@ impl PrintDialog {
             "pdfPrint.subsetEven",
         ][usize::from(self.subset.min(2))];
         self.combo(p, sb, s.get(subset), self.drop == Some(Part::Subset));
-        if self.range == Range::All {
-            self.check_off(p, self.rect(Part::Reverse), s.get("pdfPrint.reverse"));
-        } else {
-            self.check(
-                p,
-                self.rect(Part::Reverse),
-                self.reverse,
-                s.get("pdfPrint.reverse"),
-            );
-        }
+        self.check(
+            p,
+            self.rect(Part::Reverse),
+            self.reverse,
+            s.get("pdfPrint.reverse"),
+        );
         // Print Handling.
         self.group(p, s.get("pdfPrint.handling"), [17.0, 386.0, 449.0, 258.0]);
         self.paint_handling(p, s, caret);
         // Both sides, rotate and centre (an untitled group like the reference's).
         self.group(p, "", [479.0, 132.0, 316.0, 235.0]);
-        self.check(
-            p,
-            self.rect(Part::Duplex),
-            self.duplex,
-            s.get("pdfPrint.duplex"),
-        );
+        // Round 12: Tile Large Pages and Booklet fix both sides (grey, like the reference).
+        if matches!(self.handling, Handling::Tile | Handling::Booklet) {
+            self.check_off(p, self.rect(Part::Duplex), s.get("pdfPrint.duplex"));
+        } else {
+            self.check(
+                p,
+                self.rect(Part::Duplex),
+                self.duplex,
+                s.get("pdfPrint.duplex"),
+            );
+        }
         for (long, key) in [(true, "pdfPrint.flipLong"), (false, "pdfPrint.flipShort")] {
             let r = self.rect(Part::Flip(long));
             if self.duplex {

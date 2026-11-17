@@ -49,7 +49,7 @@ pub(crate) struct View4 {
     /// Read aloud: speaking, paused, rate −10…10.
     pub(crate) reading: bool,
     paused: bool,
-    rate: i32,
+    pub(crate) rate: i32,
 }
 
 impl ReaderWindow {

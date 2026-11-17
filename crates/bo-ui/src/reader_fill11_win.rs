@@ -43,8 +43,8 @@ const FACES: [(&str, usize); 4] = [
 /// Signature colours offered: black, blue, red.
 const COLOURS: [[u8; 3]; 3] = [[0, 0, 0], [0, 0, 255], [255, 0, 0]];
 /// Create Signature dialog (869 × 483 logical px: 1086 × 604 device px at 125 %).
-const DLG_W: f32 = 868.8;
-const DLG_H: f32 = 483.2;
+pub(crate) const DLG_W: f32 = 868.8;
+pub(crate) const DLG_H: f32 = 483.2;
 
 /// How the selected comment's handles look.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -67,6 +67,9 @@ pub(crate) struct SavedSig {
     pub(crate) keep_size: bool,
     /// Options › Discard this signature when the program closes (not written to disk).
     pub(crate) session: bool,
+    /// Options › Require password to use this signature (round 12): salted, iterated
+    /// SHA-256 of the password (`salt$hash`, hex); the password itself is never kept.
+    pub(crate) password: Option<String>,
 }
 
 /// What a click on the page places (besides the round 5 marks).
@@ -118,7 +121,14 @@ pub(crate) struct SigDialog {
     pub(crate) bw: bool,
     pub(crate) keep_size: bool,
     pub(crate) discard: bool,
-    options_was: (bool, bool, bool),
+    pub(crate) options_was: (bool, bool, bool),
+    /// Require password (round 12): the two password boxes and which has the keyboard (1,
+    /// 2; 0 none); what they were when the Options box opened.
+    pub(crate) require_pw: bool,
+    pub(crate) pw: String,
+    pub(crate) pw2: String,
+    pub(crate) pw_field: u8,
+    pub(crate) pw_was: (bool, String, String),
 }
 
 /// State of round 11.
@@ -175,9 +185,13 @@ pub(crate) fn encode_sigs(sigs: &[SavedSig]) -> String {
     use base64::Engine as _;
     let mut out = String::new();
     for s in sigs.iter().filter(|s| !s.session) {
+        let pw = s
+            .password
+            .as_ref()
+            .map_or(String::new(), |h| format!(";pw={h}"));
         let head = |k: &str| {
             format!(
-                "{k}|{}|{:02x}{:02x}{:02x}|",
+                "{k}|{}{pw}|{:02x}{:02x}{:02x}|",
                 u8::from(s.initials) | (u8::from(s.keep_size) << 1),
                 s.color[0],
                 s.color[1],
@@ -315,6 +329,11 @@ pub(crate) fn decode_sigs(text: &str) -> Vec<SavedSig> {
             }
             _ => continue,
         };
+        // Round 12: "flags;pw=salt$hash" when the signature needs a password.
+        let (i, password) = match i.split_once(";pw=") {
+            Some((f, h)) => (f, Some(h.to_owned())),
+            None => (i, None),
+        };
         let flags: u8 = i.parse().unwrap_or(0);
         out.push(SavedSig {
             ink,
@@ -322,6 +341,7 @@ pub(crate) fn decode_sigs(text: &str) -> Vec<SavedSig> {
             color,
             keep_size: flags & 2 != 0,
             session: false,
+            password,
         });
     }
     out
@@ -993,15 +1013,23 @@ impl ReaderWindow {
         self.tabs.get(self.active)?.view.window_to_doc(x, y)
     }
 
+    /// Start placing saved signature `i` with a click on the page.
+    pub(crate) fn start_placing11(&mut self, i: usize) {
+        self.clear_fill11();
+        self.tabs5.fill = None;
+        self.eleven.placing = Some(i);
+        self.status = self.t("pdfFill.placeSig");
+    }
+
     fn fill_input11(&mut self, input: &Input, m: &dyn TextMeasure) -> Option<bool> {
         // The gallery.
         if let Input::Press { x, y, .. } = *input {
             if let Some(&(tile, _)) = self.eleven.gallery.iter().find(|(_, r)| inside(*r, x, y)) {
                 if let Some(i) = tile {
-                    self.clear_fill11();
-                    self.tabs5.fill = None;
-                    self.eleven.placing = Some(i);
-                    self.status = self.t("pdfFill.placeSig");
+                    // A signature with a password asks for it first (round 12).
+                    if !self.ask_password12(i) {
+                        self.start_placing11(i);
+                    }
                 } else {
                     let items = vec![
                         MenuItem {
@@ -1325,32 +1353,8 @@ impl ReaderWindow {
             return false;
         };
         if d.options_open {
-            // The Options box is modal over the dialog.
-            match *input {
-                Input::Press { x, y, .. } => {
-                    let image = d.tab >= 2;
-                    if inside(rows[0], x, y) && image {
-                        d.bw = !d.bw;
-                    } else if inside(rows[1], x, y) && image {
-                        d.keep_size = !d.keep_size;
-                    } else if inside(rows[2], x, y) {
-                        d.discard = !d.discard;
-                    } else if inside(opt_ok, x, y) {
-                        d.options_open = false;
-                    } else if inside(opt_cancel, x, y) {
-                        (d.bw, d.keep_size, d.discard) = d.options_was;
-                        d.options_open = false;
-                    }
-                }
-                Input::Key(Key::Escape, _) => {
-                    (d.bw, d.keep_size, d.discard) = d.options_was;
-                    d.options_open = false;
-                }
-                Input::Key(Key::Enter, _) => d.options_open = false,
-                Input::Resize { .. } | Input::Scale(_) => return false,
-                _ => {}
-            }
-            return true;
+            // The Options box is modal over the dialog (round 12: with the password boxes).
+            return self.options_input12(input, rows, opt_ok, opt_cancel);
         }
         match *input {
             Input::Press { x, y, .. } => {
@@ -1385,6 +1389,7 @@ impl ReaderWindow {
                 }
                 if inside(parts.options, x, y) {
                     d.options_was = (d.bw, d.keep_size, d.discard);
+                    d.pw_was = (d.require_pw, d.pw.clone(), d.pw2.clone());
                     d.options_open = true;
                     return true;
                 }
@@ -1495,6 +1500,8 @@ impl ReaderWindow {
                 color: COLOURS[d.colour.min(COLOURS.len() - 1)],
                 keep_size: d.keep_size && d.tab >= 2,
                 session: d.discard,
+                password: (d.require_pw && !d.pw.is_empty())
+                    .then(|| super::r12::hash_password12(&d.pw)),
             },
         );
         self.eleven.dialog = None;
@@ -2312,6 +2319,7 @@ impl ReaderWindow {
             color: colour,
             keep_size: false,
             session: false,
+            password: None,
         };
         let faces = self.faces11();
         match d.tab {
@@ -2584,8 +2592,8 @@ impl ReaderWindow {
     }
 
     /// The Options box: Convert signature to black & white and Keep original size (pictures
-    /// only), Discard this signature when the program closes, Require password (not offered:
-    /// grey), OK and Cancel.
+    /// only), Discard this signature when the program closes, Require password (round 12: with
+    /// Password / Confirm Password boxes), OK and Cancel.
     fn paint_options11(&self, p: &mut dyn Painter, d: &SigDialog) {
         let (o, rows, ok, cancel) = self.opt_parts11();
         p.fill_rect(
@@ -2613,8 +2621,9 @@ impl ReaderWindow {
             ("pdfFill.optBw", d.bw, image),
             ("pdfFill.optKeepSize", d.keep_size, image),
             ("pdfFill.optDiscard", d.discard, true),
-            ("pdfFill.optPassword", false, false),
+            ("pdfFill.optPassword", d.require_pw, true),
         ];
+        self.paint_pw_fields12(p, d);
         for (r, (key, on, enabled)) in rows.iter().zip(items) {
             let bx = self.px(11.2);
             let by = r[1] + (r[3] - bx) / 2.0;

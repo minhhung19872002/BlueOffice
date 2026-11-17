@@ -908,16 +908,21 @@ fn round5_fill_sign_comment_rows_and_exchange() {
     assert_eq!(w.tabs5_enabled("prot.sign"), None);
     assert!(!ReaderWindow::tabs4_disabled("comment.summarize"));
     assert!(!ReaderWindow::tabs4_disabled("prot.fillSign"));
-    // Comment tab: Summarize / Import / Export as one column of three rows, then the icons.
+    // Comment tab (round 12, as the reference at 1518 px): Summarize / Import / Export as large
+    // buttons in a row, then FDF via Email / Manage Comments / Keep Tool Selected as a column
+    // of labelled rows 29 px apart.
     w.set_ribbon_tab(1, &Fixed);
     let s = w.control_rect("comment.summarize").expect("summarize");
     let i = w.control_rect("comment.import").expect("import");
     let e = w.control_rect("menu.commentExport").expect("export");
-    assert_eq!((s[0], i[0]), (e[0], e[0]));
-    assert!(s[1] < i[1] && i[1] < e[1]);
-    assert!((i[1] - s[1] - 29.0).abs() < 0.6, "{s:?} {i:?}");
-    let l = w.control_rect("panel.comments").expect("list");
-    assert!(l[0] > s[0] + s[2] && (l[1] - s[1]).abs() < 0.5);
+    assert!(s[0] < i[0] && i[0] < e[0]);
+    assert_eq!((s[1], i[1]), (e[1], e[1]));
+    let f = w.control_rect("comment.fdfMail").expect("fdf");
+    let o = w.control_rect("menu.commentOptions").expect("manage");
+    let k = w.control_rect("comment.keep").expect("keep");
+    assert!(f[0] > e[0] + e[2] && (f[0], o[0]) == (k[0], k[0]));
+    assert!((o[1] - f[1] - 29.0).abs() < 0.6, "{f:?} {o:?}");
+    assert!(w.control_rect("panel.comments").is_none());
     // Fill & Sign: a contextual tab; marks become comments.
     w.run_command("prot.fillSign", &Fixed);
     assert!(w.control_rect("fill.check").is_some());

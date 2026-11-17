@@ -842,6 +842,7 @@ dependencies = [
  "png",
  "serde_json",
  "windows",
+ "windows-core",
 ]
 
 [[package]]

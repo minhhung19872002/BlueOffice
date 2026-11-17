@@ -97,6 +97,14 @@ pub trait PdfWindow {
     fn reading(&self) -> bool {
         false
     }
+    /// Elements for assistive technology (the host's UI Automation provider); none by default.
+    fn accessibility(&self) -> Vec<crate::AccessItem> {
+        Vec::new()
+    }
+    /// Run element `key` of [`Self::accessibility`] (UI Automation Invoke).
+    fn invoke(&mut self, _key: &str, _m: &dyn TextMeasure) -> bool {
+        false
+    }
 }
 
 impl PdfWindow for ReaderWindow {
@@ -191,6 +199,12 @@ impl PdfWindow for ReaderWindow {
     }
     fn reading(&self) -> bool {
         ReaderWindow::reading11(self)
+    }
+    fn accessibility(&self) -> Vec<crate::AccessItem> {
+        ReaderWindow::accessibility12(self)
+    }
+    fn invoke(&mut self, key: &str, m: &dyn TextMeasure) -> bool {
+        ReaderWindow::invoke12(self, key, m)
     }
 }
 

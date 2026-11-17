@@ -1784,7 +1784,9 @@ impl SheetEngine {
     /// Sheet-space size of the used range plus a margin (for scrollbars).
     pub fn content_size(&mut self, sheet: usize) -> Result<(f64, f64)> {
         let ws = self.sheet(sheet)?;
-        let last_row = ws.cells.keys().map(|k| k.0).max().unwrap_or(0);
+        // Cells are ordered by (row, col): the last key is on the last row; one pass for
+        // the widest column (was two passes over every cell).
+        let last_row = ws.cells.last_key_value().map_or(0, |(k, _)| k.0);
         let last_col = ws.cells.keys().map(|k| k.1).max().unwrap_or(0);
         let geom = self.geometry(sheet)?;
         let r = (last_row + 100).min(MAX_ROWS - 1);

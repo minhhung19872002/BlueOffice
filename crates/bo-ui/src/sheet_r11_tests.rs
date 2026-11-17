@@ -349,3 +349,91 @@ fn new_pivot_table_opens_its_fields_pane_and_ticks_build_the_report() {
     w.pivot_toggle(0);
     assert!(w.pivot.as_ref().is_some_and(|p| p.rows.is_empty()));
 }
+
+/// Where typing in a cell spends its time on a big sheet (`cargo test --release -- --ignored
+/// typing_phases --nocapture`).
+#[test]
+#[ignore = "timing probe"]
+fn typing_phases_on_a_big_sheet() {
+    let mut w = window();
+    let cells: Vec<(u32, u32, String)> = (0..100_000u32)
+        .flat_map(|r| (0..6u32).map(move |c| (r, c, format!("{}", r * 7 + c))))
+        .chain((0..10_000u32).flat_map(|r| {
+            [
+                (r, 6, format!("=SUM(A{0}:F{0})", r + 1)),
+                (
+                    r,
+                    7,
+                    if r == 0 {
+                        "=G1".to_owned()
+                    } else {
+                        format!("=H{}+G{}", r, r + 1)
+                    },
+                ),
+                (r, 9, format!("=VLOOKUP({r},$A$1:$B$1000,2,FALSE)")),
+            ]
+        }))
+        .collect();
+    w.view_mut()
+        .engine_mut()
+        .set_inputs(0, &cells)
+        .expect("cells");
+    w.view_mut().changed();
+    w.handle(Input::Blink, &Fixed);
+    w.view_mut().select((5, 8), (5, 8), (5, 8));
+    w.handle(Input::Text("a".into()), &Fixed);
+    let t = |name: &str, f: &mut dyn FnMut()| {
+        let s = std::time::Instant::now();
+        for _ in 0..20 {
+            f();
+        }
+        eprintln!("{name}: {:.3} ms", s.elapsed().as_secs_f64() * 1e3 / 20.0);
+    };
+    t("handle(Text)", &mut || {
+        w.handle(Input::Text("b".into()), &Fixed);
+    });
+    t("view.handle", &mut || {
+        w.view.handle(Input::Text("b".into()), &Fixed);
+    });
+    t("status_stat_parts", &mut || {
+        let _ = w.status_stat_parts();
+    });
+    t("acc_issue_count", &mut || {
+        let _ = w.acc_issue_count();
+    });
+    t("sync_pivot_pane", &mut || w.sync_pivot_pane());
+    t("update_bars", &mut || w.update_bars());
+    t("measure_labels", &mut || w.view.measure_labels(&Fixed));
+    t("format_state", &mut || {
+        let _ = w.format_state();
+    });
+    t("refresh_calc_state", &mut || w.refresh_calc_state());
+    t("measure_name", &mut || w.measure_name(&Fixed));
+    t("layout_cards", &mut || w.layout_cards(&Fixed));
+    let one = |name: &str, f: &mut dyn FnMut()| {
+        let s = std::time::Instant::now();
+        f();
+        eprintln!("{name}: {:.3} ms", s.elapsed().as_secs_f64() * 1e3);
+    };
+    one("commit (Enter)", &mut || {
+        w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    });
+    one("engine set_input", &mut || {
+        w.view.engine_mut().set_input(0, 7, 8, "5").expect("input");
+    });
+    one("content_size", &mut || {
+        let _ = w.view.engine_mut().content_size(0);
+    });
+    one("view.changed + bars", &mut || {
+        w.view.changed();
+        w.update_bars();
+    });
+    one("acc_issue_count", &mut || {
+        let _ = w.acc_issue_count();
+    });
+    one("refresh_calc_state", &mut || w.refresh_calc_state());
+    let mut store = super::Raster::default();
+    one("prepare (grid image)", &mut || {
+        w.prepare(&mut store).expect("grid");
+    });
+}

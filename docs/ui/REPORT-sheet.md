@@ -1012,3 +1012,109 @@ thoại về với tham chiếu, Escape giữ chữ cũ (`sheet_rangepick.rs`).
 - Review: Thesaurus, Translate, Allow Edit Ranges, Hide Ink mờ; Accessibility là hộp thoại (đối chứng là ngăn bên phải);
   ngăn bình luận dạng luồng chưa có (bản đối chứng cài đặt dùng chú thích kiểu cũ).
 - Insert Hyperlink: không có trình duyệt tệp (Look in / Current Folder); Create PivotTable chưa so được.
+
+## Vòng 11 — Formulas, ngăn tác vụ, Find and Replace, PivotTable, tốc độ
+
+Nhánh `worktree-agent-af6134f6a2646f921` (từ `work/desktop-performance` sau "Merge BlueSheet round 10"). Ảnh so sánh
+`show/sheet-57…` của thư mục scratch phiên (đối chứng trái/trên, BlueSheet phải/dưới). Đối chứng mở qua COM trên bản
+sao (`Dialogs(n).Show`, `ExecuteMso`), phím / nhấp gửi bằng `PostMessage` vào cửa sổ của đối chứng (không phải input
+thật): ngăn Accessibility cuộn bằng `WM_MOUSEWHEEL` và mở chi tiết bằng nhấp gửi vào `NetUIHWND`; Create PivotTable mở
+được bằng nhấp gửi vào thẻ Insert rồi nút PivotTable (COM `PivotTableInsert` vẫn E_FAIL), OK bằng nhấp gửi vào hộp
+thoại → ngăn PivotTable Fields. Phía BlueSheet: lệnh kịch bản mới `form.tab.N`, `form.set.<ô>=<chữ>`, `pane.scroll.N`,
+`pane.detail.N`, `watch.add`, `pivot.toggle.N`.
+
+### Vòng 52 — Text to Columns: hỏi trước khi ghi đè, thanh cuộn kéo được
+
+- Đối chứng (bản cài đặt) hỏi bằng hộp thông báo mới 469 × 251 px (có bóng): tên ứng dụng lớn màu nhấn, biển cảnh báo,
+  "There's already data here. Do you want to replace it?", OK tô màu nhấn / Cancel xám 97 × 35 px (`sheet-57`).
+  BlueSheet hỏi khi cột đích (trừ chính các ô nguồn) có dữ liệu; Cancel quay lại trình hướng dẫn, OK tách.
+- Xem trước: thanh cuộn ngang / dọc có con trượt kéo được, nhấp rãnh cuộn một trang, mũi tên một ký tự / một dòng
+  (`Ttc::bars`). Test `text_to_columns_asks_before_replacing_cells_and_scroll_thumbs_drag`.
+
+### Vòng 53 — Formulas tab
+
+- Function Arguments (899 × 448 px, `sheet-58`): khung tên hàm, tối đa 5 hàng đối số (tên đậm khi bắt buộc, ô + nút
+  chọn vùng, `=` và giá trị trực tiếp hoặc kiểu xám đậm), "= kết quả", mô tả, trợ giúp đối số đang chọn, "Formula
+  result =". Đối số lặp (`number1, [number2], …`) thêm ô khi ô cuối có chữ. Engine mới `evaluateText` (tính một công
+  thức tại ô mà không ghi; vùng thành mảng `{4;24;25}`). Insert Function OK mở hộp này; Insert Function trên ô đang là
+  một lời gọi hàm mở thẳng đối số của nó (như đối chứng). Ô đầu mở với chữ được chọn sẵn; trợ giúp từng đối số là lời
+  văn riêng của BlueOffice theo hàm + đối số (`sheetFnArg.*`, 78 mục en/vi), không chép lời đối chứng.
+- Error Checking (680 × 286 px, `sheet-59`): "Error in cell D8" + công thức, tên lỗi và mô tả (#DIV/0!, #N/A, #REF!,
+  #NAME?, công thức không nhất quán, số lưu dạng chữ, …), Show Calculation Steps (mở Evaluate Formula), Ignore Error
+  (engine `ignoreError`, §18.3.1.50), Edit in Formula Bar, Options… (File › Options › Formulas), Previous / Next vòng.
+- Watch Window (556 × 239 px, cửa sổ nổi, `sheet-67`): Add Watch… / Delete Watch, cột Book / Sheet / Name / Cell / Value
+  / Formula, giá trị theo sửa đổi; ô theo dõi lưu trong sổ (`setCellWatches`); kéo được bằng tiêu đề.
+- Trace Precedents / Dependents, Remove Arrows, Show Formulas, Evaluate Formula, Calculation Options đã có từ vòng 43.
+
+### Vòng 54 — Check Accessibility là ngăn bên phải
+
+Bản đối chứng cài đặt hiện "Accessibility Assistant" (không còn cây Errors / Warnings / Tips cổ điển): ngăn 400 px bên
+phải thanh cuộn, thẻ trạng thái viền đen 2 px ("Keep going!" xanh đậm), các nhóm Color and Contrast / Media and
+Illustrations / Tables / Document Structure / Document Access thành thẻ trắng hàng 56 px (dấu ✓ xanh #0E700E khi đạt,
+số vấn đề khi không), chi tiết từng vấn đề với ‹ › và nút sửa (`sheet-60`, `sheet-61`). BlueSheet làm theo bố cục đó
+(tiêu đề "Accessibility"), thanh cuộn cổ điển ở mép phải, kiểm lại sau mỗi thay đổi; thanh trạng thái "Accessibility:
+Investigate / Good to go". Quy tắc của ta: ô gộp trong bảng, tên trang mặc định, biểu đồ thiếu tiêu đề, bảng không hàng
+tiêu đề, liên kết chỉ hiện địa chỉ; sửa: Rename Sheet, Unmerge Cells, Show Header Row. Lưới thu hẹp bằng bề rộng ngăn.
+Test `accessibility_pane_docks_lists_issues_and_fixes_them`.
+
+### Vòng 55 — Home: Find and Replace, Format Cells, Sort
+
+- Find and Replace dựng lại như đối chứng (trước đây là hộp chung kiểu BlueDoc): 683 × 258 px, 320 px với Options >>
+  (Within / Search / Look in, Match case, Match entire cell contents, No Format Set + Format… mờ), Find All mở danh sách
+  125 px (Book / Sheet / Name / Cell / Value / Formula, "n cell(s) found", nhấp hàng đi tới ô), thẻ Replace với Replace
+  All / Replace; thiết đặt giữ giữa các lần mở; chữ cũ được chọn sẵn (`sheet-62…64`). Test
+  `find_and_replace_options_find_all_and_replace`.
+- Ô chữ của form tự vẽ: chữ được chọn cả khi mở hộp thoại (Function Arguments, PivotTable, Find) hoặc Tab tới; gõ thay
+  thế, Backspace xoá.
+- Format Cells (Number / Font / Border, `sheet-68…70`) và Sort (`sheet-71`) so lại: khớp các số đo vòng 39–42 (đối chứng
+  chỉ mở từng trang riêng qua `Dialogs(42/381/45)`).
+
+### Vòng 56 — Create PivotTable, PivotTable Fields
+
+- "PivotTable from table or range" (513 × 416 px, `sheet-65`): mặt trắng, tiêu đề đậm lớn, Table/Range có nút chọn vùng
+  (`Sheet1!$A$1:$C$5`), New / Existing Worksheet + Location, "Add this data to the Data Model" mờ (BlueSheet chưa có mô
+  hình dữ liệu). OK tạo PivotTable trống trên trang mới.
+- Ngăn PivotTable Fields (436 px, `sheet-66`): hiện khi ô hiện hành nằm trong PivotTable (× đóng tới khi rời bảng),
+  danh sách trường có ô đánh dấu, ô Search, bốn vùng Filters / Columns / Rows / Values (dấu tự vẽ), Defer Layout Update
+  mờ. Đánh dấu trường: số → Values (Sum), còn lại → Rows; nhấp trường trong vùng: Rows → Columns → Filters, Values đổi
+  hàm Sum → Count → Average → Max → Min (`pivotUpdate`, một bước hoàn tác). PivotTable trống vẽ khung giữ chỗ như đối
+  chứng. Test `new_pivot_table_opens_its_fields_pane_and_ticks_build_the_report`.
+
+### Vòng 57 — tốc độ
+
+Bản release, `BLUEOFFICE_NATIVE_PERF` (dòng mới `first_frame`: thời gian mở tệp, khung đầu), input gửi bằng
+`PostMessage`; đối chứng qua COM (`xperf.ps1`, cùng máy, máy đang chạy build của các phiên khác):
+
+| | BlueSheet | Đối chứng |
+|---|---|---|
+| Mở `big-1m.xlsx` (1 triệu ô, 10 000 hàng × 100 cột, có công thức) | 1 324 ms (khung đầu 1 736 ms) | 1 317 ms |
+| Mở `f100k.xlsx` (100 000 công thức) | 534 ms (khung đầu 886 ms) | 728 ms |
+| Nấc bánh xe trên sổ 1 triệu ô, input → present p50 / p95 | 9,0 / 13,0 ms (handle 0,13 ms) | — |
+| Gõ một ký tự vào ô, sổ 1 triệu ô (handle p50) | 4,7 ms | — |
+| Enter (ghi ô) trên sổ 1 triệu ô | 176 ms (trước vòng này 188 ms) | — |
+| Sửa ô đầu vào của 100 000 công thức (Enter) | 140 ms | 11 ms (lần đầu 163 ms) |
+
+Chỗ tệ nhất là ghi một ô trên sổ lớn: mỗi lần ghi, `LiveCalc::update` đọc mọi ô của sổ để tìm bảng dữ liệu What-If
+(nay nhớ "sổ có bảng dữ liệu" tới lần nạp lại / khi một ô mới là bảng dữ liệu), `content_size` duyệt hai lượt mọi ô
+(nay hàng cuối lấy từ khoá cuối của `BTreeMap`, một lượt cho cột). Số sau sửa ở bảng dưới.
+
+Đo lại sau sửa (bản release mới, máy bận hơn: mở `big-1m` 2 272 ms do các phiên khác đang build): Enter trên sổ 1 triệu
+ô 187 ms, sửa đầu vào của 100 000 công thức 170 ms, bánh xe 12,0 / 15,0 ms, gõ ký tự handle 5,6 ms — **không đổi đáng
+kể**: hai đường duyệt đã bỏ không phải phần chính. Đo trong test headless (`typing_phases_on_a_big_sheet`, `#[ignore]`,
+100 000 × 6 ô + 30 000 công thức, bản debug): ghi một ô = `LiveCalc::update` (bộ tính công thức) ~100 ms +
+`refresh` lần đầu ~56 ms + `content_size` ~90 ms; gõ ký tự trên lưới tổng hợp chỉ 0,04 ms nên 5 ms trong ứng dụng nằm ở
+phía đo chữ DirectWrite / host, chưa tìm ra. Đối chứng tính lại 100 000 công thức trong 11 ms (đa luồng).
+
+## Còn lại (sau vòng 11)
+
+- Tốc độ: ghi một ô trên sổ lớn (~180 ms) và tính lại 100 000 công thức (~150 ms, đối chứng 11 ms) — cần bộ tính
+  tăng dần chỉ trên ô bị ảnh hưởng và `content_size` giữ phạm vi đã dùng theo từng sổ; gõ ký tự trên sổ 1 triệu ô
+  ~5 ms handle (cần profiler trong ứng dụng thật).
+- Function Arguments: "Help on this function" mờ (chưa có trang trợ giúp từng hàm); trợ giúp đối số chỉ cho 58 hàm có
+  chữ ký; hàm khác dùng câu chung.
+- Accessibility: chưa có thẻ ngữ cảnh "Accessibility" trên ribbon; quy tắc tương phản / chữ đỏ chưa kiểm; tiêu đề giữ
+  "Accessibility".
+- PivotTable: "Add this data to the Data Model" mờ (không có mô hình dữ liệu); trang PivotTable mới đặt sau các trang
+  (đối chứng đặt trước trang nguồn); kéo thả trường giữa các vùng chưa có (thay bằng nhấp); Search của ngăn chưa lọc.
+- Find and Replace: Format… (tìm theo định dạng) mờ; Look in chưa có Notes / Comments.
+- Format Cells đối chứng chỉ mở được từng trang riêng qua COM; so cả hộp sáu trang chưa làm được bằng input gửi vào.

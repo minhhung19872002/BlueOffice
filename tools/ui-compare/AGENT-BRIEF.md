@@ -67,3 +67,10 @@ recent-file lists or the owner's own files.
 Match the reference's layout, sizes, greys and the MEANING of accent colours, but never trace or closely copy its
 icon shapes (Microsoft or Foxit). If your icon looks like a redraw of the reference's at 4× zoom, redesign it in the
 BlueOffice icon family (icons.rs / reader_icons.rs style).
+
+## Printing and the owner's documents (added 2026-11-17)
+Never press Print / OK in a reference app's print dialog and never click its quick-access Print button; open the
+dialog with a posted command in your own instance on your own scratch copy, capture, then Cancel. Our own print
+tests target "Microsoft Print to PDF" with an output file in scratch — never the default physical printer. If a
+document that is not one of your scratch copies shows up in a reference window (the owner may be using the app),
+stop interacting with that window at once and leave it open.

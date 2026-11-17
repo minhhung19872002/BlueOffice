@@ -12750,6 +12750,19 @@
     "colBookmark": "Dấu trang cho tệp",
     "colBates": "Đánh số Bates",
     "colWarnings": "Cảnh báo/Lỗi",
-    "colLocation": "Vị trí"
+    "colLocation": "Vị trí",
+    "c9OptToc": "Thêm trang mục lục tạo từ dấu trang",
+    "c9OptLabels": "Giữ số trang logic khi kết hợp",
+    "c9OptClose": "Đóng các tệp đang mở đã lưu sau khi kết hợp",
+    "c9TocTitle": "Mục lục",
+    "kindDocuments": "Văn bản (.docx, .doc, .odt, .rtf)",
+    "kindWorkbooks": "Bảng tính (.xlsx, .xls, .ods, .csv)",
+    "kindPresentations": "Trình chiếu (.pptx, .ppt, .odp)",
+    "convSettingsTitle": "Chuyển sang PDF",
+    "convSettingsFor": "Thiết lập BlueEditor cho {{kind}}.",
+    "convSettingsLabel": "Thiết lập BlueEditor:",
+    "editDots": "Sửa...",
+    "addBookmarks": "Thêm dấu trang vào tệp PDF",
+    "taggedPdf": "PDF có thẻ"
   }
 }

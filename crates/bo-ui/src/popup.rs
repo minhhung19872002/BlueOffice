@@ -97,6 +97,8 @@ pub struct Menu {
     key_right: f32,
     /// Extra device pixels a separator adds above its item (0: the line sits on the row).
     sep_gap: f32,
+    /// A faint shadow on every side (BlueEditor round 9) in place of the default one.
+    soft_shadow: bool,
 }
 
 /// Draws icon `name` into a `size`-pixel square at (`x`, `y`), greyed when `dim`.
@@ -167,6 +169,7 @@ impl Menu {
             keys: Vec::new(),
             key_right: 0.0,
             sep_gap: 0.0,
+            soft_shadow: false,
         };
         // Show the current value in the middle of the list.
         if let Some(i) = current {
@@ -187,6 +190,13 @@ impl Menu {
     pub fn with_decor(mut self, icons: Vec<Option<&'static str>>, separators: Vec<usize>) -> Self {
         self.icons = icons;
         self.separators = separators;
+        self
+    }
+
+    /// A faint shadow spread on every side, as Windows 11 menus (BlueEditor round 9).
+    #[must_use]
+    pub fn with_soft_shadow(mut self) -> Self {
+        self.soft_shadow = true;
         self
     }
 
@@ -325,15 +335,28 @@ impl Menu {
     /// Paint the menu with a soft shadow.
     pub fn paint(&self, p: &mut dyn Painter, t: &Theme, icons: &crate::icons::Icons) {
         let s = self.scale;
-        for (k, a) in [(3.0, 18u8), (2.0, 26), (1.0, 34)] {
-            let o = (k * s).round();
-            p.fill_rect(
-                self.x - o + 2.0 * s,
-                self.y - o + 3.0 * s,
-                self.w + 2.0 * o,
-                self.h + 2.0 * o,
-                Rgba(0, 0, 0, a),
-            );
+        if self.soft_shadow {
+            for (k, a) in [(4.0, 4u8), (3.0, 5), (2.0, 7), (1.0, 9)] {
+                let o = (k * s).round();
+                p.fill_rect(
+                    self.x - o,
+                    self.y - o + s.round(),
+                    self.w + 2.0 * o,
+                    self.h + 2.0 * o,
+                    Rgba(0, 0, 0, a),
+                );
+            }
+        } else {
+            for (k, a) in [(3.0, 18u8), (2.0, 26), (1.0, 34)] {
+                let o = (k * s).round();
+                p.fill_rect(
+                    self.x - o + 2.0 * s,
+                    self.y - o + 3.0 * s,
+                    self.w + 2.0 * o,
+                    self.h + 2.0 * o,
+                    Rgba(0, 0, 0, a),
+                );
+            }
         }
         let look = &self.look;
         p.fill_rect(

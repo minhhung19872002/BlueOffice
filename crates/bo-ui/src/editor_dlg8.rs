@@ -48,6 +48,8 @@ pub(crate) enum FormWhat {
     Rotate9,
     /// PDF Optimizer (round 9, `editor_opt9`).
     Optimize9,
+    /// Converting To PDF on kind `.0` (round 9, `editor_conv9b`).
+    ConvSettings9(usize),
 }
 
 /// Font sizes offered by the Size lists.
@@ -1590,7 +1592,10 @@ impl EditorWindow {
     }
 
     fn form8_button(&mut self, id: &'static str) {
-        if self.crop9_button(id) || self.pages9_button(id) {
+        if (id == "row" && self.conv_settings9_row())
+            || self.crop9_button(id)
+            || self.pages9_button(id)
+        {
             return;
         }
         let Some((f, what)) = self.form8.last_mut() else {
@@ -1675,6 +1680,7 @@ impl EditorWindow {
                     FormWhat::Replace9(bytes) => self.replace9_ok(&f, &bytes),
                     FormWhat::Rotate9 => self.rotate9_ok(&f),
                     FormWhat::Optimize9 => self.opt9_ok(&f),
+                    FormWhat::ConvSettings9(row) => self.conv_settings9_keep(&f, row),
                 }
             }
             _ => self.dlg8b_button(id),

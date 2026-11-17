@@ -456,7 +456,7 @@ impl EditorWindow {
         let name = path
             .file_name()
             .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
-        match office_to_pdf(&name, bytes) {
+        match self.office_to_pdf9(&name, bytes) {
             Ok(pdf) => {
                 let stem = path
                     .file_stem()

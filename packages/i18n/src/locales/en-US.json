@@ -12750,6 +12750,19 @@
     "colBookmark": "Bookmark for File",
     "colBates": "Bates Numbering",
     "colWarnings": "Warnings/Errors",
-    "colLocation": "Location"
+    "colLocation": "Location",
+    "c9OptToc": "Add a new table of contents page converted from bookmarks",
+    "c9OptLabels": "Retain the logic page number during combination",
+    "c9OptClose": "Close the saved open files after combining",
+    "c9TocTitle": "Contents",
+    "kindDocuments": "Documents (.docx, .doc, .odt, .rtf)",
+    "kindWorkbooks": "Workbooks (.xlsx, .xls, .ods, .csv)",
+    "kindPresentations": "Presentations (.pptx, .ppt, .odp)",
+    "convSettingsTitle": "Converting To PDF",
+    "convSettingsFor": "BlueEditor settings for {{kind}}.",
+    "convSettingsLabel": "BlueEditor Settings:",
+    "editDots": "Edit...",
+    "addBookmarks": "Add bookmarks to the PDF file",
+    "taggedPdf": "Tagged PDF"
   }
 }

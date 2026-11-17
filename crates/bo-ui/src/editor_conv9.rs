@@ -50,7 +50,7 @@ pub(crate) fn menu_rows(id: &str) -> Option<Vec<Row>> {
                 "conv9.settings",
                 "pdfEditor9.convertSettings",
                 Some("properties"),
-                true,
+                false,
             ),
         ],
         "conv.officeMenu" => vec![
@@ -61,7 +61,7 @@ pub(crate) fn menu_rows(id: &str) -> Option<Vec<Row>> {
                 "conv9.xml2003",
                 "pdfEditor9.toXml2003",
                 Some("toExcel"),
-                true,
+                false,
             ),
             (
                 "conv.slides",
@@ -69,7 +69,7 @@ pub(crate) fn menu_rows(id: &str) -> Option<Vec<Row>> {
                 Some("toSlides"),
                 false,
             ),
-            ("conv9.xps", "pdfEditor9.toXps", Some("file"), true),
+            ("conv9.xps", "pdfEditor9.toXps", Some("file"), false),
         ],
         "conv.imageMenu" => vec![
             ("conv.image", "pdfEditor9.png", Some("toImage"), false),
@@ -92,7 +92,7 @@ pub(crate) fn menu_rows(id: &str) -> Option<Vec<Row>> {
                 Some("file"),
                 false,
             ),
-            ("conv9.xml", "pdfEditor9.toXml", Some("file"), true),
+            ("conv9.xml", "pdfEditor9.toXml", Some("file"), false),
         ],
         "org.rotateMenu" => vec![
             (
@@ -255,6 +255,7 @@ impl EditorWindow {
             self.r.ui_scale(),
             EDITOR_MENU9,
         )
+        .with_soft_shadow()
     }
 
     fn menu_conv9(&mut self, rows: &[Row], id: &'static str) {
@@ -280,6 +281,9 @@ impl EditorWindow {
 
     /// Round 9 Convert / Rotate commands; false when `cmd` is not one.
     pub(crate) fn conv9_command(&mut self, cmd: &str) -> bool {
+        if self.conv9b_command(cmd) {
+            return true;
+        }
         let id: Option<&'static str> = match cmd {
             "conv.create" => Some("conv.create"),
             "conv.officeMenu" => Some("conv.officeMenu"),
@@ -330,8 +334,8 @@ impl EditorWindow {
             }
             "conv9.rotateMulti" => self.open_rotate9(),
             "file.optimize" => self.open_opt9(),
-            "conv9.word97" | "conv9.xml2003" | "conv9.xps" | "conv9.jpeg2000" | "conv9.xml"
-            | "conv9.settings" => {}
+            // No .doc writer and no JPEG 2000 encoder in BlueOffice: shown dimmed.
+            "conv9.word97" | "conv9.jpeg2000" => {}
             _ => return false,
         }
         true

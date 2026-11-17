@@ -1308,6 +1308,35 @@ pub fn file_dialog(save: bool, filters: &[(&str, &str)], name: &str) -> Option<s
     }
 }
 
+/// Show the system folder picker (BlueEditor round 9: Combine Files › Add Folder); the chosen
+/// folder, if any.
+#[allow(dead_code)] // BlueReader / BlueEditor only.
+pub fn folder_dialog() -> Option<std::path::PathBuf> {
+    use windows::Win32::System::Com::{
+        CoCreateInstance, CoInitializeEx, CoTaskMemFree, CLSCTX_INPROC_SERVER,
+        COINIT_APARTMENTTHREADED,
+    };
+    use windows::Win32::UI::Shell::{
+        FileOpenDialog, IFileOpenDialog, FOS_FORCEFILESYSTEM, FOS_PICKFOLDERS, SIGDN_FILESYSPATH,
+    };
+    // SAFETY: COM is initialised for this (UI) thread; the returned path string is freed with
+    // CoTaskMemFree after copying.
+    unsafe {
+        let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+        let d: IFileOpenDialog =
+            CoCreateInstance(&FileOpenDialog, None, CLSCTX_INPROC_SERVER).ok()?;
+        let opts = d.GetOptions().ok()?;
+        d.SetOptions(opts | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM)
+            .ok()?;
+        d.Show(None).ok()?;
+        let item = d.GetResult().ok()?;
+        let path = item.GetDisplayName(SIGDN_FILESYSPATH).ok()?;
+        let out = path.to_string().ok();
+        CoTaskMemFree(Some(path.0 as *const _));
+        out.map(std::path::PathBuf::from)
+    }
+}
+
 /// Hand a file to its default application with `verb` (`open`, `print`).
 pub fn shell_open(path: &std::path::Path, verb: &str) -> bool {
     use windows::Win32::UI::Shell::ShellExecuteW;

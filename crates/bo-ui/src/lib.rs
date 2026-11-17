@@ -39,6 +39,7 @@ mod editor_comment;
 #[cfg(test)]
 mod editor_comment_tests;
 mod editor_conv9;
+mod editor_conv9b;
 mod editor_convert;
 mod editor_crop9;
 mod editor_design;

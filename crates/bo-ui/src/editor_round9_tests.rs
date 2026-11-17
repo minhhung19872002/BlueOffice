@@ -572,3 +572,124 @@ fn crop_tool_box_fills_the_margins_and_change_page_size_resizes() {
     assert!((p.width - 595.28).abs() < 0.5 && (p.height - 841.89).abs() < 0.5);
     assert!((d.page_info(1).expect("p").width - 612.0).abs() < 0.1);
 }
+
+#[test]
+fn xml_spreadsheet_xps_and_xml_exports() {
+    use crate::editor_conv9b::{xml_dump, xml_spreadsheet, xps_of};
+    let x = String::from_utf8(xml_spreadsheet(
+        &[(0, 0, "A & B".into()), (2, 1, "c".into())],
+        "Sheet1",
+    ))
+    .expect("utf8");
+    assert!(x.contains("urn:schemas-microsoft-com:office:spreadsheet"));
+    assert!(x.contains("<Row ss:Index=\"3\">") && x.contains("A &amp; B"));
+    // The XML Spreadsheet is read back by the BlueSheet reader.
+    let wb = bo_xlsx::read_xml_spreadsheet(x.as_bytes()).expect("reads");
+    assert_eq!(wb.sheets.len(), 1);
+    let mut doc =
+        bo_pdfread::PdfDocument::open(crate::editor_tests::pdf(2), bo_pdfread::standard_fonts())
+            .expect("pdf");
+    let xml = String::from_utf8(xml_dump(&mut doc).expect("xml")).expect("utf8");
+    assert!(xml.contains("<document pages=\"2\">") && xml.contains("Page 2"));
+    // A 1 × 1 PNG makes a one-page XPS package with its parts.
+    let png = bo_raster::rgba_to_png(bo_raster::codecs::Rgba {
+        width: 1,
+        height: 1,
+        pixels: vec![255, 0, 0, 255],
+    })
+    .expect("png");
+    let xps = xps_of(&[(png, 612.0, 792.0)]).expect("xps");
+    let pkg = bo_opc::Package::read(&xps, &bo_opc::Limits::default()).expect("opc");
+    for part in [
+        "/FixedDocSeq.fdseq",
+        "/Documents/1/FixedDoc.fdoc",
+        "/Documents/1/Pages/1.fpage",
+        "/Resources/Images/1.png",
+    ] {
+        assert!(pkg.part(part).is_some(), "{part}");
+    }
+}
+
+#[test]
+fn converting_to_pdf_settings_keep_each_kind() {
+    use crate::editor_form8::Val;
+    let mut w = window(1);
+    w.run("conv9.settings", &Fixed);
+    let t = paint(&mut w).texts;
+    for l in [
+        "Converting To PDF",
+        "Tagged PDF",
+        "Add bookmarks to the PDF file",
+    ] {
+        assert!(t.iter().any(|x| x == l), "{l}: {t:?}");
+    }
+    w.form8
+        .last_mut()
+        .expect("dialog")
+        .0
+        .set("tag", Val::Pick(1));
+    // Another kind: the first one's choice is kept.
+    w.form8
+        .last_mut()
+        .expect("dialog")
+        .0
+        .set("row", Val::Pick(1));
+    assert!(w.conv_settings9_row());
+    assert!(w.conv9_settings.tagged[0]);
+    w.form8
+        .last_mut()
+        .expect("dialog")
+        .0
+        .set("bm", Val::Pick(1));
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert!(w.conv9_settings.bookmarks[1] && !w.conv9_settings.bookmarks[0]);
+    assert_eq!(crate::editor_conv9b::kind_of("a.XLSX"), Some(1));
+}
+
+#[test]
+fn combine_settings_keep_labels_and_add_a_contents_page() {
+    use crate::editor_combine9::{combine_with, CombineItem, CombineOpts};
+    let mut a =
+        bo_pdfread::PdfDocument::open(crate::editor_tests::pdf(2), bo_pdfread::standard_fonts())
+            .expect("pdf");
+    a.set_page_labels(0, 1, bo_pdfread::LabelStyle::RomanLower, "", 1)
+        .expect("labels");
+    let items = vec![
+        CombineItem {
+            name: "a.pdf".into(),
+            bytes: a.save().expect("save"),
+            pages: 2,
+            range: String::new(),
+            from_tab: false,
+        },
+        CombineItem {
+            name: "b.pdf".into(),
+            bytes: crate::editor_tests::pdf(1),
+            pages: 1,
+            range: String::new(),
+            from_tab: false,
+        },
+    ];
+    let opts = CombineOpts {
+        toc: true,
+        labels: true,
+        close: false,
+    };
+    let out = combine_with(&items, opts, "Contents").expect("combined");
+    let d = bo_pdfread::PdfDocument::open(out, bo_pdfread::standard_fonts()).expect("pdf");
+    assert_eq!(d.page_count(), 4);
+    let labels: Vec<String> = (1..4)
+        .map(|i| d.page_info(i).expect("p").label.clone())
+        .collect();
+    assert_eq!(labels, ["i", "ii", "1"]);
+}
+
+#[test]
+fn dialogs_open_with_the_first_box_selected() {
+    let mut w = organize(3);
+    w.run("org.delete", &Fixed);
+    assert!(w.form8.last().expect("dialog").0.all);
+    // Typing replaces the selected "1,".
+    w.handle(Input::Text("2".into()), &Fixed);
+    assert_eq!(w.form8.last().expect("dialog").0.text("pages"), "2");
+}

@@ -24,6 +24,8 @@ pub(crate) struct CombineItem {
     pub pages: usize,
     /// Page range text ("" = all pages).
     pub range: String,
+    /// Added from an open document tab (closed after combining when asked).
+    pub from_tab: bool,
 }
 
 /// The Combine Files tab: selected row, whether its document tab is the one shown, whether a
@@ -104,21 +106,44 @@ pub(crate) fn ribbon_items() -> Vec<(&'static str, Kind)> {
 }
 
 /// Commands of the contextual tab that are shown but not offered.
-pub(crate) const DIMMED: [&str; 4] = [
-    "comb9.addFolder",
-    "comb9.addWeb",
-    "comb9.addScanner",
-    "comb9.settings",
+pub(crate) const DIMMED: [&str; 2] = ["comb9.addWeb", "comb9.addScanner"];
+
+/// Label keys of the Settings menu's options (the reference's three toggles).
+pub(crate) const OPTIONS: [&str; 3] = [
+    "pdfEditor9.c9OptToc",
+    "pdfEditor9.c9OptLabels",
+    "pdfEditor9.c9OptClose",
 ];
 
+/// Combine options: a contents page made of the files' bookmarks, the files' own page
+/// labels kept, the open files that were added closed afterwards.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct CombineOpts {
+    pub toc: bool,
+    pub labels: bool,
+    pub close: bool,
+}
+
 fn item(name: &str, bytes: Vec<u8>) -> Option<CombineItem> {
+    // Documents, workbooks and presentations are made into PDF first (the BlueOffice engines).
+    let bytes = if bytes.starts_with(b"%PDF") || name.to_ascii_lowercase().ends_with(".pdf") {
+        bytes
+    } else {
+        crate::editor_actions::office_to_pdf(name, &bytes).ok()?
+    };
     let doc = bo_pdfread::PdfDocument::open(bytes.clone(), bo_pdfread::standard_fonts()).ok()?;
     Some(CombineItem {
         name: name.to_owned(),
         pages: doc.page_count(),
         bytes,
         range: String::new(),
+        from_tab: false,
     })
+}
+
+fn from_tab(mut c: CombineItem) -> CombineItem {
+    c.from_tab = true;
+    c
 }
 
 fn inside(r: [f32; 4], x: f32, y: f32) -> bool {
@@ -154,7 +179,7 @@ impl EditorWindow {
                 format!("{name}.pdf")
             };
             if let Some(bytes) = self.r.view_mut().and_then(|v| v.doc_mut().save().ok()) {
-                self.combine9.extend(item(&name, bytes));
+                self.combine9.extend(item(&name, bytes).map(from_tab));
             }
         }
         let row = self.comb9.as_ref().map_or(0, |c| c.row);
@@ -212,6 +237,22 @@ impl EditorWindow {
                 purpose: "combine9".into(),
                 filters: vec![("PDF".into(), "*.pdf".into())],
             }),
+            "comb9.addFolder" => {
+                let mut filters = vec![("PDF".to_owned(), "*.pdf".to_owned())];
+                filters.extend(
+                    crate::editor_actions::OFFICE_FILTERS
+                        .iter()
+                        .map(|(a, b)| ((*a).to_owned(), (*b).to_owned())),
+                );
+                self.push(ReaderRequest::PickFile {
+                    purpose: "combine9.folder".into(),
+                    filters,
+                });
+            }
+            "comb9.settings" => self.combine9_settings_menu(),
+            "comb9.opt.0" => self.comb9_opts.toc = !self.comb9_opts.toc,
+            "comb9.opt.1" => self.comb9_opts.labels = !self.comb9_opts.labels,
+            "comb9.opt.2" => self.comb9_opts.close = !self.comb9_opts.close,
             "comb9.addClipboard" => {
                 if let Some(c) = &mut self.comb9 {
                     c.clip = true;
@@ -227,7 +268,7 @@ impl EditorWindow {
                     if let Some(bytes) =
                         self.r.tab_view_mut(i).and_then(|v| v.doc_mut().save().ok())
                     {
-                        self.combine9.extend(item(&name, bytes));
+                        self.combine9.extend(item(&name, bytes).map(from_tab));
                     }
                 }
             }
@@ -253,6 +294,27 @@ impl EditorWindow {
             c.doc_on = true;
         }
         true
+    }
+
+    /// Settings: the reference's three options, ticked when on.
+    fn combine9_settings_menu(&mut self) {
+        let Some(r) = self.r.control_rect("comb9.settings") else {
+            return;
+        };
+        let o = self.comb9_opts;
+        let on = [o.toc, o.labels, o.close];
+        let items = OPTIONS
+            .iter()
+            .enumerate()
+            .map(|(k, key)| crate::popup::MenuItem {
+                label: self.t(key),
+                choice: crate::popup::Choice::Command(format!("comb9.opt.{k}")),
+                checked: on[k],
+                dim: false,
+            })
+            .collect();
+        let menu = self.menu_open9(items, r);
+        self.r.set_menu9(menu, "comb9.settings");
     }
 
     /// Enabled states of the contextual tab's commands.
@@ -305,13 +367,38 @@ impl EditorWindow {
 
     /// Combine: the ranges in list order as a new document in a tab.
     fn combine9_run(&mut self) {
-        match combine(&self.combine9) {
+        let opts = self.comb9_opts;
+        let title = self.t("pdfEditor9.c9TocTitle");
+        match combine_with(&self.combine9, opts, &title) {
             Ok(bytes) => {
                 let name = format!("{}.pdf", self.t("pdfEditor9.combinedName"));
+                if opts.close {
+                    self.close_combined_tabs();
+                }
                 self.close_combine9();
                 self.push(ReaderRequest::OpenDocument { name, bytes });
             }
             Err(e) => self.set_status(&e),
+        }
+    }
+
+    /// Close the open files that were added and have no unsaved changes.
+    fn close_combined_tabs(&mut self) {
+        let names: Vec<String> = self
+            .combine9
+            .iter()
+            .filter(|c| c.from_tab)
+            .map(|c| c.name.clone())
+            .collect();
+        for i in (0..self.r.tab_count()).rev() {
+            let n = self.r.doc_tab_name(i).unwrap_or_default().to_owned();
+            let saved = self.r.tab_view_mut(i).is_some_and(|v| !v.modified());
+            let named = names
+                .iter()
+                .any(|x| *x == n || x.strip_suffix(".pdf") == Some(n.as_str()));
+            if saved && named {
+                self.r.close_tab_now(i);
+            }
         }
     }
 
@@ -667,6 +754,77 @@ pub(crate) fn range_pages(range: &str, n: usize) -> Vec<usize> {
         .into_iter()
         .filter(|&p| p < n)
         .collect()
+}
+
+/// [`combine`] with the Settings options: the files' page labels kept, and a contents page
+/// first listing each file (its "Bookmark for File") with the page it starts on.
+pub(crate) fn combine_with(
+    items: &[CombineItem],
+    opts: CombineOpts,
+    title: &str,
+) -> Result<Vec<u8>, String> {
+    let bytes = combine(items)?;
+    if !opts.toc && !opts.labels {
+        return Ok(bytes);
+    }
+    let mut doc = bo_pdfread::PdfDocument::open(bytes, bo_pdfread::standard_fonts())?;
+    // Where each file starts and which of its pages came in.
+    let mut starts = Vec::new();
+    let mut at = 0;
+    for c in items {
+        let pick = range_pages(&c.range, c.pages);
+        at += pick.len();
+        starts.push((at - pick.len(), pick));
+    }
+    if opts.toc {
+        let mut rows = String::new();
+        for (c, (start, _)) in items.iter().zip(&starts) {
+            use std::fmt::Write as _;
+            let stem = c.name.strip_suffix(".pdf").unwrap_or(&c.name);
+            let _ = write!(
+                rows,
+                "<tr><td>{}</td><td style='text-align:right'>{}</td></tr>",
+                html_escape(stem),
+                start + 2
+            );
+        }
+        let html = format!(
+            "<html><body><h1>{}</h1><table style='width:100%'>{rows}</table></body></html>",
+            html_escape(title)
+        );
+        let toc = crate::editor_actions::office_to_pdf("contents.html", html.as_bytes())?;
+        doc.insert_pdf(0, &toc, Some(&[0]))?;
+    }
+    let off = usize::from(opts.toc);
+    if opts.labels {
+        for (c, (start, pick)) in items.iter().zip(&starts) {
+            let src = bo_pdfread::PdfDocument::open(c.bytes.clone(), bo_pdfread::standard_fonts())
+                .map(|d| d.page_label_ranges())
+                .unwrap_or_default();
+            for (k, &p) in pick.iter().enumerate() {
+                let (style, prefix, n) = match src.iter().rev().find(|r| r.start <= p) {
+                    Some(r) => (
+                        r.style,
+                        r.prefix.clone(),
+                        r.first.max(1) + u32::try_from(p - r.start).unwrap_or(0),
+                    ),
+                    None => (
+                        bo_pdfread::LabelStyle::Decimal,
+                        String::new(),
+                        u32::try_from(p + 1).unwrap_or(1),
+                    ),
+                };
+                doc.set_page_labels(off + start + k, off + start + k, style, &prefix, n)?;
+            }
+        }
+    }
+    doc.save()
+}
+
+fn html_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
 /// A new PDF of the items' page ranges in order.

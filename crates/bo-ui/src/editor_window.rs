@@ -546,6 +546,10 @@ pub struct EditorWindow {
     pub(crate) combine9: Vec<crate::editor_combine9::CombineItem>,
     /// The Combine Files tab while it is open (round 9).
     pub(crate) comb9: Option<crate::editor_combine9::Comb9>,
+    /// Combine Files › Settings options (kept for the session).
+    pub(crate) comb9_opts: crate::editor_combine9::CombineOpts,
+    /// Converting To PDF choices (round 9).
+    pub(crate) conv9_settings: crate::editor_conv9b::ConvSettings,
     /// Form field tool.
     pub(crate) design: crate::editor_design::DesignState,
     /// Caret shown (blink phase).
@@ -635,6 +639,8 @@ impl EditorWindow {
             clip_insert9: false,
             combine9: Vec::new(),
             comb9: None,
+            comb9_opts: crate::editor_combine9::CombineOpts::default(),
+            conv9_settings: crate::editor_conv9b::ConvSettings::default(),
             close_box: None,
             design: crate::editor_design::DesignState::default(),
             caret_on: true,
@@ -1503,7 +1509,7 @@ impl EditorWindow {
 
     /// Pages rendered as PNG for `purpose` (`images`: one file per page).
     pub fn pages_rendered(&mut self, purpose: &str, pngs: Vec<Vec<u8>>) {
-        if self.conv9_rendered(purpose, &pngs) {
+        if self.conv9_rendered(purpose, &pngs) || self.conv9b_rendered(purpose, &pngs) {
             return;
         }
         let stem = self.doc_name();

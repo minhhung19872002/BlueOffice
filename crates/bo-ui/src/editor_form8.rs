@@ -173,6 +173,9 @@ pub(crate) struct Form {
     pub frame: [f32; 4],
     /// Typing into text box `.0` ticks check box `.1` (Password Protection).
     pub ticks: Vec<(&'static str, &'static str)>,
+    /// The focused box's whole text is selected (round 9: as the reference on opening a
+    /// dialog and on Tab); typing replaces it.
+    pub all: bool,
 }
 
 const WHITE: Rgba = Rgba(255, 255, 255, 255);
@@ -221,6 +224,7 @@ impl Form {
             hits: Vec::new(),
             frame: [0.0; 4],
             ticks: Vec::new(),
+            all: false,
         }
     }
 
@@ -253,6 +257,7 @@ impl Form {
         self.focus = self.ctls.iter().position(
             |c| matches!(c, Ctl::Edit { id: i, .. } | Ctl::Spin { id: i, .. } if *i == id),
         );
+        self.all = self.focus.is_some();
         self
     }
 
@@ -449,6 +454,7 @@ impl Form {
                 match c {
                     Ctl::Edit { .. } | Ctl::Spin { .. } => {
                         self.focus = Some(i);
+                        self.all = false;
                         FormOut::Changed
                     }
                     Ctl::Combo { .. } => {
@@ -542,6 +548,7 @@ impl Form {
                     None => 0,
                 };
                 self.focus = Some(f[next]);
+                self.all = true;
                 FormOut::Changed
             }
             Key::Up | Key::Down => {
@@ -569,7 +576,11 @@ impl Form {
             Key::Backspace => match focused {
                 Some(Ctl::Edit { id, .. } | Ctl::Spin { id, .. }) => {
                     let mut s = self.text(id);
-                    s.pop();
+                    if std::mem::take(&mut self.all) {
+                        s.clear();
+                    } else {
+                        s.pop();
+                    }
                     self.set(id, Val::Text(s));
                     FormOut::Changed
                 }
@@ -584,6 +595,9 @@ impl Form {
         match focused {
             Some(Ctl::Edit { id, .. } | Ctl::Spin { id, .. }) => {
                 let mut v = self.text(id);
+                if std::mem::take(&mut self.all) {
+                    v.clear();
+                }
                 v.extend(s.chars().filter(|c| !c.is_control()));
                 self.set(id, Val::Text(v));
                 if let Some(&(_, check)) = self.ticks.iter().find(|t| t.0 == id) {
@@ -735,16 +749,33 @@ impl Form {
                     } else {
                         (b[1] + (b[3] - th) / 2.0).round()
                     };
+                    let sel = focused && self.all && !v.is_empty() && !*multi;
+                    if sel {
+                        // The reference's selected text: white on #0078D4.
+                        p.fill_rect(
+                            b[0] + q(3.0),
+                            (first + q(1.0)).round(),
+                            est(&v).round() + q(2.0),
+                            th - q(2.0),
+                            FOCUS,
+                        );
+                    }
                     for (k, line) in lines.iter().enumerate() {
                         p.text(
                             line,
                             b[0] + q(4.0),
                             first + th * k as f32,
                             text,
-                            if on { INK } else { DIM },
+                            if sel {
+                                WHITE
+                            } else if on {
+                                INK
+                            } else {
+                                DIM
+                            },
                         );
                     }
-                    if focused && caret {
+                    if focused && caret && !sel {
                         let last = lines.last().copied().unwrap_or("");
                         let cy = first + th * (lines.len().saturating_sub(1)) as f32;
                         p.fill_rect(
@@ -825,14 +856,31 @@ impl Form {
                             ));
                         }
                     }
+                    let v = self.text(id);
+                    let sel = focused && self.all && on && !v.is_empty();
+                    if sel {
+                        p.fill_rect(
+                            b[0] + q(4.0),
+                            (cyy - th / 2.0 + q(1.0)).round(),
+                            est(&v).round() + q(2.0),
+                            th - q(2.0),
+                            FOCUS,
+                        );
+                    }
                     p.text(
-                        &self.text(id),
+                        &v,
                         b[0] + q(5.0),
                         (cyy - th / 2.0).round(),
                         text,
-                        if on { INK } else { DIM },
+                        if sel {
+                            WHITE
+                        } else if on {
+                            INK
+                        } else {
+                            DIM
+                        },
                     );
-                    if focused && caret && on {
+                    if focused && caret && on && !sel {
                         p.fill_rect(
                             (b[0] + q(5.0) + est(&self.text(id))).round(),
                             b[1] + q(5.0),
@@ -1107,8 +1155,11 @@ impl Form {
                     let b = at(*r);
                     p.fill_rect(b[0], b[1], b[2], b[3], Rgba(0xD9, 0xD9, 0xD9, 255));
                     p.fill_rect(b[0] + 1.0, b[1] + 1.0, b[2] - 2.0, b[3] - 2.0, WHITE);
-                    let hh = q(28.0);
-                    let rh = q(24.0);
+                    // Round 9: without column titles it is a plain list box (the reference's
+                    // Converting To PDF: rows 20 px, the chosen one white on #0078D4).
+                    let plain = cols.iter().all(|c| c.0.is_empty());
+                    let hh = if plain { q(2.0) } else { q(28.0) };
+                    let rh = if plain { q(20.0) } else { q(24.0) };
                     // Round 9: a form with a `row` value has selectable rows (Combine Files).
                     if self.vals.contains_key("row") {
                         let sel = self.pick("row");
@@ -1123,7 +1174,11 @@ impl Form {
                                     rr[1],
                                     rr[2],
                                     rr[3],
-                                    Rgba(0xCC, 0xE8, 0xFF, 255),
+                                    if plain {
+                                        FOCUS
+                                    } else {
+                                        Rgba(0xCC, 0xE8, 0xFF, 255)
+                                    },
                                 );
                             }
                             hits.push((rr, Hit::Item(i, j)));
@@ -1139,7 +1194,7 @@ impl Form {
                             text,
                             INK,
                         );
-                        if k + 1 < cols.len() {
+                        if k + 1 < cols.len() && !plain {
                             p.fill_rect(
                                 cx + cw,
                                 b[1] + 1.0,
@@ -1151,19 +1206,21 @@ impl Form {
                         for (j, row) in rows.iter().enumerate() {
                             if let Some(v) = row.get(k) {
                                 p.push_clip(cx, b[1] + hh, cw - q(4.0), b[3] - hh);
+                                let chosen =
+                                    plain && self.vals.contains_key("row") && self.pick("row") == j;
                                 p.text(
                                     v,
-                                    cx + q(5.0),
+                                    cx + q(if plain { 3.0 } else { 5.0 }),
                                     (b[1] + hh + rh * j as f32 + (rh - th) / 2.0).round(),
                                     text,
-                                    INK,
+                                    if chosen { WHITE } else { INK },
                                 );
                                 p.pop_clip();
                             }
                         }
                         cx += cw;
                     }
-                    let mut y = b[1] + hh;
+                    let mut y = if plain { b[1] + b[3] } else { b[1] + hh };
                     while y < b[1] + b[3] - 1.0 {
                         p.fill_rect(b[0] + 1.0, y, b[2] - 2.0, 1.0, Rgba(0xF0, 0xF0, 0xF0, 255));
                         y += rh;

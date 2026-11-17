@@ -46,7 +46,7 @@ pub(crate) struct Extra {
     /// The selected existing comment.
     pub(crate) selected: Option<Annot>,
     /// Moving the selected comment: pointer start and now (window pixels).
-    moving: Option<(f32, f32, f32, f32)>,
+    pub(crate) moving: Option<(f32, f32, f32, f32)>,
     /// Text dialog for a comment: edit (`false`) or reply (`true`).
     text: Option<(Dialog, Annot, bool)>,
 }
@@ -295,6 +295,12 @@ impl ReaderWindow {
             }
             if let Some(r) = self.route_viewx(input, m) {
                 return Some(r);
+            }
+            if self.extra.text.is_none() && self.menu.is_none() && self.dialog.is_none() {
+                // Pop-up notes, the selection toolbar (BlueReader round 10).
+                if let Some(r) = self.route_ten(input, m) {
+                    return Some(r);
+                }
             }
             if self.extra.text.is_none() {
                 if let Some(r) = self.route_draw(input, m) {
@@ -700,7 +706,13 @@ impl ReaderWindow {
             self.paint_doc(p);
             self.paint_vbar(p);
         }
-        if let (Some(a), Some(t)) = (self.extra.selected.as_ref(), self.tabs.get(self.active)) {
+        // BlueReader draws its own handles (round 10, reader_handles10_win.rs).
+        let own = self.handles10_on();
+        if let (Some(a), Some(t), false) = (
+            self.extra.selected.as_ref(),
+            self.tabs.get(self.active),
+            own,
+        ) {
             if let Some(r) = t.view.page_rect(a.page) {
                 let s = t.view.px_per_pt();
                 let (dx, dy) = self

@@ -98,7 +98,9 @@ fn style_set_gallery_and_page_borders() {
     for id in ["design.effects", "design.setDefault", "design.pageBorders"] {
         assert!(w.ribbon.rect_of(RibbonHit::Command(id)).is_some(), "{id}");
     }
-    assert!(!commands::enabled("design.effects", w.view.format()));
+    // Effects and Set as Default work since round 3 (doc_r3).
+    assert!(commands::enabled("design.effects", w.view.format()));
+    assert!(commands::enabled("design.setDefault", w.view.format()));
     // A tile applies its style set in one step.
     let r = w
         .ribbon

@@ -337,6 +337,8 @@ pub(super) fn add_icons(icons: &mut Icons) {
 
 /// Zoom dialog choices (percent; 0 = fit selection).
 const ZOOMS: [u32; 6] = [200, 100, 75, 50, 25, 0];
+/// Option buttons of the Zoom dialog (the presets, then Custom).
+const ZOOM_IDS: [&str; 7] = ["z0", "z1", "z2", "z3", "z4", "z5", "z6"];
 
 fn edit(value: &str) -> Kind {
     Kind::Edit {
@@ -639,44 +641,66 @@ impl SheetWindow {
             .iter()
             .position(|z| *z as i32 == now)
             .unwrap_or(ZOOMS.len());
+        // The reference's Zoom (227 × 405 px at 125 %, round 48): a bold caption, option
+        // buttons 35 px apart with larger text, Custom with a percent box.
         let mut f = Form::new(
             &t("commands.sheet.zoomDialog", "Zoom"),
-            (240.0, 330.0),
+            (227.0, 405.0),
             vec![],
         );
+        f.set_font_scale(1.3);
+        // The reference's newer dialogs have a white face.
+        f.add("face", None, [1.0, 38.0, 225.0, 366.0], Kind::Canvas);
         f.add(
             "magLabel",
             None,
-            [18.0, 50.0, 0.0, 0.0],
-            Kind::Group(t("sheetView.magnification", "Magnification")),
+            [17.0, 48.0, 190.0, 26.0],
+            Kind::Label(t("sheetView.magnification", "Magnification")),
         );
-        f.add(
-            "mag",
-            None,
-            [18.0, 74.0, 204.0, 140.0],
-            Kind::List {
-                items,
-                sel: Some(sel),
-                top: 0,
-            },
-        );
+        f.set_bold("magLabel");
+        for (i, label) in items.iter().enumerate() {
+            let y = if i < ZOOMS.len() {
+                87.0 + 35.0 * i as f32
+            } else {
+                303.0
+            };
+            f.add(
+                ZOOM_IDS[i],
+                None,
+                [27.0, y, if i < ZOOMS.len() { 170.0 } else { 100.0 }, 28.0],
+                Kind::Check {
+                    label: label.clone(),
+                    on: i == sel,
+                },
+            );
+            // Access letters as the reference: 2(0)0%, (1)00%, (7)5%, (5)0%, (2)5%,
+            // F(i)t selection, (C)ustom.
+            f.set_access(ZOOM_IDS[i], [1, 0, 0, 0, 0, 1, 0][i]);
+        }
+        f.set_radios(&ZOOM_IDS);
         f.add(
             "custom",
             None,
-            [18.0, 224.0, 100.0, 25.0],
-            Kind::Spin {
-                value: now,
-                min: 10,
-                max: 400,
+            [134.0, 301.0, 47.0, 32.0],
+            Kind::Edit {
+                value: now.to_string().chars().collect(),
+                caret: now.to_string().len(),
             },
+        );
+        f.add(
+            "pct",
+            None,
+            [186.0, 305.0, 20.0, 26.0],
+            Kind::Label("%".into()),
         );
         f.ok_cancel(&t("common.ok", "OK"), &t("common.cancel", "Cancel"));
         if let Some(c) = f.get_mut("ok") {
-            c.rect = [18.0, 282.0, 98.0, 28.0];
+            c.rect = [57.0, 355.0, 69.0, 33.0];
         }
         if let Some(c) = f.get_mut("cancel") {
-            c.rect = [124.0, 282.0, 98.0, 28.0];
+            c.rect = [141.0, 355.0, 70.0, 33.0];
         }
+        f.focus(ZOOM_IDS[sel.min(ZOOMS.len())]);
         self.form = Some(f);
         self.form_kind = FormKind::Zoom;
         true
@@ -781,12 +805,20 @@ impl SheetWindow {
                     f.set_items("views", names, Some(0));
                 }
             }
-            (FormKind::Zoom, Event::Changed("custom")) => {
-                f.set_sel("mag", Some(ZOOMS.len()));
+            (FormKind::Zoom, Event::Changed(id)) if ZOOM_IDS.contains(id) || *id == "custom" => {
+                let pick = if *id == "custom" { ZOOM_IDS[6] } else { *id };
+                for z in ZOOM_IDS {
+                    f.set_on(z, z == pick);
+                }
             }
             (FormKind::Zoom, Event::Ok) => {
-                let i = f.sel("mag").unwrap_or(1);
-                let custom = f.num("custom");
+                let i = ZOOM_IDS.iter().position(|z| f.on(z)).unwrap_or(1);
+                let custom: i32 = f
+                    .text("custom")
+                    .trim()
+                    .parse()
+                    .unwrap_or(100)
+                    .clamp(10, 400);
                 self.form = None;
                 match ZOOMS.get(i) {
                     Some(0) => {

@@ -75,6 +75,13 @@ export interface TextSplitPreview {
   columns: number;
 }
 
+/** Result of `textToColumnsGuess`. */
+export interface TextSplitGuess {
+  mode: 'delimited' | 'fixed';
+  delimiters: string[];
+  breaks: number[];
+}
+
 /** Result of `removeDuplicates`. */
 export interface DedupeResult {
   removed: number;
@@ -104,6 +111,17 @@ export type DataToolsCommand =
       formats?: TextColumnFormat[];
       dest?: At | null;
       preview?: boolean;
+      /** Separators of numbers in the text (default: the locale's). */
+      decimal?: string | null;
+      thousands?: string | null;
+      /** `12-` is −12. */
+      trailingMinus?: boolean;
+    }
+  | {
+      /** Read only: `{ mode, delimiters, breaks }` the wizard starts from. */
+      cmd: 'textToColumnsGuess';
+      sheet: number;
+      range: Rng;
     }
   | {
       cmd: 'removeDuplicates';

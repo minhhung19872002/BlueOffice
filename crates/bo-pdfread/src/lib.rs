@@ -18,7 +18,9 @@ mod annot_caret;
 mod annot_draw;
 mod annot_edit;
 mod annot_image;
+mod annot_paste;
 mod annot_popup;
+mod annot_rotate;
 mod arrange;
 mod cmap;
 mod cmyk;
@@ -74,11 +76,13 @@ pub use annot_draw::{
     Style as DrawStyle,
 };
 pub use annot_edit::CommentThread;
+pub use annot_popup::PopupNote;
+pub use annot_rotate::rotated_shape;
 pub use arrange::{flip_about, rotation_about};
 
 pub use convert::{StyledBlock, StyledRun};
 pub use design::{NewField, NewFieldKind, PageMarks};
-pub use edit::{Permissions, SaveOptions};
+pub use edit::{Cipher, Permissions, SaveOptions};
 pub use exchange::SummaryLabels;
 pub use exchange_data::ImportReport;
 pub use extract::ExtractedImage;
@@ -145,6 +149,10 @@ pub struct RenderExtra {
     pub printing: bool,
     /// Parts of the page drawn (the print dialog's Print What).
     pub print_what: PrintWhat,
+    /// On screen: annotations with the NoZoom flag (§12.5.3 Table 165, bit 4; sticky notes)
+    /// keep a fixed size, their rectangle scaled by this about its top left corner (the viewer
+    /// passes the inverse of its zoom); 0 draws them at their rectangle.
+    pub no_zoom: f32,
 }
 
 /// Parts of a page printed (the reference reader's Print What choices).
@@ -748,6 +756,7 @@ impl PdfDocument {
                     && extra.print_what.annotation(subtype)
                     && (!extra.printing || print_flag)
                 {
+                    let rect = no_zoom_rect(d, rect, extra.no_zoom);
                     draw_annotation(&mut it, doc, d, rect);
                 }
             }
@@ -891,6 +900,22 @@ fn device_rect(base: M, r: [f32; 4]) -> [f32; 4] {
 }
 
 /// Draw an annotation's normal appearance (§12.5.5) or a stand-in for markup without one.
+/// The rectangle a NoZoom annotation is drawn in: `rect` (user space) scaled by `k` about its
+/// upper left corner (§12.5.3: it stays the same size on screen whatever the zoom).
+fn no_zoom_rect(d: &Dictionary, rect: [f32; 4], k: f32) -> [f32; 4] {
+    let flags = d.get(b"F").ok().and_then(|o| o.as_i64().ok()).unwrap_or(0);
+    if flags & 8 == 0 || !(k > 0.0 && k.is_finite()) {
+        return rect;
+    }
+    let (x0, y0, x1, y1) = (
+        rect[0].min(rect[2]),
+        rect[1].min(rect[3]),
+        rect[0].max(rect[2]),
+        rect[1].max(rect[3]),
+    );
+    [x0, y1 - (y1 - y0) * k, x0 + (x1 - x0) * k, y1]
+}
+
 fn draw_annotation<'a>(
     it: &mut Interp<'_, 'a>,
     doc: &'a Document,

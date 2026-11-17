@@ -160,8 +160,13 @@ impl PdfWindow for ReaderWindow {
     fn set_print_paper(&mut self, name: &str, paper: Option<crate::Paper>) {
         ReaderWindow::set_print_paper(self, name, paper);
     }
+    fn set_pointer_mods(&mut self, m: crate::Mods) {
+        ReaderWindow::set_pointer_mods10(self, m);
+    }
     fn file_picked(&mut self, purpose: &str, path: &Path, bytes: &[u8]) {
-        if ReaderWindow::file_picked9(self, purpose, path) {
+        if ReaderWindow::file_picked9(self, purpose, path)
+            || ReaderWindow::file_picked10(self, purpose, bytes)
+        {
             return;
         }
         if !ReaderWindow::file_picked4(self, purpose, bytes) {

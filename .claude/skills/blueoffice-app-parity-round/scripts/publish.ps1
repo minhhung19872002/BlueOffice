@@ -25,6 +25,7 @@ foreach ($n in $Apps) {
       $ext = @{ "bluesheet-native" = "*.xlsx"; "blueslide-native" = "*.pptx" }[$n]; if (-not $ext) { $ext = "*.pdf" }
       $src = (Get-ChildItem $src -Filter $ext -Recurse | Select-Object -First 1).FullName
     }
+    if (-not $src -or -not (Test-Path $src)) { "no sample file for $n (not published)"; continue }
     $copy = Join-Path $env:TEMP ("smoke-" + $n + [IO.Path]::GetExtension($src))
     Copy-Item $src $copy -Force
     $env:BLUEOFFICE_SHOW_NOACTIVATE = "1"

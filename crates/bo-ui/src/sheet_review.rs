@@ -88,8 +88,8 @@ impl SheetWindow {
             ("sheet", "deleteComment") => self.delete_comment(),
             ("sheet", "prevComment") => self.step_comment(false),
             ("sheet", "nextComment") => self.step_comment(true),
-            ("sheet", "protectSheet") => self.open_review_dialog(SheetDialog::Protect),
-            ("sheet", "protectWorkbook") => self.toggle_workbook_protection(),
+            ("sheet", "protectSheet") => self.open_protect_sheet(),
+            ("sheet", "protectWorkbook") => self.open_protect_workbook(),
             _ => return None,
         })
     }
@@ -275,44 +275,6 @@ impl SheetWindow {
             .unwrap_or_default()
     }
 
-    fn sheet_protected(&mut self) -> bool {
-        let sheet = self.view.sheet();
-        self.view
-            .query(json!({ "cmd": "protection", "sheet": sheet }))
-            .and_then(|p| p.get("sheet")?.get("protected")?.as_bool())
-            .unwrap_or(false)
-    }
-
-    fn toggle_workbook_protection(&mut self) -> bool {
-        let sheet = self.view.sheet();
-        let locked = self
-            .view
-            .query(json!({ "cmd": "protection", "sheet": sheet }))
-            .and_then(|p| p.get("workbook")?.get("structure")?.as_bool())
-            .unwrap_or(false);
-        let cmd = if locked {
-            json!({ "cmd": "unprotectWorkbook", "password": "" })
-        } else {
-            json!({ "cmd": "protectWorkbook", "password": "" })
-        };
-        let ok = self.view.query(cmd).is_some();
-        self.status = if locked {
-            self.t(
-                "sheetMenu.workbookUnprotected",
-                "The workbook structure is no longer protected.",
-            )
-        } else {
-            self.t(
-                "sheetMenu.workbookProtected",
-                "The workbook structure is protected.",
-            )
-        };
-        if ok {
-            self.view.changed();
-        }
-        ok
-    }
-
     /// Open the comment, protection or Text to Columns dialog.
     pub(super) fn open_review_dialog(&mut self, kind: SheetDialog) -> bool {
         let ok = self.t("common.ok", "OK");
@@ -328,23 +290,6 @@ impl SheetWindow {
                 vec![(ok, DialogButton::Ok), (cancel, DialogButton::Cancel)],
                 Vec::new(),
             ),
-            SheetDialog::Protect => {
-                let title = if self.sheet_protected() {
-                    self.t("sheetMenu.unprotectTitle", "Unprotect Sheet")
-                } else {
-                    self.t("sheetMenu.protectTitle", "Protect Sheet")
-                };
-                Dialog::new(
-                    DialogKind::Link,
-                    title,
-                    vec![(
-                        self.t("sheetMenu.password", "Password (optional)"),
-                        String::new(),
-                    )],
-                    vec![(ok, DialogButton::Ok), (cancel, DialogButton::Cancel)],
-                    Vec::new(),
-                )
-            }
             SheetDialog::TextToColumns(step) => self.ttc_dialog(step),
             _ => return false,
         };
@@ -387,27 +332,6 @@ impl SheetWindow {
                     .is_some()
                 {
                     self.view.changed();
-                }
-                true
-            }
-            SheetDialog::Protect => {
-                self.dialog = None;
-                let protected = self.sheet_protected();
-                let cmd = if protected {
-                    json!({ "cmd": "unprotectSheet", "sheet": sheet, "password": v(0) })
-                } else {
-                    json!({ "cmd": "protectSheet", "sheet": sheet, "password": v(0) })
-                };
-                if self.view.query(cmd).is_some() {
-                    self.view.changed();
-                    self.status = if protected {
-                        self.t(
-                            "sheetMenu.sheetUnprotected",
-                            "The sheet is no longer protected.",
-                        )
-                    } else {
-                        self.t("sheetMenu.sheetProtected", "The sheet is protected.")
-                    };
                 }
                 true
             }

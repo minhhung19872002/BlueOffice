@@ -140,6 +140,14 @@ impl PdfDocument {
         Some((png_of(img.width, img.height, &img.pixels)?, "png"))
     }
 
+    /// The picture file of page object `id` of `page` when it is an image XObject (JPEG as
+    /// stored, else PNG; Edit Object › Extract Image, round 8).
+    pub fn object_image(&mut self, page: usize, id: usize) -> Option<(Vec<u8>, &'static str)> {
+        let objs = self.page_objects(page).ok()?;
+        let x = self.drawn_image(page, objs.get(id)?)?;
+        self.image_file(x)
+    }
+
     /// Every picture of the document once, in page order (Export All Images).
     pub fn extract_images(&mut self) -> Vec<ExtractedImage> {
         let mut seen = HashSet::new();

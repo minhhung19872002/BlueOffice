@@ -70,7 +70,9 @@ impl SheetWindow {
         let cells: Vec<(u32, u32)> = if self.show_all_comments {
             self.commented_cells()
         } else {
-            self.hover_comment.into_iter().collect()
+            let mut v: Vec<(u32, u32)> = self.pinned_comments.clone();
+            v.extend(self.hover_comment.filter(|h| !v.contains(h)));
+            v
         };
         let font = self.card_font(false);
         let width = (193.0 - 12.0) * self.scale / 1.25;

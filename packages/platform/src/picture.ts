@@ -131,4 +131,26 @@ export type PictureCommand =
   | { cmd: 'pictureChange'; data: string; name?: string }
   | { cmd: 'pictureReset'; size?: boolean }
   | { cmd: 'pictureInsertSvg'; data: string; name?: string }
-  | ({ cmd: 'pictureBackgroundPreview' | 'pictureRemoveBackground' } & RemovalSpec);
+  | ({ cmd: 'pictureBackgroundPreview' | 'pictureRemoveBackground' } & RemovalSpec)
+  /** Text wrapping (§20.4.2.8 inline, §20.4.2.15–20.4.2.20). */
+  | { cmd: 'pictureWrap'; wrap: PictureWrap }
+  /** Position gallery: in line, or square-wrapped at one of nine places of the margins. */
+  | { cmd: 'picturePosition'; position: 'inline' | `${'t' | 'm' | 'b'}${'l' | 'c' | 'r'}` }
+  /** Align a floating picture to the margin or (`page`) the page (§20.4.2.1 / §20.4.2.2). */
+  | {
+      cmd: 'pictureAlign';
+      align: 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom';
+      page?: boolean;
+    }
+  /** Turn the picture clockwise by `degrees` (§20.1.7.6 xfrm rot). */
+  | { cmd: 'pictureRotate'; degrees: number };
+
+/** Text wrapping of a picture (Wrap Text menu). */
+export type PictureWrap =
+  | 'inline'
+  | 'square'
+  | 'tight'
+  | 'through'
+  | 'topAndBottom'
+  | 'behind'
+  | 'inFront';

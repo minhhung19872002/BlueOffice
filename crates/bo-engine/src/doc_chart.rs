@@ -116,6 +116,7 @@ pub const WRAPS: &[&str] = &[
     "inline",
     "square",
     "tight",
+    "through",
     "topAndBottom",
     "behind",
     "inFront",
@@ -154,6 +155,7 @@ fn wrap_of(img: &Image) -> &'static str {
         Some(a) => match a.wrap {
             Wrap::Square => "square",
             Wrap::Tight => "tight",
+            Wrap::Through => "through",
             Wrap::TopAndBottom => "topAndBottom",
             Wrap::None if a.behind => "behind",
             Wrap::None => "inFront",
@@ -162,7 +164,10 @@ fn wrap_of(img: &Image) -> &'static str {
 }
 
 /// The anchor of a frame wrapped as `wrap`, keeping `old`'s position.
-fn anchor_for(wrap: &str, old: Option<&Anchor>) -> std::result::Result<Option<Anchor>, String> {
+pub(crate) fn anchor_for(
+    wrap: &str,
+    old: Option<&Anchor>,
+) -> std::result::Result<Option<Anchor>, String> {
     if !WRAPS.contains(&wrap) {
         return Err("badChart".into());
     }
@@ -179,10 +184,11 @@ fn anchor_for(wrap: &str, old: Option<&Anchor>) -> std::result::Result<Option<An
     a.wrap = match wrap {
         "square" => Wrap::Square,
         "tight" => Wrap::Tight,
+        "through" => Wrap::Through,
         "topAndBottom" => Wrap::TopAndBottom,
         _ => Wrap::None,
     };
-    if a.wrap != Wrap::Tight {
+    if !matches!(a.wrap, Wrap::Tight | Wrap::Through) {
         a.polygon = None;
         a.polygon_points.clear();
     }

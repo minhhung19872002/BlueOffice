@@ -365,3 +365,69 @@ track âm (panic `min > max`, thấy ngẫu nhiên khi chạy bản release); na
 
 Còn lại: OCR, From Web Page, Preflight, Accounting Calculator, Action Wizard, Index vẫn xám; Format pane mở khi chọn công cụ
 ghi chú (bản đối chiếu không mở) làm trang thu nhỏ theo bề rộng.
+
+## Vòng 8 (2026-11-16)
+
+Ảnh so sánh (bản đối chiếu trái / trên, BlueEditor phải / dưới): `scratchpad/show/editor-60…*.png`.
+
+**Hộp thoại kiểu cổ điển** (`editor_form8.rs` — bộ điều khiển chung: nhóm có tiêu đề, nhãn bên trái, nút chọn, ô
+đánh dấu, ô số có mũi tên, danh sách thả, liên kết, nút biểu tượng của ta; `editor_dlg8.rs`, `editor_dlg8b.rs`). Đo
+trên hộp thoại của bản đối chiếu ở 125 % (PrintWindow; menu mở bằng phím gửi tới cửa sổ menu), vị trí từng điều khiển
+theo số đo, cỡ hộp đúng bằng bản đối chiếu: Add Headers and Footers 1004 × 820, Add Watermark 1093 × 802, Add
+Background 957 × 703, Add Bates Numbering 933 × 532, Password Protection 708 × 612, Insert Blank Page 479 × 370, Extract
+Pages 444 × 491, Split Document 494 × 424 (`editor-60…67`). Các nút Header & Footer / Watermark / Background / Bates mở
+menu Add / Remove All như bản đối chiếu (`PdfDocument::remove_page_marks`). Danh sách thả là danh sách combo của
+Windows như bản đối chiếu (khung `#7A7A7A`, mục 21 px, mục chọn `#0078D4` chữ trắng, tối đa 11 mục có thanh cuộn) — cả
+trong Page Transitions.
+
+- Header & Footer: phông, cỡ, màu, kiểu chữ (gạch chân), lề trên / dưới / trái / phải (inch), sáu ô chữ, Macros +
+  Insert, liên kết Appearance Options (dời phải / lên), Page number and date format (5 dạng số trang, 4 dạng ngày, số
+  bắt đầu), Page Range Options (tất cả / từ–đến, chẵn / lẻ), xem trước có đường lề nét đứt; Save Settings / Delete lưu
+  bộ thiết lập có tên vào Saved Settings, ghi ra `%LOCALAPPDATA%/BlueOffice/editor-presets.txt` (cả policy của
+  Password Protection) và đọc lại ở phiên sau.
+- Watermark: chữ hoặc ảnh (File: Browse chọn ảnh, Absolute Scale hoặc theo bề rộng trang), phông / cỡ (Auto) / màu /
+  kiểu chữ, xoay −45 / 0 / 45 / tuỳ chỉnh, độ mờ (thanh trượt + ô số), co theo trang, lặp nhiều dòng với khoảng hàng /
+  cột, sau / trên trang, vị trí (khoảng dọc / ngang, đơn vị, tính từ), Page Range Options, ba nút biểu tượng lưu / nạp /
+  xoá bộ thiết lập (hình của ta); xem trước là ảnh trang thật (`ReaderView::want_preview`) với chữ hình mờ.
+- Background: màu, độ mờ, co theo trang, vị trí, Page Range Options, xem trước trang thật phủ màu.
+- Bates: danh sách tệp (tài liệu đang mở), OK sang hộp Bates Numbering Options (số chữ số, số bắt đầu, tiền tố, hậu tố).
+- Password Protection: ô nhập luôn trắng, nhãn đen, gõ vào thì tự đánh dấu ô yêu cầu, cách 4 px trước mỗi ô;
+  Permission… mở hộp quyền; Changes mặc định “Any except extracting pages”; AES 128 / AES 256 / ARC-FOUR 128
+  (`Cipher::Rc4`, bộ xử lý bảo mật bản 3, `set_protection_with`); Don't encrypt metadata (`/EncryptMetadata false`);
+  Save the settings as a new policy giữ lựa chọn (không giữ mật khẩu) cho lần sau.
+- Insert Blank Page (trước / sau trang, đầu / cuối, số trang) và Insert Pages sau khi chọn tệp; Extract Pages (tất cả /
+  khoảng, chẵn / lẻ, một PDF / nhiều PDF theo dấu phẩy / mỗi trang một PDF, lưu ngay hoặc mở thành tab, xoá sau khi
+  trích); Split Document (theo số trang, cỡ tệp, khoảng trang, dấu trang cấp đầu, trang trắng).
+
+Còn xám (có lý do): Select More Files / Output Options (tách / Bates nhiều tệp), Shrink document, phông khác Helvetica
+(dấu trang vẽ bằng phông đóng gói), nguồn PDF cho hình mờ / ảnh nền, chữ động. Optimize và Save As: mục trang File của
+bản đối chiếu không nhận cú bấm gửi bằng thông điệp nên chưa chụp được hộp của nó — giữ hộp hiện có.
+
+**Edit Text** (`editor_join8.rs`): Backspace ở đầu đoạn nối đoạn vào đoạn ngay trên trong khung, chữ chạy tiếp sau ký
+tự cuối, không thêm dấu cách; Delete ở cuối đoạn kéo đoạn dưới lên; ở đầu đoạn đầu tiên Backspace không làm gì — như
+bản đối chiếu (`editor-68`). Khung Format khi bật Edit Text / Edit Object nay là dải thu gọn 18 px `#E2E2E2` có mũi tên
+như bản đối chiếu, trang giữ mức thu phóng (trước: khung mở ngay, trang thu từ 142,8 % xuống 98,6 %); bấm dải thì mở.
+Nhấp đúp chọn từ, nhấp ba chọn đoạn, Ctrl+mũi tên, Home / End, Shift chọn, Enter tách, dán chữ thường: đã có.
+
+**Edit Object**: menu chuột phải của ảnh thêm Replace Image / Extract Image (JPEG giữ nguyên, khác thì PNG,
+`PdfDocument::object_image`). Tay cầm xoay như bản đối chiếu (`editor_rot8.rs`): nút tròn phía trên giữa cạnh trên của vùng chọn, đường nét đứt
+xuống tâm; kéo thì xoay vùng chọn quanh tâm (Shift: bước 15°), hiện góc khi kéo, một bước hoàn tác. Clip Path chưa làm.
+
+**Sót từ vòng 7**: chọn công cụ ghi chú không mở khung Format, không đổi thu phóng (`cmt8.props` mở thuộc tính khi
+cần); cột trái trang File 272 px tính từ mép cửa sổ như bản đối chiếu; menu của ribbon không còn bị lưới trang của
+Organize che (trước bị cắt ở dải tab).
+
+**Tốc độ** (bản release, máy đang build song song):
+
+| Đo | Vòng 6–7 | Vòng 8 |
+| --- | --- | --- |
+| Mở sổ tay 1 202 trang / trang đầu (`--bench`, 3 lần) | 37–58 / 48–70 ms | 34–57 / 46–71 ms |
+| Gõ trong đoạn, tổng mỗi phím p50 / p95 (67 ký tự, 2 lần) | 5,3 / 8,0 ms | 2,4 / 4,8–8,1 ms (xử lý phím 0,15 ms) |
+| Lưu sau một ký tự gõ (nối thêm, +743 byte) | — | 2,6 ms |
+| Xoá một trang rồi Lưu (ghi lại toàn bộ): 6 trang / 1 202 trang 10 MB | 15,7 (100 tr.) / 63,4 ms | 2,6 / 76 ms |
+| Bộ nhớ sau khi mở sổ tay (working set / private) | 90 / 129 MB | 82 / 91 MB |
+
+XFA tĩnh → biểu mẫu thường đã làm ở vòng 7; OCR vẫn xám (cần mô hình nhận dạng).
+
+Còn lại: Clip Path của Edit Object; vùng chọn chữ của bản đối chiếu là nền `#1B3471` chữ trắng (ta vẫn
+phủ xanh trong); Optimize / Save As chưa đối chiếu.

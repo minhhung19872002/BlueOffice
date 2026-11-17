@@ -716,23 +716,22 @@ fn layout_paragraph(
             // overflows, as the reference presentation app does (measured: the word
             // starts a line of its own, the text after it continues on its last part).
             for piece in word {
-                let mut rest = piece;
+                // One cursor per piece: each line measures only its own characters, so a
+                // run of any length without break opportunities lays out in linear time.
+                let mut rest = WordCursor::new(piece, fonts);
                 loop {
                     let (_, avail) = new_line_avail(lines.len());
-                    let (head, tail) =
-                        split_to_fit(rest, avail - line_w, line_pieces.is_empty(), fonts);
+                    let (head, more) =
+                        rest.next_line(avail - line_w, line_pieces.is_empty(), fonts);
                     if let Some(h) = head {
                         line_w += h.width;
                         line_pieces.push(h);
                     }
-                    match tail {
-                        Some(t) => {
-                            finish(std::mem::take(&mut line_pieces), &mut lines, fonts, false);
-                            line_w = 0.0;
-                            rest = t;
-                        }
-                        None => break,
+                    if !more {
+                        break;
                     }
+                    finish(std::mem::take(&mut line_pieces), &mut lines, fonts, false);
+                    line_w = 0.0;
                 }
             }
         } else {
@@ -813,66 +812,194 @@ fn push_piece(
     });
 }
 
-/// Split `piece` at the last character boundary whose text (without trailing spaces) fits
-/// in `room` points: the part that fits and the rest. A line with nothing on it takes at
-/// least one character, so the text always advances.
-fn split_to_fit(
+/// Characters of a word beyond which it is broken into lines by summed advances alone.
+const LONG_WORD_CHARS: usize = 4096;
+
+/// Advance of the first `i` characters of `text` for every `i` (`len + 1` values), from
+/// one shaping of the whole text: each glyph's advance counts at the character that
+/// starts its cluster.
+fn prefix_advances(fonts: &mut FontManager, st: &Style, text: &str) -> Vec<f64> {
+    let starts: Vec<usize> = text.char_indices().map(|(i, _)| i).collect();
+    let mut per_char = vec![0.0f64; starts.len()];
+    for (range, face) in fonts.itemize(st.face, text) {
+        let upem = f64::from(fonts.info(face).units_per_em.max(1));
+        let k = st.size / upem * st.adv();
+        for g in fonts.shape(face, &text[range.clone()]).iter() {
+            let byte = range.start + g.cluster as usize;
+            let ci = starts.partition_point(|&b| b <= byte).saturating_sub(1);
+            if let Some(w) = per_char.get_mut(ci) {
+                *w += f64::from(g.x_advance) * k;
+            }
+        }
+    }
+    let mut cum = Vec::with_capacity(per_char.len() + 1);
+    let mut acc = 0.0;
+    cum.push(acc);
+    for w in per_char {
+        acc += w;
+        cum.push(acc);
+    }
+    cum
+}
+
+/// The part of a word piece wider than a line still to be placed: cut line by line at the
+/// last character boundary whose text (without trailing spaces) fits.
+struct WordCursor {
     piece: Piece,
-    room: f64,
-    line_empty: bool,
-    fonts: &mut FontManager,
-) -> (Option<Piece>, Option<Piece>) {
-    if piece.width - piece.trailing <= room {
-        return (Some(piece), None);
+    /// Byte offset of every character boundary after the first character (the end last).
+    bounds: Vec<usize>,
+    map: SrcMap,
+    /// Advance of the first `i` characters shaped as one text (`cum[0]` = 0): the guess
+    /// of where each line ends, checked by measuring the line itself.
+    cum: Vec<f64>,
+    /// Characters already placed.
+    done: usize,
+}
+
+impl WordCursor {
+    fn new(piece: Piece, fonts: &mut FontManager) -> WordCursor {
+        let bounds: Vec<usize> = piece
+            .text
+            .char_indices()
+            .map(|(i, _)| i)
+            .skip(1)
+            .chain(std::iter::once(piece.text.len()))
+            .collect();
+        let map = SrcMap::new(&piece.text, piece.src);
+        let cum = prefix_advances(fonts, &piece.style, &piece.text);
+        WordCursor {
+            piece,
+            bounds,
+            map,
+            cum,
+            done: 0,
+        }
     }
-    let bounds: Vec<usize> = piece
-        .text
-        .char_indices()
-        .map(|(i, _)| i)
-        .skip(1)
-        .chain(std::iter::once(piece.text.len()))
-        .collect();
-    // Largest count of characters that fits (binary search on the prefix width).
-    let fits = |n: usize, fonts: &mut FontManager| {
-        measure(fonts, &piece.style, piece.text[..bounds[n - 1]].trim_end()) <= room
-    };
-    let (mut lo, mut hi) = (0usize, bounds.len());
-    while lo < hi {
-        let mid = (lo + hi).div_ceil(2);
-        if fits(mid, fonts) {
-            lo = mid;
+
+    /// Largest count of the next characters whose summed advances fit in `room`.
+    fn guess(&self, room: f64) -> usize {
+        let base = self.cum[self.done];
+        let left = self.bounds.len() - self.done;
+        let (mut lo, mut hi) = (0usize, left);
+        while lo < hi {
+            let mid = (lo + hi).div_ceil(2);
+            if self.cum[self.done + mid] - base <= room {
+                lo = mid;
+            } else {
+                hi = mid - 1;
+            }
+        }
+        lo
+    }
+
+    /// Byte offset where the characters still to place start.
+    fn start(&self) -> usize {
+        match self.done {
+            0 => 0,
+            n => self.bounds[n - 1],
+        }
+    }
+
+    /// Width of the next `n` characters (trailing spaces left out).
+    fn width_of(&self, n: usize, fonts: &mut FontManager) -> f64 {
+        let end = self.bounds[self.done + n - 1];
+        measure(
+            fonts,
+            &self.piece.style,
+            self.piece.text[self.start()..end].trim_end(),
+        )
+    }
+
+    /// The characters that fit in `room` points, and whether some are left for the next
+    /// line. A line with nothing on it takes at least one character, so the text always
+    /// advances. Each line measures only its own characters, so placing the whole word is
+    /// linear in its length rather than O(n²).
+    fn next_line(
+        &mut self,
+        room: f64,
+        line_empty: bool,
+        fonts: &mut FontManager,
+    ) -> (Option<Piece>, bool) {
+        let left = self.bounds.len() - self.done;
+        if left == 0 {
+            return (None, false);
+        }
+        if self.done == 0 && self.piece.width - self.piece.trailing <= room {
+            self.done = self.bounds.len();
+            return (Some(self.piece.clone()), false);
+        }
+        // The summed advances usually give the line exactly (shaping only differs at
+        // the cut); otherwise search with exact measures. A word longer than
+        // [`LONG_WORD_CHARS`] (no real text: hostile or broken files) takes the summed
+        // advances as they are, so each line is shaped once, to be drawn.
+        let g = self.guess(room);
+        let exact = g > 0
+            && (self.bounds.len() > LONG_WORD_CHARS
+                || (self.width_of(g, fonts) <= room
+                    && (g == left || self.width_of(g + 1, fonts) > room)));
+        let lo = if exact {
+            g
         } else {
-            hi = mid - 1;
+            self.search(room, left, fonts)
+        };
+        self.take(lo, line_empty, fonts)
+    }
+
+    /// Largest count of the next characters (at most `left`) that fits in `room`, by
+    /// measuring: galloping from one character up (each probe measures at most twice
+    /// the characters of the line found), then a binary search.
+    fn search(&self, room: f64, left: usize, fonts: &mut FontManager) -> usize {
+        let (mut lo, mut hi) = (0usize, left);
+        let mut probe = 1usize;
+        while probe <= left {
+            if self.width_of(probe, fonts) <= room {
+                lo = probe;
+                if probe == left {
+                    hi = left;
+                    break;
+                }
+                probe = (probe * 2).min(left);
+            } else {
+                hi = probe - 1;
+                break;
+            }
         }
-    }
-    if lo == 0 {
-        if !line_empty {
-            return (None, Some(piece));
+        while lo < hi {
+            let mid = (lo + hi).div_ceil(2);
+            if self.width_of(mid, fonts) <= room {
+                lo = mid;
+            } else {
+                hi = mid - 1;
+            }
         }
-        lo = 1;
+        lo
     }
-    if lo >= bounds.len() {
-        return (Some(piece), None);
+
+    /// Place the next `lo` characters (at least one on an empty line).
+    fn take(
+        &mut self,
+        mut lo: usize,
+        line_empty: bool,
+        fonts: &mut FontManager,
+    ) -> (Option<Piece>, bool) {
+        if lo == 0 {
+            if !line_empty {
+                return (None, true);
+            }
+            lo = 1;
+        }
+        let (a, b) = (self.start(), self.bounds[self.done + lo - 1]);
+        self.done += lo;
+        let mut head = Vec::new();
+        push_piece(
+            &mut head,
+            &self.piece.text[a..b],
+            &self.piece.style,
+            fonts,
+            self.map.range(a, b),
+        );
+        (head.pop(), self.done < self.bounds.len())
     }
-    let cut = bounds[lo - 1];
-    let map = SrcMap::new(&piece.text, piece.src);
-    let mut head = Vec::new();
-    push_piece(
-        &mut head,
-        &piece.text[..cut],
-        &piece.style,
-        fonts,
-        map.range(0, cut),
-    );
-    let mut tail = Vec::new();
-    push_piece(
-        &mut tail,
-        &piece.text[cut..],
-        &piece.style,
-        fonts,
-        map.range(cut, piece.text.len()),
-    );
-    (head.pop(), tail.pop())
 }
 
 /// A line placed in the text box.
@@ -1153,6 +1280,9 @@ impl TextGeometry {
     }
 }
 
+/// Characters of a text body whose caret positions are measured one by one.
+const GEOMETRY_MEASURES: usize = 20_000;
+
 /// Lay out a text body and return caret positions instead of drawing.
 #[allow(clippy::too_many_arguments)]
 pub fn text_geometry(
@@ -1185,6 +1315,11 @@ pub fn text_geometry(
         starts.push(v);
     }
     let mut lines = Vec::with_capacity(a.lines.len());
+    // Caret x of each character is the width of the text before it, measured on its own
+    // (one shaping per character). Past [`GEOMETRY_MEASURES`] characters — megabytes of
+    // text in one box, hostile files — the rest takes the advances of each piece shaped
+    // once, so the geometry stays linear in the text.
+    let mut budget = GEOMETRY_MEASURES;
     for pl in &a.lines {
         let line = &a.layout[pl.para].lines[pl.line];
         let start = starts[pl.para][pl.line];
@@ -1194,6 +1329,12 @@ pub fn text_geometry(
         for p in &line.pieces {
             let n = p.src.1.saturating_sub(p.src.0);
             let chars: Vec<(usize, char)> = p.text.char_indices().collect();
+            let cum = if budget >= chars.len() {
+                budget -= chars.len();
+                None
+            } else {
+                Some(prefix_advances(fonts, &p.style, &p.text))
+            };
             for k in 0..=n {
                 let off = p.src.0 + k;
                 if off < start || off > end {
@@ -1204,6 +1345,8 @@ pub fn text_geometry(
                 let byte = chars.get(shown).map_or(p.text.len(), |c| c.0);
                 let w = if shown >= chars.len() {
                     p.width
+                } else if let Some(cum) = &cum {
+                    cum[shown]
                 } else {
                     measure(fonts, &p.style, &p.text[..byte])
                 };
@@ -1455,7 +1598,188 @@ fn line_cmd(x1: f64, y: f64, x2: f64, width: f64, color: Rgba) -> Command {
 
 #[cfg(test)]
 mod tests {
-    use super::auto_number;
+    use super::{
+        auto_number, measure, push_piece, text_geometry, Piece, Style, TextEnv, TextGeometry,
+        WordCursor, GEOMETRY_MEASURES, LONG_WORD_CHARS,
+    };
+    use crate::inherit::TextStyleStack;
+    use bo_model::slide::{Attrs, BodyProps, Paragraph, RunProps, TextBody, TextFont, TextRun};
+    use bo_render::Rgba;
+    use bo_text::FontManager;
+
+    fn fonts_and_style() -> (FontManager, Style) {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/fonts");
+        let mut fm = FontManager::new();
+        assert!(fm.add_fonts_from_dir(&dir) > 0, "bundled fonts missing");
+        let face = fm.resolve("Calibri", false, false).expect("face");
+        let st = Style {
+            face,
+            size: 20.0,
+            color: Rgba(0, 0, 0, 255),
+            underline: false,
+            strike: false,
+            baseline: 0.0,
+            fx: None,
+            shadow: None,
+            synth_bold: false,
+        };
+        (fm, st)
+    }
+
+    fn word(n: usize) -> String {
+        (0..n)
+            .map(|i| char::from(b'a' + u8::try_from(i * 7 % 26).unwrap_or(0)))
+            .collect()
+    }
+
+    /// Cut `text` into lines `room` points wide; the lines and the time taken.
+    fn cut(
+        fm: &mut FontManager,
+        st: &Style,
+        text: &str,
+        room: f64,
+    ) -> (Vec<Piece>, std::time::Duration) {
+        let t = std::time::Instant::now();
+        let mut pieces = Vec::new();
+        push_piece(&mut pieces, text, st, fm, (0, text.chars().count()));
+        let mut cur = WordCursor::new(pieces.remove(0), fm);
+        let mut lines = Vec::new();
+        loop {
+            let (head, more) = cur.next_line(room, true, fm);
+            lines.extend(head);
+            if !more {
+                break;
+            }
+        }
+        (lines, t.elapsed())
+    }
+
+    #[test]
+    fn a_long_word_breaks_where_it_overflows() {
+        let (mut fm, st) = fonts_and_style();
+        let text = word(500);
+        let (lines, _) = cut(&mut fm, &st, &text, 200.0);
+        assert!(lines.len() > 5);
+        let mut src = 0;
+        for (i, l) in lines.iter().enumerate() {
+            // Contiguous source ranges, each line as wide as fits and no wider.
+            assert_eq!(l.src.0, src);
+            src = l.src.1;
+            assert!(
+                measure(&mut fm, &st, &l.text) <= 200.0,
+                "line {i} overflows"
+            );
+            if i + 1 < lines.len() {
+                let next = lines[i + 1].text.chars().next().unwrap_or('a');
+                let more = format!("{}{next}", l.text);
+                assert!(measure(&mut fm, &st, &more) > 200.0, "line {i} is short");
+            }
+        }
+        assert_eq!(src, 500);
+        assert_eq!(
+            lines.iter().map(|l| l.text.as_str()).collect::<String>(),
+            text
+        );
+    }
+
+    /// One text box holding a run of megabytes without a break opportunity (hostile
+    /// files): cutting it into lines is linear, not quadratic, in its length.
+    #[test]
+    fn cutting_a_huge_word_is_linear() {
+        let (mut fm, st) = fonts_and_style();
+        let small = word(40_000);
+        let big = word(160_000);
+        assert!(small.len() > LONG_WORD_CHARS);
+        // Warm the face tables up.
+        let _ = cut(&mut fm, &st, &word(5_000), 300.0);
+        let (a, ta) = cut(&mut fm, &st, &small, 300.0);
+        let (b, tb) = cut(&mut fm, &st, &big, 300.0);
+        // Summed advances: within kerning of the room.
+        assert!(a.iter().all(|l| l.width <= 301.0));
+        assert_eq!(b.iter().map(|l| l.text.len()).sum::<usize>(), big.len());
+        // 4× the text: 4× the time when linear, 16× when quadratic.
+        let ratio = tb.as_secs_f64() / ta.as_secs_f64().max(1e-6);
+        assert!(
+            ratio < 9.0,
+            "{ta:?} for 40 000, {tb:?} for 160 000 characters"
+        );
+    }
+
+    /// Caret geometry of one paragraph of `text` in a 300 × 40 pt box, and its time.
+    fn geometry(fm: &mut FontManager, text: &str) -> (TextGeometry, std::time::Duration) {
+        let body = TextBody {
+            body_pr: BodyProps::default(),
+            list_style: None,
+            paragraphs: vec![Paragraph {
+                props: None,
+                runs: vec![TextRun::Run {
+                    props: RunProps {
+                        sz: Some(2000),
+                        latin: Some(TextFont {
+                            typeface: "Calibri".into(),
+                            attrs: Attrs::default(),
+                        }),
+                        ..RunProps::default()
+                    },
+                    text: text.to_owned(),
+                }],
+                end_props: None,
+            }],
+        };
+        let env = TextEnv {
+            theme: None,
+            colors: bo_drawingml::color::ColorContext::default(),
+            slide_number: 1,
+            part: "",
+            rels: &[],
+            followed: &[],
+        };
+        let t = std::time::Instant::now();
+        let g = text_geometry(
+            &body,
+            &body.body_pr,
+            &TextStyleStack::default(),
+            [0.0, 0.0, 300.0, 40.0],
+            &env,
+            fm,
+        );
+        (g, t.elapsed())
+    }
+
+    /// Clicking into a text box of megabytes without a break opportunity (hostile files)
+    /// computes its caret positions in linear time; ordinary text keeps measured ones.
+    #[test]
+    fn caret_geometry_of_a_huge_text_is_linear() {
+        let (mut fm, st) = fonts_and_style();
+        let small = word(GEOMETRY_MEASURES * 2);
+        let big = word(GEOMETRY_MEASURES * 8);
+        let _ = geometry(&mut fm, &word(500));
+        let (a, ta) = geometry(&mut fm, &small);
+        let (b, tb) = geometry(&mut fm, &big);
+        for g in [&a, &b] {
+            assert_eq!(g.lines.first().map(|l| l.start), Some(0));
+            for l in &g.lines {
+                assert_eq!(l.xs.len(), l.end - l.start + 1);
+                assert!(
+                    l.xs.windows(2).all(|w| w[1] + 1e-6 >= w[0]),
+                    "carets go back"
+                );
+            }
+        }
+        assert_eq!(b.lines.last().map(|l| l.end), Some(big.chars().count()));
+        // The first lines are measured one character at a time, as before.
+        let first = &a.lines[0];
+        let x0 = first.xs[0];
+        for k in 1..first.xs.len() {
+            let w = measure(&mut fm, &st, &small[..k]);
+            assert!((first.xs[k] - x0 - w).abs() < 1e-6, "caret {k}");
+        }
+        let ratio = tb.as_secs_f64() / ta.as_secs_f64().max(1e-6);
+        assert!(
+            ratio < 9.0,
+            "{ta:?} for 40 000, {tb:?} for 160 000 characters"
+        );
+    }
 
     #[test]
     fn auto_numbers() {

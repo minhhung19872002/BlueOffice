@@ -318,7 +318,10 @@ impl PdfDocument {
                     n(g),
                     n(b),
                     n(rect[0] + size * 0.8),
-                    n(rect[1] + (h - size * 0.7) / 2.0)
+                    // `text_paths` puts the baseline 0.9 size below its top (0 here): the
+                    // capitals (0.7 size high) centred in the frame. Before, the baseline went
+                    // where their bottom should be and the word hung out of the stamp.
+                    n(rect[1] + (h - size * 0.7) / 2.0 + size * 0.9)
                 );
                 d.set("Name", Object::Name(b"Approved".to_vec()));
                 ("Stamp", s)

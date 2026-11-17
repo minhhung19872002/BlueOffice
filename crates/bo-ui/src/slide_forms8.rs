@@ -23,6 +23,11 @@ pub(super) enum Dlg {
     /// More Entrance / Emphasis / Exit Effects, More Motion Paths: every effect of a class
     /// (`entr`, `emph`, `exit`, `path`) by group; with `add`, the choice is added.
     MoreEffects(&'static str, bool),
+    /// Language (Review › Language, the status bar's language): mark text as a proofing
+    /// language or as not to be checked (round 19).
+    Language,
+    /// Timing of effect `index` (Animation Pane row menu › Timing…, round 19).
+    Timing(usize),
 }
 
 /// The catalog's effects by class and group (heading key, engine ids), our own grouping in
@@ -218,6 +223,12 @@ impl SlideWindow {
         let mut chosen_slides = Vec::new();
         let mut fx = Vec::new();
         let form = match kind {
+            Dlg::Language => {
+                let (f, rs) = self.language_form(&ok, &cancel);
+                radios = rs;
+                f
+            }
+            Dlg::Timing(index) => self.timing_form(index, &ok, &cancel),
             Dlg::MoreEffects(class, add) => {
                 let (title_key, title) = match (class, add) {
                     ("emph", false) => ("changeEmphasis", "Change Emphasis Effect"),
@@ -941,6 +952,9 @@ impl SlideWindow {
         if kind == Dlg::SetUp {
             sync_setup(&mut open);
         }
+        if kind == Dlg::Language {
+            super::lang9::place_language_radios(&mut open);
+        }
         if let Dlg::DefineShow(_) = kind {
             let titles = self.slide_titles8();
             let items = open
@@ -1214,6 +1228,8 @@ impl SlideWindow {
                 return self.open_form8(Dlg::CustomShows);
             }
             Dlg::CustomShows => {}
+            Dlg::Language => self.language_ok(&open),
+            Dlg::Timing(index) => self.timing_ok(index, &open),
             Dlg::MoreEffects(class, add) => {
                 if let Some(Some(id)) = f.sel("list").and_then(|i| open.fx.get(i)) {
                     self.pick_effect(id, class, add);

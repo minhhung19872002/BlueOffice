@@ -80,6 +80,12 @@ mod fill11;
 // Ribbon metrics, Select / Assistant menus, Comment / Share tab ends (BlueReader round 12).
 #[path = "reader_r12_win.rs"]
 mod r12;
+// Loupe and Magnifier (BlueReader round 13).
+#[path = "reader_r13_win.rs"]
+mod r13;
+// View tab placement, menu icons (BlueReader round 14).
+#[path = "reader_r14_win.rs"]
+mod r14;
 pub use r12::{AccessItem, AccessRole};
 
 /// Measured greys of the reference reader at 125 %.
@@ -825,6 +831,7 @@ impl ReaderWindow {
         self.active = self.tabs.len() - 1;
         self.show_start = false;
         self.apply_view_prefs();
+        self.open_action13();
         if let Some(p) = path {
             self.recent.retain(|r| r != &p);
             self.recent.insert(0, p);
@@ -1249,7 +1256,10 @@ impl ReaderWindow {
                     } else {
                         self.look.big_pad_one
                     };
-                    let bw = (lw + self.px(pad)).max(self.px(self.big_min12(id))).round();
+                    x += self.px(self.nudge14(id));
+                    let bw = ((lw + self.px(pad)).max(self.px(self.big_min12(id)))
+                        + self.px(self.widen14(id)))
+                    .round();
                     self.controls.push(Control {
                         id,
                         kind,
@@ -2067,7 +2077,13 @@ impl ReaderWindow {
     /// Close document tab `i` without asking.
     pub(crate) fn close_tab_now(&mut self, i: usize) {
         if i < self.tabs.len() {
-            self.tabs.remove(i);
+            let t = self.tabs.remove(i);
+            // Round 14: the closed tab's page images leave the store with it.
+            let base = t.key_base;
+            self.twelve
+                .freed14
+                .extend(t.view.stored_keys().into_iter().map(|k| base + k));
+            drop(t);
             if self.active >= self.tabs.len() {
                 self.active = self.tabs.len().saturating_sub(1);
             }
@@ -2592,6 +2608,9 @@ impl ReaderWindow {
 
     /// Bring page images up to date; true when more work remains.
     pub fn prepare(&mut self, store: &mut dyn PdfStore) -> bool {
+        for k in std::mem::take(&mut self.twelve.freed14) {
+            store.remove(k);
+        }
         if self.show_start {
             return false;
         }
@@ -3109,6 +3128,9 @@ impl ReaderWindow {
         }
         if let Some(e) = self.twelve_enabled(id) {
             return e && self.showing_doc();
+        }
+        if self.fourteen_disabled(id) {
+            return false;
         }
         if let Some(e) = self.tabs5_enabled(id) {
             return e && self.showing_doc();

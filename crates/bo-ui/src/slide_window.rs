@@ -307,6 +307,11 @@ pub struct SlideWindow {
     /// Outline View: each listed paragraph line's top and pieces (text, x, bold, italic,
     /// underline).
     outline_lines: Vec<OutlineLine>,
+    /// Outline View: the caret and listed lines (round 19, editing in place).
+    outline9: outline9::Caret,
+    /// Accessibility pane (round 19) and the status bar's extra items.
+    a11y9: a11y9::A11yPane,
+    status9: status9::Status9,
     /// Selection Pane / Alt Text pane (same place as the comments pane; one at a time).
     side: selpane::SidePane,
     /// Picture Format gallery of previews (Corrections, Color, Transparency).
@@ -400,6 +405,21 @@ mod forms8;
 
 #[path = "slide_outline8.rs"]
 mod outline8;
+
+#[path = "slide_outline9.rs"]
+mod outline9;
+
+#[path = "slide_a11y9.rs"]
+mod a11y9;
+
+#[path = "slide_status9.rs"]
+mod status9;
+
+#[path = "slide_lang9.rs"]
+mod lang9;
+
+#[path = "slide_timing9.rs"]
+mod timing9;
 
 #[path = "slide_thesaurus.rs"]
 mod thesaurus;
@@ -681,6 +701,9 @@ impl SlideWindow {
             guides: false,
             outline_rows: Vec::new(),
             outline_lines: Vec::new(),
+            outline9: outline9::Caret::default(),
+            a11y9: a11y9::A11yPane::default(),
+            status9: status9::Status9::default(),
             side: selpane::SidePane::default(),
             gallery: None,
             bg_mode: None,
@@ -794,6 +817,12 @@ impl SlideWindow {
             if self.side.kind == selpane::SideKind::Spelling {
                 // The reference's Spelling pane is wider: 437 device px at 125 %.
                 (349.6 * self.scale).round()
+            } else if self.anim_pane.shown && !self.side.shown() {
+                // The reference's Animation Pane: 275 device px at 125 % (round 19).
+                (220.0 * self.scale).round()
+            } else if self.side.kind == selpane::SideKind::Accessibility {
+                // The reference's Accessibility pane: 400 device px at 125 % (round 19).
+                (a11y9::PANE_W * self.scale / 1.25).round()
             } else if self.side.kind == selpane::SideKind::Thesaurus {
                 // The reference's Thesaurus pane is narrower: 245 device px at 125 %.
                 (196.0 * self.scale).round()
@@ -983,6 +1012,7 @@ impl SlideWindow {
                 self.t("slideNative.animationPane", "Animation Pane"),
                 self.t("slideNative.playFrom", "Play From"),
                 self.t("slideNative.playAll", "Play All"),
+                self.t("slideNative.playSelected", "Play Selected"),
             ];
             self.anim_pane
                 .record(text, &effects, &labels, self.theme.text);
@@ -992,6 +1022,7 @@ impl SlideWindow {
         }
         self.view.measure_notes(text, self.text_size);
         self.layout_outline(text);
+        self.layout_status9(text);
         redraw
     }
 
@@ -1410,9 +1441,17 @@ impl SlideWindow {
             return None;
         }
         match input {
-            Input::Press { x, y, .. } if self.anim_pane.contains(*x, *y) => {
+            Input::Press { x, y, shift, .. } if self.anim_pane.contains(*x, *y) => {
                 self.area_press = false;
                 self.anim_focus = true;
+                if *shift {
+                    if let Some(AnimHit::Select(i)) = self.anim_pane.press(*x, *y) {
+                        // Shift+click: a range of rows ("Play Selected").
+                        self.anim_pane.extend_to(i);
+                        self.relayout_pending = true;
+                        return Some(true);
+                    }
+                }
                 Some(match self.anim_pane.press(*x, *y) {
                     Some(AnimHit::Close) => {
                         self.anim_pane.shown = false;
@@ -1454,6 +1493,7 @@ impl SlideWindow {
     /// Choose effect `i` in the Animation Pane and select its shape on the slide.
     fn choose_effect(&mut self, i: usize) -> bool {
         self.anim_pane.selected = Some(i);
+        self.anim_pane.extra.clear();
         let id = self
             .view
             .state()
@@ -2285,6 +2325,11 @@ impl SlideWindow {
                 return r;
             }
         }
+        if let Input::Text(t) = &input {
+            if let Some(r) = self.outline_text(t) {
+                return r;
+            }
+        }
         if let Some(b) = self.backstage.as_mut() {
             match input {
                 Input::Move { x, y } if y >= self.title.height() => return b.hover(x, y),
@@ -2394,6 +2439,12 @@ impl SlideWindow {
         if let Some(r) = self.removal_input(&input) {
             return r;
         }
+        if let Some(r) = self.thesaurus_pointer(&input) {
+            return r || tip_before != self.tooltip.is_some();
+        }
+        if let Some(r) = self.a9_input(&input) {
+            return r || tip_before != self.tooltip.is_some();
+        }
         if let Some(r) = self.side_input(&input) {
             return r || tip_before != self.tooltip.is_some();
         }
@@ -2473,7 +2524,7 @@ impl SlideWindow {
                     Some(7) => self.action("view.sorter"),
                     Some(8) => self.action("view.reading"),
                     Some(9) => self.action("show.fromCurrent"),
-                    _ => false,
+                    _ => self.status9_press(x, y),
                 }
             }
             Input::Press { x, y, .. } if self.marker_press(x, y) => {
@@ -2597,7 +2648,9 @@ impl SlideWindow {
         self.anim_pane.paint(p);
         self.paint_bg_pane(p);
         self.side.paint(p);
+        self.paint_a9(p);
         self.paint_status(p);
+        self.paint_status9(p);
         self.paint_gallery(p);
         if let Some(menu) = &self.menu {
             menu.paint(p, &self.theme, &self.icons);
@@ -2986,6 +3039,12 @@ impl SlideWindow {
         .enumerate()
         {
             let r = self.status[6 + i];
+            if *name == "show.fromStart" {
+                // Slide Show: a projector screen on its stand (own drawing, the
+                // reference's meaning; round 19).
+                status9::paint_screen(p, r, self.scale, ink);
+                continue;
+            }
             self.icons.draw(
                 p,
                 name,
@@ -2997,7 +3056,10 @@ impl SlideWindow {
         }
         // The notes toggle is a plain icon and label (no band), as on the reference; the
         // sorter has no notes, so no toggle.
-        if self.view.mode() == ViewMode::Normal && self.page_master.is_none() {
+        if self.view.mode() == ViewMode::Normal
+            && self.page_master.is_none()
+            && self.pane == viewtab::Pane::Normal
+        {
             self.icons.draw(
                 p,
                 "format.lineSpacing",
@@ -3058,12 +3120,26 @@ impl SlideWindow {
             PathSeg::L(cx + r, cy + r),
             PathSeg::L(cx - r, cy + r),
             PathSeg::Z,
-            PathSeg::M(cx - r + self.px(3.0), cy),
-            PathSeg::L(cx + r - self.px(3.0), cy),
-            PathSeg::M(cx, cy - r + self.px(3.0)),
-            PathSeg::L(cx, cy + r - self.px(3.0)),
         ];
         p.path(&segs, None, Some((ink, line)));
+        // Four small arrowheads at the middle of the sides pointing out: fit the slide to
+        // the frame (round 19, the reference's meaning in own shapes).
+        let a = self.px(2.0);
+        let e = r - self.px(1.5);
+        for (dx, dy) in [(0.0, -1.0), (0.0, 1.0), (-1.0, 0.0), (1.0, 0.0)] {
+            let (tx, ty) = (cx + dx * e, cy + dy * e);
+            let (bx, by) = (cx + dx * (e - 2.0 * a), cy + dy * (e - 2.0 * a));
+            p.path(
+                &[
+                    PathSeg::M(tx, ty),
+                    PathSeg::L(bx - dy * a, by - dx * a),
+                    PathSeg::L(bx + dy * a, by + dx * a),
+                    PathSeg::Z,
+                ],
+                Some(ink),
+                None,
+            );
+        }
     }
 
     /// The host's clock (ms) before a frame: transitions and effects advance with it;
@@ -3100,6 +3176,10 @@ mod tests;
 #[cfg(test)]
 #[path = "slide_round17_tests.rs"]
 mod round17_tests;
+
+#[cfg(test)]
+#[path = "slide_round19_tests.rs"]
+mod round19_tests;
 
 #[cfg(test)]
 #[path = "slide_round7_tests.rs"]

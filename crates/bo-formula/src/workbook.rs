@@ -20,6 +20,7 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 
 use crate::ast::Expr;
+use crate::cellstore::CellStore;
 use crate::date::DateSystem;
 use crate::eval::{static_areas, struct_area, Ctx, EvalConfig, TextFormatter};
 use crate::format::format;
@@ -33,6 +34,7 @@ use crate::reference::{parse_a1_cell, MAX_COLS, MAX_ROWS};
 use crate::shift::{
     adjust_for_change, adjust_span, is_row_change, offset_relative, StructuralChange,
 };
+use crate::simple::Program;
 use crate::value::{parse_number_text, Area, Array, ErrorKind, Value};
 
 /// Address of a cell in a workbook.
@@ -81,6 +83,8 @@ struct Formula {
     /// cells (ECMA-376 Part 1, §18.17.2.4 array formulas; §18.3.1.40 `f` with
     /// `t="array"` and `ref`) instead of spilling.
     fixed: Option<(u32, u32)>,
+    /// The formula as plain arithmetic on numbers, when it is that.
+    simple: Option<Program>,
 }
 
 impl Formula {
@@ -90,6 +94,7 @@ impl Formula {
             let _ = cell.set(t);
         }
         Formula {
+            simple: Program::compile(&expr),
             expr,
             text: cell,
             fixed: None,
@@ -110,12 +115,17 @@ impl Formula {
 struct CellData {
     formula: Option<Arc<Formula>>,
     value: Value,
+    /// A formula cell of the current recalculation pass not computed yet.
+    pending: bool,
+    /// A legacy array formula (`Formula::fixed`), kept here so storing a result needs
+    /// no look into the formula.
+    fixed: bool,
 }
 
 #[derive(Debug, Default)]
 struct Sheet {
     name: String,
-    cells: FxHashMap<(u32, u32), CellData>,
+    cells: CellStore<CellData>,
     rows: u32,
     cols: u32,
     hidden_rows: FxHashSet<u32>,
@@ -196,6 +206,11 @@ pub struct Workbook {
     /// Formulas calling `WEBSERVICE` loaded with a cached value (§18.3.1.96 `v`): while no
     /// web provider is installed their evaluation keeps that value instead of `#VALUE!`.
     web_cached: FxHashSet<CellId>,
+    /// Bumped whenever the dependency graph changes (a formula set or removed).
+    graph_version: u64,
+    /// Dirty set and evaluation order of the last recalculation, reused while the graph is
+    /// unchanged and the same cells are edited again (typing new inputs into one cell).
+    plan: Option<PlanCache>,
 }
 
 impl Default for Workbook {
@@ -231,6 +246,8 @@ impl Workbook {
             index_cache: RwLock::new(FxHashMap::default()),
             round_to: FxHashMap::default(),
             web_cached: FxHashSet::default(),
+            graph_version: 0,
+            plan: None,
         }
     }
 
@@ -273,7 +290,7 @@ impl Workbook {
                 s.cells
                     .iter()
                     .filter(|(_, d)| d.formula.is_some())
-                    .map(move |(&(r, c), _)| CellId::new(n + i, r, c))
+                    .map(move |((r, c), _)| CellId::new(n + i, r, c))
             })
             .collect();
         for id in ids {
@@ -281,6 +298,7 @@ impl Workbook {
         }
         self.sheets.truncate(n);
         let keep = |id: &CellId| id.sheet < n;
+        self.graph_version += 1;
         self.precedents.retain(|id, _| keep(id));
         self.dependents.retain(|id, _| keep(id));
         self.volatile.retain(keep);
@@ -320,7 +338,7 @@ impl Workbook {
             .collect();
         let mut ids = Vec::new();
         for (si, s) in self.sheets.iter().enumerate() {
-            for (&(r, c), d) in &s.cells {
+            for ((r, c), d) in s.cells.iter() {
                 let Some(f) = &d.formula else {
                     continue;
                 };
@@ -375,7 +393,7 @@ impl Workbook {
         }
         let mut ids = Vec::new();
         for (si, s) in self.sheets.iter().enumerate() {
-            for (&(r, c), d) in &s.cells {
+            for ((r, c), d) in s.cells.iter() {
                 if d.formula
                     .as_ref()
                     .is_some_and(|f| expr_uses_names(&f.expr, &changed))
@@ -546,6 +564,8 @@ impl Workbook {
                 CellData {
                     formula: None,
                     value,
+                    pending: false,
+                    fixed: false,
                 },
             );
             self.touch(id);
@@ -626,8 +646,10 @@ impl Workbook {
         self.sheets[sheet].cells.insert(
             (row, col),
             CellData {
+                fixed: fixed.is_some_and(|(r, c)| r > 0 && c > 0),
                 formula: Some(Arc::new(Formula::new(expr, text).with_fixed(fixed))),
                 value: old,
+                pending: false,
             },
         );
         self.touch(id);
@@ -678,6 +700,8 @@ impl Workbook {
                 // Text formatted on first use, like `set_formula`.
                 formula: Some(Arc::new(Formula::new(expr, None))),
                 value: cached.unwrap_or_default(),
+                pending: false,
+                fixed: false,
             },
         );
         self.touch(id);
@@ -704,6 +728,8 @@ impl Workbook {
             CellData {
                 formula: None,
                 value,
+                pending: false,
+                fixed: false,
             },
         );
         self.touch(CellId::new(sheet, row, col));
@@ -835,6 +861,8 @@ impl Workbook {
                         CellData {
                             formula: None,
                             value,
+                            pending: false,
+                            fixed: false,
                         },
                     );
                 }
@@ -875,7 +903,7 @@ impl Workbook {
         let cells = &mut self.sheets[sheet].cells;
         let mut slots: Vec<Option<&mut CellData>> = Vec::new();
         slots.resize_with(moved.len() * width, || None);
-        for (&(r, c), d) in cells.iter_mut() {
+        for ((r, c), d) in cells.iter_mut() {
             if r < start || c < c0 || c > c1 {
                 continue;
             }
@@ -943,6 +971,8 @@ impl Workbook {
                 CellData {
                     formula: None,
                     value,
+                    pending: false,
+                    fixed: false,
                 },
             );
         }
@@ -1068,9 +1098,9 @@ impl Workbook {
             return;
         };
         // Move cells on the changed sheet.
-        let old = std::mem::take(&mut self.sheets[sheet].cells);
-        let mut moved = FxHashMap::default();
-        for ((r, c), data) in old {
+        let mut old = std::mem::take(&mut self.sheets[sheet].cells);
+        let mut moved = CellStore::default();
+        for ((r, c), data) in old.drain() {
             let pos = match change {
                 StructuralChange::InsertRows { at, count } => {
                     Some((if r >= at { r + count } else { r }, c))
@@ -1103,7 +1133,7 @@ impl Workbook {
         // Rewrite every formula in the workbook.
         let mut rewrites = Vec::new();
         for (si, s) in self.sheets.iter().enumerate() {
-            for (&(r, c), data) in &s.cells {
+            for ((r, c), data) in s.cells.iter() {
                 if let Some(f) = &data.formula {
                     let e = adjust_for_change(&f.expr, change, &s.name, &changed_name);
                     rewrites.push((si, r, c, e, f.fixed));
@@ -1207,6 +1237,7 @@ impl Workbook {
     }
 
     fn register(&mut self, id: CellId, areas: Vec<Area>) {
+        self.graph_version += 1;
         for a in &areas {
             if a.size() <= SMALL_AREA {
                 for r in a.r1..=a.r2 {
@@ -1232,6 +1263,7 @@ impl Workbook {
         let Some(areas) = self.precedents.remove(&id) else {
             return;
         };
+        self.graph_version += 1;
         for a in &areas {
             if a.size() <= SMALL_AREA {
                 for r in a.r1..=a.r2 {
@@ -1311,12 +1343,13 @@ impl Workbook {
     fn rebuild_dependencies(&mut self) {
         let mut cells = Vec::new();
         for (si, s) in self.sheets.iter().enumerate() {
-            for (&(r, c), d) in &s.cells {
+            for ((r, c), d) in s.cells.iter() {
                 if let Some(f) = &d.formula {
                     cells.push((CellId::new(si, r, c), f.clone()));
                 }
             }
         }
+        self.graph_version += 1;
         self.precedents.clear();
         self.dependents.clear();
         self.range_deps.clear();
@@ -1333,7 +1366,7 @@ impl Workbook {
 
     fn mark_all_formulas(&mut self) {
         for (si, s) in self.sheets.iter().enumerate() {
-            for (&(r, c), d) in &s.cells {
+            for ((r, c), d) in s.cells.iter() {
                 if d.formula.is_some() {
                     self.changed.push(CellId::new(si, r, c));
                 }
@@ -1501,20 +1534,24 @@ impl Workbook {
         self.evaluations.store(0, Ordering::Relaxed);
         let mut seeds = std::mem::take(&mut self.changed);
         seeds.extend(self.volatile.iter().copied());
-        let dirty = self.propagate(seeds);
-        self.recalculated = dirty.nodes.clone();
-        self.calc_set(&dirty);
+        let plan = self.plan_for(seeds);
+        self.recalculated.clone_from(&plan.sorted);
+        self.calc_steps(&plan.steps);
+        let mut spilled = false;
         for _ in 0..SPILL_PASSES {
             if self.spill_changed.is_empty() {
                 break;
             }
+            spilled = true;
             let seeds = std::mem::take(&mut self.spill_changed);
             let dirty = self.propagate(seeds);
             self.recalculated.extend(dirty.nodes.iter().copied());
             self.calc_set(&dirty);
         }
-        self.recalculated.sort_unstable();
-        self.recalculated.dedup();
+        if spilled {
+            self.recalculated.sort_unstable();
+            self.recalculated.dedup();
+        }
         self.spill_changed.clear();
     }
 
@@ -1565,31 +1602,73 @@ impl Workbook {
         }
     }
 
-    fn calc_set(&mut self, dirty: &DirtyGraph) {
-        self.clear_pass_caches();
-        if dirty.nodes.is_empty() {
-            return;
+    /// Marks (or unmarks) formula cells as waiting to be computed in this pass (the
+    /// flag lives in the cell: evaluation checks it while reading the cell anyway).
+    fn set_pending(&mut self, ids: &[CellId], on: bool) {
+        for id in ids {
+            if let Some(c) = self
+                .sheets
+                .get_mut(id.sheet)
+                .and_then(|s| s.cells.get_mut(&(id.row, id.col)))
+            {
+                c.pending = on;
+            }
         }
-        let order = dirty.order(PAR_MIN_LEVEL);
-        let mut pending: FxHashSet<CellId> = dirty.nodes.iter().copied().collect();
+    }
+
+    /// Whether `id` is a formula cell of this pass not computed yet.
+    fn is_pending(&self, id: CellId) -> bool {
+        self.sheets
+            .get(id.sheet)
+            .and_then(|s| s.cells.get(&(id.row, id.col)))
+            .is_some_and(|c| c.pending)
+    }
+
+    /// The dirty set of `seeds` in evaluation order: the cached plan when the graph did
+    /// not change since it was made for the same seeds, otherwise a new one (cached).
+    fn plan_for(&mut self, seeds: Vec<CellId>) -> Arc<Plan> {
+        if let Some(c) = &self.plan {
+            if c.graph == self.graph_version && c.seeds == seeds {
+                return c.plan.clone();
+            }
+        }
+        let dirty = self.propagate(seeds.clone());
+        let steps = dirty.steps(PAR_MIN_LEVEL);
+        let mut sorted = dirty.nodes;
+        sorted.sort_unstable();
+        sorted.dedup();
+        let plan = Arc::new(Plan { steps, sorted });
+        self.plan = Some(PlanCache {
+            graph: self.graph_version,
+            seeds,
+            plan: plan.clone(),
+        });
+        plan
+    }
+
+    fn calc_set(&mut self, dirty: &DirtyGraph) {
+        let steps = dirty.steps(PAR_MIN_LEVEL);
+        self.calc_steps(&steps);
+    }
+
+    fn calc_steps(&mut self, steps: &[Step]) {
+        self.clear_pass_caches();
+        for step in steps {
+            let (Step::Seq(ids) | Step::Level(ids) | Step::Cycle(ids)) = step;
+            self.set_pending(ids, true);
+        }
         let mut in_progress = FxHashSet::default();
-        for step in order {
+        for step in steps {
             match step {
-                Step::Seq(list) => {
-                    for i in list {
-                        self.calc_one(dirty.nodes[i as usize], &mut pending, &mut in_progress);
+                Step::Seq(ids) => {
+                    for &id in ids {
+                        self.calc_one(id, &mut in_progress);
                     }
                 }
-                Step::Level(list) => {
-                    let ids: Vec<CellId> = list.iter().map(|&i| dirty.nodes[i as usize]).collect();
-                    self.calc_level(&ids, &mut pending, &mut in_progress);
-                }
-                Step::Cycle(scc) => {
-                    let ids: Vec<CellId> = scc.iter().map(|&i| dirty.nodes[i as usize]).collect();
-                    self.calc_cycle(&ids, &pending);
-                    for id in ids {
-                        pending.remove(&id);
-                    }
+                Step::Level(ids) => self.calc_level(ids, &mut in_progress),
+                Step::Cycle(ids) => {
+                    self.calc_cycle(ids);
+                    self.set_pending(ids, false);
                 }
             }
         }
@@ -1600,21 +1679,16 @@ impl Workbook {
     /// when a volatile function is involved, to keep `RAND` sequences
     /// deterministic). Cells whose dynamic references hit uncomputed cells
     /// fall back to [`Workbook::calc_one`].
-    fn calc_level(
-        &mut self,
-        ids: &[CellId],
-        pending: &mut FxHashSet<CellId>,
-        in_progress: &mut FxHashSet<CellId>,
-    ) {
+    fn calc_level(&mut self, ids: &[CellId], in_progress: &mut FxHashSet<CellId>) {
         let parallel = ids.iter().all(|id| !self.volatile.contains(id));
         let results = if parallel {
-            self.eval_parallel(ids, pending)
+            self.eval_parallel(ids)
         } else {
             None
         };
         let Some(results) = results else {
             for id in ids {
-                self.calc_one(*id, pending, in_progress);
+                self.calc_one(*id, in_progress);
             }
             return;
         };
@@ -1627,46 +1701,44 @@ impl Workbook {
                 if !self.circular.is_empty() {
                     self.circular.remove(id);
                 }
-                pending.remove(id);
             }
         }
         for id in retry {
-            self.calc_one(id, pending, in_progress);
+            self.calc_one(id, in_progress);
         }
     }
 
     /// Evaluate independent cells on worker threads; `None` when threads are
-    /// unavailable. Each result tells whether a not-yet-computed cell was read.
+    /// unavailable or the level is too small to be worth them. Each result tells
+    /// whether a not-yet-computed cell was read.
     #[cfg(not(target_arch = "wasm32"))]
-    fn eval_parallel(
-        &self,
-        ids: &[CellId],
-        pending: &FxHashSet<CellId>,
-    ) -> Option<Vec<(Value, bool)>> {
+    fn eval_parallel(&self, ids: &[CellId]) -> Option<Vec<(Value, bool)>> {
         let threads = std::thread::available_parallelism()
             .map_or(1, std::num::NonZeroUsize::get)
-            .min(MAX_THREADS);
+            .min(MAX_THREADS)
+            .min(ids.len() / PAR_MIN_CHUNK);
         if threads < 2 {
             return None;
         }
         let chunk = ids.len().div_ceil(threads);
         let empty = FxHashSet::default();
         let eval_chunk = |part: &[CellId]| -> Vec<(Value, bool)> {
+            let view = RecalcView {
+                wb: self,
+                check_pending: true,
+                in_progress: &empty,
+                misses: RefCell::new(Vec::new()),
+                cache: true,
+            };
+            // Counted once per thread (a shared counter bumped per cell is contended).
+            self.evaluations.fetch_add(part.len(), Ordering::Relaxed);
             part.iter()
                 .map(|&id| {
-                    let view = RecalcView {
-                        wb: self,
-                        pending,
-                        in_progress: &empty,
-                        misses: RefCell::new(Vec::new()),
-                        cache: true,
-                    };
                     let v = self.eval_cell(id, &view);
-                    let missed = view
-                        .misses
-                        .into_inner()
-                        .iter()
-                        .any(|m| *m != id && pending.contains(m));
+                    let mut misses = view.misses.borrow_mut();
+                    let missed = !misses.is_empty()
+                        && misses.iter().any(|m| *m != id && self.is_pending(*m));
+                    misses.clear();
                     (v, missed)
                 })
                 .collect()
@@ -1686,23 +1758,50 @@ impl Workbook {
 
     #[cfg(target_arch = "wasm32")]
     #[allow(clippy::unused_self)]
-    fn eval_parallel(
-        &self,
-        _ids: &[CellId],
-        _pending: &FxHashSet<CellId>,
-    ) -> Option<Vec<(Value, bool)>> {
+    fn eval_parallel(&self, _ids: &[CellId]) -> Option<Vec<(Value, bool)>> {
         None
     }
+    /// Runs a plain arithmetic formula of `sheet` on the stored numbers; `None` leaves it
+    /// to the general evaluator (a cell that is not a number, empty or a boolean, one not
+    /// computed yet in this pass, spilled values, "precision as displayed").
+    fn run_simple(&self, sheet: usize, p: &Program) -> Option<f64> {
+        if !self.round_to.is_empty() {
+            return None;
+        }
+        let s = self.sheets.get(sheet)?;
+        let spills = !self.spill_owner.is_empty();
+        p.run(|r, c| match s.cells.get(&(r, c)) {
+            Some(cell) if !cell.pending => match &cell.value {
+                Value::Number(n) => Some(*n),
+                Value::Empty => Some(0.0),
+                Value::Bool(b) => Some(f64::from(u8::from(*b))),
+                _ => None,
+            },
+            Some(_) => None,
+            None => (!spills).then_some(0.0),
+        })
+    }
+
+    /// [`Workbook::eval_cell`] counted in [`Workbook::last_recalc_evaluations`].
+    fn eval_counted(&self, id: CellId, view: &dyn CellProvider) -> Value {
+        self.evaluations.fetch_add(1, Ordering::Relaxed);
+        self.eval_cell(id, view)
+    }
+
     fn eval_cell(&self, id: CellId, view: &dyn CellProvider) -> Value {
         let Some(f) = self
             .sheets
             .get(id.sheet)
             .and_then(|s| s.cells.get(&(id.row, id.col)))
-            .and_then(|c| c.formula.clone())
+            .and_then(|c| c.formula.as_deref())
         else {
             return Value::Empty;
         };
-        self.evaluations.fetch_add(1, Ordering::Relaxed);
+        if let Some(p) = &f.simple {
+            if let Some(x) = self.run_simple(id.sheet, p) {
+                return Value::Number(x);
+            }
+        }
         let mut ctx = Ctx::new(view, id.sheet, id.row, id.col, &self.config, &self.rng);
         let v = ctx.eval(&f.expr);
         if ctx.web_offline && self.web_cached.contains(&id) {
@@ -1715,15 +1814,10 @@ impl Workbook {
     }
 
     /// Evaluate one cell; dynamic reads of uncomputed cells are computed first.
-    fn calc_one(
-        &mut self,
-        id: CellId,
-        pending: &mut FxHashSet<CellId>,
-        in_progress: &mut FxHashSet<CellId>,
-    ) {
+    fn calc_one(&mut self, id: CellId, in_progress: &mut FxHashSet<CellId>) {
         let mut stack = vec![id];
         while let Some(&top) = stack.last() {
-            if !pending.contains(&top) {
+            if !self.is_pending(top) {
                 stack.pop();
                 continue;
             }
@@ -1731,24 +1825,23 @@ impl Workbook {
             let (v, misses) = {
                 let view = RecalcView {
                     wb: self,
-                    pending,
+                    check_pending: true,
                     in_progress,
                     misses: RefCell::new(Vec::new()),
                     cache: true,
                 };
-                let v = self.eval_cell(top, &view);
+                let v = self.eval_counted(top, &view);
                 (v, view.misses.into_inner())
             };
             let fresh: Vec<CellId> = misses
                 .into_iter()
-                .filter(|m| pending.contains(m) && !in_progress.contains(m))
+                .filter(|m| self.is_pending(*m) && !in_progress.contains(m))
                 .collect();
             if fresh.is_empty() || stack.len() > 100_000 {
                 self.store(top, v);
                 if !self.circular.is_empty() {
                     self.circular.remove(&top);
                 }
-                pending.remove(&top);
                 in_progress.remove(&top);
                 stack.pop();
             } else {
@@ -1757,7 +1850,7 @@ impl Workbook {
         }
     }
 
-    fn calc_cycle(&mut self, ids: &[CellId], pending: &FxHashSet<CellId>) {
+    fn calc_cycle(&mut self, ids: &[CellId]) {
         self.circular.extend(ids.iter().copied());
         let Some(it) = self.iterative else {
             for id in ids {
@@ -1773,12 +1866,12 @@ impl Workbook {
                 let v = {
                     let view = RecalcView {
                         wb: self,
-                        pending: &empty,
-                        in_progress: pending,
+                        check_pending: false,
+                        in_progress: &empty,
                         misses: RefCell::new(Vec::new()),
                         cache: false,
                     };
-                    self.eval_cell(*id, &view)
+                    self.eval_counted(*id, &view)
                 };
                 self.store(*id, v);
                 // Compared as read back (rounded under "precision as displayed").
@@ -1799,25 +1892,34 @@ impl Workbook {
 
     /// Store a computed value, placing or clearing its spill range.
     fn store(&mut self, id: CellId, v: Value) {
+        // Fast path (one lookup): a scalar result of a plain formula that does not spill.
+        if !matches!(v, Value::Array(_))
+            && (self.spills.is_empty() || !self.spills.contains_key(&id))
+        {
+            let Some(cell) = self.sheets[id.sheet].cells.get_mut(&(id.row, id.col)) else {
+                return;
+            };
+            cell.pending = false;
+            if !cell.fixed {
+                cell.value = v;
+                if !self.spill_blocked.is_empty() {
+                    self.spill_blocked.remove(&id);
+                }
+                return;
+            }
+        }
         let fixed = self.sheets[id.sheet]
             .cells
-            .get(&(id.row, id.col))
-            .and_then(|c| c.formula.as_ref())
+            .get_mut(&(id.row, id.col))
+            .and_then(|c| {
+                c.pending = false;
+                c.formula.as_ref()
+            })
             .and_then(|f| f.fixed);
         let v = match fixed {
             Some((rows, cols)) => fit_array(v, rows, cols),
             None => v,
         };
-        // Fast path: a scalar result for a cell that does not spill.
-        if !matches!(v, Value::Array(_)) && !self.spills.contains_key(&id) {
-            if !self.spill_blocked.is_empty() {
-                self.spill_blocked.remove(&id);
-            }
-            if let Some(cell) = self.sheets[id.sheet].cells.get_mut(&(id.row, id.col)) {
-                cell.value = v;
-            }
-            return;
-        }
         let old_area = self.spills.get(&id).copied();
         self.clear_spill_silent(id);
         self.spill_blocked.remove(&id);
@@ -2002,6 +2104,10 @@ pub fn round_decimals(n: f64, d: i32) -> f64 {
 
 /// Topological levels at least this large are evaluated in parallel.
 const PAR_MIN_LEVEL: usize = 512;
+/// Fewest cells a worker thread is started for (starting one costs about as much as
+/// evaluating a few thousand simple formulas).
+#[cfg(not(target_arch = "wasm32"))]
+const PAR_MIN_CHUNK: usize = 2048;
 /// Upper bound on worker threads for one level.
 #[cfg(not(target_arch = "wasm32"))]
 const MAX_THREADS: usize = 8;
@@ -2013,14 +2119,29 @@ struct DirtyGraph {
     succ: Vec<Vec<u32>>,
 }
 
-/// One evaluation step of a recalculation pass.
-enum Step {
+/// One evaluation step of a recalculation pass (node indices while ordering, cells in
+/// a [`Plan`]).
+enum Step<T = CellId> {
     /// Nodes evaluated one by one, in order.
-    Seq(Vec<u32>),
+    Seq(Vec<T>),
     /// A large topological level: independent nodes.
-    Level(Vec<u32>),
+    Level(Vec<T>),
     /// A circular reference (strongly connected component).
-    Cycle(Vec<u32>),
+    Cycle(Vec<T>),
+}
+
+/// The evaluation order of a dirty set.
+struct Plan {
+    steps: Vec<Step>,
+    /// The dirty formula cells, sorted.
+    sorted: Vec<CellId>,
+}
+
+/// A [`Plan`] with what it was made for.
+struct PlanCache {
+    graph: u64,
+    seeds: Vec<CellId>,
+    plan: Arc<Plan>,
 }
 
 impl DirtyGraph {
@@ -2052,7 +2173,20 @@ impl DirtyGraph {
     /// part (small consecutive levels merged into one sequential step), then
     /// the remaining nodes (cycles and their dependents) ordered by Tarjan SCC
     /// with precedents first.
-    fn order(&self, par_min: usize) -> Vec<Step> {
+    /// [`DirtyGraph::order`] with the cells in place of node indices.
+    fn steps(&self, par_min: usize) -> Vec<Step> {
+        let ids = |v: Vec<u32>| v.into_iter().map(|i| self.nodes[i as usize]).collect();
+        self.order(par_min)
+            .into_iter()
+            .map(|s| match s {
+                Step::Seq(v) => Step::Seq(ids(v)),
+                Step::Level(v) => Step::Level(ids(v)),
+                Step::Cycle(v) => Step::Cycle(ids(v)),
+            })
+            .collect()
+    }
+
+    fn order(&self, par_min: usize) -> Vec<Step<u32>> {
         let n = self.nodes.len();
         let mut indeg = vec![0u32; n];
         for s in &self.succ {
@@ -2260,7 +2394,9 @@ impl CellProvider for Workbook {
 /// waiting to be computed.
 struct RecalcView<'a> {
     wb: &'a Workbook,
-    pending: &'a FxHashSet<CellId>,
+    /// Whether reads of formula cells not computed yet in this pass are recorded as
+    /// misses (not while iterating a circular reference).
+    check_pending: bool,
     in_progress: &'a FxHashSet<CellId>,
     misses: RefCell<Vec<CellId>>,
     /// Whether materialized areas may be cached (not during iteration).
@@ -2282,7 +2418,9 @@ impl CellProvider for RecalcView<'_> {
 
     fn cell_value(&self, sheet: usize, row: u32, col: u32) -> Value {
         let id = CellId::new(sheet, row, col);
-        if !self.pending.is_empty() && self.pending.contains(&id) && !self.in_progress.contains(&id)
+        if self.check_pending
+            && self.wb.is_pending(id)
+            && (self.in_progress.is_empty() || !self.in_progress.contains(&id))
         {
             self.misses.borrow_mut().push(id);
         }
@@ -2337,7 +2475,7 @@ impl CellProvider for RecalcView<'_> {
         for r in area.r1..=area.r2 {
             for c in area.c1..=area.c2 {
                 let id = CellId::new(area.sheet, r, c);
-                if self.pending.contains(&id) {
+                if self.check_pending && self.wb.is_pending(id) {
                     return None;
                 }
                 data.push(self.wb.read(id));
@@ -2362,7 +2500,7 @@ impl CellProvider for RecalcView<'_> {
         for r in area.r1..=area.r2 {
             for c in area.c1..=area.c2 {
                 let id = CellId::new(area.sheet, r, c);
-                if self.pending.contains(&id) {
+                if self.check_pending && self.wb.is_pending(id) {
                     return None;
                 }
                 data.push(self.wb.read(id));

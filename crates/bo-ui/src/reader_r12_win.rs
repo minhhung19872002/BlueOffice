@@ -5,7 +5,7 @@
 //! - Home / every tab: Select opens Select Text and Image / Select Annotation from its label.
 //! - Comment: Summarize Comments, Import, Export as large buttons, then FDF via Email, Manage
 //!   Comments and Keep Tool Selected as labelled rows.
-//! - View: Assistant (Marquee zoom; Loupe and Magnifier shown grey).
+//! - View: Assistant (Marquee zoom; Loupe and Magnifier in round 13).
 //! - Form: Form to sheet has its drop-down.
 //! - Share: the reference's online commands, grey (they need a review / cloud service).
 use super::fill11::{DLG_H, DLG_W};
@@ -23,6 +23,10 @@ const MARQUEE_FILL: Rgba = Rgba(38, 128, 235, 40);
 pub(crate) enum Assist {
     /// Drag a rectangle to zoom to it; a click zooms in one step.
     Marquee,
+    /// The Loupe Tool panel (round 13).
+    Loupe,
+    /// A lens under the pointer (round 13).
+    Magnifier,
 }
 
 /// State of the round 12 additions.
@@ -38,6 +42,10 @@ pub(crate) struct Twelve {
     pub(crate) select_annot: bool,
     /// Password asked before placing saved signature `.0`: typed text, last try was wrong.
     pub(crate) pw_prompt: Option<(usize, String, bool)>,
+    /// Loupe and Magnifier (round 13).
+    pub(crate) thirteen: super::r13::Thirteen,
+    /// Store keys of closed tabs, freed at the next `prepare` (round 14).
+    pub(crate) freed14: Vec<usize>,
 }
 
 /// What an element exposed to assistive technology is (UI Automation control types in the
@@ -151,6 +159,10 @@ impl ReaderWindow {
 
     /// Distance between the two lines of a large button's label (19 px at 125 % in BlueReader).
     pub(crate) fn label_pitch12(&self, size: f32) -> f32 {
+        // BlueEditor round 11 (measured on the reference editor at 125 %): 23 px.
+        if self.profile.as_ref().is_some_and(|p| p.app == "BlueEditor") {
+            return self.px(18.4);
+        }
         if self.profile.is_none() {
             self.px(15.2)
         } else {
@@ -266,7 +278,7 @@ impl ReaderWindow {
                     self.item12("select.text", "pdfSelect12.text", text, false),
                     self.item12("select.annot", "pdfSelect12.annot", annot, false),
                 ];
-                self.menu_at(items, r, "tool.select");
+                self.menu_icons14(items, r, "tool.select", &["selectText", "selectAnnot"]);
                 true
             }
             "form.toSheet" if lower => {
@@ -301,6 +313,9 @@ impl ReaderWindow {
         {
             self.set_assist12(None);
         }
+        if self.command_thirteen(cmd) {
+            return true;
+        }
         match cmd {
             "tool.select" => {
                 self.twelve.select_annot = false;
@@ -317,14 +332,14 @@ impl ReaderWindow {
                 true
             }
             "menu.assistant" => {
-                let on = self.twelve.assist == Some(Assist::Marquee);
-                let items = vec![
-                    self.item12("assist.marquee", "pdfView12.marquee", on, false),
-                    self.item12("assist.loupe", "pdfView12.loupe", false, true),
-                    self.item12("assist.magnifier", "pdfView12.magnifier", false, true),
-                ];
+                let items = self.assistant_items13();
                 let r = self.control_rect("menu.assistant").unwrap_or([0.0; 4]);
-                self.menu_at(items, r, "menu.assistant");
+                self.menu_icons14(
+                    items,
+                    r,
+                    "menu.assistant",
+                    &["marquee", "loupe", "magnifier"],
+                );
                 true
             }
             "assist.marquee" => {
@@ -356,9 +371,10 @@ impl ReaderWindow {
         }
     }
 
-    fn set_assist12(&mut self, a: Option<Assist>) {
+    pub(crate) fn set_assist12(&mut self, a: Option<Assist>) {
         self.twelve.assist = a;
         self.twelve.marquee = None;
+        self.reset_thirteen(false);
         self.tool_hidden = a.is_some();
         if a.is_some() {
             self.on.insert("menu.assistant");
@@ -393,7 +409,10 @@ impl ReaderWindow {
                 }
             }
         }
-        self.twelve.assist?;
+        let assist = self.twelve.assist?;
+        if assist != Assist::Marquee {
+            return self.route_thirteen(input);
+        }
         match *input {
             Input::Press { x, y, .. } if inside(self.doc_rect, x, y) => {
                 self.twelve.marquee = Some([x, y, x, y]);
@@ -454,6 +473,7 @@ impl ReaderWindow {
 
     /// Round 12's drawing over the page (the marquee rectangle).
     pub(crate) fn paint_twelve(&self, p: &mut dyn Painter) {
+        self.paint_thirteen(p);
         self.paint_pw_prompt12(p);
         let Some([a, b, c, d]) = self.twelve.marquee else {
             return;
@@ -523,12 +543,16 @@ impl ReaderWindow {
                 selected: false,
             });
         }
+        out.extend(self.access14());
         out
     }
 
     /// Run an element of [`Self::accessibility12`] (UI Automation Invoke): a tab is selected,
     /// a command runs as if clicked. Unknown or grey elements do nothing; `true` when run.
     pub fn invoke12(&mut self, key: &str, m: &dyn TextMeasure) -> bool {
+        if self.invoke14(key, m) {
+            return true;
+        }
         if let Some(i) = key
             .strip_prefix("tab:")
             .and_then(|v| v.parse::<usize>().ok())

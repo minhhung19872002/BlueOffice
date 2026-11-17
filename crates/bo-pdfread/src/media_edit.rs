@@ -25,6 +25,28 @@ pub enum ShapeKind {
     Ellipse,
     /// Straight line from the top-left to the bottom-right corner of the box.
     Line,
+    /// Round 11 (`shapes11`): a step connector across the box.
+    Connector,
+    /// Round 11: a regular pentagon.
+    Polygon,
+    /// Round 11: an S-shaped curve.
+    Curve,
+    /// Round 11: an arrow pointing up.
+    Arrow,
+    /// Round 11: an L-shaped corner.
+    Corner,
+}
+
+/// Path of the four first kinds in box `r` (`rect` as drawn, for the line's direction); the
+/// round-11 kinds come from `shapes11`.
+pub(crate) fn base_path(kind: ShapeKind, r: [f32; 4], rect: [f32; 4]) -> String {
+    match kind {
+        ShapeKind::Rectangle => format!("{} {} {} {} re ", r[0], r[1], r[2] - r[0], r[3] - r[1]),
+        ShapeKind::RoundedRectangle => rounded_path(r, (r[2] - r[0]).min(r[3] - r[1]) * 0.15),
+        ShapeKind::Ellipse => ellipse_path(r),
+        ShapeKind::Line => format!("{} {} m {} {} l ", rect[0], rect[1], rect[2], rect[3]),
+        other => crate::shapes11::shape_path11(other, r).unwrap_or_default(),
+    }
 }
 
 /// Ellipse path through the box (four Bézier quarters).
@@ -138,16 +160,7 @@ impl PdfDocument {
             if let Some(c) = fill {
                 s.push_str(&format!("{} rg ", rgb(c)));
             }
-            let path = match kind {
-                ShapeKind::Rectangle => {
-                    format!("{} {} {} {} re ", r[0], r[1], r[2] - r[0], r[3] - r[1])
-                }
-                ShapeKind::RoundedRectangle => {
-                    rounded_path(r, (r[2] - r[0]).min(r[3] - r[1]) * 0.15)
-                }
-                ShapeKind::Ellipse => ellipse_path(r),
-                ShapeKind::Line => format!("{} {} m {} {} l ", rect[0], rect[1], rect[2], rect[3]),
-            };
+            let path = base_path(kind, r, rect);
             s.push_str(&path);
             let op = match (stroke.is_some(), fill.is_some() && kind != ShapeKind::Line) {
                 (true, true) => "B",

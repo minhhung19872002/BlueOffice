@@ -1702,6 +1702,7 @@ impl SheetWindow {
             FormKind::ErrorCheck => self.errcheck_event(ev, text),
             FormKind::FindReplace => self.find_event(ev),
             FormKind::PivotNew => self.new_pivot_event(ev, text),
+            FormKind::PivotValue => self.value_settings_event(ev),
             FormKind::RangePick => self.range_pick_event(ev),
             FormKind::Protect => self.protect_event(ev),
             FormKind::Spelling => self.spelling_event(ev),

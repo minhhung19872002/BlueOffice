@@ -79,31 +79,8 @@ impl EditorWindow {
                 Vec::new(),
                 "ed.addImageMenu",
             ),
-            "ed.addShapes" => self.menu10(
-                &[
-                    ("ed.shape.line", "pdfEditor.line", Some("line"), false),
-                    (
-                        "ed.shape.rect",
-                        "pdfReader.rectangle",
-                        Some("rectangle"),
-                        false,
-                    ),
-                    (
-                        "ed.shape.rounded",
-                        "pdfEditor.roundedRect",
-                        Some("rectangle"),
-                        false,
-                    ),
-                    (
-                        "ed.shape.ellipse",
-                        "pdfEditor.ellipse",
-                        Some("ellipse"),
-                        false,
-                    ),
-                ],
-                Vec::new(),
-                "ed.addShapes",
-            ),
+            // Round 11: the reference's grid (Add Path / Add Shading), `editor_shapes11`.
+            "ed.addShapes" => self.toggle_shapes11(),
             "ed.webLinks" => self.menu10(
                 &[
                     (

@@ -66,6 +66,13 @@ struct Face {
 /// Shape cache key: face, kerning, OpenType features (tag, value), text.
 type ShapeKey = (FaceId, bool, Vec<([u8; 4], u32)>, String);
 
+/// Longest text whose shaping result is cached: a run without break opportunities
+/// (hostile files: megabytes in one text box) is cut and measured in many different
+/// pieces, each shaped once, which must not be kept at 20 bytes per glyph.
+const SHAPE_CACHE_MAX_TEXT: usize = 16 << 10;
+/// Bytes of keys and glyphs the shaping cache holds before it starts over.
+const SHAPE_CACHE_BYTES: usize = 64 << 20;
+
 /// A shaped glyph in font units.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ShapedGlyph {
@@ -111,6 +118,8 @@ pub struct FontManager {
     faces: Vec<Face>,
     by_family: HashMap<String, Vec<FaceId>>,
     shape_cache: HashMap<ShapeKey, Arc<[ShapedGlyph]>>,
+    /// Bytes held by `shape_cache` (keys and glyphs), bounded by [`SHAPE_CACHE_BYTES`].
+    shape_cache_bytes: usize,
     /// Shaping results are not cached (see [`FontManager::set_shape_caching`]).
     no_shape_cache: bool,
     resolve_cache: HashMap<(String, bool, bool), Option<FaceId>>,
@@ -201,6 +210,7 @@ impl FontManager {
     /// (CORE-PERF-001: memory returns to a plateau after opening many documents).
     pub fn clear_caches(&mut self) {
         self.shape_cache = HashMap::new();
+        self.shape_cache_bytes = 0;
     }
 
     /// Turn the shaping cache on (default) or off for the next calls. Text shaped once
@@ -213,6 +223,11 @@ impl FontManager {
     /// Number of cached shaping results (memory diagnostics).
     pub fn cached_shapes(&self) -> usize {
         self.shape_cache.len()
+    }
+
+    /// Bytes held by the cached shaping results, keys included (memory diagnostics).
+    pub fn cached_shape_bytes(&self) -> usize {
+        self.shape_cache_bytes
     }
 
     /// Load every `.ttf`/`.otf`/`.ttc` in a directory (native targets only).
@@ -497,7 +512,8 @@ impl FontManager {
         kern: bool,
         features: &[([u8; 4], u32)],
     ) -> Arc<[ShapedGlyph]> {
-        let key = (!self.no_shape_cache).then(|| (id, kern, features.to_vec(), text.to_owned()));
+        let key = (!self.no_shape_cache && text.len() <= SHAPE_CACHE_MAX_TEXT)
+            .then(|| (id, kern, features.to_vec(), text.to_owned()));
         if let Some(g) = key.as_ref().and_then(|k| self.shape_cache.get(k)) {
             return g.clone();
         }
@@ -532,9 +548,12 @@ impl FontManager {
         let Some(key) = key else {
             return glyphs;
         };
-        if self.shape_cache.len() > 200_000 {
+        let bytes = key.3.len() + glyphs.len() * std::mem::size_of::<ShapedGlyph>() + 64;
+        if self.shape_cache.len() > 200_000 || self.shape_cache_bytes + bytes > SHAPE_CACHE_BYTES {
             self.shape_cache.clear();
+            self.shape_cache_bytes = 0;
         }
+        self.shape_cache_bytes += bytes;
         self.shape_cache.insert(key, glyphs.clone());
         glyphs
     }

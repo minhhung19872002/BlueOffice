@@ -445,6 +445,11 @@ pub struct SheetWindow {
     /// PivotTable Fields pane, and the pivot table whose pane was closed.
     pivot: Option<pivotpane_impl::PivotPane>,
     pivot_closed: Option<(usize, usize)>,
+    /// An area item pressed in the PivotTable Fields pane: (area, field, x, y) — a drag
+    /// moves it, a click opens its menu (round 58).
+    pivot_drag: Option<(usize, u32, f32, f32)>,
+    /// Value Field Settings while its Number Format (Format Cells) is open.
+    vfs_stash: Option<form_impl::Form>,
     /// A dialog collapsed while a range is picked on the sheet.
     pick_state: Option<rangepick_impl::PickState>,
     /// Format Cells state beyond its controls (border edges, orientation, fill).
@@ -605,6 +610,8 @@ impl SheetWindow {
             find_state: findrep_impl::FindState::default(),
             pivot: None,
             pivot_closed: None,
+            pivot_drag: None,
+            vfs_stash: None,
             prot: protect_impl::ProtState::default(),
             spell: None,
             link_tip: String::new(),
@@ -766,6 +773,31 @@ impl SheetWindow {
         {
             self.pivot_toggle(n);
             return true;
+        }
+        // Area item menus of the PivotTable Fields pane: `pivotitem.<op>.<area>.<field>`;
+        // scripts open one with `pivot.item.<area>.<field>` (round 58).
+        if let Some(rest) = id.strip_prefix("pivotitem.") {
+            let parts: Vec<&str> = rest.split('.').collect();
+            if let [op, a, f] = parts[..] {
+                if let (Ok(a), Ok(f)) = (a.parse(), f.parse()) {
+                    return self.pivot_item_command(op, a, f);
+                }
+            }
+            return false;
+        }
+        if let Some(op) = id.strip_prefix("pivotgear.") {
+            return self.pivot_gear_command(op);
+        }
+        if id == "pivot.gear" {
+            self.pivot_gear_menu();
+            return true;
+        }
+        if let Some(rest) = id.strip_prefix("pivot.item.") {
+            let parts: Vec<u32> = rest.split('.').filter_map(|n| n.parse().ok()).collect();
+            if let [a, f] = parts[..] {
+                self.pivot_open_item_menu(a as usize, f);
+                return true;
+            }
         }
         if id == "watch.add" {
             self.watch_add_selection();
@@ -1510,6 +1542,9 @@ impl SheetWindow {
                     true
                 }
                 None if id.starts_with("filterop.") => self.filter_choice(&id["filterop.".len()..]),
+                None if id.starts_with("pivotitem.") || id.starts_with("pivotgear.") => {
+                    self.run_command(&id, text)
+                }
                 None => self.action(&id, text),
             },
             Choice::Style(_) => false,

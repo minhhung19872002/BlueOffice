@@ -277,6 +277,29 @@ fn shape(name: &str) -> &'static [Part] {
             S("M10 6h11.5 M10 12h11.5 M10 18h11.5"),
             A("M2.5 6l2 2 3.5-4 M2.5 12l2 2 3.5-4 M2.5 18l2 2 3.5-4"),
         ],
+        // Round 14 (ours), menu rows of Select / Assistant: an I-beam with an accent pointer; a
+        // folded sticky note with an accent pointer; a dashed frame with an accent lens; a small
+        // window with an accent lens inside; a lens with an accent plus.
+        "selectText" => &[
+            S("M3 4h8 M7 4v15 M5 19h4"),
+            A("M12.5 10l8 4-3.4 1.2 2.3 4-1.8 1-2.3-4-2.8 2.4z"),
+        ],
+        "selectAnnot" => &[
+            S("M2.5 3.5h13v8l-4 4h-9z M15.5 11.5h-4v4"),
+            A("M12.5 10l8 4-3.4 1.2 2.3 4-1.8 1-2.3-4-2.8 2.4z"),
+        ],
+        "marquee" => &[
+            S("M2.5 5V2.5H5 M8 2.5h3 M14 2.5h2.5V5 M2.5 8v3 M2.5 14v2.5H5"),
+            A("M14.5 9.5a5 5 0 1 0 .01 0z M18.2 18.2l3.3 3.3"),
+        ],
+        "loupe" => &[
+            S("M2.5 3.5h19v17h-19z M2.5 7.5h19"),
+            A("M11 10a3.5 3.5 0 1 0 .01 0z M13.6 16.1l3.4 2.9"),
+        ],
+        "magnifier" => &[
+            S("M15.3 15.3l6.2 6.2"),
+            A("M10 2.5a7.5 7.5 0 1 0 .01 0z M10 6.5v7 M6.5 10h7"),
+        ],
         _ => crate::editor_icons::shape(name),
     }
 }

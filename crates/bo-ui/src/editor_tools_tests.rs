@@ -253,14 +253,19 @@ fn recognize_fields_and_new_field_kinds() {
     let fields = w.view().expect("v").doc().form_fields();
     assert_eq!(fields.len(), 1, "{fields:?}");
     assert_eq!(fields[0].name, "Name");
-    for (cmd, ft) in [
+    for (i, (cmd, ft)) in [
         ("fd.signature", "/FT /Sig"),
         ("fd.barcode", "Barcode1"),
         ("fd.image", "buttonImportIcon"),
-    ] {
+    ]
+    .into_iter()
+    .enumerate()
+    {
         w.run(cmd, &Fixed);
         assert!(w.design.tool.is_some(), "{cmd} on");
-        drag(&mut w, 0, [300.0, 150.0, 450.0, 200.0]);
+        // Round 11: a press on a field selects it, so each new field goes elsewhere.
+        let y = 150.0 + 80.0 * i as f32;
+        drag(&mut w, 0, [300.0, y, 450.0, y + 50.0]);
         let Some((d, what)) = w.dialog2.take() else {
             panic!("no properties dialog for {cmd}");
         };

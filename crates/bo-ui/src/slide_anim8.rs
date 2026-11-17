@@ -64,23 +64,56 @@ impl SlideWindow {
         else {
             return false;
         };
-        let mut items: Vec<MenuItem> = ["onClick", "withPrevious", "afterPrevious"]
-            .iter()
-            .map(|t| MenuItem {
-                label: self.t(&format!("slideNative.{t}"), t),
-                choice: Choice::Command(format!("arow:{i}:{t}")),
-                checked: a.trigger == *t,
-                dim: false,
-            })
-            .collect();
-        items.push(MenuItem {
-            label: self.t("slideNative.remove", "Remove"),
-            choice: Choice::Command(format!("arow:{i}:remove")),
-            checked: false,
+        // As the reference's (round 19): Start On Click / With Previous / After Previous,
+        // Effect Options… and Timing…, Hide / Show Advanced Timeline, Remove.
+        let mut items: Vec<MenuItem> = [
+            ("onClick", "Start On Click"),
+            ("withPrevious", "Start With Previous"),
+            ("afterPrevious", "Start After Previous"),
+        ]
+        .iter()
+        .map(|(t, d)| MenuItem {
+            label: self.t(&format!("slideNative.anim9.{t}"), d),
+            choice: Choice::Command(format!("arow:{i}:{t}")),
+            checked: a.trigger == *t,
             dim: false,
-        });
+        })
+        .collect();
+        let has_options = !a.dirs.is_empty();
+        for (id, key, d, dim) in [
+            (
+                "options",
+                "effectOptions",
+                "Effect Options...",
+                !has_options,
+            ),
+            ("timing", "timing", "Timing...", false),
+            (
+                "timeline",
+                if self.anim_pane.hide_timeline {
+                    "showTimeline"
+                } else {
+                    "hideTimeline"
+                },
+                if self.anim_pane.hide_timeline {
+                    "Show Advanced Timeline"
+                } else {
+                    "Hide Advanced Timeline"
+                },
+                false,
+            ),
+            ("remove", "remove", "Remove", false),
+        ] {
+            items.push(MenuItem {
+                label: self.t(&format!("slideNative.anim9.{key}"), d),
+                choice: Choice::Command(format!("arow:{i}:{id}")),
+                checked: false,
+                dim,
+            });
+        }
         self.menu_kind = super::MenuKind::Duration;
-        self.menu = Some(Menu::open(items, r, self.size, self.scale));
+        self.menu =
+            Some(Menu::open(items, r, self.size, self.scale).with_decor(vec![None; 7], vec![3, 5]));
         true
     }
 
@@ -93,6 +126,13 @@ impl SlideWindow {
                 self.anim_pane.selected = None;
                 self.view.run(SlideCommand::RemoveAnimation { index })
             }
+            "timeline" => {
+                self.anim_pane.hide_timeline = !self.anim_pane.hide_timeline;
+                self.relayout_pending = true;
+                true
+            }
+            "timing" => self.open_form8(super::forms8::Dlg::Timing(index)),
+            "options" => self.action("anim.effect"),
             t => self.view.run(SlideCommand::SetAnimation {
                 index,
                 spec: AnimSpec {

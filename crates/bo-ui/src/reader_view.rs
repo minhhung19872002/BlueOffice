@@ -427,7 +427,14 @@ impl ReaderView {
             Fit::None => self.zoom,
         };
         if z.is_finite() && z > 0.0 {
-            self.zoom = z.clamp(MIN_ZOOM, MAX_ZOOM);
+            let z = z.clamp(MIN_ZOOM, MAX_ZOOM);
+            // Round 14: a fitted zoom that changes (window resized, first layout) rebuilds the
+            // lists like `set_zoom`: NoZoom notes and hairlines depend on the zoom (a note
+            // sized at the first, smaller window's zoom was drawn 1.4 × too large).
+            if (z - self.zoom).abs() > self.zoom * 1e-3 {
+                self.cache_reset_lines();
+            }
+            self.zoom = z;
         }
     }
 
@@ -1097,10 +1104,44 @@ impl ReaderView {
         more
     }
 
+    /// Pages held as display lists (round 14 tests: a new fitted zoom rebuilds them).
+    pub fn cached_lists(&self) -> usize {
+        self.cache.len()
+    }
+
+    /// Every image key this view has in the store (pages, thumbnails, previews), so a closed
+    /// tab frees them (BlueReader round 14).
+    pub fn stored_keys(&self) -> Vec<usize> {
+        let mut v: Vec<usize> = self.drawn.keys().copied().collect();
+        if self.preview_drawn.is_some() {
+            v.push(PREVIEW_KEY);
+        }
+        v.extend(
+            self.previews_drawn
+                .iter()
+                .enumerate()
+                .filter(|(_, d)| d.is_some())
+                .map(|(k, _)| PREVIEW_KEY + 1 + k),
+        );
+        v
+    }
+
     /// Ask for the print preview's page images this frame: `(page, scale)` drawn under keys
     /// [`PREVIEW_KEY`] + 1 + their position.
     pub fn want_previews(&mut self, wanted: &[(usize, f32)]) {
         self.previews_wanted = wanted.to_vec();
+    }
+
+    /// Whether preview image `k` (key [`PREVIEW_KEY`] + 1 + `k`) shows page `i` at `scale`
+    /// (BlueReader round 13: the Loupe and Magnifier draw from it).
+    pub fn preview_ready(&self, k: usize, i: usize, scale: f32) -> bool {
+        self.previews_drawn
+            .get(k)
+            .copied()
+            .flatten()
+            .is_some_and(|(p, s, g)| {
+                p == i && (s - scale).abs() < 1e-4 && self.generation.get(i) == Some(&g)
+            })
     }
 
     /// Ask for the preview image of page `i` at `scale` (key [`PREVIEW_KEY`]) this frame.

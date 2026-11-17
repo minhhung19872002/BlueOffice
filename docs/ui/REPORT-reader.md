@@ -724,3 +724,174 @@ khác vẫn chạy):
 Còn lại: hộp Preferences thật của bản đối chiếu (không mở được), Loupe / Magnifier, biểu tượng trong menu Select /
 Assistant, ô Margins và "Custom…" của N-up, giấy ngang khi Booklet, tab View lệch 5–15 px và nhãn của ta rộng hơn 1–3 px,
 UIA: focus / mẫu Text / menu và hộp thoại tự vẽ.
+
+## Vòng 13 (2026-11-17)
+
+Mục tiêu chính: độ trung thực khi vẽ trang. Bộ thử 32 tệp PDF tự sinh (`scratchpad/r13/mkcorpus.py`: font chuẩn 14 không
+nhúng, trạng thái chữ Tc/Tw/Tz/Ts/Tr, TrueType nhúng + tiếng Việt, CID CJK không nhúng, CJK dọc (UniGB-UCS2-V), Type 3,
+CFF nhúng, shading kiểu 1–7, tiling / shading pattern, soft mask, nhóm trong suốt (isolated / knockout), 16 blend mode,
+ảnh JPX / CCITT G4 / JBIG2 (MMR) / DCT RGB-xám-CMYK / 16 bpc / stencil / colour key, Indexed / Lab / ICC / CalRGB /
+CalGray / Separation / DeviceN, chú thích có appearance, trang xoay 90 / 270 + CropBox, trang 200 × 100 inch, trang danh
+thiếp, nét / nối / đứt / even-odd / clip, optional content, tài liệu HTML tiếng Việt, form XObject lồng + ảnh inline). Mỗi
+tệp có `/OpenAction /Fit`; bản đối chiếu mở từng tệp trong phiên riêng của ta (không có phiên nào khác đang chạy), cửa sổ
+1500 × 1102, PrintWindow, cắt trang theo khung 1 px; BlueReader vẽ trang đầu bằng `--render` (cùng Direct2D của ứng dụng)
+ở đúng mức zoom đo được; điểm = % điểm ảnh lệch > 48 (sau làm mờ 1 px) và lệch trung bình (`score.py`).
+
+| Tệp | Điểm ảnh lệch % trước | sau | Lệch TB trước | sau |
+| --- | ---: | ---: | ---: | ---: |
+| 01-std14 | 1.40 | 1.40 | 2.53 | 2.53 |
+| 02-text-state | 0.11 | 0.11 | 0.58 | 0.58 |
+| 03-truetype-vietnamese | 0.33 | 0.33 | 1.56 | 1.56 |
+| 04-cjk-cid | 2.56 | 0.61 | 3.26 | 1.07 |
+| 05-vertical-cjk | 2.03 | 0.03 | 2.17 | 0.39 |
+| 06-type3 | 0.46 | 0.00 | 0.73 | 0.10 |
+| 07-embedded-cff | 0.20 | 0.20 | 1.08 | 1.08 |
+| 08-shading1-function | 0.42 | 0.42 | 1.52 | 1.52 |
+| 09-shading2-axial | 12.66 | 0.38 | 22.50 | 1.45 |
+| 10-shading3-radial | 0.01 | 0.01 | 1.07 | 1.07 |
+| 11-shading4-free-triangles | 0.17 | 0.17 | 1.00 | 1.00 |
+| 12-shading5-lattice | 0.06 | 0.06 | 1.08 | 1.08 |
+| 13-shading6-coons | 0.00 | 0.00 | 0.78 | 0.78 |
+| 14-shading7-tensor | 0.00 | 0.00 | 0.74 | 0.74 |
+| 15-patterns | 27.10 | 10.84 | 34.70 | 14.31 |
+| 16-softmask-alpha | 0.59 | 0.33 | 1.17 | 0.76 |
+| 17-transparency-groups | 8.51 | 2.95 | 11.37 | 1.70 |
+| 18-blend-modes | 0.47 | 0.47 | 2.68 | 2.68 |
+| 19-image-jpx | 0.14 | 0.14 | 0.38 | 0.38 |
+| 20-image-ccitt | 0.01 | 0.01 | 0.58 | 0.58 |
+| 21-image-jbig2 | 0.03 | 0.03 | 0.66 | 0.66 |
+| 22-image-types | 3.74 | 0.40 | 5.58 | 0.95 |
+| 23-colour-spaces | 0.76 | 0.76 | 2.03 | 1.55 |
+| 24-annotations | 0.39 | 0.39 | 1.35 | 1.35 |
+| 25-rotate-90 | 0.05 | 0.05 | 0.20 | 0.20 |
+| 26-rotate-270-cropbox | 0.01 | 0.01 | 0.18 | 0.18 |
+| 27-huge-page | 0.30 | 0.30 | 1.19 | 1.19 |
+| 28-small-page | 0.42 | 0.42 | 1.25 | 1.25 |
+| 29-strokes-clip | 1.78 | 0.04 | 2.91 | 0.61 |
+| 30-optional-content | 0.00 | 0.00 | 0.18 | 0.18 |
+| 31-html-document | 0.03 | 0.03 | 0.68 | 0.68 |
+| 32-forms-inline-images | 0.77 | 0.77 | 0.87 | 0.87 |
+| **Trung bình** | 2.05 | 0.68 | | |
+
+Ảnh: `reader-84-render-worst-before.png` (6 tệp tệ nhất trước), `reader-85`, `reader-86`, `reader-88-render-final.png`
+(sau), `reader-87-loupe-magnifier.png`, `reader-89-annot-interop.png` (bản đối chiếu trái / trên).
+
+Đã sửa trong `bo-pdfread` (test `render13_tests.rs`, `evenodd.rs`, `stroke_outline.rs`, `openaction.rs`):
+- Tiling pattern không màu (`/PaintType 2`): ô vẽ bằng màu `scn` trong không gian nền; trước đây ô tự tô lại bằng chính
+  pattern, đệ quy tới giới hạn và **bỏ cả phần còn lại của trang**. Ô pattern có màu bắt đầu từ đen.
+- Shading trục theo `/Extend` (trước: luôn kéo dài cả hai đầu).
+- JPEG xám giải mã một kênh (trước: đọc như RGB → ba bản thu nhỏ + đen).
+- Font CJK không nhúng: CMap Unicode định sẵn (`Uni*-UCS2-*`, `Uni*-UTF16-*`) cho mã = ký tự (đọc, tìm, chép được), độ
+  rộng ASCII theo CID 1–95; mặt chữ cài sẵn theo Ordering / tên (SimSun, JhengHei, MS Gothic / Mincho, Malgun Gothic…), độ
+  đậm theo `/FontWeight`, `/StemV` và quy tắc đo trên bản đối chiếu (CNS1 / Japan1 / Korea1 không có cờ Serif và chưa cài
+  → đậm; font đã cài giữ độ đậm của nó). Chữ dọc dùng dạng trình bày dọc của dấu câu (。：「 …).
+- Alpha của nhóm trong suốt áp cho cả nhóm, nội dung bắt đầu ở alpha 1; nhóm knockout bỏ blend giữa các đối tượng; nhóm
+  isolated có blend bên trong được đánh dấu (`PushGroup.isolated`, trường serde mới, mặc định false) và Direct2D vẽ trong
+  layer riêng (không trộn với nền trang).
+- Tô / clip even-odd (`f*` `B*` `b*` `W*`): đường con lồng nhau đổi chiều theo độ sâu; đường tự cắt (ngôi sao một nét)
+  thay bằng biên của vùng even-odd (cắt cạnh tại giao điểm, giữ cạnh có vùng ở một phía). Có hiệu lực cho cả `--render`
+  lẫn ứng dụng (cùng display list).
+- CalGray / CalRGB theo gamma + ma trận → sRGB; tài nguyên ColorSpace tên `/G` `/RGB` `/CMYK` không bị nhầm là viết tắt.
+- Chữ tô bằng pattern (shading / tiling) vẽ đường viền glyph tô pattern (trước: đen); nét vẽ bằng pattern tô vùng nét (độ
+  rộng, đầu, nối, đứt) bằng ô pattern (trước: xám).
+- `/OpenAction` (Fit / FitH / XYZ zoom, trang) được theo khi mở tệp như bản đối chiếu.
+- Chú thích ta lưu mở trong bản đối chiếu: 15 chú thích đủ tác giả, nội dung, ngày, trả lời trên ghi chú. Sửa: squiggly vẽ
+  sóng trong appearance (trước: đường thẳng, bản đối chiếu hiện như gạch dưới), chữ của stamp nằm trong khung (trước:
+  đường chân chữ đặt ở đáy chữ hoa, chữ tràn ra ngoài).
+
+Còn khác (có lý do): 15-patterns 10,8 % là pha ô pattern (của ta khớp MuPDF, bản đối chiếu neo khác); 17 nhóm isolated
+không knockout: các đối tượng trong nhóm chồng nhau theo Normal (bản đối chiếu Multiply) — cần đọc backdrop trong layer;
+01 ZapfDingbats: bảng mã đúng §D.5 (kiểm bằng `--text`), khác hình do font thay thế (Segoe UI Symbol); 23 ảnh Indexed
+2-bit lệch nhỏ.
+
+**Loupe / Magnifier** (View ▸ Assistant, `reader_r13_win.rs`, test `reader_r13_tests.rs`). Bản đối chiếu mở trong phiên
+riêng bằng phím gửi vào menu bật lên (không thao tác thật). Loupe Tool: khung 518 × 522 px góc trái vùng trang, thanh
+tiêu đề + đóng, vùng xem phóng trang quanh chỗ nhấp (mặc định 200 %, 100–1 600 %), ô zoom (menu các mức), −, thanh
+trượt, +, Lock (khoá chỗ); vùng đang xem đóng khung trên trang; kéo được khung. Magnifier: kính tròn 280 px theo con trỏ,
+phóng 2,25 × zoom xem, tay cầm tự vẽ (không chép hình của hãng). Cả hai vẽ từ ảnh trang render ở đúng tỉ lệ của chúng (ô
+ảnh của xem trước in) nên chữ nét.
+
+**Chiều ngược (bản đối chiếu → ta)**: bản đối chiếu không tạo chú thích từ thao tác kéo gửi bằng thông điệp (cần thao tác
+thật), nên phần này dựa vào tệp của trình ghi khác (tệp 24, 0,39 %).
+
+Còn lại: ribbon tab View lệch 5–15 px và nhãn rộng hơn 1–3 px (đo lại: lệch dồn từ Hand: Read Mode −5, Rotate −10, View
+Setting −14 px), biểu tượng trong menu Select / Assistant, phần in (Margins / "Custom…" của N-up, giấy ngang khi Booklet,
+viền trang khi in), nhóm isolated có blend đầy đủ.
+
+## Vòng 14 (2026-11-17)
+
+Phần thêm ở mô-đun riêng `reader_r14_win.rs` (+ `reader_r14_tests.rs`); `bo-pdfread/src/repair.rs` (dựng lại bảng
+xref). Sửa chung chỉ cộng thêm: `ReaderView::stored_keys`, `Menu::has_icons`, `PdfDocument::annot_subject`. Ảnh:
+`scratchpad/show/reader-90…9x-*.png` (bản đối chiếu trên / trái).
+
+**Ribbon tab View** (`reader-90`). Đo lại 1:1 (tâm nhãn): Select rộng thêm 4 px, Reflow 4, Word Count / View Setting 5,
+khoảng trước Read Mode +2, nhóm lưới +7,5, trước Assistant −7,5 (chỉ tab View; Home giữ số đo vòng 12). Nay mọi nhãn
+lệch ≤ 1,5 px (AutoScroll 673,5 / 673, View Setting 951 / 949,5). **Trạng thái mờ** (đo trên bản sao 1 trang và 12
+trang): tài liệu một trang mờ Reverse View, Continuous, Two Page, Continuous Two Page; Single, trang bìa riêng và Split
+vẫn bật — làm như vậy (test `one_page_documents_grey_the_multi_page_layouts`).
+
+**Menu Select / Assistant** (`reader-91`, chụp 1:1). Hàng 30 px, nhãn cách khung 41–42 px, độ rộng nhãn trùng (Marquee
+51 px) — menu của bản đối chiếu không lớn hơn; khác duy nhất là biểu tượng (mực 20 px từ 10 px; của ta trước 17 px).
+Biểu tượng tự vẽ (I-beam / ghi chú gấp góc + con trỏ, khung đứt + kính lúp, cửa sổ nhỏ có kính lúp, kính lúp có dấu +)
+ở ô 24 px.
+
+**Hộp In** (`reader-92`, `reader-93`; chỉ mở / Cancel ở bản đối chiếu, không in). Multiple Pages Per Sheet: mục
+"Custom..." cuối danh sách, hiện ô cột × hàng có nút tăng giảm; Margins (ô đánh dấu, mặc định bật, 0.200 inch) là
+khoảng giữa các trang (tắt: các trang sát nhau); Print Page Border. Booklet: thứ tự Binding, Booklet subset ("Both"),
+Margins (lề ngoài mỗi nửa, hai trang vẫn gặp nhau ở nếp gấp); xem trước trên tờ ngang (Paper 11.7 × 8.3 inch), trang
+đứng, và lệnh in đặt khổ ngang; "Print on both sides" đánh dấu và mờ; Collate một bản: đánh dấu và mờ (xám 195, dấu
+trắng); bộ đếm "Page n of m" cho mọi chế độ. Test `custom_grid_margins_and_landscape_booklet` (bố cục + hộp).
+
+**Bộ PDF "đời thực"** (`scratchpad/r14/mkcorpus14.py`, 15 tệp tự sinh; so trang đầu như vòng 13, `score.py` nay cắt
+trang đầu trong chế độ cuộn liên tục và bỏ thanh cuộn). Mở = `--bench` (bản release, máy còn biên dịch song song).
+
+| Tệp | Kiểu | Lệch % trước | sau | Mở / trang đầu (ms) |
+| --- | --- | ---: | ---: | --- |
+| 33-boexport-tagged | bo-pdf (Word-like, tagged, bookmarks) | 0.61 | 0.66 | 29 / 52 |
+| 34-story-html-export | PyMuPDF Story (HTML → PDF) | 0.14 | 0.14 | |
+| 35-reportlab-invoice | reportlab (bảng, ảnh) | 0.22 | 0.22 | |
+| 36-form-heavy | 60 trường có appearance | 0.75 | 0.75 | 30 / 52 |
+| 37-scanned-ocr-layer | JPEG quét + chữ ẩn Tr 3 | 0.00 | 0.00 | 24 / 75 |
+| 38-linearized | /Linearized đầu tệp | 1.31 | 1.31 | |
+| 39-incremental-xrefstm | 3 bản cập nhật, xref stream | 1.46 | 1.46 | |
+| 40-object-streams | object stream + xref nén | 1.32 | 1.32 | |
+| 41-broken-xref | offset sai, startxref sai | **không mở được** | 1.31 | 25 / 36 |
+| 42 / 43 / 44 encrypt | RC4-128 / AES-128 / AES-256, mật khẩu người dùng rỗng | 1.35 / 0.42 / 1.35 | = | 28 / 46 (AES-256) |
+| 45-pages-5000 | 5 000 trang nhỏ | 0.43 | 0.43 | 72 / 82 |
+| 46-huge-page-200in | trang 200 × 200 inch | 0.77 (lệch TB 5.09) | 0.75 (1.26) | |
+| 47-annots-1000 | 1 000 chú thích (300 ở trang 1) | 3.84 | 3.84 | 26 / 70 |
+
+Đã sửa: (1) **dựng lại bảng xref** khi offset / `startxref` hỏng (`repair.rs`: quét `N G obj` đầu dòng, bản sau thắng,
+lấy `/Root /Info /Encrypt /ID` từ trailer cuối hoặc từ xref stream, không có thì đối tượng `/Type /Catalog`) — trước
+đó BlueReader báo lỗi, bản đối chiếu mở được; (2) nét rất mảnh ở mức zoom rất nhỏ (trang 200 inch vừa cửa sổ, 3,3 %)
+vẽ 1 px với độ phủ thật như bản đối chiếu (lưới 4 pt nhạt, trước đây đậm); ở 60 % nét 0,25 pt vẫn đậm như bản đối chiếu
+(kiểm lại bộ 32 tệp vòng 13: trung bình 0,677 → 0,677). Còn khác: 47 (biểu tượng ghi chú của ta là hình riêng), 38–44
+1,3 % là chữ Helvetica thay thế, 36 khi `--render` không có tô trường (ứng dụng có).
+
+**Chú thích do bản đối chiếu tạo → BlueReader** (`reader-94`). Trên bản sao thử, phiên riêng của bản đối chiếu nhận
+nhấp và `WM_CHAR` gửi bằng thông điệp (không thao tác thật): Note (gõ nội dung vào ghi chú bật lên), Typewriter,
+Highlight / Squiggly / Underline / StrikeOut (nhấp đúp chọn từ rồi nút đánh dấu), Replace (StrikeOut + Caret nhóm
+`/IRT`), Insert Text (Caret), lưu bằng nút Save. Mở trong BlueReader: cả 9 chú thích hiện đúng chỗ, màu, ngày, tác
+giả. Sửa theo so sánh: tiêu đề ghi chú bật lên hiện chủ đề `/Subj` ở mép trái ("Insert Text", "Note"; ngày bên phải
+trước ×); ghi chú không đang dùng trong suốt 77 % như bản đối chiếu (đo trên ô đầu bảng tối: 189, 96, 172 / trên
+trắng 241, 141, 211); ghi chú `/F NoZoom` giữ 1 pt mỗi pixel giao diện (ghi chú 20 pt: 25 px ở 125 %, bóng vàng 21 px như bản đối chiếu)
+— trước đây danh sách vẽ của trang làm ở mức zoom vừa trang của cửa sổ đầu tiên (nhỏ hơn) không được làm lại khi zoom vừa
+trang đổi, nên ghi chú to gấp 1,4 lần; nay zoom vừa trang đổi thì dựng lại danh sách như `set_zoom` (cả nét mảnh). Trả lời / trạng thái qua menu chuột phải của bản đối
+chiếu không làm được (menu bật lên là cửa sổ riêng, phím gửi vào không chọn mục).
+
+**Bộ nhớ** (sổ tay 1 202 trang, bản release, Page Down gửi bằng thông điệp tới trang cuối, đóng thẻ bằng UI Automation
+`doc:close` mới):
+
+| | Bộ nhớ riêng (MB) |
+| --- | ---: |
+| Mở | 98 |
+| Lật hết 1 202 trang (mẫu mỗi 400 lần) | 188 – 221 (có giới hạn) |
+| Đóng thẻ | 90 |
+| 10 thẻ mở / sau 300 Page Down / đóng hết | 300 / 406 / 101 |
+
+Lỗi rò đã sửa: đóng thẻ không trả ảnh trang GPU của thẻ (`PdfStore` giữ khoá cho tới khi thoát); nay
+`close_tab_now` ghi lại khoá (`ReaderView::stored_keys`) và `prepare` xoá chúng (test
+`closing_a_tab_frees_its_page_images`).
+
+Còn lại: nhóm isolated có blend đầy đủ (vòng 13), trả lời / trạng thái tạo trong bản đối chiếu, UIA: focus / mẫu Text /
+menu và hộp thoại tự vẽ, `--bench` không đo được trang 200 inch ở 100 %.

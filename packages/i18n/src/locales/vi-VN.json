@@ -3257,7 +3257,9 @@
     "clickToAddText": "Bấm để thêm văn bản",
     "notesOf": "Ghi chú {{n}} / {{total}}",
     "thesNoResults": "Không tìm thấy kết quả.",
-    "statusOutline": "Dàn bài"
+    "statusOutline": "Dàn bài",
+    "thesLang": "Tiếng Anh (Hoa Kỳ)",
+    "thesAntonym": "Trái nghĩa"
   },
   "slideEditor": {
     "open": "Mở",

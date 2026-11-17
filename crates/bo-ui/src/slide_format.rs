@@ -746,7 +746,8 @@ impl SlideWindow {
                 let labels = [
                     self.t("slideNative.thesaurus", "Thesaurus"),
                     self.t("slideNative.thesNoResults", "No results found."),
-                    self.t("spell.lang.en-US", "English (United States)"),
+                    self.t("slideNative.thesLang", "English (United States)"),
+                    self.t("slideNative.thesAntonym", "Antonym"),
                 ];
                 self.side
                     .record_thesaurus(text, &meanings, &labels, self.theme.text);

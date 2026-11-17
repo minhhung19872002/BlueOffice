@@ -12,7 +12,7 @@ use bo_engine::slide_edit::SlideCommand;
 use bo_render::{PathSeg, Rgba};
 
 /// Meanings listed for a word (the reference lists every sense; a long list is clipped).
-const MAX_MEANINGS: usize = 12;
+const MAX_MEANINGS: usize = 40;
 
 /// What the pane looks up and how its list is folded.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -83,12 +83,13 @@ fn slice16(text: &str, a: usize, b: usize) -> String {
 }
 
 impl SidePane {
-    /// Lay out the Thesaurus pane: `labels` title, "no results" text, language name.
+    /// Lay out the Thesaurus pane: `labels` title, "no results" text, language name,
+    /// "Antonym".
     pub fn record_thesaurus(
         &mut self,
         text: &dyn TextMeasure,
         meanings: &[Meaning],
-        labels: &[String; 3],
+        labels: &[String; 4],
         ink: Rgba,
     ) {
         let mut ops = Vec::new();
@@ -253,6 +254,24 @@ impl SidePane {
                 ));
                 ry += row;
             }
+            // Antonyms after the synonyms, marked as the reference marks them.
+            for a in &m.antonyms {
+                if ry + row > bottom {
+                    break 'list;
+                }
+                ops.push(Op::Text(
+                    format!("{a} ({})", labels[3]),
+                    tx,
+                    text_y(ry),
+                    body,
+                    ink,
+                ));
+                hits.push((
+                    [left + 1.0, ry, width - 2.0, row],
+                    SideHit::ThesLookup(a.clone()),
+                ));
+                ry += row;
+            }
         }
         // A rule under the list, the language box at the pane's foot.
         ops.push(Op::Rect(
@@ -324,15 +343,34 @@ impl SlideWindow {
         if w.is_empty() {
             return Vec::new();
         }
-        // The word itself is not offered (reference); a meaning left without synonyms is
-        // not listed.
-        thesaurus::meanings(&w, MAX_MEANINGS)
-            .into_iter()
-            .filter_map(|mut m| {
-                m.synonyms.retain(|s| s.to_lowercase() != w);
-                (!m.synonyms.is_empty()).then_some(m)
-            })
-            .collect()
+        // The word itself is not offered (synonyms come without it); senses with the same
+        // heading and part of speech are merged; a sense left without synonyms or antonyms
+        // is not listed.
+        let mut out: Vec<Meaning> = Vec::new();
+        for m in thesaurus::meanings(&w, MAX_MEANINGS) {
+            if m.synonyms.is_empty() && m.antonyms.is_empty() {
+                continue;
+            }
+            let head = |x: &Meaning| x.synonyms.first().cloned();
+            if let Some(o) = out
+                .iter_mut()
+                .find(|o| o.pos == m.pos && head(o) == head(&m))
+            {
+                for s in m.synonyms {
+                    if !o.synonyms.contains(&s) {
+                        o.synonyms.push(s);
+                    }
+                }
+                for s in m.antonyms {
+                    if !o.antonyms.contains(&s) {
+                        o.antonyms.push(s);
+                    }
+                }
+            } else {
+                out.push(m);
+            }
+        }
+        out
     }
 
     /// A press in the Thesaurus pane (`count` 2: a double press).

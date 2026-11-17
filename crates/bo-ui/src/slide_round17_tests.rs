@@ -185,6 +185,17 @@ fn thesaurus_pane_lists_meanings_looks_up_and_goes_back() {
     w.side.thes.word = "increase".into();
     assert!(w.action("sl.thesaurus"));
     assert_eq!(w.side.kind, selpane::SideKind::Thesaurus);
+    // Senses with the same heading are merged; verbs come with their antonym.
+    let m = w.thesaurus_meanings();
+    let heads: Vec<_> = m
+        .iter()
+        .map(|x| (x.pos.clone(), x.synonyms.first().cloned()))
+        .collect();
+    let mut uniq = heads.clone();
+    uniq.dedup();
+    assert_eq!(heads.len(), uniq.len(), "{heads:?}");
+    assert!(m.iter().any(|x| x.pos == "v"), "{heads:?}");
+    assert!(m.iter().any(|x| x.antonyms.iter().any(|a| a == "decrease")));
     w.handle(Input::Blink, &Fixed);
     let syn = w
         .side
@@ -204,4 +215,44 @@ fn thesaurus_pane_lists_meanings_looks_up_and_goes_back() {
     assert_eq!(w.side.thes.folded, vec![0]);
     // Without text editing a double press inserts nothing.
     assert!(!w.thesaurus_hit(&selpane::SideHit::ThesLookup(syn), 2));
+}
+
+#[test]
+fn animation_pane_follows_the_slide_selection() {
+    let mut engine = Engine::with_bundled_fonts();
+    let name = "slide-edit-animations-all.pptx";
+    let path = format!(
+        "{}/../../tests/corpus/slide/{name}",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    engine.open(&std::fs::read(path).unwrap(), name).unwrap();
+    let mut w = SlideWindow::new(SlideView::new(engine).unwrap(), "en-US", name);
+    w.handle(Input::Scale(1.25), &Fixed);
+    w.handle(
+        Input::Resize {
+            width: 1481.0,
+            height: 1080.0,
+        },
+        &Fixed,
+    );
+    // The first animated slide.
+    for i in 0..w.view.slide_count() {
+        w.view.go_to(i);
+        if w.view.state().is_some_and(|s| !s.animations.is_empty()) {
+            break;
+        }
+    }
+    let Some(id) = w
+        .view
+        .state()
+        .and_then(|s| s.animations.last().map(|a| a.shape_id))
+    else {
+        panic!("the deck has an animated slide");
+    };
+    w.anim_pane.shown = true;
+    w.view.run(SlideCommand::Select { ids: vec![id] });
+    w.relayout_pending = true;
+    w.handle(Input::Blink, &Fixed);
+    let sel = w.anim_pane.selected.expect("the selected shape's row is chosen");
+    assert_eq!(w.view.state().unwrap().animations[sel].shape_id, id);
 }

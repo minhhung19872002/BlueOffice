@@ -194,6 +194,25 @@ fn ribbon_format(view: &SlideView, anim: bool) -> bo_edit::FormatState {
     }
 }
 
+/// Plain text of shape `id` among `nodes` (groups searched).
+fn shape_text(nodes: &[bo_model::slide::ShapeNode], id: u32) -> Option<String> {
+    use bo_model::slide::ShapeNode;
+    nodes.iter().find_map(|n| match n {
+        ShapeNode::Shape(s) if s.nv.id == id => s.text.as_ref().map(|t| {
+            t.paragraphs
+                .iter()
+                .map(bo_model::slide::Paragraph::text)
+                .collect::<Vec<_>>()
+                .join(" ")
+        }),
+        ShapeNode::Group(g) => shape_text(&g.children, id),
+        _ => None,
+    })
+}
+
+/// A line of Outline View: its top and pieces (text, x, bold, italic, underline).
+type OutlineLine = (f32, Vec<(String, f32, bool, bool, bool)>);
+
 /// Window contents of BlueSlide.
 pub struct SlideWindow {
     view: SlideView,
@@ -285,6 +304,9 @@ pub struct SlideWindow {
     gridlines: bool,
     guides: bool,
     outline_rows: Vec<(f32, usize)>,
+    /// Outline View: each listed paragraph line's top and pieces (text, x, bold, italic,
+    /// underline).
+    outline_lines: Vec<OutlineLine>,
     /// Selection Pane / Alt Text pane (same place as the comments pane; one at a time).
     side: selpane::SidePane,
     /// Picture Format gallery of previews (Corrections, Color, Transparency).
@@ -658,6 +680,7 @@ impl SlideWindow {
             gridlines: false,
             guides: false,
             outline_rows: Vec::new(),
+            outline_lines: Vec::new(),
             side: selpane::SidePane::default(),
             gallery: None,
             bg_mode: None,
@@ -924,11 +947,38 @@ impl SlideWindow {
                 .record(text, &threads, &labels, self.theme.text);
         }
         if self.anim_pane.shown {
-            let effects = self
+            let mut effects = self
                 .view
                 .state()
                 .map(|s| s.animations.clone())
                 .unwrap_or_default();
+            // The row of the shape selected on the slide is the chosen one (reference).
+            let ids: Vec<u32> = self.view.selection().iter().map(|s| s.id).collect();
+            let keep = self
+                .anim_pane
+                .selected
+                .and_then(|i| effects.get(i))
+                .is_some_and(|a| ids.contains(&a.shape_id));
+            if !keep && !ids.is_empty() {
+                self.anim_pane.selected = effects.iter().position(|a| ids.contains(&a.shape_id));
+            }
+            // Rows name the shape and the start of its text ("Title 1: Báo cáo…"), as the
+            // reference.
+            if let Some(slide) = self
+                .view
+                .engine()
+                .presentation()
+                .and_then(|p| p.slides.get(self.view.current()))
+            {
+                for e in &mut effects {
+                    if let Some(t) = shape_text(&slide.data.shapes, e.shape_id) {
+                        let t = t.split_whitespace().collect::<Vec<_>>().join(" ");
+                        if !t.is_empty() {
+                            e.shape_name = format!("{}: {t}", e.shape_name);
+                        }
+                    }
+                }
+            }
             let labels = [
                 self.t("slideNative.animationPane", "Animation Pane"),
                 self.t("slideNative.playFrom", "Play From"),
@@ -941,7 +991,7 @@ impl SlideWindow {
             self.record_side(text);
         }
         self.view.measure_notes(text, self.text_size);
-        self.layout_outline(self.text_size);
+        self.layout_outline(text);
         redraw
     }
 

@@ -179,6 +179,9 @@ xem `assets/icons/library/README.md`.
   Copyright 2006 by Princeton University. All rights reserved." (giấy phép WordNet, cho phép kèm thông báo);
   nguồn, phiên bản, cách sinh và toàn văn thông báo Princeton nằm trong `assets/thesaurus/en/README.md`, phân
   phối kèm dữ liệu. Dùng cho ngăn / menu "Từ đồng nghĩa" (CORE-THES-001).
+  Giao diện Rust tự vẽ nhúng nguyên tệp này vào chương trình (`crates/bo-ui/src/slide_thesaurus.rs`,
+  `include_bytes!`: ngăn Thesaurus và nghĩa của từ trong ngăn Spelling của BlueSlide); cùng giấy phép và ghi công
+  như trên (đây là dữ liệu, không phải crate nên `cargo deny` / `pnpm license-check` không quét).
 - Tiếng Việt: chưa có dữ liệu (không có nguồn mở với giấy phép tương thích đã kiểm chứng).
 
 ## Ranh giới bản đồ

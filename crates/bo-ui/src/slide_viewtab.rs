@@ -5,7 +5,7 @@
 use super::SlideWindow;
 use crate::ribbon::{Group, Item, RibbonHit, Tab};
 use crate::spin_box::paint_check;
-use crate::{Painter, TextStyle};
+use crate::{Painter, TextMeasure, TextStyle};
 use bo_engine::slide_edit::master::MasterCommand;
 use bo_render::Rgba;
 
@@ -142,6 +142,17 @@ pub(super) fn install_icons(icons: &mut crate::icons::Icons) {
         ],
     );
     icons.alias("view.zoom", "edit.find");
+}
+
+/// The outline's font: the interface family at `size` px with a run's emphasis.
+fn outline_font(size: f32, bold: bool, italic: bool, underline: bool) -> crate::Font<'static> {
+    crate::Font {
+        family: "Segoe UI",
+        size,
+        weight: if bold { 700 } else { 400 },
+        italic,
+        underline,
+    }
 }
 
 impl SlideWindow {
@@ -352,39 +363,74 @@ impl SlideWindow {
         [c[0], c[1], c[2] + self.px(15.0), c[3]]
     }
 
-    /// Outline text size and line pitch (reference at 125 %: 31 px lines, 15 px x-height).
+    /// Outline text size and line pitch (reference at 125 %: 28–29 px lines).
     pub(super) fn outline_metrics(&self) -> (f32, f32) {
         let size = (self.text_size * 1.3).round();
-        (size, (size * 1.5).round().max(1.0))
+        (size, (size * 1.45).round().max(1.0))
     }
 
-    /// Lay out the outline rows (slide number, title, bullets) for hit testing.
-    pub(super) fn layout_outline(&mut self, _text_size: f32) {
+    /// Lay out the outline rows (slide number, title, paragraphs) for hit testing, and the
+    /// pieces of each paragraph line (number, runs with their emphasis) measured for drawing.
+    pub(super) fn layout_outline(&mut self, text: &dyn TextMeasure) {
         self.outline_rows.clear();
+        self.outline_lines.clear();
         if self.pane != Pane::Outline {
             return;
         }
         let area = self.outline_area();
-        let (_, line) = self.outline_metrics();
+        let (size, line) = self.outline_metrics();
         let mut y = area[1] + self.px(13.0);
         let Some(pres) = self.view.engine().presentation() else {
             return;
         };
+        let tx = area[0] + self.px(45.6);
+        let mut rows = Vec::new();
+        let mut lines = Vec::new();
         for (i, s) in pres.slides.iter().enumerate() {
-            self.outline_rows.push((y, i));
+            rows.push((y, i));
             let o = bo_engine::slide_edit::outline::slide_outline(s);
-            let shown = o
-                .bullets
-                .iter()
-                .filter(|b| !b.text.trim().is_empty())
-                .count();
-            y += line * (1 + shown) as f32 + self.px(8.0);
+            let paras = bo_engine::slide_edit::outline::slide_outline_paras(s);
+            let mut ly = y + line;
+            // Empty paragraphs are not listed (reference).
+            for (k, b) in o.bullets.iter().enumerate() {
+                if b.text.trim().is_empty() {
+                    continue;
+                }
+                let mut x = tx + f32::from(b.level) * self.px(15.2);
+                let mut pieces = Vec::new();
+                let para = paras.get(k);
+                if let Some(n) = para.and_then(|p| p.number.as_ref()) {
+                    let n = format!("{n} ");
+                    let f = outline_font(size, false, false, false);
+                    let w = text.measure_font(&n, &f).0;
+                    pieces.push((n, x, false, false, false));
+                    x += w;
+                }
+                match para {
+                    Some(p) if !p.runs.is_empty() => {
+                        for r in &p.runs {
+                            let t = r.text.replace('\u{b}', " ");
+                            let f = outline_font(size, r.bold, r.italic, r.underline);
+                            let w = text.measure_font(&t, &f).0;
+                            pieces.push((t, x, r.bold, r.italic, r.underline));
+                            x += w;
+                        }
+                    }
+                    _ => pieces.push((b.text.clone(), x, false, false, false)),
+                }
+                lines.push((ly, pieces));
+                ly += line;
+            }
+            y = ly + self.px(8.8);
         }
+        self.outline_rows = rows;
+        self.outline_lines = lines;
     }
 
     /// The outline as the reference draws it: grey ground, slide number, a framed slide
     /// icon (accent frame on the current slide), bold title, body paragraphs indented by
-    /// level without bullet marks.
+    /// level with their automatic numbers and run emphasis, without bullet marks, in the
+    /// reference's grey 68.
     fn paint_outline(&self, p: &mut dyn Painter) {
         let area = self.outline_area();
         p.fill_rect(
@@ -397,13 +443,9 @@ impl SlideWindow {
         let Some(pres) = self.view.engine().presentation() else {
             return;
         };
-        let (size, line) = self.outline_metrics();
+        let (size, _) = self.outline_metrics();
         let style = TextStyle { size, bold: false };
-        let bold = TextStyle {
-            bold: true,
-            ..style
-        };
-        let ink = self.theme.text;
+        let ink = Rgba(0x44, 0x44, 0x44, 255);
         p.push_clip(area[0], area[1], area[2], area[3]);
         for ((top, i), s) in self.outline_rows.iter().zip(&pres.slides) {
             let o = bo_engine::slide_edit::outline::slide_outline(s);
@@ -433,13 +475,17 @@ impl SlideWindow {
                 Rgba(255, 255, 255, 255),
             );
             let tx = area[0] + self.px(45.6);
-            p.text(&o.title, tx, *top, bold, ink);
-            let mut y = *top + line;
-            // Empty paragraphs are not listed (reference).
-            for b in o.bullets.iter().filter(|b| !b.text.trim().is_empty()) {
-                let x = tx + f32::from(b.level) * self.px(15.2);
-                p.text(&b.text, x, y, style, ink);
-                y += line;
+            p.text_font(
+                &o.title,
+                tx,
+                *top,
+                &outline_font(size, true, false, false),
+                ink,
+            );
+        }
+        for (y, pieces) in &self.outline_lines {
+            for (t, x, b, it, u) in pieces {
+                p.text_font(t, *x, *y, &outline_font(size, *b, *it, *u), ink);
             }
         }
         p.pop_clip();
@@ -490,7 +536,8 @@ impl SlideWindow {
             iy - 1.0,
             iw + 2.0,
             ih + 2.0,
-            Rgba(0x80, 0x80, 0x80, 255),
+            // A black 1 px frame round the slide image, as the reference.
+            Rgba(0, 0, 0, 255),
         );
         self.view
             .paint_slide_into(p, [ix, iy, iw.round(), ih.round()]);
@@ -528,11 +575,11 @@ impl SlideWindow {
                 tx,
                 y,
                 small,
-                self.theme.text,
+                Rgba(0, 0, 0, 255),
             );
         }
         for para in notes.lines() {
-            p.text(para, tx, y, small, self.theme.text);
+            p.text(para, tx, y, small, Rgba(0, 0, 0, 255));
             y += line;
         }
         p.pop_clip();

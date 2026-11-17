@@ -3257,7 +3257,9 @@
     "clickToAddText": "Click to add text",
     "notesOf": "Notes {{n}} of {{total}}",
     "thesNoResults": "No results found.",
-    "statusOutline": "Outline"
+    "statusOutline": "Outline",
+    "thesLang": "English (United States)",
+    "thesAntonym": "Antonym"
   },
   "slideEditor": {
     "open": "Open",

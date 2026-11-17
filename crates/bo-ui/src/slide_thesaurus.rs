@@ -13,12 +13,15 @@ pub struct Meaning {
     pub pos: String,
     pub gloss: String,
     pub synonyms: Vec<String>,
+    /// Antonyms of the word in this sense.
+    pub antonyms: Vec<String>,
 }
 
 struct Data {
     words: Vec<String>,
     synsets: Vec<(String, String, Vec<usize>)>,
-    entries: HashMap<String, Vec<usize>>,
+    /// Senses of each word: synset and antonym word ids.
+    entries: HashMap<String, Vec<(usize, Vec<usize>)>>,
     forms: HashMap<String, String>,
 }
 
@@ -82,8 +85,20 @@ fn parse(json: &[u8]) -> Option<Data> {
                 .as_array()
                 .map(|a| {
                     a.iter()
-                        .filter_map(|s| s.get(0).and_then(serde_json::Value::as_u64))
-                        .map(|n| n as usize)
+                        .filter_map(|s| {
+                            let id = s.get(0).and_then(serde_json::Value::as_u64)? as usize;
+                            let ants = s
+                                .get(1)
+                                .and_then(serde_json::Value::as_array)
+                                .map(|x| {
+                                    x.iter()
+                                        .filter_map(serde_json::Value::as_u64)
+                                        .map(|n| n as usize)
+                                        .collect()
+                                })
+                                .unwrap_or_default();
+                            Some((id, ants))
+                        })
                         .collect()
                 })
                 .unwrap_or_default();
@@ -158,7 +173,7 @@ pub fn meanings(word: &str, max: usize) -> Vec<Meaning> {
         let Some(ids) = d.entries.get(&l) else {
             continue;
         };
-        for id in ids {
+        for (id, ants) in ids {
             let Some((pos, gloss, ws)) = d.synsets.get(*id) else {
                 continue;
             };
@@ -172,6 +187,11 @@ pub fn meanings(word: &str, max: usize) -> Vec<Meaning> {
                 pos: pos.clone(),
                 gloss: gloss.clone(),
                 synonyms,
+                antonyms: ants
+                    .iter()
+                    .filter_map(|i| d.words.get(*i))
+                    .cloned()
+                    .collect(),
             });
             if out.len() >= max {
                 return out;

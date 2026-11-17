@@ -1601,7 +1601,11 @@ fn layout_uncached(
                 let x0 = offset + xs[i] + extra;
                 let x_next = offset + xs[i + 1] + extra;
                 if p.kind == Kind::Tab {
-                    if let Some(leader) = leader_at(&tab_ctx, xs[i + 1]) {
+                    // The leader of the stop this tab goes to (§17.3.1.37 tab `w:leader`):
+                    // a tab to a stop without leader draws none, even when a later stop
+                    // has one.
+                    let (stop, _) = next_stop(&tab_ctx, xs[i]);
+                    if let Some(leader) = leader_at(&tab_ctx, stop) {
                         if let Some(f) = leader_fragment(fonts, st, p.face, leader, x0, x_next) {
                             frags.push(f);
                         }
@@ -2228,12 +2232,19 @@ fn next_stop(t: &TabCtx<'_>, x: f32) -> (f32, TabAlign) {
     best.unwrap_or_else(|| (((x / t.default).floor() + 1.0) * t.default, TabAlign::Left))
 }
 
-/// Leader of the custom stop located at `stop_x`.
+/// Leader of the custom stop located at `stop_x` (a right stop past the right indent
+/// sits at the indent, see [`next_stop`]).
 fn leader_at(t: &TabCtx<'_>, stop_x: f32) -> Option<TabLeader> {
     t.stops
         .iter()
         .filter(|s| s.leader != TabLeader::None)
-        .find(|s| (s.pos.to_pt() - stop_x).abs() < 0.5 || s.pos.to_pt() >= stop_x - 0.5)
+        .find(|s| {
+            let p = s.pos.to_pt();
+            (p - stop_x).abs() < 0.5
+                || (s.align == TabAlign::Right
+                    && p > t.right_edge
+                    && (stop_x - t.right_edge).abs() < 0.5)
+        })
         .map(|s| s.leader)
 }
 

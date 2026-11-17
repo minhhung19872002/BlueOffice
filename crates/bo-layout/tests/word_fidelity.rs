@@ -7,9 +7,9 @@
 
 use bo_layout::{layout_document, LayoutCache, LayoutDocument, Line, LineSource};
 use bo_model::{
-    Alignment, Anchor, Block, Border, Borders, Cell, CellProps, Document, Emu, HalfPoints, Image,
-    LineSpacing, PageSetup, ParaProps, Paragraph, Run, RunContent, RunProps, Section, Style,
-    StyleKind, Table, Twips, Wrap,
+    Alignment, Anchor, Block, Border, Borders, Cell, CellProps, Columns, Document, Emu, HalfPoints,
+    Image, LineSpacing, PageSetup, ParaProps, Paragraph, Run, RunContent, RunProps, Section,
+    SectionBreak, Style, StyleKind, TabAlign, TabLeader, TabStop, Table, Twips, Wrap,
 };
 use bo_text::FontManager;
 
@@ -349,4 +349,76 @@ fn line_spacing_may_reach_into_a_top_and_bottom_picture() {
     assert!(place(13, LineSpacing::Auto(360)) > 72.0 + 13.0);
     // An exact line needs its whole height.
     assert!(place(14, LineSpacing::Exact(Twips(400))) > 72.0 + 14.0);
+}
+
+/// §17.18.77 continuous: a two-column section ended by a continuous section break on its
+/// page has columns of (nearly) equal height, as the reference lays it out.
+#[test]
+fn columns_before_a_continuous_break_are_balanced() {
+    let blocks: Vec<Block> = (0..10)
+        .map(|i| para(&format!("line {i}"), 0, 0, SINGLE))
+        .collect();
+    let mut d = doc(blocks);
+    d.sections[0].columns = Columns {
+        count: 2,
+        space: Twips(720),
+        ..Columns::default()
+    };
+    let mut after = Section {
+        page: a4(),
+        ..Section::new(vec![para("after", 0, 0, SINGLE)])
+    };
+    after.break_type = SectionBreak::Continuous;
+    d.sections.push(after);
+    let l = run(&d);
+    let line = 2355.0 * 12.0 / 2048.0;
+    let tops: Vec<(f32, f32)> = (0..10)
+        .map(|i| {
+            let x = lines(&l, i)[0].fragments[0].x;
+            (x, lines(&l, i)[0].top)
+        })
+        .collect();
+    // Five lines per column; the next section starts below them.
+    assert!(tops[..5].iter().all(|t| t.0 < 200.0), "{tops:?}");
+    assert!(tops[5..].iter().all(|t| t.0 > 200.0), "{tops:?}");
+    assert!(near(tops[5].1, 72.0));
+    assert!(near(lines(&l, 10)[0].top, 72.0 + 5.0 * line));
+}
+
+/// §17.3.1.37 tab: a tab to a stop without leader draws no leader even when a later stop
+/// has one.
+#[test]
+fn only_the_leadered_stop_gets_a_leader() {
+    let d = doc(vec![Block::Paragraph(Paragraph::new(
+        ParaProps {
+            space_before: Some(Twips(0)),
+            space_after: Some(Twips(0)),
+            line_spacing: Some(SINGLE),
+            tabs: Some(vec![
+                TabStop {
+                    pos: Twips(4680),
+                    align: TabAlign::Center,
+                    leader: TabLeader::None,
+                },
+                TabStop {
+                    pos: Twips(9000),
+                    align: TabAlign::Right,
+                    leader: TabLeader::Dot,
+                },
+            ]),
+            ..ParaProps::default()
+        },
+        vec![Run::text("a\tb\tc", RunProps::default())],
+    ))]);
+    let l = run(&d);
+    let line = lines(&l, 0)[0];
+    let dots: Vec<f32> = line
+        .fragments
+        .iter()
+        .filter(|f| f.text.starts_with('.'))
+        .map(|f| f.x)
+        .collect();
+    // One leader, after "b" (centred at 234 pt from the margin).
+    assert_eq!(dots.len(), 1, "{dots:?}");
+    assert!(dots[0] > 72.0 + 234.0, "{dots:?}");
 }

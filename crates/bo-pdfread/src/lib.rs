@@ -33,6 +33,7 @@ mod edit;
 mod encoding;
 #[allow(clippy::unreadable_literal, clippy::large_const_arrays)]
 mod encoding_data;
+mod evenodd;
 mod exchange;
 mod exchange_data;
 mod extract;
@@ -1325,6 +1326,8 @@ mod objects_tests;
 mod paragraph_push_tests;
 #[cfg(test)]
 mod paragraph_tests;
+#[cfg(test)]
+mod render13_tests;
 #[cfg(test)]
 mod templates_tests;
 #[cfg(test)]

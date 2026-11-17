@@ -28,6 +28,14 @@ pub(crate) enum ColorSpace {
         none: bool,
     },
     Pattern(Option<Arc<ColorSpace>>),
+    /// CalGray (`gray`) and CalRGB (§8.6.5.2, §8.6.5.3): components raised to their gamma,
+    /// mixed by the matrix into CIE XYZ under the white point, shown as sRGB.
+    Cal {
+        gray: bool,
+        gamma: [f32; 3],
+        matrix: [f32; 9],
+        white: [f32; 3],
+    },
 }
 
 fn resolve<'a>(doc: &'a Document, o: &'a Object) -> &'a Object {
@@ -47,6 +55,14 @@ impl ColorSpace {
         }
         let o = resolve(doc, o);
         match o {
+            // The inline-image abbreviations are not reserved names (§8.9.7 Table 94): a
+            // `/ColorSpace` resource called `/G` or `/RGB` is that resource.
+            Object::Name(n)
+                if matches!(n.as_slice(), b"G" | b"RGB" | b"CMYK") && named(n).is_some() =>
+            {
+                let found = named(n)?;
+                Self::parse(doc, &found, named, depth + 1)
+            }
             Object::Name(n) => match n.as_slice() {
                 b"DeviceGray" | b"G" | b"CalGray" => Some(Self::Gray),
                 b"DeviceRGB" | b"RGB" | b"CalRGB" => Some(Self::Rgb),
@@ -61,8 +77,19 @@ impl ColorSpace {
             Object::Array(a) => {
                 let kind = resolve(doc, a.first()?).as_name().ok()?;
                 match kind {
-                    b"DeviceGray" | b"CalGray" | b"G" => Some(Self::Gray),
-                    b"DeviceRGB" | b"CalRGB" | b"RGB" => Some(Self::Rgb),
+                    b"DeviceGray" | b"G" => Some(Self::Gray),
+                    b"DeviceRGB" | b"RGB" => Some(Self::Rgb),
+                    b"CalGray" | b"CalRGB" => Some(
+                        a.get(1)
+                            .map(|d| resolve(doc, d))
+                            .and_then(|d| d.as_dict().ok())
+                            .and_then(|d| Self::cal(doc, d, kind == b"CalGray"))
+                            .unwrap_or(if kind == b"CalGray" {
+                                Self::Gray
+                            } else {
+                                Self::Rgb
+                            }),
+                    ),
                     b"DeviceCMYK" | b"CMYK" => Some(Self::Cmyk),
                     b"Lab" => Some(Self::Lab),
                     b"ICCBased" => {
@@ -142,11 +169,44 @@ impl ColorSpace {
         }
     }
 
+    /// CalGray / CalRGB from their dictionary; `None` without a usable white point.
+    fn cal(doc: &Document, d: &lopdf::Dictionary, gray: bool) -> Option<Self> {
+        let nums = |k: &[u8]| -> Vec<f32> {
+            match d.get(k).ok().map(|o| resolve(doc, o)) {
+                Some(Object::Array(a)) => a
+                    .iter()
+                    .filter_map(|o| resolve(doc, o).as_float().ok())
+                    .collect(),
+                Some(o) => o.as_float().ok().into_iter().collect(),
+                None => Vec::new(),
+            }
+        };
+        let white = <[f32; 3]>::try_from(nums(b"WhitePoint").as_slice()).ok()?;
+        if !(white[1] > 0.0 && white[0] > 0.0 && white[2] > 0.0) {
+            return None;
+        }
+        let g = nums(b"Gamma");
+        let gamma = match g.as_slice() {
+            [v] => [*v; 3],
+            [a, b, c] => [*a, *b, *c],
+            _ => [1.0; 3],
+        };
+        let gamma = gamma.map(|v| if v > 0.0 && v.is_finite() { v } else { 1.0 });
+        let matrix = <[f32; 9]>::try_from(nums(b"Matrix").as_slice())
+            .unwrap_or([1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]);
+        Some(Self::Cal {
+            gray,
+            gamma,
+            matrix,
+            white,
+        })
+    }
+
     /// Number of colour components.
     pub(crate) fn components(&self) -> usize {
         match self {
-            Self::Gray | Self::Indexed { .. } => 1,
-            Self::Rgb | Self::Lab => 3,
+            Self::Gray | Self::Indexed { .. } | Self::Cal { gray: true, .. } => 1,
+            Self::Rgb | Self::Lab | Self::Cal { .. } => 3,
             Self::Cmyk => 4,
             Self::Tint { inputs, .. } => *inputs,
             Self::Pattern(base) => base.as_ref().map_or(0, |b| b.components()),
@@ -207,7 +267,47 @@ impl ColorSpace {
                 .as_ref()
                 .map_or_else(|| [1.0 - g(0); 3], |f| alt.rgb(&f.eval(c))),
             Self::Pattern(base) => base.as_ref().map_or([0.0; 3], |b| b.rgb(c)),
+            Self::Cal {
+                gray,
+                gamma,
+                matrix,
+                white,
+            } => {
+                if *gray {
+                    // Y = A^G (relative to the white point's Y), shown as sRGB grey.
+                    return [srgb(g(0).powf(gamma[0])); 3];
+                }
+                let v = [
+                    g(0).powf(gamma[0]),
+                    g(1).powf(gamma[1]),
+                    g(2).powf(gamma[2]),
+                ];
+                let xyz = [0, 1, 2]
+                    .map(|k| matrix[k] * v[0] + matrix[3 + k] * v[1] + matrix[6 + k] * v[2]);
+                // Scale from the space's white to D65 (von Kries on XYZ), then XYZ → sRGB.
+                let d65 = [0.9505, 1.0, 1.089];
+                let (x, y, z) = (
+                    xyz[0] * d65[0] / white[0],
+                    xyz[1] * d65[1] / white[1],
+                    xyz[2] * d65[2] / white[2],
+                );
+                [
+                    srgb(3.2406 * x - 1.5372 * y - 0.4986 * z),
+                    srgb(-0.9689 * x + 1.8758 * y + 0.0415 * z),
+                    srgb(0.0557 * x - 0.2040 * y + 1.0570 * z),
+                ]
+            }
         }
+    }
+}
+
+/// Linear light to the sRGB curve, clamped to 0..=1.
+fn srgb(v: f32) -> f32 {
+    let v = v.clamp(0.0, 1.0);
+    if v <= 0.003_130_8 {
+        12.92 * v
+    } else {
+        1.055 * v.powf(1.0 / 2.4) - 0.055
     }
 }
 

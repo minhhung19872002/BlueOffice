@@ -892,7 +892,9 @@ fn view_tab_outline_master_and_grid() {
     assert_eq!(w.outline_rows.len(), w.view().slide_count());
     // A press on the second slide's outline row goes there.
     let (top, slide) = w.outline_rows[1];
-    let area = w.view().thumbs_area();
+    // The outline takes the whole view, as the reference's.
+    assert_eq!(w.view().thumbs_area()[2], 0.0);
+    let area = w.outline_area();
     click(&mut w, area[0] + 30.0, top + 4.0);
     assert_eq!(w.view().current(), slide);
     assert!(w.run_action("view.normal"));
@@ -911,6 +913,13 @@ fn view_tab_outline_master_and_grid() {
     assert!(w.gridlines);
     assert!(w.run_action("view.notesPage"));
     assert_eq!(w.pane, viewtab::Pane::NotesPage);
+    // The page takes the whole view: no thumbnails or notes pane, as the reference.
+    assert_eq!(w.view().thumbs_area()[2], 0.0);
+    assert!(w.view().notes_rect().is_none());
+    let z = w.notes_page_zoom();
+    assert!(z > 0.1 && z < 2.0, "{z}");
+    assert!(w.run_action("view.normal"));
+    assert!(w.view().thumbs_area()[2] > 0.0);
 }
 
 #[test]

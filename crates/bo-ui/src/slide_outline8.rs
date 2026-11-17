@@ -94,7 +94,7 @@ impl SlideWindow {
     /// The outline line at window position `y` (row tops from the last layout).
     pub(super) fn outline_line_at(&self, y: f32) -> Option<Line> {
         let (top, slide) = self.outline_rows.iter().rev().find(|(top, _)| y >= *top)?;
-        let line = (self.text_size * 1.5).round().max(1.0);
+        let (_, line) = self.outline_metrics();
         let k = ((y - top) / line).floor() as usize;
         let pres = self.view.engine().presentation()?;
         let o = outline::slide_outline(pres.slides.get(*slide)?);
@@ -154,9 +154,9 @@ impl SlideWindow {
         let Some((top, _)) = self.outline_rows.iter().find(|(_, s)| *s == slide) else {
             return;
         };
-        let line = (self.text_size * 1.5).round();
+        let (_, line) = self.outline_metrics();
         let y = top + line * b.map_or(0.0, |b| (b + 1) as f32);
-        let area = self.view.thumbs_area();
+        let area = self.outline_area();
         let c = Rgba(0x5b, 0x8f, 0xd0, 255);
         let (x, w) = (area[0] + self.px(2.0), area[2] - self.px(4.0));
         p.fill_rect(x, y - 1.0, w, 1.0, c);

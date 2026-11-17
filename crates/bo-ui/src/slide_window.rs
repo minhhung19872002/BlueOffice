@@ -2962,6 +2962,8 @@ impl SlideWindow {
         // The sorter shows its own zoom (its images at 100 %).
         let zoom = if self.view.mode() == ViewMode::Sorter {
             "100%".to_owned()
+        } else if self.pane == viewtab::Pane::NotesPage {
+            format!("{}%", (self.notes_page_zoom() * 100.0).round() as i32)
         } else {
             format!("{}%", (self.view.zoom() * 100.0).round() as i32)
         };

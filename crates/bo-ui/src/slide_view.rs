@@ -336,6 +336,8 @@ pub struct SlideView {
     canvas_scroll: f32,
     thumb_scroll: f32,
     show_notes: bool,
+    /// A page view over the whole window (Notes Page): no thumbnails or notes pane.
+    full_page: bool,
     /// Slide show keys and pointer tools (blank screens, pen, laser).
     show_tools: show_tools::ShowTools,
     /// Shift / Ctrl held with the mouse button (host: the mouse message's key flags).
@@ -437,6 +439,7 @@ impl SlideView {
             canvas_scroll: 0.0,
             thumb_scroll: 0.0,
             show_notes: true,
+            full_page: false,
             show_tools: show_tools::ShowTools::default(),
             pointer_mods: Mods::default(),
             shift_toggle: None,
@@ -547,6 +550,16 @@ impl SlideView {
     /// Whether the notes pane is shown.
     pub fn notes_shown(&self) -> bool {
         self.show_notes
+    }
+
+    /// Notes Page and the like: the canvas takes the whole view, the thumbnails and the
+    /// notes pane are hidden as on the reference.
+    pub fn set_full_page(&mut self, on: bool) {
+        self.full_page = on;
+        if on && matches!(self.focus, Focus::Notes | Focus::Thumbs) {
+            self.focus = Focus::Canvas;
+        }
+        self.clamp_canvas_scroll();
     }
 
     /// Show or hide the notes pane.
@@ -710,7 +723,7 @@ impl SlideView {
 
     /// Width of the thumbnails pane (reference: 187 logical px), its splitter excluded.
     fn thumbs_w(&self) -> f32 {
-        if self.in_page_master() {
+        if self.in_page_master() || self.full_page {
             return 0.0;
         }
         self.px(187.0).min((self.size.0 * 0.4).max(0.0))
@@ -728,7 +741,7 @@ impl SlideView {
 
     /// The notes pane is shown (never in the page master views).
     fn notes_on(&self) -> bool {
-        self.show_notes && !self.in_page_master()
+        self.show_notes && !self.in_page_master() && !self.full_page
     }
 
     /// Width of the canvas scroll bar.

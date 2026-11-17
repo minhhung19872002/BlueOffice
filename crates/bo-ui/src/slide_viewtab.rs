@@ -159,6 +159,8 @@ impl SlideWindow {
                 };
                 self.view.set_mode(crate::slide_view::ViewMode::Normal);
                 self.pane = want;
+                // Both take the whole view on the reference: no thumbnails or notes pane.
+                self.view.set_full_page(true);
                 self.relayout_pending = true;
                 true
             }
@@ -168,6 +170,7 @@ impl SlideWindow {
                     return None;
                 }
                 self.pane = Pane::Normal;
+                self.view.set_full_page(false);
                 self.relayout_pending = true;
                 self.action(id);
                 true
@@ -239,16 +242,20 @@ impl SlideWindow {
     pub(super) fn pane_press(&mut self, x: f32, y: f32) -> Option<bool> {
         match self.pane {
             Pane::Outline => {
-                let area = self.view.thumbs_area();
+                let area = self.outline_area();
                 if !crate::spin_box::inside(area, x, y) {
                     return None;
                 }
-                let hit = self
+                // Presses on the outline never reach the slide canvas under it.
+                let Some(hit) = self
                     .outline_rows
                     .iter()
                     .rev()
                     .find(|(top, _)| y >= *top)
-                    .map(|(_, slide)| *slide)?;
+                    .map(|(_, slide)| *slide)
+                else {
+                    return Some(false);
+                };
                 // The line clicked is chosen for promoting / demoting (round 17).
                 self.outline_sel = self.outline_line_at(y);
                 self.view.go_to(hit);
@@ -336,52 +343,66 @@ impl SlideWindow {
         p.pop_clip();
     }
 
+    /// Outline View's area: the whole view (round 18 — the reference draws the outline
+    /// over the window, no slide beside it).
+    pub(super) fn outline_area(&self) -> [f32; 4] {
+        let c = self.view.canvas_rect();
+        // The canvas plus its scroll bar column (the outline has no scroll bar of its own
+        // while it fits).
+        [c[0], c[1], c[2] + self.px(15.0), c[3]]
+    }
+
+    /// Outline text size and line pitch (reference at 125 %: 31 px lines, 15 px x-height).
+    pub(super) fn outline_metrics(&self) -> (f32, f32) {
+        let size = (self.text_size * 1.3).round();
+        (size, (size * 1.5).round().max(1.0))
+    }
+
     /// Lay out the outline rows (slide number, title, bullets) for hit testing.
-    pub(super) fn layout_outline(&mut self, text_size: f32) {
+    pub(super) fn layout_outline(&mut self, _text_size: f32) {
         self.outline_rows.clear();
         if self.pane != Pane::Outline {
             return;
         }
-        let area = self.view.thumbs_area();
-        let line = (text_size * 1.5).round();
-        let mut y = area[1] + self.px(8.0);
+        let area = self.outline_area();
+        let (_, line) = self.outline_metrics();
+        let mut y = area[1] + self.px(13.0);
         let Some(pres) = self.view.engine().presentation() else {
             return;
         };
         for (i, s) in pres.slides.iter().enumerate() {
             self.outline_rows.push((y, i));
             let o = bo_engine::slide_edit::outline::slide_outline(s);
-            y += line * (1 + o.bullets.len()) as f32 + self.px(6.0);
+            y += line * (1 + o.bullets.len()) as f32 + self.px(8.0);
         }
     }
 
+    /// The outline as the reference draws it: grey ground, slide number, a framed slide
+    /// icon (accent frame on the current slide), bold title, body paragraphs indented by
+    /// level without bullet marks.
     fn paint_outline(&self, p: &mut dyn Painter) {
-        let area = self.view.thumbs_area();
-        p.fill_rect(area[0], area[1], area[2], area[3], Rgba(255, 255, 255, 255));
+        let area = self.outline_area();
+        p.fill_rect(
+            area[0],
+            area[1],
+            area[2],
+            area[3],
+            Rgba(0xe6, 0xe6, 0xe6, 255),
+        );
         let Some(pres) = self.view.engine().presentation() else {
             return;
         };
-        let size = self.text_size;
+        let (size, line) = self.outline_metrics();
         let style = TextStyle { size, bold: false };
         let bold = TextStyle {
             bold: true,
             ..style
         };
-        let line = (size * 1.5).round();
         let ink = self.theme.text;
         p.push_clip(area[0], area[1], area[2], area[3]);
         for ((top, i), s) in self.outline_rows.iter().zip(&pres.slides) {
             let o = bo_engine::slide_edit::outline::slide_outline(s);
             let current = *i == self.view.current();
-            if current {
-                p.fill_rect(
-                    area[0],
-                    *top - self.px(2.0),
-                    area[2],
-                    line + self.px(4.0),
-                    Rgba(0xd2, 0xd2, 0xd2, 255),
-                );
-            }
             p.text(
                 &(i + 1).to_string(),
                 area[0] + self.px(6.0),
@@ -389,31 +410,54 @@ impl SlideWindow {
                 style,
                 ink,
             );
-            // A small slide icon, then the title.
-            let ix = area[0] + self.px(22.0);
+            // The slide icon: 22 × 18 logical px with a 4 px frame (accent when current).
+            let (ix, iy) = (area[0] + self.px(17.0), *top - self.px(2.4));
+            let (iw, ih, fw) = (self.px(21.6), self.px(18.4), self.px(4.0));
+            let frame = if current {
+                self.theme.accent
+            } else {
+                Rgba(0xd2, 0xd5, 0xd8, 255)
+            };
+            p.fill_rect(ix, iy, iw, ih, frame);
             p.fill_rect(
-                ix,
-                *top + self.px(3.0),
-                self.px(16.0),
-                self.px(11.0),
-                Rgba(0x80, 0x80, 0x80, 255),
-            );
-            p.fill_rect(
-                ix + 1.0,
-                *top + self.px(3.0) + 1.0,
-                self.px(16.0) - 2.0,
-                self.px(11.0) - 2.0,
+                ix + fw,
+                iy + fw,
+                iw - 2.0 * fw,
+                ih - 2.0 * fw,
                 Rgba(255, 255, 255, 255),
             );
-            p.text(&o.title, ix + self.px(22.0), *top, bold, ink);
+            let tx = area[0] + self.px(45.6);
+            p.text(&o.title, tx, *top, bold, ink);
             let mut y = *top + line;
             for b in &o.bullets {
-                let x = ix + self.px(22.0) + f32::from(b.level) * self.px(18.0);
-                p.text(&format!("•  {}", b.text), x, y, style, ink);
+                let x = tx + f32::from(b.level) * self.px(15.2);
+                p.text(&b.text, x, y, style, ink);
                 y += line;
             }
         }
         p.pop_clip();
+    }
+
+    /// The Notes Page's 7.5 × 10 inch page fitted in the canvas with a margin (reference:
+    /// 11 px at 125 %).
+    pub(super) fn notes_page_rect(&self) -> [f32; 4] {
+        let c = self.view.canvas_rect();
+        let m = self.px(9.0);
+        let ph = (c[3] - 2.0 * m).max(10.0);
+        let pw = (ph * 0.75).min(c[2] - 2.0 * m).max(1.0);
+        let ph = pw / 0.75;
+        [
+            (c[0] + (c[2] - pw) / 2.0).round(),
+            (c[1] + m).round(),
+            pw,
+            ph,
+        ]
+    }
+
+    /// The Notes Page's zoom: its page width over 7.5 inches at 100 % (the status bar's
+    /// figure, as the reference's "67%").
+    pub(super) fn notes_page_zoom(&self) -> f32 {
+        self.notes_page_rect()[2] / (540.0 * self.scale * 96.0 / 72.0)
     }
 
     /// Notes Page: a portrait page on the grey canvas with the slide above and the notes
@@ -421,12 +465,7 @@ impl SlideWindow {
     fn paint_notes_page(&self, p: &mut dyn Painter) {
         let c = self.view.canvas_rect();
         p.fill_rect(c[0], c[1], c[2], c[3], Rgba(0xe6, 0xe6, 0xe6, 255));
-        // 7.5 × 10 inch page fitted with a margin.
-        let m = self.px(16.0);
-        let ph = (c[3] - 2.0 * m).max(10.0);
-        let pw = (ph * 0.75).min(c[2] - 2.0 * m);
-        let ph = pw / 0.75;
-        let (px0, py0) = ((c[0] + (c[2] - pw) / 2.0).round(), (c[1] + m).round());
+        let [px0, py0, pw, ph] = self.notes_page_rect();
         p.fill_rect(
             px0 - 1.0,
             py0 - 1.0,
@@ -438,7 +477,7 @@ impl SlideWindow {
         let (sw, sh) = self.view.slide_points();
         let iw = pw * 0.8;
         let ih = iw * sh / sw;
-        let (ix, iy) = ((px0 + (pw - iw) / 2.0).round(), (py0 + ph * 0.09).round());
+        let (ix, iy) = ((px0 + (pw - iw) / 2.0).round(), (py0 + ph * 0.084).round());
         p.fill_rect(
             ix - 1.0,
             iy - 1.0,

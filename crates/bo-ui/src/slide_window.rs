@@ -493,6 +493,20 @@ fn slide_enabled(id: &str, f: &bo_edit::FormatState) -> bool {
     if matches!(id, "anim.trigger" | "anim.painter") {
         return flags.contains("anim ");
     }
+    if flags.contains("outl ")
+        && matches!(
+            id,
+            "view.ruler"
+                | "view.gridlines"
+                | "view.guides"
+                | "view.notes"
+                | "view.color"
+                | "view.grayscale"
+                | "view.blackWhite"
+        )
+    {
+        return false;
+    }
     match id {
         "transition.preview" => return flags.contains("trans "),
         "anim.preview" => return flags.contains("anims "),
@@ -2490,7 +2504,13 @@ impl SlideWindow {
         self.paint_removal(p);
         self.paint_view_extras(p);
         self.paint_review_extras(p);
-        let format = ribbon_format(&self.view, self.anim_index().is_some());
+        let mut format = ribbon_format(&self.view, self.anim_index().is_some());
+        if self.pane == viewtab::Pane::Outline {
+            // Outline View dims Ruler, Gridlines, Guides, Notes and Color/Grayscale (reference).
+            if let Some(s) = format.style.as_mut() {
+                s.push_str("outl ");
+            }
+        }
         self.title.paint(
             p,
             &self.theme,

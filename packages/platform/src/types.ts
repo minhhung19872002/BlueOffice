@@ -755,6 +755,9 @@ export type EditCommand =
   | DocChartCommand
   | { cmd: 'state' | 'selectAll' | 'deleteBackward' | 'deleteForward' | 'splitParagraph' }
   | { cmd: 'undo' | 'redo' | 'insertPageBreak' | 'copy' | 'cut' }
+  /** Insert › Cover Page: the cover at the document's start (replaces the current one). */
+  | { cmd: 'insertCoverPage'; html: string }
+  | { cmd: 'removeCoverPage' }
   /** Undo history length → `count`; join the steps after `since` into one (BlueScript, CORE-SCRIPT-001). */
   | { cmd: 'historyLen' }
   | { cmd: 'mergeHistory'; since: number }

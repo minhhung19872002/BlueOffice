@@ -47,7 +47,7 @@ pub(super) struct R3 {
     /// A dialog kept under another one (Table of Contents under TOC Options).
     stash: Option<DocForm>,
     /// Mailings › Start Mail Merge document type (`letters`, `directory`, `normal`).
-    merge_type: String,
+    pub(super) merge_type: String,
 }
 
 /// The reference's recommended quick styles (id, name, kind mark ¶ / ¶a / a).
@@ -141,13 +141,15 @@ fn mode_of(i: usize) -> &'static str {
 impl DocWindow {
     /// Width the round-3 panes take at the right.
     pub(super) fn r3_pane_w(&self) -> f32 {
-        if self.r3.styles_pane.is_some() {
+        let own = if self.r3.styles_pane.is_some() {
             StylesPane::width(self.scale)
         } else if self.r3.restrict.is_some() {
             RestrictPane::width(self.scale)
         } else {
             0.0
-        }
+        };
+        // Reveal Formatting / Style Inspector (round 5) sits left of them.
+        own + self.r5_pane_w()
     }
 
     /// The paste mode of the next paste: chosen in Paste Options / Paste Special, else the
@@ -176,7 +178,7 @@ impl DocWindow {
     }
 
     /// Run JSON engine commands in order.
-    fn r3_run(&mut self, cmds: Vec<Value>) -> bool {
+    pub(super) fn r3_run(&mut self, cmds: Vec<Value>) -> bool {
         let mut ok = false;
         for c in cmds {
             ok |= self
@@ -274,6 +276,7 @@ impl DocWindow {
             now: self.r4_now(),
             zoom: self.view.zoom(),
             date_default: self.r4.date_default.unwrap_or(0),
+            match_fields: self.r5.match_fields.clone(),
         }
     }
 
@@ -906,6 +909,8 @@ impl DocWindow {
                 ok
             }
             PaneAction::Button("new") => self.r3_open_form(DocFormKind::NewStyle),
+            PaneAction::Button("inspector") => self.action("styles.inspector"),
+            PaneAction::Button("manage") => self.action("styles.manage"),
             PaneAction::Button("start") => self.r3_open_form(DocFormKind::Protect),
             PaneAction::Button("stop") => {
                 let has_pw = self
@@ -1185,7 +1190,7 @@ impl DocWindow {
     }
 
     /// The data source's field names and record count (empty without recipients).
-    fn merge_fields(&mut self) -> (Vec<String>, usize) {
+    pub(super) fn merge_fields(&mut self) -> (Vec<String>, usize) {
         let v = self.view.run_json(&json!({ "cmd": "state" }));
         let m = v.as_ref().map(|v| v["merge"].clone()).unwrap_or_default();
         let fields = m["fields"]
@@ -1367,7 +1372,7 @@ impl DocWindow {
         ok
     }
 
-    fn refresh_outline(&mut self) {
+    pub(super) fn refresh_outline(&mut self) {
         if self.r3.outline.is_some() {
             let items = self.view.outline();
             let caret = self.view.caret_para();
@@ -1528,7 +1533,7 @@ impl DocWindow {
                 Input::Release { x, y } | Input::Drag { x, y } if o.contains(x, y) => {
                     return Some(false)
                 }
-                Input::Text(_) => OutlineAction::None,
+                Input::Text(ref t) => o.type_text(t),
                 _ => return None,
             };
             return Some(match a {
@@ -1540,6 +1545,7 @@ impl DocWindow {
                     self.relayout_pending = true;
                     self.view.goto_para(para)
                 }
+                OutlineAction::Edit { para, at, edit } => self.outline_edit(para, at, &edit),
             });
         }
         None
@@ -1726,7 +1732,7 @@ impl DocWindow {
                 b[3] - 2.0,
                 bo_render::Rgba(255, 255, 255, 255),
             );
-            if let Some(n) = self.merge_record {
+            if let Some(n) = self.merge_record.or(self.r5.record_box) {
                 let t = (n + 1).to_string();
                 p.text_font(
                     &t,

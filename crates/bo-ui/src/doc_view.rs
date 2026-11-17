@@ -133,7 +133,13 @@ pub struct DocView {
     sweep: Sweep,
     /// How tracked changes and comments are shown.
     markup: bo_engine::markup::MarkupOptions,
+    /// View › Split: the other pane on the same document (origin, viewport, scroll), drawn
+    /// without the caret; input goes to the pane of the main frame.
+    secondary: Option<Pane>,
 }
+
+/// A second pane of View › Split: origin, viewport and scroll offset (device pixels).
+type Pane = ((f32, f32), (f32, f32), f32);
 
 impl DocView {
     /// A view of the document already open in `engine`.
@@ -175,6 +181,7 @@ impl DocView {
             thumbs_stale: std::collections::BTreeSet::new(),
             thumbs_refresh: false,
             markup: bo_engine::markup::MarkupOptions::default(),
+            secondary: None,
         };
         view.apply(&state);
         Ok(view)
@@ -221,6 +228,24 @@ impl DocView {
         self.origin = (x, y);
         self.viewport = (width.max(1.0), height.max(1.0));
         self.clamp_scroll();
+    }
+
+    /// View › Split: show a second pane at `frame` (x, y, width, height) scrolled to `scroll`
+    /// (clamped and returned), or none.
+    pub fn set_secondary(&mut self, pane: Option<([f32; 4], f32)>) -> f32 {
+        let Some(([x, y, w, h], scroll)) = pane else {
+            self.secondary = None;
+            return 0.0;
+        };
+        let max = (self.content_height() - h).max(0.0);
+        let scroll = scroll.clamp(0.0, max).round();
+        self.secondary = Some(((x, y), (w.max(1.0), h.max(1.0)), scroll));
+        scroll
+    }
+
+    /// The second pane's scroll offset (View › Split).
+    pub fn secondary_scroll(&self) -> Option<f32> {
+        self.secondary.map(|s| s.2)
     }
 
     /// Set the zoom factor (0.1 to 5), keeping the top of the view on the same content.
@@ -985,6 +1010,12 @@ impl DocView {
 
     /// Every page with its position in the view (whole pixels, so images map 1:1).
     pub fn slots(&self) -> Vec<PageSlot> {
+        self.slots_at(self.origin, self.viewport, self.scroll)
+    }
+
+    /// Every page with its position in a pane at `origin` of `viewport` size scrolled to
+    /// `scroll`.
+    fn slots_at(&self, origin: (f32, f32), viewport: (f32, f32), scroll: f32) -> Vec<PageSlot> {
         let tops = self.page_tops();
         let cols = self.columns.max(1);
         let gap = self.gap();
@@ -1003,11 +1034,11 @@ impl DocView {
                     .iter()
                     .map(|q| self.page_px(*q).0 as f32 + gap)
                     .sum();
-                let x = (((self.viewport.0 - row_w) / 2.0).max(gap) + before).floor();
+                let x = (((viewport.0 - row_w) / 2.0).max(gap) + before).floor();
                 PageSlot {
                     index,
-                    x: (x + self.origin.0) as i32,
-                    y: (top - self.scroll + self.origin.1).round() as i32,
+                    x: (x + origin.0) as i32,
+                    y: (top - scroll + origin.1).round() as i32,
                     width,
                     height,
                 }
@@ -1016,14 +1047,25 @@ impl DocView {
     }
 
     fn visible(&self) -> Vec<PageSlot> {
-        let (top, bottom) = (
-            self.origin.1 as i32,
-            (self.origin.1 + self.viewport.1) as i32,
-        );
-        self.slots()
+        Self::in_pane(self.slots(), self.origin, self.viewport)
+    }
+
+    fn in_pane(slots: Vec<PageSlot>, origin: (f32, f32), viewport: (f32, f32)) -> Vec<PageSlot> {
+        let (top, bottom) = (origin.1 as i32, (origin.1 + viewport.1) as i32);
+        slots
             .into_iter()
             .filter(|s| s.y + s.height > top && s.y < bottom)
             .collect()
+    }
+
+    /// Pages visible in the second pane (View › Split).
+    fn visible_secondary(&self) -> Vec<PageSlot> {
+        match self.secondary {
+            Some((origin, viewport, scroll)) => {
+                Self::in_pane(self.slots_at(origin, viewport, scroll), origin, viewport)
+            }
+            None => Vec::new(),
+        }
     }
 
     /// Handle an input event; `true` when the view needs a new frame.
@@ -1265,19 +1307,34 @@ impl DocView {
             return Ok(());
         };
         let keep = first.index.saturating_sub(OVERSCAN)..=last.index + OVERSCAN;
+        // The second pane's pages stay too (View › Split).
+        let other = self.visible_secondary();
+        let other: Option<(usize, usize)> = other
+            .first()
+            .zip(other.last())
+            .map(|(a, b)| (a.index, b.index));
+        let in_other = |i: usize| other.is_some_and(|(a, b)| (a..=b).contains(&i));
         let far: Vec<usize> = self
             .shown
             .keys()
             .copied()
-            .filter(|i| !keep.contains(i))
+            .filter(|i| !keep.contains(i) && !in_other(*i))
             .collect();
         for index in far {
             store.remove(index);
             self.shown.remove(&index);
         }
-        for index in keep {
+        let mut wanted: Vec<usize> = keep.collect();
+        if let Some((a, b)) = other {
+            for i in a..=b {
+                if !wanted.contains(&i) {
+                    wanted.push(i);
+                }
+            }
+        }
+        for index in wanted {
             if index >= self.pages.len() {
-                break;
+                continue;
             }
             let list = self.engine.page(index).map_err(|e| e.to_string())?;
             let band = if self.repaint_all {
@@ -1306,8 +1363,37 @@ impl DocView {
         self.prepare_thumbnails(store)
     }
 
-    /// Paint a frame: background, pages, selection and caret.
+    /// Paint a frame: background, pages, selection and caret (and the second pane of View ›
+    /// Split: pages and selection).
     pub fn paint(&self, p: &mut dyn Painter) {
+        if let Some((origin, viewport, scroll)) = self.secondary {
+            p.push_clip(origin.0, origin.1, viewport.0, viewport.1);
+            p.fill_rect(origin.0, origin.1, viewport.0, viewport.1, CANVAS_BG);
+            let s = self.scale();
+            let edge = self.display_scale.round().max(1.0);
+            for slot in Self::in_pane(self.slots_at(origin, viewport, scroll), origin, viewport) {
+                p.fill_rect(
+                    slot.x as f32 - edge,
+                    slot.y as f32 - edge,
+                    slot.width as f32 + 2.0 * edge,
+                    slot.height as f32 + 2.0 * edge,
+                    PAGE_SHADOW,
+                );
+                if self.shown.contains_key(&slot.index) {
+                    p.page(slot.index, slot.x, slot.y);
+                }
+                for r in self.rects.iter().filter(|r| r.page == slot.index) {
+                    p.fill_rect(
+                        slot.x as f32 + r.x * s,
+                        slot.y as f32 + r.y * s,
+                        r.w * s,
+                        r.h * s,
+                        SELECTION,
+                    );
+                }
+            }
+            p.pop_clip();
+        }
         let (ox, oy) = self.origin;
         let (vw, vh) = self.viewport;
         p.push_clip(ox, oy, vw, vh);

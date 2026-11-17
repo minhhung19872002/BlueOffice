@@ -168,6 +168,14 @@ pub enum Command {
     },
     /// Insert a page break at the caret.
     InsertPageBreak,
+    /// Insert a cover page made of `html` at the document's start, then a page break, in a
+    /// cover-page control (§17.5.2.11 docPartObj "Cover Pages"); replaces the current cover.
+    InsertCoverPage {
+        /// The cover's content.
+        html: String,
+    },
+    /// Delete the document's cover page (Insert › Cover Page › Remove Current Cover Page).
+    RemoveCoverPage,
     /// Insert a section break at the caret (ECMA-376 Part 1, §17.6.17).
     InsertSectionBreak {
         /// Where the new section starts.
@@ -2231,6 +2239,12 @@ impl crate::Engine {
                     }
                     Command::InsertPageBreak => {
                         s.insert_page_break()?;
+                    }
+                    Command::InsertCoverPage { html } => {
+                        s.insert_cover_page(&html)?;
+                    }
+                    Command::RemoveCoverPage => {
+                        extra.1 = Some(usize::from(s.remove_cover_page()?));
                     }
                     Command::InsertSectionBreak { kind } => {
                         s.insert_section_break(kind.into())?;

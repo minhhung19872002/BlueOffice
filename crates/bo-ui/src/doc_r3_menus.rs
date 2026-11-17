@@ -226,6 +226,8 @@ pub(crate) fn menu(id: &str) -> Vec<Entry> {
             e("mailings.rule.mergeRec", "docR3.ruleMergeRec"),
             e("mailings.rule.mergeSeq", "docR3.ruleMergeSeq"),
             e("mailings.rule.next", "docR3.ruleNext"),
+            e("mailings.rule.nextIf", "docR3.ruleNextIf"),
+            e("mailings.rule.set", "docR3.ruleSet"),
             e("mailings.rule.skipIf", "docR3.ruleSkipIf"),
         ],
         "review.languageMenu" => vec![e("review.language.set", "docR3.setProofingLanguage")],

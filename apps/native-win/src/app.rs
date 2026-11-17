@@ -471,6 +471,14 @@ impl Shell {
                     }
                 }
                 Request::PickPicture => redraw |= self.pick_picture(),
+                Request::ArrangeAll => {
+                    // Every BlueDoc window (one process each), stacked like the reference.
+                    let wins: Vec<isize> = win32::app_windows(" \u{2014} BlueDoc")
+                        .into_iter()
+                        .map(|(h, _)| h)
+                        .collect();
+                    win32::stack_windows(&wins);
+                }
                 r @ (Request::PickCompareFile
                 | Request::OpenNewDocument
                 | Request::SaveDefaults) => redraw |= self.round3_request(&r),

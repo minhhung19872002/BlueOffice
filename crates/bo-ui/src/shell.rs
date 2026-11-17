@@ -30,12 +30,16 @@ use serde_json::json;
 mod r3;
 #[path = "doc_r4.rs"]
 mod r4;
+#[path = "doc_r5.rs"]
+mod r5;
 
 /// Something only the platform host can do.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Request {
     /// Write the document to its file.
     Save,
+    /// View › Arrange All: stack every open BlueDoc window over the screen.
+    ArrangeAll,
     /// Put these forms on the system clipboard.
     SetClipboard {
         /// Plain text.
@@ -205,6 +209,7 @@ pub struct DocWindow {
     /// Parity round 3 (paste options, panes, dialogs, outline view).
     r3: r3::R3,
     r4: r4::R4,
+    r5: r5::R5,
 }
 
 /// Font sizes offered by the size box (points).
@@ -308,6 +313,7 @@ impl DocWindow {
         crate::doc_r4_menus::install_strings(&mut strings);
         crate::doc_r4_fit::install_strings(&mut strings);
         crate::doc_r4_fit::install_icons(&mut icons);
+        icons.set_grey_disabled(true);
         Self {
             view,
             title: TitleBar::new(),
@@ -391,6 +397,7 @@ impl DocWindow {
             painter_lock: false,
             r3: r3::R3::default(),
             r4: r4::R4::default(),
+            r5: r5::R5::default(),
         }
     }
 
@@ -2029,6 +2036,9 @@ impl DocWindow {
 
     /// Run interface command `id` from the ribbon, title bar, a menu or a shortcut.
     fn action(&mut self, id: &str) -> bool {
+        if let Some(r) = self.r5_action(id) {
+            return r;
+        }
         if let Some(r) = self.r3_action(id) {
             return r;
         }
@@ -2487,6 +2497,12 @@ impl DocWindow {
             (right - self.sb_w() - vr - left).max(1.0),
             h,
         );
+        self.r5_layout_split([
+            left + vr,
+            top,
+            (right - self.sb_w() - vr - left).max(1.0),
+            h,
+        ]);
         // Read Mode: two whole pages in the window.
         // Read Mode: the text reflows to the window at 140 % (the reference's reading
         // zoom), with a margin either side; again when the window width changes.
@@ -2630,6 +2646,7 @@ impl DocWindow {
             self.layout_ruler();
         }
         self.r3_layout(text);
+        self.r5_layout();
         if let Some(d) = self.dialog.as_mut() {
             d.layout(text, self.size, self.scale);
         }
@@ -2758,6 +2775,9 @@ impl DocWindow {
             self.pointer = (x, y);
         }
         if let Some(redraw) = self.r3_input(&input, text) {
+            return redraw;
+        }
+        if let Some(redraw) = self.r5_input(&input) {
             return redraw;
         }
         if let Some(redraw) = self.cell_spin_input(&input) {
@@ -3620,6 +3640,7 @@ impl DocWindow {
             cp.paint(p, &self.theme, &self.strings, self.view.comment_at_caret());
         }
         self.r3_paint_panes(p);
+        self.r5_paint(p);
         // Status bar.
         let (w, h) = self.size;
         let sh = self.status_h();

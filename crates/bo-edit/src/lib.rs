@@ -17,6 +17,7 @@ mod collate;
 pub mod comments;
 pub mod compare;
 pub mod controls;
+pub mod cover;
 pub mod custom_xml;
 pub mod design;
 pub mod fields;

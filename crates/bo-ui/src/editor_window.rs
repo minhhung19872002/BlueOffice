@@ -1912,6 +1912,9 @@ impl EditorWindow {
                     self.open_page(i, m);
                 }
             }
+            // Round 11: Page Up / Down scroll the grid a screen (the pages behind are hidden).
+            (Key::PageDown, false) => self.org.scroll_by(self.org.frame[3] * 0.9),
+            (Key::PageUp, false) => self.org.scroll_by(-self.org.frame[3] * 0.9),
             _ => return false,
         }
         true
@@ -1980,6 +1983,10 @@ impl EditorWindow {
         self.paint_tw(p);
         self.paint_design(p);
         self.paint_fields11(p);
+        // Round 11: a menu stays over the field boxes and the Edit Text frames.
+        if self.design.tool.is_some() || self.tool.is_some() {
+            self.r.paint_open_menu(p);
+        }
         self.paint_tools(p, &Estimate);
         self.paint_format(p);
         self.paint_more_tip(p);

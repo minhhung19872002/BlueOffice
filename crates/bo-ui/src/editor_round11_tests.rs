@@ -5,6 +5,34 @@ use crate::editor_form8::{Ctl, Val};
 use crate::editor_tests::{Fixed, Rec};
 use crate::editor_window::EditorWindow;
 use crate::Input;
+
+#[test]
+fn organize_grid_scrolls_with_the_wheel() {
+    let mut w = crate::editor_tests::window(60);
+    w.show_tab(crate::editor_window::TAB_ORGANIZE, &Fixed);
+    let mut rec = Rec::default();
+    w.paint(&mut rec);
+    w.handle(Input::Move { x: 1.0, y: 1.0 }, &Fixed);
+    let f = w.org.frame;
+    w.handle(
+        Input::Move {
+            x: f[0] + f[2] / 2.0,
+            y: f[1] + f[3] / 2.0,
+        },
+        &Fixed,
+    );
+    let before = w.org.cell(0).expect("cell")[1];
+    w.handle(Input::Wheel(120.0), &Fixed);
+    let after = w.org.cell(0).expect("cell")[1];
+    assert!(after < before, "{before} -> {after}");
+    // Page Down scrolls the grid too, not the hidden pages.
+    w.handle(
+        Input::Key(crate::Key::PageDown, crate::Mods::default()),
+        &Fixed,
+    );
+    let paged = w.org.cell(0).expect("cell")[1];
+    assert!(paged < after - 100.0, "{after} -> {paged}");
+}
 use bo_pdfread::{FieldFormat, FieldKind, PdfDocument};
 
 /// A page with a text field, a check box and a combo box.

@@ -192,6 +192,16 @@ impl SheetEngine {
     pub(super) fn tables_after_input(&mut self, sheet: usize, cells: &[(u32, u32)]) {
         self.table_auto.last = None;
         let locale = self.locale;
+        // No table on the sheet: nothing to do (and no mutable access, which would drop
+        // the workbook's array index).
+        if self
+            .wb
+            .as_deref()
+            .and_then(|wb| wb.sheets.get(sheet))
+            .is_none_or(|ws| ws.tables.is_empty())
+        {
+            return;
+        }
         let Some(wb) = self.wb.as_deref_mut() else {
             return;
         };

@@ -3653,3 +3653,6 @@ fn hyperlink_browser_lists_the_folder_and_creates_a_new_document() {
 
 #[path = "sheet_r11_tests.rs"]
 mod r11;
+
+#[path = "sheet_r12_tests.rs"]
+mod r12;

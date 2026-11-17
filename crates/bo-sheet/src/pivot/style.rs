@@ -210,7 +210,10 @@ pub(crate) fn apply(
                     );
                 }
                 stripe += 1;
-                if info.show_row_headers && lay.first_data_col > 0 {
+                // The default light style keeps the items of the innermost row field in
+                // regular weight (the reference shows "North", "South" unbolded; outer items
+                // are bold through their group / subtotal rows).
+                if info.show_row_headers && lay.first_data_col > 0 && info.name != DEFAULT_STYLE {
                     apply_patch(
                         wb,
                         sheet,

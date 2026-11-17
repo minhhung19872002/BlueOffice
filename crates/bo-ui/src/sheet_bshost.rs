@@ -223,6 +223,21 @@ impl SheetWindow {
         true
     }
 
+    /// Open the File screen on the page named `name` (scripted captures).
+    pub(super) fn open_backstage_named(&mut self, name: &str, text: &dyn TextMeasure) -> bool {
+        let page = match name {
+            "new" => BsPage::New,
+            "open" => BsPage::Open,
+            "info" => BsPage::Info,
+            "saveAs" => BsPage::SaveAs,
+            "print" => BsPage::Print,
+            "export" => BsPage::Export,
+            "share" => BsPage::Share,
+            _ => BsPage::Home,
+        };
+        self.open_backstage(page, text)
+    }
+
     /// Close the File screen (the grid image shows the sheet again).
     pub(super) fn close_backstage(&mut self) {
         if let Some(b) = self.bs.screen.take() {

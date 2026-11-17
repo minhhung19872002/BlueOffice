@@ -751,6 +751,10 @@ impl SheetWindow {
             self.layout_form(text);
             return true;
         }
+        // `file.page.<home|new|open|info|saveAs|print|export>` opens the File screen there.
+        if let Some(p) = id.strip_prefix("file.page.") {
+            return self.open_backstage_named(p, text);
+        }
         if let Some(n) = id.strip_prefix("pane.scroll.").and_then(|n| n.parse().ok()) {
             self.pane_scroll_to(n);
             return true;

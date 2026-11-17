@@ -113,6 +113,17 @@ pub(super) enum FormKind {
     Subtotal,
     RemoveDups,
     AdvancedFilter,
+    /// Data › Text to Columns wizard and its Advanced Text Import Settings.
+    TextToColumns,
+    TtcAdvanced,
+    /// A dialog collapsed to its reference box while cells are picked on the sheet.
+    RangePick,
+    /// Review: Protect Sheet / Protect Workbook / passwords.
+    Protect,
+    /// Review: Spelling.
+    Spelling,
+    /// ScreenTip… of Insert Hyperlink (over the stashed dialog).
+    LinkTip,
 }
 
 /// The value of a colour drop-down that has no colour (drawn as an empty swatch; `""` is
@@ -196,6 +207,11 @@ pub(super) struct Form {
     pub size: (f32, f32),
     pub tabs: Vec<String>,
     pub tab: usize,
+    /// Top-left corner in device pixels instead of centred (a collapsed dialog), and no
+    /// dimming of the window behind it.
+    pub pos: Option<(f32, f32)>,
+    /// Edit boxes whose text is shown as bullets (passwords).
+    pub masked: Vec<&'static str>,
     pub ctls: Vec<Ctl>,
     focus: Option<usize>,
     /// Open drop-down list (control index) and its highlighted item.
@@ -301,6 +317,8 @@ impl Form {
             left_labels: Vec::new(),
             placeholders: Vec::new(),
             bold: Vec::new(),
+            pos: None,
+            masked: Vec::new(),
         }
     }
 
@@ -633,6 +651,9 @@ impl Form {
             ((size.0 - w) / 2.0).round().max(0.0),
             ((size.1 - h) / 2.0).round().max(0.0),
         );
+        if let Some(at) = self.pos {
+            self.origin = at;
+        }
         // Tabs: label + 30 px, the first at x = 18, y = 50, 24 px high (reference).
         self.tab_rects.clear();
         let mut x = 18.0;
@@ -715,6 +736,26 @@ impl Form {
     }
 
     /// Reference coordinates of device point (x, y).
+    pub fn to_local(&self, x: f32, y: f32) -> (f32, f32) {
+        self.local(x, y)
+    }
+
+    /// Device pixels per reference pixel.
+    pub fn scale_k(&self) -> f32 {
+        self.k
+    }
+
+    /// Top-left corner in device pixels.
+    pub fn origin(&self) -> (f32, f32) {
+        self.origin
+    }
+
+    /// Device point (x, y) is on the form.
+    pub fn contains(&self, x: f32, y: f32) -> bool {
+        let (lx, ly) = self.local(x, y);
+        (0.0..self.size.0).contains(&lx) && (0.0..self.size.1).contains(&ly)
+    }
+
     fn local(&self, x: f32, y: f32) -> (f32, f32) {
         ((x - self.origin.0) / self.k, (y - self.origin.1) / self.k)
     }
@@ -1128,6 +1169,9 @@ impl Form {
     fn caret_text(&self) -> Option<(usize, String)> {
         let i = self.focus?;
         match &self.ctls.get(i)?.kind {
+            Kind::Edit { value, caret } if self.masked.contains(&self.ctls[i].id) => {
+                Some((i, "\u{25CF}".repeat(value[..*caret].len())))
+            }
             Kind::Edit { value, caret } => Some((i, value[..*caret].iter().collect())),
             _ => None,
         }
@@ -1142,7 +1186,9 @@ impl Form {
         caret_on: bool,
         canvas: &mut CanvasFn<'_>,
     ) {
-        p.fill_rect(0.0, 0.0, window.0, window.1, Rgba(0, 0, 0, 40));
+        if self.pos.is_none() {
+            p.fill_rect(0.0, 0.0, window.0, window.1, Rgba(0, 0, 0, 40));
+        }
         let f = self.dev([0.0, 0.0, self.size.0, self.size.1]);
         // Shadow, 1 px frame, title bar, face.
         for (o, a) in [(6.0, 12u8), (3.0, 20), (1.0, 30)] {
@@ -1303,7 +1349,11 @@ impl Form {
                     );
                     p.fill_rect(r[0] + 1.0, r[1] + 1.0, r[2] - 2.0, r[3] - 2.0, WHITE);
                     p.push_clip(r[0] + 1.0, r[1] + 1.0, r[2] - 2.0, r[3] - 2.0);
-                    let s: String = value.iter().collect();
+                    let s: String = if self.masked.contains(&c.id) {
+                        "\u{25CF}".repeat(value.len())
+                    } else {
+                        value.iter().collect()
+                    };
                     let tx = r[0] + 5.0 * self.k;
                     match self.placeholders.iter().find(|(id, _)| *id == c.id) {
                         Some((_, hint)) if s.is_empty() => {

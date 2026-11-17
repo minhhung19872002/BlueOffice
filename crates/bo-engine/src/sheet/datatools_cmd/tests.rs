@@ -121,6 +121,59 @@ fn text_to_columns_fixed_width_to_other_cell() {
 }
 
 #[test]
+fn text_to_columns_guesses_the_data_type() {
+    let mut e = engine();
+    for (r, s) in [
+        "Alice     Hanoi     2024",
+        "Bob       Hue       2023",
+        "Carol     Da Nang   2022",
+    ]
+    .iter()
+    .enumerate()
+    {
+        e.set_input(0, r as u32, 0, s).unwrap();
+    }
+    let g = run(
+        &mut e,
+        json!({ "cmd": "textToColumnsGuess", "sheet": 0, "range": rng(0, 0, 2, 0) }),
+    );
+    // Columns start at 10 and 20 ("Da Nang" keeps its space: line 1 has text at 12).
+    assert_eq!(
+        g,
+        json!({ "mode": "fixed", "delimiters": [], "breaks": [10, 20] })
+    );
+    e.set_input(0, 1, 0, "Bob;Hue,2023").unwrap();
+    let g = run(
+        &mut e,
+        json!({ "cmd": "textToColumnsGuess", "sheet": 0, "range": rng(0, 0, 2, 0) }),
+    );
+    assert_eq!(g["mode"], "delimited");
+    assert_eq!(g["delimiters"], json!([";", ","]));
+}
+
+#[test]
+fn text_to_columns_reads_numbers_with_the_advanced_separators() {
+    let mut e = engine();
+    e.set_input(0, 0, 0, "1,234.5|12-|7").unwrap();
+    let split = json!({ "mode": "delimited", "delimiters": ["|"] });
+    run(
+        &mut e,
+        json!({ "cmd": "textToColumns", "sheet": 0, "range": rng(0, 0, 0, 0), "split": split,
+                "decimal": ".", "thousands": ",", "trailingMinus": true }),
+    );
+    assert_eq!(val(&e, 0, 0, 0), n(1234.5));
+    assert_eq!(val(&e, 0, 0, 1), n(-12.0));
+    assert_eq!(val(&e, 0, 0, 2), n(7.0));
+    // Without a trailing minus "12-" stays text.
+    e.set_input(0, 1, 0, "12-|x").unwrap();
+    run(
+        &mut e,
+        json!({ "cmd": "textToColumns", "sheet": 0, "range": rng(1, 0, 1, 0), "split": split }),
+    );
+    assert_eq!(val(&e, 0, 1, 0), t("12-"));
+}
+
+#[test]
 fn remove_duplicates_reports_counts() {
     let mut e = engine();
     for (r, (a, b)) in [
@@ -396,4 +449,40 @@ fn invalid_cells_listed() {
         r,
         json!({ "cells": [[1, 0], [2, 0], [4, 0]], "truncated": false })
     );
+}
+
+#[test]
+fn hyperlinks_are_set_read_and_removed() {
+    let mut e = engine();
+    run(
+        &mut e,
+        json!({ "cmd": "setHyperlink", "sheet": 0, "row": 0, "col": 0,
+                "target": "https://example.com", "display": "Site", "tooltip": "Open" }),
+    );
+    assert_eq!(val(&e, 0, 0, 0), t("Site"));
+    let h = run(
+        &mut e,
+        json!({ "cmd": "hyperlink", "sheet": 0, "row": 0, "col": 0 }),
+    );
+    assert_eq!(h["target"], "https://example.com");
+    assert_eq!(h["tooltip"], "Open");
+    // A place in the workbook on a cell with text keeps the text.
+    e.set_input(0, 1, 0, "Go").unwrap();
+    run(
+        &mut e,
+        json!({ "cmd": "setHyperlink", "sheet": 0, "row": 1, "col": 0, "location": "Sheet1!C5" }),
+    );
+    assert_eq!(val(&e, 0, 1, 0), t("Go"));
+    assert_eq!(e.workbook().unwrap().sheets[0].hyperlinks.len(), 2);
+    run(
+        &mut e,
+        json!({ "cmd": "setHyperlink", "sheet": 0, "row": 0, "col": 0 }),
+    );
+    let h = run(
+        &mut e,
+        json!({ "cmd": "hyperlink", "sheet": 0, "row": 0, "col": 0 }),
+    );
+    assert!(h.is_null());
+    assert!(e.undo().unwrap());
+    assert_eq!(e.workbook().unwrap().sheets[0].hyperlinks.len(), 2);
 }

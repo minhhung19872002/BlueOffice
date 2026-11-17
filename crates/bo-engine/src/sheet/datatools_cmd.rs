@@ -48,6 +48,7 @@ fn convert(
     fmt: ColumnFormat,
     locale: &Locale,
     date1904: bool,
+    trailing_minus: bool,
 ) -> (CellValue, Option<u32>) {
     if field.is_empty() {
         return (CellValue::Empty, None);
@@ -61,6 +62,16 @@ fn convert(
         ColumnFormat::General | ColumnFormat::Skip => {
             if let Some(n) = parse_number(field, locale) {
                 return (CellValue::Number(n), None);
+            }
+            // "12-": a trailing minus (Advanced settings of the wizard).
+            if trailing_minus {
+                if let Some(n) = field
+                    .trim()
+                    .strip_suffix('-')
+                    .and_then(|t| parse_number(t, locale))
+                {
+                    return (CellValue::Number(-n), None);
+                }
             }
             match field.trim().to_uppercase().as_str() {
                 "TRUE" | "ĐÚNG" => return (CellValue::Bool(true), None),
@@ -123,6 +134,9 @@ pub(super) struct TextToColumns {
     pub formats: Vec<ColumnFormat>,
     pub dest: Option<At>,
     pub preview: bool,
+    pub decimal: Option<char>,
+    pub thousands: Option<char>,
+    pub trailing_minus: bool,
 }
 
 /// Options of the `consolidate` command.
@@ -187,6 +201,14 @@ impl SheetEngine {
             return Err(bad("textToColumns: tooLarge"));
         }
         let date1904 = wb.date1904;
+        // Numbers are read with the wizard's separators (Advanced…).
+        let mut nums = locale;
+        if let Some(d) = o.decimal {
+            nums.decimal = d;
+        }
+        if let Some(t) = o.thousands {
+            nums.thousands = t;
+        }
         self.edit(dest.sheet, Recalc::All, |wb, _| {
             if dest.sheet == sheet && dest.col == range.first.col {
                 clear_values(&mut wb.sheets[sheet], range);
@@ -201,7 +223,7 @@ impl SheetEngine {
                     }
                     let col = dest.col + k;
                     k += 1;
-                    let (value, fmt_id) = convert(field, fmt, &locale, date1904);
+                    let (value, fmt_id) = convert(field, fmt, &nums, date1904, o.trailing_minus);
                     let old = wb.sheets[dest.sheet].cell(row, col).cloned();
                     if value == CellValue::Empty && old.is_none() {
                         continue;
@@ -217,6 +239,40 @@ impl SheetEngine {
             }
             Ok(json!({ "rows": lines.len(), "columns": width }))
         })
+    }
+
+    /// What Text to Columns guesses for the cells of `range` (our own rule): delimited
+    /// when a tab, semicolon or comma occurs (those found are the delimiters), fixed
+    /// width when the lines line up in space-separated columns (a break where every
+    /// line has a space just before and some line has text), else delimited by tab.
+    pub(super) fn text_to_columns_guess(&self, sheet: usize, range: Rng) -> Result<Value> {
+        let locale = self.locale;
+        let range = range.range();
+        let wb = self.wb()?;
+        let ws = self.sheet(sheet)?;
+        let last = range.last.row.min(range.first.row + 99);
+        let lines: Vec<Vec<char>> = (range.first.row..=last)
+            .filter_map(|r| cell_text(wb, ws.cell(r, range.first.col)?, &locale))
+            .map(|t| t.chars().collect())
+            .collect();
+        let found: Vec<char> = ['\t', ';', ',']
+            .into_iter()
+            .filter(|d| lines.iter().any(|l| l.contains(d)))
+            .collect();
+        if !found.is_empty() {
+            return Ok(json!({ "mode": "delimited", "delimiters": found, "breaks": [] }));
+        }
+        let longest = lines.iter().map(Vec::len).max().unwrap_or(0);
+        let blank = |l: &Vec<char>, i: usize| l.get(i).is_none_or(|c| *c == ' ');
+        let breaks: Vec<usize> = (1..longest)
+            .filter(|&p| {
+                lines.iter().all(|l| blank(l, p - 1)) && lines.iter().any(|l| !blank(l, p))
+            })
+            .collect();
+        if !breaks.is_empty() {
+            return Ok(json!({ "mode": "fixed", "delimiters": [], "breaks": breaks }));
+        }
+        Ok(json!({ "mode": "delimited", "delimiters": ['\t'], "breaks": [] }))
     }
 
     /// Remove Duplicates over `columns` of the list; `{ removed, remaining }`.

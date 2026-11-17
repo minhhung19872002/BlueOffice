@@ -763,31 +763,39 @@ impl SheetWindow {
             .query(json!({ "cmd": "validation", "sheet": sheet, "row": r, "col": c }))
             .unwrap_or(Value::Null);
         let s = |k: &str| now.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
+        let b = |k: &str, d: bool| now.get(k).and_then(Value::as_bool).unwrap_or(d);
+        self.dv_sqref = now
+            .get("sqref")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
         let t = |k: &str, d: &str| self.t(k, d);
         let tabs = vec![
             t("sheetDv.settings", "Settings"),
             t("sheetDv.inputMessage", "Input Message"),
             t("sheetDv.errorAlert", "Error Alert"),
         ];
-        let mut f = Form::new(&t("sheetDv.title", "Data Validation"), (560.0, 470.0), tabs);
+        // Window 604 × 420 px at 125 % as the reference's (round 45, `show/sheet-41`).
+        let mut f = Form::new(&t("sheetDv.title", "Data Validation"), (604.0, 420.0), tabs);
         let p = Some(0);
         f.add(
             "crit",
             p,
-            [32.0, 88.0, 0.0, 0.0],
-            Kind::Label(t("sheetDv.criteria", "Validation criteria")),
+            [32.0, 85.0, 540.0, 22.0],
+            Kind::Group(t("sheetDv.criteria", "Validation criteria")),
         );
         f.add(
             "allowL",
             p,
-            [46.0, 114.0, 0.0, 0.0],
+            [46.0, 112.0, 120.0, 22.0],
             Kind::Label(t("sheetDv.allow", "Allow:")),
         );
+        f.set_access("allowL", 0);
         let kind = s("kind");
         f.add(
             "allow",
             p,
-            [46.0, 134.0, 200.0, 26.0],
+            [46.0, 134.0, 185.0, 28.0],
             Kind::Combo {
                 items: ALLOW.iter().map(|(k, d, _)| t(k, d)).collect(),
                 sel: ALLOW.iter().position(|(_, _, v)| *v == kind).unwrap_or(0),
@@ -796,26 +804,35 @@ impl SheetWindow {
         f.add(
             "blank",
             p,
-            [280.0, 138.0, 200.0, 20.0],
+            [245.0, 135.0, 200.0, 22.0],
             Kind::Check {
                 label: t("sheetDv.ignoreBlank", "Ignore blank"),
-                on: now
-                    .get("allowBlank")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(true),
+                on: b("allowBlank", true),
             },
         );
+        f.set_access("blank", 7);
+        f.add(
+            "dropdown",
+            p,
+            [245.0, 160.0, 200.0, 22.0],
+            Kind::Check {
+                label: t("sheetDv.inCellDropdown", "In-cell dropdown"),
+                on: b("inCellDropdown", true),
+            },
+        );
+        f.set_access("dropdown", 8);
         f.add(
             "dataL",
             p,
-            [46.0, 170.0, 0.0, 0.0],
+            [46.0, 165.0, 120.0, 22.0],
             Kind::Label(t("sheetDv.data", "Data:")),
         );
+        f.set_access("dataL", 0);
         let op = s("operator");
         f.add(
             "op",
             p,
-            [46.0, 190.0, 200.0, 26.0],
+            [46.0, 187.0, 185.0, 28.0],
             Kind::Combo {
                 items: OPERATORS.iter().map(|(k, d, _)| t(k, d)).collect(),
                 sel: OPERATORS.iter().position(|(_, _, v)| *v == op).unwrap_or(0),
@@ -824,88 +841,128 @@ impl SheetWindow {
         f.add(
             "f1L",
             p,
-            [46.0, 226.0, 0.0, 0.0],
+            [46.0, 218.0, 300.0, 22.0],
             Kind::Label(t("sheetDv.minimum", "Minimum:")),
         );
+        f.set_access("f1L", 1);
         f.add(
             "f1",
             p,
-            [46.0, 246.0, 460.0, 24.0],
-            Self::edit(s("formula1").trim_start_matches('=')),
+            [46.0, 240.0, 352.0, 26.0],
+            Self::edit(&s("formula1")),
         );
+        f.add("pick1", p, [397.0, 240.0, 26.0, 26.0], Kind::Canvas);
         f.add(
             "f2L",
             p,
-            [46.0, 280.0, 0.0, 0.0],
+            [46.0, 269.0, 300.0, 22.0],
             Kind::Label(t("sheetDv.maximum", "Maximum:")),
         );
+        f.set_access("f2L", 1);
         f.add(
             "f2",
             p,
-            [46.0, 300.0, 460.0, 24.0],
-            Self::edit(s("formula2").trim_start_matches('=')),
+            [46.0, 291.0, 352.0, 26.0],
+            Self::edit(&s("formula2")),
         );
+        f.add("pick2", p, [397.0, 291.0, 26.0, 26.0], Kind::Canvas);
+        f.add(
+            "apply",
+            p,
+            [32.0, 327.0, 540.0, 22.0],
+            Kind::Check {
+                label: t(
+                    "sheetDv.applyAll",
+                    "Apply these changes to all other cells with the same settings",
+                ),
+                on: false,
+            },
+        );
+        f.set_access("apply", 1);
         let p = Some(1);
         f.add(
             "showIn",
             p,
-            [32.0, 92.0, 400.0, 20.0],
+            [32.0, 91.0, 520.0, 22.0],
             Kind::Check {
                 label: t(
                     "sheetDv.showInput",
                     "Show input message when cell is selected",
                 ),
-                on: true,
+                on: b("showInput", true),
             },
+        );
+        f.set_access("showIn", 0);
+        f.add(
+            "inG",
+            p,
+            [32.0, 122.0, 540.0, 22.0],
+            Kind::Group(t(
+                "sheetDv.whenSelected",
+                "When cell is selected, show this input message:",
+            )),
         );
         f.add(
             "inTitleL",
             p,
-            [46.0, 130.0, 0.0, 0.0],
+            [46.0, 147.0, 120.0, 22.0],
             Kind::Label(t("sheetDv.titleLabel", "Title:")),
         );
+        f.set_access("inTitleL", 0);
         f.add(
             "inTitle",
             p,
-            [46.0, 150.0, 300.0, 24.0],
+            [46.0, 169.0, 330.0, 26.0],
             Self::edit(&s("promptTitle")),
         );
         f.add(
             "inMsgL",
             p,
-            [46.0, 184.0, 0.0, 0.0],
+            [46.0, 201.0, 200.0, 22.0],
             Kind::Label(t("sheetDv.message", "Input message:")),
         );
+        f.set_access("inMsgL", 0);
         f.add(
             "inMsg",
             p,
-            [46.0, 204.0, 460.0, 24.0],
+            [46.0, 223.0, 510.0, 120.0],
             Self::edit(&s("prompt")),
         );
         let p = Some(2);
         f.add(
             "showErr",
             p,
-            [32.0, 92.0, 400.0, 20.0],
+            [32.0, 91.0, 520.0, 22.0],
             Kind::Check {
                 label: t(
                     "sheetDv.showError",
                     "Show error alert after invalid data is entered",
                 ),
-                on: true,
+                on: b("showError", true),
             },
+        );
+        f.set_access("showErr", 0);
+        f.add(
+            "errG",
+            p,
+            [32.0, 122.0, 540.0, 22.0],
+            Kind::Group(t(
+                "sheetDv.whenInvalid",
+                "When user enters invalid data, show this error alert:",
+            )),
         );
         f.add(
             "styleL",
             p,
-            [46.0, 130.0, 0.0, 0.0],
+            [46.0, 147.0, 120.0, 22.0],
             Kind::Label(t("sheetDv.style", "Style:")),
         );
+        f.set_access("styleL", 1);
         let style = s("errorStyle");
         f.add(
             "estyle",
             p,
-            [46.0, 150.0, 160.0, 26.0],
+            [46.0, 169.0, 150.0, 28.0],
             Kind::Combo {
                 items: vec![
                     t("sheetDv.stop", "Stop"),
@@ -918,83 +975,149 @@ impl SheetWindow {
                     .unwrap_or(0),
             },
         );
+        f.add("eicon", p, [70.0, 215.0, 64.0, 64.0], Kind::Canvas);
         f.add(
             "eTitleL",
             p,
-            [230.0, 130.0, 0.0, 0.0],
+            [222.0, 147.0, 120.0, 22.0],
             Kind::Label(t("sheetDv.titleLabel", "Title:")),
         );
+        f.set_access("eTitleL", 0);
         f.add(
             "eTitle",
             p,
-            [230.0, 150.0, 276.0, 24.0],
+            [222.0, 169.0, 334.0, 26.0],
             Self::edit(&s("errorTitle")),
         );
         f.add(
             "eMsgL",
             p,
-            [230.0, 184.0, 0.0, 0.0],
+            [222.0, 201.0, 200.0, 22.0],
             Kind::Label(t("sheetDv.errorMessage", "Error message:")),
         );
+        f.set_access("eMsgL", 0);
         f.add(
             "eMsg",
             p,
-            [230.0, 204.0, 276.0, 24.0],
+            [222.0, 223.0, 334.0, 120.0],
             Self::edit(&s("error")),
         );
         f.add(
             "clear",
             None,
-            [20.0, 470.0 - 48.0, 112.0, 28.0],
+            [18.0, 372.0, 111.0, 28.0],
             Self::button(t("sheetDv.clearAll", "Clear All")),
         );
+        f.set_access("clear", 0);
         f.ok_cancel(&t("common.ok", "OK"), &t("common.cancel", "Cancel"));
+        if let Some(c) = f.get_mut("ok") {
+            c.rect = [346.0, 372.0, 111.0, 28.0];
+        }
+        if let Some(c) = f.get_mut("cancel") {
+            c.rect = [473.0, 372.0, 111.0, 28.0];
+        }
+        f.focus("allow");
         self.form = Some(f);
         self.form_kind = FormKind::Validation;
         self.validation_refresh();
         true
     }
 
-    fn validation_refresh(&mut self) {
-        let labels = (
+    /// Settings page as the reference lays it out for the chosen Allow / Data: the Data box
+    /// greyed (Any value, List, Custom), the value boxes and their captions, Ignore blank
+    /// greyed for Any value, In-cell dropdown for lists, Apply… only when the cell has a
+    /// rule.
+    pub(super) fn validation_refresh(&mut self) {
+        let labels = [
             self.t("sheetDv.minimum", "Minimum:"),
+            self.t("sheetDv.maximum", "Maximum:"),
             self.t("sheetDv.source", "Source:"),
             self.t("sheetDv.formula", "Formula:"),
             self.t("sheetDv.value", "Value:"),
-        );
+            self.t("sheetDv.startDate", "Start date:"),
+            self.t("sheetDv.endDate", "End date:"),
+            self.t("sheetDv.dateLabel", "Date:"),
+            self.t("sheetDv.startTime", "Start time:"),
+            self.t("sheetDv.endTime", "End time:"),
+            self.t("sheetDv.timeLabel", "Time:"),
+            self.t("sheetDv.length", "Length:"),
+        ];
+        let has_rule = !self.dv_sqref.is_empty();
         let Some(f) = self.form.as_mut() else {
             return;
         };
         let allow = f.sel("allow").unwrap_or(0);
         let op = f.sel("op").unwrap_or(0);
         let ranged = matches!(allow, 1 | 2 | 4 | 5 | 6);
-        f.show("dataL", ranged);
-        f.show("op", ranged);
-        f.show("f1L", allow > 0);
-        f.show("f1", allow > 0);
+        let list = allow == 3;
+        // Data stays visible, greyed when it does not apply (Any value).
+        f.show("dataL", allow == 0 || ranged);
+        f.show("op", allow == 0 || ranged);
+        f.enable("dataL", ranged);
+        f.enable("op", ranged);
+        f.enable("blank", allow > 0);
+        f.show("dropdown", list);
+        let one = allow > 0;
         let two = ranged && op < 2;
-        f.show("f2L", two);
-        f.show("f2", two);
-        let first = match allow {
-            3 => labels.1,
-            7 => labels.2,
-            _ if two => labels.0,
-            _ => labels.3,
+        // List / Custom: the value box sits where Data is.
+        let y1 = if ranged { 240.0 } else { 187.0 };
+        for (id, y) in [("f1L", y1 - 22.0), ("f1", y1), ("pick1", y1)] {
+            f.show(id, one);
+            if let Some(c) = f.get_mut(id) {
+                c.rect[1] = y;
+            }
+        }
+        for id in ["f2L", "f2", "pick2"] {
+            f.show(id, two);
+        }
+        let (first, second) = match (allow, two) {
+            (3, _) => (labels[2].clone(), String::new()),
+            (7, _) => (labels[3].clone(), String::new()),
+            (4, true) => (labels[5].clone(), labels[6].clone()),
+            (4, false) => (labels[7].clone(), String::new()),
+            (5, true) => (labels[8].clone(), labels[9].clone()),
+            (5, false) => (labels[10].clone(), String::new()),
+            (_, true) => (labels[0].clone(), labels[1].clone()),
+            (6, false) => (labels[11].clone(), String::new()),
+            (_, false) => match op {
+                4 | 6 => (labels[0].clone(), String::new()),
+                5 | 7 => (labels[1].clone(), String::new()),
+                _ => (labels[4].clone(), String::new()),
+            },
         };
         if let Some(Kind::Label(s)) = f.get_mut("f1L").map(|c| &mut c.kind) {
             *s = first;
+        }
+        if !second.is_empty() {
+            if let Some(Kind::Label(s)) = f.get_mut("f2L").map(|c| &mut c.kind) {
+                *s = second;
+            }
+        }
+        f.enable("apply", has_rule);
+        let input = f.on("showIn");
+        for id in ["inTitleL", "inTitle", "inMsgL", "inMsg"] {
+            f.enable(id, input);
+        }
+        let err = f.on("showErr");
+        for id in ["styleL", "estyle", "eTitleL", "eTitle", "eMsgL", "eMsg"] {
+            f.enable(id, err);
         }
     }
 
     fn validation_event(&mut self, ev: &Event) {
         match ev {
-            Event::Changed("allow" | "op") => self.validation_refresh(),
+            Event::Changed("allow" | "op" | "showIn" | "showErr") => self.validation_refresh(),
             Event::Clicked("clear") => {
                 if let Some(f) = self.form.as_mut() {
                     f.set_sel("allow", Some(0));
+                    f.set_sel("op", Some(0));
                     for id in ["f1", "f2", "inTitle", "inMsg", "eTitle", "eMsg"] {
                         f.set_text(id, "");
                     }
+                    f.set_on("blank", true);
+                    f.set_on("showIn", true);
+                    f.set_on("showErr", true);
+                    f.set_sel("estyle", Some(0));
                 }
                 self.validation_refresh();
             }
@@ -1008,10 +1131,15 @@ impl SheetWindow {
                     let v = f.text(id);
                     (!v.trim().is_empty()).then_some(v)
                 };
+                let style = ["stop", "warning", "information"][f.sel("estyle").unwrap_or(0).min(2)];
                 let mut spec = json!({
                     "kind": allow,
                     "formula1": f.text("f1"),
                     "allowBlank": f.on("blank"),
+                    "showInput": f.on("showIn"),
+                    "showError": f.on("showErr"),
+                    "inCellDropdown": f.on("dropdown"),
+                    "errorStyle": style,
                 });
                 if matches!(allow, "whole" | "decimal" | "date" | "time" | "textLength") {
                     spec["operator"] = json!(op);
@@ -1019,32 +1147,115 @@ impl SheetWindow {
                         spec["formula2"] = json!(v);
                     }
                 }
-                if f.on("showIn") {
-                    if let Some(v) = opt("inMsg") {
-                        spec["prompt"] = json!(v);
+                for (id, key) in [
+                    ("inTitle", "promptTitle"),
+                    ("inMsg", "prompt"),
+                    ("eTitle", "errorTitle"),
+                    ("eMsg", "error"),
+                ] {
+                    if let Some(v) = opt(id) {
+                        spec[key] = json!(v);
                     }
                 }
-                if f.on("showErr") {
-                    if let Some(v) = opt("eTitle") {
-                        spec["errorTitle"] = json!(v);
-                    }
-                    if let Some(v) = opt("eMsg") {
-                        spec["error"] = json!(v);
-                    }
-                    spec["errorStyle"] = json!(
-                        ["stop", "warning", "information"][f.sel("estyle").unwrap_or(0).min(2)]
-                    );
-                }
+                // Apply these changes to all other cells with the same settings: the
+                // rule's other ranges change in the same undo step.
+                let also: Vec<Value> = if f.on("apply") {
+                    self.dv_sqref.clone()
+                } else {
+                    Vec::new()
+                };
                 let sheet = self.view.sheet();
                 let range = self.view.rng();
-                self.view.run(
-                    json!({ "cmd": "setValidation", "sheet": sheet, "range": range, "spec": spec }),
-                );
+                self.view.run(json!({
+                    "cmd": "setValidation", "sheet": sheet, "range": range, "spec": spec,
+                    "also": also,
+                }));
                 self.form = None;
             }
             Event::Cancel => self.form = None,
             _ => {}
         }
+    }
+
+    /// The Error Alert page's style icon (own drawings: a red disc with a white bar for
+    /// Stop, an amber triangle with "!" for Warning, a blue disc with "i" for Information).
+    pub(super) fn paint_validation_icon(f: &Form, r: [f32; 4], p: &mut dyn crate::Painter) {
+        use bo_render::{PathSeg, Rgba};
+        let k = f.scale_k();
+        let style = f.sel("estyle").unwrap_or(0);
+        let (cx, cy) = ((r[0] + r[2] / 2.0).round(), (r[1] + r[3] / 2.0).round());
+        let rad = 22.0 * k;
+        let white = Rgba(255, 255, 255, 255);
+        let circle = |p: &mut dyn crate::Painter, fill: Rgba| {
+            // Polygon approximation of a disc.
+            let mut segs = Vec::with_capacity(34);
+            for i in 0..32 {
+                let a = i as f32 / 32.0 * std::f32::consts::TAU;
+                let (x, y) = (cx + rad * a.cos(), cy + rad * a.sin());
+                segs.push(if i == 0 {
+                    PathSeg::M(x, y)
+                } else {
+                    PathSeg::L(x, y)
+                });
+            }
+            segs.push(PathSeg::Z);
+            p.path(&segs, Some(fill), None);
+        };
+        match style {
+            0 => {
+                circle(p, Rgba(0xC4, 0x2B, 0x1C, 255));
+                p.fill_rect(cx - 12.0 * k, cy - 3.0 * k, 24.0 * k, 6.0 * k, white);
+            }
+            1 => {
+                p.path(
+                    &[
+                        PathSeg::M(cx, cy - rad),
+                        PathSeg::L(cx + rad, cy + rad * 0.8),
+                        PathSeg::L(cx - rad, cy + rad * 0.8),
+                        PathSeg::Z,
+                    ],
+                    Some(Rgba(0xF2, 0xB1, 0x1A, 255)),
+                    None,
+                );
+                let ink = Rgba(0, 0, 0, 255);
+                p.fill_rect(cx - 2.0 * k, cy - 8.0 * k, 4.0 * k, 14.0 * k, ink);
+                p.fill_rect(cx - 2.0 * k, cy + 9.0 * k, 4.0 * k, 4.0 * k, ink);
+            }
+            _ => {
+                circle(p, Rgba(0x1F, 0x6F, 0xC5, 255));
+                p.fill_rect(cx - 2.0 * k, cy - 4.0 * k, 4.0 * k, 16.0 * k, white);
+                p.fill_rect(cx - 2.0 * k, cy - 12.0 * k, 4.0 * k, 4.0 * k, white);
+            }
+        }
+    }
+
+    // ------------------------------------------------------- Circle Invalid Data
+
+    /// Data › Data Validation › Circle Invalid Data: red ellipses round the cells that break
+    /// their rule (engine `invalidCells`), until Clear Validation Circles or an edit of the
+    /// circled cell.
+    pub(super) fn circle_invalid(&mut self) -> bool {
+        let sheet = self.view.sheet();
+        let out = self
+            .view
+            .query(json!({ "cmd": "invalidCells", "sheet": sheet }))
+            .unwrap_or(Value::Null);
+        self.invalid_circles = out
+            .get("cells")
+            .and_then(Value::as_array)
+            .map(|a| {
+                a.iter()
+                    .filter_map(|c| {
+                        let c = c.as_array()?;
+                        Some((c.first()?.as_u64()? as u32, c.get(1)?.as_u64()? as u32))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        if self.invalid_circles.is_empty() {
+            self.status = self.t("sheetDv.noInvalid", "No invalid data was found.");
+        }
+        true
     }
 
     // ---------------------------------------------------------------- Goal Seek
@@ -1433,7 +1644,6 @@ impl SheetWindow {
             FormKind::CreateTable
             | FormKind::CreatePivot
             | FormKind::Sparklines
-            | FormKind::Link
             | FormKind::HeaderFooter
             | FormKind::Symbol => self.insert_form_event(ev, text),
             FormKind::MoreColors => self.more_colors_event(ev),
@@ -1472,6 +1682,12 @@ impl SheetWindow {
             FormKind::Subtotal | FormKind::RemoveDups | FormKind::AdvancedFilter => {
                 self.datadlg_event(kind, ev);
             }
+            FormKind::TextToColumns => self.ttc_event(ev, self.form_count),
+            FormKind::TtcAdvanced => self.ttc_advanced_event(ev),
+            FormKind::RangePick => self.range_pick_event(ev),
+            FormKind::Protect => self.protect_event(ev),
+            FormKind::Spelling => self.spelling_event(ev),
+            FormKind::Link | FormKind::LinkTip => self.link_event(ev),
             FormKind::FormatCells => {}
         }
         true

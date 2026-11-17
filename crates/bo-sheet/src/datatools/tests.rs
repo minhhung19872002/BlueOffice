@@ -377,6 +377,10 @@ fn lists_invalid_cells() {
         error: None,
         error_style: None,
         prompt: None,
+        prompt_title: None,
+        show_input: true,
+        show_error: true,
+        in_cell_dropdown: true,
     };
     assert!(set_rule(&mut wb, 0, rng("A1:A6"), &spec));
     let list = ValidationSpec {

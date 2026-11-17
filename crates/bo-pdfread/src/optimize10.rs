@@ -505,9 +505,12 @@ impl PdfDocument {
                 } else {
                     grey
                 };
+                // Downsampled strokes keep their weight: a pixel a third black or more stays
+                // black (a 50 % cut thins text).
+                let cut = if shrink { 170 } else { 128 };
                 let black: Vec<u8> = small
                     .chunks_exact(4)
-                    .map(|p| u8::from(p[0] < 128))
+                    .map(|p| u8::from(p[0] < cut))
                     .collect();
                 nd.set("BitsPerComponent", 1);
                 if mask {

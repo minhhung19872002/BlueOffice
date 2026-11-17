@@ -27,6 +27,8 @@ bo-text.workspace = true
 bo-spell.workspace = true
 # JPEG encoder for Optimize.
 bo-raster.workspace = true
+# Review markup laid out by the engine (balloons, change bars).
+bo-layout.workspace = true
 serde = { workspace = true }
 serde_json.workspace = true
 miniz_oxide = "0.8"

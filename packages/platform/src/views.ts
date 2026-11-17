@@ -58,7 +58,19 @@ export interface FindResult {
 /** View commands sent to the engine. */
 export type ViewCommand =
   | { cmd: 'setViewLayout'; mode: ViewLayoutMode; width?: number }
-  | { cmd: 'showFormattingMarks'; on: boolean }
+  | {
+      cmd: 'showFormattingMarks';
+      on: boolean;
+      /** Kinds shown on their own while not all are (File › Options › Display). */
+      kinds?: {
+        tabs?: boolean;
+        spaces?: boolean;
+        paragraphs?: boolean;
+        hidden?: boolean;
+        optionalHyphens?: boolean;
+        anchors?: boolean;
+      };
+    }
   | { cmd: 'outline' }
   | { cmd: 'setOutlineLevel'; para?: number; level?: number | null }
   | { cmd: 'moveOutline'; para?: number; up: boolean }

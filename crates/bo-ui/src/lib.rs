@@ -22,6 +22,7 @@ mod doc_r3_menus;
 mod doc_r3_ui;
 mod doc_r4_fit;
 mod doc_r4_menus;
+mod doc_reveal;
 mod doc_table;
 mod doc_tiles;
 mod doc_tips;

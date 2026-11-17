@@ -1440,6 +1440,45 @@ pub fn arrange_windows(windows: &[isize], cascade: bool) {
     }
 }
 
+/// Stack windows one above the other over the primary work area, each the full width (BlueDoc
+/// View › Arrange All, as the reference arranges its document windows).
+#[allow(dead_code)] // BlueDoc only.
+pub fn stack_windows(windows: &[isize]) {
+    use windows::Win32::UI::WindowsAndMessaging::SPI_GETWORKAREA;
+    if windows.is_empty() {
+        return;
+    }
+    let mut area = RECT::default();
+    // SAFETY: SPI_GETWORKAREA writes one RECT.
+    unsafe {
+        let _ = SystemParametersInfoW(
+            SPI_GETWORKAREA,
+            0,
+            Some(std::ptr::from_mut::<RECT>(&mut area).cast()),
+            SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
+        );
+    }
+    let (aw, ah) = (area.right - area.left, area.bottom - area.top);
+    let count = windows.len() as i32;
+    for (i, &hw) in windows.iter().enumerate() {
+        let i = i as i32;
+        // SAFETY: plain window call on handles from `app_windows`.
+        unsafe {
+            let hwnd = HWND(hw as *mut _);
+            let _ = ShowWindow(hwnd, SW_RESTORE);
+            let _ = SetWindowPos(
+                hwnd,
+                None,
+                area.left,
+                area.top + i * ah / count,
+                aw,
+                ah / count,
+                SWP_NOZORDER,
+            );
+        }
+    }
+}
+
 /// Bring a window to the front.
 #[allow(dead_code)] // BlueSlide only.
 pub fn activate_window(hwnd: isize) {

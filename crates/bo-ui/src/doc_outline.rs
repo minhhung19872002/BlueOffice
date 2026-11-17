@@ -16,7 +16,7 @@ const SELECTED: Rgba = Rgba(0xdc, 0xdc, 0xdc, 255);
 const HOVER: Rgba = Rgba(0xf0, 0xf0, 0xf0, 255);
 
 /// What an outline input does.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum OutlineAction {
     None,
     Redraw,
@@ -24,6 +24,28 @@ pub(crate) enum OutlineAction {
     Command(&'static str),
     /// Go back to Print Layout at this body paragraph.
     Open(usize),
+    /// Edit the text of body paragraph `para` at byte offset `at` (typing in the outline).
+    Edit {
+        /// Body paragraph id.
+        para: usize,
+        /// Byte offset of the caret in the paragraph's text.
+        at: usize,
+        /// What the key does.
+        edit: OutlineEdit,
+    },
+}
+
+/// A text edit typed in the outline (round 5).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum OutlineEdit {
+    /// Insert text at the caret.
+    Type(String),
+    /// Enter: a new item at the same level after the caret.
+    Split,
+    /// Backspace.
+    Back,
+    /// Delete.
+    Forward,
 }
 
 struct Row {
@@ -61,6 +83,10 @@ pub(crate) struct OutlineView {
     label_w: Vec<f32>,
     /// Collapsed headings (paragraph ids): their subordinate content is hidden.
     collapsed: std::collections::HashSet<usize>,
+    /// Caret in the selected row's text (characters).
+    caret: usize,
+    /// Width of the selected row's text before the caret (measured at layout, device px).
+    caret_w: f32,
 }
 
 /// Row height at 100 % per level when the style's size is unknown (Heading 1 is the tallest).
@@ -104,6 +130,8 @@ impl OutlineView {
             first_line: false,
             collapsed: std::collections::HashSet::new(),
             label_w: Vec::new(),
+            caret: 0,
+            caret_w: 0.0,
         }
     }
 
@@ -164,6 +192,62 @@ impl OutlineView {
         self.selected = want
             .and_then(|p| self.rows.iter().position(|r| r.para == p))
             .unwrap_or(0);
+        let len = self
+            .rows
+            .get(self.selected)
+            .map_or(0, |r| r.text.chars().count());
+        // A newly selected item gets the caret at its end; the same item keeps it.
+        let same = keep.is_some() && self.rows.get(self.selected).map(|r| r.para) == keep;
+        self.caret = if same { self.caret.min(len) } else { len };
+    }
+
+    /// Select the row of body paragraph `para` with the caret at character `at` (after an edit).
+    pub(crate) fn select_para(&mut self, para: usize, at: usize) {
+        if let Some(i) = self.rows.iter().position(|r| r.para == para) {
+            self.selected = i;
+            self.caret = at.min(self.rows[i].text.chars().count());
+            self.reveal();
+        }
+    }
+
+    /// The caret: body paragraph and character index in its text.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn caret(&self) -> Option<(usize, usize)> {
+        self.rows.get(self.selected).map(|r| (r.para, self.caret))
+    }
+
+    /// The edit a typed key makes at the caret.
+    fn edit(&self, edit: OutlineEdit) -> OutlineAction {
+        let Some(r) = self.rows.get(self.selected) else {
+            return OutlineAction::None;
+        };
+        let at = r
+            .text
+            .char_indices()
+            .nth(self.caret)
+            .map_or(r.text.len(), |(b, _)| b);
+        OutlineAction::Edit {
+            para: r.para,
+            at,
+            edit,
+        }
+    }
+
+    /// Text typed while the outline has the focus.
+    pub(crate) fn type_text(&self, text: &str) -> OutlineAction {
+        if text.chars().all(char::is_control) {
+            return OutlineAction::None;
+        }
+        self.edit(OutlineEdit::Type(text.to_owned()))
+    }
+
+    fn move_caret(&mut self, to: usize) -> OutlineAction {
+        let len = self
+            .rows
+            .get(self.selected)
+            .map_or(0, |r| r.text.chars().count());
+        self.caret = to.min(len);
+        OutlineAction::Redraw
     }
 
     /// The selected paragraph and its level.
@@ -230,6 +314,36 @@ impl OutlineView {
         out
     }
 
+    /// The font a row's text is drawn with (the style's look with Show Text Formatting).
+    fn row_font(&self, level: Option<u8>) -> Font<'_> {
+        let size = match level {
+            Some(0) => 16.0,
+            Some(1) => 13.0,
+            Some(2) => 12.0,
+            _ => 11.0,
+        };
+        match self.look(level).filter(|_| self.formatting) {
+            Some(l) => Font {
+                family: l.font.as_str(),
+                size: (l.size * 4.0 / 3.0 * self.scale).round(),
+                weight: if l.bold { 700 } else { 400 },
+                italic: l.italic,
+                underline: l.underline,
+            },
+            None => Font {
+                family: if level.is_some() {
+                    "Calibri Light"
+                } else {
+                    "Calibri"
+                },
+                size: self.px(size),
+                weight: 400,
+                italic: false,
+                underline: false,
+            },
+        }
+    }
+
     pub(crate) fn layout(&mut self, rect: [f32; 4], scale: f32, text: &dyn TextMeasure) {
         self.rect = rect;
         self.scale = scale;
@@ -252,6 +366,13 @@ impl OutlineView {
                 }
             })
             .collect();
+        self.caret_w = match self.rows.get(self.selected) {
+            Some(r) if self.caret > 0 => {
+                let before: String = r.text.chars().take(self.caret).collect();
+                text.measure_font(&before, &self.row_font(r.level)).0
+            }
+            _ => 0.0,
+        };
         self.clamp();
     }
 
@@ -302,6 +423,7 @@ impl OutlineView {
             Some(i) if count >= 2 => OutlineAction::Open(self.rows[i].para),
             Some(i) => {
                 self.selected = i;
+                self.caret = self.rows[i].text.chars().count();
                 OutlineAction::Redraw
             }
             None => OutlineAction::None,
@@ -317,6 +439,9 @@ impl OutlineView {
             at.saturating_sub(1)
         };
         if let Some(i) = shown.get(next) {
+            if self.selected != *i {
+                self.caret = self.rows[*i].text.chars().count();
+            }
             self.selected = *i;
         }
         self.reveal();
@@ -347,10 +472,15 @@ impl OutlineView {
             Key::Tab => OutlineAction::Command("outline.demote"),
             Key::Up => self.step(false),
             Key::Down => self.step(true),
-            Key::Enter => self
-                .rows
-                .get(self.selected)
-                .map_or(OutlineAction::None, |r| OutlineAction::Open(r.para)),
+            // Typing edits the selected item as in the reference's outline: Enter starts a new
+            // item at the same level (a double click goes back to Print Layout).
+            Key::Enter => self.edit(OutlineEdit::Split),
+            Key::Backspace if self.caret > 0 => self.edit(OutlineEdit::Back),
+            Key::Delete => self.edit(OutlineEdit::Forward),
+            Key::Left => self.move_caret(self.caret.saturating_sub(1)),
+            Key::Right => self.move_caret(self.caret + 1),
+            Key::Home => self.move_caret(0),
+            Key::End => self.move_caret(usize::MAX),
             _ => OutlineAction::None,
         }
     }
@@ -473,10 +603,26 @@ impl OutlineView {
                 };
                 p.text_font(&text, tx + gap, ty, &font, color);
                 text.clear();
+                if i == self.selected {
+                    self.paint_caret(p, tx + gap, ty, font.size);
+                }
+            } else if i == self.selected {
+                self.paint_caret(p, tx, ty, font.size);
             }
             if !text.is_empty() {
                 p.text_font(&text, tx, ty, &font, color);
             }
+        }
+        // The end-of-document mark under the last item, as the reference's outline shows.
+        if let Some((_, top, rh)) = self.placed().last().copied() {
+            let ey = (y + top + rh - self.scroll + self.px(4.0)).round();
+            p.fill_rect(
+                left + self.px(2.0),
+                ey,
+                self.px(14.0),
+                self.scale.round().max(1.0),
+                INK,
+            );
         }
         if self.rows.is_empty() {
             let font = Font {
@@ -489,6 +635,20 @@ impl OutlineView {
             p.text_font(&self.body_label, left, y + self.px(12.0), &font, SYMBOL);
         }
         p.pop_clip();
+    }
+}
+
+impl OutlineView {
+    /// The text caret of the selected row, its text starting at `x`.
+    fn paint_caret(&self, p: &mut dyn Painter, x: f32, ty: f32, size: f32) {
+        let w = self.scale.round().max(1.0);
+        p.fill_rect(
+            (x + self.caret_w).round(),
+            (ty + size * 0.1).round(),
+            w,
+            (size * 1.2).round(),
+            Rgba(0, 0, 0, 255),
+        );
     }
 }
 

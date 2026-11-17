@@ -13,6 +13,10 @@ mod form;
 use form::Event;
 use form::{Form, Kind};
 
+#[path = "doc_forms5.rs"]
+mod r5;
+pub(crate) use r5::{open_manage_styles, ManagedStyle};
+
 use crate::strings::Strings;
 use crate::{Font, Input, Key, Painter, TextMeasure};
 use bo_render::{PathSeg, Rgba};
@@ -43,6 +47,24 @@ pub(crate) enum DocFormKind {
     DateTime,
     /// View › Zoom (round 4).
     Zoom,
+    /// Mailings › Rules › Ask (round 5).
+    AskRule,
+    /// Mailings › Rules › Fill-in.
+    FillInRule,
+    /// Mailings › Rules › If…Then…Else.
+    IfRule,
+    /// Mailings › Rules › Next Record If.
+    NextIfRule,
+    /// Mailings › Rules › Set Bookmark.
+    SetRule,
+    /// Mailings › Rules › Skip Record If.
+    SkipIfRule,
+    /// Mailings › Match Fields.
+    MatchFields,
+    /// Mailings › Find Recipient (Find in Field).
+    FindRecipient,
+    /// Styles pane › Manage Styles.
+    ManageStyles,
 }
 
 /// What the owner does after an input.
@@ -100,6 +122,11 @@ pub(crate) struct DocForm {
     label_w: Vec<f32>,
     /// TOC Options: style → level pairs (`TOC \t`), when set.
     pub(crate) toc_map: Option<String>,
+    /// Create New Style used as Modify Style: the style changed (`styleModify`).
+    pub(crate) modify: Option<String>,
+    /// Manage Styles: the document's styles and the texts of its preview.
+    managed: Vec<r5::ManagedStyle>,
+    manage_text: Vec<String>,
 }
 
 /// Reference ids of `ST_NumberFormat` values offered for notes (§17.18.59).
@@ -183,6 +210,8 @@ pub(crate) struct FormContext {
     pub(crate) zoom: f32,
     /// Date and Time format chosen with Set As Default (index into [`DATE_PICTURES`]).
     pub(crate) date_default: usize,
+    /// Match Fields: address field → recipient column chosen before.
+    pub(crate) match_fields: std::collections::BTreeMap<String, String>,
 }
 
 /// Date and Time formats offered, in the reference's order (`\@` pictures, §17.16.4.1).
@@ -287,6 +316,9 @@ impl DocForm {
             preview: Vec::new(),
             label_w: Vec::new(),
             toc_map: None,
+            modify: None,
+            managed: Vec::new(),
+            manage_text: Vec::new(),
         }
     }
 
@@ -463,6 +495,56 @@ impl DocForm {
         );
     }
 
+    /// The dialog's title (Create New Style used as Modify Style).
+    pub(crate) fn set_title(&mut self, title: &str) {
+        title.clone_into(&mut self.form.title);
+    }
+
+    /// Items of list or drop-down `id` (tests).
+    #[cfg(test)]
+    pub(crate) fn items_for_test(&self, id: &str) -> Vec<String> {
+        match self.form.get(id).map(|c| &c.kind) {
+            Some(Kind::List { items, .. } | Kind::Combo { items, .. }) => items.clone(),
+            _ => Vec::new(),
+        }
+    }
+
+    /// Change the text of label `id`.
+    pub(crate) fn set_label(&mut self, id: &str, text: &str) {
+        if let Some(Kind::Label(t)) = self.form.get_mut(id).map(|c| &mut c.kind) {
+            text.clone_into(t);
+        }
+    }
+
+    /// Text of label `id` (tests).
+    #[cfg(test)]
+    pub(crate) fn label_for_test(&self, id: &str) -> String {
+        match self.form.get(id).map(|c| &c.kind) {
+            Some(Kind::Label(t)) => t.clone(),
+            _ => String::new(),
+        }
+    }
+
+    /// Pick the item of drop-down `id` that reads `value` (an edit box takes the text).
+    pub(crate) fn choose_item(&mut self, id: &str, value: &str) {
+        let pos = match self.form.get(id).map(|c| &c.kind) {
+            Some(Kind::Combo { items, .. }) => items.iter().position(|i| i == value),
+            Some(Kind::Edit { .. }) => {
+                self.form.set_text(id, value);
+                return;
+            }
+            _ => None,
+        };
+        if pos.is_some() {
+            self.form.set_sel(id, pos);
+        }
+    }
+
+    /// Set check box `id`.
+    pub(crate) fn set_on(&mut self, id: &str, on: bool) {
+        self.form.set_on(id, on);
+    }
+
     /// Text of control `id`.
     pub(crate) fn text(&self, id: &str) -> String {
         self.form.text(id)
@@ -593,7 +675,7 @@ impl DocForm {
                 self.form.enable("bookmark", range);
             }
             (DocFormKind::Protect, _) => {}
-            _ => {}
+            _ => self.r5_changed(id),
         }
     }
 
@@ -631,6 +713,7 @@ impl DocForm {
                 FormOut::NewDocument(self.labels())
             }
             (DocFormKind::CrossRef | DocFormKind::Language, "list") => self.ok(),
+            (k, _) if r5::handles(k) => self.r5_clicked(id),
             (DocFormKind::DateTime, "setDefault") => FormOut::DateDefault(
                 self.sel("formats")
                     .unwrap_or(0)
@@ -769,10 +852,11 @@ impl DocForm {
                     "italic": self.on("italic"),
                     "underline": self.on("underline"),
                 });
-                FormOut::Run(
-                    vec![json!({ "cmd": "styleNew", "spec": spec, "fromSelection": true })],
-                    true,
-                )
+                let cmd = match &self.modify {
+                    Some(id) => json!({ "cmd": "styleModify", "id": id, "spec": spec }),
+                    None => json!({ "cmd": "styleNew", "spec": spec, "fromSelection": true }),
+                };
+                FormOut::Run(vec![cmd], true)
             }
             DocFormKind::Toc => {
                 let levels = self.form.num("levels").clamp(1, 9);
@@ -991,6 +1075,15 @@ impl DocForm {
                 };
                 FormOut::Run(vec![cmd], true)
             }
+            DocFormKind::AskRule
+            | DocFormKind::FillInRule
+            | DocFormKind::IfRule
+            | DocFormKind::NextIfRule
+            | DocFormKind::SetRule
+            | DocFormKind::SkipIfRule
+            | DocFormKind::MatchFields
+            | DocFormKind::FindRecipient
+            | DocFormKind::ManageStyles => self.r5_ok(),
             DocFormKind::Zoom => {
                 let pct = match self.chosen("zoom") {
                     Some("z200") => "200".to_owned(),
@@ -1142,6 +1235,44 @@ fn paint_preview(
         r[3] - 2.0,
         Rgba(255, 255, 255, 255),
     );
+    if kind == DocFormKind::ManageStyles {
+        // Manage Styles: the font's name in that font, the size on a grey tab at the right.
+        let (Some(family), Some(size)) = (lines.first(), lines.get(1)) else {
+            return;
+        };
+        let face = Font {
+            family: family.as_str(),
+            size: (font.size * 1.6).round(),
+            weight: 400,
+            italic: false,
+            underline: false,
+        };
+        let tab = (font.size * 2.8).round();
+        p.push_clip(r[0] + 1.0, r[1] + 1.0, r[2] - 2.0, r[3] - 2.0);
+        p.text_font(
+            family,
+            r[0] + 8.0,
+            (r[1] + (r[3] - face.size * 1.3) / 2.0).round(),
+            &face,
+            Rgba(0, 0, 0, 255),
+        );
+        p.fill_rect(
+            r[0] + r[2] - tab,
+            r[1],
+            tab,
+            r[3],
+            Rgba(0xa6, 0xa6, 0xa6, 255),
+        );
+        p.text_font(
+            &format!("{size} pt"),
+            r[0] + r[2] - tab + 4.0,
+            r[1] + r[3] - font.size * 1.5,
+            font,
+            Rgba(0x26, 0x26, 0x26, 255),
+        );
+        p.pop_clip();
+        return;
+    }
     p.push_clip(r[0] + 1.0, r[1] + 1.0, r[2] - 2.0, r[3] - 2.0);
     let big = Font {
         family: "Times New Roman",
@@ -2875,6 +3006,15 @@ pub(crate) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
             f
         }
         // Measured on the reference at 125 %: 381 × 258.
+        DocFormKind::AskRule
+        | DocFormKind::FillInRule
+        | DocFormKind::IfRule
+        | DocFormKind::NextIfRule
+        | DocFormKind::SetRule
+        | DocFormKind::SkipIfRule
+        | DocFormKind::MatchFields
+        | DocFormKind::FindRecipient
+        | DocFormKind::ManageStyles => r5::open(kind, s, c),
         DocFormKind::Zoom => {
             let mut f = DocForm::new(kind, &tr("docR4.zoomTitle", "Zoom"), (381.0, 258.0), vec![]);
             f.label(

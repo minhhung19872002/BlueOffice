@@ -217,6 +217,8 @@ pub struct Ribbon {
     large_metrics: (f32, f32),
     /// Whether a command can run now (BlueSheet / BlueSlide pass their own rule).
     enabled: fn(&str, &FormatState) -> bool,
+    /// Commands the window dims from its own state, on top of the rule (BlueDoc's Mailings).
+    extra_dim: Vec<&'static str>,
     /// Number of permanent tabs; tabs after them are contextual (table, header/footer,
     /// picture tools), shown while the selection needs them.
     fixed_tabs: usize,
@@ -758,6 +760,7 @@ impl Ribbon {
             box_w: None,
             large_metrics: (52.0, 14.0),
             enabled: commands::enabled,
+            extra_dim: Vec::new(),
             scaling: |_| &[],
             shrink: |_, _| None,
             holder: |_| None,
@@ -827,6 +830,21 @@ impl Ribbon {
 
     /// Replace the tabs (a narrower or wider arrangement of the same commands); the active
     /// tab stays.
+    /// Dim these commands too (window state the enabled rule cannot see); `true` when the
+    /// set changed.
+    pub(crate) fn set_extra_dim(&mut self, ids: Vec<&'static str>) -> bool {
+        if self.extra_dim == ids {
+            return false;
+        }
+        self.extra_dim = ids;
+        true
+    }
+
+    /// Whether the window dims command `id`.
+    pub(crate) fn extra_dimmed(&self, id: &str) -> bool {
+        self.extra_dim.contains(&id)
+    }
+
     pub(crate) fn set_tabs(&mut self, tabs: Vec<Tab>) {
         self.active = self.active.min(tabs.len().saturating_sub(1));
         self.tabs = tabs;
@@ -1856,7 +1874,7 @@ impl Ribbon {
                 }
                 Placed::Item(Item::Button(id), r) => {
                     let on = commands::toggled(id, format) || on_ids.contains(id);
-                    let enabled = (self.enabled)(id, format);
+                    let enabled = (self.enabled)(id, format) && !self.extra_dim.contains(id);
                     let hit = RibbonHit::Command(id);
                     if let Some(c) = tint(hit).filter(|_| enabled) {
                         radius_rect(p, r, c);
@@ -2034,7 +2052,8 @@ impl Ribbon {
                 }
                 Placed::Item(Item::Large(id), r) => {
                     let hit = RibbonHit::Command(id);
-                    let enabled = !self.large_dim || (self.enabled)(id, format);
+                    let enabled = (!self.large_dim || (self.enabled)(id, format))
+                        && !self.extra_dim.contains(id);
                     let ink = if enabled { t.text } else { t.border };
                     if let Some(c) = tint(hit).filter(|_| enabled) {
                         radius_rect(p, r, c);
@@ -2170,7 +2189,7 @@ impl Ribbon {
                 Placed::Item(Item::Labeled(id), _) if (self.labeled_w)(id).is_some() => {}
                 Placed::Item(Item::Labeled(id), r) => {
                     let hit = RibbonHit::Command(id);
-                    let enabled = (self.enabled)(id, format);
+                    let enabled = (self.enabled)(id, format) && !self.extra_dim.contains(id);
                     if let Some(c) = tint(hit).filter(|_| enabled) {
                         radius_rect(p, r, c);
                     } else if on_ids.contains(id) || commands::toggled(id, format) {

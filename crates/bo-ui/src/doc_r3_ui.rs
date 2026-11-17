@@ -558,6 +558,12 @@ impl StylesPane {
         if inside(self.button_rect(0), x, y) {
             return PaneAction::Button("new");
         }
+        if inside(self.button_rect(1), x, y) {
+            return PaneAction::Button("inspector");
+        }
+        if inside(self.button_rect(2), x, y) {
+            return PaneAction::Button("manage");
+        }
         PaneAction::None
     }
 
@@ -753,7 +759,8 @@ impl StylesPane {
             let r = self.button_rect(i);
             p.fill_rect(r[0], r[1], r[2], r[3], Rgba(0xad, 0xad, 0xad, 255));
             p.fill_rect(r[0] + 1.0, r[1] + 1.0, r[2] - 2.0, r[3] - 2.0, WHITE);
-            let enabled = i == 0;
+            // New Style, Style Inspector and Manage Styles (round 5) work; Options… not yet.
+            let enabled = i < 3;
             if i < 3 {
                 let name = ["styles.newStyle", "styles.inspector", "styles.manage"][i];
                 let (ix, iy, isz) = (r[0] + self.px(4.0), r[1] + self.px(4.0), self.px(20.0));

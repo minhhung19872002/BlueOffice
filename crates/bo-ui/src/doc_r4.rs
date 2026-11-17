@@ -64,6 +64,14 @@ impl DocWindow {
         ok
     }
 
+    /// The document has a cover page (Remove Current Cover Page is available).
+    pub(super) fn has_cover_page(&self) -> bool {
+        self.view
+            .engine()
+            .session()
+            .is_some_and(|s| s.cover_page().is_some())
+    }
+
     fn tiles_of(&self, prefix: &str, list: &[(&str, &str)], key: &str) -> Vec<Tile> {
         list.iter()
             .map(|(id, label)| Tile {
@@ -93,7 +101,7 @@ impl DocWindow {
                         "insert.coverPage.remove",
                         "docR4.removeCover",
                         "Remove Current Cover Page",
-                        false,
+                        self.has_cover_page(),
                     ),
                     row(
                         "insert.coverPage.save",
@@ -419,7 +427,17 @@ impl DocWindow {
         let items: Vec<MenuItem> = entries
             .into_iter()
             .map(|e| MenuItem {
-                label: self.r4_t(&format!("docR4.m.{}", e.id.replace('.', "_")), e.label),
+                // The wrap commands of Bring Forward / Send Backward read "Bring in Front of
+                // Text" / "Send Behind Text" there (the Wrap Text menu's own words otherwise).
+                label: match (id, e.id) {
+                    ("layout.bringForward", "picture.wrap.inFront") => {
+                        self.r4_t("docR3.bringInFrontOfText", e.label)
+                    }
+                    ("layout.sendBackward", "picture.wrap.behind") => {
+                        self.r4_t("docR3.sendBehindText", e.label)
+                    }
+                    _ => self.r4_t(&format!("docR4.m.{}", e.id.replace('.', "_")), e.label),
+                },
                 choice: Choice::Command(e.id.to_owned()),
                 checked: false,
                 dim: m4::UNAVAILABLE.contains(&e.id)
@@ -472,17 +490,18 @@ impl DocWindow {
         if m4::UNAVAILABLE.contains(&id) {
             return Some(false);
         }
+        if id == "insert.coverPage.remove" {
+            return Some(self.r4_run(&[json!({ "cmd": "removeCoverPage" })]));
+        }
         if let Some(d) = id.strip_prefix("insert.coverPage.") {
             if !m4::COVERS.iter().any(|c| c.0 == d) {
                 return Some(false);
             }
-            // At the document's start, then a page break so the body starts on page 2.
-            return Some(self.r4_run(&[
-                json!({ "cmd": "move", "motion": "docStart" }),
-                json!({ "cmd": "insertPageBreak" }),
-                json!({ "cmd": "move", "motion": "docStart" }),
-                json!({ "cmd": "paste", "html": m4::cover_html(d) }),
-            ]));
+            // At the document's start, then a page break so the body starts on page 2, in a
+            // cover-page control (§17.5.2.11 docPartObj) that replaces the current cover.
+            return Some(
+                self.r4_run(&[json!({ "cmd": "insertCoverPage", "html": m4::cover_html(d) })]),
+            );
         }
         for (prefix, header) in [("insert.header.", true), ("insert.footer.", false)] {
             if let Some(d) = id.strip_prefix(prefix) {

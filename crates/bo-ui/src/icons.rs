@@ -40,6 +40,9 @@ pub struct Icons {
     grid: f32,
     stroke: f32,
     shapes: HashMap<String, Vec<Shape>>,
+    /// Disabled icons keep their coloured parts in grey (BlueDoc, as the reference's greyed
+    /// ribbon commands) instead of leaving them out.
+    grey_disabled: bool,
 }
 
 /// Colours an icon is drawn with.
@@ -543,7 +546,13 @@ impl Icons {
             grid: file.grid,
             stroke: file.stroke,
             shapes,
+            grey_disabled: false,
         }
+    }
+
+    /// Draw the coloured parts of disabled icons in light grey instead of leaving them out.
+    pub(crate) fn set_grey_disabled(&mut self, on: bool) {
+        self.grey_disabled = on;
     }
 
     /// Add icon `name` drawn from SVG paths in the icon grid (24 units), like [`SOLID`] entries: a
@@ -599,7 +608,7 @@ impl Icons {
             for (part, shape) in shapes.iter().enumerate() {
                 let listed =
                     TINTS.iter().any(|(n, _)| *n == name) || SOLID.iter().any(|(n, _)| *n == name);
-                if shape.fixed.is_some() && !c.tinted {
+                if shape.fixed.is_some() && !c.tinted && !self.grey_disabled {
                     // Disabled: outlines only.
                     continue;
                 }
@@ -622,9 +631,12 @@ impl Icons {
                 };
                 let segs: Vec<PathSeg> =
                     shape.segs.iter().map(|s| transform(*s, k, x, y)).collect();
-                let mut base = shape
-                    .fixed
-                    .unwrap_or(if shape.accent { c.accent } else { c.ink });
+                let mut base = match shape.fixed {
+                    Some(f) if !c.tinted => disabled_grey(f),
+                    Some(f) => f,
+                    None if shape.accent => c.accent,
+                    None => c.ink,
+                };
                 let mut under = None;
                 match tint {
                     Some(Tint::Blue) => base = ICON_BLUE,
@@ -669,6 +681,16 @@ impl Icons {
             }
         }
     }
+}
+
+/// A coloured icon part of a disabled command: its lightness in a light neutral grey, as the
+/// reference greys its commands (dark outlines about 164–183, fills close to the ribbon).
+pub(crate) fn disabled_grey(c: Rgba) -> Rgba {
+    let l = 0.299 * f32::from(c.0) + 0.587 * f32::from(c.1) + 0.114 * f32::from(c.2);
+    let g = (255.0 - (255.0 - l) * 0.47).round().clamp(0.0, 255.0);
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let g = g as u8;
+    Rgba(g, g, g, c.3)
 }
 
 /// Separate subpaths spanning less than one pixel (dots) when `stroked`, returning the

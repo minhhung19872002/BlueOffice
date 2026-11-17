@@ -149,3 +149,15 @@ fn accept_all_and_stop_tracking() {
     assert_eq!(w.view.revisions().len(), 0);
     assert!(!w.view.track_changes());
 }
+
+#[test]
+fn all_markup_opens_the_markup_area_and_moves_pages_left() {
+    let mut w = window();
+    run(&mut w, "text:Hello world");
+    let x0 = w.view.slots()[0].x;
+    run(&mut w, "select:world");
+    run(&mut w, r#"engine:{"cmd":"addComment","text":"Check"}"#);
+    w.handle(Input::Blink, &Fixed);
+    assert!(w.view.markup_px() > 0.0, "balloons need the markup area");
+    assert!(w.view.slots()[0].x < x0, "the page moves left of the area");
+}

@@ -1045,6 +1045,8 @@ impl DocView {
         let tops = self.page_tops();
         let cols = self.columns.max(1);
         let gap = self.gap();
+        // The markup area right of the pages takes room in the row: pages move left.
+        let markup = self.markup_px();
         self.pages
             .iter()
             .zip(tops)
@@ -1054,11 +1056,14 @@ impl DocView {
                 // The row is centred; pages follow each other with a gap between them.
                 let first = index - index % cols;
                 let row = &self.pages[first..(first + cols).min(self.pages.len())];
-                let row_w: f32 = row.iter().map(|q| self.page_px(*q).0 as f32).sum::<f32>()
+                let row_w: f32 = row
+                    .iter()
+                    .map(|q| self.page_px(*q).0 as f32 + markup)
+                    .sum::<f32>()
                     + gap * (row.len() as f32 - 1.0);
                 let before: f32 = self.pages[first..index]
                     .iter()
-                    .map(|q| self.page_px(*q).0 as f32 + gap)
+                    .map(|q| self.page_px(*q).0 as f32 + markup + gap)
                     .sum();
                 let x = (((viewport.0 - row_w) / 2.0).max(gap) + before).floor();
                 PageSlot {
@@ -1433,6 +1438,7 @@ impl DocView {
         p.fill_rect(ox, oy, vw, vh, canvas);
         let s = self.scale();
         let visible = self.visible();
+        let markup = self.markup_px();
         for slot in &visible {
             let edge = if self.plain {
                 0.0
@@ -1442,13 +1448,14 @@ impl DocView {
             p.fill_rect(
                 slot.x as f32 - edge,
                 slot.y as f32 - edge,
-                slot.width as f32 + 2.0 * edge,
+                slot.width as f32 + markup + 2.0 * edge,
                 slot.height as f32 + 2.0 * edge,
                 PAGE_SHADOW,
             );
             if self.shown.contains_key(&slot.index) {
                 p.page(slot.index, slot.x, slot.y);
             }
+            self.paint_markup(p, (slot.index, slot.x, slot.y, slot.width, slot.height));
             // Wavy lines under misspelt words (red) and grammar issues (blue), as a desktop
             // word processor checks as you type.
             let marks = if self.hide_spelling {
@@ -1523,6 +1530,8 @@ impl DocView {
     }
 }
 
+#[path = "doc_markup6.rs"]
+mod markup6;
 #[cfg(test)]
 mod tests {
     use super::*;

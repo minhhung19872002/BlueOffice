@@ -257,6 +257,42 @@ impl ReviewPane {
     }
 }
 
+/// Formatting changes as the reference words them ("Font: Bold, Italic", "Centered").
+fn format_detail(keys: &[&str]) -> String {
+    let font: Vec<&str> = keys
+        .iter()
+        .filter_map(|k| {
+            Some(match *k {
+                "bold" => "Bold",
+                "italic" => "Italic",
+                "underline" => "Underline",
+                "strike" => "Strikethrough",
+                "font" => "Font",
+                "size" => "Size",
+                "color" => "Font color",
+                "highlight" => "Highlight",
+                _ => return None,
+            })
+        })
+        .collect();
+    let mut parts = Vec::new();
+    if !font.is_empty() {
+        parts.push(format!("Font: {}", font.join(", ")));
+    }
+    for k in keys {
+        if !matches!(
+            *k,
+            "bold" | "italic" | "underline" | "strike" | "font" | "size" | "color" | "highlight"
+        ) {
+            let mut c = k.chars();
+            if let Some(f) = c.next() {
+                parts.push(f.to_uppercase().chain(c).collect());
+            }
+        }
+    }
+    parts.join(", ")
+}
+
 fn tr(s: &crate::strings::Strings, key: &str, fallback: &str) -> String {
     let v = s.get(key);
     if v == key {
@@ -291,7 +327,7 @@ impl DocWindow {
             };
             counts[slot] += 1;
             let text = if slot == 3 && !r.detail.is_empty() {
-                r.detail.join(", ")
+                format_detail(&r.detail)
             } else {
                 r.text.replace(['\n', '\r'], " ")
             };
@@ -302,6 +338,15 @@ impl DocWindow {
                 id: r.id,
                 comment: false,
             });
+        }
+        // At the same place the reference lists the added text before the deleted text.
+        for i in 1..rows.len() {
+            let (a, b) = (&rows[i - 1], &rows[i]);
+            if a.what == tr(s, "docR6.rv.deleted", "Deleted")
+                && b.what == tr(s, "docR6.rv.inserted", "Added")
+            {
+                rows.swap(i - 1, i);
+            }
         }
         for c in self.view.comments() {
             counts[4] += 1;

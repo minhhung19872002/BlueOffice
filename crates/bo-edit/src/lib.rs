@@ -3315,7 +3315,10 @@ impl Session {
         let text = text.replace("\r\n", "\n").replace('\r', "\n");
         let result = self.edit(|tx, sel| {
             let (a, b) = sel.ordered();
-            let at = tx.delete_range(a, b)?;
+            // Typing over a selection with tracked changes puts the new text before the
+            // text marked deleted (§17.13.5.18 ins, then §17.13.5.14 del), as desktop word
+            // processors show a replacement.
+            let at = tx.delete_span(a, b)?.0;
             let (_, _, atoms) = tx.atoms(at.para)?;
             let props = pending.unwrap_or_else(|| para::props_at(&atoms, at.offset));
             let mut caret = at;

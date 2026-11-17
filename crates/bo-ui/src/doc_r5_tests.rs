@@ -404,6 +404,22 @@ fn manage_styles_lists_sorts_and_sets_the_defaults() {
     let f = w.r3.form.as_mut().expect("form");
     assert_eq!(f.kind, DocFormKind::ManageStyles);
     assert!(f.ids.iter().any(|i| i == "Normal"));
+    // Latent built-in styles are listed (Hide Until Used), names as the interface shows them.
+    let items = f.items_for_test("list");
+    assert!(
+        items
+            .iter()
+            .any(|i| i.contains("Heading 6") && i.contains("(Hide Until Used)")),
+        "{items:?}"
+    );
+    assert!(items.iter().any(|i| i.contains("Default Paragraph Font")));
+    assert!(!items.iter().any(|i| i.contains("heading 1")));
+    // The selected style's description.
+    assert!(
+        f.label_for_test("desc1").starts_with("Font:"),
+        "{}",
+        f.label_for_test("desc1")
+    );
     // Alphabetical order.
     f.set_sel("sort", Some(1));
     f.click_for_test("none");
@@ -568,4 +584,24 @@ fn mailings_commands_dim_by_merge_state_as_the_reference() {
         w.ribbon.extra_dimmed("mailings.updateLabels"),
         "letters: no labels"
     );
+}
+
+#[test]
+fn modify_from_manage_styles_changes_the_style() {
+    let mut w = window();
+    assert!(w.action("styles.modify:Normal"));
+    let f = w.r3.form.as_mut().expect("form");
+    assert_eq!(f.kind, DocFormKind::NewStyle);
+    assert_eq!(f.modify.as_deref(), Some("Normal"));
+    f.set_on("bold", true);
+    press_key(&mut w, Key::Enter);
+    let normal = w
+        .view
+        .all_styles()
+        .into_iter()
+        .find(|s| s.id == "Normal")
+        .expect("Normal");
+    assert!(normal.preview.bold);
+    assert_eq!(super::ui_style_name("heading 1"), "Heading 1");
+    assert_eq!(super::ui_style_name("toc 2"), "TOC 2");
 }

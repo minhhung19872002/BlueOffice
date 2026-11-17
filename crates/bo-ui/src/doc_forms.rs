@@ -122,6 +122,8 @@ pub(crate) struct DocForm {
     label_w: Vec<f32>,
     /// TOC Options: style → level pairs (`TOC \t`), when set.
     pub(crate) toc_map: Option<String>,
+    /// Create New Style used as Modify Style: the style changed (`styleModify`).
+    pub(crate) modify: Option<String>,
     /// Manage Styles: the document's styles and the texts of its preview.
     managed: Vec<r5::ManagedStyle>,
     manage_text: Vec<String>,
@@ -314,6 +316,7 @@ impl DocForm {
             preview: Vec::new(),
             label_w: Vec::new(),
             toc_map: None,
+            modify: None,
             managed: Vec::new(),
             manage_text: Vec::new(),
         }
@@ -490,6 +493,56 @@ impl DocForm {
             &t(s, "docR3.close", "Close"),
             true,
         );
+    }
+
+    /// The dialog's title (Create New Style used as Modify Style).
+    pub(crate) fn set_title(&mut self, title: &str) {
+        title.clone_into(&mut self.form.title);
+    }
+
+    /// Items of list or drop-down `id` (tests).
+    #[cfg(test)]
+    pub(crate) fn items_for_test(&self, id: &str) -> Vec<String> {
+        match self.form.get(id).map(|c| &c.kind) {
+            Some(Kind::List { items, .. } | Kind::Combo { items, .. }) => items.clone(),
+            _ => Vec::new(),
+        }
+    }
+
+    /// Change the text of label `id`.
+    pub(crate) fn set_label(&mut self, id: &str, text: &str) {
+        if let Some(Kind::Label(t)) = self.form.get_mut(id).map(|c| &mut c.kind) {
+            text.clone_into(t);
+        }
+    }
+
+    /// Text of label `id` (tests).
+    #[cfg(test)]
+    pub(crate) fn label_for_test(&self, id: &str) -> String {
+        match self.form.get(id).map(|c| &c.kind) {
+            Some(Kind::Label(t)) => t.clone(),
+            _ => String::new(),
+        }
+    }
+
+    /// Pick the item of drop-down `id` that reads `value` (an edit box takes the text).
+    pub(crate) fn choose_item(&mut self, id: &str, value: &str) {
+        let pos = match self.form.get(id).map(|c| &c.kind) {
+            Some(Kind::Combo { items, .. }) => items.iter().position(|i| i == value),
+            Some(Kind::Edit { .. }) => {
+                self.form.set_text(id, value);
+                return;
+            }
+            _ => None,
+        };
+        if pos.is_some() {
+            self.form.set_sel(id, pos);
+        }
+    }
+
+    /// Set check box `id`.
+    pub(crate) fn set_on(&mut self, id: &str, on: bool) {
+        self.form.set_on(id, on);
     }
 
     /// Text of control `id`.
@@ -799,10 +852,11 @@ impl DocForm {
                     "italic": self.on("italic"),
                     "underline": self.on("underline"),
                 });
-                FormOut::Run(
-                    vec![json!({ "cmd": "styleNew", "spec": spec, "fromSelection": true })],
-                    true,
-                )
+                let cmd = match &self.modify {
+                    Some(id) => json!({ "cmd": "styleModify", "id": id, "spec": spec }),
+                    None => json!({ "cmd": "styleNew", "spec": spec, "fromSelection": true }),
+                };
+                FormOut::Run(vec![cmd], true)
             }
             DocFormKind::Toc => {
                 let levels = self.form.num("levels").clamp(1, 9);

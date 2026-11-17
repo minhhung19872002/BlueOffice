@@ -442,22 +442,26 @@ pub(super) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
     }
 }
 
-/// One style of Manage Styles: id, name, font, size (pt), bold, italic, recommended, built-in.
-#[derive(Debug, Clone)]
+/// One style of Manage Styles.
+#[derive(Debug, Clone, Default)]
 pub(crate) struct ManagedStyle {
     pub(crate) id: String,
+    /// Interface name ("Heading 1", §17.7.4.9 built-in names shown capitalised).
     pub(crate) name: String,
     pub(crate) font: String,
     pub(crate) size: f32,
-    pub(crate) bold: bool,
-    pub(crate) italic: bool,
     pub(crate) recommended: bool,
     pub(crate) paragraph: bool,
-}
-
-/// Styles a document always keeps (the reference dims Delete for them).
-fn built_in(id: &str) -> bool {
-    id == "Normal" || id.starts_with("Heading") || id == "DefaultParagraphFont"
+    /// Kind mark as the reference's list: ¶ paragraph, a character, ¶a linked, ▦ table.
+    pub(crate) mark: &'static str,
+    /// A latent built-in style the document does not hold yet (Hide Until Used).
+    pub(crate) latent: bool,
+    /// Built in (Delete is dimmed).
+    pub(crate) builtin: bool,
+    /// UI priority (Recommend page).
+    pub(crate) priority: Option<u32>,
+    /// Description lines under the preview (from the style's properties).
+    pub(crate) desc: [String; 2],
 }
 
 /// Manage Styles (Styles pane › Manage Styles), 629 × 661 at 125 %: Edit (sort order, the
@@ -545,18 +549,42 @@ pub(crate) fn open_manage_styles(s: &Strings, styles: Vec<ManagedStyle>) -> DocF
         [32.0, 507.0, 110.0, 30.0],
         &tr("docR5.newStyle", "New Style..."),
     );
-    f.disable("modify");
-    // Recommend.
+    // Recommend: the styles with their priority (1 shows first), as the reference's page.
+    let hide = tr("docR5.hideUntilUsed", "(Hide Until Used)");
+    let mut by_priority: Vec<&ManagedStyle> = f.managed.iter().collect();
+    by_priority.sort_by_key(|m| (m.priority.unwrap_or(99), m.name.to_lowercase()));
+    let rec_items: Vec<String> = by_priority
+        .iter()
+        .map(|m| {
+            let p = m.priority.map_or_else(String::new, |p| format!("{p}  "));
+            let tail = if m.latent {
+                format!("  {hide}")
+            } else {
+                String::new()
+            };
+            format!("{p}{} {}{tail}", m.mark, m.name)
+        })
+        .collect();
     f.label_on(
         1,
         "recL",
         [32.0, 92.0, 560.0, 18.0],
         &tr(
             "docR5.recommendHelp",
-            "Styles marked recommended show first in the Styles pane.",
+            "Set the order and visibility of recommended styles",
         ),
     );
-    // Restrict.
+    f.form.add(
+        "recList",
+        Some(1),
+        [32.0, 118.0, 565.0, 300.0],
+        Kind::List {
+            items: rec_items.clone(),
+            sel: None,
+            top: 0,
+        },
+    );
+    // Restrict: the styles that can be limited (with Restrict Editing's formatting limits).
     f.label_on(
         2,
         "resL",
@@ -565,6 +593,16 @@ pub(crate) fn open_manage_styles(s: &Strings, styles: Vec<ManagedStyle>) -> DocF
             "docR5.restrictHelp",
             "Formatting restrictions are set in Restrict Editing.",
         ),
+    );
+    f.form.add(
+        "resList",
+        Some(2),
+        [32.0, 118.0, 565.0, 300.0],
+        Kind::List {
+            items: rec_items,
+            sel: None,
+            top: 0,
+        },
     );
     // Set Defaults: the font and size of Normal.
     let (font, size) = normal.map_or_else(
@@ -624,6 +662,7 @@ pub(crate) fn open_manage_styles(s: &Strings, styles: Vec<ManagedStyle>) -> DocF
         tr("docR5.descFont", "Font:"),
         tr("docR5.paragraphStyle", "Style: paragraph style"),
         tr("docR5.characterStyle", "Style: character style"),
+        tr("docR5.hideUntilUsed", "(Hide Until Used)"),
     ];
     f.manage_fill();
     f
@@ -647,11 +686,16 @@ impl DocForm {
             .iter()
             .position(|i| i == "Normal")
             .or((!self.ids.is_empty()).then_some(0));
+        let hide = self.manage_text.get(4).cloned().unwrap_or_default();
         let items = v
             .iter()
             .map(|x| {
-                let mark = if x.paragraph { "\u{b6} " } else { "a  " };
-                format!("{mark}{}", x.name)
+                let tail = if x.latent {
+                    format!("  {hide}")
+                } else {
+                    String::new()
+                };
+                format!("{}  {}{tail}", x.mark, x.name)
             })
             .collect();
         self.form.set_items("list", items, pick);
@@ -671,19 +715,12 @@ impl DocForm {
         let texts = self.manage_text.clone();
         let text = |i: usize| texts.get(i).cloned().unwrap_or_default();
         let head = text(0).replace("{name}", &x.name);
-        self.set_text("previewL", &head);
-        let mut d = format!("{} {}, {} pt", text(1), x.font, x.size);
-        if x.bold {
-            d.push_str(", Bold");
-        }
-        if x.italic {
-            d.push_str(", Italic");
-        }
-        self.set_text("desc1", &d);
-        let kind = if x.paragraph { text(2) } else { text(3) };
-        self.set_text("desc2", &kind);
+        self.set_label("previewL", &head);
+        self.set_label("desc1", &x.desc[0]);
+        self.set_label("desc2", &x.desc[1]);
         self.preview = vec![x.font.clone(), format!("{}", x.size), x.name.clone()];
-        self.form.enable("delete", !built_in(&x.id));
+        self.form.enable("delete", !x.builtin && !x.latent);
+        self.form.enable("modify", !x.latent);
     }
 
     /// The rule a rule dialog inserts (`mergeInsertRule`).
@@ -795,6 +832,15 @@ impl DocForm {
     pub(super) fn r5_clicked(&mut self, id: &str) -> FormOut {
         match (self.kind, id) {
             (DocFormKind::ManageStyles, "newStyle") => FormOut::Open(DocFormKind::NewStyle),
+            (DocFormKind::ManageStyles, "modify") => {
+                match self.sel("list").and_then(|i| self.ids.get(i)).cloned() {
+                    Some(id) => FormOut::Run(
+                        vec![json!({ "cmd": "ui.action", "id": format!("styles.modify:{id}") })],
+                        true,
+                    ),
+                    None => FormOut::Redraw,
+                }
+            }
             (DocFormKind::ManageStyles, "delete") => {
                 let Some(i) = self.sel("list") else {
                     return FormOut::Redraw;
@@ -802,7 +848,11 @@ impl DocForm {
                 let Some(id) = self.ids.get(i).cloned() else {
                     return FormOut::Redraw;
                 };
-                if built_in(&id) {
+                if self
+                    .managed
+                    .iter()
+                    .any(|m| m.id == id && (m.builtin || m.latent))
+                {
                     return FormOut::Redraw;
                 }
                 self.managed.retain(|m| m.id != id);

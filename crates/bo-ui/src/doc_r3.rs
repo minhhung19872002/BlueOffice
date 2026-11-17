@@ -51,7 +51,7 @@ pub(super) struct R3 {
 }
 
 /// The reference's recommended quick styles (id, name, kind mark ¶ / ¶a / a).
-const LATENT: [(&str, &str, &str); 17] = [
+pub(super) const LATENT: [(&str, &str, &str); 17] = [
     ("Normal", "Normal", "¶"),
     ("NoSpacing", "No Spacing", "¶"),
     ("Heading1", "Heading 1", "¶a"),

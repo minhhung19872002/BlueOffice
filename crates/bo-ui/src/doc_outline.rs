@@ -613,6 +613,17 @@ impl OutlineView {
                 p.text_font(&text, tx, ty, &font, color);
             }
         }
+        // The end-of-document mark under the last item, as the reference's outline shows.
+        if let Some((_, top, rh)) = self.placed().last().copied() {
+            let ey = (y + top + rh - self.scroll + self.px(4.0)).round();
+            p.fill_rect(
+                left + self.px(2.0),
+                ey,
+                self.px(14.0),
+                self.scale.round().max(1.0),
+                INK,
+            );
+        }
         if self.rows.is_empty() {
             let font = Font {
                 family: "Segoe UI",

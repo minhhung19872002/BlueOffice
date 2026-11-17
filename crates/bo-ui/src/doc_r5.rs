@@ -114,6 +114,85 @@ pub(super) fn mailings_dimmed(has_data: bool, has_fields: bool, labels: bool) ->
 /// Height of the split bar at 100 % (the reference's bar is 7 px at 125 %).
 const BAR: f32 = 5.6;
 
+/// The interface name of a style: built-in names are stored in lower case (§17.7.4.9,
+/// "heading 1") and shown capitalised ("Heading 1", "TOC 1").
+pub(super) fn ui_style_name(name: &str) -> String {
+    if name.chars().any(char::is_uppercase) {
+        return name.to_owned();
+    }
+    name.split(' ')
+        .map(|w| {
+            if w == "toc" {
+                "TOC".to_owned()
+            } else {
+                let mut c = w.chars();
+                c.next()
+                    .map(|f| f.to_uppercase().chain(c).collect())
+                    .unwrap_or_default()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// The two description lines of a style (Manage Styles): font, size, emphasis and
+/// alignment; line spacing, spacing, gallery and base.
+fn describe_style(
+    s: &bo_engine::gallery::StyleEntry,
+    spec: &serde_json::Value,
+    quick: bool,
+) -> [String; 2] {
+    let font = spec["font"]
+        .as_str()
+        .map_or_else(|| format!("(Default) {}", s.preview.font), str::to_owned);
+    let mut a = format!("Font: {font}, {} pt", s.preview.size);
+    if s.preview.bold {
+        a.push_str(", Bold");
+    }
+    if s.preview.italic {
+        a.push_str(", Italic");
+    }
+    if let Some(al) = spec["align"].as_str() {
+        a.push_str(&format!(", {}", words(al)));
+    } else if s.kind == "paragraph" {
+        a.push_str(", Left");
+    }
+    let mut b = Vec::new();
+    if s.kind == "paragraph" {
+        let line = match spec["lineSpacing"].as_u64() {
+            None | Some(240) => "single".to_owned(),
+            Some(360) => "1.5 lines".to_owned(),
+            Some(480) => "double".to_owned(),
+            Some(v) => {
+                #[allow(clippy::cast_precision_loss)]
+                let m = v as f32 / 240.0;
+                format!("Multiple {m:.2} li")
+            }
+        };
+        b.push(format!("Line spacing: {line}"));
+        let pt = |k: &str| {
+            spec[k].as_i64().map(|t| {
+                #[allow(clippy::cast_precision_loss)]
+                let v = t as f32 / 20.0;
+                v
+            })
+        };
+        if let Some(v) = pt("spaceBefore") {
+            b.push(format!("Space Before: {v} pt"));
+        }
+        if let Some(v) = pt("spaceAfter") {
+            b.push(format!("After: {v} pt"));
+        }
+    }
+    if quick {
+        b.push("Style: Show in the Styles gallery".into());
+    }
+    if let Some(base) = &s.based_on {
+        b.push(format!("Based on: {}", ui_style_name(base)));
+    }
+    [a, b.join(", ")]
+}
+
 /// A property key in words ("spaceBefore" → "Space before").
 fn words(key: &str) -> String {
     let mut out = String::new();
@@ -164,6 +243,9 @@ impl DocWindow {
         if let Some(n) = id.strip_prefix("view.goPage.") {
             let n = n.parse::<usize>().unwrap_or(1).max(1);
             return Some(self.view.show_page(n - 1));
+        }
+        if let Some(s) = id.strip_prefix("styles.modify:") {
+            return Some(self.open_modify_style(s));
         }
         if let Some(v) = id.strip_prefix("styles.setDefaults:") {
             let (font, size) = v.split_once('\u{1f}').unwrap_or((v, ""));
@@ -432,25 +514,124 @@ impl DocWindow {
 
     /// Manage Styles from the document's styles.
     fn open_manage_styles(&mut self) -> bool {
-        let styles = self
-            .view
-            .all_styles()
-            .into_iter()
-            .filter(|s| s.kind == "paragraph" || s.kind == "character")
-            .map(|s| crate::doc_forms::ManagedStyle {
-                id: s.id,
-                name: s.name,
-                font: s.preview.font.clone(),
-                size: s.preview.size,
-                bold: s.preview.bold,
-                italic: s.preview.italic,
-                recommended: s.recommended,
-                paragraph: s.kind == "paragraph",
-            })
+        let all = self.view.all_styles();
+        let mut styles: Vec<crate::doc_forms::ManagedStyle> = Vec::new();
+        // The reference's recommended latent styles first (Hide Until Used when the document
+        // does not hold them yet), then Heading 4–9, then the document's other styles.
+        let mut latent: Vec<(String, String, &'static str)> = super::r3::LATENT
+            .iter()
+            .map(|(id, name, mark)| ((*id).to_owned(), (*name).to_owned(), *mark))
             .collect();
+        for n in 4..=9 {
+            latent.push((format!("Heading{n}"), format!("Heading {n}"), "\u{b6}a"));
+        }
+        latent.push((
+            "DefaultParagraphFont".into(),
+            "Default Paragraph Font".into(),
+            "a",
+        ));
+        for (i, (id, name, mark)) in latent.iter().enumerate() {
+            let own = all
+                .iter()
+                .find(|s| s.id == *id)
+                .or_else(|| all.iter().find(|s| s.name.eq_ignore_ascii_case(name)));
+            let mut m = match own {
+                Some(s) => self.managed_style(s),
+                None => crate::doc_forms::ManagedStyle {
+                    id: id.clone(),
+                    name: name.clone(),
+                    latent: true,
+                    recommended: true,
+                    paragraph: !mark.starts_with('a'),
+                    desc: [
+                        self.r5_t("docR5.latentDesc", "Style: Hide until used, Priority"),
+                        String::new(),
+                    ],
+                    ..Default::default()
+                },
+            };
+            m.mark = mark;
+            m.builtin = true;
+            m.priority = m.priority.or(Some(u32::try_from(i).unwrap_or(99) + 1));
+            styles.push(m);
+        }
+        for s in &all {
+            if styles.iter().any(|m| m.id == s.id) {
+                continue;
+            }
+            styles.push(self.managed_style(s));
+        }
         self.menu = None;
         self.r3.form = Some(crate::doc_forms::open_manage_styles(&self.strings, styles));
         self.relayout_pending = true;
+        true
+    }
+
+    /// A document style for Manage Styles: interface name, mark, description.
+    fn managed_style(
+        &mut self,
+        s: &bo_engine::gallery::StyleEntry,
+    ) -> crate::doc_forms::ManagedStyle {
+        let spec = self
+            .view
+            .run_json(&json!({ "cmd": "styleDetails", "id": s.id }))
+            .map(|v| v["styleMgr"]["spec"].clone())
+            .unwrap_or_default();
+        crate::doc_forms::ManagedStyle {
+            id: s.id.clone(),
+            name: ui_style_name(&s.name),
+            font: s.preview.font.clone(),
+            size: s.preview.size,
+            recommended: s.recommended,
+            paragraph: s.kind == "paragraph",
+            mark: match s.kind {
+                "character" => "a",
+                "table" => "\u{25a6}",
+                "numbering" => "\u{2261}",
+                _ if s.linked.is_some() => "\u{b6}a",
+                _ => "\u{b6}",
+            },
+            latent: false,
+            builtin: s.is_default
+                || matches!(
+                    s.id.as_str(),
+                    "DefaultParagraphFont" | "TableNormal" | "NoList"
+                )
+                || s.id.starts_with("Heading"),
+            priority: s.ui_priority,
+            desc: describe_style(s, &spec, s.quick),
+        }
+    }
+
+    /// Manage Styles › Modify…: the Create New Style dialog as Modify Style, filled from the
+    /// style.
+    fn open_modify_style(&mut self, id: &str) -> bool {
+        let spec = self
+            .view
+            .run_json(&json!({ "cmd": "styleDetails", "id": id }))
+            .map(|v| v["styleMgr"]["spec"].clone())
+            .unwrap_or_default();
+        if !spec.is_object() {
+            return false;
+        }
+        self.r3_open_form(DocFormKind::NewStyle);
+        let title = self.r5_t("docR5.modifyTitle", "Modify Style");
+        if let Some(f) = self.r3.form.as_mut() {
+            f.modify = Some(id.to_owned());
+            f.set_title(&title);
+            f.set_text("name", spec["name"].as_str().unwrap_or(id));
+            if let Some(font) = spec["font"].as_str() {
+                f.choose_item("font", font);
+            }
+            if let Some(hp) = spec["size"].as_u64() {
+                #[allow(clippy::cast_precision_loss)]
+                let pt = hp as f32 / 2.0;
+                f.choose_item("size", &format!("{pt}"));
+            }
+            f.set_on("bold", spec["bold"].as_bool().unwrap_or(false));
+            f.set_on("italic", spec["italic"].as_bool().unwrap_or(false));
+            f.set_on("underline", spec["underline"].as_bool().unwrap_or(false));
+        }
         true
     }
 

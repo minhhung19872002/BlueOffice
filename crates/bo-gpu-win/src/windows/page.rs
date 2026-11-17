@@ -1594,8 +1594,19 @@ impl Device {
                                 _ => self.context.PopLayer(),
                             }
                         }
-                        Command::PushGroup { knockout, .. } => {
+                        Command::PushGroup {
+                            knockout, isolated, ..
+                        } => {
                             state.apply(command)?;
+                            if *isolated && !*knockout {
+                                // ISO 32000-1 §11.4.5: a layer of its own, so the blended
+                                // objects inside do not read the page below (they compose
+                                // as Normal in it: no backdrop to read in a layer).
+                                self.push_plain_layer();
+                                if let Some(last) = state.stack.last_mut() {
+                                    *last = Saved::Group(true);
+                                }
+                            }
                             if *knockout {
                                 self.push_plain_layer();
                                 if let Some(last) = state.stack.last_mut() {

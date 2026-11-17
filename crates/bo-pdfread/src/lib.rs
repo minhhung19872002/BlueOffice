@@ -34,6 +34,7 @@ mod edit;
 mod encoding;
 #[allow(clippy::unreadable_literal, clippy::large_const_arrays)]
 mod encoding_data;
+mod evenodd;
 mod exchange;
 mod exchange_data;
 mod extract;
@@ -54,6 +55,7 @@ mod media_edit;
 mod mesh;
 mod navdata;
 mod objects;
+mod openaction;
 mod optimize;
 mod optimize10;
 mod pages_edit;
@@ -64,6 +66,7 @@ mod security10;
 mod sfnt;
 mod sigappear;
 mod store;
+mod stroke_outline;
 mod templates;
 mod text;
 mod text_ops;
@@ -102,6 +105,7 @@ pub use markup::{Markup, MarkupKind};
 pub use media_edit::ShapeKind;
 pub use navdata::{Attachment, CommentState, LayerRow};
 pub use objects::{image_size, text_lines, NewImage, ObjectKind, PageObject, TextLine};
+pub use openaction::OpenFit;
 pub use optimize::{JpegEncoder, OptimizeOptions, OptimizeReport};
 pub use optimize10::{
     CleanUp, ColorCompression, Discard, Downsample, EmbeddedFont, MonoCompression, Optimize10,
@@ -1334,6 +1338,8 @@ mod objects_tests;
 mod paragraph_push_tests;
 #[cfg(test)]
 mod paragraph_tests;
+#[cfg(test)]
+mod render13_tests;
 #[cfg(test)]
 mod templates_tests;
 #[cfg(test)]

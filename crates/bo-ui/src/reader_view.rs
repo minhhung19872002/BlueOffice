@@ -1103,6 +1103,18 @@ impl ReaderView {
         self.previews_wanted = wanted.to_vec();
     }
 
+    /// Whether preview image `k` (key [`PREVIEW_KEY`] + 1 + `k`) shows page `i` at `scale`
+    /// (BlueReader round 13: the Loupe and Magnifier draw from it).
+    pub fn preview_ready(&self, k: usize, i: usize, scale: f32) -> bool {
+        self.previews_drawn
+            .get(k)
+            .copied()
+            .flatten()
+            .is_some_and(|(p, s, g)| {
+                p == i && (s - scale).abs() < 1e-4 && self.generation.get(i) == Some(&g)
+            })
+    }
+
     /// Ask for the preview image of page `i` at `scale` (key [`PREVIEW_KEY`]) this frame.
     pub fn want_preview(&mut self, i: usize, scale: f32) {
         self.preview_wanted = Some((i, scale));

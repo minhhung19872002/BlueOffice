@@ -21,6 +21,9 @@ pub(crate) struct CMap {
     pub vertical: bool,
     /// The CMap only maps 2-byte codes to themselves (Identity-H / Identity-V).
     identity: bool,
+    /// Predefined Unicode CMap (`Uni…-UCS2-H`, `Uni…-UTF16-V`, §9.7.5.2 Table 118): the codes
+    /// are UTF-16 code units, so a font that is not embedded can be drawn and read by Unicode.
+    pub unicode: bool,
 }
 
 fn code_of(b: &[u8]) -> u32 {
@@ -45,6 +48,16 @@ impl CMap {
             vertical,
             identity: true,
             ..Self::default()
+        }
+    }
+
+    /// A predefined CMap by name (§9.7.5.2): two-byte codes like Identity, and for the Unicode
+    /// CMaps (`Uni*-UCS2-*`, `Uni*-UTF16-*`) the codes are known to be Unicode.
+    pub(crate) fn predefined(name: &[u8]) -> Self {
+        let n = String::from_utf8_lossy(name);
+        Self {
+            unicode: n.starts_with("Uni") && (n.contains("-UCS2-") || n.contains("-UTF16-")),
+            ..Self::identity(n.ends_with("-V"))
         }
     }
 

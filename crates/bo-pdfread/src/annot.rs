@@ -174,6 +174,11 @@ pub(crate) fn fallback_appearance(
                 };
                 let (x0, y0) = (q[4] + (q[0] - q[4]) * t, q[5] + (q[1] - q[5]) * t);
                 let (x1, y1) = (q[6] + (q[2] - q[6]) * t, q[7] + (q[3] - q[7]) * t);
+                if kind == AnnotKind::Squiggly {
+                    let up = (q[0] - q[4], q[1] - q[5]);
+                    s.push_str(&squiggle((x0, y0), (x1, y1), up, (h / 16.0).max(0.5)));
+                    continue;
+                }
                 s.push_str(&format!(
                     "{} w {x0} {y0} m {x1} {y1} l S\n",
                     (h / 16.0).max(0.5)
@@ -193,6 +198,31 @@ pub(crate) fn fallback_appearance(
         _ => return None,
     }
     Some((s.into_bytes(), 1.0))
+}
+
+/// A squiggly underline (§12.5.6.10 Squiggly) from `a` to `b`: a zigzag of line width `w`
+/// either side of the line, `up` pointing to the top of the text line (its height sets the
+/// wave). Other readers show the appearance stream as it is, so the wave is drawn in it
+/// (before: a straight line, which the reference then showed as an underline).
+fn squiggle(a: (f32, f32), b: (f32, f32), up: (f32, f32), w: f32) -> String {
+    let len = (b.0 - a.0).hypot(b.1 - a.1);
+    let h = up.0.hypot(up.1).max(1e-3);
+    let (ux, uy) = (up.0 / h, up.1 / h);
+    let amp = (h * 0.06).max(w);
+    let step = (h * 0.12).max(1.0);
+    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+    let n = ((len / step).ceil() as usize).clamp(1, 4000);
+    let mut s = format!("{w} w {} {} m ", a.0 - ux * amp, a.1 - uy * amp);
+    for i in 1..=n {
+        #[allow(clippy::cast_precision_loss)]
+        let t = i as f32 / n as f32;
+        let k = if i % 2 == 0 { -amp } else { amp };
+        let x = a.0 + (b.0 - a.0) * t + ux * k;
+        let y = a.1 + (b.1 - a.1) * t + uy * k;
+        s.push_str(&format!("{x} {y} l "));
+    }
+    s.push_str("S\n");
+    s
 }
 
 /// A sticky-note icon of our own drawing in `rect` (user space): a speech box with a tail at
@@ -407,6 +437,11 @@ impl PdfDocument {
                     };
                     let (x0, y0) = (q[4] + (q[0] - q[4]) * t, q[5] + (q[1] - q[5]) * t);
                     let (x1, y1) = (q[6] + (q[2] - q[6]) * t, q[7] + (q[3] - q[7]) * t);
+                    if a.kind == AnnotKind::Squiggly {
+                        let up = (q[0] - q[4], q[1] - q[5]);
+                        s.push_str(&squiggle((x0, y0), (x1, y1), up, (h / 14.0).max(0.6)));
+                        continue;
+                    }
                     s.push_str(&format!(
                         "{} w {x0} {y0} m {x1} {y1} l S\n",
                         (h / 14.0).max(0.6)

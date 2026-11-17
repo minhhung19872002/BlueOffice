@@ -80,6 +80,9 @@ mod fill11;
 // Ribbon metrics, Select / Assistant menus, Comment / Share tab ends (BlueReader round 12).
 #[path = "reader_r12_win.rs"]
 mod r12;
+// Loupe and Magnifier (BlueReader round 13).
+#[path = "reader_r13_win.rs"]
+mod r13;
 pub use r12::{AccessItem, AccessRole};
 
 /// Measured greys of the reference reader at 125 %.
@@ -825,6 +828,7 @@ impl ReaderWindow {
         self.active = self.tabs.len() - 1;
         self.show_start = false;
         self.apply_view_prefs();
+        self.open_action13();
         if let Some(p) = path {
             self.recent.retain(|r| r != &p);
             self.recent.insert(0, p);

@@ -182,6 +182,116 @@ fn substitute_names(name: &str, serif: bool, fixed: bool) -> (Vec<String>, bool,
     (out, bold, italic)
 }
 
+/// Unicode vertical presentation form of CJK punctuation (U+FE10–FE19, U+FE30–FE44).
+pub(crate) fn vertical_form(c: char) -> Option<char> {
+    Some(match c {
+        '\u{FF0C}' => '\u{FE10}',
+        '\u{3001}' => '\u{FE11}',
+        '\u{3002}' => '\u{FE12}',
+        '\u{FF1A}' => '\u{FE13}',
+        '\u{FF1B}' => '\u{FE14}',
+        '\u{FF01}' => '\u{FE15}',
+        '\u{FF1F}' => '\u{FE16}',
+        '\u{3016}' => '\u{FE17}',
+        '\u{3017}' => '\u{FE18}',
+        '\u{2026}' => '\u{FE19}',
+        '\u{2014}' => '\u{FE31}',
+        '\u{2013}' => '\u{FE32}',
+        '\u{FF08}' => '\u{FE35}',
+        '\u{FF09}' => '\u{FE36}',
+        '\u{FF5B}' => '\u{FE37}',
+        '\u{FF5D}' => '\u{FE38}',
+        '\u{3014}' => '\u{FE39}',
+        '\u{3015}' => '\u{FE3A}',
+        '\u{3010}' => '\u{FE3B}',
+        '\u{3011}' => '\u{FE3C}',
+        '\u{300A}' => '\u{FE3D}',
+        '\u{300B}' => '\u{FE3E}',
+        '\u{3008}' => '\u{FE3F}',
+        '\u{3009}' => '\u{FE40}',
+        '\u{300C}' => '\u{FE41}',
+        '\u{300D}' => '\u{FE42}',
+        '\u{300E}' => '\u{FE43}',
+        '\u{300F}' => '\u{FE44}',
+        _ => return None,
+    })
+}
+
+/// Installed faces for a Chinese, Japanese or Korean composite font that is not embedded:
+/// a character the face must have and the families to try, by the CIDFont's `/Ordering`
+/// (Adobe-GB1, -CNS1, -Japan1, -Korea1) or the encoding CMap's name (§9.7.5.2), serif
+/// (Song / Ming / Mincho / Batang) or sans (Hei / Gothic / Gulim) by the font's name.
+pub(crate) fn cjk_substitutes(
+    ordering: &str,
+    encoding: &str,
+    base: &str,
+    serif: bool,
+) -> Option<(char, Vec<&'static str>, bool)> {
+    let flag_serif = serif;
+    let e = encoding.to_ascii_lowercase();
+    let script = match ordering {
+        "GB1" => 0,
+        "CNS1" => 1,
+        "Japan1" => 2,
+        "Korea1" => 3,
+        _ if e.starts_with("unigb") || e.starts_with("gb") => 0,
+        _ if e.starts_with("unicns") || e.starts_with("b5") || e.starts_with("eten") => 1,
+        _ if e.starts_with("unijis")
+            || e.contains("rksj")
+            || e.starts_with("ext-")
+            || e.starts_with("euc-")
+            || e.starts_with("83pv") =>
+        {
+            2
+        }
+        _ if e.starts_with("uniks") || e.starts_with("ksc") => 3,
+        _ => return None,
+    };
+    let b = base.to_ascii_lowercase();
+    let sans = ["hei", "gothic", "gulim", "dotum", "sans"]
+        .iter()
+        .any(|k| b.contains(k));
+    let serif = !sans
+        && (serif
+            || ["song", "ming", "mincho", "batang", "myungjo", "kai", "fang"]
+                .iter()
+                .any(|k| b.contains(k)));
+    let mut list: Vec<&'static str> = match (script, serif) {
+        (0, true) => vec!["SimSun", "NSimSun", "Microsoft YaHei", "DengXian"],
+        // Without SimHei the reference shows the Song face (SimSun), not another sans.
+        (0, false) => vec!["SimHei", "SimSun", "Microsoft YaHei", "DengXian"],
+        (1, true) => vec!["MingLiU", "PMingLiU", "Microsoft JhengHei"],
+        (1, false) => vec!["Microsoft JhengHei", "MingLiU", "PMingLiU"],
+        (2, true) => vec![
+            "MS Mincho",
+            "Yu Mincho",
+            "MS PMincho",
+            "Yu Gothic",
+            "MS Gothic",
+        ],
+        (2, false) => vec!["MS Gothic", "Yu Gothic", "Meiryo", "MS PGothic"],
+        (3, true) => vec!["Batang", "Malgun Gothic", "Gulim"],
+        _ => vec!["Malgun Gothic", "Gulim", "Dotum", "Batang"],
+    };
+    // Han characters of another script's face beat empty boxes.
+    if script != 3 {
+        list.extend([
+            "Microsoft YaHei",
+            "SimSun",
+            "Microsoft JhengHei",
+            "Yu Gothic",
+            "MS Gothic",
+        ]);
+    }
+    let sample = ['\u{4e2d}', '\u{4e2d}', '\u{65e5}', '\u{d55c}'][script];
+    // Measured on the reference: a Traditional Chinese, Japanese or Korean font without the
+    // Serif flag that is not installed (Fangti, Gothic, Dotum) shows in a bold substitute,
+    // a Simplified Chinese one (Heiti) in the regular Song face. The caller applies it only
+    // when the font itself is not installed.
+    let heavy = script != 0 && !flag_serif;
+    Some((sample, list, heavy))
+}
+
 impl Font {
     /// Load the font dictionary `dict` (`id` when it is an indirect object).
     #[allow(clippy::too_many_lines)]
@@ -232,7 +342,7 @@ impl Font {
         // Composite fonts: encoding CMap and the descendant CIDFont.
         let (desc_font, base_font) = if composite {
             font.cmap = match dict_get(doc, dict, b"Encoding") {
-                Some(Object::Name(n)) => CMap::identity(n.ends_with(b"-V")),
+                Some(Object::Name(n)) => CMap::predefined(n),
                 Some(Object::Stream(s)) => filters::stream_bytes(doc, s)
                     .map_or_else(|_| CMap::identity(false), |b| CMap::parse(&b)),
                 _ => CMap::identity(false),
@@ -419,7 +529,74 @@ impl Font {
             let (families, bold, italic) = substitute_names(base_name(&base), serif, fixed);
             let bold = bold || flags & (1 << 18) != 0;
             let italic = italic || flags & (1 << 6) != 0;
+            // Chinese, Japanese and Korean fonts that are not embedded: an installed face of
+            // that script which has its characters (the bundled faces have none).
+            if composite {
+                let ordering = cid_dict
+                    .and_then(|cd| dict_get(doc, cd, b"CIDSystemInfo"))
+                    .and_then(|o| o.as_dict().ok())
+                    .and_then(|d| dict_get(doc, d, b"Ordering"))
+                    .and_then(|o| o.as_str().ok())
+                    .map(|b| String::from_utf8_lossy(b).into_owned())
+                    .unwrap_or_default();
+                let encoding = dict_get(doc, dict, b"Encoding")
+                    .and_then(|o| o.as_name().ok())
+                    .map(|b| String::from_utf8_lossy(b).into_owned())
+                    .unwrap_or_default();
+                if let Some((sample, list, heavy)) =
+                    cjk_substitutes(&ordering, &encoding, &base, serif)
+                {
+                    // Weight from the descriptor (§9.8.1 `/FontWeight`, `/StemV`): CJK names
+                    // rarely say "Bold".
+                    let value = |k: &[u8]| {
+                        descriptor
+                            .and_then(|d| dict_get(doc, d, k))
+                            .and_then(num)
+                            .unwrap_or(0.0)
+                    };
+                    let squash = |s: &str| {
+                        s.chars()
+                            .filter(char::is_ascii_alphanumeric)
+                            .collect::<String>()
+                            .to_ascii_lowercase()
+                    };
+                    // The PostScript name as installed family names ("MS-Gothic" → "MS
+                    // Gothic", "MalgunGothic" → "Malgun Gothic").
+                    let name = base_name(&base).split(',').next().unwrap_or("");
+                    let wanted = squash(name);
+                    let mut spaced = String::new();
+                    let mut prev_lower = false;
+                    for c in name.chars() {
+                        if c == '-' || c == '_' {
+                            spaced.push(' ');
+                        } else {
+                            if c.is_ascii_uppercase() && prev_lower {
+                                spaced.push(' ');
+                            }
+                            spaced.push(c);
+                        }
+                        prev_lower = c.is_ascii_lowercase();
+                    }
+                    let installed = [name, spaced.as_str()].iter().any(|n| {
+                        fonts
+                            .display_family(n)
+                            .is_some_and(|f| squash(&f) == wanted)
+                    });
+                    let bold = bold
+                        || (heavy && !installed)
+                        || value(b"FontWeight") >= 600.0
+                        || value(b"StemV") >= 140.0;
+                    font.face = list.iter().find_map(|fam| {
+                        fonts
+                            .resolve(fam, bold, italic)
+                            .filter(|&id| fonts.has_glyph(id, sample))
+                    });
+                }
+            }
             for fam in &families {
+                if font.face.is_some() {
+                    break;
+                }
                 if let Some(id) = fonts.resolve(fam, bold, italic) {
                     font.face = Some(id);
                     break;
@@ -587,7 +764,18 @@ impl Font {
             if self.vertical {
                 return -self.dw2[1];
             }
-            let cid = self.cmap.cid(code);
+            let cid = if self.cmap.unicode {
+                // The CIDs of a Unicode CMap are not known without Adobe's tables; printable
+                // ASCII is CID 1–95 in all four Adobe CJK orderings (Adobe-GB1, -CNS1,
+                // -Japan1, -Korea1), anything else takes the default width.
+                if (0x20..=0x7e).contains(&code) {
+                    code - 31
+                } else {
+                    u32::MAX
+                }
+            } else {
+                self.cmap.cid(code)
+            };
             return self
                 .cid_widths
                 .get(&cid)
@@ -615,6 +803,10 @@ impl Font {
     pub(crate) fn text(&self, code: u32) -> String {
         if let Some(t) = self.to_unicode.as_ref().and_then(|m| m.text(code)) {
             return t;
+        }
+        if self.composite && self.cmap.unicode {
+            // Predefined Unicode CMaps: the code is the character (§9.7.5.2).
+            return char::from_u32(code).map(String::from).unwrap_or_default();
         }
         if !self.composite {
             if let Some(Some(n)) = self.names.get(code as usize) {
@@ -782,6 +974,14 @@ impl Font {
         }
         let text = self.text(code);
         let c = text.chars().next()?;
+        // Vertical writing with a substitute face: punctuation in its vertical presentation
+        // form when the face has one (what a font's `vert` feature gives; the reference
+        // turns "：" and puts "。" in the upper right of its cell).
+        if self.vertical {
+            if let Some(g) = vertical_form(c).and_then(|v| face.glyph_index(v)) {
+                return Some(g.0);
+            }
+        }
         face.glyph_index(c).map(|g| g.0)
     }
 

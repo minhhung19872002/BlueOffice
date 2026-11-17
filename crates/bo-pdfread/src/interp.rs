@@ -287,6 +287,8 @@ pub(crate) struct Interp<'s, 'a> {
     cur: (f32, f32),
     start: (f32, f32),
     clip: Option<bool>,
+    /// Knockout transparency groups being run (§11.4.6.2).
+    knockout_depth: u32,
     /// Glyph outlines of text shown with a clipping render mode (4–7) since BT (§9.3.6).
     text_clip: Option<Vec<PathSeg>>,
     tm: M,
@@ -333,6 +335,7 @@ impl<'s, 'a> Interp<'s, 'a> {
             cur: (0.0, 0.0),
             start: (0.0, 0.0),
             clip: None,
+            knockout_depth: 0,
             text_clip: None,
             tm: IDENTITY,
             tlm: IDENTITY,
@@ -621,6 +624,45 @@ impl<'s, 'a> Interp<'s, 'a> {
 
     /// Paint the current path, then apply a pending clip and start a new path.
     fn paint(&mut self, fill: bool, stroke: bool) {
+        // A stroke painted with a pattern (§8.7.3): its outline filled with the pattern
+        // (before: a grey line).
+        if stroke
+            && self.gs.stroke_pattern.is_some()
+            && !self.hidden()
+            && !self.path.is_empty()
+            && !self.gs.stroke_cs.paints_nothing()
+        {
+            let s = scale_of(self.gs.ctm);
+            let width = (self.gs.lw * s).max(self.sh.opts.min_line);
+            let dash: Vec<f32> = if self.gs.dash.iter().all(|d| *d <= 0.0) {
+                Vec::new()
+            } else {
+                self.gs.dash.iter().map(|d| (d * s).max(0.01)).collect()
+            };
+            let outline =
+                crate::stroke_outline::outline(&self.path, width, self.gs.cap, self.gs.join, &dash);
+            let clip = self.clip.take();
+            let segs = self.path.clone();
+            if fill {
+                self.paint(true, false);
+            }
+            let swap = |gs: &mut Gs| {
+                std::mem::swap(&mut gs.fill_cs, &mut gs.stroke_cs);
+                std::mem::swap(&mut gs.fill, &mut gs.stroke);
+                std::mem::swap(&mut gs.fill_pattern, &mut gs.stroke_pattern);
+                std::mem::swap(&mut gs.fill_alpha, &mut gs.stroke_alpha);
+            };
+            swap(&mut self.gs);
+            self.path = outline;
+            self.paint(true, false);
+            swap(&mut self.gs);
+            if clip.is_some() {
+                self.clip = clip;
+                self.path = segs;
+                self.paint(false, false);
+            }
+            return;
+        }
         let segs = std::mem::take(&mut self.path);
         if !self.hidden() && !segs.is_empty() && (fill || stroke) {
             let tiling = fill
@@ -675,9 +717,14 @@ impl<'s, 'a> Interp<'s, 'a> {
                 }
             }
         }
-        if self.clip.take().is_some() {
+        if let Some(even_odd) = self.clip.take() {
             self.clip_mark = Some(self.out.commands.len());
-            self.push_clip(&segs);
+            if even_odd {
+                // `W*` (§8.5.4): the even-odd clip as a nonzero one (`evenodd`).
+                self.push_clip(&crate::evenodd::nonzero_equivalent(&segs));
+            } else {
+                self.push_clip(&segs);
+            }
         }
     }
 
@@ -739,11 +786,18 @@ impl<'s, 'a> Interp<'s, 'a> {
         if simulate {
             self.gs.blend = Some(BlendMode::Multiply);
         }
-        if !painting || (self.gs.blend.is_none() && self.gs.smask.is_none()) {
+        // Inside a knockout group each object composites with the group's initial backdrop,
+        // not with the objects before it: for a blend mode over the (mostly white or
+        // transparent) start this is close to Normal, and the knockout layer (primitive blend
+        // copy) cannot read a backdrop for a blended object, so blending is left out there
+        // (measured against the reference: `/K true` groups with `/BM /Multiply` inside).
+        let blend_here = self.gs.blend.is_some() && self.knockout_depth == 0;
+        if !painting || (!blend_here && self.gs.smask.is_none()) {
             self.op_inner(op);
             return;
         }
         let blend = self.gs.blend.take();
+        let group_blend = blend.filter(|_| self.knockout_depth == 0);
         let mask = self.gs.smask.take();
         let start = self.out.commands.len();
         self.clip_mark = None;
@@ -754,9 +808,10 @@ impl<'s, 'a> Interp<'s, 'a> {
             self.out.commands.insert(
                 start,
                 Command::PushGroup {
-                    blend,
+                    blend: group_blend,
                     mask: mask.as_ref().map(|m| Box::new(SoftMask::clone(m))),
                     knockout: false,
+                    isolated: false,
                 },
             );
         }
@@ -818,11 +873,23 @@ impl<'s, 'a> Interp<'s, 'a> {
                 self.close();
                 self.paint(false, true);
             }
-            b"f" | b"F" | b"f*" => self.paint(true, false),
-            b"B" | b"B*" => self.paint(true, true),
-            b"b" | b"b*" => {
+            b"f" | b"F" => self.paint(true, false),
+            b"B" => self.paint(true, true),
+            b"b" => {
                 self.close();
                 self.paint(true, true);
+            }
+            // Even-odd fills (§8.5.3.3.3): re-oriented for the nonzero rule (`evenodd`).
+            b"f*" | b"B*" | b"b*" => {
+                if op.name == b"b*" {
+                    self.close();
+                }
+                let stroke = op.name != b"f*";
+                // A dashed outline keeps its direction (the dash phase starts at the start).
+                if !stroke || self.gs.dash.is_empty() {
+                    self.path = crate::evenodd::nonzero_equivalent(&self.path);
+                }
+                self.paint(true, stroke);
             }
             b"n" => self.paint(false, false),
             b"W" | b"W*" => self.clip = Some(op.name == b"W*"),
@@ -1204,12 +1271,16 @@ impl<'s, 'a> Interp<'s, 'a> {
         if let Some(t) = self.text_color {
             color = Rgba(t.0, t.1, t.2, color.3);
         }
+        // Text filled with a pattern (§8.7.3: shading or tiling pattern as the fill colour):
+        // its outlines filled like a path (before: the glyphs in black).
+        let pattern_fill = fill && self.gs.fill_pattern.is_some() && self.text_color.is_none();
         // Outlines for stroked and clipping text too (glyph runs only fill).
         let paths = self.sh.opts.text_as_paths
             || font.face.is_none()
             || font.is_type1_program()
             || stroke
-            || clip_mode;
+            || clip_mode
+            || pattern_fill;
         let mut run: Vec<Glyph> = Vec::new();
         let mut run_text = String::new();
         let mut run_origin = (0.0, 0.0);
@@ -1347,7 +1418,13 @@ impl<'s, 'a> Interp<'s, 'a> {
                 .get_or_insert_with(Vec::new)
                 .extend_from_slice(&glyph_path);
         }
-        if !glyph_path.is_empty() && visible {
+        if !glyph_path.is_empty() && visible && pattern_fill {
+            let saved = std::mem::replace(&mut self.path, glyph_path);
+            let clip = self.clip.take();
+            self.paint(true, stroke);
+            self.clip = clip;
+            self.path = saved;
+        } else if !glyph_path.is_empty() && visible {
             let fill_paint = fill.then_some(Paint::Solid { color });
             let mut stroke_style = if stroke { self.stroke_style() } else { None };
             if let (Some(t), Some(st)) = (self.text_color, stroke_style.as_mut()) {
@@ -1535,33 +1612,90 @@ impl<'s, 'a> Interp<'s, 'a> {
                     .ok()
                     .map(|o| doc.dereference(o).map_or(o, |(_, o)| o))
                     .and_then(|o| o.as_dict().ok());
-                // §11.4.6.2 / §11.6.6: a transparency group with `/K true` is a knockout group.
-                let knockout = s
+                let group = s
                     .dict
                     .get(b"Group")
                     .ok()
                     .map(|o| doc.dereference(o).map_or(o, |(_, o)| o))
                     .and_then(|o| o.as_dict().ok())
+                    .filter(|g| {
+                        g.get(b"S")
+                            .ok()
+                            .and_then(|v| v.as_name().ok())
+                            .is_none_or(|n| n == b"Transparency")
+                    });
+                // §11.4.6.2 / §11.6.6: a transparency group with `/K true` is a knockout group.
+                let knockout = group
                     .and_then(|g| g.get(b"K").ok())
                     .and_then(|k| k.as_bool().ok())
                     .unwrap_or(false);
+                // §11.6.4.4 / §11.6.6: the alpha constant at `Do` applies to the group as a
+                // whole and its content starts at alpha 1 (an `/ca` inside replaced it before,
+                // so a group drawn at 0.8 with objects at 0.6 inside showed at 0.6).
+                let group_alpha = if group.is_some() {
+                    self.gs.fill_alpha
+                } else {
+                    1.0
+                };
+                let outer_alpha = (self.gs.fill_alpha, self.gs.stroke_alpha);
+                if group.is_some() {
+                    self.gs.fill_alpha = 1.0;
+                    self.gs.stroke_alpha = 1.0;
+                }
+                if group_alpha < 0.999 {
+                    self.out
+                        .commands
+                        .push(Command::PushOpacity { alpha: group_alpha });
+                }
                 if knockout {
                     self.out.commands.push(Command::PushGroup {
                         blend: None,
                         mask: None,
                         knockout: true,
+                        isolated: false,
                     });
                 }
+                // §11.4.5 `/I true`: blended objects inside compose on a transparent start
+                // (only marked when something inside blends: a plain isolated group draws the
+                // same either way and a layer costs time).
+                let isolated = !knockout
+                    && group
+                        .and_then(|g| g.get(b"I").ok())
+                        .and_then(|v| v.as_bool().ok())
+                        .unwrap_or(false);
+                let inner_start = self.out.commands.len();
                 if let Some(i) = id {
                     self.forms.push(i);
                 }
+                self.knockout_depth += u32::from(knockout);
                 self.run_form(&content, matrix, bbox.as_deref(), res);
+                self.knockout_depth -= u32::from(knockout);
                 if id.is_some() {
                     self.forms.pop();
                 }
                 if knockout {
                     self.out.commands.push(Command::PopGroup);
                 }
+                if isolated
+                    && self.out.commands[inner_start..]
+                        .iter()
+                        .any(|c| matches!(c, Command::PushGroup { blend: Some(_), .. }))
+                {
+                    self.out.commands.insert(
+                        inner_start,
+                        Command::PushGroup {
+                            blend: None,
+                            mask: None,
+                            knockout: false,
+                            isolated: true,
+                        },
+                    );
+                    self.out.commands.push(Command::PopGroup);
+                }
+                if group_alpha < 0.999 {
+                    self.out.commands.push(Command::PopOpacity);
+                }
+                (self.gs.fill_alpha, self.gs.stroke_alpha) = outer_alpha;
             }
             _ => {}
         }
@@ -1696,6 +1830,71 @@ impl<'s, 'a> Interp<'s, 'a> {
         ]
     }
 
+    /// Area an axial shading paints when one of its ends is not extended (§8.7.4.5.3
+    /// `/Extend`, default `[false false]`): the band between the lines through the axis ends
+    /// perpendicular to it (in shading space), open on an extended side. `None` when both
+    /// ends extend (the whole page) or the shading is not axial.
+    fn axial_band(&self, o: &Object, m: M) -> Option<Vec<PathSeg>> {
+        let doc = self.doc();
+        let dict = match doc.dereference(o).ok()?.1 {
+            Object::Dictionary(d) => d,
+            Object::Stream(s) => &s.dict,
+            _ => return None,
+        };
+        if dict.get(b"ShadingType").ok()?.as_i64().ok()? != 2 {
+            return None;
+        }
+        let c = shading_coords(doc, dict);
+        let [x0, y0, x1, y1] = <[f32; 4]>::try_from(c.get(..4)?).ok()?;
+        let ext: Vec<bool> = dict
+            .get(b"Extend")
+            .ok()
+            .map(|o| doc.dereference(o).map_or(o, |(_, o)| o))
+            .and_then(|o| o.as_array().ok())
+            .map(|a| a.iter().map(|b| b.as_bool().unwrap_or(false)).collect())
+            .unwrap_or_default();
+        let (e0, e1) = (
+            ext.first().copied().unwrap_or(false),
+            ext.get(1).copied().unwrap_or(false),
+        );
+        if e0 && e1 {
+            return None;
+        }
+        let (dx, dy) = (x1 - x0, y1 - y0);
+        let len = dx.hypot(dy);
+        if len < 1e-6 {
+            return Some(Vec::new());
+        }
+        // How far the band must reach: the page corners in shading space.
+        let inv = invert(m)?;
+        let reach = self
+            .page_rect()
+            .iter()
+            .filter_map(|s| match s {
+                PathSeg::M(x, y) | PathSeg::L(x, y) => Some(apply(inv, *x, *y)),
+                _ => None,
+            })
+            .map(|(x, y)| (x - x0).hypot(y - y0).max((x - x1).hypot(y - y1)))
+            .fold(0.0_f32, f32::max)
+            + 1.0;
+        let (ux, uy) = (dx / len, dy / len);
+        let (nx, ny) = (-uy * reach, ux * reach);
+        let from = if e0 { -reach } else { 0.0 };
+        let to = if e1 { len + reach } else { len };
+        let at = |s: f32, k: f32| apply(m, x0 + ux * s + nx * k, y0 + uy * s + ny * k);
+        let corners = [at(from, -1.0), at(to, -1.0), at(to, 1.0), at(from, 1.0)];
+        if !corners.iter().all(|p| p.0.is_finite() && p.1.is_finite()) {
+            return None;
+        }
+        Some(vec![
+            PathSeg::M(corners[0].0, corners[0].1),
+            PathSeg::L(corners[1].0, corners[1].1),
+            PathSeg::L(corners[2].0, corners[2].1),
+            PathSeg::L(corners[3].0, corners[3].1),
+            PathSeg::Z,
+        ])
+    }
+
     fn shade(&mut self, name: &[u8]) {
         if self.hidden() {
             return;
@@ -1704,7 +1903,9 @@ impl<'s, 'a> Interp<'s, 'a> {
             return;
         };
         if let Some(p) = self.shading_paint(&o, self.gs.ctm) {
-            let segs = self.page_rect();
+            let segs = self
+                .axial_band(&o, self.gs.ctm)
+                .unwrap_or_else(|| self.page_rect());
             self.out.commands.push(Command::Path {
                 segs,
                 fill: Some(p),
@@ -2057,6 +2258,29 @@ impl<'s, 'a> Interp<'s, 'a> {
         self.push_clip(segs);
         let ctm = self.gs.ctm;
         let saved_ctm_base = self.gs.ctm;
+        // The cell paints in colours, not with this pattern again (§8.7.3.3): an uncoloured
+        // pattern (`/PaintType 2`) in the colour given with `scn` in the underlying space,
+        // a coloured one from black. Before, the cell's own `f` filled with the pattern
+        // again, recursing until the depth limit and leaving the rest of the page undrawn.
+        let saved_colours = (
+            Arc::clone(&self.gs.fill_cs),
+            self.gs.fill.clone(),
+            self.gs.fill_pattern.take(),
+            Arc::clone(&self.gs.stroke_cs),
+            self.gs.stroke.clone(),
+            self.gs.stroke_pattern.take(),
+        );
+        let uncoloured = num(b"PaintType") as i64 == 2;
+        let (cs, vals) = match &*saved_colours.0 {
+            ColorSpace::Pattern(Some(base)) if uncoloured => {
+                (Arc::clone(base), saved_colours.1.clone())
+            }
+            _ => (Arc::new(ColorSpace::Gray), vec![0.0]),
+        };
+        self.gs.fill_cs = Arc::clone(&cs);
+        self.gs.fill.clone_from(&vals);
+        self.gs.stroke_cs = cs;
+        self.gs.stroke = vals;
         for j in j0..j1 {
             for i in i0..i1 {
                 let cell = mul([1.0, 0.0, 0.0, 1.0, i as f32 * xs, j as f32 * ys], m);
@@ -2067,6 +2291,14 @@ impl<'s, 'a> Interp<'s, 'a> {
             }
         }
         self.gs.ctm = saved_ctm_base;
+        (
+            self.gs.fill_cs,
+            self.gs.fill,
+            self.gs.fill_pattern,
+            self.gs.stroke_cs,
+            self.gs.stroke,
+            self.gs.stroke_pattern,
+        ) = saved_colours;
         self.out.commands.push(Command::PopClip);
         self.gs.clips = self.gs.clips.saturating_sub(1);
     }

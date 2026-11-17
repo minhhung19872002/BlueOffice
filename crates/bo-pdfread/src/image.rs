@@ -366,7 +366,16 @@ fn jpeg(bytes: &[u8]) -> Option<(Vec<[u8; 3]>, usize, usize)> {
     probe.decode_headers().ok()?;
     let input = probe.get_input_colorspace()?;
     let cmyk = matches!(input, Zcs::CMYK | Zcs::YCCK);
-    let out = if cmyk { Zcs::CMYK } else { Zcs::RGB };
+    // Greyscale JPEGs are decoded as one channel and widened here (the decoder does not
+    // expand Luma to RGB: asking for RGB gave one byte per pixel read as three).
+    let gray = matches!(input, Zcs::Luma);
+    let out = if cmyk {
+        Zcs::CMYK
+    } else if gray {
+        Zcs::Luma
+    } else {
+        Zcs::RGB
+    };
     let opts = DecoderOptions::default()
         .jpeg_set_out_colorspace(out)
         .set_max_width(1 << 16)
@@ -393,6 +402,8 @@ fn jpeg(bytes: &[u8]) -> Option<(Vec<[u8; 3]>, usize, usize)> {
                 to8(crate::color::cmyk_to_rgb(v(0), v(1), v(2), v(3)))
             })
             .collect()
+    } else if gray && data.len() == w * h {
+        data.iter().map(|&v| [v, v, v]).collect()
     } else {
         data.chunks_exact(3).map(|c| [c[0], c[1], c[2]]).collect()
     };

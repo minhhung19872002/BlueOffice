@@ -869,6 +869,7 @@ impl EditorWindow {
 
     /// Handle an input event; true when the window needs a new frame.
     pub fn handle(&mut self, input: Input, m: &dyn TextMeasure) -> bool {
+        self.edit.object_lines = self.tool == Some(EditTool::Object);
         if let Input::Move { x, y } | Input::Drag { x, y } = input {
             self.pointer = (x, y);
         }
@@ -1959,6 +1960,7 @@ impl EditorWindow {
 
     /// Paint the window.
     pub fn paint(&mut self, p: &mut dyn Painter) {
+        self.edit.object_lines = self.tool == Some(EditTool::Object);
         self.r.paint(p);
         self.paint_portfolio(p);
         if self.organize_on() {

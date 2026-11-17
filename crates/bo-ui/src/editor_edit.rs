@@ -177,6 +177,10 @@ pub(crate) enum Drag {
 pub(crate) struct Editing {
     /// Items of `page`, valid for `edits` (the document's edit count).
     cache: Option<(usize, u32, Vec<Item>)>,
+    /// Edit Object picks text by line, as the reference (round 9); Edit Text by paragraph.
+    pub object_lines: bool,
+    /// The mode the cache was built for.
+    cache_lines: bool,
     pub page: Option<usize>,
     pub selected: Vec<usize>,
     pub hover: Option<usize>,
@@ -196,16 +200,34 @@ fn inside(r: [f32; 4], x: f32, y: f32) -> bool {
     x >= r[0] && x <= r[2] && y >= r[1] && y <= r[3]
 }
 
-fn items(objs: &[PageObject]) -> Vec<Item> {
-    let mut out: Vec<Item> = text_blocks(objs)
-        .into_iter()
-        .map(|b| Item {
-            ids: b.ids.clone(),
-            bbox: b.bbox,
-            kind: ObjectKind::Text,
-            block: Some(b),
-        })
-        .collect();
+fn items(objs: &[PageObject], lines: bool) -> Vec<Item> {
+    let blocks = text_blocks(objs);
+    let mut out: Vec<Item> = if lines {
+        // Each text line is an object of its own; it keeps its paragraph for a double click
+        // (editing the text).
+        bo_pdfread::text_lines(objs)
+            .into_iter()
+            .map(|l| Item {
+                block: blocks
+                    .iter()
+                    .find(|b| l.ids.iter().all(|i| b.ids.contains(i)))
+                    .cloned(),
+                ids: l.ids,
+                bbox: l.bbox,
+                kind: ObjectKind::Text,
+            })
+            .collect()
+    } else {
+        blocks
+            .into_iter()
+            .map(|b| Item {
+                ids: b.ids.clone(),
+                bbox: b.bbox,
+                kind: ObjectKind::Text,
+                block: Some(b),
+            })
+            .collect()
+    };
     for (i, o) in objs.iter().enumerate() {
         if o.kind != ObjectKind::Text {
             out.push(Item {
@@ -244,14 +266,16 @@ impl Editing {
     /// paragraph draws from its session).
     pub fn items(&mut self, v: &mut ReaderView, i: usize) -> &[Item] {
         let edits = v.doc().edit_count();
-        let fresh = matches!(&self.cache, Some((p, e, _)) if *p == i && *e == edits);
+        let fresh = matches!(&self.cache, Some((p, e, _)) if *p == i && *e == edits)
+            && self.cache_lines == self.object_lines;
         if !fresh {
             let list = v
                 .doc_mut()
                 .page_objects(i)
-                .map(|o| items(&o))
+                .map(|o| items(&o, self.object_lines))
                 .unwrap_or_default();
             self.cache = Some((i, edits, list));
+            self.cache_lines = self.object_lines;
         }
         self.cache.as_ref().map_or(&[], |c| c.2.as_slice())
     }

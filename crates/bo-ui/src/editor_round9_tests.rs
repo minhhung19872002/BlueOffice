@@ -693,3 +693,36 @@ fn dialogs_open_with_the_first_box_selected() {
     w.handle(Input::Text("2".into()), &Fixed);
     assert_eq!(w.form8.last().expect("dialog").0.text("pages"), "2");
 }
+
+#[test]
+fn edit_object_picks_one_line_of_a_paragraph_and_edit_text_the_paragraph() {
+    let mut w =
+        crate::editor_round7_tests::window_with(crate::editor_round7_tests::paragraphs_pdf());
+    w.run("ed.editObject", &Fixed);
+    paint(&mut w);
+    // A click on the first line (page points, top-down: baseline 700 → y 92).
+    let q = w
+        .view()
+        .and_then(|v| v.doc_rect_to_window(0, [100.0, 85.0, 101.0, 86.0]))
+        .expect("page");
+    let (x, y) = (q[0], q[1]);
+    w.handle(
+        Input::Press {
+            x,
+            y,
+            count: 1,
+            shift: false,
+        },
+        &Fixed,
+    );
+    w.handle(Input::Release { x, y }, &Fixed);
+    let it = &w.edit.cached_items()[w.edit.selected[0]];
+    assert!(it.bbox[3] - it.bbox[1] < 16.0, "one line: {:?}", it.bbox);
+    assert!(it.block.is_some(), "keeps its paragraph for a double click");
+    // Edit Text works on the paragraph.
+    w.run("ed.editText", &Fixed);
+    paint(&mut w);
+    let v = w.r.view_mut().expect("view");
+    let blocks = w.edit.items(v, 0);
+    assert!(blocks.iter().any(|b| b.bbox[3] - b.bbox[1] > 30.0));
+}

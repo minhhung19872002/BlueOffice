@@ -477,3 +477,17 @@ Optimization: Predefined Settings, Current PDF version, Make compatible with, c�
 Images, Unembed Fonts xám, Transparency xám, Discard Objects, Discard User Data, Clean Up), khung Compress Images
 (giảm mẫu tới 150 ppi cho ảnh trên 225 ppi, JPEG, chất lượng Minimum…Maximum; Monochrome / JBIG2 xám; chỉ nén khi
 nhỏ đi). Save As của bản đối chiếu là trang File (thư mục gần đây) rồi hộp chọn tệp của Windows — giữ hộp hiện có.
+
+**Sau góp ý của chủ dự án** (cùng vòng 9). Combine Files ban đầu chưa chọn hàng (Remove / Move xám) như bản đối
+chiếu. Add Folder chọn thư mục (hộp chọn thư mục của Windows, `win32::folder_dialog`) và thêm mọi PDF cùng tệp văn bản
+/ bảng tính / trình chiếu trong đó (đổi sang PDF bằng engine BlueOffice). Settings ▾ có ba tuỳ chọn của bản đối chiếu:
+trang mục lục mới (mỗi tệp một dòng với trang bắt đầu), giữ số trang logic (`/PageLabels` của từng tệp), đóng các tệp
+đang mở đã lưu sau khi kết hợp. Add WebPage / Add PDF from Scanner vẫn xám (không tải web, không có thiết bị quét).
+Convert: To XML Spreadsheet 2003 (bảng tính XML 2003 tự ghi, cùng ô như To Excel, BlueSheet đọc lại được), To XPS
+(gói OpenXPS ECMA-388, mỗi trang một ảnh 150 dpi), To XML 1.0 (các dòng chữ với hộp, cỡ, màu), Convert to PDF Settings
+(“Converting To PDF” 857 × 678 px: danh sách loại tệp — Văn bản / Bảng tính / Trình chiếu —, thiết lập, Add
+bookmarks, Tagged PDF; áp dụng khi From File đổi tệp văn phòng sang PDF qua `export_pdf_with`). Còn xám vì không làm
+được: To Word 97-2003 (BlueOffice không ghi .doc), JPEG2000 (không có bộ mã hoá), nút Edit… của thiết lập.
+Ô nhập đầu tiên của các hộp được chọn sẵn cả chữ khi mở (và khi Tab tới) như bản đối chiếu, gõ là thay. Menu thả của
+vòng 9: hàng 29 px, chữ nhỏ hơn từ x 35, viền 1 px `#E0E0E0`, bóng mờ đều bốn phía (`Menu::with_soft_shadow`) thay cho
+dải bóng xám phải / dưới.

@@ -130,6 +130,34 @@ fn status_bar_language_and_accessibility() {
 }
 
 #[test]
+fn thesaurus_long_list_scrolls() {
+    let mut w = window();
+    w.side.thes.word = "run".into();
+    assert!(w.open_side(selpane::SideKind::Thesaurus));
+    w.handle(Input::Tick, &Fixed);
+    // "run" has more rows than the list holds: its scroll bar's lower arrow is a hit.
+    assert!(w
+        .side
+        .hits
+        .iter()
+        .any(|(_, h)| *h == selpane::SideHit::ThesScroll(1)));
+    assert!(w.thesaurus_hit(&selpane::SideHit::ThesScroll(1), 1));
+    w.handle(Input::Tick, &Fixed);
+    assert_eq!(w.side.thes.scroll, 1);
+    // The wheel over the pane scrolls three rows.
+    let r = w.side.rect();
+    w.handle(
+        Input::Move {
+            x: r[0] + 40.0,
+            y: r[1] + 200.0,
+        },
+        &Fixed,
+    );
+    w.handle(Input::Wheel(1.0), &Fixed);
+    assert_eq!(w.side.thes.scroll, 4);
+}
+
+#[test]
 fn language_dialog_marks_the_slide() {
     let mut w = window();
     w.handle(Input::Tick, &Fixed);

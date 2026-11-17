@@ -752,8 +752,14 @@ impl SlideWindow {
             n,
             self.t(CATS[cat].0, CATS[cat].1)
         );
+        // Wrapped before the ‹ › buttons, as the reference's "1 of 2 - Document /
+        // Structure" (24 px lines).
         let (lx, ly) = at(56.0, 89.0);
-        p.text(&label, lx, ly, nav, INK);
+        let lines = wrap(&label, self.a9(250.0), &|s| self.a11y9.width(s, nav.size));
+        let ly = if lines.len() > 1 { ly - 12.0 * k } else { ly };
+        for (n, l) in lines.iter().enumerate() {
+            p.text(l, lx, ly + n as f32 * 24.0 * k, nav, INK);
+        }
         for (x, left) in [(322.0, true), (362.0, false)] {
             let (px, py) = at(x, 102.0);
             let s = 6.0 * k;
@@ -800,7 +806,8 @@ impl SlideWindow {
             p.text(
                 &self.t("sheetAcc.resolve", "To resolve try"),
                 x0 + 20.0 * k,
-                y0 + 162.0 * k,
+                // Under the reason, never over it.
+                y0 + (y + 10.0).clamp(162.0, 172.0) * k,
                 ds,
                 DESC,
             );

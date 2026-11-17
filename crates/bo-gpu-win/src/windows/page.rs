@@ -1226,7 +1226,27 @@ impl Device {
                         self.blur_image(segs, *c, (*radius, *spread), &state)?,
                     );
                 }
-                Command::Image { image, .. } if !prep.bitmaps.contains_key(image.as_str()) => {
+                Command::Image {
+                    image,
+                    y,
+                    h,
+                    rotation,
+                    ..
+                } if !prep.bitmaps.contains_key(image.as_str()) => {
+                    // A band redraw does not decode pictures wholly above or below the band
+                    // (typing in a slide title under a photo decoded it on every keystroke).
+                    if let (Some(band), true, true) =
+                        (prep.band, axis_aligned(&state.transform), *rotation == 0.0)
+                    {
+                        let k = state.transform.M22;
+                        let (a, b) = (
+                            y * k + state.transform.M32,
+                            (y + h) * k + state.transform.M32,
+                        );
+                        if a.max(b) + 2.0 < band.0 || a.min(b) - 2.0 > band.1 {
+                            continue;
+                        }
+                    }
                     let decoded = images(image);
                     let bitmap = match decoded {
                         Some(b) => {

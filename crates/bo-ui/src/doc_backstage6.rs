@@ -30,6 +30,7 @@ pub(crate) enum BsPage {
     Info,
     SaveAs,
     Print,
+    Share,
     Export,
 }
 
@@ -38,6 +39,8 @@ pub(crate) enum BsPage {
 enum Nav {
     Page(BsPage),
     Save,
+    /// Version history: greyed for local files, as the reference shows it.
+    History,
     Close,
     Options,
 }
@@ -47,11 +50,13 @@ const NAV_TOP: [(Nav, &str, &str); 3] = [
     (Nav::Page(BsPage::New), "backstage.nav.new", "New"),
     (Nav::Page(BsPage::Open), "backstage.nav.open", "Open"),
 ];
-const NAV_MID: [(Nav, &str, &str); 6] = [
+const NAV_MID: [(Nav, &str, &str); 8] = [
     (Nav::Page(BsPage::Info), "backstage.nav.info", "Info"),
     (Nav::Save, "backstage.nav.save", "Save"),
     (Nav::Page(BsPage::SaveAs), "backstage.nav.saveAs", "Save As"),
+    (Nav::History, "docR6.bs.history", "History"),
     (Nav::Page(BsPage::Print), "backstage.nav.print", "Print"),
+    (Nav::Page(BsPage::Share), "docR6.bs.share", "Share"),
     (Nav::Page(BsPage::Export), "docR6.bs.export", "Export"),
     (Nav::Close, "backstage.nav.close", "Close"),
 ];
@@ -121,6 +126,14 @@ pub(crate) enum BsOut {
     OpenLocation,
     /// Print with the page's settings.
     Print,
+    /// The chosen printer's driver settings (Printer Properties).
+    PrinterProperties,
+    /// File › Print › Page Setup.
+    PageSetup,
+    /// Convert a compatibility-mode document to the current format.
+    Convert,
+    /// Share › Email: a new message about the document in the mail program.
+    Email,
     /// Open drop-down `id` under `anchor` (device pixels).
     Menu(&'static str, [f32; 4]),
 }
@@ -141,6 +154,8 @@ pub(crate) struct PrintSettings {
     pub(crate) collated: bool,
     /// Pages per sheet (1, 2, 4, 6, 8, 16).
     pub(crate) per_sheet: u8,
+    /// Spooler state of each printer: (error, offline, jobs waiting).
+    pub(crate) states: Vec<(bool, bool, u32)>,
 }
 
 impl Default for PrintSettings {
@@ -154,6 +169,7 @@ impl Default for PrintSettings {
             sides: 0,
             collated: true,
             per_sheet: 1,
+            states: Vec::new(),
         }
     }
 }
@@ -185,6 +201,10 @@ pub(crate) struct DocFacts {
     pub(crate) margins: String,
     /// Page sizes in points (preview shape).
     pub(crate) page_sizes: Vec<(f32, f32)>,
+    /// The file is in compatibility mode (a `.doc`, or `compatibilityMode` below 15).
+    pub(crate) compat: bool,
+    /// More properties for Show All Properties: (label key, fallback, value).
+    pub(crate) more: Vec<(&'static str, &'static str, String)>,
 }
 
 /// Hot regions of the shown page.
@@ -206,6 +226,11 @@ enum Hit {
     PreviewPrev,
     PreviewNext,
     PagesBox,
+    Link(u8),
+    ZoomOut,
+    ZoomIn,
+    ZoomSlider,
+    ZoomFit,
 }
 
 /// The open File screen.
@@ -229,6 +254,11 @@ pub(crate) struct DocBackstage {
     pub(crate) pages_focus: bool,
     /// Measured widths of the Info page's buttons and of the Save label.
     button_w: [f32; 3],
+    /// Print preview zoom (1 = the whole page fitted).
+    pub(crate) zoom: f32,
+    /// Show All Properties.
+    pub(crate) all_props: bool,
+
     hits: Vec<(Hit, [f32; 4])>,
 }
 
@@ -268,6 +298,8 @@ impl DocBackstage {
             place: 0,
             pages_focus: false,
             button_w: [0.0; 3],
+            zoom: 1.0,
+            all_props: false,
             hits: Vec::new(),
         }
     }
@@ -457,6 +489,23 @@ impl DocBackstage {
                         [cx + self.px(4.0), ty, self.px(104.0), self.px(101.0)],
                     ));
                 }
+                if self.facts.compat {
+                    r.push((Hit::Action(9), self.convert_tile()));
+                }
+                r.push((Hit::Link(0), self.show_all_rect()));
+            }
+            BsPage::Share => {
+                let y = self.top + self.px(84.0);
+                r.push((Hit::ExportItem(0), [cx, y, self.px(375.0), self.px(62.0)]));
+                r.push((
+                    Hit::Action(0),
+                    [
+                        cx + self.px(410.0),
+                        y + self.px(150.0),
+                        self.px(101.0),
+                        self.px(101.0),
+                    ],
+                ));
             }
             BsPage::Print => {
                 let y = self.top + self.px(80.0);
@@ -485,6 +534,14 @@ impl DocBackstage {
                     ));
                 }
                 r.push((Hit::PagesBox, self.pages_box()));
+                for (i, l) in self.print_links().into_iter().enumerate() {
+                    r.push((Hit::Link(1 + i as u8), l));
+                }
+                let [out, slider, inn, fit] = self.zoom_rects();
+                r.push((Hit::ZoomOut, out));
+                r.push((Hit::ZoomSlider, slider));
+                r.push((Hit::ZoomIn, inn));
+                r.push((Hit::ZoomFit, fit));
                 let [px0, _, pw, _] = self.preview_area();
                 let ny = h - self.px(34.0);
                 r.push((Hit::PreviewPrev, [px0, ny, self.px(20.0), self.px(24.0)]));
@@ -535,8 +592,96 @@ impl DocBackstage {
     }
 
     fn tile_tops(&self) -> [f32; 3] {
-        let y = self.top + self.px(222.0);
+        // The Compatibility Mode block comes first when shown (measured: 142 px logical).
+        let y = self.top + self.px(if self.facts.compat { 364.0 } else { 222.0 });
         [y, y + self.px(134.0), y + self.px(287.0)]
+    }
+
+    /// The yellow Compatibility Mode block and its Convert tile.
+    fn compat_box(&self) -> [f32; 4] {
+        [
+            self.content_x(),
+            self.top + self.px(206.0),
+            self.px(590.0),
+            self.px(113.0),
+        ]
+    }
+
+    fn convert_tile(&self) -> [f32; 4] {
+        let b = self.compat_box();
+        [
+            b[0] + self.px(5.0),
+            b[1] + self.px(6.0),
+            self.px(104.0),
+            self.px(101.0),
+        ]
+    }
+
+    /// Rows of the properties column (count) for the Show All Properties link.
+    fn show_all_rect(&self) -> [f32; 4] {
+        let x = (self.size.0 - self.px(322.0)).max(self.content_x() + self.px(640.0));
+        let rows = 7 + if self.all_props {
+            self.facts.more.len()
+        } else {
+            0
+        };
+        let mut y = self.top + self.px(222.0) + self.px(31.0) + self.px(29.0) * rows as f32;
+        y += self.px(16.0 + 31.0 + 29.0 * 3.0 + 16.0 + 31.0 + 29.0 * 2.0);
+        if self.facts.path.is_some() {
+            y += self.px(16.0 + 34.0 + 34.0);
+        }
+        [x, y + self.px(8.0), self.px(180.0), self.px(24.0)]
+    }
+
+    /// Printer Properties (under the printer box) and Page Setup (under the settings).
+    fn print_links(&self) -> [[f32; 4]; 2] {
+        let cx = self.content_x();
+        let tops = self.setting_tops();
+        let last = tops.last().copied().unwrap_or(0.0);
+        [
+            [
+                cx + self.px(182.0),
+                tops[0] + self.px(56.0),
+                self.px(115.0),
+                self.px(20.0),
+            ],
+            [
+                cx + self.px(220.0),
+                last + self.px(58.0),
+                self.px(77.0),
+                self.px(20.0),
+            ],
+        ]
+    }
+
+    /// Zoom controls of the preview's bottom bar: minus, slider, plus, fit page.
+    fn zoom_rects(&self) -> [[f32; 4]; 4] {
+        let a = self.preview_area();
+        let ny = self.size.1 - self.px(34.0);
+        let right = a[0] + a[2];
+        let fit = [right - self.px(24.0), ny, self.px(24.0), self.px(24.0)];
+        let plus = [fit[0] - self.px(30.0), ny, self.px(20.0), self.px(24.0)];
+        let slider = [plus[0] - self.px(124.0), ny, self.px(120.0), self.px(24.0)];
+        let minus = [slider[0] - self.px(22.0), ny, self.px(20.0), self.px(24.0)];
+        [minus, slider, plus, fit]
+    }
+
+    /// Slider position (0–1) of a zoom: 10 %–500 % of the fitted size, fitted at the middle.
+    fn zoom_frac(z: f32) -> f32 {
+        if z <= 1.0 {
+            0.5 * (z - 0.1) / 0.9
+        } else {
+            0.5 + 0.5 * (z - 1.0) / 4.0
+        }
+        .clamp(0.0, 1.0)
+    }
+
+    fn zoom_of_frac(f: f32) -> f32 {
+        if f <= 0.5 {
+            0.1 + 0.9 * f / 0.5
+        } else {
+            1.0 + 4.0 * (f - 0.5) / 0.5
+        }
     }
 
     fn setting_tops(&self) -> Vec<f32> {
@@ -587,17 +732,12 @@ impl DocBackstage {
         let (pw, ph) = self.facts.page_sizes[i];
         let [x, y, w, h] = self.preview_area();
         let pad = self.px(32.0);
-        let k = ((w - 2.0 * pad) / pw.max(1.0)).min((h - 2.0 * pad) / ph.max(1.0));
+        let k = ((w - 2.0 * pad) / pw.max(1.0)).min((h - 2.0 * pad) / ph.max(1.0)) * self.zoom;
         let (dw, dh) = ((pw * k).round(), (ph * k).round());
-        Some((
-            i,
-            [
-                (x + (w - dw) / 2.0).round(),
-                (y + (h - dh) / 2.0).round(),
-                dw,
-                dh,
-            ],
-        ))
+        // Larger than the area: from its top-left corner (clipped by the painter).
+        let px = if dw > w { x + pad } else { x + (w - dw) / 2.0 };
+        let py = if dh > h { y + pad } else { y + (h - dh) / 2.0 };
+        Some((i, [px.round(), py.round(), dw, dh]))
     }
 
     fn hit(&self, x: f32, y: f32) -> Option<Hit> {
@@ -635,6 +775,32 @@ impl DocBackstage {
                 BsOut::Redraw
             }
             Hit::Nav(Nav::Save) => BsOut::Save,
+            Hit::Nav(Nav::History) => BsOut::None,
+            Hit::Link(0) => {
+                self.all_props = !self.all_props;
+                self.hits = self.regions();
+                BsOut::Redraw
+            }
+            Hit::Link(1) => BsOut::PrinterProperties,
+            Hit::Link(_) => BsOut::PageSetup,
+            Hit::ZoomOut => {
+                self.zoom = Self::zoom_of_frac(Self::zoom_frac(self.zoom) - 0.1).max(0.1);
+                BsOut::Redraw
+            }
+            Hit::ZoomIn => {
+                self.zoom = Self::zoom_of_frac(Self::zoom_frac(self.zoom) + 0.1).min(5.0);
+                BsOut::Redraw
+            }
+            Hit::ZoomFit => {
+                self.zoom = 1.0;
+                BsOut::Redraw
+            }
+            Hit::ZoomSlider => {
+                if let Some(r) = self.rect_of(h) {
+                    self.zoom = Self::zoom_of_frac((x - r[0]) / r[2].max(1.0));
+                }
+                BsOut::Redraw
+            }
             Hit::Nav(Nav::Close) => BsOut::Close,
             Hit::Nav(Nav::Options) => BsOut::Options,
             Hit::Template(t) => BsOut::New(t.and_then(|i| TEMPLATES.get(i)).map(|t| t.0)),
@@ -659,6 +825,7 @@ impl DocBackstage {
                 let id = ["bs6.protect", "bs6.inspect", "bs6.manage"][usize::from(i.min(2))];
                 BsOut::Menu(id, self.rect_of(h).unwrap_or_default())
             }
+            Hit::ExportItem(_) if self.page == BsPage::Share => BsOut::None,
             Hit::ExportItem(i) => {
                 self.export = i;
                 self.hits = self.regions();
@@ -669,6 +836,8 @@ impl DocBackstage {
                 BsOut::Redraw
             }
             Hit::Action(a) => match (self.page, a) {
+                (BsPage::Info, 9) => BsOut::Convert,
+                (BsPage::Share, _) => BsOut::Email,
                 (BsPage::Print, _) => BsOut::Print,
                 (BsPage::Export, 0) => BsOut::ExportPdf,
                 (BsPage::Export, _) | (BsPage::SaveAs, 1) => {
@@ -797,6 +966,7 @@ impl DocBackstage {
             BsPage::SaveAs => tr(s, "backstage.nav.saveAs", "Save As"),
             BsPage::Print => tr(s, "backstage.nav.print", "Print"),
             BsPage::Export => tr(s, "docR6.bs.export", "Export"),
+            BsPage::Share => tr(s, "docR6.bs.share", "Share"),
         };
         let light = Font {
             family: "Segoe UI Light",
@@ -813,13 +983,20 @@ impl DocBackstage {
             BsPage::Info => self.paint_info(p, t, s),
             BsPage::Print => self.paint_print(p, t, s),
             BsPage::Export => self.paint_export(p, t, s),
+            BsPage::Share => self.paint_share(p, t, s),
         }
     }
 
     fn paint_nav(&self, p: &mut dyn Painter, t: &Theme, s: &Strings) {
         let (_, h) = self.size;
         let nw = self.px(NAV_W);
-        p.fill_rect(0.0, self.top, nw, h - self.top, t.accent_strong);
+        p.fill_rect(
+            0.0,
+            self.top,
+            nw,
+            h - self.top,
+            rail_colour(t.accent_strong),
+        );
         let on = t.accent_on;
         // Back: an arrow in a ring.
         let br = self.back_rect();
@@ -847,11 +1024,17 @@ impl DocBackstage {
             let chosen = matches!(n, Nav::Page(pg) if *pg == self.page);
             if chosen {
                 p.fill_rect(rect[0], rect[1], rect[2], rect[3], NAV_CHOSEN);
-            } else if self.hover == Some(Hit::Nav(*n)) {
+            } else if self.hover == Some(Hit::Nav(*n)) && *n != Nav::History {
                 p.fill_rect(rect[0], rect[1], rect[2], rect[3], NAV_HOVER);
             }
             let ty = rect[1] + (rect[3] - style.size * 1.33) / 2.0;
-            p.text(&tr(s, key, fb), self.px(55.0), ty.round(), style, on);
+            // History is greyed for local files, as on the reference.
+            let ink = if *n == Nav::History {
+                Rgba(on.0, on.1, on.2, 110)
+            } else {
+                on
+            };
+            p.text(&tr(s, key, fb), self.px(55.0), ty.round(), style, ink);
             let icon = match n {
                 Nav::Page(BsPage::Home) => Some(NavIcon::Home),
                 Nav::Page(BsPage::New) => Some(NavIcon::New),
@@ -1540,7 +1723,77 @@ impl DocBackstage {
                 p.text(b, tx + self.px(30.0), by, body, INK);
             }
         }
+        if self.facts.compat {
+            self.paint_compat(p, t, s);
+        }
         self.paint_properties(p, t, s, w);
+    }
+
+    /// The Compatibility Mode block (measured: #FCF7B6 framed #D9C24C, 590 × 113 px logical)
+    /// with its Convert tile.
+    fn paint_compat(&self, p: &mut dyn Painter, t: &Theme, s: &Strings) {
+        let b = self.compat_box();
+        p.fill_rect(b[0], b[1], b[2], b[3], Rgba(217, 194, 76, 255));
+        p.fill_rect(
+            b[0] + 1.0,
+            b[1] + 1.0,
+            b[2] - 2.0,
+            b[3] - 2.0,
+            Rgba(252, 247, 182, 255),
+        );
+        let r = self.convert_tile();
+        let hover = self.hover == Some(Hit::Action(9));
+        p.fill_rect(r[0], r[1], r[2], r[3], FRAME);
+        p.fill_rect(
+            r[0] + 1.0,
+            r[1] + 1.0,
+            r[2] - 2.0,
+            r[3] - 2.0,
+            if hover {
+                Rgba(229, 241, 251, 255)
+            } else {
+                WHITE
+            },
+        );
+        let ih = self.px(30.0);
+        save_type_icon(p, r[0] + (r[2] - ih) / 2.0, r[1] + self.px(14.0), ih, t);
+        let label = tr(s, "docR6.bs.convert", "Convert");
+        let semi = TextStyle {
+            size: self.px(12.5),
+            bold: true,
+        };
+        let lw = label.chars().count() as f32 * self.px(6.8);
+        p.text(
+            &label,
+            (r[0] + (r[2] - lw) / 2.0).round(),
+            r[1] + self.px(64.0),
+            semi,
+            INK,
+        );
+        let tx = b[0] + self.px(126.0);
+        self.heading(
+            p,
+            &tr(s, "docR6.bs.compat", "Compatibility Mode"),
+            tx,
+            b[1] + self.px(8.0),
+            18.0,
+            INK,
+        );
+        let body = self.body();
+        let desc = tr(
+            s,
+            "docR6.bs.compatDesc",
+            "Some new features are disabled to prevent problems when working with\nprevious versions of word processors. Converting this file will enable these\nfeatures, but may result in layout changes.",
+        );
+        for (i, line) in desc.lines().enumerate() {
+            p.text(
+                line,
+                tx,
+                b[1] + self.px(42.0) + self.px(19.0) * i as f32,
+                body,
+                INK,
+            );
+        }
     }
 
     #[allow(clippy::too_many_lines)]
@@ -1575,10 +1828,12 @@ impl DocBackstage {
                 format!("{:.1}MB", b as f64 / 1024.0 / 1024.0)
             }
         });
-        let minutes = f
-            .editing_minutes
-            .map(|m| format!("{m} {}", tr(s, "docR6.bs.minutes", "Minutes")));
-        let rows: Vec<(String, String, &str, &str)> = vec![
+        let minutes = format!(
+            "{} {}",
+            f.editing_minutes.unwrap_or(0),
+            tr(s, "docR6.bs.minutes", "Minutes")
+        );
+        let mut rows: Vec<(String, String, &str, &str)> = vec![
             (tr(s, "docR6.bs.size", "Size"), size, "", ""),
             (
                 tr(s, "wordCount.pages", "Pages"),
@@ -1594,7 +1849,7 @@ impl DocBackstage {
             ),
             (
                 tr(s, "docR6.bs.editTime", "Total Editing Time"),
-                minutes.unwrap_or_default(),
+                minutes,
                 "",
                 "",
             ),
@@ -1617,6 +1872,12 @@ impl DocBackstage {
                 "Add comments",
             ),
         ];
+        // Show All Properties: the rest of the core and extended properties.
+        if self.all_props {
+            for (k, fb, v) in &f.more {
+                rows.push((tr(s, k, fb), v.clone(), "", ""));
+            }
+        }
         for (k, v, pk, pf) in rows {
             p.text(&k, x, y, body, INK);
             if v.is_empty() {
@@ -1684,7 +1945,18 @@ impl DocBackstage {
                 INK,
             );
         }
-        let _ = t;
+        let link = self.show_all_rect();
+        p.text(
+            &if self.all_props {
+                tr(s, "docR6.bs.fewerProps", "Show Fewer Properties")
+            } else {
+                tr(s, "docR6.bs.allProps", "Show All Properties")
+            },
+            link[0],
+            link[1],
+            body,
+            t.accent_text,
+        );
     }
 
     #[allow(clippy::too_many_lines)]
@@ -1780,7 +2052,28 @@ impl DocBackstage {
             .get(self.print.printer)
             .cloned()
             .unwrap_or_else(|| tr(s, "docR6.bs.noPrinter", "No printer installed"));
-        let ready = tr(s, "docR6.bs.ready", "Ready");
+        // The spooler's state of the chosen printer, worded as the reference words it.
+        let (error, offline, jobs) = self
+            .print
+            .states
+            .get(self.print.printer)
+            .copied()
+            .unwrap_or((false, false, 0));
+        let waiting = match jobs {
+            0 => String::new(),
+            1 => tr(s, "docR6.bs.waiting1", "1 document waiting"),
+            n => tr(s, "docR6.bs.waitingN", "{n} documents waiting").replace("{n}", &n.to_string()),
+        };
+        let trouble = error || offline || jobs > 0;
+        let ready = if offline {
+            tr(s, "docR6.bs.offline", "Offline")
+        } else if (error || jobs > 0) && !waiting.is_empty() {
+            format!("{}: {waiting}", tr(s, "docR6.bs.error", "Error"))
+        } else if error {
+            tr(s, "docR6.bs.error", "Error")
+        } else {
+            tr(s, "docR6.bs.ready", "Ready")
+        };
         let all = tr(s, "docR6.bs.allPages", "Print All Pages");
         let current = tr(s, "docR6.bs.currentPage", "Print Current Page");
         let custom = tr(s, "docR6.bs.customPrint", "Custom Print");
@@ -1877,6 +2170,15 @@ impl DocBackstage {
                 self.px(34.0),
                 t,
             );
+            if *icon == 0 && !self.print.printers.is_empty() {
+                status_badge(
+                    p,
+                    r[0] + self.px(36.0),
+                    r[1] + self.px(36.0),
+                    self.px(8.0),
+                    trouble,
+                );
+            }
             let tx = r[0] + self.px(56.0);
             p.push_clip(r[0], r[1], r[2] - self.px(24.0), r[3]);
             if sub.is_empty() {
@@ -1894,8 +2196,35 @@ impl DocBackstage {
                 INK,
             );
         }
+        // Links: Printer Properties, Page Setup; info marks after Printer and Pages.
+        let links = self.print_links();
+        for (i, (k, fb)) in [
+            ("docR6.bs.printerProps", "Printer Properties"),
+            ("docR6.bs.pageSetup", "Page Setup"),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let l = links[i];
+            p.text(&tr(s, k, fb), l[0], l[1], body, t.accent_text);
+            p.fill_rect(l[0], l[1] + self.px(17.0), l[2], 1.0, t.accent_text);
+        }
+        info_mark(
+            p,
+            cx + self.px(290.0),
+            tops[0] - self.px(26.0),
+            self.px(7.0),
+            t.accent_text,
+        );
         // Pages box under the range.
         let pb = self.pages_box();
+        info_mark(
+            p,
+            pb[0] + pb[2] + self.px(13.0),
+            pb[1] + pb[3] / 2.0,
+            self.px(7.0),
+            t.accent_text,
+        );
         p.text(
             &tr(s, "docR6.bs.pages", "Pages:"),
             cx + self.px(4.0),
@@ -1926,6 +2255,7 @@ impl DocBackstage {
         );
         p.fill_rect(a[0], a[1], a[2], a[3], Rgba(255, 255, 255, 255));
         if let Some((_, r)) = self.preview_rect() {
+            p.push_clip(a[0], a[1], a[2], a[3]);
             p.fill_rect(
                 r[0] - 1.0,
                 r[1] - 1.0,
@@ -1934,7 +2264,80 @@ impl DocBackstage {
                 Rgba(198, 198, 198, 255),
             );
             p.fill_rect(r[0], r[1], r[2], r[3], WHITE);
+            p.pop_clip();
         }
+        // Zoom bar: percentage of the page's actual size, minus, slider, plus, fit page.
+        let [zm, zs, zp, zf] = self.zoom_rects();
+        if let (Some((i, r)), Some((pw, _))) = (
+            self.preview_rect(),
+            self.preview_rect()
+                .and_then(|(i, _)| self.facts.page_sizes.get(i).copied()),
+        ) {
+            let _ = i;
+            let pct = (r[2] / (pw * self.scale * 96.0 / 72.0) * 100.0).round();
+            p.text(
+                &format!("{pct}%"),
+                zm[0] - self.px(46.0),
+                zm[1] + self.px(3.0),
+                body,
+                INK,
+            );
+        }
+        let mid = zm[1] + zm[3] / 2.0;
+        p.fill_rect(zm[0] + self.px(5.0), mid, self.px(10.0), 1.0, INK);
+        p.fill_rect(zp[0] + self.px(5.0), mid, self.px(10.0), 1.0, INK);
+        p.fill_rect(
+            zp[0] + self.px(9.5),
+            mid - self.px(5.0),
+            1.0,
+            self.px(10.0),
+            INK,
+        );
+        p.fill_rect(zs[0], mid, zs[2], 1.0, Rgba(160, 160, 160, 255));
+        p.fill_rect(
+            zs[0] + zs[2] / 2.0,
+            mid - self.px(3.0),
+            1.0,
+            self.px(6.0),
+            MUTED,
+        );
+        let thumb = zs[0] + zs[2] * Self::zoom_frac(self.zoom);
+        p.fill_rect(
+            (thumb - self.px(2.5)).round(),
+            mid - self.px(8.0),
+            self.px(5.0),
+            self.px(16.0),
+            Rgba(64, 64, 64, 255),
+        );
+        // Fit page: a page inside a frame.
+        p.fill_rect(
+            zf[0] + self.px(3.0),
+            zf[1] + self.px(3.0),
+            self.px(18.0),
+            self.px(18.0),
+            MUTED,
+        );
+        p.fill_rect(
+            zf[0] + self.px(4.0),
+            zf[1] + self.px(4.0),
+            self.px(16.0),
+            self.px(16.0),
+            CONTENT_BG,
+        );
+        p.fill_rect(
+            zf[0] + self.px(8.0),
+            zf[1] + self.px(6.0),
+            self.px(8.0),
+            self.px(12.0),
+            MUTED,
+        );
+        p.fill_rect(
+            zf[0] + self.px(9.0),
+            zf[1] + self.px(7.0),
+            self.px(6.0),
+            self.px(10.0),
+            WHITE,
+        );
         let ny = h - self.px(34.0);
         let n = self.facts.page_sizes.len().max(1);
         chevron_left(
@@ -2084,6 +2487,109 @@ impl DocBackstage {
         }
     }
 
+    /// Share: Email (a new message in the mail program, naming the file and its location).
+    fn paint_share(&self, p: &mut dyn Painter, t: &Theme, s: &Strings) {
+        let cx = self.content_x();
+        let y = self.top + self.px(84.0);
+        let big = TextStyle {
+            size: self.px(14.5),
+            bold: false,
+        };
+        let body = self.body();
+        let r = [cx, y, self.px(375.0), self.px(62.0)];
+        p.fill_rect(r[0], r[1], r[2], r[3], Rgba(171, 171, 171, 255));
+        p.fill_rect(r[0] + 1.0, r[1] + 1.0, r[2] - 2.0, r[3] - 2.0, CHOSEN);
+        let ih = self.px(30.0);
+        mail_icon(
+            p,
+            r[0] + self.px(12.0),
+            r[1] + (r[3] - ih) / 2.0,
+            ih,
+            t.accent_strong,
+        );
+        let label = tr(s, "docR6.bs.email", "Email");
+        p.text(
+            &label,
+            r[0] + self.px(66.0),
+            r[1] + (r[3] - big.size * 1.33) / 2.0,
+            big,
+            INK,
+        );
+        p.fill_rect(
+            cx + self.px(376.0),
+            y,
+            1.0,
+            (self.size.1 - y - self.px(40.0)).max(1.0),
+            Rgba(212, 212, 212, 255),
+        );
+        let rx = cx + self.px(410.0);
+        self.heading(p, &label, rx, y + self.px(2.0), 21.0, t.accent_text);
+        for (i, (k, f)) in [
+            (
+                "docR6.bs.email1",
+                "Opens a new message in your mail program",
+            ),
+            (
+                "docR6.bs.email2",
+                "Names the document and where it is saved",
+            ),
+            (
+                "docR6.bs.email3",
+                "Attach the file in the message before you send it",
+            ),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let by = y + self.px(44.0) + self.px(26.0) * i as f32;
+            p.fill_rect(
+                rx + self.px(6.0),
+                by + self.px(6.0),
+                self.px(7.0),
+                self.px(7.0),
+                Rgba(166, 166, 166, 255),
+            );
+            p.text(&tr(s, k, f), rx + self.px(30.0), by, body, INK);
+        }
+        if let Some(b) = self.rect_of(Hit::Action(0)) {
+            let hover = self.hover == Some(Hit::Action(0));
+            p.fill_rect(b[0], b[1], b[2], b[3], FRAME);
+            p.fill_rect(
+                b[0] + 1.0,
+                b[1] + 1.0,
+                b[2] - 2.0,
+                b[3] - 2.0,
+                if hover {
+                    Rgba(229, 241, 251, 255)
+                } else {
+                    WHITE
+                },
+            );
+            mail_icon(
+                p,
+                b[0] + (b[2] - ih) / 2.0,
+                b[1] + self.px(12.0),
+                ih,
+                t.accent_strong,
+            );
+            let semi = TextStyle {
+                size: self.px(12.5),
+                bold: true,
+            };
+            let text = tr(s, "docR6.bs.sendEmail", "Send by\nEmail");
+            for (j, l) in text.lines().enumerate() {
+                let lw = l.chars().count() as f32 * self.px(6.8);
+                p.text(
+                    l,
+                    (b[0] + (b[2] - lw) / 2.0).round(),
+                    b[1] + self.px(52.0) + self.px(19.0) * j as f32,
+                    semi,
+                    INK,
+                );
+            }
+        }
+    }
+
     fn big_button(&self, p: &mut dyn Painter, t: &Theme, r: [f32; 4], label: &str, icon: u8) {
         let hover = self.hover == Some(Hit::Action(icon));
         p.fill_rect(r[0], r[1], r[2], r[3], FRAME);
@@ -2126,6 +2632,41 @@ const INFO_BUTTONS: [(u8, &str, &str); 2] = [
     (0, "docR6.bs.copyPath", "Copy path"),
     (1, "docR6.bs.openLocation", "Open file location"),
 ];
+
+/// The File screen's rail: BlueDoc's own accent hue at the lightness and saturation of the
+/// reference's rail (#2B579A: L 39 %, S 56 %), calmer than the bright accent of buttons.
+fn rail_colour(accent: Rgba) -> Rgba {
+    let (r, g, b) = (
+        f32::from(accent.0) / 255.0,
+        f32::from(accent.1) / 255.0,
+        f32::from(accent.2) / 255.0,
+    );
+    let (max, min) = (r.max(g).max(b), r.min(g).min(b));
+    let d = max - min;
+    let hue = if d < 1e-6 {
+        0.0
+    } else if (max - r).abs() < 1e-6 {
+        ((g - b) / d).rem_euclid(6.0)
+    } else if (max - g).abs() < 1e-6 {
+        (b - r) / d + 2.0
+    } else {
+        (r - g) / d + 4.0
+    } * 60.0;
+    let (l, sat) = (0.39_f32, 0.56_f32);
+    let c = (1.0 - (2.0 * l - 1.0).abs()) * sat;
+    let x = c * (1.0 - ((hue / 60.0).rem_euclid(2.0) - 1.0).abs());
+    let m = l - c / 2.0;
+    let (r1, g1, b1) = match (hue / 60.0) as u32 {
+        0 => (c, x, 0.0),
+        1 => (x, c, 0.0),
+        2 => (0.0, c, x),
+        3 => (0.0, x, c),
+        4 => (x, 0.0, c),
+        _ => (c, 0.0, x),
+    };
+    let to = |v: f32| ((v + m) * 255.0).round().clamp(0.0, 255.0) as u8;
+    Rgba(to(r1), to(g1), to(b1), 255)
+}
 
 /// The chosen page's row on the nav column: darker than the column.
 const NAV_CHOSEN: Rgba = Rgba(0, 0, 0, 110);
@@ -2646,6 +3187,68 @@ fn setting_icon(p: &mut dyn Painter, i: u8, x: f32, y: f32, s: f32, t: &Theme) {
             lines(p, x + s * 0.26, y + s * 0.16, s * 0.48, 7);
         }
     }
+}
+
+/// The status mark on the printer icon: a green check when ready, an amber "!" otherwise.
+fn status_badge(p: &mut dyn Painter, cx: f32, cy: f32, r: f32, trouble: bool) {
+    let fill = if trouble {
+        Rgba(234, 157, 22, 255)
+    } else {
+        Rgba(16, 124, 16, 255)
+    };
+    p.path(&circle(cx, cy, r + 1.0), Some(WHITE), None);
+    p.path(&circle(cx, cy, r), Some(fill), None);
+    let lw = (r / 4.0).max(1.0);
+    if trouble {
+        p.fill_rect(cx - lw / 2.0, cy - r * 0.55, lw, r * 0.7, WHITE);
+        p.fill_rect(cx - lw / 2.0, cy + r * 0.3, lw, lw, WHITE);
+    } else {
+        p.path(
+            &[
+                PathSeg::M(cx - r * 0.45, cy),
+                PathSeg::L(cx - r * 0.1, cy + r * 0.35),
+                PathSeg::L(cx + r * 0.45, cy - r * 0.35),
+            ],
+            None,
+            Some((WHITE, lw * 1.2)),
+        );
+    }
+}
+
+/// A small ring with an "i" (our own info mark).
+fn info_mark(p: &mut dyn Painter, cx: f32, cy: f32, r: f32, c: Rgba) {
+    let lw = (r / 7.0).max(1.0);
+    p.path(&circle(cx, cy, r), None, Some((c, lw)));
+    p.fill_rect(
+        (cx - lw / 2.0).round(),
+        (cy - r * 0.55).round(),
+        lw.max(1.0),
+        lw.max(1.0),
+        c,
+    );
+    p.fill_rect(
+        (cx - lw / 2.0).round(),
+        (cy - r * 0.2).round(),
+        lw.max(1.0),
+        (r * 0.75).round(),
+        c,
+    );
+}
+
+/// An envelope (own drawing).
+fn mail_icon(p: &mut dyn Painter, x: f32, y: f32, s: f32, accent: Rgba) {
+    let (y0, h) = (y + s * 0.18, s * 0.62);
+    p.fill_rect(x + s * 0.04, y0, s * 0.92, h, Rgba(120, 120, 120, 255));
+    p.fill_rect(x + s * 0.04 + 1.0, y0 + 1.0, s * 0.92 - 2.0, h - 2.0, WHITE);
+    p.path(
+        &[
+            PathSeg::M(x + s * 0.06, y0 + 1.0),
+            PathSeg::L(x + s * 0.5, y0 + h * 0.6),
+            PathSeg::L(x + s * 0.94, y0 + 1.0),
+        ],
+        None,
+        Some((accent, (s / 16.0).max(1.0))),
+    );
 }
 
 /// A white edit box framed in grey.

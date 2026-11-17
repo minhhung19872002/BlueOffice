@@ -56,6 +56,22 @@ pub(super) struct R6 {
     pub(super) options: Option<options::OptionsDialog>,
     /// Review › Reviewing Pane, when shown.
     pub(super) review: Option<review::ReviewPane>,
+    /// What the host read from the file, and the printers' spooler states.
+    pub(super) details: FileDetails,
+    pub(super) printer_states: Vec<(bool, bool, u32)>,
+}
+
+/// File › Info facts only the host can read from the file.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct FileDetails {
+    /// Total editing time in minutes (`docProps/app.xml` TotalTime).
+    pub edit_minutes: Option<u64>,
+    /// Compatibility mode (a `.doc`, or `compatibilityMode` below 15).
+    pub compat: bool,
+    /// File system created / modified times (local), used when the document has none.
+    pub created: String,
+    /// See `created`.
+    pub modified: String,
 }
 
 /// Print job the File screen's Print page asks for.
@@ -90,6 +106,7 @@ impl DocWindow {
             .collect();
         b.print.printers.clone_from(&self.r6.printers.0);
         b.print.printer = self.r6.printers.1;
+        b.print.states.clone_from(&self.r6.printer_states);
         b.preview = self.view.current_page();
         b.layout(self.title.height(), self.size, self.scale);
         self.r6.bs = Some(b);
@@ -144,6 +161,8 @@ impl DocWindow {
             paper: (paper, inch(sec.width), inch(sec.height)),
             margins,
             page_sizes: self.view.page_sizes_pt(),
+            compat: self.r6.details.compat,
+            editing_minutes: self.r6.details.edit_minutes,
             ..DocFacts::default()
         };
         if let Some(p) = props {
@@ -154,6 +173,22 @@ impl DocWindow {
             f.last_modified_by = p.last_modified_by;
             f.created = date(&p.created);
             f.last_modified = date(&p.modified);
+            f.more = vec![
+                ("docR6.bs.subject", "Subject", p.subject),
+                ("docR6.bs.category", "Categories", p.category),
+                ("docR6.bs.status", "Status", p.status),
+                ("docR6.bs.company", "Company", p.company),
+                ("docR6.bs.manager", "Manager", p.manager),
+                ("docR6.bs.revision", "Revision Number", p.revision),
+            ];
+        }
+        // Dates the document does not carry come from the file system, as the reference
+        // shows them.
+        if f.created.is_empty() {
+            f.created.clone_from(&self.r6.details.created);
+        }
+        if f.last_modified.is_empty() {
+            f.last_modified.clone_from(&self.r6.details.modified);
         }
         f
     }
@@ -281,6 +316,39 @@ impl DocWindow {
                 false
             }
             BsOut::Menu(id, anchor) => self.r6_menu(id, anchor),
+            BsOut::PrinterProperties => {
+                if let Some(b) = self.r6.bs.as_ref() {
+                    if let Some(n) = b.print.printers.get(b.print.printer) {
+                        self.requests.push(Request::PrinterProperties(n.clone()));
+                    }
+                }
+                false
+            }
+            BsOut::PageSetup => {
+                self.r6.bs = None;
+                self.action("layout.pageSetup")
+            }
+            BsOut::Convert => {
+                // The next save writes the current compatibility mode (15).
+                self.r6.details.compat = false;
+                if let Some(b) = self.r6.bs.as_mut() {
+                    b.facts.compat = false;
+                    b.show(BsPage::Info);
+                }
+                true
+            }
+            BsOut::Email => {
+                let body = self
+                    .r6
+                    .file
+                    .as_ref()
+                    .map_or_else(String::new, |(p, _)| p.clone());
+                self.requests.push(Request::Email {
+                    subject: self.name.clone(),
+                    body,
+                });
+                close(self)
+            }
         }
     }
 
@@ -611,7 +679,10 @@ impl DocWindow {
         if let Some(b) = &self.r6.bs {
             b.paint(p, &self.theme, &self.strings);
             if let Some((i, r)) = b.preview_rect() {
+                let a = b.preview_area();
+                p.push_clip(a[0], a[1], a[2], a[3]);
                 p.page(crate::THUMB_KEY + i, r[0] as i32, r[1] as i32);
+                p.pop_clip();
             }
             if let Some(menu) = &self.menu {
                 menu.paint(p, &self.theme, &self.icons);
@@ -627,6 +698,18 @@ impl DocWindow {
     /// Path and size of the open file, shown on File › Info (`None`: not saved yet).
     pub fn set_file_info(&mut self, path: Option<&str>, bytes: Option<u64>) {
         self.r6_set_file(path, bytes);
+    }
+
+    /// File › Info facts the host read from the file (editing time, compatibility mode,
+    /// file system dates).
+    pub fn set_file_details(&mut self, d: FileDetails) {
+        self.r6.details = d;
+    }
+
+    /// Spooler state of each printer given to [`DocWindow::set_printers`]: (error, offline,
+    /// jobs waiting).
+    pub fn set_printer_states(&mut self, states: Vec<(bool, bool, u32)>) {
+        self.r6.printer_states = states;
     }
 
     /// BlueDoc's own recent documents, most recent first: (path, when opened as text).
@@ -691,6 +774,7 @@ impl DocWindow {
             "saveAs" => BsPage::SaveAs,
             "print" => BsPage::Print,
             "export" => BsPage::Export,
+            "share" => BsPage::Share,
             _ => BsPage::Info,
         };
         self.r6_open_backstage(p)

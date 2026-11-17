@@ -160,7 +160,7 @@ pub use ribbon::{Ribbon, RibbonHit};
 pub use ruler::Ruler;
 pub use sheet_view::{CellFormat, GridBand, GridMove, GridRing, GridStore, SheetView, Stats};
 pub use sheet_window::{PaintHash, SheetWindow};
-pub use shell::{DocWindow, PrintJob, Request};
+pub use shell::{DocWindow, FileDetails, PrintJob, Request};
 pub use slide_view::{Focus, SlideView, ViewMode, SLIDE_CANVAS};
 pub use slide_window::{InsertFile, SlideWindow, WindowRequest};
 pub use strings::Strings;

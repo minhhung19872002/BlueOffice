@@ -34,10 +34,10 @@ mod r4;
 mod r5;
 #[path = "doc_r6.rs"]
 mod r6;
-pub use r6::PrintJob;
 pub(crate) use r6::{
     install_icons as install_round6_icons, install_strings as install_round6_strings,
 };
+pub use r6::{FileDetails, PrintJob};
 
 /// Something only the platform host can do.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -99,6 +99,15 @@ pub enum Request {
     PrintJob(PrintJob),
     /// Store the application preferences ([`DocWindow::take_prefs`]).
     SavePrefs,
+    /// Show this printer's driver settings (File › Print › Printer Properties).
+    PrinterProperties(String),
+    /// A new mail message (File › Share › Email): subject and body.
+    Email {
+        /// Subject line (the document's name).
+        subject: String,
+        /// Body (where the document is saved).
+        body: String,
+    },
 }
 
 /// Window contents of BlueDoc.

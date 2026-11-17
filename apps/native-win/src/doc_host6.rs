@@ -99,7 +99,11 @@ fn today() -> String {
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs() as i64)
         + offset;
-    let days = secs.div_euclid(86_400);
+    civil(secs.div_euclid(86_400))
+}
+
+/// `yyyy-mm-dd` of a day count since 1970-01-01.
+fn civil(days: i64) -> String {
     // Civil date from days since 1970-01-01 (Howard Hinnant's algorithm).
     let z = days + 719_468;
     let era = z.div_euclid(146_097);
@@ -111,6 +115,65 @@ fn today() -> String {
     let d = doy - (153 * mp + 2) / 5 + 1;
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     format!("{}-{m:02}-{d:02}", if m <= 2 { y + 1 } else { y })
+}
+
+/// File › Info facts the engine does not keep: total editing time (`docProps/app.xml`
+/// TotalTime, minutes), whether the file is in compatibility mode (a `.doc`, or a `.docx`
+/// whose `w:compatSetting compatibilityMode` is below 15 or missing — [MS-DOCX] 2.6.1), and
+/// the file system's created / modified dates (local `yyyy-mm-dd hh:mm`) used when
+/// `docProps/core.xml` has none.
+pub fn file_details(path: &Path) -> bo_ui::FileDetails {
+    let mut d = bo_ui::FileDetails::default();
+    let ext = path
+        .extension()
+        .map(|e| e.to_string_lossy().to_ascii_lowercase())
+        .unwrap_or_default();
+    if let Ok(meta) = std::fs::metadata(path) {
+        d.created = meta.created().ok().map(local_stamp).unwrap_or_default();
+        d.modified = meta.modified().ok().map(local_stamp).unwrap_or_default();
+    }
+    if ext == "doc" {
+        d.compat = true;
+        return d;
+    }
+    let Ok(bytes) = std::fs::read(path) else {
+        return d;
+    };
+    let Ok(pkg) = bo_opc::Package::read(&bytes, &bo_opc::Limits::default()) else {
+        return d;
+    };
+    let text = |part: &str| {
+        pkg.part(part)
+            .map(|p| String::from_utf8_lossy(&p.data).into_owned())
+            .unwrap_or_default()
+    };
+    let app = text("/docProps/app.xml");
+    d.edit_minutes = app
+        .split("<TotalTime>")
+        .nth(1)
+        .and_then(|r| r.split('<').next())
+        .and_then(|v| v.trim().parse().ok());
+    if matches!(ext.as_str(), "docx" | "docm" | "dotx" | "dotm") {
+        let settings = text("/word/settings.xml");
+        let mode = settings
+            .find("compatibilityMode")
+            .and_then(|i| settings[i..].split("w:val=\"").nth(1))
+            .and_then(|r| r.split('"').next())
+            .and_then(|v| v.parse::<u32>().ok());
+        d.compat = mode.is_none_or(|m| m < 15);
+    }
+    d
+}
+
+/// A file time as local `yyyy-mm-dd hh:mm`.
+fn local_stamp(t: std::time::SystemTime) -> String {
+    let offset = i64::from(crate::win32::utc_offset_minutes()) * 60;
+    let secs = t
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs() as i64)
+        + offset;
+    let (date, rem) = (civil(secs.div_euclid(86_400)), secs.rem_euclid(86_400));
+    format!("{date} {:02}:{:02}", rem / 3600, rem % 3600 / 60)
 }
 
 /// File size in bytes.
@@ -248,6 +311,28 @@ pub fn filter_of(ext: &str) -> (&'static str, &'static str) {
         "epub" => ("EPUB (*.epub)", "*.epub"),
         _ => ("Document (*.docx)", "*.docx"),
     }
+}
+
+/// A new message in the mail program (`mailto:`), naming the document and where it is.
+pub fn email(subject: &str, body: &str) {
+    let enc = |s: &str| {
+        s.bytes().fold(String::new(), |mut o, b| {
+            if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~') {
+                o.push(char::from(b));
+            } else {
+                const HEX: &[u8; 16] = b"0123456789ABCDEF";
+                o.push('%');
+                o.push(char::from(HEX[usize::from(b >> 4)]));
+                o.push(char::from(HEX[usize::from(b & 15)]));
+            }
+            o
+        })
+    };
+    let url = format!("mailto:?subject={}&body={}", enc(subject), enc(body));
+    let _ = std::process::Command::new("rundll32.exe")
+        .arg("url.dll,FileProtocolHandler")
+        .arg(url)
+        .spawn();
 }
 
 /// Show `path` selected in the system file manager.

@@ -13,6 +13,10 @@ use std::time::Instant;
 
 #[path = "doc_host6.rs"]
 mod host6;
+// Printer status (Win32 calls confined to this child module, like win32.rs).
+#[path = "doc_printers6.rs"]
+#[allow(unsafe_code)]
+mod printers6;
 
 /// Interface text size factor (the Windows text size setting), as `f32` bits.
 static TEXT_SCALE: AtomicU32 = AtomicU32::new(0x3f80_0000);
@@ -110,8 +114,11 @@ pub fn run() -> Result<(), String> {
     view.set_recent(recent);
     if let Some(p) = &file {
         view.set_file_info(Some(&p.to_string_lossy()), host6::file_size(p));
+        view.set_file_details(host6::file_details(p));
     }
     let (printers, default_printer) = host6::printers();
+    // Read-only spooler state (status bits, jobs waiting) for the status line.
+    view.set_printer_states(printers.iter().map(|n| printers6::state(n)).collect());
     view.set_printers(printers, default_printer);
     // A new document takes the theme, style set and effects set as the default.
     if let Some(v) = defaults_path().and_then(|p| std::fs::read_to_string(p).ok()) {
@@ -154,6 +161,7 @@ pub fn run() -> Result<(), String> {
             pending_input: None,
             last_frame: [std::time::Duration::ZERO; 3],
             clock: Instant::now(),
+            hwnd: 0,
         }),
     )
 }
@@ -316,6 +324,8 @@ struct Shell {
     last_frame: [std::time::Duration; 3],
     /// Clock of animations.
     clock: Instant,
+    /// The window (driver dialogs of File › Print are owned by it).
+    hwnd: isize,
 }
 
 impl Shell {
@@ -485,6 +495,11 @@ impl Shell {
                 }
                 Request::SaveAsType(ext) => redraw |= self.save_as_type(&ext),
                 Request::OpenLocation(p) => host6::open_location(&p),
+                Request::PrinterProperties(name) => {
+                    // The driver's own settings dialog; nothing is printed.
+                    let _ = host6::print::properties(self.hwnd, &name, None);
+                }
+                Request::Email { subject, body } => host6::email(&subject, &body),
                 Request::PrintJob(job) => self.print_job(&job),
                 Request::SavePrefs => {
                     if let Some(text) = self.view.take_prefs() {
@@ -698,6 +713,7 @@ struct PendingInput {
 
 impl Handler for Shell {
     fn created(&mut self, hwnd: isize, width: u32, height: u32, scale: f32) -> Result<(), String> {
+        self.hwnd = hwnd;
         refresh_text_scale();
         let device = Device::new()?;
         if let Err(e) = device.update_window_monitor(hwnd) {

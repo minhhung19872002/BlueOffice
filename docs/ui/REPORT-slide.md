@@ -597,3 +597,35 @@ Tốc độ (`deck-300.pptx`, bản release, máy còn tiến trình rustc của
   Alt Text); Play Selected phát từ hàng đầu tiên được chọn; dòng thời gian chưa có thước giây ở chân ngăn;
   Reading View vẫn ở trong cửa sổ chính (tham chiếu mở cửa sổ riêng "Slide Show"); menu Thesaurus và
   hộp Timing chưa so ảnh (cần rê chuột / hộp thoại nhiều trang của tham chiếu).
+
+## Vòng 20 — màn hình File, xem trước in, menu chuột phải khi trình chiếu, Design / Transitions / Insert (`slide-66…`, 1500 × 1102, 125 %)
+
+Tham chiếu điều khiển qua COM / UI Automation (Invoke / Select) trên bản sao (`bs1.pptx`, `fb.pptx`, `r1.pptx`);
+không mở trang Home / Open / Save As của tham chiếu (danh sách tệp gần đây), không bấm Print. Của ta qua `PostMessage`.
+
+| Đo (thiết bị) | Tham chiếu | BlueSlide |
+|---|---|---|
+| Cột điều hướng File | rộng 223, hàng 55 px (Home 143, New 198, Open 253; Info 328 …), nền thương hiệu | rộng 224, hàng 55, cùng tâm hàng; màu nhấn BlueSlide (không chép màu thương hiệu); không có History / Share / Account |
+| New | thẻ trống 306 × 172 tại x 285; thư viện mẫu trực tuyến | thẻ 306 × 172 tại x 285; thư viện là 5 chủ đề riêng của tab Design (Harbor, Lotus, Bamboo, Ember, Slate) vẽ bằng màu + phông tiêu đề của chủ đề; chọn mẫu mở cửa sổ mới `--theme=<id>` |
+| Info | nút đường dẫn, ba thẻ 150 × 126 (Protect / Check for Issues / Manage Presentation), cột Properties: Size, Slides, Hidden slides, Title, Tags, Categories; Related Dates / People / Documents | như vậy (Upload / Share không có); "Presentation notes" chỉ hiện khi có ghi chú; Check for Issues › Check Accessibility mở ngăn trợ năng |
+| Print | ô Print 125 × 125, Copies, Printer, Settings: Print All Slides / Slides: / Full Page Slides / Print One Sided / Collated / Grayscale, Edit Header & Footer; xem trước trang thật, "1 of 4" | như vậy; menu: phạm vi (tất cả / trang hiện tại / tuỳ chỉnh), bố cục (Full Page Slides, Notes Pages, Handouts 1/2/3/4/6/9, Frame Slides), hai mặt, theo bộ, Color / Grayscale / Pure Black and White; xem trước do engine vẽ (trang chiếu, trang ghi chú, trang phát tay; xám / đen trắng qua `colormode::recolor`); Ctrl+P mở trang này; in thật qua đường GDI của BlueReader với máy in đã chọn (không thử in) |
+| Export | Create PDF/XPS, Create a Video, Package Presentation for CD, Create Handouts, Change File Type; hàng 62 px, bước 66 | như vậy (Video = GIF động của engine; Package = zip kèm media và phông); Change File Type: pptx / potx / ppsx / pdf / png / jpg / svg / gif |
+| Format Background | Solid / Gradient / Picture or texture / Pattern fill, Hide background graphics; Gradient: Preset gradients, Type, Direction, Angle, stops; Pattern: lưới 8 × 6 mẫu màu nhấn trên trắng | Solid / Gradient / Pattern fill; 6 chuyển màu dựng sẵn (sáng → màu nhấn 1–6) và 4 hướng (90 / 0 / 45 / 135°); 12 mẫu (pct10 … horzBrick) màu nhấn 1 trên trắng; Apply to All dùng tô cuối cùng. Engine: lệnh mới `setBackgroundFill` (§20.1.8.33 gradFill + §20.1.8.41 lin, §20.1.8.47 pattFill), khứ hồi có kiểm thử |
+| Slide Size | Standard / Widescreen / Custom… rồi hộp "Maximize / Ensure Fit" | như vậy (trước: luôn Fit, không hỏi); chọn cỡ đang dùng không hỏi gì |
+| Insert › Table | lưới 10 × 8, dưới là Insert Table…, Draw Table, bảng tính | như vậy; Insert Table… mở hộp số cột / số hàng (1–75) |
+| Transitions › More | thư viện lớn theo nhóm Subtle / Exciting / Dynamic Content | thư viện lớn hai nhóm Subtle (13) / Exciting (14) với thẻ tự vẽ như dải ribbon (trước: danh sách chữ); chỉ các hiệu ứng engine phát được |
+| Trình chiếu: chuột phải | menu Next, Previous, Last Viewed, See All Slides, Zoom, Custom Show, Screen ›, Pointer Options ›, Help, Pause, End Show | Next, Previous, Last Viewed, Black / White Screen, Laser Pointer, Pen, Highlighter, Eraser, Erase All Ink on Slide, End Show (trước: chuột phải lùi một bước); Ctrl+E tẩy (nhấp gần nét ≤ 10 px logic xoá nét đó) |
+
+- Màn hình File bắt đầu từ mã màn hình File của BlueDoc vòng 6 (nhánh song song, chưa gộp): mô-đun riêng
+  `slide_file10.rs` + `slide_file10_win.rs`, host `slide_host10.rs` (danh sách gần đây riêng của BlueSlide
+  `%LOCALAPPDATA%\BlueOffice\slide-recent.txt`, máy in, lưu bản sao kiểu khác, xuất). Khi cả hai đã gộp nên tách
+  phần chung.
+- Kiểm thử: `slide_file10.rs` (điều hướng, Print: số bản, Slides, bố cục / số trang in, xem trước đúng tỉ lệ,
+  Export, mẫu = chủ đề), `slide_round20_tests.rs` (Ctrl+P, ảnh xem trước vẽ một lần, trang phát tay dọc, giữ thiết
+  đặt; lệnh in / xuất; menu chuột phải, Last Viewed, tẩy; Maximize / Ensure Fit; nền chuyển màu),
+  `slide_bgpane.rs`, `slide_host10.rs` (bản sao theo bộ, ngày), `bo-engine/tests/slide_master.rs`
+  (`gradient_and_pattern_backgrounds_round_trip`).
+- Còn lại: Picture or texture fill, điểm dừng / góc tự do của chuyển màu; hộp Header & Footer chưa có thẻ Notes and
+  Handouts; Options của màn hình File chưa có trang; Chart / SmartArt vẫn là menu (chưa có hộp chọn lớn);
+  WordArt / Equation chưa so; thư viện chuyển trang chưa có nhóm Dynamic Content (engine chưa phát Pan, Ferris
+  Wheel…); menu chuột phải thiếu See All Slides / Zoom / Custom Show / Pause.

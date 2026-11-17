@@ -192,3 +192,48 @@ fn show_right_click_menu_and_eraser() {
     );
     assert_eq!(w.view.show_tools().strokes.get(&i).map(Vec::len), Some(0));
 }
+
+#[test]
+fn slide_size_asks_maximize_or_ensure_fit() {
+    let mut w = window();
+    assert!(w.choose(Choice::Command("size:43".into())));
+    let kind = w.dialog.as_ref().map(|(_, k)| *k);
+    assert!(matches!(
+        kind,
+        Some(ins::SlideDialog::ScaleContent { cx: 9_144_000, .. })
+    ));
+    w.dialog_button(kind.unwrap(), crate::dialog::DialogButton::Replace, &[]);
+    assert!(w.dialog.is_none());
+    let d = w
+        .view
+        .state()
+        .and_then(|s| s.design.clone())
+        .expect("design");
+    assert_eq!((d.cx, d.cy), (9_144_000, 6_858_000));
+    // The same size again asks nothing.
+    assert!(!w.choose(Choice::Command("size:43".into())));
+    assert!(w.dialog.is_none());
+}
+
+#[test]
+fn format_background_gradient_and_pattern() {
+    let mut w = window();
+    w.bg_pane.shown = true;
+    w.bg_pane.kind = 1;
+    w.handle(Input::Tick, &Fixed);
+    w.relayout(&Fixed);
+    let h = crate::slide_bgpane::BgHit::Gradient {
+        colors: vec!["FFFFFF".into(), "4472C4".into()],
+        angle: 0,
+    };
+    assert!(w.run_bg_fill(&h, false));
+    let slide = w.view.current();
+    let p = w.view.engine().presentation().expect("deck");
+    assert!(matches!(
+        &p.slides[slide].data.background,
+        Some(bo_model::slide::Background::Props {
+            fill: bo_model::slide::Fill::Gradient(_),
+            ..
+        })
+    ));
+}

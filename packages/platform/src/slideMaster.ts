@@ -38,6 +38,14 @@ export type SlideMasterCommand =
   | { cmd: 'hideBackgroundGraphics'; hide: boolean }
   | { cmd: 'setBackground'; color?: string; all?: boolean }
   | {
+      cmd: 'setBackgroundFill';
+      kind: 'gradient' | 'pattern';
+      colors?: string[];
+      angle?: number;
+      preset?: string;
+      all?: boolean;
+    }
+  | {
       cmd: 'masterTextStyle';
       style: 'title' | 'body' | 'other';
       level?: number;

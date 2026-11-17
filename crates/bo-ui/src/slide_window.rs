@@ -15,7 +15,7 @@ use crate::theme::Theme;
 use crate::titlebar::{NcHit, TitleBar};
 use crate::{Input, Key, Mods, PageStore, Painter, Request, TextMeasure, TextStyle};
 use bo_engine::slide_edit::clip_xfer::Copied;
-use bo_engine::slide_edit::master::{MasterCommand, SizeMode, COLOR_SETS, FONT_SETS};
+use bo_engine::slide_edit::master::{MasterCommand, COLOR_SETS, FONT_SETS};
 use bo_engine::slide_edit::show::{AnimSpec, TransitionSpec};
 use bo_engine::slide_edit::text::{Align, TextFormat};
 use bo_engine::slide_edit::SlideCommand;
@@ -503,8 +503,6 @@ enum MenuKind {
     Duration,
     /// Animations: effect options (direction).
     AnimEffect,
-    /// Every transition / effect of the galleries.
-    TransitionMore,
     /// Design: theme effects; every theme (the gallery's "more" column).
     Effects,
     Themes,
@@ -1279,7 +1277,14 @@ impl SlideWindow {
                     "design.background" => (MenuKind::Background, "design.background"),
                     "transition.effect" => (MenuKind::TransitionEffect, "transition.effect"),
                     "transition.duration" => (MenuKind::Duration, "transition.duration"),
-                    "transition.more" => (MenuKind::TransitionMore, "transition.more"),
+                    "transition.more" => {
+                        // The full gallery with every transition's card, as the reference.
+                        self.open_picker(
+                            crate::slide_pickers::PickKind::Transitions,
+                            "transition.more",
+                        );
+                        return true;
+                    }
                     // The full gallery: effects by class with their pictures (round 17).
                     "anim.more" | "anim.add" => {
                         let anchor = if id == "anim.add" {
@@ -2056,7 +2061,6 @@ impl SlideWindow {
                 })
                 .unwrap_or_default()
             }
-            MenuKind::TransitionMore => Vec::new(),
             MenuKind::Duration => {
                 let cur = self
                     .view
@@ -2076,20 +2080,6 @@ impl SlideWindow {
                     })
                     .collect()
             }
-        };
-        let on = self.toggled();
-        let gallery = |list: &mut dyn Iterator<Item = &'static str>| -> Vec<MenuItem> {
-            list.map(|id| MenuItem {
-                label: self.strings.get(&format!("commands.{id}")).to_owned(),
-                choice: Choice::Command(id.to_owned()),
-                checked: on.contains(&id),
-                dim: false,
-            })
-            .collect()
-        };
-        let items = match kind {
-            MenuKind::TransitionMore => gallery(&mut sr::TRANSITIONS.iter().map(|(c, _)| *c)),
-            _ => items,
         };
         if items.is_empty() {
             return;
@@ -2140,18 +2130,25 @@ impl SlideWindow {
             }),
             "size" => {
                 let (cx, kind) = if v == "43" {
-                    (9_144_000, Some("screen4x3".to_owned()))
+                    (9_144_000, 1)
                 } else {
-                    (12_192_000, None)
+                    (12_192_000, 0)
                 };
-                let changed = self.view.run_master(MasterCommand::SetSlideSize {
+                let now = self
+                    .view
+                    .state()
+                    .and_then(|s| s.design.as_ref())
+                    .map(|d| (d.cx, d.cy));
+                if now == Some((cx, 6_858_000)) {
+                    return Some(false);
+                }
+                // The reference asks Maximize / Ensure Fit before changing the size.
+                self.open_dialog(ins::SlideDialog::ScaleContent {
                     cx,
                     cy: 6_858_000,
                     kind,
-                    mode: SizeMode::Fit,
                 });
-                self.view.set_zoom(None);
-                changed
+                true
             }
             "bg" => self.view.run_master(MasterCommand::SetBackground {
                 color: (!v.is_empty()).then(|| v.to_owned()),

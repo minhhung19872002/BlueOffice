@@ -13984,6 +13984,27 @@
     "address": "Address"
   },
   "slideR10": {
+    "trans": {
+      "subtle": "Subtle",
+      "exciting": "Exciting"
+    },
+    "table": {
+      "dialog": "Insert Table...",
+      "draw": "Draw Table",
+      "workbook": "Spreadsheet",
+      "title": "Insert Table",
+      "cols": "Number of columns:",
+      "rows": "Number of rows:"
+    },
+    "size": {
+      "maximize": "Maximize",
+      "ensureFit": "Ensure Fit",
+      "question": "You are scaling to a new slide size. Do you want to maximize the size of your content, or scale it down to ensure it will fit?"
+    },
+    "bg": {
+      "gradient": "Gradient fill",
+      "pattern": "Pattern fill"
+    },
     "show": {
       "next": "Next",
       "prev": "Previous",
@@ -14119,7 +14140,7 @@
     "type": {
       "pptx": "Presentation (*.pptx)",
       "potx": "Template (*.potx)",
-      "ppsx": "PowerPoint Show (*.ppsx)",
+      "ppsx": "Slide Show (*.ppsx)",
       "pdf": "PDF (*.pdf)",
       "png": "PNG Portable Network Graphics (*.png)",
       "jpg": "JPEG File Interchange Format (*.jpg)",

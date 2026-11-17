@@ -74,7 +74,7 @@ pub(crate) const TEMPLATES: [(&str, &str, &str); 5] = [
 pub(crate) const FILE_TYPES: [(&str, &str, &str); 8] = [
     ("pptx", "slideR10.type.pptx", "Presentation (*.pptx)"),
     ("potx", "slideR10.type.potx", "Template (*.potx)"),
-    ("ppsx", "slideR10.type.ppsx", "PowerPoint Show (*.ppsx)"),
+    ("ppsx", "slideR10.type.ppsx", "Slide Show (*.ppsx)"),
     ("pdf", "slideR10.type.pdf", "PDF (*.pdf)"),
     (
         "png",

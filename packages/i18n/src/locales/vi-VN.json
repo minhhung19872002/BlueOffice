@@ -13984,6 +13984,27 @@
     "address": "Địa chỉ"
   },
   "slideR10": {
+    "trans": {
+      "subtle": "Tinh tế",
+      "exciting": "Ấn tượng"
+    },
+    "table": {
+      "dialog": "Chèn bảng...",
+      "draw": "Vẽ bảng",
+      "workbook": "Bảng tính",
+      "title": "Chèn bảng",
+      "cols": "Số cột:",
+      "rows": "Số hàng:"
+    },
+    "size": {
+      "maximize": "Phóng to tối đa",
+      "ensureFit": "Đảm bảo vừa",
+      "question": "Bạn đang đổi sang cỡ trang chiếu mới. Bạn muốn phóng nội dung to tối đa, hay thu nhỏ để chắc chắn vừa trang?"
+    },
+    "bg": {
+      "gradient": "Tô chuyển màu",
+      "pattern": "Tô mẫu"
+    },
     "show": {
       "next": "Tiếp",
       "prev": "Trước",

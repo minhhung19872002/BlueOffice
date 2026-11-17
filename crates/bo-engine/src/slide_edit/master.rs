@@ -24,8 +24,9 @@ use super::ops::{PresFields, SlideOp, Tx};
 use super::{next_shape_id, refuse, EditError, Outcome, SizeFit, SlideEditor, SlideSel, Txn, R};
 use crate::{Engine, EngineError};
 use bo_model::slide::{
-    Background, Color, Fill, ListStyle, ParaProps, Presentation, RunProps, ShapeNode, Slide,
-    SlideLayout, SlideMaster, SlideSize, TextFont, Theme,
+    Background, Color, Fill, GradientFill, GradientShade, GradientStop, ListStyle, ParaProps,
+    PatternFill, Presentation, RunProps, ShapeNode, Slide, SlideLayout, SlideMaster, SlideSize,
+    TextFont, Theme,
 };
 use bo_pptx::inherit::{chain, effective_xfrm, find_placeholder, Level};
 use bo_render::{Command, PageList};
@@ -548,6 +549,27 @@ pub enum MasterCommand {
         #[serde(default)]
         all: bool,
     },
+    /// Gradient or pattern background of the current slide (Format Background), as
+    /// §19.3.1.2 bgPr with §20.1.8.33 gradFill or §20.1.8.47 pattFill: `kind` `gradient`
+    /// (`colors` as evenly spaced stops, a linear shade turned `angle` degrees, default 90:
+    /// top to bottom) or `pattern` (`preset` such as `pct20`, `colors` = foreground,
+    /// background). `all`: every slide (normal view).
+    SetBackgroundFill {
+        /// `gradient` or `pattern`.
+        kind: String,
+        /// `RRGGBB` colours.
+        #[serde(default)]
+        colors: Vec<String>,
+        /// Linear gradient angle in degrees.
+        #[serde(default)]
+        angle: Option<f64>,
+        /// Preset pattern (§20.1.10.51 ST_PresetPatternVal).
+        #[serde(default)]
+        preset: Option<String>,
+        /// Apply to every slide.
+        #[serde(default)]
+        all: bool,
+    },
     /// Change a text style of the current master.
     MasterTextStyle {
         /// Which style.
@@ -635,6 +657,7 @@ pub const COMMANDS: &[&str] = &[
     "layoutElements",
     "hideBackgroundGraphics",
     "setBackground",
+    "setBackgroundFill",
     "masterTextStyle",
     "addMaster",
     "applyTheme",
@@ -914,6 +937,16 @@ fn run(tx: &mut Tx<'_>, sel: &mut SlideSel, ctx: &Ctx, cmd: MasterCommand) -> R<
         MasterCommand::HideBackgroundGraphics { hide } => hide_graphics(tx, sel, ctx, hide),
         MasterCommand::SetBackground { color, all } => {
             set_background(tx, sel, ctx, color.as_deref(), all)
+        }
+        MasterCommand::SetBackgroundFill {
+            kind,
+            colors,
+            angle,
+            preset,
+            all,
+        } => {
+            let fill = background_fill(&kind, &colors, angle, preset)?;
+            put_background(tx, sel, ctx, Some(fill), all)
         }
         MasterCommand::MasterTextStyle {
             style,
@@ -1402,16 +1435,81 @@ fn set_background(
     all: bool,
 ) -> R<()> {
     // §19.3.1.1 bg / §19.3.1.2 bgPr with a solid fill (§20.1.8.54).
-    let bg = match color {
-        Some(h) => Some(Background::Props {
-            fill: Fill::Solid(Color::srgb(
-                super::text::parse_hex(h).ok_or(EditError::Refused("badColor"))?,
-            )),
-            shade_to_title: None,
-            extra: Vec::new(),
-        }),
+    let fill = match color {
+        Some(h) => Some(Fill::Solid(Color::srgb(
+            super::text::parse_hex(h).ok_or(EditError::Refused("badColor"))?,
+        ))),
         None => None,
     };
+    put_background(tx, sel, ctx, fill, all)
+}
+
+/// A gradient (§20.1.8.33 gradFill, §20.1.8.41 lin) or pattern (§20.1.8.47 pattFill) fill.
+fn background_fill(
+    kind: &str,
+    colors: &[String],
+    angle: Option<f64>,
+    preset: Option<String>,
+) -> R<Fill> {
+    let parsed: Vec<Color> = colors
+        .iter()
+        .map(|h| {
+            super::text::parse_hex(h)
+                .map(Color::srgb)
+                .ok_or(EditError::Refused("badColor"))
+        })
+        .collect::<R<_>>()?;
+    match kind {
+        "gradient" => {
+            if parsed.len() < 2 {
+                return refuse("badColor");
+            }
+            let last = (parsed.len() - 1) as f64;
+            let stops = parsed
+                .into_iter()
+                .enumerate()
+                .map(|(i, color)| GradientStop {
+                    // §20.1.8.36 gs@pos: 1/1000 %.
+                    pos: (i as f64 / last * 100_000.0).round() as i32,
+                    color,
+                })
+                .collect();
+            Ok(Fill::Gradient(GradientFill {
+                stops,
+                shade: Some(GradientShade::Linear {
+                    // 60 000ths of a degree (§20.1.10.3 ST_Angle).
+                    ang: (angle.unwrap_or(90.0).rem_euclid(360.0) * 60_000.0).round() as i32,
+                    scaled: Some(false),
+                }),
+                rot_with_shape: Some(true),
+                ..GradientFill::default()
+            }))
+        }
+        "pattern" => {
+            let mut it = parsed.into_iter();
+            Ok(Fill::Pattern(PatternFill {
+                preset: Some(preset.unwrap_or_else(|| "pct20".into())),
+                fg: it.next(),
+                bg: it.next(),
+            }))
+        }
+        _ => refuse("badFill"),
+    }
+}
+
+/// Give the current slide (or every slide) the background `fill` (`None` inherits again).
+fn put_background(
+    tx: &mut Tx<'_>,
+    sel: &mut SlideSel,
+    ctx: &Ctx,
+    fill: Option<Fill>,
+    all: bool,
+) -> R<()> {
+    let bg = fill.map(|fill| Background::Props {
+        fill,
+        shade_to_title: None,
+        extra: Vec::new(),
+    });
     let indices: Vec<usize> = if all && !ctx.view {
         (0..tx.pres.slides.len()).collect()
     } else {

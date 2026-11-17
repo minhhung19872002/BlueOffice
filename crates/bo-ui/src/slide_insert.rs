@@ -54,6 +54,18 @@ pub(super) enum SlideDialog {
     KeepInk,
     /// Paragraph indents and spacing.
     Paragraph,
+    /// Insert Table: number of columns and rows.
+    InsertTable,
+    /// The slide size changes to `cx` × `cy` EMU (`kind`: 0 widescreen, 1 standard, 2
+    /// custom): Maximize or Ensure Fit, as the reference asks.
+    ScaleContent {
+        /// New width, EMU.
+        cx: i64,
+        /// New height, EMU.
+        cy: i64,
+        /// Preset of the new size.
+        kind: u8,
+    },
 }
 
 /// Which contextual tabs the selection shows.
@@ -678,7 +690,13 @@ impl SlideWindow {
             return;
         };
         let labels: Vec<String> = match kind {
-            PickKind::Table => vec![self.label("insertTable"), self.label("tableSize")],
+            PickKind::Table => vec![
+                self.label("insertTable"),
+                self.label("tableSize"),
+                tr10(self, "slideR10.table.dialog", "Insert Table..."),
+                tr10(self, "slideR10.table.draw", "Draw Table"),
+                tr10(self, "slideR10.table.workbook", "Spreadsheet"),
+            ],
             PickKind::Shapes => pk::SHAPE_SECTIONS
                 .iter()
                 .map(|(k, _)| self.strings.get(k).to_owned())
@@ -705,6 +723,30 @@ impl SlideWindow {
                         .collect::<Vec<_>>()
                 }))
                 .chain(pk::EFFECT_MORE.iter().map(|(k, _)| self.label(k)))
+                .collect(),
+            PickKind::Transitions => pk::TRANSITION_SECTIONS
+                .iter()
+                .map(|(k, _)| {
+                    tr10(
+                        self,
+                        k,
+                        if k.ends_with("subtle") {
+                            "Subtle"
+                        } else {
+                            "Exciting"
+                        },
+                    )
+                })
+                .chain(pk::TRANSITION_SECTIONS.iter().flat_map(|(_, kinds)| {
+                    kinds
+                        .iter()
+                        .map(|k| {
+                            self.strings
+                                .get(&format!("commands.transition.{k}"))
+                                .to_owned()
+                        })
+                        .collect::<Vec<_>>()
+                }))
                 .collect(),
         };
         if kind == PickKind::Icons && self.library.is_empty() {
@@ -760,6 +802,16 @@ impl SlideWindow {
             return false;
         };
         match kind {
+            "trn" => {
+                let id = format!("transition.{value}");
+                self.action(&id)
+            }
+            "tbl" if value == "dialog" => {
+                self.open_dialog(SlideDialog::InsertTable);
+                true
+            }
+            "tbl" => self.action("sl.drawTable"),
+            "ins" => self.choose_insert(kind, value).unwrap_or(false),
             "table" => {
                 let (c, r) = value.split_once('x').unwrap_or(("2", "2"));
                 let (cols, rows) = (c.parse().unwrap_or(2), r.parse().unwrap_or(2));
@@ -1483,6 +1535,14 @@ impl SlideWindow {
 
     /// Open one of these tabs' dialogs.
     pub(super) fn open_dialog(&mut self, kind: SlideDialog) {
+        fn tr(w: &SlideWindow, k: &str, f: &str) -> String {
+            let v = w.strings.get(k);
+            if v == k {
+                f.to_owned()
+            } else {
+                v.to_owned()
+            }
+        }
         let t = |w: &Self, k: &str| w.strings.get(k).to_owned();
         let d = match kind {
             SlideDialog::Show(k) => {
@@ -1542,6 +1602,47 @@ impl SlideWindow {
                     (t(self, "showTools.discard"), DialogButton::Cancel),
                 ],
                 vec![t(self, "slideNative.keepInkQuestion")],
+            ),
+            SlideDialog::InsertTable => Dialog::new(
+                DialogKind::Comment,
+                tr(self, "slideR10.table.title", "Insert Table"),
+                vec![
+                    (
+                        tr(self, "slideR10.table.cols", "Number of columns:"),
+                        "5".to_owned(),
+                    ),
+                    (
+                        tr(self, "slideR10.table.rows", "Number of rows:"),
+                        "2".to_owned(),
+                    ),
+                ],
+                vec![
+                    (self.label("ok"), DialogButton::Ok),
+                    (self.label("cancel"), DialogButton::Cancel),
+                ],
+                Vec::new(),
+            ),
+            SlideDialog::ScaleContent { .. } => Dialog::new(
+                DialogKind::WordCount,
+                "BlueSlide".to_owned(),
+                Vec::new(),
+                vec![
+                    (
+                        tr(self, "slideR10.size.maximize", "Maximize"),
+                        DialogButton::Ok,
+                    ),
+                    (
+                        tr(self, "slideR10.size.ensureFit", "Ensure Fit"),
+                        DialogButton::Replace,
+                    ),
+                    (self.label("cancel"), DialogButton::Cancel),
+                ],
+                vec![tr(
+                    self,
+                    "slideR10.size.question",
+                    "You are scaling to a new slide size. Do you want to maximize the size of \
+                     your content, or scale it down to ensure it will fit?",
+                )],
             ),
             SlideDialog::Link => Dialog::new(
                 DialogKind::Link,
@@ -1666,6 +1767,39 @@ impl SlideWindow {
         let on = |i: usize| values.get(i).is_some_and(|v| v == "1");
         match kind {
             SlideDialog::Show(_) | SlideDialog::KeepInk => {}
+            SlideDialog::InsertTable => {
+                // The reference accepts 1–75 columns and 1–75 rows.
+                let n = |i: usize| {
+                    values
+                        .get(i)
+                        .and_then(|v| v.trim().parse::<usize>().ok())
+                        .filter(|v| (1..=75).contains(v))
+                };
+                if let (Some(cols), Some(rows)) = (n(0), n(1)) {
+                    self.dialog = None;
+                    self.pick(&format!("table:{cols}x{rows}"), "sl.table");
+                }
+            }
+            SlideDialog::ScaleContent { cx, cy, kind } => {
+                use bo_engine::slide_edit::master::{MasterCommand, SizeMode};
+                let preset = match kind {
+                    0 => None,
+                    1 => Some("screen4x3".to_owned()),
+                    _ => Some("custom".to_owned()),
+                };
+                self.view.run_master(MasterCommand::SetSlideSize {
+                    cx,
+                    cy,
+                    kind: preset,
+                    mode: if b == DialogButton::Ok {
+                        SizeMode::Scale
+                    } else {
+                        SizeMode::Fit
+                    },
+                });
+                self.view.set_zoom(None);
+                self.dialog = None;
+            }
             SlideDialog::Paragraph => self.paragraph_button(values),
             SlideDialog::Compress => self.compress_button(b, values),
             SlideDialog::Section(i) => self.section_button(i, b, values),
@@ -1688,16 +1822,9 @@ impl SlideWindow {
                         .then(|| (inch * 914_400.0).round() as i64)
                 };
                 if let (Some(cx), Some(cy)) = (emu(0), emu(1)) {
-                    self.view.run_master(
-                        bo_engine::slide_edit::master::MasterCommand::SetSlideSize {
-                            cx,
-                            cy,
-                            kind: Some("custom".into()),
-                            mode: bo_engine::slide_edit::master::SizeMode::Fit,
-                        },
-                    );
-                    self.view.set_zoom(None);
+                    // Then Maximize / Ensure Fit, as the reference asks.
                     self.dialog = None;
+                    self.open_dialog(SlideDialog::ScaleContent { cx, cy, kind: 2 });
                 } else if let Some((d, _)) = self.dialog.as_mut() {
                     d.set_message(vec![self.strings.get("slideNative.sizeRange").to_owned()]);
                 }
@@ -1998,29 +2125,80 @@ impl SlideWindow {
             }
             Some(BgHit::Color(c)) => {
                 self.bg_pane.current = Some(c.clone());
+                self.bg_pane.last = None;
                 self.view.run_master(MasterCommand::SetBackground {
                     color: Some(c),
                     all: false,
                 })
             }
             Some(BgHit::HideGraphics) => self.toggle_bg_graphics(),
-            Some(BgHit::ApplyAll) => self.view.run_master(MasterCommand::SetBackground {
-                color: self.bg_pane.current.clone(),
-                all: true,
-            }),
+            Some(BgHit::ApplyAll) => match self.bg_pane.last.clone() {
+                Some(h) => self.run_bg_fill(&h, true),
+                None => self.view.run_master(MasterCommand::SetBackground {
+                    color: self.bg_pane.current.clone(),
+                    all: true,
+                }),
+            },
             Some(BgHit::Reset) => {
                 self.bg_pane.current = None;
+                self.bg_pane.last = None;
                 self.view.run_master(MasterCommand::SetBackground {
                     color: None,
                     all: false,
                 })
             }
+            Some(BgHit::Kind(k)) => {
+                self.bg_pane.kind = k;
+                self.relayout_pending = true;
+                true
+            }
+            Some(h @ (BgHit::Gradient { .. } | BgHit::Pattern { .. })) => {
+                self.bg_pane.last = Some(h.clone());
+                // The direction tiles follow the chosen preset's colours.
+                self.relayout_pending = true;
+                self.run_bg_fill(&h, false)
+            }
             None => false,
         })
     }
 
+    /// Give the slide (or every slide) a gradient or pattern background.
+    pub(super) fn run_bg_fill(&mut self, h: &crate::slide_bgpane::BgHit, all: bool) -> bool {
+        use bo_engine::slide_edit::master::MasterCommand;
+        let cmd = match h {
+            crate::slide_bgpane::BgHit::Gradient { colors, angle } => {
+                MasterCommand::SetBackgroundFill {
+                    kind: "gradient".into(),
+                    colors: colors.clone(),
+                    angle: Some(f64::from(*angle)),
+                    preset: None,
+                    all,
+                }
+            }
+            crate::slide_bgpane::BgHit::Pattern { preset, fg, bg } => {
+                MasterCommand::SetBackgroundFill {
+                    kind: "pattern".into(),
+                    colors: vec![fg.clone(), bg.clone()],
+                    angle: None,
+                    preset: Some(preset.clone()),
+                    all,
+                }
+            }
+            _ => return false,
+        };
+        self.view.run_master(cmd)
+    }
+
     /// Paint the Format Background pane.
     pub(super) fn paint_bg_pane(&self, p: &mut dyn Painter) {
+        let t = |k: &str, f: &str| {
+            let v = self.strings.get(k);
+            if v == k {
+                f.to_owned()
+            } else {
+                v.to_owned()
+            }
+        };
         let labels = [
             self.label("formatBackground"),
             self.label("fill"),
@@ -2030,6 +2208,8 @@ impl SlideWindow {
             self.strings
                 .get("slideEditor.design.resetBackground")
                 .to_owned(),
+            t("slideR10.bg.gradient", "Gradient fill"),
+            t("slideR10.bg.pattern", "Pattern fill"),
         ];
         self.bg_pane.paint(p, &labels, self.theme.text);
     }
@@ -2200,6 +2380,16 @@ fn today(day_first: bool) -> String {
         format!("{d}/{m}/{y}")
     } else {
         format!("{m}/{d}/{y}")
+    }
+}
+
+/// Text of `key`, or `fallback` when the locale has none (round 10 strings).
+fn tr10(w: &SlideWindow, key: &str, fallback: &str) -> String {
+    let v = w.strings.get(key);
+    if v == key {
+        fallback.to_owned()
+    } else {
+        v.to_owned()
     }
 }
 

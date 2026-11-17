@@ -225,7 +225,15 @@ impl crate::Engine {
                 self.sec.write_unlocked = true;
             }
             S::RestrictEditing { password } => self.sec.protect_doc(&password)?,
-            S::StopRestrictEditing { password } => self.sec.unprotect_doc(&password)?,
+            S::StopRestrictEditing { password } => {
+                self.sec.unprotect_doc(&password)?;
+                // The opened document's documentProtection (§17.15.1.29) in the model
+                // guards edits too: lift it with the same password.
+                if let Some(s) = self.session.as_mut() {
+                    crate::forms::unprotect(s, Some(&password))
+                        .map_err(|e| EngineError::BadCommand(e.into()))?;
+                }
+            }
             S::ShowEditableRegions { on } => self.sec.show_regions = on,
             S::NextEditableRegion { forward } => self.next_region(forward),
             S::AddEditableRegion { editor } => {

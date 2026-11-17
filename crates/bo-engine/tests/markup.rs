@@ -42,7 +42,7 @@ fn all_markup_draws_bars_and_comment_balloons() {
     let e = reviewed();
     let p = page(&e);
     let m = &p["markup"];
-    assert_eq!(m["width"], 180.0);
+    assert_eq!(m["width"], f64::from(bo_engine::markup::AREA_WIDTH));
     assert_eq!(m["bars"].as_array().unwrap().len(), 1);
     let b = m["balloons"].as_array().unwrap();
     assert_eq!(b.len(), 1);
@@ -56,7 +56,8 @@ fn all_markup_draws_bars_and_comment_balloons() {
 #[test]
 fn modes_switch_text_and_markup() {
     let mut e = reviewed();
-    // Simple markup: accepted text, red bar, comment as an icon.
+    // Simple markup: accepted text, red bar, the comment's balloon kept beside the page (as
+    // the reference shows it).
     let r = cmd(&mut e, r#"{"cmd":"setMarkup","mode":"simple"}"#);
     assert_eq!(r["review"]["markup"]["mode"], "simple");
     assert_eq!(r["review"]["view"], "final");
@@ -65,7 +66,8 @@ fn modes_switch_text_and_markup() {
     let s = p.to_string();
     assert!(s.contains("mới") && !s.contains("số 1"));
     assert_eq!(p["markup"]["bars"][0]["color"], "#d02121");
-    assert_eq!(p["markup"]["balloons"][0]["icon"], true);
+    assert_eq!(p["markup"]["balloons"][0]["icon"], false);
+    assert_eq!(p["markup"]["balloons"][0]["kind"], "comment");
     // No markup: accepted text, nothing drawn beside the page.
     cmd(&mut e, r#"{"cmd":"setMarkup","mode":"none"}"#);
     let p = page(&e);
@@ -107,4 +109,20 @@ fn markup_options_filter_marks() {
     // The document itself still holds both revisions.
     let r = cmd(&mut e, r#"{"cmd":"review"}"#);
     assert_eq!(r["review"]["revisions"].as_array().unwrap().len(), 2);
+}
+
+#[test]
+fn formatting_changes_get_a_balloon_in_all_markup() {
+    let mut e = Engine::with_bundled_fonts();
+    e.new_document("a.docx").unwrap();
+    cmd(&mut e, r#"{"cmd":"setAuthor","name":"An"}"#);
+    cmd(&mut e, r#"{"cmd":"insertText","text":"Phạm vi kiểm thử"}"#);
+    cmd(&mut e, r#"{"cmd":"setTrackChanges","on":true}"#);
+    cmd(&mut e, r#"{"cmd":"selectAll"}"#);
+    cmd(&mut e, r#"{"cmd":"formatText","format":{"kind":"bold"}}"#);
+    let p = page(&e);
+    let b = p["markup"]["balloons"].as_array().unwrap();
+    assert_eq!(b.len(), 1, "{b:?}");
+    assert_eq!(b[0]["kind"], "format");
+    assert_eq!(b[0]["text"], "Formatted: Font: Bold");
 }

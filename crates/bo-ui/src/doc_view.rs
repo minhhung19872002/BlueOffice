@@ -108,6 +108,8 @@ pub struct DocView {
     /// Revisions of the document and whether tracking is locked (Reviewing Pane, round 6).
     revisions: Vec<bo_edit::RevisionItem>,
     tracking_locked: bool,
+    /// Comment anchors to tint (rectangle, author colour), refreshed after each edit.
+    comment_marks: Vec<(bo_engine::nav::SelRect, Rgba)>,
     selection: Option<bo_edit::Selection>,
     format: FormatState,
     words: usize,
@@ -170,6 +172,7 @@ impl DocView {
             comments: Vec::new(),
             revisions: Vec::new(),
             tracking_locked: false,
+            comment_marks: Vec::new(),
             selection: None,
             format: FormatState::default(),
             words: 0,
@@ -1290,6 +1293,7 @@ impl DocView {
         self.selection = Some(r.selection);
         self.words = r.info.word_count;
         self.story.clone_from(&r.story);
+        self.refresh_comment_marks();
     }
 
     fn reveal_caret(&mut self) {
@@ -1484,6 +1488,7 @@ impl DocView {
                     Rgba(255, 238, 0, 110),
                 );
             }
+            self.paint_comment_marks(p, (slot.index, slot.x, slot.y));
             for r in self.rects.iter().filter(|r| r.page == slot.index) {
                 p.fill_rect(
                     slot.x as f32 + r.x * s,

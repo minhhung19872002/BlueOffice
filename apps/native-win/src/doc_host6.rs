@@ -254,6 +254,8 @@ pub fn print_document(
                 per_sheet: job.per_sheet,
                 order: bo_ui::PageOrder::Horizontal,
                 border: false,
+                margin: 0.0,
+                custom: None,
             }
         } else {
             bo_ui::PrintLayout::Size

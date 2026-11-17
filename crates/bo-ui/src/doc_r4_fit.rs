@@ -146,16 +146,11 @@ pub(crate) fn shrink(label: &str, stage: u8) -> Option<Group> {
         ),
         ("docR4.groupWindow", 1) => g(
             "docR4.groupWindow",
+            vec![L("view.switchWindows")],
             vec![
-                L("view.newWindow"),
-                L("view.arrangeAll"),
-                L("view.split"),
-                L("view.switchWindows"),
-            ],
-            vec![
-                vec![B("view.sideBySide")],
-                vec![B("view.syncScroll")],
-                vec![B("view.resetWindow")],
+                vec![B("view.newWindow"), B("view.sideBySide")],
+                vec![B("view.arrangeAll"), B("view.syncScroll")],
+                vec![B("view.split"), B("view.resetWindow")],
             ],
         ),
         ("docR4.groupWindow", _) => g("docR4.groupWindow", vec![L("view.windowGroup")], vec![]),
@@ -170,6 +165,12 @@ pub(crate) fn shrink(label: &str, stage: u8) -> Option<Group> {
         ),
         _ => None,
     }
+}
+
+/// Fixed widths (logical px) of labeled row buttons, so the icon column after them lines
+/// up as on the reference (Window: New Window / Arrange All / Split).
+pub(crate) fn row_w(id: &str) -> Option<f32> {
+    matches!(id, "view.newWindow" | "view.arrangeAll" | "view.split").then_some(112.0)
 }
 
 /// Entries of a collapsed group's drop-down (and of the round-4 menus added for fitting).

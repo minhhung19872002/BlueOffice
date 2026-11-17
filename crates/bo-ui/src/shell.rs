@@ -319,6 +319,8 @@ impl DocWindow {
                 .with_large_widths(crate::doc_table::large_w)
                 .with_label_drop(4.0)
                 .with_trailing(crate::doc_table::trailing)
+                .with_mark_on_own_line()
+                .with_row_widths(crate::doc_r4_fit::row_w)
                 .with_scaling(
                     crate::doc_r4_fit::scaling,
                     crate::doc_r4_fit::shrink,

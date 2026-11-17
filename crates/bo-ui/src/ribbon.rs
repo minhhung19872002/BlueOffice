@@ -678,20 +678,15 @@ fn view_tab() -> Tab {
                     vec![S("view.pageWidth")],
                 ],
             },
-            // The reference's Window group: three large buttons, a column of three small
-            // ones, Switch Windows ▾.
+            // The reference's Window group: New Window / Arrange All / Split with labels, a
+            // column of three icons, Switch Windows ▾ after them.
             Group {
                 label: "docR4.groupWindow",
-                large: vec![
-                    L("view.newWindow"),
-                    L("view.arrangeAll"),
-                    L("view.split"),
-                    L("view.switchWindows"),
-                ],
+                large: vec![L("view.switchWindows")],
                 rows: vec![
-                    vec![S("view.sideBySide")],
-                    vec![S("view.syncScroll")],
-                    vec![S("view.resetWindow")],
+                    vec![S("view.newWindow"), Item::Button("view.sideBySide")],
+                    vec![S("view.arrangeAll"), Item::Button("view.syncScroll")],
+                    vec![S("view.split"), Item::Button("view.resetWindow")],
                 ],
             },
             Group {

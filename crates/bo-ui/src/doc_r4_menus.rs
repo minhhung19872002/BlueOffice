@@ -651,14 +651,16 @@ const SLATE: Rgba = Rgba(0x3b, 0x47, 0x56, 255);
 #[allow(clippy::too_many_lines)]
 pub(crate) fn draw_cover(p: &mut dyn Painter, id: &str, r: [f32; 4], s: f32) {
     let s = s.abs();
-    let pr = page_rect(r, s);
+    // The page fills the tile above its name (the tile rectangle excludes the caption).
+    let ph = r[3] - 2.0 * s;
+    let pw = (ph * 0.77).min(r[2] - 8.0 * s);
+    let pr = [r[0] + (r[2] - pw) / 2.0, r[1] + s, pw, ph];
     let [x, y, w, h] = pr;
     let u = w / 100.0;
     let slate = id.ends_with(".slate");
     frame(p, pr, if slate { SLATE } else { WHITE });
-    let size = (h * 0.065).round().max(6.0);
+    let size = (h * 0.075).round().max(6.0);
     let t = font("Calibri Light", size, 400);
-    let small = font("Calibri", (size * 0.55).round().max(5.0), 400);
     let ln = s.max(1.0);
     let step = (h * 0.035).max(3.0);
     match id.rsplit('.').next() {
@@ -878,7 +880,6 @@ pub(crate) fn draw_cover(p: &mut dyn Painter, id: &str, r: [f32; 4], s: f32) {
             );
         }
     }
-    let _ = small;
 }
 
 /// Icons of the Cover Page menu rows (own drawings): a page with a globe mark (more

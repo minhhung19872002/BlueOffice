@@ -724,3 +724,96 @@ khác vẫn chạy):
 Còn lại: hộp Preferences thật của bản đối chiếu (không mở được), Loupe / Magnifier, biểu tượng trong menu Select /
 Assistant, ô Margins và "Custom…" của N-up, giấy ngang khi Booklet, tab View lệch 5–15 px và nhãn của ta rộng hơn 1–3 px,
 UIA: focus / mẫu Text / menu và hộp thoại tự vẽ.
+
+## Vòng 13 (2026-11-17)
+
+Mục tiêu chính: độ trung thực khi vẽ trang. Bộ thử 32 tệp PDF tự sinh (`scratchpad/r13/mkcorpus.py`: font chuẩn 14 không
+nhúng, trạng thái chữ Tc/Tw/Tz/Ts/Tr, TrueType nhúng + tiếng Việt, CID CJK không nhúng, CJK dọc (UniGB-UCS2-V), Type 3,
+CFF nhúng, shading kiểu 1–7, tiling / shading pattern, soft mask, nhóm trong suốt (isolated / knockout), 16 blend mode,
+ảnh JPX / CCITT G4 / JBIG2 (MMR) / DCT RGB-xám-CMYK / 16 bpc / stencil / colour key, Indexed / Lab / ICC / CalRGB /
+CalGray / Separation / DeviceN, chú thích có appearance, trang xoay 90 / 270 + CropBox, trang 200 × 100 inch, trang danh
+thiếp, nét / nối / đứt / even-odd / clip, optional content, tài liệu HTML tiếng Việt, form XObject lồng + ảnh inline). Mỗi
+tệp có `/OpenAction /Fit`; bản đối chiếu mở từng tệp trong phiên riêng của ta (không có phiên nào khác đang chạy), cửa sổ
+1500 × 1102, PrintWindow, cắt trang theo khung 1 px; BlueReader vẽ trang đầu bằng `--render` (cùng Direct2D của ứng dụng)
+ở đúng mức zoom đo được; điểm = % điểm ảnh lệch > 48 (sau làm mờ 1 px) và lệch trung bình (`score.py`).
+
+| Tệp | Điểm ảnh lệch % trước | sau | Lệch TB trước | sau |
+| --- | ---: | ---: | ---: | ---: |
+| 01-std14 | 1.40 | 1.40 | 2.53 | 2.53 |
+| 02-text-state | 0.11 | 0.11 | 0.58 | 0.58 |
+| 03-truetype-vietnamese | 0.33 | 0.33 | 1.56 | 1.56 |
+| 04-cjk-cid | 2.56 | 0.61 | 3.26 | 1.07 |
+| 05-vertical-cjk | 2.03 | 0.03 | 2.17 | 0.39 |
+| 06-type3 | 0.46 | 0.00 | 0.73 | 0.10 |
+| 07-embedded-cff | 0.20 | 0.20 | 1.08 | 1.08 |
+| 08-shading1-function | 0.42 | 0.42 | 1.52 | 1.52 |
+| 09-shading2-axial | 12.66 | 0.38 | 22.50 | 1.45 |
+| 10-shading3-radial | 0.01 | 0.01 | 1.07 | 1.07 |
+| 11-shading4-free-triangles | 0.17 | 0.17 | 1.00 | 1.00 |
+| 12-shading5-lattice | 0.06 | 0.06 | 1.08 | 1.08 |
+| 13-shading6-coons | 0.00 | 0.00 | 0.78 | 0.78 |
+| 14-shading7-tensor | 0.00 | 0.00 | 0.74 | 0.74 |
+| 15-patterns | 27.10 | 10.84 | 34.70 | 14.31 |
+| 16-softmask-alpha | 0.59 | 0.33 | 1.17 | 0.76 |
+| 17-transparency-groups | 8.51 | 2.95 | 11.37 | 1.70 |
+| 18-blend-modes | 0.47 | 0.47 | 2.68 | 2.68 |
+| 19-image-jpx | 0.14 | 0.14 | 0.38 | 0.38 |
+| 20-image-ccitt | 0.01 | 0.01 | 0.58 | 0.58 |
+| 21-image-jbig2 | 0.03 | 0.03 | 0.66 | 0.66 |
+| 22-image-types | 3.74 | 0.40 | 5.58 | 0.95 |
+| 23-colour-spaces | 0.76 | 0.76 | 2.03 | 1.55 |
+| 24-annotations | 0.39 | 0.39 | 1.35 | 1.35 |
+| 25-rotate-90 | 0.05 | 0.05 | 0.20 | 0.20 |
+| 26-rotate-270-cropbox | 0.01 | 0.01 | 0.18 | 0.18 |
+| 27-huge-page | 0.30 | 0.30 | 1.19 | 1.19 |
+| 28-small-page | 0.42 | 0.42 | 1.25 | 1.25 |
+| 29-strokes-clip | 1.78 | 0.04 | 2.91 | 0.61 |
+| 30-optional-content | 0.00 | 0.00 | 0.18 | 0.18 |
+| 31-html-document | 0.03 | 0.03 | 0.68 | 0.68 |
+| 32-forms-inline-images | 0.77 | 0.77 | 0.87 | 0.87 |
+| **Trung bình** | 2.05 | 0.68 | | |
+
+Ảnh: `reader-84-render-worst-before.png` (6 tệp tệ nhất trước), `reader-85`, `reader-86`, `reader-88-render-final.png`
+(sau), `reader-87-loupe-magnifier.png`, `reader-89-annot-interop.png` (bản đối chiếu trái / trên).
+
+Đã sửa trong `bo-pdfread` (test `render13_tests.rs`, `evenodd.rs`, `stroke_outline.rs`, `openaction.rs`):
+- Tiling pattern không màu (`/PaintType 2`): ô vẽ bằng màu `scn` trong không gian nền; trước đây ô tự tô lại bằng chính
+  pattern, đệ quy tới giới hạn và **bỏ cả phần còn lại của trang**. Ô pattern có màu bắt đầu từ đen.
+- Shading trục theo `/Extend` (trước: luôn kéo dài cả hai đầu).
+- JPEG xám giải mã một kênh (trước: đọc như RGB → ba bản thu nhỏ + đen).
+- Font CJK không nhúng: CMap Unicode định sẵn (`Uni*-UCS2-*`, `Uni*-UTF16-*`) cho mã = ký tự (đọc, tìm, chép được), độ
+  rộng ASCII theo CID 1–95; mặt chữ cài sẵn theo Ordering / tên (SimSun, JhengHei, MS Gothic / Mincho, Malgun Gothic…), độ
+  đậm theo `/FontWeight`, `/StemV` và quy tắc đo trên bản đối chiếu (CNS1 / Japan1 / Korea1 không có cờ Serif và chưa cài
+  → đậm; font đã cài giữ độ đậm của nó). Chữ dọc dùng dạng trình bày dọc của dấu câu (。：「 …).
+- Alpha của nhóm trong suốt áp cho cả nhóm, nội dung bắt đầu ở alpha 1; nhóm knockout bỏ blend giữa các đối tượng; nhóm
+  isolated có blend bên trong được đánh dấu (`PushGroup.isolated`, trường serde mới, mặc định false) và Direct2D vẽ trong
+  layer riêng (không trộn với nền trang).
+- Tô / clip even-odd (`f*` `B*` `b*` `W*`): đường con lồng nhau đổi chiều theo độ sâu; đường tự cắt (ngôi sao một nét)
+  thay bằng biên của vùng even-odd (cắt cạnh tại giao điểm, giữ cạnh có vùng ở một phía). Có hiệu lực cho cả `--render`
+  lẫn ứng dụng (cùng display list).
+- CalGray / CalRGB theo gamma + ma trận → sRGB; tài nguyên ColorSpace tên `/G` `/RGB` `/CMYK` không bị nhầm là viết tắt.
+- Chữ tô bằng pattern (shading / tiling) vẽ đường viền glyph tô pattern (trước: đen); nét vẽ bằng pattern tô vùng nét (độ
+  rộng, đầu, nối, đứt) bằng ô pattern (trước: xám).
+- `/OpenAction` (Fit / FitH / XYZ zoom, trang) được theo khi mở tệp như bản đối chiếu.
+- Chú thích ta lưu mở trong bản đối chiếu: 15 chú thích đủ tác giả, nội dung, ngày, trả lời trên ghi chú. Sửa: squiggly vẽ
+  sóng trong appearance (trước: đường thẳng, bản đối chiếu hiện như gạch dưới), chữ của stamp nằm trong khung (trước:
+  đường chân chữ đặt ở đáy chữ hoa, chữ tràn ra ngoài).
+
+Còn khác (có lý do): 15-patterns 10,8 % là pha ô pattern (của ta khớp MuPDF, bản đối chiếu neo khác); 17 nhóm isolated
+không knockout: các đối tượng trong nhóm chồng nhau theo Normal (bản đối chiếu Multiply) — cần đọc backdrop trong layer;
+01 ZapfDingbats: bảng mã đúng §D.5 (kiểm bằng `--text`), khác hình do font thay thế (Segoe UI Symbol); 23 ảnh Indexed
+2-bit lệch nhỏ.
+
+**Loupe / Magnifier** (View ▸ Assistant, `reader_r13_win.rs`, test `reader_r13_tests.rs`). Bản đối chiếu mở trong phiên
+riêng bằng phím gửi vào menu bật lên (không thao tác thật). Loupe Tool: khung 518 × 522 px góc trái vùng trang, thanh
+tiêu đề + đóng, vùng xem phóng trang quanh chỗ nhấp (mặc định 200 %, 100–1 600 %), ô zoom (menu các mức), −, thanh
+trượt, +, Lock (khoá chỗ); vùng đang xem đóng khung trên trang; kéo được khung. Magnifier: kính tròn 280 px theo con trỏ,
+phóng 2,25 × zoom xem, tay cầm tự vẽ (không chép hình của hãng). Cả hai vẽ từ ảnh trang render ở đúng tỉ lệ của chúng (ô
+ảnh của xem trước in) nên chữ nét.
+
+**Chiều ngược (bản đối chiếu → ta)**: bản đối chiếu không tạo chú thích từ thao tác kéo gửi bằng thông điệp (cần thao tác
+thật), nên phần này dựa vào tệp của trình ghi khác (tệp 24, 0,39 %).
+
+Còn lại: ribbon tab View lệch 5–15 px và nhãn rộng hơn 1–3 px (đo lại: lệch dồn từ Hand: Read Mode −5, Rotate −10, View
+Setting −14 px), biểu tượng trong menu Select / Assistant, phần in (Margins / "Custom…" của N-up, giấy ngang khi Booklet,
+viền trang khi in), nhóm isolated có blend đầy đủ.

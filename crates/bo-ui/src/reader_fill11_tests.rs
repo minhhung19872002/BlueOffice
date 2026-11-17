@@ -411,3 +411,72 @@ fn fill_and_sign_keeps_the_status_bar_in_place() {
     let after: Vec<_> = ids.iter().map(|id| w.control_rect(id)).collect();
     assert_eq!(before, after);
 }
+
+#[test]
+fn comb_field_apply_all_and_keep_tool_follow_the_reference() {
+    let mut w = window_with(pdf(1));
+    w.run_command("prot.fillSign", &Fixed);
+    // Grey at rest, as the reference.
+    assert!(!w.enabled("fill.keep"));
+    assert!(!w.enabled("fill.applyAll"));
+    // Comb Field: one character per cell, Enter ends it.
+    w.run_command("fill.comb", &Fixed);
+    assert!(w.enabled("fill.keep"));
+    let p = at(&w, 100.0, 200.0);
+    click(&mut w, p);
+    w.handle(Input::Text("AB C".into()), &Fixed);
+    key(&mut w, Key::Enter, false);
+    assert!(w.eleven.typing.is_none());
+    let a = w.view().expect("view").doc().annotations();
+    let texts: Vec<&str> = a.iter().map(|x| x.contents.as_str()).collect();
+    assert_eq!(texts, ["A", "B", "C"]);
+    // 14 pt apart; the space keeps its cell.
+    assert!((a[1].rect[0] - a[0].rect[0] - 14.0).abs() < 0.5, "{a:?}");
+    assert!((a[2].rect[0] - a[0].rect[0] - 42.0).abs() < 0.5, "{a:?}");
+    // A signature placed: Apply All Signatures turns on and flattens the Fill & Sign items.
+    w.run_command("fill.newSig", &Fixed);
+    w.handle(Input::Text("Ann".into()), &Fixed);
+    key(&mut w, Key::Enter, false);
+    let p = at(&w, 300.0, 250.0);
+    click(&mut w, p);
+    assert!(w.enabled("fill.applyAll"));
+    w.run_command("fill.applyAll", &Fixed);
+    assert_eq!(w.view().expect("view").doc().annotations().len(), 0);
+    assert!(!w.enabled("fill.applyAll"));
+}
+
+#[test]
+fn create_signature_paste_options_and_system_fonts() {
+    let mut w = window_with(pdf(1));
+    w.run_command("prot.fillSign", &Fixed);
+    w.run_command("fill.newSig", &Fixed);
+    assert!(w
+        .take_requests()
+        .contains(&ReaderRequest::Command("host.sigfonts11".into())));
+    // A handwriting font of the system comes first and becomes the default.
+    let font = include_bytes!("../../../assets/fonts/Caladea-Italic.ttf").to_vec();
+    let mut b = b"Script Test\0".to_vec();
+    b.extend_from_slice(&font);
+    assert!(w.file_picked11("sigfont11", &b));
+    assert_eq!(w.faces11()[0], "Script Test");
+    w.handle(Input::Text("Ann".into()), &Fixed);
+    // Options: discard on close keeps it out of the saved file.
+    let d = w.eleven.dialog.as_mut().expect("dialog");
+    d.discard = true;
+    key(&mut w, Key::Enter, false);
+    let s = w.eleven.sigs[0].clone();
+    assert!(s.session);
+    assert!(matches!(s.ink, SignatureInk::Shape { .. }));
+    assert!(!w
+        .take_requests()
+        .iter()
+        .any(|r| matches!(r, ReaderRequest::Command(c) if c.starts_with("host.sigs11:S"))));
+    // Paste page asks the host for the clipboard picture.
+    w.run_command("fill.newSig", &Fixed);
+    w.eleven.dialog.as_mut().expect("dialog").tab = 3;
+    let parts = w.dlg_parts11();
+    click(&mut w, (parts.browse[0] + 4.0, parts.browse[1] + 4.0));
+    assert!(w
+        .take_requests()
+        .contains(&ReaderRequest::Command("host.sigpaste11".into())));
+}

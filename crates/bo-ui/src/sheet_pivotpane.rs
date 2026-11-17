@@ -343,6 +343,29 @@ impl SheetWindow {
         self.view.run(json!({
             "cmd": "autofit", "sheet": sheet, "rows": false, "first": c0, "last": c1,
         }));
+        // The "Row Labels" header's field button needs room beside its text (12 pt).
+        let compact = self
+            .view
+            .engine()
+            .workbook()
+            .and_then(|wb| wb.sheets.get(sheet)?.pivots.get(index))
+            .is_some_and(|p| {
+                p.layout == bo_model::sheet::PivotLayout::Compact && !p.rows.is_empty()
+            });
+        if compact {
+            let vp = self.view.viewport();
+            let w = self
+                .view
+                .engine_mut()
+                .view_layout(sheet, &vp)
+                .map_or(0.0, |(_, g)| g.col_width(c0));
+            if w > 0.0 {
+                self.view.run(json!({
+                    "cmd": "resize", "sheet": sheet, "rows": false, "first": c0, "last": c0,
+                    "size": w + 12.0,
+                }));
+            }
+        }
         self.view.engine_mut().merge_history_since(depth);
     }
 
@@ -1375,11 +1398,19 @@ impl SheetWindow {
             [264.0, 212.0, 0.0, 0.0],
             Kind::Label(t("sheetPivot.baseItem", "Base item:")),
         );
-        let base_items = Self::base_items(&p, o.base_field, &t);
+        // The base item list stays empty while the calculation needs none (as the
+        // reference shows it).
+        let needs_item = SHOW_AS[si].3;
+        let base_items = if needs_item {
+            Self::base_items(&p, o.base_field, &t)
+        } else {
+            Vec::new()
+        };
         let bi = match o.base_item {
-            BASE_PREVIOUS => 0,
-            BASE_NEXT => 1,
-            n => n as usize + 2,
+            _ if !needs_item => None,
+            BASE_PREVIOUS => Some(0),
+            BASE_NEXT => Some(1),
+            n => Some(n as usize + 2),
         };
         form.add(
             "baseI",
@@ -1387,7 +1418,7 @@ impl SheetWindow {
             [264.0, 232.0, 218.0, 105.0],
             Kind::List {
                 items: base_items,
-                sel: Some(bi),
+                sel: bi,
                 top: 0,
             },
         );
@@ -1461,9 +1492,24 @@ impl SheetWindow {
                 }
             }
             Event::Changed("show") => {
+                let Some(p) = self.pivot.clone() else {
+                    return;
+                };
+                let (si, bf) = self.form.as_ref().map_or((0, 0), |f| {
+                    (f.sel("show").unwrap_or(0), f.sel("baseF").unwrap_or(0))
+                });
+                let needs_item = SHOW_AS[si.min(SHOW_AS.len() - 1)].3;
+                let items = if needs_item {
+                    Self::base_items(&p, bf as u32, &|k, d| self.t(k, d))
+                } else {
+                    Vec::new()
+                };
                 if let Some(form) = self.form.as_mut() {
-                    let si = form.sel("show").unwrap_or(0);
                     Self::vfs_enable(form, si);
+                    let had = form.sel("baseI").is_some();
+                    if needs_item != had {
+                        form.set_items("baseI", items, needs_item.then_some(0));
+                    }
                 }
             }
             Event::Changed("baseF") => {
@@ -1473,6 +1519,10 @@ impl SheetWindow {
                 let bf = self.form.as_ref().and_then(|f| f.sel("baseF")).unwrap_or(0);
                 let items = Self::base_items(&p, bf as u32, &|k, d| self.t(k, d));
                 if let Some(form) = self.form.as_mut() {
+                    let si = form.sel("show").unwrap_or(0).min(SHOW_AS.len() - 1);
+                    if !SHOW_AS[si].3 {
+                        return;
+                    }
                     form.set_items("baseI", items, Some(0));
                 }
             }

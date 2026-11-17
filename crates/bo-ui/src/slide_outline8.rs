@@ -13,7 +13,6 @@ use super::SlideWindow;
 use crate::{Key, Mods, Painter};
 use bo_engine::slide_edit::outline::{self, OutlineBullet, OutlineEdit, OutlineSlide, MAX_LEVEL};
 use bo_engine::slide_edit::views::ViewCommand;
-use bo_render::Rgba;
 
 /// A line of the outline: slide, and its body paragraph (`None`: the title).
 pub(super) type Line = (usize, Option<usize>);
@@ -91,27 +90,14 @@ pub(super) fn shifted(
 }
 
 impl SlideWindow {
-    /// The outline line at window position `y` (row tops from the last layout).
+    /// The outline line at window position `y` (listed lines from the last layout).
     pub(super) fn outline_line_at(&self, y: f32) -> Option<Line> {
-        let (top, slide) = self.outline_rows.iter().rev().find(|(top, _)| y >= *top)?;
-        let (_, line) = self.outline_metrics();
-        let k = ((y - top) / line).floor() as usize;
-        let pres = self.view.engine().presentation()?;
-        let o = outline::slide_outline(pres.slides.get(*slide)?);
-        Some(match k {
-            0 => (*slide, None),
-            // The k-th listed (non-empty) paragraph.
-            k => match o
-                .bullets
-                .iter()
-                .enumerate()
-                .filter(|(_, b)| !b.text.trim().is_empty())
-                .nth(k - 1)
-            {
-                Some((i, _)) => (*slide, Some(i)),
-                None => (*slide, None),
-            },
-        })
+        self.outline9
+            .hits
+            .iter()
+            .rev()
+            .find(|h| y >= h.y)
+            .map(|h| h.line)
     }
 
     /// Demote / promote the chosen outline line.
@@ -151,43 +137,14 @@ impl SlideWindow {
                 self.outline_sel = None;
                 Some(true)
             }
-            _ => None,
+            _ => self.outline_caret_key(k, m),
         }
     }
 
-    /// Frame the chosen outline line.
+    /// The caret on the chosen outline line (round 19: the reference shows a caret, not a
+    /// frame).
     pub(super) fn paint_outline_sel(&self, p: &mut dyn Painter) {
-        let Some((slide, b)) = self.outline_sel else {
-            return;
-        };
-        let Some((top, _)) = self.outline_rows.iter().find(|(_, s)| *s == slide) else {
-            return;
-        };
-        let (_, line) = self.outline_metrics();
-        // Rows of the paragraphs listed before it (empty ones are not).
-        let row = b.map_or(0, |b| {
-            self.view
-                .engine()
-                .presentation()
-                .and_then(|p| p.slides.get(slide))
-                .map_or(b, |s| {
-                    outline::slide_outline(s)
-                        .bullets
-                        .iter()
-                        .take(b)
-                        .filter(|x| !x.text.trim().is_empty())
-                        .count()
-                })
-                + 1
-        });
-        let y = top + line * row as f32;
-        let area = self.outline_area();
-        let c = Rgba(0x5b, 0x8f, 0xd0, 255);
-        let (x, w) = (area[0] + self.px(2.0), area[2] - self.px(4.0));
-        p.fill_rect(x, y - 1.0, w, 1.0, c);
-        p.fill_rect(x, y + line, w, 1.0, c);
-        p.fill_rect(x, y - 1.0, 1.0, line + 2.0, c);
-        p.fill_rect(x + w - 1.0, y - 1.0, 1.0, line + 2.0, c);
+        self.paint_outline_caret(p);
     }
 }
 

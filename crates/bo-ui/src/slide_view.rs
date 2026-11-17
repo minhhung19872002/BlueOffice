@@ -355,6 +355,11 @@ pub struct SlideView {
     /// (slide points: from, to, grammar), checked again on the next tick after a change.
     spell: Vec<([f64; 2], [f64; 2], bool)>,
     spell_dirty: bool,
+    /// Bumped whenever a command changes slide content (round 19: checks cached on it).
+    content_rev: u64,
+    /// The last update of an editing-area slide image, ms: display list, change band,
+    /// GPU update, copy kept (round 19 keystroke profile).
+    ensure_ms: [f32; 4],
     /// Slide Sorter zoom (1 = 100 %).
     sort_zoom: f32,
     /// Draw tab tool in use, and the stroke being drawn (slide points).
@@ -447,6 +452,8 @@ impl SlideView {
             live_since: None,
             spell: Vec::new(),
             spell_dirty: true,
+            content_rev: 0,
+            ensure_ms: [0.0; 4],
             sort_zoom: 1.0,
             ink_tool: None,
             draw_ruler: None,
@@ -523,6 +530,27 @@ impl SlideView {
             .as_ref()
             .map(|s| s.format.clone())
             .unwrap_or_default()
+    }
+
+    /// Length of the undo history (to merge the steps made after it).
+    pub fn history_mark(&mut self) -> usize {
+        self.history_len()
+    }
+
+    /// Merge the undo steps made since `history_mark` into one.
+    pub fn merge_history(&mut self, since: usize) -> bool {
+        self.history_len() > since + 1 && self.run(SlideCommand::MergeHistory { since })
+    }
+
+    /// Time spent on the last editing-area slide image (display list, change band, GPU
+    /// update, copy kept), ms.
+    pub fn ensure_ms(&self) -> [f32; 4] {
+        self.ensure_ms
+    }
+
+    /// A number that changes whenever a command changes slide content.
+    pub fn content_rev(&self) -> u64 {
+        self.content_rev
     }
 
     /// Undo / redo are available.
@@ -1158,6 +1186,9 @@ impl SlideView {
         self.caret_on = true;
         if moved || !r.dirty.is_empty() || r.slides_changed {
             self.spell_dirty = true;
+        }
+        if !r.dirty.is_empty() || r.slides_changed {
+            self.content_rev += 1;
         }
         self.state = Some(r);
     }
@@ -2582,11 +2613,13 @@ impl SlideView {
         slide: usize,
         scale: f32,
     ) -> Result<bool, String> {
+        let t0 = std::time::Instant::now();
         // Ink Replay draws the slide without its ink under the strokes it replays.
         let list = match self.replay.as_ref().filter(|r| r.slide == slide) {
             Some(r) => &r.backdrop,
             None => self.engine.slide(slide).map_err(|e| e.to_string())?,
         };
+        let t1 = std::time::Instant::now();
         let band = if self.full.contains(&key) {
             None
         } else {
@@ -2603,6 +2636,7 @@ impl SlideView {
                 None => None,
             }
         };
+        let t2 = std::time::Instant::now();
         // The editing area and thumbnails show the View tab's colour mode (slide shows
         // stay in colour).
         if self.color_mode != colormode::ColorMode::Color && key < SHOW_KEY {
@@ -2611,7 +2645,17 @@ impl SlideView {
         } else {
             store.update(key, list, &self.engine, scale, band)?;
         }
+        let t3 = std::time::Instant::now();
         self.shown.insert(key, (scale, list.clone()));
+        if key < THUMB_KEY {
+            let ms = |a: std::time::Instant, b: std::time::Instant| (b - a).as_secs_f32() * 1e3;
+            self.ensure_ms = [
+                ms(t0, t1),
+                ms(t1, t2),
+                ms(t2, t3),
+                ms(t3, std::time::Instant::now()),
+            ];
+        }
         self.stale.remove(&key);
         self.full.remove(&key);
         Ok(true)

@@ -656,7 +656,11 @@ impl SlideWindow {
                         | SideHit::Suggestion(_)),
                     ) => self.spelling_hit(&h),
                     Some(
-                        h @ (SideHit::ThesBack | SideHit::ThesLookup(_) | SideHit::ThesToggle(_)),
+                        h @ (SideHit::ThesBack
+                        | SideHit::ThesLookup(_)
+                        | SideHit::ThesToggle(_)
+                        | SideHit::ThesMenu(_)
+                        | SideHit::ThesScroll(_)),
                     ) => self.thesaurus_hit(&h, *count),
                     Some(h @ (SideHit::Goto(..) | SideHit::PaneMenu | SideHit::Speak)) => {
                         self.review_side_hit(&h).unwrap_or(false)
@@ -725,6 +729,8 @@ impl SlideWindow {
                     self.t("slideNative.a11yErrors", "Errors"),
                 ];
                 self.side.record_a11y(text, &rows, &labels, self.theme.text);
+                // Drawn over by the round-19 pane (`slide_a11y9.rs`).
+                self.a9_layout(text);
             }
             SideKind::Spelling => {
                 let shown = self.spell_shown();

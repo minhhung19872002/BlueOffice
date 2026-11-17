@@ -151,6 +151,11 @@ impl SlideWindow {
                     self.t("spell.noProof", "Do not check spelling"),
                     "rv:noproof".into(),
                 ));
+                // The reference's Set Proofing Language… opens the Language dialog.
+                items.push((
+                    self.t("slideNative.lang.setProofing", "Set Proofing Language..."),
+                    "rv:langdlg".into(),
+                ));
                 self.review_menu(items, "sl.language");
                 true
             }
@@ -207,6 +212,10 @@ impl SlideWindow {
             "alt" => self.action("sl.altText"),
             "sel" => self.action("sl.selPane"),
             "noproof" => self.view.format_text(TextFormat::Lang { lang: None }),
+            "langdlg" => self.open_language_dialog(),
+            "readnext" | "readprev" | "readedit" => self.choose_reading(v),
+            v if v.starts_with("thesins:") => self.thesaurus_insert_word(&v["thesins:".len()..]),
+            v if v.starts_with("thescopy:") => self.thesaurus_copy(&v["thescopy:".len()..]),
             "hideink" => {
                 let hide = !self.view.engine().slide_hide_ink();
                 self.view.set_hide_ink(hide)

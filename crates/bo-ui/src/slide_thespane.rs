@@ -23,6 +23,20 @@ pub struct ThesState {
     pub back: Vec<String>,
     /// Folded meanings (indices).
     pub folded: Vec<usize>,
+    /// Rows scrolled off the top of the list (round 19).
+    pub scroll: usize,
+    /// The row under the pointer (its drop-down shows), by its place in the list.
+    pub hover: Option<usize>,
+    /// The pointer is over the pane (the wheel scrolls the list).
+    pub ptr: bool,
+}
+
+/// A row of the Thesaurus list.
+enum ThesRow {
+    /// Meaning `n`'s heading, folded or not.
+    Head(usize, String, bool),
+    /// A synonym or antonym (the word looked up, the text shown).
+    Word(String, String),
 }
 
 /// Abbreviation of a WordNet part of speech, as the reference writes it.
@@ -209,10 +223,10 @@ impl SidePane {
                 ry += row;
             }
         }
-        'list: for (i, m) in meanings.iter().enumerate() {
-            if ry + row > bottom {
-                break;
-            }
+        // Every row of the list (round 19: it scrolls), antonyms marked as the reference
+        // marks them.
+        let mut rows = Vec::new();
+        for (i, m) in meanings.iter().enumerate() {
             let head = format!(
                 "{} ({})",
                 m.synonyms
@@ -221,57 +235,129 @@ impl SidePane {
                 pos_label(&m.pos)
             );
             let folded = self.thes.folded.contains(&i);
-            // Chevron: down when open, right when folded.
-            let (cx, cy, k) = (left + self.px(7.2), ry + row / 2.0, self.px(3.6));
-            let segs = if folded {
-                vec![
-                    PathSeg::M(cx - k / 2.0, cy - k),
-                    PathSeg::L(cx + k / 2.0, cy),
-                    PathSeg::L(cx - k / 2.0, cy + k),
-                ]
-            } else {
-                vec![
-                    PathSeg::M(cx - k, cy - k / 2.0),
-                    PathSeg::L(cx, cy + k / 2.0),
-                    PathSeg::L(cx + k, cy - k / 2.0),
-                ]
-            };
-            ops.push(Op::Path(segs, None, Some((ink, stroke))));
-            ops.push(Op::Text(head, tx, text_y(ry), body, ink));
-            hits.push(([left + 1.0, ry, width - 2.0, row], SideHit::ThesToggle(i)));
-            ry += row;
+            rows.push(ThesRow::Head(i, head, folded));
             if folded {
                 continue;
             }
             for s in &m.synonyms {
-                if ry + row > bottom {
-                    break 'list;
-                }
-                ops.push(Op::Text(s.clone(), tx, text_y(ry), body, ink));
-                hits.push((
-                    [left + 1.0, ry, width - 2.0, row],
-                    SideHit::ThesLookup(s.clone()),
-                ));
-                ry += row;
+                rows.push(ThesRow::Word(s.clone(), s.clone()));
             }
-            // Antonyms after the synonyms, marked as the reference marks them.
             for a in &m.antonyms {
-                if ry + row > bottom {
-                    break 'list;
-                }
-                ops.push(Op::Text(
-                    format!("{a} ({})", labels[3]),
-                    tx,
-                    text_y(ry),
-                    body,
-                    ink,
-                ));
-                hits.push((
-                    [left + 1.0, ry, width - 2.0, row],
-                    SideHit::ThesLookup(a.clone()),
-                ));
-                ry += row;
+                rows.push(ThesRow::Word(a.clone(), format!("{a} ({})", labels[3])));
             }
+        }
+        let fits = (((bottom - ry) / row).floor().max(1.0)) as usize;
+        let max_scroll = rows.len().saturating_sub(fits);
+        self.thes.scroll = self.thes.scroll.min(max_scroll);
+        let bar = rows.len() > fits;
+        // A classic scroll bar inside the frame when the list is longer than its room.
+        let bw = if bar { self.px(13.6) } else { 0.0 };
+        let row_w = width - 2.0 - bw;
+        for (k, r) in rows.iter().enumerate().skip(self.thes.scroll).take(fits) {
+            let rr = [left + 1.0, ry, row_w, row];
+            match r {
+                ThesRow::Head(i, head, folded) => {
+                    // Chevron: down when open, right when folded.
+                    let (cx, cy, k) = (left + self.px(7.2), ry + row / 2.0, self.px(3.6));
+                    let segs = if *folded {
+                        vec![
+                            PathSeg::M(cx - k / 2.0, cy - k),
+                            PathSeg::L(cx + k / 2.0, cy),
+                            PathSeg::L(cx - k / 2.0, cy + k),
+                        ]
+                    } else {
+                        vec![
+                            PathSeg::M(cx - k, cy - k / 2.0),
+                            PathSeg::L(cx, cy + k / 2.0),
+                            PathSeg::L(cx + k, cy - k / 2.0),
+                        ]
+                    };
+                    ops.push(Op::Path(segs, None, Some((ink, stroke))));
+                    ops.push(Op::Text(head.clone(), tx, text_y(ry), body, ink));
+                    hits.push((rr, SideHit::ThesToggle(*i)));
+                }
+                ThesRow::Word(word, shown) => {
+                    if self.thes.hover == Some(k) {
+                        // The hovered word: a light band and its drop-down (Insert / Copy).
+                        ops.push(Op::Rect(rr, ROW_SEL));
+                        let dw = self.px(20.0);
+                        let d = [rr[0] + rr[2] - dw, ry, dw, row];
+                        ops.push(Op::Rect(d, BUTTON_EDGE));
+                        ops.push(Op::Rect(
+                            [d[0] + 1.0, d[1] + 1.0, d[2] - 2.0, d[3] - 2.0],
+                            WHITE,
+                        ));
+                        let (ax, ay, k) = (d[0] + dw / 2.0, ry + row / 2.0, self.px(3.2));
+                        ops.push(Op::Path(
+                            vec![
+                                PathSeg::M(ax - k, ay - k / 2.0),
+                                PathSeg::L(ax + k, ay - k / 2.0),
+                                PathSeg::L(ax, ay + k / 2.0),
+                                PathSeg::Z,
+                            ],
+                            Some(ink),
+                            None,
+                        ));
+                        hits.push((rr, SideHit::ThesLookup(word.clone())));
+                        hits.push((d, SideHit::ThesMenu(word.clone())));
+                    } else {
+                        hits.push((rr, SideHit::ThesLookup(word.clone())));
+                    }
+                    ops.push(Op::Text(shown.clone(), tx, text_y(ry), body, ink));
+                }
+            }
+            ry += row;
+        }
+        if bar {
+            let track = [left + width - 1.0 - bw, ly + 1.0, bw, lh - 2.0];
+            ops.push(Op::Rect(track, Rgba(0xf0, 0xf0, 0xf0, 255)));
+            let (ah, k) = (bw, self.px(3.2));
+            let cx = track[0] + bw / 2.0;
+            for (cy, up) in [
+                (track[1] + ah / 2.0, true),
+                (track[1] + track[3] - ah / 2.0, false),
+            ] {
+                let d = if up { -k / 2.0 } else { k / 2.0 };
+                ops.push(Op::Path(
+                    vec![
+                        PathSeg::M(cx - k, cy - d),
+                        PathSeg::L(cx + k, cy - d),
+                        PathSeg::L(cx, cy + d),
+                        PathSeg::Z,
+                    ],
+                    Some(Rgba(0x60, 0x60, 0x60, 255)),
+                    None,
+                ));
+            }
+            let room = track[3] - 2.0 * ah;
+            let len = (room * fits as f32 / rows.len() as f32)
+                .max(self.px(16.0))
+                .min(room);
+            let ty =
+                track[1] + ah + (room - len) * self.thes.scroll as f32 / max_scroll.max(1) as f32;
+            ops.push(Op::Rect(
+                [track[0] + 2.0, ty.round(), bw - 4.0, len.round()],
+                Rgba(0xc2, 0xc2, 0xc2, 255),
+            ));
+            let page = i32::try_from(fits.saturating_sub(1).max(1)).unwrap_or(1);
+            hits.push(([track[0], track[1], bw, ah], SideHit::ThesScroll(-1)));
+            hits.push((
+                [track[0], track[1] + track[3] - ah, bw, ah],
+                SideHit::ThesScroll(1),
+            ));
+            hits.push((
+                [track[0], track[1] + ah, bw, (ty - track[1] - ah).max(0.0)],
+                SideHit::ThesScroll(-page),
+            ));
+            hits.push((
+                [
+                    track[0],
+                    ty + len,
+                    bw,
+                    (track[1] + track[3] - ah - ty - len).max(0.0),
+                ],
+                SideHit::ThesScroll(page),
+            ));
         }
         // A rule under the list, the language box at the pane's foot.
         ops.push(Op::Rect(
@@ -399,11 +485,119 @@ impl SlideWindow {
                 let old = std::mem::replace(&mut t.word, s.clone());
                 t.back.push(old);
                 t.folded.clear();
+                t.scroll = 0;
+                t.hover = None;
+            }
+            SideHit::ThesScroll(n) => {
+                t.scroll = usize::try_from(i64::try_from(t.scroll).unwrap_or(0) + i64::from(*n))
+                    .unwrap_or(0);
+            }
+            SideHit::ThesMenu(s) => {
+                let s = s.clone();
+                return self.thesaurus_word_menu(&s);
             }
             _ => return false,
         }
         self.relayout_pending = true;
         true
+    }
+
+    /// The drop-down of a hovered word: Insert (in place of the word at the caret) and
+    /// Copy, as the reference's.
+    fn thesaurus_word_menu(&mut self, s: &str) -> bool {
+        let Some(r) = self
+            .side
+            .hits
+            .iter()
+            .find(|(_, h)| *h == SideHit::ThesMenu(s.to_owned()))
+            .map(|(r, _)| *r)
+        else {
+            return false;
+        };
+        let items = vec![
+            crate::popup::MenuItem {
+                label: self.t("slideNative.thesInsert", "Insert"),
+                choice: crate::popup::Choice::Command(format!("rv:thesins:{s}")),
+                checked: false,
+                dim: self.thesaurus_word().is_none(),
+            },
+            crate::popup::MenuItem {
+                label: self.t("slideNative.thesCopy", "Copy"),
+                choice: crate::popup::Choice::Command(format!("rv:thescopy:{s}")),
+                checked: false,
+                dim: false,
+            },
+        ];
+        self.menu_kind = super::super::MenuKind::Duration;
+        self.menu = Some(crate::popup::Menu::open(items, r, self.size, self.scale));
+        true
+    }
+
+    /// Hover / wheel over the Thesaurus pane: `Some(redraw)` when taken.
+    pub(crate) fn thesaurus_pointer(&mut self, input: &crate::Input) -> Option<bool> {
+        if self.side.kind != SideKind::Thesaurus {
+            return None;
+        }
+        match *input {
+            crate::Input::Move { x, y } => {
+                let inside = self.side.contains(x, y);
+                self.side.thes.ptr = inside;
+                // The hovered word row: its place among the rows drawn.
+                let hover = inside
+                    .then(|| {
+                        let rows: Vec<&([f32; 4], SideHit)> = self
+                            .side
+                            .hits
+                            .iter()
+                            .filter(|(_, h)| {
+                                matches!(h, SideHit::ThesLookup(_) | SideHit::ThesToggle(_))
+                            })
+                            .collect();
+                        let k = rows.iter().position(|(r, _)| {
+                            x >= r[0] && x < r[0] + r[2] && y >= r[1] && y < r[1] + r[3]
+                        })?;
+                        // Rows keep their order; the hovered word's own pair counts once.
+                        let mut seen = Vec::new();
+                        for (r, _) in &rows {
+                            if !seen.iter().any(|s: &f32| (*s - r[1]).abs() < 0.5) {
+                                seen.push(r[1]);
+                            }
+                        }
+                        let ry = rows[k].0[1];
+                        let at = seen.iter().position(|s| (*s - ry).abs() < 0.5)?;
+                        matches!(rows[k].1, SideHit::ThesLookup(_))
+                            .then_some(at + self.side.thes.scroll)
+                    })
+                    .flatten();
+                if hover != self.side.thes.hover {
+                    self.side.thes.hover = hover;
+                    self.relayout_pending = true;
+                    return Some(true);
+                }
+                inside.then_some(false)
+            }
+            crate::Input::Wheel(d) if self.side.thes.ptr => {
+                let n = if d > 0.0 { 3 } else { -3 };
+                self.thesaurus_hit(&SideHit::ThesScroll(n), 1);
+                Some(true)
+            }
+            _ => None,
+        }
+    }
+
+    /// Copy `s` to the clipboard (the hovered word's Copy).
+    pub(crate) fn thesaurus_copy(&mut self, s: &str) -> bool {
+        self.requests.push(crate::Request::SetClipboard {
+            text: s.to_owned(),
+            html: String::new(),
+            internal: String::new(),
+        });
+        true
+    }
+
+    /// Insert `s` (the hovered word's Insert).
+    pub(crate) fn thesaurus_insert_word(&mut self, s: &str) -> bool {
+        self.thesaurus_insert(s)
     }
 
     /// Put `s` in place of the word at the caret (the selection) of the text being edited.

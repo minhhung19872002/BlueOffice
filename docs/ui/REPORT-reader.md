@@ -571,7 +571,7 @@ biểu mẫu, Read Aloud, tên cho công nghệ hỗ trợ), lõi `bo-pdfread/sr
 `flatten_fill_sign`, `/BOFillSign`, thứ tự Tab, `AFSimple_Calculate`, `SignatureInk::Shape`, `typed_outline_in`);
 thêm chung (chỉ cộng thêm): `RenderExtra::field_tint`, nút thả xuống của hộp combo khi tô trường, ZapfDingbats /
 Symbol không nhúng giữ bảng mã có sẵn kể cả khi từ điển font ghi `/Encoding` tên (§9.6.6.1). Ảnh so sánh:
-`scratchpad/show/reader-67…72-*.png` (bản đối chiếu trên).
+`scratchpad/show/reader-67…73-*.png` (bản đối chiếu trên).
 
 **Công cụ chú thích** (đo trên bản đối chiếu). Hình vừa vẽ được chọn ngay; Rectangle nét 2 pt; ghi chú NoZoom nhận
 nhấp và khung chọn theo biểu tượng vẽ ra (khung chấm, không tay nắm). Bản đối chiếu không mở ngăn Format khi gõ ghi chú
@@ -596,7 +596,7 @@ chương trình font của bên thứ ba. Paste lấy ảnh từ bộ nhớ tạ
 `reader-signatures.txt`), mật khẩu: xám (chưa làm). Chữ ký lưu cho lần sau, đặt bằng một nhấp, đổi cỡ bằng góc, làm
 phẳng khi lưu nếu chọn (Manage Signatures › Flatten on Save).
 
-**Điền biểu mẫu** (`reader-71`, `reader-72`). Trường tô 221, 228, 255 dưới hình hiện (Highlight Fields bật mặc định
+**Điền biểu mẫu** (`reader-71`, `reader-72`, `reader-73`). Trường tô 221, 228, 255 dưới hình hiện (Highlight Fields bật mặc định
 như bản đối chiếu, Form › Highlight Fields tắt / bật), gõ tại chỗ với khung chấm 1 px ngoài trường, Tab / Shift+Tab theo
 `/Tabs` của trang (một điểm dừng cho mỗi nhóm radio), Space cho hộp kiểm / radio, hàng của hộp danh sách, Alt+↓ / nhấp
 mở combo, Reset Form, trường tính từ `/CO` với tập con `AFSimple_Calculate` (SUM, PRD, AVG, MIN, MAX; không chạy

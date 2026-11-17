@@ -410,6 +410,19 @@ impl SheetWindow {
                 }
                 Some(self.acc_press(lx, ly, text))
             }
+            // A field dragged out of the PivotTable Fields pane: inside, it moves; dropped
+            // outside, it is taken out of the report (as the reference does).
+            Input::Release { x, y } if self.acc.is_none() && self.pivot_drag.is_some() => {
+                if inside(x, y) {
+                    let lx = (x - r[0]) / (self.scale / 1.25);
+                    let ly = (y - r[1]) / (self.scale / 1.25);
+                    Some(self.pivot_release(lx, ly))
+                } else {
+                    let (from, f, ..) = self.pivot_drag.take()?;
+                    Some(self.pivot_item_command("remove", from, f))
+                }
+            }
+            Input::Drag { .. } if self.acc.is_none() && self.pivot_drag.is_some() => Some(false),
             Input::Drag { x, y } | Input::Release { x, y } if inside(x, y) => Some(false),
             _ => None,
         }

@@ -396,6 +396,55 @@ impl FormulaEngine for BoFormula {
     }
 }
 
+/// The part of [`write_back`] for the common case: a normal formula with a single,
+/// non-picture result, set with one look-up of the cell — or, when the anchors are
+/// sorted and cover a good part of the sheet, in one ordered walk over its cells (a
+/// recalculation of 100 000 formulas wrote them back with three look-ups each). Returns
+/// the anchors left for the general code.
+fn write_plain_results(
+    fw: &bo_formula::Workbook,
+    ws: &mut bo_model::sheet::Worksheet,
+    si: usize,
+    anchors: &[(u32, u32)],
+) -> Vec<(u32, u32)> {
+    let mut rest = Vec::new();
+    let set = |k: (u32, u32), cell: &mut Cell, rest: &mut Vec<(u32, u32)>| {
+        let Some(f) = &cell.formula else {
+            return;
+        };
+        if f.kind != FormulaKind::Normal || cell.image.is_some() {
+            rest.push(k);
+            return;
+        }
+        let value = fw.value(si, k.0, k.1);
+        if matches!(value, Value::Image(_)) || fw.spill_range(si, k.0, k.1).is_some() {
+            rest.push(k);
+            return;
+        }
+        cell.value = to_cell_value(&value);
+    };
+    let (Some(&first), Some(&last)) = (anchors.first(), anchors.last()) else {
+        return rest;
+    };
+    let sorted = anchors.windows(2).all(|w| w[0] < w[1]);
+    if sorted && anchors.len() >= 64 && anchors.len() * 4 >= ws.cells.len() {
+        let mut next = anchors.iter().copied().peekable();
+        for (&k, cell) in ws.cells.range_mut(first..=last) {
+            while next.next_if(|a| *a < k).is_some() {}
+            if next.next_if_eq(&k).is_some() {
+                set(k, cell, &mut rest);
+            }
+        }
+    } else {
+        for &k in anchors {
+            if let Some(cell) = ws.cells.get_mut(&k) {
+                set(k, cell, &mut rest);
+            }
+        }
+    }
+    rest
+}
+
 /// Copies calculated values of formula cells `anchors` of sheet `si` from the
 /// engine into the model (spilled results included).
 pub(crate) fn write_back(
@@ -407,7 +456,9 @@ pub(crate) fn write_back(
     let Some(ws) = wb.sheets.get_mut(si) else {
         return;
     };
-    for &(r, c) in anchors {
+    // Plain results (no array, spill or picture) are set in place first; the rest below.
+    let rest = write_plain_results(fw, ws, si, anchors);
+    for &(r, c) in &rest {
         if ws
             .cells
             .get(&(r, c))

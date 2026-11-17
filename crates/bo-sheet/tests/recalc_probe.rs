@@ -14,7 +14,11 @@ fn probe_edit_input_of_100k_formulas() {
     ws.set_cell(0, 3, Cell::new(CellValue::Number(1.0)));
     for r in 0..100_000u32 {
         ws.set_cell(r, 0, Cell::new(CellValue::Number(f64::from(r + 1))));
-        ws.set_cell(r, 1, Cell::default().with_formula(&format!("A{0}*2+$D$1", r + 1)));
+        ws.set_cell(
+            r,
+            1,
+            Cell::default().with_formula(&format!("A{0}*2+$D$1", r + 1)),
+        );
     }
     let mut live = LiveCalc::new();
     let t = Instant::now();

@@ -1118,3 +1118,46 @@ phía đo chữ DirectWrite / host, chưa tìm ra. Đối chứng tính lại 10
   (đối chứng đặt trước trang nguồn); kéo thả trường giữa các vùng chưa có (thay bằng nhấp); Search của ngăn chưa lọc.
 - Find and Replace: Format… (tìm theo định dạng) mờ; Look in chưa có Notes / Comments.
 - Format Cells đối chứng chỉ mở được từng trang riêng qua COM; so cả hộp sáu trang chưa làm được bằng input gửi vào.
+
+## Vòng 12 — tốc độ tính lại, Enter trên sổ lớn, hoàn thiện PivotTable
+
+Nhánh `worktree-agent-a0ed6bbc80a5c4f2c` (từ `work/desktop-performance` sau "Merge BlueSheet round 11"). Đo bằng bản
+release; máy đang chạy build của các phiên khác nên số có dao động (ghi rõ từng lần đo). Đầu dò headless mới:
+`cargo test --release -p bo-formula --test recalc_probe -- --ignored --nocapture` (bộ tính),
+`cargo test --release -p bo-sheet --test recalc_probe -- --ignored` (`LiveCalc::update` + ghi kết quả về mô hình),
+`BO_PERF_XLSX=<tệp> cargo test --release -p bo-ui --features bo-engine/bundled-fonts --lib -- --ignored enter_phases`
+(từng phần của Enter trong cửa sổ), và `perf12.ps1` (ứng dụng thật, `BLUEOFFICE_NATIVE_PERF`, phím gửi bằng
+`PostMessage`, `-Repeat N` gõ + Enter N lần).
+
+### Vòng 58 — bộ tính công thức
+
+100 000 công thức `=An*2+$D$1` (sổ `f100k`), bản release:
+
+| | trước | sau |
+|---|---|---|
+| Tính lại toàn bộ (`recalculate_all`) | 47–60 ms | 9,7–12 ms |
+| Sửa D1 (100 000 ô phụ thuộc) | 58–63 ms | 7,6–8,9 ms (lần đầu sau khi đổi công thức 19 ms) |
+| Sửa ô có 1 000 ô phụ thuộc | 0,78 ms | 0,16 ms |
+| `LiveCalc::update` sửa D1 (bộ tính + ghi về mô hình) | 116–136 ms | 19–25 ms |
+
+Đo từng pha trước khi sửa (100 000 ô, ms): lan truyền ô bẩn 10–19, sắp thứ tự 0,5, dựng tập "chưa tính" 2,4, đánh giá
+song song 10–17, ghi kết quả 6–30, sắp xếp 0,3–3. Đã làm:
+
+- Ô của mỗi trang trong bộ tính xếp theo khối 256 hàng của một cột (`bo-formula/src/cellstore.rs`, khối thưa thành
+  khối đặc khi có ≥ 24 ô): một cột công thức đi tuần tự trong bộ nhớ, bảng khối nhỏ nằm trong cache (trước là một
+  bảng băm mọi ô, mỗi lần đọc là một lần trượt cache).
+- Cờ "chưa tính trong lượt này" nằm trong ô (đọc cùng giá trị) thay cho tập băm 100 000 phần tử; ghi kết quả một lần
+  tra; cờ mảng cố định nằm trong ô (không phải đọc công thức qua `Arc`).
+- Kế hoạch tính (tập ô bẩn + thứ tự) được nhớ khi đồ thị phụ thuộc không đổi và cùng ô được sửa lại (`graph_version`
+  tăng khi đặt / bỏ công thức): sửa D1 lần thứ hai trở đi không lan truyền lại.
+- Công thức chỉ gồm số, ô cùng trang và `+ - * / %`, dấu trừ một ngôi được dịch sang chương trình hậu tố chạy trên
+  `f64` (`bo-formula/src/simple.rs`); gặp chữ, lỗi, mảng, ô chưa tính, chia cho 0, kết quả không hữu hạn hay
+  "precision as displayed" thì trả cho bộ đánh giá chung (test `recalc_fast.rs` so từng trường hợp).
+- Luồng phụ chỉ khi mỗi luồng có ≥ 2 048 ô; bộ đếm số lần tính cộng một lần mỗi luồng (trước: một biến nguyên tử
+  dùng chung bị tranh chấp mỗi ô).
+- Ghi kết quả về mô hình (`bo-sheet::formula::write_back`): kết quả thường (không mảng, không tràn, không ảnh) ghi
+  bằng một lần tra, hoặc một lượt duyệt có thứ tự khi các ô cần ghi chiếm phần lớn trang (trước: ba lần tra B-tree mỗi
+  ô).
+
+`cargo test -p bo-formula -p bo-sheet` xanh.
+

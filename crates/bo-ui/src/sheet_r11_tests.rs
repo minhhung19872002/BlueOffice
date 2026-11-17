@@ -319,7 +319,9 @@ fn new_pivot_table_opens_its_fields_pane_and_ticks_build_the_report() {
     assert!(w.form.as_ref().is_some_and(|f| !f.on("model")));
     w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
     assert!(w.form.is_none());
-    assert_eq!(w.view().sheet(), 1, "a new sheet");
+    // A new sheet, in front of the source sheet (round 58).
+    assert_eq!(w.view().sheet(), 0, "a new sheet");
+    assert_eq!(w.view().sheet_names().len(), 2);
     let pane = w.pivot.clone().expect("fields pane");
     assert_eq!(
         pane.fields.iter().map(|f| f.0.as_str()).collect::<Vec<_>>(),
@@ -336,7 +338,7 @@ fn new_pivot_table_opens_its_fields_pane_and_ticks_build_the_report() {
         .map(|(r, c)| {
             w.view()
                 .engine()
-                .cell(1, r, c)
+                .cell(0, r, c)
                 .map(|d| d.display)
                 .unwrap_or_default()
         })

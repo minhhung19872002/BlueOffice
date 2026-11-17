@@ -126,6 +126,8 @@ pub(super) enum FormKind {
     FindReplace,
     /// Insert › PivotTable (from table or range).
     PivotNew,
+    /// PivotTable Fields › a value field › Value Field Settings… (round 58).
+    PivotValue,
     /// A dialog collapsed to its reference box while cells are picked on the sheet.
     RangePick,
     /// Review: Protect Sheet / Protect Workbook / passwords.
@@ -225,6 +227,9 @@ pub(super) struct Form {
     /// Height of the tab page frame (reference pixels) when it does not reach the
     /// buttons' band (Find and Replace with its Find All list below).
     pub page_h: Option<f32>,
+    /// Top of the tabs (reference pixels) when they are not right under the title bar
+    /// (Value Field Settings has a name box above them).
+    pub tab_top: Option<f32>,
     /// The edit box (control index) whose whole text is selected: typing replaces it
     /// (opened with the text selected, or reached by Tab, as Windows dialogs do).
     all: Option<usize>,
@@ -340,6 +345,7 @@ impl Form {
             pos: None,
             masked: Vec::new(),
             page_h: None,
+            tab_top: None,
             all: None,
         }
     }
@@ -705,7 +711,8 @@ impl Form {
         let mut x = 18.0;
         for t in &self.tabs {
             let tw = (m.measure_font(t, &self.font()).0 / self.k + 34.0).round();
-            self.tab_rects.push([x, 50.0, tw, 24.0]);
+            self.tab_rects
+                .push([x, self.tab_top.unwrap_or(50.0), tw, 24.0]);
             x += tw;
         }
         if self.focus.is_none() {
@@ -1315,8 +1322,9 @@ impl Form {
             Rgba(0x40, 0x40, 0x40, 255),
         );
         if !self.tabs.is_empty() {
-            let ph = self.page_h.unwrap_or(self.size.1 - 74.0 - 61.0);
-            let pg = self.dev([18.0, 74.0, self.size.0 - 36.0, ph]);
+            let top = self.tab_top.map_or(74.0, |t| t + 24.0);
+            let ph = self.page_h.unwrap_or(self.size.1 - top - 61.0);
+            let pg = self.dev([18.0, top, self.size.0 - 36.0, ph]);
             p.fill_rect(pg[0], pg[1], pg[2], pg[3], PAGE_EDGE);
             p.fill_rect(pg[0] + 1.0, pg[1] + 1.0, pg[2] - 2.0, pg[3] - 2.0, PAGE);
             for (i, (label, r)) in self.tabs.iter().zip(&self.tab_rects).enumerate() {

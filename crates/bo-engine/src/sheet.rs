@@ -419,22 +419,16 @@ pub fn legacy_array_at(ws: &Worksheet, row: u32, col: u32) -> Option<((u32, u32)
 
 /// Refuses an edit of `cells` that changes part of a legacy array formula ([`ARRAY_PART`]):
 /// every array range an edited cell falls in must be edited whole.
+/// `arrays`: the sheet's legacy array formulas (`WbSlot::arrays_of`; scanning every cell
+/// here cost ~15 ms per Enter on a million-cell sheet).
 pub(crate) fn check_array_parts(
-    ws: &Worksheet,
+    arrays: &[((u32, u32), CellRange)],
     cells: impl IntoIterator<Item = (u32, u32)>,
 ) -> Result<()> {
-    let arrays: Vec<CellRange> = ws
-        .cells
-        .values()
-        .filter_map(|c| {
-            let f = c.formula.as_ref()?;
-            match (&f.kind, f.dynamic) {
-                (bo_model::sheet::FormulaKind::Array { range }, false) => {
-                    CellRange::parse(range).filter(|r| r.rows() * r.cols() > 1)
-                }
-                _ => None,
-            }
-        })
+    let arrays: Vec<CellRange> = arrays
+        .iter()
+        .map(|(_, r)| *r)
+        .filter(|r| r.rows() * r.cols() > 1)
         .collect();
     if arrays.is_empty() {
         return Ok(());
@@ -457,6 +451,31 @@ pub(crate) fn check_array_parts(
         }
     }
     Ok(())
+}
+
+/// Last used column of `ws`. Rows holding many cells are skipped through: the last cell of
+/// a row is found with one ordered look-up and the next row with another, instead of
+/// visiting every cell (a 1 000 000-cell sheet of 100 columns: 15 → ~2 ms per edit).
+pub(crate) fn widest_column(ws: &Worksheet) -> u32 {
+    let n = ws.cells.len();
+    let rows = ws
+        .cells
+        .last_key_value()
+        .map_or(0, |(k, _)| k.0 as usize + 1);
+    if n < 4096 || n < rows.saturating_mul(8) {
+        return ws.cells.keys().map(|k| k.1).max().unwrap_or(0);
+    }
+    let mut best = 0;
+    let mut next = ws.cells.first_key_value().map(|(k, _)| k.0);
+    while let Some(r) = next {
+        if let Some((k, _)) = ws.cells.range((r, 0)..=(r, u32::MAX)).next_back() {
+            best = best.max(k.1);
+        }
+        next = r
+            .checked_add(1)
+            .and_then(|r1| ws.cells.range((r1, 0)..).next().map(|(k, _)| k.0));
+    }
+    best
 }
 
 /// Viewport request from the UI.
@@ -1787,7 +1806,7 @@ impl SheetEngine {
         // Cells are ordered by (row, col): the last key is on the last row; one pass for
         // the widest column (was two passes over every cell).
         let last_row = ws.cells.last_key_value().map_or(0, |(k, _)| k.0);
-        let last_col = ws.cells.keys().map(|k| k.1).max().unwrap_or(0);
+        let last_col = widest_column(ws);
         let geom = self.geometry(sheet)?;
         let r = (last_row + 100).min(MAX_ROWS - 1);
         let c = (last_col + 30).min(MAX_COLS - 1);
@@ -1910,7 +1929,12 @@ impl SheetEngine {
                 (range.first.row, range.first.col),
                 (range.last.row, range.last.col),
             )?;
-            check_array_parts(ws, coords.iter().copied())?;
+            let arrays = self
+                .wb
+                .as_ref()
+                .map(|s| s.arrays_of(sheet))
+                .unwrap_or_default();
+            check_array_parts(&arrays, coords.iter().copied())?;
             let multi = coords.len() > 1;
             let in_table = ws.tables.iter().any(|t| {
                 t.range.first.row <= range.last.row
@@ -2034,8 +2058,14 @@ impl SheetEngine {
             let ws = self.sheet(sheet)?;
             let open = self.open_ranges(sheet);
             protect::check_cells(wb, ws, &open, cells.iter().map(|(r, c, _)| (*r, *c)))?;
-            check_array_parts(ws, cells.iter().map(|(r, c, _)| (*r, *c)))?;
+            let arrays = self
+                .wb
+                .as_ref()
+                .map(|s| s.arrays_of(sheet))
+                .unwrap_or_default();
+            check_array_parts(&arrays, cells.iter().map(|(r, c, _)| (*r, *c)))?;
         }
+        let index = self.wb.as_mut().and_then(wb_slot::WbSlot::take_index);
         let wb = self.wb.as_deref_mut().ok_or(EngineError::NoDocument)?;
         if sheet >= wb.sheets.len() {
             return Err(EngineError::PageOutOfRange(sheet));
@@ -2079,6 +2109,9 @@ impl SheetEngine {
         }
         let coords: Vec<(u32, u32)> = old.iter().map(|(r, c, _)| (*r, *c)).collect();
         self.live.update(wb, sheet, &coords);
+        if let Some(slot) = self.wb.as_mut() {
+            slot.restore_index(index, sheet, &coords);
+        }
         self.push_undo(UndoEntry::Cells { sheet, cells: old });
         // Tables: header names, automatic expansion, calculated columns (SHEET-TABLE-001).
         self.tables_after_input(sheet, &coords);

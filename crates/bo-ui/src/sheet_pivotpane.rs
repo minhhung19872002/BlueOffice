@@ -3,11 +3,14 @@
 //! (436 px), shown while the active cell is in a pivot table, with "Choose fields to add to
 //! report:", the source fields as check boxes, and the Filters / Columns / Rows / Values
 //! areas. Ticking a field adds it as the reference does (numbers to Values as a Sum, other
-//! fields to Rows), clearing it takes it out; a click on a field in an area moves it on
-//! (Rows → Columns → Filters → Rows) or, in Values, changes its summary (Sum → Count →
-//! Average → Max → Min). Changes go through the engine's `pivotUpdate` (one undo step).
+//! fields to Rows), clearing it takes it out. Round 58: a click on a field in an area opens
+//! its menu (Move Up / Down / to Beginning / to End, Move to an area, Remove Field, Value
+//! Field Settings…), a drag moves it between areas (dropped on the field list or outside
+//! the pane it is taken out); Value Field Settings sets the summary, Show Values As and the
+//! name. Changes go through the engine's `pivotUpdate` (one undo step, column widths fitted).
 use super::form_impl::{Event, Form, FormKind, Kind};
 use super::SheetWindow;
+use crate::popup::{Choice, Menu, MenuItem};
 use crate::{Painter, TextStyle};
 use bo_render::{PathSeg, Rgba};
 use serde_json::{json, Value};
@@ -31,7 +34,6 @@ const AREAS: [[f32; 4]; 4] = [
     [18.0, 617.0, 194.0, 78.0],
     [222.0, 617.0, 200.0, 78.0],
 ];
-const FUNCTIONS: [&str; 5] = ["sum", "count", "average", "max", "min"];
 
 /// The pivot table the pane edits and its layout.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -45,6 +47,22 @@ pub(super) struct PivotPane {
     pub filters: Vec<u32>,
     /// Value fields: field, function.
     pub values: Vec<(u32, String)>,
+    /// Items of each field as the report lists them (Show Values As base items).
+    pub items: Vec<Vec<String>>,
+    /// Value field settings beyond the function, by field.
+    pub opts: std::collections::BTreeMap<u32, ValueOpts>,
+    /// The value field whose Value Field Settings dialog is open.
+    pub vfs: Option<u32>,
+}
+
+/// "Show values as", base field / item and custom name of a value field.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(super) struct ValueOpts {
+    pub show_as: String,
+    pub base_field: u32,
+    pub base_item: u32,
+    /// Custom name ("" = "<Function> of <field>").
+    pub name: String,
 }
 
 impl PivotPane {
@@ -153,6 +171,65 @@ impl SheetWindow {
                     .collect()
             })
             .unwrap_or_default();
+        let items: Vec<Vec<String>> = info
+            .get("fields")
+            .and_then(Value::as_array)
+            .map(|a| {
+                a.iter()
+                    .map(|f| {
+                        f.get("items")
+                            .and_then(Value::as_array)
+                            .map(|it| {
+                                it.iter()
+                                    .map(|v| {
+                                        v.as_str().map_or_else(|| v.to_string(), str::to_owned)
+                                    })
+                                    .collect()
+                            })
+                            .unwrap_or_default()
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let mut opts = std::collections::BTreeMap::new();
+        for v in info
+            .get("values")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let Some(f) = v.get("field").and_then(Value::as_u64) else {
+                continue;
+            };
+            let f = u32::try_from(f).unwrap_or(0);
+            let num = |k: &str| {
+                v.get(k)
+                    .and_then(Value::as_u64)
+                    .and_then(|n| u32::try_from(n).ok())
+                    .unwrap_or(0)
+            };
+            let field_name = fields.get(f as usize).map_or("", |x| x.0.as_str());
+            let name = v.get("name").and_then(Value::as_str).unwrap_or("");
+            // Only a name other than "<Function> of <field>" is the user's own.
+            let custom = !name.ends_with(&format!(" of {field_name}"));
+            opts.insert(
+                f,
+                ValueOpts {
+                    show_as: v
+                        .get("showAs")
+                        .and_then(Value::as_str)
+                        .unwrap_or("normal")
+                        .to_owned(),
+                    base_field: num("baseField"),
+                    base_item: num("baseItem"),
+                    name: if custom {
+                        name.to_owned()
+                    } else {
+                        String::new()
+                    },
+                },
+            );
+        }
         let pane = PivotPane {
             sheet,
             index,
@@ -161,6 +238,9 @@ impl SheetWindow {
             cols: nums("cols"),
             filters,
             values,
+            items,
+            opts,
+            vfs: self.pivot.as_ref().and_then(|p| p.vfs),
         };
         if was.is_none() {
             self.pane_changed = true;
@@ -177,15 +257,53 @@ impl SheetWindow {
         let values: Vec<Value> = p
             .values
             .iter()
-            .map(|(f, func)| json!({ "field": f, "function": func }))
+            .map(|(f, func)| {
+                let mut v = json!({ "field": f, "function": func });
+                if let Some(o) = p.opts.get(f) {
+                    if !o.show_as.is_empty() {
+                        v["showAs"] = json!(o.show_as);
+                        v["baseField"] = json!(o.base_field);
+                        v["baseItem"] = json!(o.base_item);
+                    }
+                    if !o.name.is_empty() {
+                        v["name"] = json!(o.name);
+                    }
+                }
+                v
+            })
             .collect();
         let filters: Vec<Value> = p.filters.iter().map(|f| json!({ "field": f })).collect();
+        let depth = self.view.engine().history_len();
         self.view.run(json!({
             "cmd": "pivotUpdate", "sheet": p.sheet, "index": p.index,
             "rows": p.rows, "cols": p.cols, "values": values, "filters": filters,
             "labels": labels,
         }));
+        self.pivot_autofit(p.sheet, p.index, depth);
         self.sync_pivot_pane();
+    }
+
+    /// Fits the columns of pivot table `index` of `sheet` to its cells ("Autofit column
+    /// widths on update", on by default in the reference: "Grand Total" is not cut), as
+    /// part of the undo step started at history depth `depth`.
+    pub(super) fn pivot_autofit(&mut self, sheet: usize, index: usize, depth: usize) {
+        let cols = self
+            .view
+            .engine()
+            .workbook()
+            .and_then(|wb| wb.sheets.get(sheet))
+            .and_then(|ws| ws.pivots.get(index))
+            .map(|p| (p.location.first.col, p.location.last.col));
+        let Some((c0, c1)) = cols else {
+            return;
+        };
+        if c1 < c0 || c1 - c0 > 256 {
+            return;
+        }
+        self.view.run(json!({
+            "cmd": "autofit", "sheet": sheet, "rows": false, "first": c0, "last": c1,
+        }));
+        self.view.engine_mut().merge_history_since(depth);
     }
 
     /// Tick or clear field `f`.
@@ -202,34 +320,6 @@ impl SheetWindow {
             p.values.push((f, "sum".to_owned()));
         } else {
             p.rows.push(f);
-        }
-        self.pivot_apply(&p);
-    }
-
-    /// A click on field `f` in area `area` (0 Filters, 1 Columns, 2 Rows, 3 Values).
-    fn pivot_area_click(&mut self, area: usize, f: u32) {
-        let Some(mut p) = self.pivot.clone() else {
-            return;
-        };
-        match area {
-            3 => {
-                if let Some(v) = p.values.iter_mut().find(|v| v.0 == f) {
-                    let i = FUNCTIONS.iter().position(|x| *x == v.1).unwrap_or(0);
-                    v.1 = FUNCTIONS[(i + 1) % FUNCTIONS.len()].to_owned();
-                }
-            }
-            2 => {
-                p.rows.retain(|x| *x != f);
-                p.cols.push(f);
-            }
-            1 => {
-                p.cols.retain(|x| *x != f);
-                p.filters.push(f);
-            }
-            _ => {
-                p.filters.retain(|x| *x != f);
-                p.rows.push(f);
-            }
         }
         self.pivot_apply(&p);
     }
@@ -258,7 +348,7 @@ impl SheetWindow {
                 let list = Self::area_fields(&p, a);
                 let i = ((ly - r[1] - 3.0) / 26.0).floor().max(0.0) as usize;
                 if let Some(f) = list.get(i) {
-                    self.pivot_area_click(a, *f);
+                    self.pivot_drag = Some((a, *f, lx, ly));
                 }
                 return true;
             }
@@ -412,7 +502,15 @@ impl SheetWindow {
             p.fill_rect(ax, ay, (b[2] * k).round(), (b[3] * k).round(), WHITE);
             for (n, f) in Self::area_fields(pane, a).iter().enumerate() {
                 let name = pane.fields.get(*f as usize).map_or("", |x| x.0.as_str());
-                let label = if a == 3 {
+                let custom = pane
+                    .opts
+                    .get(f)
+                    .filter(|_| a == 3)
+                    .map(|o| o.name.clone())
+                    .filter(|n| !n.is_empty());
+                let label = if let Some(n) = custom {
+                    n
+                } else if a == 3 {
                     let func = pane
                         .values
                         .iter()
@@ -432,6 +530,19 @@ impl SheetWindow {
                     Rgba(0xF3, 0xF3, 0xF3, 255),
                 );
                 p.text(&label, ix + 6.0 * k, iy + 2.0 * k, style(18.0, false), INK);
+                // Drop-down arrow at the item's right (it opens the item's menu).
+                let cx = ix + ((b[2] - 26.0) * k).round();
+                let cy = iy + (12.0 * k).round();
+                let d = (3.5 * k).round();
+                p.path(
+                    &[
+                        PathSeg::M(cx - d, cy - d / 2.0),
+                        PathSeg::L(cx, cy + d / 2.0),
+                        PathSeg::L(cx + d, cy - d / 2.0),
+                    ],
+                    None,
+                    Some((INK, k.max(1.0))),
+                );
             }
         }
         // Defer Layout Update (not offered: shown dimmed) and Update.
@@ -762,15 +873,24 @@ impl SheetWindow {
                     cmd["dest"] = json!({ "sheet": ds, "row": r["r0"], "col": r["c0"] });
                 }
                 let before = self.view.sheet_names().len();
+                let depth = self.view.engine().history_len();
                 let Some(made) = self.view.query(cmd) else {
                     return;
                 };
-                self.view.changed();
                 // Go to the report so that its fields pane shows.
-                let sheet = made
+                let mut sheet = made
                     .get("sheet")
                     .and_then(Value::as_u64)
                     .map_or_else(|| self.view.sheet(), |s| s as usize);
+                // A new worksheet goes in front of the source sheet, as the reference puts
+                // it (round 58); creating and moving it are one undo step.
+                if dest.is_none() && sheet >= before && src_sheet < sheet {
+                    self.view
+                        .run(json!({ "cmd": "moveSheet", "from": sheet, "to": src_sheet }));
+                    self.view.engine_mut().merge_history_since(depth);
+                    sheet = src_sheet;
+                }
+                self.view.changed();
                 if sheet != self.view.sheet() {
                     self.view.set_sheet(sheet);
                 }
@@ -787,6 +907,544 @@ impl SheetWindow {
                 if let Some((r, c)) = first {
                     self.view.select((r, c), (r, c), (r, c));
                 }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Summary functions of Value Field Settings in the reference's order (§18.18.17
+/// `ST_DataConsolidateFunction` tokens of the engine) with their labels.
+const SUMMARIES: [(&str, &str); 11] = [
+    ("sum", "Sum"),
+    ("count", "Count"),
+    ("average", "Average"),
+    ("max", "Max"),
+    ("min", "Min"),
+    ("product", "Product"),
+    ("countNums", "Count Numbers"),
+    ("stdDev", "StdDev"),
+    ("stdDevp", "StdDevp"),
+    ("var", "Var"),
+    ("varp", "Varp"),
+];
+
+/// "Show values as" choices in the reference's order (§18.18.70 `ST_ShowDataAs` and the
+/// x14 additions) and whether they need a base field / item.
+const SHOW_AS: [(&str, &str, bool, bool); 15] = [
+    ("normal", "No Calculation", false, false),
+    ("percentOfTotal", "% of Grand Total", false, false),
+    ("percentOfCol", "% of Column Total", false, false),
+    ("percentOfRow", "% of Row Total", false, false),
+    ("percent", "% Of", true, true),
+    ("percentOfParentRow", "% of Parent Row Total", false, false),
+    (
+        "percentOfParentCol",
+        "% of Parent Column Total",
+        false,
+        false,
+    ),
+    ("percentOfParent", "% of Parent Total", true, false),
+    ("difference", "Difference From", true, true),
+    ("percentDiff", "% Difference From", true, true),
+    ("runTotal", "Running Total In", true, false),
+    ("percentOfRunningTotal", "% Running Total In", true, false),
+    ("rankAscending", "Rank Smallest to Largest", true, false),
+    ("rankDescending", "Rank Largest to Smallest", true, false),
+    ("index", "Index", false, false),
+];
+
+/// Base item indexes meaning "(previous)" / "(next)" (§18.10.1.11 `dataField/@baseItem`).
+const BASE_PREVIOUS: u32 = 1_048_828;
+const BASE_NEXT: u32 = 1_048_829;
+
+impl SheetWindow {
+    /// Area (0 Filters, 1 Columns, 2 Rows, 3 Values) and item slot under a pane point.
+    fn pivot_area_at(lx: f32, ly: f32) -> Option<(usize, usize)> {
+        AREAS.iter().enumerate().find_map(|(a, r)| {
+            ((r[0]..r[0] + r[2]).contains(&lx) && (r[1] - 40.0..r[1] + r[3]).contains(&ly))
+                .then(|| (a, ((ly - r[1] - 3.0) / 26.0).floor().max(0.0) as usize))
+        })
+    }
+
+    /// Release after pressing an area item: a click opens the item's menu (as the
+    /// reference), a drag moves the field to the area / position under the pointer, or
+    /// takes it out when dropped on the field list.
+    pub(super) fn pivot_release(&mut self, lx: f32, ly: f32) -> bool {
+        let Some((from, f, px, py)) = self.pivot_drag.take() else {
+            return false;
+        };
+        if (lx - px).abs() + (ly - py).abs() < 5.0 {
+            self.pivot_open_item_menu(from, f);
+            return true;
+        }
+        if (LIST[0]..LIST[0] + LIST[2]).contains(&lx) && (LIST[1]..LIST[1] + LIST[3]).contains(&ly)
+        {
+            self.pivot_item_command("remove", from, f);
+            return true;
+        }
+        let Some((to, at)) = Self::pivot_area_at(lx, ly) else {
+            return true;
+        };
+        self.pivot_move(f, from, to, Some(at));
+        true
+    }
+
+    /// Opens the menu of field `f` in area `area`, under its item.
+    pub(super) fn pivot_open_item_menu(&mut self, area: usize, f: u32) {
+        let Some(p) = self.pivot.as_ref() else {
+            return;
+        };
+        let n = Self::area_fields(p, area)
+            .iter()
+            .position(|x| *x == f)
+            .unwrap_or(0);
+        let r = AREAS[area.min(3)];
+        let rect = [r[0] + 6.0, r[1] + 3.0 + n as f32 * 26.0, r[2] - 12.0, 24.0];
+        self.pivot_item_menu(area, f, rect);
+    }
+
+    /// The menu of an area item (`rect`: the item, pane reference pixels): Move Up / Down /
+    /// to Beginning / to End, Move to Report Filter / Row Labels / Column Labels / Values,
+    /// Remove Field, Field Settings… (dimmed: row and column field settings are not offered
+    /// yet) or Value Field Settings….
+    pub(super) fn pivot_item_menu(&mut self, area: usize, f: u32, rect: [f32; 4]) {
+        let Some(p) = self.pivot.as_ref() else {
+            return;
+        };
+        let list = Self::area_fields(p, area);
+        let i = list.iter().position(|x| *x == f).unwrap_or(0);
+        let last = list.len().saturating_sub(1);
+        let entries: [(&str, &str, &str, bool); 10] = [
+            ("up", "sheetPivot.moveUp", "Move Up", i == 0),
+            ("down", "sheetPivot.moveDown", "Move Down", i == last),
+            ("begin", "sheetPivot.moveBegin", "Move to Beginning", i == 0),
+            ("end", "sheetPivot.moveEnd", "Move to End", i == last),
+            (
+                "to0",
+                "sheetPivot.toFilter",
+                "Move to Report Filter",
+                area == 0,
+            ),
+            ("to2", "sheetPivot.toRows", "Move to Row Labels", area == 2),
+            (
+                "to1",
+                "sheetPivot.toCols",
+                "Move to Column Labels",
+                area == 1,
+            ),
+            ("to3", "sheetPivot.toValues", "Move to Values", area == 3),
+            ("remove", "sheetPivot.remove", "Remove Field", false),
+            if area == 3 {
+                (
+                    "settings",
+                    "sheetPivot.valueSettings",
+                    "Value Field Settings...",
+                    false,
+                )
+            } else {
+                (
+                    "settings",
+                    "sheetPivot.fieldSettings",
+                    "Field Settings...",
+                    true,
+                )
+            },
+        ];
+        let items = entries
+            .iter()
+            .map(|(op, key, d, dim)| MenuItem {
+                label: self.t(key, d),
+                choice: Choice::Command(format!("pivotitem.{op}.{area}.{f}")),
+                checked: false,
+                dim: *dim,
+            })
+            .collect();
+        let pane = self.pane_rect();
+        let k = self.scale / 1.25;
+        let anchor = [
+            pane[0] + rect[0] * k,
+            pane[1] + rect[1] * k,
+            rect[2] * k,
+            rect[3] * k,
+        ];
+        self.menu = Some(Menu::open(items, anchor, self.size, self.scale));
+    }
+
+    /// A command of an area item's menu (`op` as in [`Self::pivot_item_menu`]).
+    pub(super) fn pivot_item_command(&mut self, op: &str, area: usize, f: u32) -> bool {
+        let Some(p) = self.pivot.clone() else {
+            return false;
+        };
+        let list = Self::area_fields(&p, area);
+        let Some(i) = list.iter().position(|x| *x == f) else {
+            return false;
+        };
+        match op {
+            "up" => self.pivot_move(f, area, area, Some(i.saturating_sub(1))),
+            "down" => self.pivot_move(f, area, area, Some(i + 1)),
+            "begin" => self.pivot_move(f, area, area, Some(0)),
+            "end" => self.pivot_move(f, area, area, None),
+            "remove" => {
+                let mut p = p;
+                match area {
+                    0 => p.filters.retain(|x| *x != f),
+                    1 => p.cols.retain(|x| *x != f),
+                    2 => p.rows.retain(|x| *x != f),
+                    _ => p.values.retain(|x| x.0 != f),
+                }
+                self.pivot_apply(&p);
+            }
+            "settings" if area == 3 => return self.open_value_settings(f),
+            op => match op.strip_prefix("to").and_then(|a| a.parse::<usize>().ok()) {
+                Some(to) if to < 4 && to != area => self.pivot_move(f, area, to, None),
+                _ => return false,
+            },
+        }
+        true
+    }
+
+    /// Moves field `f` from area `from` to area `to` at position `at` (`None`: the end). A
+    /// field reaching Values is summed when it holds numbers, counted otherwise (as the
+    /// reference); one leaving Values keeps its other areas.
+    pub(super) fn pivot_move(&mut self, f: u32, from: usize, to: usize, at: Option<usize>) {
+        let Some(mut p) = self.pivot.clone() else {
+            return;
+        };
+        let func = p.values.iter().find(|v| v.0 == f).map_or_else(
+            || {
+                if p.fields.get(f as usize).is_some_and(|x| x.1) {
+                    "sum".to_owned()
+                } else {
+                    "count".to_owned()
+                }
+            },
+            |v| v.1.clone(),
+        );
+        match from {
+            0 => p.filters.retain(|x| *x != f),
+            1 => p.cols.retain(|x| *x != f),
+            2 => p.rows.retain(|x| *x != f),
+            _ => p.values.retain(|x| x.0 != f),
+        }
+        // A field is on one axis at a time (rows, columns or filters).
+        if to != 3 {
+            p.filters.retain(|x| *x != f);
+            p.cols.retain(|x| *x != f);
+            p.rows.retain(|x| *x != f);
+        }
+        let place = |v: &mut Vec<u32>| {
+            let i = at.map_or(v.len(), |i| i.min(v.len()));
+            v.insert(i, f);
+        };
+        match to {
+            0 => place(&mut p.filters),
+            1 => place(&mut p.cols),
+            2 => place(&mut p.rows),
+            _ => {
+                let i = at.map_or(p.values.len(), |i| i.min(p.values.len()));
+                p.values.insert(i, (f, func));
+            }
+        }
+        self.pivot_apply(&p);
+    }
+
+    /// Value Field Settings for value field `f` (measured on the reference at 125 %:
+    /// 514 × 421 px, Source Name, Custom Name, the Summarize Values By / Show Values As
+    /// tabs, Number Format, OK, Cancel; `show/sheet-73`).
+    pub(super) fn open_value_settings(&mut self, f: u32) -> bool {
+        let Some(p) = self.pivot.as_mut() else {
+            return false;
+        };
+        p.vfs = Some(f);
+        let p = p.clone();
+        let t = |k: &str, d: &str| self.t(k, d);
+        let field = p
+            .fields
+            .get(f as usize)
+            .map_or("", |x| x.0.as_str())
+            .to_owned();
+        let func = p
+            .values
+            .iter()
+            .find(|v| v.0 == f)
+            .map_or("sum", |v| v.1.as_str())
+            .to_owned();
+        let o = p.opts.get(&f).cloned().unwrap_or_default();
+        let fi = SUMMARIES.iter().position(|(k, _)| *k == func).unwrap_or(0);
+        let name = if o.name.is_empty() {
+            format!(
+                "{} {} {field}",
+                t(&format!("sheetPivot.fn_{func}"), SUMMARIES[fi].1),
+                t("sheetPivot.of", "of")
+            )
+        } else {
+            o.name.clone()
+        };
+        let mut form = Form::new(
+            &t("sheetPivot.vfsTitle", "Value Field Settings"),
+            (514.0, 421.0),
+            vec![
+                t("sheetPivot.summarizeTab", "Summarize Values By"),
+                t("sheetPivot.showAsTab", "Show Values As"),
+            ],
+        );
+        form.tab_top = Some(115.0);
+        form.page_h = Some(210.0);
+        form.add(
+            "srcL",
+            None,
+            [18.0, 47.0, 0.0, 0.0],
+            Kind::Label(t("sheetPivot.sourceName", "Source Name:")),
+        );
+        form.add(
+            "src",
+            None,
+            [114.0, 47.0, 0.0, 0.0],
+            Kind::Label(field.clone()),
+        );
+        form.add(
+            "nameL",
+            None,
+            [18.0, 79.0, 0.0, 0.0],
+            Kind::Label(t("sheetPivot.customName", "Custom Name:")),
+        );
+        form.add(
+            "name",
+            None,
+            [117.0, 75.0, 378.0, 26.0],
+            Kind::Edit {
+                value: name.chars().collect(),
+                caret: name.chars().count(),
+            },
+        );
+        form.add(
+            "sumG",
+            Some(0),
+            [32.0, 152.0, 450.0, 0.0],
+            Kind::Group(t("sheetPivot.summarizeBy", "Summarize value field by")),
+        );
+        form.set_bold("sumG");
+        form.add(
+            "sumN",
+            Some(0),
+            [32.0, 179.0, 0.0, 0.0],
+            Kind::Note(t(
+                "sheetPivot.summarizeHelp",
+                "Choose the type of calculation that you want to use to summarize data from selected field",
+            )),
+        );
+        form.add(
+            "fn",
+            Some(0),
+            [31.0, 221.0, 315.0, 106.0],
+            Kind::List {
+                items: SUMMARIES
+                    .iter()
+                    .map(|(k, d)| t(&format!("sheetPivot.fn_{k}"), d))
+                    .collect(),
+                sel: Some(fi),
+                top: 0,
+            },
+        );
+        let si = SHOW_AS
+            .iter()
+            .position(|(k, ..)| *k == o.show_as)
+            .unwrap_or(0);
+        form.add(
+            "showG",
+            Some(1),
+            [32.0, 152.0, 450.0, 0.0],
+            Kind::Group(t("sheetPivot.showAs", "Show values as")),
+        );
+        form.set_bold("showG");
+        form.add(
+            "show",
+            Some(1),
+            [32.0, 177.0, 450.0, 26.0],
+            Kind::Combo {
+                items: SHOW_AS
+                    .iter()
+                    .map(|(k, d, ..)| t(&format!("sheetPivot.show_{k}"), d))
+                    .collect(),
+                sel: si,
+            },
+        );
+        form.add(
+            "baseFL",
+            Some(1),
+            [32.0, 215.0, 0.0, 0.0],
+            Kind::Label(t("sheetPivot.baseField", "Base field:")),
+        );
+        form.add(
+            "baseF",
+            Some(1),
+            [32.0, 237.0, 218.0, 96.0],
+            Kind::List {
+                items: p.fields.iter().map(|x| x.0.clone()).collect(),
+                sel: Some(o.base_field as usize),
+                top: 0,
+            },
+        );
+        form.add(
+            "baseIL",
+            Some(1),
+            [264.0, 215.0, 0.0, 0.0],
+            Kind::Label(t("sheetPivot.baseItem", "Base item:")),
+        );
+        let base_items = Self::base_items(&p, o.base_field, &t);
+        let bi = match o.base_item {
+            BASE_PREVIOUS => 0,
+            BASE_NEXT => 1,
+            n => n as usize + 2,
+        };
+        form.add(
+            "baseI",
+            Some(1),
+            [264.0, 237.0, 218.0, 96.0],
+            Kind::List {
+                items: base_items,
+                sel: Some(bi),
+                top: 0,
+            },
+        );
+        form.add(
+            "numFmt",
+            None,
+            [19.0, 374.0, 118.0, 27.0],
+            Kind::Button {
+                label: t("sheetPivot.numberFormat", "Number Format"),
+                default: false,
+            },
+        );
+        // Number formats of value fields are not offered here yet.
+        form.enable("numFmt", false);
+        form.ok_cancel(&t("common.ok", "OK"), &t("common.cancel", "Cancel"));
+        if let Some(c) = form.get_mut("ok") {
+            c.rect = [256.0, 374.0, 111.0, 27.0];
+        }
+        if let Some(c) = form.get_mut("cancel") {
+            c.rect = [383.0, 374.0, 111.0, 27.0];
+        }
+        Self::vfs_enable(&mut form, si);
+        form.select_all("name");
+        self.form = Some(form);
+        self.form_kind = FormKind::PivotValue;
+        true
+    }
+
+    /// "(previous)", "(next)" and the items of base field `field`.
+    fn base_items(p: &PivotPane, field: u32, t: &dyn Fn(&str, &str) -> String) -> Vec<String> {
+        let mut v = vec![
+            t("sheetPivot.previous", "(previous)"),
+            t("sheetPivot.next", "(next)"),
+        ];
+        v.extend(p.items.get(field as usize).cloned().unwrap_or_default());
+        v
+    }
+
+    fn vfs_enable(form: &mut Form, show: usize) {
+        let (_, _, field, item) = SHOW_AS[show.min(SHOW_AS.len() - 1)];
+        form.enable("baseFL", field);
+        form.enable("baseF", field);
+        form.enable("baseIL", item);
+        form.enable("baseI", item);
+    }
+
+    /// Events of Value Field Settings.
+    pub(super) fn value_settings_event(&mut self, ev: &Event) {
+        match ev {
+            Event::Cancel => self.form = None,
+            Event::Changed("show") => {
+                if let Some(form) = self.form.as_mut() {
+                    let si = form.sel("show").unwrap_or(0);
+                    Self::vfs_enable(form, si);
+                }
+            }
+            Event::Changed("baseF") => {
+                let Some(p) = self.pivot.clone() else {
+                    return;
+                };
+                let bf = self.form.as_ref().and_then(|f| f.sel("baseF")).unwrap_or(0);
+                let items = Self::base_items(&p, bf as u32, &|k, d| self.t(k, d));
+                if let Some(form) = self.form.as_mut() {
+                    form.set_items("baseI", items, Some(0));
+                }
+            }
+            Event::Changed("fn") => {
+                // The default caption follows the function, as the reference's does.
+                let Some(p) = self.pivot.clone() else {
+                    return;
+                };
+                let Some(f) = p.vfs else {
+                    return;
+                };
+                let field = p
+                    .fields
+                    .get(f as usize)
+                    .map_or("", |x| x.0.as_str())
+                    .to_owned();
+                let of = self.t("sheetPivot.of", "of");
+                let labels: Vec<String> = SUMMARIES
+                    .iter()
+                    .map(|(k, d)| self.t(&format!("sheetPivot.fn_{k}"), d))
+                    .collect();
+                if let Some(form) = self.form.as_mut() {
+                    let name = form.text("name");
+                    let default = labels.iter().any(|l| name == format!("{l} {of} {field}"));
+                    if default {
+                        let i = form.sel("fn").unwrap_or(0);
+                        form.set_text("name", &format!("{} {of} {field}", labels[i]));
+                    }
+                }
+            }
+            Event::Ok | Event::Clicked("ok") => {
+                let Some(form) = self.form.take() else {
+                    return;
+                };
+                let Some(mut p) = self.pivot.clone() else {
+                    return;
+                };
+                let Some(f) = p.vfs.take() else {
+                    return;
+                };
+                let fi = form.sel("fn").unwrap_or(0).min(SUMMARIES.len() - 1);
+                let si = form.sel("show").unwrap_or(0).min(SHOW_AS.len() - 1);
+                let field = p
+                    .fields
+                    .get(f as usize)
+                    .map_or("", |x| x.0.as_str())
+                    .to_owned();
+                let of = self.t("sheetPivot.of", "of");
+                let name = form.text("name").trim().to_owned();
+                let default = SUMMARIES.iter().any(|(k, d)| {
+                    name == format!("{} {of} {field}", self.t(&format!("sheetPivot.fn_{k}"), d))
+                });
+                if let Some(v) = p.values.iter_mut().find(|v| v.0 == f) {
+                    SUMMARIES[fi].0.clone_into(&mut v.1);
+                }
+                let base_item = match form.sel("baseI").unwrap_or(0) {
+                    0 => BASE_PREVIOUS,
+                    1 => BASE_NEXT,
+                    n => u32::try_from(n - 2).unwrap_or(0),
+                };
+                p.opts.insert(
+                    f,
+                    ValueOpts {
+                        show_as: SHOW_AS[si].0.to_owned(),
+                        base_field: form
+                            .sel("baseF")
+                            .and_then(|n| u32::try_from(n).ok())
+                            .unwrap_or(0),
+                        base_item,
+                        name: if default || name.is_empty() {
+                            String::new()
+                        } else {
+                            name
+                        },
+                    },
+                );
+                self.pivot_apply(&p);
             }
             _ => {}
         }

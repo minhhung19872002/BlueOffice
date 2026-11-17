@@ -221,12 +221,13 @@ pub(crate) fn vertical_form(c: char) -> Option<char> {
 /// a character the face must have and the families to try, by the CIDFont's `/Ordering`
 /// (Adobe-GB1, -CNS1, -Japan1, -Korea1) or the encoding CMap's name (§9.7.5.2), serif
 /// (Song / Ming / Mincho / Batang) or sans (Hei / Gothic / Gulim) by the font's name.
-fn cjk_substitutes(
+pub(crate) fn cjk_substitutes(
     ordering: &str,
     encoding: &str,
     base: &str,
     serif: bool,
 ) -> Option<(char, Vec<&'static str>, bool)> {
+    let flag_serif = serif;
     let e = encoding.to_ascii_lowercase();
     let script = match ordering {
         "GB1" => 0,
@@ -283,9 +284,11 @@ fn cjk_substitutes(
         ]);
     }
     let sample = ['\u{4e2d}', '\u{4e2d}', '\u{65e5}', '\u{d55c}'][script];
-    // Dotum and Gulim draw heavier strokes than Malgun Gothic's regular face: its bold face
-    // stands in for them (the reference shows them bold).
-    let heavy = script == 3 && !serif && (b.contains("dotum") || b.contains("gulim"));
+    // Measured on the reference: a Traditional Chinese, Japanese or Korean font without the
+    // Serif flag that is not installed (Fangti, Gothic, Dotum) shows in a bold substitute,
+    // a Simplified Chinese one (Heiti) in the regular Song face. The caller applies it only
+    // when the font itself is not installed.
+    let heavy = script != 0 && !flag_serif;
     Some((sample, list, heavy))
 }
 
@@ -551,8 +554,38 @@ impl Font {
                             .and_then(num)
                             .unwrap_or(0.0)
                     };
-                    let bold =
-                        bold || heavy || value(b"FontWeight") >= 600.0 || value(b"StemV") >= 140.0;
+                    let squash = |s: &str| {
+                        s.chars()
+                            .filter(char::is_ascii_alphanumeric)
+                            .collect::<String>()
+                            .to_ascii_lowercase()
+                    };
+                    // The PostScript name as installed family names ("MS-Gothic" → "MS
+                    // Gothic", "MalgunGothic" → "Malgun Gothic").
+                    let name = base_name(&base).split(',').next().unwrap_or("");
+                    let wanted = squash(name);
+                    let mut spaced = String::new();
+                    let mut prev_lower = false;
+                    for c in name.chars() {
+                        if c == '-' || c == '_' {
+                            spaced.push(' ');
+                        } else {
+                            if c.is_ascii_uppercase() && prev_lower {
+                                spaced.push(' ');
+                            }
+                            spaced.push(c);
+                        }
+                        prev_lower = c.is_ascii_lowercase();
+                    }
+                    let installed = [name, spaced.as_str()].iter().any(|n| {
+                        fonts
+                            .display_family(n)
+                            .is_some_and(|f| squash(&f) == wanted)
+                    });
+                    let bold = bold
+                        || (heavy && !installed)
+                        || value(b"FontWeight") >= 600.0
+                        || value(b"StemV") >= 140.0;
                     font.face = list.iter().find_map(|fam| {
                         fonts
                             .resolve(fam, bold, italic)

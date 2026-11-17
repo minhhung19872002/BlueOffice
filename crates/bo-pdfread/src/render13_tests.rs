@@ -535,6 +535,113 @@ fn a_stroke_painted_with_a_pattern_fills_its_outline_with_the_cells() {
 }
 
 #[test]
+fn cjk_substitutes_pick_the_reference_faces_and_weights() {
+    use crate::font::cjk_substitutes;
+    // The four lines of the corpus file 04 (PyMuPDF's built-in CJK names, /Flags 4).
+    let pick = |ordering: &str, enc: &str, base: &str| {
+        let (_, list, heavy) = cjk_substitutes(ordering, enc, base, false).expect("cjk");
+        (list[0], heavy)
+    };
+    assert_eq!(pick("GB1", "UniGB-UTF16-H", "Heiti"), ("SimHei", false));
+    assert_eq!(pick("CNS1", "UniCNS-UTF16-H", "Fangti"), ("MingLiU", true));
+    assert_eq!(
+        pick("Japan1", "UniJIS-UTF16-H", "Gothic"),
+        ("MS Gothic", true)
+    );
+    assert_eq!(
+        pick("Korea1", "UniKS-UTF16-H", "Dotum"),
+        ("Malgun Gothic", true)
+    );
+    // A Serif-flagged font keeps the regular weight; no ordering and no CJK CMap: none.
+    let (_, list, heavy) =
+        cjk_substitutes("Japan1", "90ms-RKSJ-H", "MS-Mincho", true).expect("cjk");
+    assert_eq!((list[0], heavy), ("MS Mincho", false));
+    assert!(cjk_substitutes("Identity", "Identity-H", "Arial", false).is_none());
+}
+
+#[test]
+fn a_squiggly_comment_is_drawn_as_a_wave_in_its_appearance() {
+    let mut doc = PdfDocument::open(page_pdf("", "", &[]), standard_fonts()).expect("opens");
+    doc.add_annotation(&NewAnnot {
+        kind: AnnotKind::Squiggly,
+        page: 0,
+        rects: vec![[10.0, 10.0, 150.0, 30.0]],
+        color: [0, 0, 255],
+        author: "A".into(),
+        contents: String::new(),
+    })
+    .expect("added");
+    let saved = doc.save().expect("saves");
+    let mut doc = PdfDocument::open(saved, standard_fonts()).expect("reopens");
+    let p = doc.render(0, RenderOptions::default()).expect("renders");
+    let most = p
+        .list
+        .commands
+        .iter()
+        .filter_map(|c| match c {
+            Command::Path {
+                segs,
+                stroke: Some(_),
+                ..
+            } => Some(segs.len()),
+            _ => None,
+        })
+        .max()
+        .unwrap_or(0);
+    assert!(most > 20, "a zigzag, not one line: {most}");
+}
+
+#[test]
+fn a_stamp_keeps_its_word_inside_the_frame() {
+    use crate::markup::{Markup, MarkupKind};
+    let mut doc = PdfDocument::open(page_pdf("", "", &[]), standard_fonts()).expect("opens");
+    doc.add_markup(&Markup {
+        kind: MarkupKind::Stamp,
+        page: 0,
+        rect: [20.0, 20.0, 120.0, 60.0],
+        points: Vec::new(),
+        color: [200, 0, 0],
+        opacity: 1.0,
+        width: 2.0,
+        author: "A".into(),
+        contents: "Approved".into(),
+        font_size: 12.0,
+    })
+    .expect("stamp");
+    let p = doc.render(0, RenderOptions::default()).expect("renders");
+    let bounds = |stroke: bool| {
+        let mut b = [f32::MAX, f32::MAX, f32::MIN, f32::MIN];
+        for c in &p.list.commands {
+            if let Command::Path {
+                segs,
+                fill,
+                stroke: st,
+            } = c
+            {
+                if st.is_some() != stroke || (!stroke && fill.is_none()) {
+                    continue;
+                }
+                for s in segs {
+                    if let PathSeg::M(x, y) | PathSeg::L(x, y) | PathSeg::C(.., x, y) = *s {
+                        b = [b[0].min(x), b[1].min(y), b[2].max(x), b[3].max(y)];
+                    }
+                }
+            }
+        }
+        b
+    };
+    let (frame, word) = (bounds(true), bounds(false));
+    assert!(
+        word[0] > frame[0] && word[2] < frame[2],
+        "{frame:?} {word:?}"
+    );
+    assert!(
+        word[1] > frame[1] && word[3] < frame[3],
+        "{frame:?} {word:?}"
+    );
+}
+
+#[test]
 fn vertical_punctuation_has_its_vertical_forms() {
     use crate::font::vertical_form;
     assert_eq!(vertical_form('\u{3002}'), Some('\u{FE12}'));

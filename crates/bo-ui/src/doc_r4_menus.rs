@@ -71,7 +71,8 @@ pub(crate) const MORE_BUTTONS: [&str; 3] = ["view.macros", "view.vertical", "vie
 
 /// Features of the reference BlueDoc does not have: shown dimmed, as the brief says
 /// ("-free"), so the tab keeps the reference's layout.
-pub(crate) const UNAVAILABLE: [&str; 14] = [
+pub(crate) const UNAVAILABLE: [&str; 15] = [
+    "view.split",
     "insert.icons",
     "insert.models3d",
     "insert.screenshot",

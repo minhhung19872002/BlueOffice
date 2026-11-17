@@ -46,8 +46,10 @@ pub(crate) enum FormWhat {
     Replace9(Vec<u8>),
     /// Rotate Pages (Multi-page rotate, round 9, `editor_conv9`).
     Rotate9,
-    /// PDF Optimizer (round 9, `editor_opt9`).
+    /// PDF Optimizer (round 9, every panel since round 10: `editor_opt10`).
     Optimize9,
+    /// Reduce File Size (round 10, `editor_opt10`).
+    Reduce10,
     /// Converting To PDF on kind `.0` (round 9, `editor_conv9b`).
     ConvSettings9(usize),
 }
@@ -1588,6 +1590,8 @@ impl EditorWindow {
             // A preset picked from Saved Settings fills the dialog.
             self.load_preset8();
         }
+        // Round 10: the optimizer shows the panel and rows its values call for.
+        self.opt10_after_input(saved);
         true
     }
 
@@ -1595,6 +1599,7 @@ impl EditorWindow {
         if (id == "row" && self.conv_settings9_row())
             || self.crop9_button(id)
             || self.pages9_button(id)
+            || self.opt10_button(id)
         {
             return;
         }
@@ -1679,7 +1684,8 @@ impl EditorWindow {
                     FormWhat::Swap9 => self.swap9_ok(&f),
                     FormWhat::Replace9(bytes) => self.replace9_ok(&f, &bytes),
                     FormWhat::Rotate9 => self.rotate9_ok(&f),
-                    FormWhat::Optimize9 => self.opt9_ok(&f),
+                    FormWhat::Optimize9 => self.opt10_ok(&f),
+                    FormWhat::Reduce10 => self.reduce10_ok(&f),
                     FormWhat::ConvSettings9(row) => self.conv_settings9_keep(&f, row),
                 }
             }

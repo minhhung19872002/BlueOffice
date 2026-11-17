@@ -341,7 +341,12 @@ impl EditorWindow {
         list.push((name.clone(), vals));
         let at = list.len();
         self.store_presets8();
-        let names = self.preset_names(kind);
+        // PDF Optimizer (round 10): Standard and Mobile come first.
+        let (names, at) = if kind == "opt" {
+            (self.opt10_preset_names(), at + 1)
+        } else {
+            (self.preset_names(kind), at)
+        };
         if let Some((p, _)) = self.form8.last_mut() {
             p.set_items("saved", &names);
             p.set("saved", Val::Pick(at));
@@ -408,7 +413,7 @@ impl EditorWindow {
 
     /// Write the presets and policy so the next session has them (like the reference's
     /// Saved Settings).
-    fn store_presets8(&self) {
+    pub(crate) fn store_presets8(&self) {
         let Some(f) = presets_file() else { return };
         if let Some(dir) = f.parent() {
             let _ = std::fs::create_dir_all(dir);
@@ -645,10 +650,11 @@ pub(crate) fn parse_presets(text: &str) -> (Presets, Option<Vals>) {
             .collect();
         match kind {
             "policy" => policy = Some(vals),
-            "hf" | "wm" | "bg" => {
+            "hf" | "wm" | "bg" | "opt" => {
                 let kind: &'static str = match kind {
                     "hf" => "hf",
                     "wm" => "wm",
+                    "opt" => "opt",
                     _ => "bg",
                 };
                 presets.entry(kind).or_default().push((unesc(name), vals));

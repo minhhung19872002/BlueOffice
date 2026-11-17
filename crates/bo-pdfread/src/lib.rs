@@ -22,6 +22,7 @@ mod annot_paste;
 mod annot_popup;
 mod annot_rotate;
 mod arrange;
+mod ccitt_enc;
 mod cmap;
 mod cmyk;
 mod codecs;
@@ -40,6 +41,7 @@ mod fallback;
 mod field_detect;
 mod filters;
 mod font;
+mod font_subset;
 mod forms;
 mod forms11;
 mod function;
@@ -53,6 +55,7 @@ mod mesh;
 mod navdata;
 mod objects;
 mod optimize;
+mod optimize10;
 mod pages_edit;
 mod paragraph;
 mod paragraph_push;
@@ -99,6 +102,10 @@ pub use media_edit::ShapeKind;
 pub use navdata::{Attachment, CommentState, LayerRow};
 pub use objects::{image_size, text_lines, NewImage, ObjectKind, PageObject, TextLine};
 pub use optimize::{JpegEncoder, OptimizeOptions, OptimizeReport};
+pub use optimize10::{
+    CleanUp, ColorCompression, Discard, Downsample, EmbeddedFont, MonoCompression, Optimize10,
+    Report10, Resample, AUDIT_KINDS,
+};
 pub use pages_edit::{LabelRange, LabelStyle};
 pub use paragraph::{text_blocks, Align, BlockEdit, RunStyle, StyleChange, TextBlock};
 pub use paragraph_push::PushMode;

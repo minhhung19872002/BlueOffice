@@ -111,6 +111,23 @@ pub(crate) enum Ctl {
         cols: Vec<(String, f32)>,
         rows: Vec<Vec<String>>,
     },
+    /// Round 10: a row of a panel list (PDF Optimizer): check box `check` and a label that
+    /// shows panel `k` (the form's `panel` value) when clicked; the shown one is highlighted.
+    PanelRow {
+        check: &'static str,
+        k: usize,
+        y: f32,
+        label: String,
+    },
+    /// Round 10: a list box whose chosen row (1-based, 0 = none) is value `id`.
+    ListBox {
+        id: &'static str,
+        r: [f32; 4],
+        items: Vec<String>,
+        on: On,
+    },
+    /// Round 10: a warning mark (our own drawing: amber triangle with "!").
+    Warn { x: f32, y: f32 },
 }
 
 /// Icons of the classic dialogs' small buttons (our own drawings).
@@ -315,7 +332,8 @@ impl Form {
             | Ctl::Radio { on, .. }
             | Ctl::Check { on, .. }
             | Ctl::Button { on, .. }
-            | Ctl::Icon { on, .. } => self.enabled(*on),
+            | Ctl::Icon { on, .. }
+            | Ctl::ListBox { on, .. } => self.enabled(*on),
             _ => true,
         }
     }
@@ -332,7 +350,9 @@ impl Form {
             | Ctl::Button { id: i, .. }
             | Ctl::Swatch { id: i, .. }
             | Ctl::Link { id: i, .. }
-            | Ctl::Icon { id: i, .. } => *i == id,
+            | Ctl::Icon { id: i, .. }
+            | Ctl::ListBox { id: i, .. } => *i == id,
+            Ctl::PanelRow { check, .. } => *check == id,
             _ => false,
         })
     }
@@ -440,6 +460,14 @@ impl Form {
                         self.set("row", Val::Pick(k));
                         return FormOut::Button("row");
                     }
+                    Some(Ctl::PanelRow { .. }) => {
+                        self.set("panel", Val::Pick(k));
+                        return FormOut::Button("panel");
+                    }
+                    Some(Ctl::ListBox { id, .. }) => {
+                        let id = *id;
+                        self.set(id, Val::Pick(k + 1));
+                    }
                     _ => {}
                 }
                 FormOut::Changed
@@ -467,7 +495,7 @@ impl Form {
                         self.set(id, Val::Pick(k));
                         FormOut::Changed
                     }
-                    Ctl::Check { id, .. } => {
+                    Ctl::Check { id, .. } | Ctl::PanelRow { check: id, .. } => {
                         let v = 1 - self.pick(id).min(1);
                         self.set(id, Val::Pick(v));
                         FormOut::Changed
@@ -1150,6 +1178,115 @@ impl Form {
                     let b = at(*r);
                     p.fill_rect(b[0], b[1], b[2], b[3], Rgba(0x8F, 0x8F, 0x8F, 255));
                     p.fill_rect(b[0] + 1.0, b[1] + 1.0, b[2] - 2.0, b[3] - 2.0, WHITE);
+                }
+                Ctl::PanelRow { check, k, y, label } => {
+                    // Measured on the reference's PDF Optimizer (125 %): rows 24 px, the shown
+                    // panel #0078D7 behind white text from x 40 to 240, box at x 21.
+                    let b = q(17.0);
+                    let (bx, by) = (x0 + q(21.0), (y0 + q(*y) - b / 2.0).round());
+                    let shown = self.pick("panel") == *k;
+                    let row = [x0 + q(40.0), y0 + q(*y - 12.0), q(200.0), q(24.0)];
+                    if shown {
+                        p.fill_rect(row[0], row[1], row[2], row[3], Rgba(0x00, 0x78, 0xD7, 255));
+                    }
+                    if self.pick(check) == 1 {
+                        p.path(&rounded(bx, by, b, b, q(3.0)), Some(BLUE), None);
+                        p.path(
+                            &[
+                                PathSeg::M(bx + b * 0.24, by + b * 0.52),
+                                PathSeg::L(bx + b * 0.42, by + b * 0.7),
+                                PathSeg::L(bx + b * 0.77, by + b * 0.32),
+                            ],
+                            None,
+                            Some((WHITE, (1.4 * s).max(1.2))),
+                        );
+                    } else {
+                        p.path(
+                            &rounded(bx + 0.5, by + 0.5, b - 1.0, b - 1.0, q(3.0)),
+                            Some(WHITE),
+                            Some((Rgba(0x85, 0x85, 0x85, 255), 1.0)),
+                        );
+                    }
+                    p.text(
+                        label,
+                        x0 + q(42.0),
+                        (y0 + q(*y) - th / 2.0).round(),
+                        text,
+                        if shown { WHITE } else { INK },
+                    );
+                    hits.push((
+                        [bx - q(3.0), by - q(3.0), b + q(6.0), b + q(6.0)],
+                        Hit::Ctl(i),
+                    ));
+                    hits.push((row, Hit::Item(i, *k)));
+                }
+                Ctl::ListBox { id, r, items, .. } => {
+                    let b = at(*r);
+                    let edge = if on {
+                        Rgba(0xD9, 0xD9, 0xD9, 255)
+                    } else {
+                        Rgba(0xE3, 0xE3, 0xE3, 255)
+                    };
+                    p.fill_rect(b[0], b[1], b[2], b[3], edge);
+                    p.fill_rect(b[0] + 1.0, b[1] + 1.0, b[2] - 2.0, b[3] - 2.0, WHITE);
+                    let rh = q(20.0);
+                    let sel = self.pick(id);
+                    p.push_clip(b[0] + 1.0, b[1] + 1.0, b[2] - 2.0, b[3] - 2.0);
+                    for (j, item) in items.iter().enumerate() {
+                        let rr = [b[0] + 1.0, b[1] + q(2.0) + rh * j as f32, b[2] - 2.0, rh];
+                        if rr[1] + rh > b[1] + b[3] {
+                            break;
+                        }
+                        let chosen = sel == j + 1;
+                        if chosen {
+                            p.fill_rect(rr[0], rr[1], rr[2], rr[3], if on { FOCUS } else { DIM });
+                        }
+                        p.text(
+                            item,
+                            rr[0] + q(3.0),
+                            (rr[1] + (rh - th) / 2.0).round(),
+                            text,
+                            if chosen {
+                                WHITE
+                            } else if on {
+                                INK
+                            } else {
+                                DIM
+                            },
+                        );
+                        if on {
+                            hits.push((rr, Hit::Item(i, j)));
+                        }
+                    }
+                    p.pop_clip();
+                }
+                Ctl::Warn { x, y } => {
+                    // A rounded amber triangle with a dark "!" (our own mark).
+                    let (cx, cy, r) = (x0 + q(*x), y0 + q(*y), q(16.0));
+                    p.path(
+                        &[
+                            PathSeg::M(cx, cy - r),
+                            PathSeg::L(cx + r, cy + r * 0.8),
+                            PathSeg::L(cx - r, cy + r * 0.8),
+                            PathSeg::Z,
+                        ],
+                        Some(Rgba(0xF7, 0xB3, 0x2B, 255)),
+                        Some((Rgba(0xF7, 0xB3, 0x2B, 255), q(3.0))),
+                    );
+                    p.fill_rect(
+                        cx - q(1.5),
+                        cy - r * 0.45,
+                        q(3.0),
+                        r * 0.75,
+                        Rgba(0x30, 0x30, 0x30, 255),
+                    );
+                    p.fill_rect(
+                        cx - q(1.5),
+                        cy + r * 0.42,
+                        q(3.0),
+                        q(3.0),
+                        Rgba(0x30, 0x30, 0x30, 255),
+                    );
                 }
                 Ctl::Table { r, cols, rows } => {
                     let b = at(*r);

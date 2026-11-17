@@ -534,6 +534,8 @@ pub struct EditorWindow {
     pub(crate) wm_image8: Option<Vec<u8>>,
     /// The presets file was read (`editor_dlg8b::presets_file`).
     pub(crate) presets_loaded8: bool,
+    /// PDF Optimizer round 10 (`editor_opt10`): font lists, settings waiting for a render.
+    pub(crate) opt10: crate::editor_opt10::Opt10,
     /// The Edit Object rotation handle being dragged (`editor_rot8`).
     pub(crate) rot8: Option<crate::editor_rot8::RotDrag>,
     /// Values last applied per page design kind, for Update (`editor_org9`).
@@ -633,6 +635,7 @@ impl EditorWindow {
             policy8: None,
             wm_image8: None,
             presets_loaded8: false,
+            opt10: crate::editor_opt10::Opt10::default(),
             rot8: None,
             org9_last: std::collections::BTreeMap::new(),
             org9_update: None,
@@ -1510,7 +1513,10 @@ impl EditorWindow {
 
     /// Pages rendered as PNG for `purpose` (`images`: one file per page).
     pub fn pages_rendered(&mut self, purpose: &str, pngs: Vec<Vec<u8>>) {
-        if self.conv9_rendered(purpose, &pngs) || self.conv9b_rendered(purpose, &pngs) {
+        if self.conv9_rendered(purpose, &pngs)
+            || self.conv9b_rendered(purpose, &pngs)
+            || self.opt10_rendered(purpose, &pngs)
+        {
             return;
         }
         let stem = self.doc_name();

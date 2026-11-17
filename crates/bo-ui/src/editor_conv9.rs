@@ -333,7 +333,8 @@ impl EditorWindow {
                 }
             }
             "conv9.rotateMulti" => self.open_rotate9(),
-            "file.optimize" => self.open_opt9(),
+            "file.optimize" => self.open_opt10(),
+            "file.reduceSize" => self.open_reduce10(),
             // No .doc writer and no JPEG 2000 encoder in BlueOffice: shown dimmed.
             "conv9.word97" | "conv9.jpeg2000" => {}
             _ => return false,
@@ -353,7 +354,7 @@ impl EditorWindow {
             .iter()
             .enumerate()
             .filter_map(|(i, png)| {
-                let img = bo_raster::codecs::decode(png)?;
+                let img = crate::editor_opt10::png_rgba(png)?;
                 let bytes = if ext == "tif" {
                     encode_tiff(&img.pixels, img.width, img.height)
                 } else {

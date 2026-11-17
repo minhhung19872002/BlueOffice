@@ -253,6 +253,9 @@ fn animation_pane_follows_the_slide_selection() {
     w.view.run(SlideCommand::Select { ids: vec![id] });
     w.relayout_pending = true;
     w.handle(Input::Blink, &Fixed);
-    let sel = w.anim_pane.selected.expect("the selected shape's row is chosen");
+    let sel = w
+        .anim_pane
+        .selected
+        .expect("the selected shape's row is chosen");
     assert_eq!(w.view.state().unwrap().animations[sel].shape_id, id);
 }

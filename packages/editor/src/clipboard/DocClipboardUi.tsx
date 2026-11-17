@@ -43,7 +43,7 @@ export function DocClipboardUi({
     if (!c || !ready) return undefined;
     c.setPasteDefaults(loadPasteDefaults());
     let n = 0;
-    c.onPasteChange((rec) => setPaste(rec ? { rec, n: ++n } : null));
+    c.onPasteChange((rec) => setPaste((previous) => (rec ? { rec, n: previous?.n ?? ++n } : null)));
     return () => c.onPasteChange(null);
   }, [controller, ready]);
 
@@ -72,7 +72,12 @@ export function DocClipboardUi({
           anchor={anchor}
           options={options}
           current={paste.rec.mode}
-          onChoose={(m) => void controller.current?.switchPaste(m as DocPasteChoice).then(focus)}
+          onChoose={(m) =>
+            void controller.current?.switchPaste(m as DocPasteChoice).then(() => {
+              // A shortcut may have reopened the menu while the mode change was in flight.
+              if (!document.activeElement?.closest('[data-testid="paste-options-menu"]')) focus();
+            })
+          }
           settings={{ label: t('pasteOptions.setDefaults'), onSelect: onOpenPanel }}
         />
       )}

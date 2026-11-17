@@ -49,6 +49,9 @@ pub(crate) struct Push {
     applied: f32,
     /// Box of the paragraphs after it in its box where they were (Box mode, page points).
     group: Option<[f32; 4]>,
+    /// Box of the paragraphs before it in its box (Box mode; they stay where they are). The
+    /// reference editor's frame starts at the box's first paragraph (BlueEditor round 10).
+    lead: Option<[f32; 4]>,
 }
 
 impl Push {
@@ -122,6 +125,34 @@ fn followers_of(objs: &[PageObject], bbox: [f32; 4], size: f32, mode: PushMode) 
     }
 }
 
+/// Box of the paragraphs above a paragraph with box `bbox` in the same column, each ending
+/// within two lines of the one below it (the start of the reference editor's box).
+fn leaders_box(objs: &[PageObject], bbox: [f32; 4], size: f32) -> Option<[f32; 4]> {
+    let mut above: Vec<_> = text_blocks(objs)
+        .into_iter()
+        .filter(|b| b.bbox[3] <= bbox[1] + 0.25 * size)
+        .filter(|b| b.bbox[0] < bbox[2] && b.bbox[2] > bbox[0])
+        .collect();
+    above.sort_by(|a, b| b.bbox[3].total_cmp(&a.bbox[3]));
+    let mut top = bbox[1];
+    let mut out: Option<[f32; 4]> = None;
+    for b in above {
+        if top - b.bbox[3] > 2.0 * size.max(b.font_size) {
+            break;
+        }
+        top = top.min(b.bbox[1]);
+        out = Some(out.map_or(b.bbox, |a| {
+            [
+                a[0].min(b.bbox[0]),
+                a[1].min(b.bbox[1]),
+                a[2].max(b.bbox[2]),
+                a[3].max(b.bbox[3]),
+            ]
+        }));
+    }
+    out
+}
+
 impl BlockEdit {
     /// Shift now applied to what follows the paragraph (page points; 0 without followers).
     #[must_use]
@@ -133,7 +164,15 @@ impl BlockEdit {
     /// where they are now — the reference editor frames the whole box.
     #[must_use]
     pub fn frame(&self) -> [f32; 4] {
-        let b = self.bbox;
+        let mut b = self.bbox;
+        if let Some(l) = self.push.as_ref().and_then(|p| p.lead) {
+            b = [
+                b[0].min(l[0]),
+                b[1].min(l[1]),
+                b[2].max(l[2]),
+                b[3].max(l[3]),
+            ];
+        }
         let Some((g, d)) = self.push.as_ref().and_then(|p| Some((p.group?, p.applied))) else {
             return b;
         };
@@ -182,6 +221,11 @@ impl PdfDocument {
                 })
             })
             .flatten();
+        let lead = if mode == PushMode::Box {
+            leaders_box(&objs, e.bbox, size)
+        } else {
+            None
+        };
         let followers = ids
             .into_iter()
             .filter_map(|i| {
@@ -211,6 +255,7 @@ impl PdfDocument {
             lines0: e.lines,
             applied: 0.0,
             group,
+            lead,
         });
         Ok(())
     }

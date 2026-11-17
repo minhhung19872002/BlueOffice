@@ -91,6 +91,27 @@ fn paragraphs_in_the_same_box_move_down_while_typing_others_stay() {
 }
 
 #[test]
+fn the_frame_of_the_last_paragraph_starts_at_the_first_of_its_box() {
+    // Round 10: the reference frames the whole box (the paragraphs above too) when typing
+    // into its last paragraph.
+    let mut doc = open(box_pdf());
+    let objs = doc.page_objects(0).expect("objects");
+    let blocks = text_blocks(&objs);
+    let first = blocks[0].bbox;
+    let second = blocks
+        .iter()
+        .find(|b| b.text.starts_with("A second"))
+        .expect("second")
+        .clone();
+    let mut e = doc.begin_block_edit(0, &second).expect("starts");
+    doc.block_edit_push(&mut e, PushMode::Box)
+        .expect("followers");
+    let f = e.frame();
+    assert!((f[1] - first[1]).abs() < 0.5, "{f:?} vs {first:?}");
+    assert!((f[3] - second.bbox[3]).abs() < 0.5, "{f:?}");
+}
+
+#[test]
 fn reflow_editing_moves_everything_below() {
     let mut doc = open(box_pdf());
     let (second0, rule0) = tops(&mut doc, "A second");

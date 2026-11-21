@@ -105,6 +105,9 @@ pub struct Dialog {
     caption: bool,
 }
 
+/// A dialog's title, box and buttons (label, box) for assistive technology.
+pub type AccessParts<'a> = (&'a str, [f32; 4], Vec<(String, [f32; 4])>);
+
 impl Dialog {
     /// A dialog titled `title` with `fields` (label, initial value) and `buttons`.
     pub fn new(
@@ -429,6 +432,20 @@ impl Dialog {
             Key::Escape => Some(DialogButton::Cancel),
             _ => None,
         }
+    }
+
+    /// For assistive technology: the title, the dialog's box and each button's label and box
+    /// (window pixels: x, y, width, height).
+    pub fn access_parts(&self) -> AccessParts<'_> {
+        let r = |r: R| [r.x, r.y, r.w, r.h];
+        (
+            &self.title,
+            r(self.frame),
+            self.buttons
+                .iter()
+                .map(|(label, _, b)| (label.clone(), r(*b)))
+                .collect(),
+        )
     }
 
     /// Whether a window position is over the dialog.

@@ -71,7 +71,11 @@ pub(crate) fn current_path(items: &[OutlineItem], cur: usize) -> Option<Vec<usiz
 }
 
 /// Paths of every bookmark with children.
-fn all_parents(items: &[OutlineItem], path: &mut Vec<usize>, out: &mut HashSet<Vec<usize>>) {
+pub(crate) fn all_parents(
+    items: &[OutlineItem],
+    path: &mut Vec<usize>,
+    out: &mut HashSet<Vec<usize>>,
+) {
     for (k, it) in items.iter().enumerate() {
         path.push(k);
         if !it.children.is_empty() && path.len() < 16 {

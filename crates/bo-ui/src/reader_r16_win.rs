@@ -62,6 +62,8 @@ enum Part {
     Icon(usize),
     Colour(usize),
     Slider,
+    /// Arrange › Page Center: vertically, horizontally, both (round 17).
+    Center(usize),
 }
 
 /// The note style new notes get (kept when the pane closes).
@@ -208,8 +210,10 @@ impl ReaderWindow {
 
     /// After every input: the pane follows the Note tool.
     pub(crate) fn after16(&mut self) -> bool {
-        let want = self.tool == Tool::Note && !self.r16.closed && !self.tabs.is_empty();
-        if self.tool != Tool::Note {
+        let want = (self.tool == Tool::Note || self.note_selected17())
+            && !self.r16.closed
+            && !self.tabs.is_empty();
+        if self.tool != Tool::Note && !self.note_selected17() {
             self.r16.closed = false;
         }
         if want && self.search9.open {
@@ -248,7 +252,10 @@ impl ReaderWindow {
                         self.r16.dragging = true;
                         self.slide16(x);
                     }
-                    None => {}
+                    Some(Part::Center(j)) if self.note_selected17() => {
+                        self.center17(j != 1, j != 0);
+                    }
+                    Some(Part::Center(_)) | None => {}
                 }
                 Some(true)
             }
@@ -315,6 +322,18 @@ impl ReaderWindow {
             px(16.0),
         ];
         hits.push((slider, Part::Slider));
+        for (j, ix) in [48.0, 118.4, 190.4].iter().enumerate() {
+            let s = px(30.4);
+            hits.push((
+                [
+                    x0 + px(*ix) - s / 2.0,
+                    y0 + px(459.2 + 36.8) - s / 2.0,
+                    s,
+                    s,
+                ],
+                Part::Center(j),
+            ));
+        }
         self.r16.slider = slider;
         self.r16.hits = hits;
     }
@@ -742,7 +761,8 @@ impl ReaderWindow {
             Some((KNOB_RING, one)),
         );
         p.path(&circle(kx, oy, px(4.0)), Some(accent), None);
-        // Arrange: nothing selected, so its tools are dim.
+        // Arrange: dim with nothing selected; Page Center on for a selected note (round 17).
+        let centre_on = self.note_selected17();
         section(p, "pdfReader16.arrange", 436.8);
         let rows: [(&str, f32, &[f32]); 3] = [
             ("pdfReader16.pageCenter", 459.2, &[48.0, 118.4, 190.4]),
@@ -763,7 +783,13 @@ impl ReaderWindow {
             );
             let iy = y0 + px(*ty + [36.8, 27.2, 28.8][n.min(2)]);
             for (j, ix) in xs.iter().enumerate() {
-                arrange_glyph(p, n, j, x0 + px(*ix), iy, px(16.0), one);
+                let ink = if n == 0 && centre_on { INK } else { DIM };
+                let (cx, s) = (x0 + px(*ix), px(16.0));
+                if n == 0 && centre_on && self.r16.hover == Some(Part::Center(j)) {
+                    let b = px(30.4);
+                    p.fill_rect(cx - b / 2.0, iy - b / 2.0, b, b, HOVER);
+                }
+                arrange_glyph(p, n, j, cx, iy, s, one, ink);
             }
         }
         p.pop_clip();
@@ -929,11 +955,21 @@ pub(crate) fn note_glyph(
     }
 }
 
-/// The Arrange section's tools (our own drawings: bars against a guide line), dim.
-fn arrange_glyph(p: &mut dyn Painter, row: usize, j: usize, cx: f32, cy: f32, s: f32, one: f32) {
+/// The Arrange section's tools (our own drawings: bars against a guide line) in `ink`.
+#[allow(clippy::too_many_arguments)]
+fn arrange_glyph(
+    p: &mut dyn Painter,
+    row: usize,
+    j: usize,
+    cx: f32,
+    cy: f32,
+    s: f32,
+    one: f32,
+    ink: Rgba,
+) {
     let h = s / 2.0;
     let (x, y) = ((cx - h).round(), (cy - h).round());
-    let stroke = Some((DIM, one));
+    let stroke = Some((ink, one));
     let bar = |p: &mut dyn Painter, bx: f32, by: f32, bw: f32, bh: f32| {
         p.path(
             &rounded(
@@ -947,8 +983,8 @@ fn arrange_glyph(p: &mut dyn Painter, row: usize, j: usize, cx: f32, cy: f32, s:
             stroke,
         );
     };
-    let guide_v = |p: &mut dyn Painter, gx: f32| p.fill_rect(gx.round(), y, one, s, DIM);
-    let guide_h = |p: &mut dyn Painter, gy: f32| p.fill_rect(x, gy.round(), s, one, DIM);
+    let guide_v = |p: &mut dyn Painter, gx: f32| p.fill_rect(gx.round(), y, one, s, ink);
+    let guide_h = |p: &mut dyn Painter, gy: f32| p.fill_rect(x, gy.round(), s, one, ink);
     match (row, j) {
         // Page centre: horizontally, vertically, both.
         (0, 0) => {

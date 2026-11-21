@@ -8181,6 +8181,26 @@
     "distribute": "Distribute",
     "pageText": "Page text"
   },
+  "pdfReader17": {
+    "align": "Align",
+    "center": "Center",
+    "distribute": "Distribute",
+    "left": "Left",
+    "right": "Right",
+    "top": "Top",
+    "bottom": "Bottom",
+    "vertically": "Vertically",
+    "horizontally": "Horizontally",
+    "both": "Both",
+    "stateDeferred": "Deferred",
+    "stateFuture": "Future",
+    "menu": "Menu",
+    "dialog": "Dialog",
+    "goBookmark": "Go to Bookmark",
+    "printPages": "Print Page(s)",
+    "printSection": "Print Section(s)",
+    "toggleAll": "Expand/Collapse All Bookmarks"
+  },
   "pdfReader15": {
     "find": "Search",
     "findHint": "Find",

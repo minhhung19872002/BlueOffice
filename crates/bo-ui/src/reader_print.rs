@@ -724,6 +724,13 @@ impl PrintDialog {
         self.preview_at = 0;
     }
 
+    /// Preset the Pages range (`"3 - 5"`, 1-based), as a bookmark's Print Page(s) / Print
+    /// Section(s) does (round 17).
+    pub fn set_pages(&mut self, text: &str) {
+        self.range = Range::Pages;
+        self.pages_text = text.chars().collect();
+    }
+
     /// Pages to print, in order.
     pub fn pages(&self) -> Vec<usize> {
         let mut v: Vec<usize> = match self.range {

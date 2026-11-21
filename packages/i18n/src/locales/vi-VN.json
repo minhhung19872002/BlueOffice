@@ -8181,6 +8181,26 @@
     "distribute": "Phân bố",
     "pageText": "Chữ trên trang"
   },
+  "pdfReader17": {
+    "align": "Căn chỉnh",
+    "center": "Căn giữa",
+    "distribute": "Phân bố",
+    "left": "Trái",
+    "right": "Phải",
+    "top": "Trên",
+    "bottom": "Dưới",
+    "vertically": "Theo chiều dọc",
+    "horizontally": "Theo chiều ngang",
+    "both": "Cả hai",
+    "stateDeferred": "Hoãn lại",
+    "stateFuture": "Tương lai",
+    "menu": "Menu",
+    "dialog": "Hộp thoại",
+    "goBookmark": "Đi tới dấu trang",
+    "printPages": "In (các) trang",
+    "printSection": "In (các) phần",
+    "toggleAll": "Mở rộng/Thu gọn mọi dấu trang"
+  },
   "pdfReader15": {
     "find": "Tìm kiếm",
     "findHint": "Tìm",

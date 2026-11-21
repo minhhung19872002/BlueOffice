@@ -463,6 +463,31 @@ impl Menu {
         self.clamp();
     }
 
+    /// The highlighted row (pointer or keyboard).
+    pub fn hovered(&self) -> Option<usize> {
+        self.hover
+    }
+
+    /// Highlight row `i` (a cascading menu opened from the keyboard).
+    pub fn set_hovered(&mut self, i: Option<usize>) {
+        self.hover = i.filter(|&i| i < self.items.len());
+    }
+
+    /// The menu's box in window pixels (x, y, width, height).
+    pub fn rect(&self) -> [f32; 4] {
+        [self.x, self.y, self.w, self.h]
+    }
+
+    /// Row `i`'s box in window pixels as drawn (x, y, width, height).
+    pub fn row_rect(&self, i: usize) -> [f32; 4] {
+        [
+            self.x,
+            self.y + self.pad() + self.row_top(i) - self.scroll,
+            self.w,
+            self.item_h,
+        ]
+    }
+
     /// The highlighted item's choice (Enter).
     pub fn current(&self) -> Option<Choice> {
         self.hover.map(|i| self.items[i].choice.clone())

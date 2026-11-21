@@ -60,6 +60,12 @@ pub enum AccessRole {
     Document,
     /// A text field (search, find, page number; round 16).
     Edit,
+    /// An open menu (round 17).
+    Menu,
+    /// A row of an open menu (Invoke chooses it; round 17).
+    MenuItem,
+    /// An open dialog (round 17).
+    Window,
 }
 
 /// One element of the window for assistive technology (round 12).

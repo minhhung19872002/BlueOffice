@@ -120,13 +120,14 @@ impl ReaderWindow {
         crate::popup::Menu::open_with(items, anchor, self.size, self.scale, look)
     }
 
-    /// The first word of the selection (Look Up).
+    /// The last word of the selection (Look Up; measured round 17: a selection ending inside
+    /// "epsilon" offers Look Up "epsilo").
     fn lookup_word9(&self) -> String {
         self.view()
             .and_then(super::ReaderView::selected_text)
             .and_then(|s| {
                 s.split_whitespace()
-                    .next()
+                    .next_back()
                     .map(|w| w.trim_matches(|c: char| !c.is_alphanumeric()).to_owned())
             })
             .unwrap_or_default()
@@ -406,7 +407,29 @@ fn comment_rows(popup: bool, open: bool, paste: bool) -> (Vec<Row>, Vec<usize>) 
                 !paste,
             ),
             ("comment.delete", "pdfCtx.delete", "", None, false),
-            // Opens the four review states beside it, like the reference's submenu.
+            // Arrange cascades (round 17): one comment can only be centred.
+            (
+                "arrange17.align",
+                "pdfReader17.align",
+                "\u{25B6}",
+                None,
+                true,
+            ),
+            (
+                "arrange17.center",
+                "pdfReader17.center",
+                "\u{25B6}",
+                None,
+                false,
+            ),
+            (
+                "arrange17.distribute",
+                "pdfReader17.distribute",
+                "\u{25B6}",
+                None,
+                true,
+            ),
+            // Opens the review states beside it, like the reference's submenu.
             (
                 "comment.setStatus",
                 "pdfCtx.setStatus",
@@ -432,7 +455,7 @@ fn comment_rows(popup: bool, open: bool, paste: bool) -> (Vec<Row>, Vec<usize>) 
             ("draw.props", "pdfCtx.properties", "", None, false),
             ("ctx.setDefault", "pdfCtx.setDefault", "", None, false),
         ],
-        vec![1, 4, 5, 7, 11],
+        vec![1, 4, 5, 8, 10, 14],
     )
 }
 
@@ -487,12 +510,12 @@ mod tests {
         let labels = w.menu_labels9();
         assert_eq!(labels.first().map(String::as_str), Some("Copy"));
         assert!(labels.iter().any(|l| l == "Squiggly Underline"));
-        assert_eq!(labels.last().map(String::as_str), Some("Look Up \"Page\""));
+        assert_eq!(labels.last().map(String::as_str), Some("Look Up \"world\""));
         w.run_command("ctx.lookup", &Fixed);
         assert!(w
             .take_requests()
             .iter()
-            .any(|r| matches!(r, crate::ReaderRequest::OpenUrl(u) if u.ends_with("?q=Page"))));
+            .any(|r| matches!(r, crate::ReaderRequest::OpenUrl(u) if u.ends_with("?q=world"))));
         // Highlight from the menu adds a comment on the selection.
         w.run_command("sel.highlight", &Fixed);
         let n = w.view().expect("view").doc().annotations().len();

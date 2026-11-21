@@ -991,3 +991,39 @@ chọn, `FindText`, `Select` (chọn trên trang), sự kiện đổi vùng ch�
 
 Còn lại: biểu tượng Note Style của bản đối chiếu có thêm chữ "NP"; Shift+nhấp và kéo chọn với Hand trên bản đối chiếu chưa
 đo chắc (kéo gửi bằng thông điệp làm cuộn trang); Arrange khi có chú thích được chọn; UIA cho menu / hộp thoại tự vẽ.
+
+## Vòng 17 (2026-11-22)
+
+Đo trên bản đối chiếu bằng thông điệp gửi vào bản sao thử (`scratchpad/r17/mouse2.ps1`: thêm `capall` ghép cả cửa sổ
+menu bật lên, `key:` gửi phím vào menu, `hold:` kéo rồi giữ). Mô-đun: `reader_r17_win.rs` (+ `reader_r17_tests.rs`, 7
+test); thêm chung chỉ cộng thêm (`popup.rs` `hovered` / `set_hovered` / `rect` / `row_rect`, `dialog.rs` `access_parts`,
+`PdfWindow::edge_scroll` / `edge_step`, `AccessRole::Menu` / `MenuItem` / `Window`, khoá i18n `pdfReader17`).
+
+| Hạng mục | Bản đối chiếu | Trước | Nay |
+| --- | --- | --- | --- |
+| Kéo chọn (Hand trên chữ / Select) | theo ranh giới ký tự gần nhất ở cả hai đầu: nhấn ở nửa trái chữ "l" giữ "l", thả ở nửa trái "n" bỏ "n" ("lpha … epsilo") | trọn ký tự dưới con trỏ ở hai đầu ("alpha … epsilon") | = |
+| Kéo ra ngoài mép trên / dưới | cuộn theo (đo bằng thông điệp không ổn định) | chỉ cuộn khi chuột còn di chuyển | cuộn liên tục khi giữ nút: 100 px/s ở mép + 16,5 px/s mỗi px xa hơn (bộ hẹn giờ 16 ms của host) |
+| Look Up trong menu vùng chọn | từ **cuối** vùng chọn (`Look Up "epsilo"`) | từ đầu | = |
+| Menu chú thích | Reply │ Cut, Copy, Paste │ Delete │ Align ▸ (mờ), Center ▸, Distribute ▸ (mờ) │ Set Status ▸, Mark with Checkmark │ 4 dòng Popup │ Properties…, Set Current Properties as Default | không có Align / Center / Distribute; Set Status mở menu riêng tại con trỏ | = (menu tầng mở khi rê, → hoặc Enter; ← / Esc chỉ đóng tầng con; chồng 1 px, đỉnh cao hơn dòng 2 px) |
+| Center ▸ | Vertically, Horizontally, Both | — | = (dời chú thích vào giữa trang) |
+| Align ▸ / Distribute ▸ | Left, Right, Top, Bottom │ Vertically, Horizontally / Vertically, Horizontally — mờ khi chỉ một chú thích | — | = |
+| Set Status ▸ | None ✓, Accepted, Rejected, Cancelled, Completed, Deferred, Future | 5 trạng thái | 7 trạng thái |
+| Chọn ghi chú | mở ngăn Format bên phải (Arrange) | không | ngăn Format, Arrange › Page Center bật (3 nút dời vào giữa) |
+| Menu trên dấu trang | Go to Bookmark, Print Page(s), Print Section(s) │ Expand/Collapse All Bookmarks, Wrap Long Bookmarks | Add / Rename / Delete / Promote / Demote / Expand / Collapse | 4 dòng đầu = (In mở hộp In với khoảng trang của dấu trang / phần tới dấu trang kế); chưa có Wrap Long Bookmarks |
+| Menu hình thu nhỏ | Enlarge / Reduce Page Thumbnails │ Print Pages…, Properties… | = | = |
+| Menu vùng trống | 15 dòng, dấu ✓ ở kiểu vừa trang | = | = |
+| Trang Start | nền 165 xám, thẻ Start chữ màu nhấn + ×, ô trang rỗng, thẻ Recent Files 34–409 px, vạch 238 ở y 314, khoảng cách đáy 21 px | nền 235/236/240, thẻ Start chữ đen không ×, ô trang "1 / 12", vạch 229 | = (× của Start quay về tài liệu); chưa có nút thùng rác xoá danh sách |
+| UIA menu / hộp thoại | — | menu tự vẽ vô hình với trình đọc màn hình | Menu + MenuItem (Invoke = nhấp dòng, tầng con mở như chuột), Window + Button cho hộp thoại; focus theo dòng đang chọn |
+
+**Hiệu năng** (PDF 300 trang, `BLUEOFFICE_NATIVE_PERF`, phím gửi vào cửa sổ, bản release): mở + hiện 4,3 s gồm thời gian
+chờ của script; 40 × PgDn: tổng mỗi khung trung vị 3,7 ms, p90 8,5 ms, chuẩn bị trang (vẽ trang mới) 1,4–2,5 ms; khung lớn
+nhất 18,0 ms là PgDn đầu tiên ra khỏi trang 1 (chuẩn bị 14,1 ms: phông và bộ nhớ đệm lần đầu) — mọi khung khác < 16 ms.
+Ctrl +/−, Ctrl+0/2, End/Home: trung vị 8,8 ms, lớn nhất 21,5 ms tính cả thời gian chờ hàng đợi (công việc 5,5 ms), công việc
+lớn nhất 13,1 ms.
+
+Ảnh: `reader-106` (kéo chọn + menu vùng chọn), `reader-107` (menu chú thích + Center ▸ + ngăn Format), `reader-108`
+(Set Status ▸), `reader-109` (trang Start; tên tệp gần đây bị che ở cả hai bên).
+
+Còn lại: Wrap Long Bookmarks; nút thùng rác của Recent Files; biểu tượng tệp PDF màu của danh sách gần đây; ngăn Format
+của bản đối chiếu còn mở sau khi bỏ chọn (ta đóng); Shift+nhấp trên bản đối chiếu vẫn chưa đo chắc; chọn nhiều chú
+thích (Align / Distribute); kéo chọn qua nhiều trang; khung PgDn đầu tiên 18 ms.

@@ -6,7 +6,7 @@
 //! `win32.rs` stays as it is; the window's tick runs each step.
 // `Some(None)`: the anchor went away (auto-scroll ended), as against no change.
 #![allow(clippy::option_option)]
-use std::sync::atomic::{AtomicIsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::Instant;
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
@@ -21,6 +21,46 @@ use windows::Win32::UI::WindowsAndMessaging::{
 const TICK_TIMER: usize = 2;
 /// Our own step timer (about 60 a second while scrolling).
 const STEP_TIMER: usize = 0x5216;
+/// Round 17: step timer while a selection drag is past the view's edge.
+const EDGE_TIMER: usize = 0x5217;
+
+/// The window wants edge steps (set by the host after each input).
+static EDGE_WANTED: AtomicBool = AtomicBool::new(false);
+static EDGE_ON: AtomicBool = AtomicBool::new(false);
+/// Edge scrolling not yet taken, in microseconds.
+static EDGE_US: AtomicU64 = AtomicU64::new(0);
+static EDGE_LAST: Mutex<Option<Instant>> = Mutex::new(None);
+
+/// Host: whether a selection drag is past the view's edge now (round 17).
+pub fn set_edge(on: bool) {
+    EDGE_WANTED.store(on, Ordering::Relaxed);
+}
+
+/// Milliseconds of edge scrolling to make now.
+pub fn take_edge() -> Option<f32> {
+    let us = EDGE_US.swap(0, Ordering::Relaxed);
+    (us > 0).then_some(us as f32 / 1000.0)
+}
+
+/// Start or stop the edge timer to follow [`set_edge`] (on any message of the window).
+fn follow_edge(hwnd: HWND) {
+    let want = EDGE_WANTED.load(Ordering::Relaxed);
+    if want == EDGE_ON.swap(want, Ordering::Relaxed) {
+        return;
+    }
+    if let Ok(mut l) = EDGE_LAST.lock() {
+        *l = want.then(Instant::now);
+    }
+    // SAFETY: this thread's window and timer.
+    unsafe {
+        if want {
+            let _ = SetTimer(Some(hwnd), EDGE_TIMER, 16, None);
+        } else {
+            let _ = KillTimer(Some(hwnd), EDGE_TIMER);
+            EDGE_US.store(0, Ordering::Relaxed);
+        }
+    }
+}
 
 static OLD_PROC: AtomicIsize = AtomicIsize::new(0);
 
@@ -107,7 +147,21 @@ fn end(hwnd: HWND) -> bool {
 
 extern "system" fn proc_(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     let on = STATE.lock().is_ok_and(|s| s.anchor.is_some());
+    follow_edge(hwnd);
     match msg {
+        WM_TIMER if wparam.0 == EDGE_TIMER => {
+            if EDGE_ON.load(Ordering::Relaxed) {
+                let now = Instant::now();
+                let ms = EDGE_LAST.lock().ok().map_or(16.0, |mut l| {
+                    let ms = l.map_or(16.0, |t| now.duration_since(t).as_secs_f32() * 1000.0);
+                    *l = Some(now);
+                    ms.min(100.0)
+                });
+                EDGE_US.fetch_add((ms * 1000.0) as u64, Ordering::Relaxed);
+                tick(hwnd);
+            }
+            return LRESULT(0);
+        }
         WM_MBUTTONDOWN if !on => {
             let at = point(lparam);
             if let Ok(mut s) = STATE.lock() {

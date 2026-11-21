@@ -338,11 +338,11 @@ fn file_page_like_the_reference() {
             .expect("item");
     click(&mut w, r[0] + 5.0, r[1] + 5.0);
     assert_eq!(w.bs.page, "bs.properties");
-    let rows = w.properties();
-    assert!(
-        rows.iter().any(|(k, v)| k == "Pages" && v == "2"),
-        "{rows:?}"
-    );
+    let mut rec = Rec::default();
+    w.paint(&mut rec);
+    for t in ["Description", "Initial View", "Pages", "2", "add a title"] {
+        assert!(rec.texts.iter().any(|x| x == t), "{t}: {:?}", rec.texts);
+    }
     // Save Asks the host (a command of the reader window).
     let r =
         w.bs.hits

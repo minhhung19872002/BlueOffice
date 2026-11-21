@@ -103,6 +103,9 @@ impl EditorWindow {
                     .map(|h| h.1.clone());
                 if let Some(cmd) = hit {
                     self.backstage_command(&cmd);
+                } else {
+                    // Round 12: a click elsewhere closes an open drop-down.
+                    self.bsp12.open = None;
                 }
                 true
             }
@@ -117,6 +120,9 @@ impl EditorWindow {
     }
 
     pub(crate) fn backstage_command(&mut self, cmd: &str) {
+        if self.props12_command(cmd) {
+            return;
+        }
         match cmd {
             "bs.optimizer" => {
                 self.bs.page = "bs.optimizer";
@@ -517,21 +523,8 @@ impl EditorWindow {
                 self.r.paint_backstage8(p, page, mx, top, &mut hits);
             }
             _ => {
-                // Properties of the document.
-                p.text(
-                    &self.t("pdfEditor.bsProperties"),
-                    mx - px(0.8),
-                    ty,
-                    title,
-                    MUTED,
-                );
-                let rows = self.properties();
-                let mut y = top + px(85.6);
-                for (k, v) in rows {
-                    p.text(&k, mx, y, item, MUTED);
-                    p.text(&v, mx + px(160.0), y, item, TEXT);
-                    y += px(30.4);
-                }
+                // Properties of the document (round 12: the reference's five pages).
+                self.paint_props12(p, mx, top, &mut hits);
             }
         }
         self.bs.hits = hits;
@@ -650,62 +643,5 @@ impl EditorWindow {
         if let Some(l) = l {
             v.set_layout(l);
         }
-    }
-
-    /// Label and value rows of the Properties page.
-    pub(crate) fn properties(&mut self) -> Vec<(String, String)> {
-        let path = self.path().map(std::path::Path::to_path_buf);
-        let name = self.doc_stem();
-        let label = |w: &Self, k: &str| w.t(k);
-        let mut rows = Vec::new();
-        let info = self.with_doc(|d| {
-            let size = d.page_info(0).map(|p| (p.width, p.height));
-            Ok((
-                d.page_count(),
-                size,
-                d.version(),
-                d.bytes().len(),
-                d.title(),
-                d.info("Author"),
-                d.info("Producer"),
-                d.is_encrypted(),
-            ))
-        });
-        let Ok((pages, size, version, bytes, title, author, producer, enc)) = info else {
-            return rows;
-        };
-        rows.push((label(self, "pdfEditor.propFile"), format!("{name}.pdf")));
-        if let Some(dir) = path.as_ref().and_then(|p| p.parent()) {
-            rows.push((
-                label(self, "pdfEditor.propLocation"),
-                dir.to_string_lossy().into_owned(),
-            ));
-        }
-        rows.push((label(self, "pdfEditor.propPages"), pages.to_string()));
-        if let Some((w, h)) = size {
-            rows.push((
-                label(self, "pdfEditor.propPageSize"),
-                format!("{:.1} × {:.1} mm", w / 72.0 * 25.4, h / 72.0 * 25.4),
-            ));
-        }
-        rows.push((label(self, "pdfEditor.propVersion"), version));
-        rows.push((
-            label(self, "pdfEditor.propFileSize"),
-            format!("{:.1} KB ({bytes} B)", bytes as f32 / 1024.0),
-        ));
-        for (k, v) in [
-            ("pdfEditor.propTitle", title),
-            ("pdfEditor.propAuthor", author),
-            ("pdfEditor.propProducer", producer),
-        ] {
-            rows.push((label(self, k), v.unwrap_or_else(|| "—".into())));
-        }
-        let sec = if enc {
-            "pdfEditor.propEncrypted"
-        } else {
-            "pdfEditor.propNoSecurity"
-        };
-        rows.push((label(self, "pdfEditor.propSecurity"), label(self, sec)));
-        rows
     }
 }

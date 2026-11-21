@@ -30,6 +30,7 @@ mod color;
 mod convert;
 mod crypt;
 mod design;
+mod docprops12;
 mod edit;
 mod encoding;
 #[allow(clippy::unreadable_literal, clippy::large_const_arrays)]
@@ -41,9 +42,11 @@ mod extract;
 mod fallback;
 mod field_detect;
 mod field_props;
+mod fields12;
 mod filters;
 mod font;
 mod font_subset;
+mod fontsub12;
 mod forms;
 mod forms11;
 mod function;
@@ -69,6 +72,7 @@ mod security10;
 mod sfnt;
 mod shapes11;
 mod sigappear;
+mod stamps12;
 mod store;
 mod stroke_outline;
 mod templates;
@@ -95,6 +99,7 @@ pub use note16::{note_icon_content, NOTE_ICONS, NOTE_ICONS_DRAWN};
 
 pub use convert::{StyledBlock, StyledRun};
 pub use design::{NewField, NewFieldKind, PageMarks};
+pub use docprops12::{InitialView, PrintPresets, PAGE_LAYOUTS, PAGE_MODES, ZOOMS};
 pub use edit::{Cipher, Permissions, SaveOptions};
 pub use exchange::SummaryLabels;
 pub use exchange_data::ImportReport;
@@ -103,6 +108,7 @@ pub use field_props::{
     format_example, format_scripts, FieldAction, FieldActionKind, FieldCalc, FieldFormat,
     FieldProps, FieldValidate, CALC_OPS, DATE_FORMATS, FIELD_FONTS, TRIGGERS,
 };
+pub use fields12::FieldClip;
 pub use forms::{FieldKind, FormField};
 pub use forms11::{
     calc_text, parse_simple_calculate, typed_outline, typed_outline_in, typed_width, Calculation,
@@ -127,6 +133,7 @@ pub use sanitize::{ButtonAction, HiddenCounts, HiddenData};
 pub use security10::SecurityInfo;
 pub use shapes11::ShapeStyle;
 pub use sigappear::{signature_appearance, SignatureLook};
+pub use stamps12::StampLook;
 pub use templates::EmbeddedFile;
 pub use text::TextLayer;
 pub use textbox_annot::TextBoxLook;
@@ -736,6 +743,7 @@ impl PdfDocument {
                 pi.run(&content[..n]);
                 let rest = pi.at_rest(base);
                 pi.finish();
+                self.typing.chunks.clear();
                 self.typing.drawn =
                     rest.then(|| (opts, base, self.hidden.len(), std::mem::take(&mut pi.out)));
             }
@@ -758,7 +766,45 @@ impl PdfDocument {
             match (kept, split) {
                 (Some(out), Some(n)) => {
                     it.out = out;
-                    it.run(&content[n..]);
+                    let rest = &content[n..];
+                    match self.typing.tail_chunks(rest).map(<[_]>::to_vec) {
+                        // The paragraph's line chunks: kept drawings for the lines whose
+                        // bytes did not change, the others interpreted (round 12).
+                        Some(ranges) => {
+                            let first = ranges.first().map_or(rest.len(), |r| r.start);
+                            let ranges_end = ranges.last().map_or(first, |r| r.end);
+                            it.run(&rest[..first]);
+                            let mut used = HashMap::new();
+                            for r in ranges {
+                                let bytes = &rest[r];
+                                if let Some(d) = self.typing.chunks.remove(bytes) {
+                                    it.out.commands.extend_from_slice(&d.commands);
+                                    it.out.chars.extend_from_slice(&d.chars);
+                                    used.insert(bytes.to_vec(), d);
+                                    continue;
+                                }
+                                let marks = (
+                                    it.out.commands.len(),
+                                    it.out.chars.len(),
+                                    it.out.images.len(),
+                                );
+                                it.run(bytes);
+                                if it.at_rest(base) && it.out.images.len() == marks.2 {
+                                    used.insert(
+                                        bytes.to_vec(),
+                                        typing_fast::ChunkDrawing {
+                                            commands: it.out.commands[marks.0..].to_vec(),
+                                            chars: it.out.chars[marks.1..].to_vec(),
+                                        },
+                                    );
+                                }
+                            }
+                            self.typing.chunks = used;
+                            let end = ranges_end;
+                            it.run(&rest[end..]);
+                        }
+                        None => it.run(rest),
+                    }
                 }
                 _ => it.run(&content),
             }

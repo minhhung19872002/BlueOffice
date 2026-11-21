@@ -211,7 +211,7 @@ impl EditorWindow {
 
     /// Pointer input of field mode before a new field is drawn: select, move, open the
     /// Properties dialog (double click), the context menu; true when used.
-    pub(crate) fn fields11_input(&mut self, input: &Input) -> bool {
+    pub(crate) fn fields11_input(&mut self, input: &Input, m: &dyn crate::TextMeasure) -> bool {
         let area = self.r.doc_area();
         match *input {
             Input::Press {
@@ -276,7 +276,7 @@ impl EditorWindow {
                 if !self.f11.selected.iter().any(|s| s.same_widget(&f)) {
                     self.f11.selected = vec![f];
                 }
-                self.field_menu11(x, y);
+                self.field_menu12(x, y, m);
                 true
             }
             Input::Key(crate::Key::Delete, _) if !self.f11.selected.is_empty() => {
@@ -342,12 +342,6 @@ impl EditorWindow {
             }
         }
         self.after_doc_edit();
-    }
-
-    /// The context menu of selected fields (as the reference's).
-    fn field_menu11(&mut self, x: f32, y: f32) {
-        self.f11.menu_at = [x, y];
-        self.field_submenu11("");
     }
 
     /// The context menu (`which` empty) or one of its sub-menus (`align`, `center`,
@@ -436,7 +430,7 @@ impl EditorWindow {
                 .collect()
         };
         let [x, y] = self.f11.menu_at;
-        self.menu_items(items, [x, y, 1.0, 1.0]);
+        self.submenu12(items, [x, y]);
     }
 
     /// Commands of field mode (`fd11.*`); false when `cmd` is not one.

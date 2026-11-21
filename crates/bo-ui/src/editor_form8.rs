@@ -702,11 +702,17 @@ impl Form {
             q(31.0),
             Rgba(0xF2, 0xF3, 0xF3, 255),
         );
+        // Round 12 (resumed): the reference's caption text is ~6 % wider than the body text
+        // ("Create Multiple Copies of Fields": 222 px against 209 px at 125 %).
+        let title = TextStyle {
+            size: (15.3 * s).round(),
+            bold: false,
+        };
         p.text(
             &self.title,
             x0 + q(7.0),
-            y0 + ((q(32.0) - th) / 2.0).round(),
-            text,
+            y0 + ((q(32.0) - title.size * 1.33) / 2.0).round(),
+            title,
             INK,
         );
         let (cx, cy, r) = (x0 + w - q(23.0), y0 + q(16.0), q(5.5));

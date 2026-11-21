@@ -264,7 +264,7 @@ fn ribbon(tab: usize) -> Vec<(&'static str, Kind)> {
                 Big("searchHighlight", "pdfComment.searchHighlight", false),
             ),
             ("sep6", Sep),
-            ("menu.measure", Big("measure", "pdfDraw.measure", true)),
+            ("cm.measure", Big("measure", "pdfDraw.measure", true)),
             (
                 "cm.calculator",
                 Big("calculator", "pdfEditor.calculator", false),
@@ -272,7 +272,7 @@ fn ribbon(tab: usize) -> Vec<(&'static str, Kind)> {
             ("sep7", Sep),
             ("cm.stamp", Row("stamp", "pdfEditor.stamp", true)),
             (
-                "menu.customStamp",
+                "cm.createMenu",
                 Row("createStamp", "pdfEditor.createStamp", true),
             ),
             ("sep8", Sep),
@@ -514,6 +514,12 @@ pub struct EditorWindow {
     pub(crate) design: crate::editor_design::DesignState,
     /// Field mode selection, tab order and the Properties dialog (round 11).
     pub(crate) f11: crate::editor_fields11::Fields11,
+    /// Field clipboard and new-field defaults (round 12).
+    pub(crate) f12: crate::editor_fields12::Fields12,
+    /// File › Properties page (round 12).
+    pub(crate) bsp12: crate::editor_bsprops12::BsProps12,
+    /// Stamp palette and custom stamps (round 12).
+    pub(crate) st12: crate::editor_stamps12::Stamps12,
     /// Add Shapes grid and the new shapes' style (round 11).
     pub(crate) s11: crate::editor_shapes11::Shapes11,
     /// Caret shown (blink phase).
@@ -609,6 +615,9 @@ impl EditorWindow {
             close_box: None,
             design: crate::editor_design::DesignState::default(),
             f11: crate::editor_fields11::Fields11::default(),
+            f12: crate::editor_fields12::Fields12::default(),
+            bsp12: crate::editor_bsprops12::BsProps12::default(),
+            st12: crate::editor_stamps12::Stamps12::default(),
             s11: crate::editor_shapes11::Shapes11::default(),
             caret_on: true,
             x: crate::editor_actions::Extras::default(),
@@ -843,6 +852,14 @@ impl EditorWindow {
         if self.dialog.is_some() || self.dialog2.is_some() {
             return self.dialog_input(&input, m);
         }
+        // A press, or an open dialog of the editor, hides the ribbon tooltip (the reference
+        // never shows one over its dialogs).
+        if !self.form8.is_empty() || matches!(input, Input::Press { .. }) {
+            self.r.hide_tip9();
+        }
+        if self.field_keys12(&input, m) {
+            return true;
+        }
         if self.close_box_input(&input)
             || self.trans_input(&input)
             || self.form8_input(&input)
@@ -878,6 +895,10 @@ impl EditorWindow {
             self.sync();
             return true;
         }
+        if self.stamps12_input(&input) {
+            self.sync();
+            return true;
+        }
         // The command search box keeps the keyboard while its results list is open.
         if self.tools.search_on && matches!(input, Input::Text(_) | Input::Key(..)) {
             used = self.search_input(&input);
@@ -899,7 +920,9 @@ impl EditorWindow {
                 used = self.comment_input(&input);
             }
             if !used && self.design.tool.is_some() && self.r.showing_doc() && !self.organize_on() {
-                used = self.fields11_input(&input) || self.design_input(&input);
+                used = self.fields12_input(&input)
+                    || self.fields11_input(&input, m)
+                    || self.design_input(&input);
             }
             if !used && self.tools.tool.is_some() && self.r.showing_doc() && !self.organize_on() {
                 used = self.tools_input(&input);
@@ -1088,7 +1111,9 @@ impl EditorWindow {
             }
             return;
         }
-        if self.prot10_command(cmd)
+        if self.stamps12_command(cmd)
+            || self.measure12_command(cmd)
+            || self.prot10_command(cmd)
             || self.share11_command(cmd)
             || self.edit10_command(cmd)
             || self.org9_command(cmd)
@@ -1103,6 +1128,7 @@ impl EditorWindow {
             || self.comment_command(cmd)
             || self.edit_tab_command(cmd)
             || self.design_command(cmd)
+            || self.fields12_command(cmd)
             || self.fields11_command(cmd)
             || self.more_command(cmd)
             || self.more2_command(cmd)
@@ -1983,6 +2009,7 @@ impl EditorWindow {
         self.paint_tw(p);
         self.paint_design(p);
         self.paint_fields11(p);
+        self.paint_fields12(p);
         // Round 11: a menu stays over the field boxes and the Edit Text frames.
         if self.design.tool.is_some() || self.tool.is_some() {
             self.r.paint_open_menu(p);
@@ -1992,6 +2019,7 @@ impl EditorWindow {
         self.paint_more_tip(p);
         self.paint_backstage(p);
         self.paint_shapes11(p);
+        self.paint_stamps12(p);
         // Round 7: every BlueEditor dialog has the reference editor's caption and buttons.
         let (size, scale) = (self.r.window_size(), self.r.ui_scale());
         for d in [

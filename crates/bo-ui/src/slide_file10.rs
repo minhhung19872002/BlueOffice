@@ -166,6 +166,8 @@ pub(crate) enum BsOut {
     Print,
     /// Print › Edit Header & Footer.
     HeaderFooter,
+    /// The chosen printer's own settings dialog.
+    PrinterProperties,
     /// Open drop-down `id` under `anchor` (device pixels).
     Menu(&'static str, [f32; 4]),
 }
@@ -253,6 +255,7 @@ enum Hit {
     PreviewNext,
     PagesBox,
     HfLink,
+    PrinterProps,
 }
 
 /// The open File screen.
@@ -276,11 +279,13 @@ pub(crate) struct SlideBackstage {
     pub(crate) pages_focus: bool,
     /// Measured widths of the Info page's buttons and of the Save label.
     button_w: [f32; 3],
+    /// Print page: texts of the setting boxes cut to fit with "…" (full text, shown text).
+    fitted: Vec<(String, String)>,
     hits: Vec<(Hit, [f32; 4])>,
 }
 
 /// Navigation column width.
-const NAV_W: f32 = 179.0;
+const NAV_W: f32 = 171.2;
 /// Navigation row height.
 const ROW_H: f32 = 44.0;
 /// Content background (#F3F3F3, measured).
@@ -290,6 +295,9 @@ const INK: Rgba = Rgba(38, 38, 38, 255);
 /// Secondary text and placeholders.
 const MUTED: Rgba = Rgba(104, 104, 104, 255);
 const PLACEHOLDER: Rgba = Rgba(128, 128, 128, 255);
+/// Initials badge of an author (File › Info) and its letters.
+const BADGE: Rgba = Rgba(214, 214, 214, 255);
+const BADGE_INK: Rgba = Rgba(110, 110, 110, 255);
 /// Frames of tiles and buttons.
 const FRAME: Rgba = Rgba(171, 171, 171, 255);
 const WHITE: Rgba = Rgba(255, 255, 255, 255);
@@ -315,6 +323,7 @@ impl SlideBackstage {
             place: 0,
             pages_focus: false,
             button_w: [0.0; 3],
+            fitted: Vec::new(),
             hits: Vec::new(),
         }
     }
@@ -338,7 +347,115 @@ impl SlideBackstage {
         self.button_w[2] = m
             .measure(&tr(strings, "backstage.nav.save", "Save"), style)
             .0;
+        // Print settings: a text wider than its box ends with "…" (reference).
+        if self.page == BsPage::Print {
+            let avail = self.px(293.0 - 56.0 - 24.0);
+            self.fitted = self
+                .print_boxes(strings)
+                .iter()
+                .flat_map(|(a, b, _)| [a.clone(), b.clone()])
+                .filter(|t| m.measure(t, style).0 > avail)
+                .map(|t| {
+                    let chars: Vec<char> = t.chars().collect();
+                    let mut n = chars.len();
+                    while n > 0 {
+                        let cut: String = chars[..n].iter().collect::<String>() + "…";
+                        if m.measure(&cut, style).0 <= avail {
+                            return (t, cut);
+                        }
+                        n -= 1;
+                    }
+                    (t, "…".to_owned())
+                })
+                .collect();
+        }
         self.hits = self.regions();
+    }
+
+    /// The Print page's setting boxes: (label, second line, icon / id).
+    fn print_boxes(&self, s: &Strings) -> [(String, String, u8); 6] {
+        let printer = self
+            .print
+            .printers
+            .get(self.print.printer)
+            .cloned()
+            .unwrap_or_else(|| tr(s, "slideR10.bs.noPrinter", "No printer installed"));
+        let ready = tr(s, "slideR10.bs.ready", "Ready");
+        let (range, range_sub) = match self.print.range {
+            1 => (
+                tr(s, "slideR10.bs.currentSlide", "Print Current Slide"),
+                tr(s, "slideR10.bs.currentSub", "Only print the current slide"),
+            ),
+            2 => (
+                tr(s, "slideR10.bs.customRange", "Custom Range"),
+                tr(s, "slideR10.bs.customSub", "Enter specific slides to print"),
+            ),
+            _ => (
+                tr(s, "slideR10.bs.allSlides", "Print All Slides"),
+                tr(s, "slideR10.bs.allSub", "Print entire presentation"),
+            ),
+        };
+        let (per, lk, lf) = LAYOUTS[self.print.layout.min(LAYOUTS.len() - 1)];
+        let layout_sub = match (self.print.layout, per) {
+            (0, _) => tr(s, "slideR10.bs.fullPageSub", "Print 1 slide per page"),
+            (_, 0) => tr(s, "slideR10.bs.notesSub", "Print slides with notes"),
+            _ => tr(
+                s,
+                "slideR10.bs.handoutSub",
+                "Handouts ({n} slides per page)",
+            )
+            .replace("{n}", &per.to_string()),
+        };
+        let (sides, sides_sub) = match self.print.sides {
+            1 => (
+                tr(s, "slideR10.bs.bothLong", "Print on Both Sides"),
+                tr(s, "slideR10.bs.bothLongSub", "Flip pages on long edge"),
+            ),
+            2 => (
+                tr(s, "slideR10.bs.bothShort", "Print on Both Sides"),
+                tr(s, "slideR10.bs.bothShortSub", "Flip pages on short edge"),
+            ),
+            _ => (
+                tr(s, "slideR10.bs.oneSided", "Print One Sided"),
+                tr(
+                    s,
+                    "slideR10.bs.oneSidedSub",
+                    "Only print on one side of the page",
+                ),
+            ),
+        };
+        let (collate, collate_sub) = if self.print.collated {
+            (
+                tr(s, "slideR10.bs.collated", "Collated"),
+                "1,2,3    1,2,3    1,2,3".to_owned(),
+            )
+        } else {
+            (
+                tr(s, "slideR10.bs.uncollated", "Uncollated"),
+                "1,1,1    2,2,2    3,3,3".to_owned(),
+            )
+        };
+        let color = match self.print.color {
+            1 => tr(s, "slideR10.bs.grayscale", "Grayscale"),
+            2 => tr(s, "slideR10.bs.pureBw", "Pure Black and White"),
+            _ => tr(s, "slideR10.bs.color", "Color"),
+        };
+        [
+            (printer, ready, 0),
+            (range, range_sub, 1),
+            (tr(s, lk, lf), layout_sub, 2),
+            (sides, sides_sub, 3),
+            (collate, collate_sub, 4),
+            (color, String::new(), 5),
+        ]
+    }
+
+    /// A Print setting's text as shown (cut to its box when measured too wide).
+    fn fit<'a>(&'a self, t: &'a str) -> &'a str {
+        self.fitted
+            .iter()
+            .find(|(full, _)| full == t)
+            .map_or(t, |(_, cut)| cut.as_str())
     }
 
     fn width_of(&self, i: usize, s: &str) -> f32 {
@@ -532,6 +649,7 @@ impl SlideBackstage {
                     ));
                 }
                 r.push((Hit::PagesBox, self.pages_box()));
+                r.push((Hit::PrinterProps, self.printer_props_rect()));
                 if let Some(last) = self.setting_tops().last() {
                     r.push((
                         Hit::HfLink,
@@ -601,10 +719,12 @@ impl SlideBackstage {
     }
 
     fn setting_tops(&self) -> Vec<f32> {
-        let y = self.top + self.px(262.0);
+        // Printer box 352 px and the first setting 510 px down the window at 125 %
+        // (reference; the Printer Properties link sits between them).
+        let y = self.top + self.px(245.0);
         // Printer, then Settings: slides, (Slides box), layout, sides, collated, colour.
         let mut v = vec![y];
-        let s = y + self.px(122.0);
+        let s = y + self.px(126.5);
         v.push(s);
         let mut yy = s + self.px(51.0) + self.px(38.0);
         for _ in 0..4 {
@@ -616,22 +736,40 @@ impl SlideBackstage {
 
     fn pages_box(&self) -> [f32; 4] {
         let cx = self.content_x();
-        let y = self.top + self.px(262.0 + 122.0 + 51.0 + 5.0);
-        [cx + self.px(52.0), y, self.px(222.0), self.px(28.0)]
+        let y = self.top + self.px(245.0 + 126.5 + 51.0 + 5.0);
+        [cx + self.px(52.0), y, self.px(222.0), self.px(29.6)]
     }
 
-    /// The print preview's area (device pixels).
+    /// The Printer Properties link under the printer box (right-aligned to it).
+    fn printer_props_rect(&self) -> [f32; 4] {
+        let cx = self.content_x();
+        let y = self.setting_tops()[0] + self.px(51.0) + self.px(6.0);
+        [cx + self.px(180.0), y, self.px(117.0), self.px(22.0)]
+    }
+
+    /// The print preview's area (device pixels): from 38 px right of the column rule to the
+    /// scroll bar, 118 px under the title bar to above the zoom bar (reference).
     pub(crate) fn preview_area(&self) -> [f32; 4] {
         let cx = self.content_x();
         let x = cx + self.px(372.0);
-        let y = self.top + self.px(80.0);
+        let y = self.top + self.px(94.0);
         let (w, h) = self.size;
         [
             x,
             y,
-            (w - x - self.px(24.0)).max(10.0),
+            (w - x - self.px(22.0)).max(10.0),
             (h - y - self.px(48.0)).max(10.0),
         ]
+    }
+
+    /// Zoom of the preview in per cent of the printed paper (A4: 842 x 595 pt) at the
+    /// screen's resolution, as the reference's zoom box.
+    pub(crate) fn preview_zoom(&self) -> Option<u32> {
+        let (_, r) = self.preview_rect()?;
+        let (pw, ph) = self.printed_size();
+        let paper = if pw >= ph { 842.0 } else { 595.0 };
+        let page_px = paper * 96.0 / 72.0 * self.scale;
+        Some((r[2] / page_px * 100.0).round() as u32)
     }
 
     /// Size in points of a printed page with the chosen layout: the slide for Full Page
@@ -694,7 +832,7 @@ impl SlideBackstage {
         let i = self.preview.min(n - 1);
         let (pw, ph) = self.printed_size();
         let [x, y, w, h] = self.preview_area();
-        let pad = self.px(32.0);
+        let pad = self.px(13.6);
         let k = ((w - 2.0 * pad) / pw.max(1.0)).min((h - 2.0 * pad) / ph.max(1.0));
         let (dw, dh) = ((pw * k).round(), (ph * k).round());
         Some((
@@ -777,6 +915,7 @@ impl SlideBackstage {
                 BsOut::Redraw
             }
             Hit::HfLink => BsOut::HeaderFooter,
+            Hit::PrinterProps => BsOut::PrinterProperties,
             Hit::Action(a) => match (self.page, a) {
                 (BsPage::Print, _) => BsOut::Print,
                 (BsPage::Export, 0) => match self.export {
@@ -902,12 +1041,13 @@ impl SlideBackstage {
         };
         let light = Font {
             family: "Segoe UI Light",
-            size: self.px(40.0),
+            size: self.px(48.0),
             weight: 300,
             italic: false,
             underline: false,
         };
-        p.text_font(&title, cx, self.top + self.px(8.0), &light, INK);
+        // Cap height 43 px at 125 %, cap top 36 px under the title bar (reference).
+        p.text_font(&title, cx, self.top + self.px(11.5), &light, INK);
         match self.page {
             BsPage::Home => self.paint_home(p, t, s),
             BsPage::New => self.paint_new(p, t, s),
@@ -1598,7 +1738,7 @@ impl SlideBackstage {
         let f = &self.facts;
         let size = f.bytes.map_or_else(String::new, |b| {
             if b < 1024 * 1024 {
-                format!("{:.2}KB", b as f64 / 1024.0)
+                format!("{:.1}KB", b as f64 / 1024.0)
             } else {
                 format!("{:.1}MB", b as f64 / 1024.0 / 1024.0)
             }
@@ -1653,7 +1793,7 @@ impl SlideBackstage {
         let never = tr(s, "slideR10.bs.never", "Never");
         for (k, v) in [
             (
-                tr(s, "backstage.props.modified", "Last Modified"),
+                tr(s, "slideR10.bs.lastModified", "Last Modified"),
                 f.last_modified.clone(),
             ),
             (
@@ -1663,33 +1803,77 @@ impl SlideBackstage {
             (tr(s, "slideR10.bs.printed", "Last Printed"), String::new()),
         ] {
             p.text(&k, x, y, body, INK);
-            p.text(if v.is_empty() { &never } else { &v }, vx, y, body, INK);
+            if v.is_empty() {
+                p.text(&never, vx, y, body, PLACEHOLDER);
+            } else {
+                p.text(&v, vx, y, body, INK);
+            }
             y += self.px(29.0);
         }
         y += self.px(16.0);
         head(p, &tr(s, "slideR10.bs.relatedPeople", "Related People"), y);
         y += self.px(31.0);
         let not_saved = tr(s, "slideR10.bs.notSavedYet", "Not saved yet");
-        for (k, v, ph) in [
-            (
-                tr(s, "backstage.props.author", "Author"),
-                f.author.clone(),
-                tr(s, "slideR10.bs.addAuthor", "Add an author"),
-            ),
-            (
-                tr(s, "backstage.props.lastModifiedBy", "Last Modified By"),
-                f.last_modified_by.clone(),
-                not_saved,
-            ),
-        ] {
-            p.text(&k, x, y, body, INK);
-            if v.is_empty() {
-                p.text(&ph, vx, y, body, PLACEHOLDER);
-            } else {
-                p.text(&v, vx, y, body, INK);
-            }
-            y += self.px(29.0);
+        // Author: each author with an initials badge (grey disc), then "Add an author".
+        p.text(&tr(s, "backstage.props.author", "Author"), x, y, body, INK);
+        let authors: Vec<&str> = f
+            .author
+            .split(';')
+            .map(str::trim)
+            .filter(|a| !a.is_empty())
+            .collect();
+        for a in &authors {
+            let d = self.px(43.0);
+            let (cx, cy) = (vx + d / 2.0, y + self.px(9.0));
+            p.path(&disc(cx, cy, d / 2.0), Some(BADGE), None);
+            let ini = initials(a);
+            let isz = self.px(15.0);
+            p.text(
+                &ini,
+                (cx - ini.chars().count() as f32 * isz * 0.32).round(),
+                (cy - isz * 0.68).round(),
+                TextStyle {
+                    size: isz,
+                    bold: false,
+                },
+                BADGE_INK,
+            );
+            // Presence ring at the lower right (no status known: hollow).
+            let (rx, ry, rr) = (cx + d * 0.36, cy + d * 0.36, self.px(6.0));
+            p.path(&disc(rx, ry, rr), Some(CONTENT_BG), None);
+            p.path(
+                &disc(rx, ry, rr - self.px(1.0)),
+                None,
+                Some((Rgba(140, 168, 186, 255), self.px(1.2))),
+            );
+            p.text(a, vx + d + self.px(5.0), y, body, INK);
+            y += self.px(53.0);
         }
+        p.text(
+            &tr(s, "slideR10.bs.addAuthor", "Add an author"),
+            vx,
+            y - if authors.is_empty() {
+                0.0
+            } else {
+                self.px(12.0)
+            },
+            body,
+            PLACEHOLDER,
+        );
+        y += self.px(29.0);
+        p.text(
+            &tr(s, "slideR10.bs.lastModifiedBy", "Last Modified By"),
+            x,
+            y,
+            body,
+            INK,
+        );
+        if f.last_modified_by.is_empty() {
+            p.text(&not_saved, vx, y, body, PLACEHOLDER);
+        } else {
+            p.text(&f.last_modified_by, vx, y, body, INK);
+        }
+        y += self.px(29.0);
         if f.path.is_some() {
             y += self.px(16.0);
             head(p, &tr(s, "slideR10.bs.relatedDocs", "Related Documents"), y);
@@ -1702,15 +1886,23 @@ impl SlideBackstage {
                 body,
                 INK,
             );
+            y += self.px(22.0);
         }
-        let _ = t;
+        y += self.px(30.0);
+        p.text(
+            &tr(s, "slideR10.bs.allProps", "Show All Properties"),
+            x,
+            y,
+            body,
+            t.accent_text,
+        );
     }
 
     #[allow(clippy::too_many_lines)]
     fn paint_print(&self, p: &mut dyn Painter, t: &Theme, s: &Strings) {
         let (_, h) = self.size;
         let cx = self.content_x();
-        let y = self.top + self.px(80.0);
+        let y = self.top + self.px(92.0);
         let body = self.body();
         // The Print tile.
         let r = [cx + self.px(3.0), y, self.px(101.0), self.px(101.0)];
@@ -1793,80 +1985,7 @@ impl SlideBackstage {
             &tr(s, "slideR10.bs.settings", "Settings"),
             tops[1] - self.px(36.0),
         );
-        let printer = self
-            .print
-            .printers
-            .get(self.print.printer)
-            .cloned()
-            .unwrap_or_else(|| tr(s, "slideR10.bs.noPrinter", "No printer installed"));
-        let ready = tr(s, "slideR10.bs.ready", "Ready");
-        let (range, range_sub) = match self.print.range {
-            1 => (
-                tr(s, "slideR10.bs.currentSlide", "Print Current Slide"),
-                tr(s, "slideR10.bs.currentSub", "Only print the current slide"),
-            ),
-            2 => (
-                tr(s, "slideR10.bs.customRange", "Custom Range"),
-                tr(s, "slideR10.bs.customSub", "Enter specific slides to print"),
-            ),
-            _ => (
-                tr(s, "slideR10.bs.allSlides", "Print All Slides"),
-                tr(s, "slideR10.bs.allSub", "Print entire presentation"),
-            ),
-        };
-        let (per, lk, lf) = LAYOUTS[self.print.layout.min(LAYOUTS.len() - 1)];
-        let layout_sub = match (self.print.layout, per) {
-            (0, _) => tr(s, "slideR10.bs.fullPageSub", "Print 1 slide per page"),
-            (_, 0) => tr(s, "slideR10.bs.notesSub", "Print slides with notes"),
-            _ => tr(
-                s,
-                "slideR10.bs.handoutSub",
-                "Handouts ({n} slides per page)",
-            )
-            .replace("{n}", &per.to_string()),
-        };
-        let (sides, sides_sub) = match self.print.sides {
-            1 => (
-                tr(s, "slideR10.bs.bothLong", "Print on Both Sides"),
-                tr(s, "slideR10.bs.bothLongSub", "Flip pages on long edge"),
-            ),
-            2 => (
-                tr(s, "slideR10.bs.bothShort", "Print on Both Sides"),
-                tr(s, "slideR10.bs.bothShortSub", "Flip pages on short edge"),
-            ),
-            _ => (
-                tr(s, "slideR10.bs.oneSided", "Print One Sided"),
-                tr(
-                    s,
-                    "slideR10.bs.oneSidedSub",
-                    "Only print on one side of the page",
-                ),
-            ),
-        };
-        let (collate, collate_sub) = if self.print.collated {
-            (
-                tr(s, "slideR10.bs.collated", "Collated"),
-                "1,2,3    1,2,3    1,2,3".to_owned(),
-            )
-        } else {
-            (
-                tr(s, "slideR10.bs.uncollated", "Uncollated"),
-                "1,1,1    2,2,2    3,3,3".to_owned(),
-            )
-        };
-        let color = match self.print.color {
-            1 => tr(s, "slideR10.bs.grayscale", "Grayscale"),
-            2 => tr(s, "slideR10.bs.pureBw", "Pure Black and White"),
-            _ => tr(s, "slideR10.bs.color", "Color"),
-        };
-        let boxes: [(String, String, u8); 6] = [
-            (printer, ready, 0),
-            (range, range_sub, 1),
-            (tr(s, lk, lf), layout_sub, 2),
-            (sides, sides_sub, 3),
-            (collate, collate_sub, 4),
-            (color, String::new(), 5),
-        ];
+        let boxes = self.print_boxes(s);
         for ((label, sub, icon), ry) in boxes.iter().zip(&tops) {
             let r = [cx + self.px(4.0), *ry, self.px(293.0), self.px(51.0)];
             let hover = self.hover == Some(Hit::PrintSetting(*icon));
@@ -1903,10 +2022,16 @@ impl SlideBackstage {
             let tx = r[0] + self.px(56.0);
             p.push_clip(r[0], r[1], r[2] - self.px(24.0), r[3]);
             if sub.is_empty() {
-                p.text(label, tx, r[1] + (r[3] - body.size * 1.33) / 2.0, body, INK);
+                p.text(
+                    self.fit(label),
+                    tx,
+                    r[1] + (r[3] - body.size * 1.33) / 2.0,
+                    body,
+                    INK,
+                );
             } else {
-                p.text(label, tx, r[1] + self.px(4.0), body, INK);
-                p.text(sub, tx, r[1] + self.px(26.0), body, INK);
+                p.text(self.fit(label), tx, r[1] + self.px(4.0), body, INK);
+                p.text(self.fit(sub), tx, r[1] + self.px(26.0), body, INK);
             }
             p.pop_clip();
             chevron(
@@ -1938,6 +2063,29 @@ impl SlideBackstage {
             body,
             INK,
         );
+        // Printer Properties link and the (i) marks beside Printer and the Slides box.
+        {
+            let r = self.printer_props_rect();
+            let label = tr(s, "slideR10.bs.printerProps", "Printer Properties");
+            let link = Rgba(t.accent_text.0, t.accent_text.1, t.accent_text.2, 255);
+            let lw = label.chars().count() as f32 * self.px(6.9);
+            let lx = (r[0] + r[2] - lw).round();
+            p.text(&label, lx, r[1], body, link);
+            p.fill_rect(lx, r[1] + self.px(18.0), lw, 1.0, link);
+            let d = self.px(14.0);
+            info_mark(
+                p,
+                cx + self.px(4.0) + self.px(293.0) - self.px(7.0) - d / 2.0,
+                tops[0] - self.px(32.0),
+                d,
+            );
+            info_mark(
+                p,
+                pb[0] + pb[2] + self.px(5.0),
+                pb[1] + (pb[3] - d) / 2.0,
+                d,
+            );
+        }
         if let Some(r) = self.rect_of(Hit::HfLink) {
             let label = tr(s, "slideR10.bs.editHf", "Edit Header & Footer");
             let link = Rgba(t.accent_text.0, t.accent_text.1, t.accent_text.2, 255);
@@ -1949,12 +2097,13 @@ impl SlideBackstage {
         // Preview: a light frame, the page, page navigation.
         let a = self.preview_area();
         p.fill_rect(
-            a[0] - self.px(28.0),
-            a[1],
+            a[0] - self.px(30.0),
+            self.top + self.px(84.0),
             1.0,
-            a[3],
+            h - self.top - self.px(84.0),
             Rgba(212, 212, 212, 255),
         );
+        self.paint_preview_bars(p, a);
         if let Some((_, r)) = self.preview_rect() {
             p.fill_rect(
                 r[0] - 1.0,
@@ -1996,6 +2145,130 @@ impl SlideBackstage {
             ny + self.px(12.0),
             self.px(4.0),
             MUTED,
+        );
+    }
+
+    /// The preview's scroll bar (one step per printed page) and the zoom bar under it:
+    /// percentage, minus, slider, plus, fit button (reference).
+    fn paint_preview_bars(&self, p: &mut dyn Painter, a: [f32; 4]) {
+        let n = self.printed_pages().max(1);
+        let i = self.preview.min(n - 1);
+        let line = Rgba(171, 171, 171, 255);
+        // Scroll bar right of the area.
+        let sw = self.px(13.6);
+        let sx = a[0] + a[2] + self.px(1.6);
+        let (sy, sh) = (a[1], a[3]);
+        p.fill_rect(sx, sy, sw, sh, line);
+        p.fill_rect(sx + 1.0, sy + 1.0, sw - 2.0, sh - 2.0, WHITE);
+        let c = sx + sw / 2.0;
+        let k = self.px(3.2);
+        let top = sy + sw / 2.0;
+        p.path(
+            &[
+                PathSeg::M(c - k, top + k / 2.0),
+                PathSeg::L(c + k, top + k / 2.0),
+                PathSeg::L(c, top - k / 2.0),
+                PathSeg::Z,
+            ],
+            Some(INK),
+            None,
+        );
+        let bottom = sy + sh - sw / 2.0;
+        p.path(
+            &[
+                PathSeg::M(c - k, bottom - k / 2.0),
+                PathSeg::L(c + k, bottom - k / 2.0),
+                PathSeg::L(c, bottom + k / 2.0),
+                PathSeg::Z,
+            ],
+            Some(INK),
+            None,
+        );
+        p.fill_rect(sx + 1.0, sy + sw, sw - 2.0, 1.0, line);
+        p.fill_rect(sx + 1.0, sy + sh - sw - 1.0, sw - 2.0, 1.0, line);
+        let track = (sy + sw + self.px(2.0), sh - 2.0 * sw - self.px(4.0));
+        let th = (track.1 / n as f32).max(self.px(16.0));
+        let f = if n > 1 {
+            i as f32 / (n - 1) as f32
+        } else {
+            0.0
+        };
+        let ty = track.0 + (track.1 - th) * f;
+        let inset = self.px(2.4);
+        p.fill_rect(
+            sx + inset,
+            ty,
+            sw - 2.0 * inset,
+            th,
+            Rgba(205, 205, 205, 255),
+        );
+        // Zoom bar: fit button under the scroll bar, then plus, slider, minus, percentage.
+        let Some(z) = self.preview_zoom() else {
+            return;
+        };
+        let (_, h) = self.size;
+        let cy = (h - self.px(34.0) + self.px(12.0)).round();
+        let fb = self.px(16.0);
+        let fx = (sx + (sw - fb) / 2.0).round();
+        let dark = Rgba(68, 68, 68, 255);
+        p.fill_rect(fx, cy - fb / 2.0, fb, fb, Rgba(118, 118, 118, 255));
+        p.fill_rect(
+            fx + 1.0,
+            cy - fb / 2.0 + 1.0,
+            fb - 2.0,
+            fb - 2.0,
+            CONTENT_BG,
+        );
+        let q = fb * 0.18;
+        for (dx, dy) in [(-1.0f32, -1.0f32), (1.0, -1.0), (-1.0, 1.0), (1.0, 1.0)] {
+            let (ox, oy) = (fx + fb / 2.0 + dx * fb * 0.12, cy + dy * fb * 0.12);
+            p.path(
+                &[PathSeg::M(ox, oy), PathSeg::L(ox + dx * q, oy + dy * q)],
+                None,
+                Some((dark, 1.0)),
+            );
+        }
+        let stroke = self.scale.round().max(1.0);
+        let plus = (fx - self.px(25.6)).round();
+        let arm = self.px(4.8).round();
+        p.fill_rect(plus - arm, cy, 2.0 * arm, stroke, MUTED);
+        p.fill_rect(plus, cy - arm, stroke, 2.0 * arm, MUTED);
+        let tr_r = plus - self.px(9.6);
+        let tr_l = tr_r - self.px(121.6);
+        let grey = Rgba(150, 150, 150, 255);
+        p.fill_rect(tr_l, cy, tr_r - tr_l, 1.0, grey);
+        p.fill_rect(
+            f32::midpoint(tr_l, tr_r).round(),
+            cy - self.px(3.2),
+            1.0,
+            self.px(6.4),
+            grey,
+        );
+        // 10 % at the left end, 100 % in the middle, 400 % at the right end.
+        let zf = z as f32;
+        let pos = if zf <= 100.0 {
+            0.5 * ((zf - 10.0) / 90.0).clamp(0.0, 1.0)
+        } else {
+            0.5 + 0.5 * ((zf - 100.0) / 300.0).clamp(0.0, 1.0)
+        };
+        let kx = (tr_l + (tr_r - tr_l) * pos).round();
+        p.fill_rect(
+            kx - self.px(1.6),
+            cy - self.px(6.4),
+            self.px(3.2),
+            self.px(12.8),
+            dark,
+        );
+        let minus = (tr_l - self.px(9.6)).round();
+        p.fill_rect(minus - arm, cy, 2.0 * arm, stroke, MUTED);
+        let pct = format!("{z}%");
+        let pw = pct.chars().count() as f32 * self.px(7.6);
+        p.text(
+            &pct,
+            (minus - arm - self.px(10.0) - pw).round(),
+            cy - self.px(9.0),
+            self.body(),
+            INK,
         );
     }
 
@@ -2906,6 +3179,55 @@ fn chevron_right(p: &mut dyn Painter, cx: f32, cy: f32, k: f32, c: Rgba) {
         Some(c),
         None,
     );
+}
+
+/// Up to two initials of a name ("BlueOffice corpus" → "BC").
+fn initials(name: &str) -> String {
+    name.split_whitespace()
+        .filter_map(|w| w.chars().next())
+        .take(2)
+        .flat_map(char::to_uppercase)
+        .collect()
+}
+
+/// A filled circle as a 32-sided polygon.
+fn disc(cx: f32, cy: f32, r: f32) -> Vec<bo_render::PathSeg> {
+    use bo_render::PathSeg;
+    let mut v: Vec<PathSeg> = (0..32)
+        .map(|i| {
+            let a = i as f32 / 32.0 * std::f32::consts::TAU;
+            let (x, y) = (cx + r * a.cos(), cy + r * a.sin());
+            if i == 0 {
+                PathSeg::M(x, y)
+            } else {
+                PathSeg::L(x, y)
+            }
+        })
+        .collect();
+    v.push(PathSeg::Z);
+    v
+}
+
+/// A small "information" mark: a blue ring with an "i" (Print page, beside Printer and the
+/// Slides box).
+fn info_mark(p: &mut dyn Painter, x: f32, y: f32, d: f32) {
+    let blue = Rgba(0, 102, 204, 255);
+    let r = d / 2.0;
+    let (cx, cy) = (x + r, y + r);
+    p.path(
+        &disc(cx, cy, r - 0.6),
+        None,
+        Some((blue, (d / 14.0).max(1.0))),
+    );
+    let w = (d / 9.0).max(1.0).round();
+    p.fill_rect(
+        (cx - w / 2.0).round(),
+        (cy - r * 0.15).round(),
+        w,
+        (r * 0.75).round(),
+        blue,
+    );
+    p.fill_rect((cx - w / 2.0).round(), (cy - r * 0.55).round(), w, w, blue);
 }
 
 #[cfg(test)]

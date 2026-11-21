@@ -799,7 +799,22 @@ pub(crate) fn install_icons(icons: &mut Icons) {
             ("M12 12h8v8h-8Z", Some(Rgba(0xe8, 0x8a, 0x2e, 255))),
         ],
     );
-    icons.alias("design.fonts", "format.fontDialog");
+    // Fonts: a large dark "Aa" (own letter drawings; capital with its counter cut out,
+    // a single-storey lower case).
+    icons.add_solid(
+        "design.fonts",
+        &[
+            (
+                "M1 19L6 5H8.4L13.4 19H11L9.9 15.8H4.5L3.4 19Z M5.2 13.8L7.2 8L9.2 13.8Z",
+                Some(Rgba(0x40, 0x40, 0x40, 255)),
+            ),
+            (
+                "M14.6 15.4a3.5 3.5 0 1 0 7 0a3.5 3.5 0 1 0 -7 0Z M16.4 15.4a1.7 1.7 0 1 1 3.4 0a1.7 1.7 0 1 1 -3.4 0Z",
+                Some(Rgba(0x40, 0x40, 0x40, 255)),
+            ),
+            ("M20 11H21.9V19H20Z", Some(Rgba(0x40, 0x40, 0x40, 255))),
+        ],
+    );
     // Variants: a card with a brush; Effects: a bevelled tile (own drawings).
     icons.add_solid(
         "design.variants",
@@ -829,7 +844,20 @@ pub(crate) fn install_icons(icons: &mut Icons) {
             ("M5 6h12v10h-12Z", None),
         ],
     );
-    icons.alias("design.layout", "layout.pageSetup");
+    // Layout: a slide with its title bar and two content placeholders (own drawing).
+    icons.add_solid(
+        "design.layout",
+        &[
+            ("M2 4h20v16h-20Z", Some(Rgba(0xff, 0xff, 0xff, 255))),
+            ("M2 4h20v16h-20Z", None),
+            ("M4 6.5h16v3h-16Z", Some(Rgba(0x5b, 0x8f, 0xd0, 255))),
+            ("M4 11.5h7.4v6.5h-7.4Z", Some(Rgba(0xc6, 0xc6, 0xc6, 255))),
+            (
+                "M12.6 11.5h7.4v6.5h-7.4Z",
+                Some(Rgba(0xc6, 0xc6, 0xc6, 255)),
+            ),
+        ],
+    );
     icons.alias("design.more", "transition.more");
     icons.alias("design.slideSize", "layout.size");
     icons.alias("design.background", "format.fillColor");

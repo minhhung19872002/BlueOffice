@@ -14888,7 +14888,11 @@
       "encrypt": "Encrypt with Password",
       "checkA11y": "Check Accessibility",
       "inspectDoc": "Inspect Document",
-      "recover": "Recover Unsaved Presentations"
+      "recover": "Recover Unsaved Presentations",
+      "lastModified": "Last Modified",
+      "lastModifiedBy": "Last Modified By",
+      "allProps": "Show All Properties",
+      "printerProps": "Printer Properties"
     },
     "tpl": {
       "harbor": "Harbor",

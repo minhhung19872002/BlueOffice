@@ -8,6 +8,71 @@ use super::{MenuKind, SlideWindow};
 use crate::popup::{Choice, Menu, MenuItem};
 use crate::slide_view::colormode::{recolor, ColorMode};
 use crate::{Input, Key, PageStore, Painter, Request};
+use std::sync::atomic::{AtomicI32, Ordering};
+
+/// Minutes east of UTC of the computer's time zone (set by the host), for File › Info dates.
+static UTC_OFFSET: AtomicI32 = AtomicI32::new(0);
+
+/// A W3CDTF time (`2026-11-07T00:00:00Z`, `docProps/core.xml`) as the local short date and
+/// time the reference's Info page shows (`11/7/2026 7:00 AM`); text it cannot read as is.
+pub(crate) fn local_short_date(iso: &str, offset_min: i32) -> String {
+    let t = iso.trim();
+    if t.is_empty() {
+        return String::new();
+    }
+    let num = |a: usize, b: usize| t.get(a..b).and_then(|v| v.parse::<i64>().ok());
+    let (Some(y), Some(mo), Some(d)) = (num(0, 4), num(5, 7), num(8, 10)) else {
+        return t.to_owned();
+    };
+    let (h, mi) = (num(11, 13).unwrap_or(0), num(14, 16).unwrap_or(0));
+    // Offset written in the value (`+07:00`), else UTC.
+    let rest = t.get(19..).unwrap_or("");
+    let written = rest
+        .find(['+', '-'])
+        .and_then(|i| {
+            let sign = if rest[i..].starts_with('-') { -1 } else { 1 };
+            let oh = rest.get(i + 1..i + 3)?.parse::<i64>().ok()?;
+            let om = rest
+                .get(i + 4..i + 6)
+                .and_then(|v| v.parse::<i64>().ok())
+                .unwrap_or(0);
+            Some(sign * (oh * 60 + om))
+        })
+        .unwrap_or(0);
+    // Days since 1970-01-01 (Howard Hinnant's algorithm), then the local time.
+    let (yy, mm) = if mo <= 2 {
+        (y - 1, mo + 9)
+    } else {
+        (y, mo - 3)
+    };
+    let era = yy.div_euclid(400);
+    let yoe = yy - era * 400;
+    let doy = (153 * mm + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146_097 + doe - 719_468;
+    let mins = days * 1440 + h * 60 + mi - written + i64::from(offset_min);
+    let (days, rem) = (mins.div_euclid(1440), mins.rem_euclid(1440));
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    let (hour, minute) = (rem / 60, rem % 60);
+    let h12 = if hour % 12 == 0 { 12 } else { hour % 12 };
+    let ampm = if hour < 12 { "AM" } else { "PM" };
+    format!("{month}/{day}/{year} {h12}:{minute:02} {ampm}")
+}
+
+impl SlideWindow {
+    /// The computer's time zone (minutes east of UTC) for the File screen's dates.
+    pub fn set_utc_offset_minutes(minutes: i32) {
+        UTC_OFFSET.store(minutes, Ordering::Relaxed);
+    }
+}
 
 /// Image key of the print preview (outside the keys of the view and the other panes).
 const PREVIEW_KEY: usize = 13 << 40;
@@ -34,6 +99,8 @@ pub enum FileRequest {
     OpenLocation(String),
     /// Print with the Print page's settings.
     Print(SlidePrintJob),
+    /// Show this printer's own settings dialog (nothing is printed).
+    PrinterProperties(String),
 }
 
 /// A print job of the Print page.
@@ -137,7 +204,7 @@ impl SlideWindow {
                 p.slide_size.cy as f32 / 12_700.0,
             )
         });
-        let date = |s: &str| s.replace('T', " ").trim_end_matches('Z').to_owned();
+        let date = |s: &str| local_short_date(s, UTC_OFFSET.load(Ordering::Relaxed));
         SlideFacts {
             name: self.name.clone(),
             path: self.f10.path.clone(),
@@ -328,6 +395,17 @@ impl SlideWindow {
             BsOut::HeaderFooter => {
                 self.open_dialog(SlideDialog::HeaderFooter);
                 true
+            }
+            BsOut::PrinterProperties => {
+                let name = self
+                    .f10
+                    .bs
+                    .as_ref()
+                    .and_then(|b| b.print.printers.get(b.print.printer).cloned());
+                if let Some(name) = name {
+                    self.f10.out.push(FileRequest::PrinterProperties(name));
+                }
+                false
             }
             BsOut::Menu(id, anchor) => self.file10_menu(id, anchor),
         }

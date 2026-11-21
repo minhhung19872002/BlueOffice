@@ -233,3 +233,38 @@ fn see_all_slides_grid_jumps_and_goes_back() {
     assert!(w.view.show_overview().is_none());
     assert!(w.view.showing());
 }
+
+#[test]
+fn info_dates_are_local_short_dates() {
+    use super::file10_win::local_short_date;
+    // UTC midnight seen from UTC+7 (reference: "11/7/2026 7:00 AM").
+    assert_eq!(
+        local_short_date("2026-11-07T00:00:00Z", 420),
+        "11/7/2026 7:00 AM"
+    );
+    assert_eq!(
+        local_short_date("2026-12-31T20:30:00Z", 420),
+        "1/1/2027 3:30 AM"
+    );
+    assert_eq!(
+        local_short_date("2026-03-01T12:05:00+07:00", 0),
+        "3/1/2026 5:05 AM"
+    );
+    assert_eq!(local_short_date("", 0), "");
+}
+
+#[test]
+fn print_page_has_printer_properties_and_zoom() {
+    let mut w = window();
+    w.set_printers(vec!["Printer A".into()], 0);
+    w.open_file_screen(file10::BsPage::Print);
+    w.handle(Input::Move { x: 5.0, y: 5.0 }, &Fixed);
+    let b = w.f10.bs.as_ref().expect("file screen");
+    let z = b.preview_zoom().expect("zoom");
+    assert!((20..=100).contains(&z), "{z}");
+    let _ = w.file10_out(file10::BsOut::PrinterProperties);
+    assert_eq!(
+        w.take_file_requests(),
+        vec![FileRequest::PrinterProperties("Printer A".into())]
+    );
+}

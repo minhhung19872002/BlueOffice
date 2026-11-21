@@ -936,6 +936,10 @@ impl SlideWindow {
             | self.paste_format_painter(released)
             | self.sync_context()
             | self.after_rehearsal();
+        // The File screen measures its texts again (Print settings cut to their boxes).
+        if redraw && self.f10.bs.is_some() {
+            self.file10_relayout(text);
+        }
         // A show with ink ended: ask whether to keep it (reference message box).
         if !self.view.showing() && self.view.has_pending_ink() && self.dialog.is_none() {
             self.open_dialog(ins::SlideDialog::KeepInk);

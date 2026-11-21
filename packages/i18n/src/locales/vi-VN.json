@@ -14888,7 +14888,11 @@
       "encrypt": "Mã hóa bằng mật khẩu",
       "checkA11y": "Kiểm tra trợ năng",
       "inspectDoc": "Kiểm tra tài liệu",
-      "recover": "Khôi phục bản trình bày chưa lưu"
+      "recover": "Khôi phục bản trình bày chưa lưu",
+      "lastModified": "Sửa đổi Lần cuối",
+      "lastModifiedBy": "Sửa đổi Lần cuối Bởi",
+      "allProps": "Hiện mọi Thuộc tính",
+      "printerProps": "Thuộc tính Máy in"
     },
     "tpl": {
       "harbor": "Bến cảng",

@@ -105,6 +105,7 @@ pub fn run() -> Result<(), String> {
     let locale = std::env::var("BLUEOFFICE_LOCALE").unwrap_or_else(|_| "en-US".into());
     let mut view = SlideWindow::new(SlideView::new(engine)?, &locale, &name);
     let offset = win32::utc_offset_minutes();
+    SlideWindow::set_utc_offset_minutes(offset);
     let recent = match &file {
         Some(p) => host10::touch_recent(p, &host10::today(offset)),
         None => host10::read_recent(),
@@ -576,6 +577,10 @@ impl Shell {
                 }
             }
             F::OpenLocation(p) => host10::open_location(&p),
+            F::PrinterProperties(name) => {
+                // The driver's own settings dialog; nothing is printed.
+                let _ = print::properties(self.hwnd, &name, None);
+            }
             F::Print(job) => {
                 if let Err(e) = self.print_job(&job) {
                     eprintln!("print: {e}");

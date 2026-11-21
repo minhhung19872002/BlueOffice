@@ -88,6 +88,54 @@ const HELP: [(&str, &str, &str); 12] = [
     ("Esc", "slideR10.help.end", "End the show"),
 ];
 
+/// Access key of each entry (the reference's underlined letters in English).
+const ACCESS: [(&str, char); 20] = [
+    ("next", 'N'),
+    ("prev", 'P'),
+    ("last", 'V'),
+    ("all", 'A'),
+    ("magnify", 'M'),
+    ("custom", 'w'),
+    ("presenter", 'r'),
+    ("screen", 'c'),
+    ("pointer", 'o'),
+    ("help", 'H'),
+    ("pause", 's'),
+    ("end", 'E'),
+    ("black", 'B'),
+    ("white", 'W'),
+    ("laser", 'L'),
+    ("pen", 'P'),
+    ("highlighter", 'H'),
+    ("eraser", 'r'),
+    ("eraseAll", 'E'),
+    ("arrow", 'A'),
+];
+
+fn access_letter(id: &str) -> Option<char> {
+    let id = id.trim_start_matches("sub:");
+    ACCESS.iter().find(|(k, _)| *k == id).map(|(_, c)| *c)
+}
+
+/// `label` with `&` before its access letter (first exact match, else any case; none in
+/// labels of other languages without that letter). A literal `&` is doubled.
+fn access(label: &str, id: &str) -> String {
+    let plain = label.replace('&', "&&");
+    let Some(c) = access_letter(id) else {
+        return plain;
+    };
+    let at = plain.find(c).or_else(|| {
+        plain
+            .char_indices()
+            .find(|(_, ch)| ch.eq_ignore_ascii_case(&c))
+            .map(|(i, _)| i)
+    });
+    match at {
+        Some(i) => format!("{}&{}", &plain[..i], &plain[i..]),
+        None => plain,
+    }
+}
+
 /// The submenu arrow's colour (dimmed rows: lighter).
 const ARROW: Rgba = Rgba(0x26, 0x26, 0x26, 255);
 const ARROW_DIM: Rgba = Rgba(0xa0, 0xa0, 0xa0, 255);
@@ -95,7 +143,11 @@ const ARROW_DIM: Rgba = Rgba(0xa0, 0xa0, 0xa0, 255);
 impl SlideWindow {
     /// Input while the show runs: the help list, the open menu, then a right click opens it
     /// (or leaves Magnify Slide).
-    pub(super) fn show_menu_input(&mut self, input: &Input) -> Option<bool> {
+    pub(super) fn show_menu_input(
+        &mut self,
+        input: &Input,
+        text: &dyn crate::TextMeasure,
+    ) -> Option<bool> {
         if self.show_help {
             if matches!(
                 input,
@@ -116,15 +168,15 @@ impl SlideWindow {
             return Some(true);
         }
         if self.menu.is_some() {
-            return Some(self.show_menu_event(input));
+            return Some(self.show_menu_event(input, text));
         }
         if let Input::Context { x, y } = *input {
-            return Some(self.open_show_menu(x, y));
+            return Some(self.open_show_menu(x, y, text));
         }
         None
     }
 
-    fn show_menu_event(&mut self, input: &Input) -> bool {
+    fn show_menu_event(&mut self, input: &Input, text: &dyn crate::TextMeasure) -> bool {
         // The open submenu takes the pointer over it and the keys.
         if let Some((_, sub)) = self.show_sub.as_mut() {
             match *input {
@@ -162,6 +214,14 @@ impl SlideWindow {
                     self.show_sub = None;
                     return true;
                 }
+                Input::Text(ref t) => {
+                    let c = t.chars().next().and_then(|ch| sub.access_choice(ch));
+                    if let Some(c) = c {
+                        self.close_show_menu();
+                        return self.choose(c);
+                    }
+                    return false;
+                }
                 _ => {}
             }
         }
@@ -172,7 +232,7 @@ impl SlideWindow {
             Input::Move { x, y } | Input::Drag { x, y } => {
                 let changed = menu.hover(x, y);
                 if changed || (self.show_sub.is_none() && menu.contains(x, y)) {
-                    return self.sync_show_sub() || changed;
+                    return self.sync_show_sub(text) || changed;
                 }
                 false
             }
@@ -185,7 +245,7 @@ impl SlideWindow {
                 true
             }
             Input::Release { x, y } => match menu.release(x, y) {
-                Some(Choice::Command(c)) if c.starts_with("shwsub:") => self.sync_show_sub(),
+                Some(Choice::Command(c)) if c.starts_with("shwsub:") => self.sync_show_sub(text),
                 Some(c) => {
                     self.close_show_menu();
                     self.choose(c)
@@ -206,9 +266,24 @@ impl SlideWindow {
                 self.show_sub = None;
                 true
             }
-            Input::Key(Key::Right, _) => self.sync_show_sub(),
+            Input::Key(Key::Right, _) => self.sync_show_sub(text),
+            // Access keys: a submenu row opens its submenu, others run.
+            Input::Text(ref t) => {
+                let Some(c) = t.chars().next().and_then(|ch| menu.access_choice(ch)) else {
+                    return false;
+                };
+                if matches!(&c, Choice::Command(s) if s.starts_with("shwsub:")) {
+                    if let Some(i) = menu.items().iter().position(|it| it.choice == c) {
+                        menu.step(0);
+                        menu.step(i32::try_from(i).unwrap_or(0));
+                    }
+                    return self.sync_show_sub(text);
+                }
+                self.close_show_menu();
+                self.choose(c)
+            }
             Input::Key(Key::Enter, _) => match menu.current() {
-                Some(Choice::Command(c)) if c.starts_with("shwsub:") => self.sync_show_sub(),
+                Some(Choice::Command(c)) if c.starts_with("shwsub:") => self.sync_show_sub(text),
                 Some(c) => {
                     self.close_show_menu();
                     self.choose(c)
@@ -226,7 +301,7 @@ impl SlideWindow {
     }
 
     /// Open the submenu of the highlighted main row (or close it when the row has none).
-    fn sync_show_sub(&mut self) -> bool {
+    fn sync_show_sub(&mut self, text: &dyn crate::TextMeasure) -> bool {
         let Some(menu) = self.menu.as_ref() else {
             return false;
         };
@@ -272,7 +347,7 @@ impl SlideWindow {
                     separators.push(i);
                 }
                 MenuItem {
-                    label: self.t(k, f),
+                    label: access(&self.t(k, f), c),
                     choice: Choice::Command(format!("shw:{c}")),
                     checked: on(c),
                     dim: *c == "eraseAll" && !has_ink,
@@ -283,7 +358,7 @@ impl SlideWindow {
         // Beside the row, its top level with the row (the list opens downwards).
         let pad = (4.0 * self.scale).round();
         let anchor = [rect[0] + rect[2] - pad, rect[1] - pad, 1.0, 0.0];
-        let mut sub = self.show_menu_box(items, anchor, icons, separators);
+        let mut sub = self.show_menu_box(items, anchor, icons, separators, text);
         if !sub.contains(anchor[0] + 2.0, rect[1] + rect[3] / 2.0) {
             // No room on the right: open on the left of the menu.
             let w = sub.row_rect(0)[2];
@@ -296,14 +371,14 @@ impl SlideWindow {
                 .filter(|(_, e)| e.3)
                 .map(|(i, _)| i)
                 .collect();
-            sub = self.show_menu_box(items, [left, rect[1] - pad, 1.0, 0.0], icons, seps);
+            sub = self.show_menu_box(items, [left, rect[1] - pad, 1.0, 0.0], icons, seps, text);
         }
         self.show_sub = Some((row, sub));
         true
     }
 
     /// Open the menu at the pointer.
-    pub(super) fn open_show_menu(&mut self, x: f32, y: f32) -> bool {
+    pub(super) fn open_show_menu(&mut self, x: f32, y: f32, text: &dyn crate::TextMeasure) -> bool {
         let tools = self.view.show_tools();
         let has_last = tools.last_viewed.is_some();
         let (at_start, presenter_ok, presenter_on, paused) = self.view.show_menu_state();
@@ -326,7 +401,7 @@ impl SlideWindow {
                         "shw:resume".to_owned(),
                     ),
                     _ => (
-                        self.t(k, f),
+                        access(&self.t(k, f), id),
                         match id.strip_prefix("sub:") {
                             Some(s) => format!("shwsub:{s}"),
                             None => format!("shw:{id}"),
@@ -355,7 +430,7 @@ impl SlideWindow {
         self.show_sub = None;
         // The menu's top left corner at the pointer (reference).
         let gap = (2.0 * self.scale).round();
-        let menu = self.show_menu_box(items, [x, y - gap - 1.0, 1.0, 1.0], icons, separators);
+        let menu = self.show_menu_box(items, [x, y - gap - 1.0, 1.0, 1.0], icons, separators, text);
         self.menu = Some(menu);
         true
     }
@@ -368,6 +443,7 @@ impl SlideWindow {
         anchor: [f32; 4],
         icons: Vec<Option<&'static str>>,
         separators: Vec<usize>,
+        text: &dyn crate::TextMeasure,
     ) -> Menu {
         let look = MenuLook {
             item_h: 28.8,
@@ -381,6 +457,7 @@ impl SlideWindow {
         Menu::open_with(items, anchor, self.size, self.scale, look)
             .with_decor(icons, separators)
             .with_keys(Vec::new(), 0.0, 0.0, 2.4, self.size)
+            .with_access_keys(text, false)
     }
 
     /// Right-click menu › Help: the show's keys (own list), until any key or click.

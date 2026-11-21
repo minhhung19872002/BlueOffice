@@ -2306,7 +2306,7 @@ impl SlideWindow {
                 Input::Tick => self.view.show_tick(),
                 Input::Blink => false,
                 other => {
-                    if let Some(r) = self.show_menu_input(&other) {
+                    if let Some(r) = self.show_menu_input(&other, text) {
                         return r;
                     }
                     self.view.handle(other)

@@ -407,7 +407,12 @@ impl SlideWindow {
             let tx = r[0] + (36.0 * s).round();
             let ty = (r[1] + (r[3] - body.size * 1.33) / 2.0).round();
             p.text(&label, tx, ty, body, ink);
-            if let Some((mx, mw)) = g.marks.map(|m| m[k]) {
+            // Underlined as the shared menus do: when Windows always shows access keys.
+            if let Some((mx, mw)) = g
+                .marks
+                .filter(|_| crate::popup::keyboard_cues())
+                .map(|m| m[k])
+            {
                 if mw > 0.0 {
                     let uy = (ty + body.size * 1.12).round();
                     p.fill_rect((tx + mx).round(), uy, mw.round(), 1.0, ink);

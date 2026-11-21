@@ -426,3 +426,23 @@ fn magnify_slide_zooms_pans_and_goes_back() {
     w.handle(Input::Key(Key::Escape, Mods::default()), &Fixed);
     assert!(!w.show_help && w.view.showing());
 }
+
+#[test]
+fn show_menu_access_keys() {
+    let mut w = window();
+    assert!(w.view.start_show(0));
+    w.handle(Input::Context { x: 400.0, y: 300.0 }, &Fixed);
+    let menu = w.menu.as_ref().expect("menu");
+    assert!(menu.has_access_keys());
+    assert_eq!(menu.items()[3].label, "See All Slides", "markers taken out");
+    // "c" opens Screen ›, then "b" blacks the screen.
+    w.handle(Input::Text("c".into()), &Fixed);
+    assert!(w.show_sub.is_some());
+    w.handle(Input::Text("b".into()), &Fixed);
+    assert!(w.menu.is_none() && w.view.show_tools().screen.is_some());
+    // "a" runs See All Slides.
+    w.handle(Input::Key(Key::Escape, Mods::default()), &Fixed);
+    w.handle(Input::Context { x: 400.0, y: 300.0 }, &Fixed);
+    w.handle(Input::Text("a".into()), &Fixed);
+    assert!(w.view.show_overview().is_some());
+}

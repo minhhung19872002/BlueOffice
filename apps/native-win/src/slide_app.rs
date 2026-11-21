@@ -106,6 +106,7 @@ pub fn run() -> Result<(), String> {
     let mut view = SlideWindow::new(SlideView::new(engine)?, &locale, &name);
     let offset = win32::utc_offset_minutes();
     SlideWindow::set_utc_offset_minutes(offset);
+    bo_ui::set_keyboard_cues(win32::keyboard_cues());
     let recent = match &file {
         Some(p) => host10::touch_recent(p, &host10::today(offset)),
         None => host10::read_recent(),

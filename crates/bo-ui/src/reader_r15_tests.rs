@@ -163,3 +163,45 @@ fn zoom_box_text_like_the_reference() {
     assert_eq!(zoom_label15(0.125), "12.50%");
     assert_eq!(zoom_label15(1.351), "135.10%");
 }
+
+#[test]
+fn ctrl_3_scrolls_the_content_left_edge_to_the_margin() {
+    let mut w = window();
+    press(&mut w, Key::Letter('3'), true, false, false);
+    let v = w.view().expect("view");
+    let i = v.current_page();
+    let r = v.page_rect(i).expect("page");
+    let f = v.frame();
+    // The pen starts at 72 pt, the ink of "P" one side bearing (about 1.8 pt) later: the ink
+    // shows 7.5 px inside the view.
+    let x = r[0] + 72.0 * v.px_per_pt() - f[0];
+    let bearing = 3.0 * v.px_per_pt();
+    assert!(
+        x < 7.5 && x > 7.5 - bearing,
+        "text at {x}, page {r:?}, frame {f:?}"
+    );
+}
+
+/// Fit Visible zoom of real files (`BO_FV_PDFS`, `;`-separated) at the reference's fit width
+/// frame (1394 px wide at 125 %): compare with the reference's zoom box.
+#[test]
+#[ignore = "needs BO_FV_PDFS"]
+fn fit_visible_of_files() {
+    let Ok(list) = std::env::var("BO_FV_PDFS") else {
+        return;
+    };
+    for path in list.split(';') {
+        let bytes = std::fs::read(path).expect("read");
+        let doc = PdfDocument::open(bytes, bo_pdfread::standard_fonts()).expect("pdf");
+        let mut v = crate::reader_view::ReaderView::new(doc);
+        v.set_frame([76.0, 245.0, 1394.0, 814.0], 1.25);
+        v.set_fit(Fit::Width);
+        let w = v.zoom();
+        v.fit_visible();
+        println!(
+            "{path}: width {:.2} % visible {:.2} %",
+            w * 100.0,
+            v.zoom() * 100.0
+        );
+    }
+}

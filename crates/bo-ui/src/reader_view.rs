@@ -440,28 +440,23 @@ impl ReaderView {
         }
     }
 
-    /// Left and right edges (page points) of the text on page `i` when its text is read.
-    fn ink_span(&self, i: usize) -> Option<(f32, f32)> {
-        let t = self.cache.get(&i).map(|r| &r.text)?;
-        let (mut a, mut b) = (f32::MAX, f32::MIN);
-        for c in t.chars() {
-            if c.rect[2] > c.rect[0] {
-                a = a.min(c.rect[0]);
-                b = b.max(c.rect[2]);
-            }
-        }
-        (b > a).then_some((a, b))
+    /// Left and right edges and top (page points) of what page `i` paints (glyph ink, paths)
+    /// when the page is read.
+    fn ink_span(&self, i: usize) -> Option<(f32, f32, f32)> {
+        let r = self.cache.get(&i)?;
+        let b = crate::reader_ink15::content_box(&r.list, self.doc.fonts())?;
+        Some((b[0], b[2], b[1]))
     }
 
-    /// The zoom of the reference's Fit Visible (Ctrl+3): the width of the current page's
-    /// content (measured round 15: its text box, 438 pt of a 612 pt page, gives 188.77 % where
-    /// fit width gives 135.10 %); `None` until the page's text is read or with no text.
+    /// The zoom of the reference's Fit Visible (Ctrl+3): fit width × page width / ink width
+    /// of the current page (`reader_ink15`; 437.8 pt of a 612 pt page gives 188.77 % where
+    /// fit width gives 135.10 %); `None` until the page is read or when it paints nothing.
     fn visible_value(&self) -> Option<f32> {
         if !self.rotation.is_multiple_of(180) {
             return None;
         }
         let i = self.current_page();
-        let (a, b) = self.ink_span(i)?;
+        let (a, b, _) = self.ink_span(i)?;
         let (pw, _) = self.page_size(i);
         let zw = self.fit_value(Fit::Width)?;
         let z = zw * pw / (b - a).max(1.0);
@@ -473,14 +468,19 @@ impl ReaderView {
     pub fn fit_visible(&mut self) {
         let i = self.current_page();
         self.ensure(i);
-        let Some(z) = self.visible_value() else {
+        let (Some(z), Some((a, _, top))) = (self.visible_value(), self.ink_span(i)) else {
             self.set_fit(Fit::Width);
             return;
         };
+        // The span first: a new zoom drops the page's lists (and its text).
         self.set_zoom(z);
-        if let (Some((a, _)), Some(r)) = (self.ink_span(i), self.rects.get(i).copied()) {
+        if let Some(r) = self.rects.get(i).copied() {
             let mm = self.gap * self.dpi;
-            self.scroll.0 = r[0] + a * self.px_per_pt() - mm;
+            let s = self.px_per_pt();
+            self.scroll.0 = r[0] + a * s - mm;
+            // The reference also scrolls near the content's top (measured on the 12-page test
+            // document: view top at 52.8 pt for ink from 65.2 pt).
+            self.scroll.1 = r[1] + (top - 12.4).max(0.0) * s;
             self.clamp_scroll();
         }
     }

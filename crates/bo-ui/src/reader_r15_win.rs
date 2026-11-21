@@ -11,7 +11,7 @@
 //!   an options button, Previous / Next) that marks only the current match, in the
 //!   reference's light blue (176, 206, 225 on white).
 use super::extra::Mode;
-use super::{circle, inside, ReaderWindow, MUTED, TEXT, WHITE};
+use super::{circle, inside, rounded, ReaderWindow, MUTED, TEXT, WHITE};
 use crate::reader_view::Fit;
 use crate::{Input, Key, Mods, Painter, TextMeasure};
 use bo_render::Rgba;
@@ -19,8 +19,8 @@ use std::collections::HashMap;
 
 /// Title strip of the Search box (measured 235, 246, 249).
 const FIND_TITLE: Rgba = Rgba(235, 246, 249, 255);
-/// Window edge of the Search box.
-const FIND_EDGE: Rgba = Rgba(204, 206, 212, 255);
+/// Window edge of the Search box (a translucent hairline: 174 over white, darker over grey).
+const FIND_EDGE: Rgba = Rgba(0, 0, 0, 80);
 /// Focused field edge (measured 0, 120, 215) and the idle one.
 const FIELD_FOCUS: Rgba = Rgba(0, 120, 215, 255);
 const FIELD_EDGE: Rgba = Rgba(122, 122, 122, 255);
@@ -32,8 +32,11 @@ const DISABLED: Rgba = Rgba(160, 160, 160, 255);
 /// The current match of the Search box: over white it gives the reference's (176, 206, 225),
 /// over black text (10, 40, 59).
 pub(crate) const FIND_CURRENT: Rgba = Rgba(29, 115, 169, 89);
-/// The page box while its number is edited: selected text.
-const EDIT_SELECTION: Rgba = Rgba(0, 120, 215, 255);
+/// The page box while its number is edited: selected text, edge, inner ring, drop-down part.
+const EDIT_SELECTION: Rgba = Rgba(0, 120, 212, 255);
+const EDIT_EDGE: Rgba = Rgba(100, 100, 100, 255);
+const EDIT_RING: Rgba = Rgba(251, 251, 253, 255);
+const EDIT_ARROW: Rgba = Rgba(230, 233, 240, 255);
 
 /// A view of a document: what Alt+← brings back.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -283,9 +286,10 @@ impl ReaderWindow {
         }
     }
 
+    /// The page box's text ("1 / 12"), all selected when Ctrl+G starts editing it.
     fn page_label15(&self) -> String {
         self.view()
-            .map(|v| (v.current_page() + 1).to_string())
+            .map(|v| super::page_label(v.doc(), v.current_page(), v.page_count()))
             .unwrap_or_default()
     }
 
@@ -310,8 +314,9 @@ impl ReaderWindow {
             }
             Input::Key(Key::Enter, _) => {
                 self.r15.page_edit = None;
-                if let (Ok(n), Some(t)) =
-                    (text.trim().parse::<usize>(), self.tabs.get_mut(self.active))
+                // "7", or the untouched "1 / 12" (its first number).
+                let number = text.split('/').next().unwrap_or("").trim().to_owned();
+                if let (Ok(n), Some(t)) = (number.parse::<usize>(), self.tabs.get_mut(self.active))
                 {
                     let count = t.view.page_count();
                     if n >= 1 && count > 0 {
@@ -358,6 +363,8 @@ impl ReaderWindow {
     /// (measured 304 × 123 px, 4 px from the bar, at the document's top).
     pub(crate) fn layout_find15(&mut self) {
         let d = self.doc_rect;
+        // Measured in a 1500 × 1102 window: 4 px before the drawn scroll bar, top at 245 px
+        // (the document tab row's foot).
         let right = self.vbar[0].max(d[0] + 1.0) - self.px15(3.2);
         let (w, h) = (self.px15(243.2), self.px15(98.4));
         let x = (right - w).max(d[0]);
@@ -534,10 +541,32 @@ impl ReaderWindow {
             return;
         }
         let st = self.style(self.look.status_font, false);
-        // The field (the drop-down arrow stays): accent edge, the number selected or a caret.
-        p.fill_rect(b[0], b[1], b[2], b[3], FIELD_FOCUS);
-        let inner = [b[0] + 1.0, b[1] + 1.0, b[2] - self.px15(16.0), b[3] - 2.0];
-        p.fill_rect(inner[0], inner[1], inner[2], inner[3], WHITE);
+        // Measured on the reference while its page box is edited: a 100 grey edge, a 2 px ring
+        // of the chrome colour, the text selected, the drop-down part on (230, 233, 240).
+        p.fill_rect(b[0], b[1], b[2], b[3], EDIT_EDGE);
+        p.fill_rect(b[0] + 1.0, b[1] + 1.0, b[2] - 2.0, b[3] - 2.0, EDIT_RING);
+        let arrow_w = self.px15(12.0);
+        p.fill_rect(
+            b[0] + 3.0,
+            b[1] + 3.0,
+            b[2] - 6.0 - arrow_w,
+            b[3] - 6.0,
+            WHITE,
+        );
+        p.fill_rect(
+            b[0] + b[2] - 2.0 - arrow_w,
+            b[1] + 1.0,
+            arrow_w,
+            b[3] - 2.0,
+            EDIT_ARROW,
+        );
+        super::tri(
+            p,
+            b[0] + b[2] - self.px15(10.4),
+            b[1] + b[3] / 2.0 - self.px15(1.6),
+            self.px15(3.2),
+            TEXT,
+        );
         let ty = b[1] + ((b[3] - st.size * 1.33) / 2.0).round();
         let tx = b[0] + self.px15(4.0);
         let tw = self.width_of(text, st);
@@ -548,11 +577,6 @@ impl ReaderWindow {
             p.text(text, tx, ty, st, TEXT);
             p.fill_rect((tx + tw).round(), ty, 1.0, st.size * 1.33, TEXT);
         }
-        let n = self
-            .view()
-            .map_or(0, crate::reader_view::ReaderView::page_count);
-        let total = format!("/ {n}");
-        p.text(&total, tx + tw + self.px15(4.0), ty, st, MUTED);
     }
 
     fn paint_find15(&self, p: &mut dyn Painter) {
@@ -563,19 +587,38 @@ impl ReaderWindow {
         if r[2] <= 0.0 {
             return;
         }
-        // Shadow, window edge, title strip, body.
-        p.fill_rect(
-            r[0] + 1.0,
-            r[1] + 2.0,
-            r[2] + 1.0,
-            r[3] + 1.0,
-            Rgba(0, 0, 0, 24),
+        // A Windows 11 pop-up like the reference's (measured on screen): 8 px round corners, a
+        // grey hairline (174 on the left, 153 at the foot over white), a soft shadow that
+        // reaches about 15 px at the sides and 30 px below.
+        let rad = self.px15(6.4);
+        for k in (1..=16).rev() {
+            let e = k as f32;
+            p.path(
+                &rounded(
+                    r[0] - e * 0.9,
+                    r[1] - e * 0.5 + e * 0.8,
+                    r[2] + e * 1.8,
+                    r[3] + e,
+                    rad + e,
+                ),
+                Some(Rgba(0, 0, 0, 5)),
+                None,
+            );
+        }
+        p.path(
+            &rounded(r[0] - 1.0, r[1] - 1.0, r[2] + 2.0, r[3] + 2.0, rad + 1.0),
+            Some(FIND_EDGE),
+            None,
         );
-        p.fill_rect(r[0] - 1.0, r[1] - 1.0, r[2] + 2.0, r[3] + 2.0, FIND_EDGE);
-        p.fill_rect(r[0], r[1], r[2], r[3], WHITE);
+        p.path(&rounded(r[0], r[1], r[2], r[3], rad), Some(WHITE), None);
         let th = self.px15(25.6);
-        p.fill_rect(r[0], r[1], r[2], th, FIND_TITLE);
-        let st = self.style(12.5, false);
+        p.path(
+            &rounded(r[0], r[1], r[2], th + rad, rad),
+            Some(FIND_TITLE),
+            None,
+        );
+        p.fill_rect(r[0], r[1] + th, r[2], rad, WHITE);
+        let st = self.style(15.0, false);
         let line = st.size * 1.33;
         p.text(
             &self.t("pdfReader15.find"),
@@ -664,7 +707,7 @@ impl ReaderWindow {
 
     /// Measure the Search box's strings (widths for centring and the caret).
     pub(crate) fn measure15(&mut self, m: &dyn TextMeasure) {
-        let st = self.style(12.5, false);
+        let st = self.style(15.0, false);
         let mut words = vec![self.t("pdfReader15.previous"), self.t("pdfReader15.next")];
         if let Some(f) = &self.r15.find {
             words.push(f.query.clone());

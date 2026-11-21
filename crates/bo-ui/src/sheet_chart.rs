@@ -338,6 +338,7 @@ impl SheetWindow {
         self.chart_sel = index;
         // The chart tabs replace the Table Design tab (shown again by the next input).
         self.table_tab = false;
+        self.pivot_tab = false;
         self.view.set_object_selected(index.is_some());
         self.ribbon.set_contextual(
             if index.is_some() {

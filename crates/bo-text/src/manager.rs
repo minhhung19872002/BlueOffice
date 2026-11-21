@@ -112,6 +112,20 @@ struct Face {
     data: Arc<Vec<u8>>,
     index: u32,
     info: FaceInfo,
+    /// Printable ASCII characters the face has a glyph for (bit per code point): ASCII text
+    /// it covers is itemized without parsing the face again.
+    ascii: [u64; 2],
+}
+
+/// Bits of the printable ASCII characters `face` maps to a glyph.
+fn ascii_coverage(face: &ttf_parser::Face<'_>) -> [u64; 2] {
+    let mut bits = [0_u64; 2];
+    for b in 0x20_u8..0x7f {
+        if face.glyph_index(char::from(b)).is_some() {
+            bits[usize::from(b >> 6)] |= 1 << (b & 63);
+        }
+    }
+    bits
 }
 
 /// Shape cache key: face, kerning, OpenType features (tag, value), text.
@@ -251,10 +265,12 @@ impl FontManager {
                     ids.push(id);
                 }
             }
+            let ascii = ascii_coverage(&face);
             self.faces.push(Face {
                 data: data.clone(),
                 index,
                 info,
+                ascii,
             });
             ids.push(id);
         }
@@ -506,6 +522,22 @@ impl FontManager {
     /// Split `text` into runs of faces: `primary` where it has glyphs, otherwise a
     /// face of the same style that does. Returns byte ranges.
     pub fn itemize(&self, primary: FaceId, text: &str) -> Vec<(std::ops::Range<usize>, FaceId)> {
+        // ASCII text the primary face covers (control characters stay with it too): one
+        // run, as the per-character loop below would give, without parsing the face.
+        if text.is_ascii() {
+            if let Some(f) = self.faces.get(primary.0 as usize) {
+                let covered = text.bytes().all(|b| {
+                    b < 0x20 || b == 0x7f || f.ascii[usize::from(b >> 6)] >> (b & 63) & 1 == 1
+                });
+                if covered {
+                    return if text.is_empty() {
+                        Vec::new()
+                    } else {
+                        vec![(0..text.len(), primary)]
+                    };
+                }
+            }
+        }
         let mut out: Vec<(std::ops::Range<usize>, FaceId)> = Vec::new();
         let style = {
             let i = self.info(primary);

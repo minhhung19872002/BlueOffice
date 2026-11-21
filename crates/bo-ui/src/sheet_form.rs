@@ -89,6 +89,9 @@ pub(super) enum FormKind {
     /// Table Design: Table Name, Resize Table.
     TableName,
     TableResize,
+    /// PivotTable Analyze: Move PivotTable, Change Data Source.
+    PivotMove,
+    PivotSource,
     /// Conditional formatting: a rule dialog (Greater Than…), New / Edit Formatting Rule, the
     /// rules manager.
     CfRule,

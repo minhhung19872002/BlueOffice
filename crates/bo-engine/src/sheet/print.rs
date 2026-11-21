@@ -1189,6 +1189,87 @@ impl SheetEngine {
         Ok(serde_json::json!({ "pages": n, "page": p }))
     }
 
+    /// Printed pages of `sheets` in order (File › Print of the native BlueSheet: the active
+    /// sheet or the entire workbook), or of `selection` on the first of them (Print
+    /// Selection: the selection takes the place of the print area, §18.2.6
+    /// `_xlnm.Print_Area`, for this job only). Hidden sheets print nothing.
+    pub fn print_job_pages(
+        &mut self,
+        sheets: &[usize],
+        selection: Option<CellRange>,
+    ) -> Result<Vec<PageList>> {
+        self.printing(|e| {
+            let mut out = Vec::new();
+            for (i, &sheet) in sheets.iter().enumerate() {
+                if e.info()?.sheets.get(sheet).is_some_and(|s| s.hidden) {
+                    continue;
+                }
+                match selection.filter(|_| i == 0) {
+                    Some(range) => {
+                        let wb = e.wb.as_deref_mut().ok_or(EngineError::NoDocument)?;
+                        let ws = wb.sheets.get_mut(sheet).ok_or(EngineError::NoDocument)?;
+                        let kept = ws.print_area.replace(range.to_string());
+                        let pages = e.print_pages(sheet);
+                        if let Some(ws) = e.wb.as_deref_mut().and_then(|w| w.sheets.get_mut(sheet))
+                        {
+                            ws.print_area = kept;
+                        }
+                        out.extend(pages?);
+                    }
+                    None => out.extend(e.print_pages(sheet)?),
+                }
+            }
+            Ok(out)
+        })
+    }
+
+    /// Print preview of a [`SheetEngine::print_job_pages`] job: the number of pages and the
+    /// display list of page `page` only (the others are paginated, not drawn).
+    pub fn print_job_preview(
+        &mut self,
+        sheets: &[usize],
+        selection: Option<CellRange>,
+        page: usize,
+    ) -> Result<(usize, Option<PageList>)> {
+        self.printing(|e| {
+            let mut total = 0;
+            let mut shown = None;
+            for (i, &sheet) in sheets.iter().enumerate() {
+                if e.info()?.sheets.get(sheet).is_some_and(|s| s.hidden) {
+                    continue;
+                }
+                let sel = selection.filter(|_| i == 0);
+                let kept = match sel {
+                    Some(range) => {
+                        let wb = e.wb.as_deref_mut().ok_or(EngineError::NoDocument)?;
+                        let ws = wb.sheets.get_mut(sheet).ok_or(EngineError::NoDocument)?;
+                        Some(ws.print_area.replace(range.to_string()))
+                    }
+                    None => None,
+                };
+                let r = (|| -> Result<()> {
+                    let st = settings_on(e.sheet(sheet)?, e.default_paper);
+                    let frames = e.frames(sheet, &st)?;
+                    let n = frames.len();
+                    if shown.is_none() && page >= total && page < total + n {
+                        let opts = e.print_options(&st);
+                        let k = page - total;
+                        shown = Some(e.draw_frame(sheet, &st, &frames[k], k, n, &opts)?);
+                    }
+                    total += n;
+                    Ok(())
+                })();
+                if let Some(kept) = kept {
+                    if let Some(ws) = e.wb.as_deref_mut().and_then(|w| w.sheets.get_mut(sheet)) {
+                        ws.print_area = kept;
+                    }
+                }
+                r?;
+            }
+            Ok((total, shown))
+        })
+    }
+
     /// Display lists of pages `pages` of `sheet` in the page layout view (the native page
     /// layout view draws only the pages it shows; see [`SheetEngine::print_preview`]).
     pub fn page_layout_lists(

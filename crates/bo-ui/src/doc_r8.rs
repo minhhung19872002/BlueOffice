@@ -15,10 +15,16 @@ pub(super) struct R8 {
     /// Extend mode (F8) with its press count: moves extend the selection; presses 2–5 select
     /// the word, sentence, paragraph and document around the caret, as on the reference.
     pub(super) extend: Option<u8>,
-    /// The last formatting command run from the keyboard or ribbon, for Repeat (F4).
+    /// The last formatting command recorded by the round-8 keyboard handler, for Repeat (F4).
     pub(super) last: Option<Command>,
     /// AutoCorrect options sent to the engine (the engine keeps it off until a host asks).
     pub(super) autocorrect_on: bool,
+    /// Keys held with the next pointer press (Ctrl+click selects a sentence).
+    pub(super) pointer: Mods,
+    /// The AutoCorrect dialog (File › Options › Proofing).
+    pub(super) autocorrect: Option<crate::doc_forms::autocorrect8::AutoCorrectDialog>,
+    /// The title bar shows Undo's list arrow.
+    pub(super) undo_menu: bool,
 }
 
 /// Line break inside a paragraph (Shift+Enter; the engine's §17.3.3.1 br for U+2028).
@@ -61,9 +67,23 @@ impl DocWindow {
             }
             Input::Text(_) => {
                 self.r8.extend = None;
+                self.r8_keep_last_mark();
                 self.view.handle(input)
             }
             other => self.view.handle(other),
+        }
+    }
+
+    /// Typing over whole paragraphs selected with their last mark keeps that mark (the
+    /// reference's smart paragraph selection): the selection stops before it.
+    fn r8_keep_last_mark(&mut self) {
+        let Some(s) = self.view.engine().session() else {
+            return;
+        };
+        let (a, b) = s.selection().ordered();
+        if a.offset == 0 && b.offset == 0 && b.para > a.para {
+            let len = s.para_text(b.para - 1).map_or(0, |t| t.len());
+            self.r8_select(a, Pos::new(b.para - 1, len));
         }
     }
 
@@ -71,11 +91,18 @@ impl DocWindow {
     /// you type, smart quotes, ordinals, fractions, hyperlinks) once per window.
     fn r8_autocorrect_defaults(&mut self) {
         if !self.r8.autocorrect_on {
-            self.r8.autocorrect_on = true;
-            let _ = self.view.exec(Command::AutoCorrect {
-                options: None,
-                reset: true,
-            });
+            self.view.set_typing_runs(true);
+            if self.view.engine().autocorrect_options().is_some() {
+                self.r8.autocorrect_on = true;
+            } else {
+                self.r8.autocorrect_on = self
+                    .view
+                    .exec(Command::AutoCorrect {
+                        options: None,
+                        reset: true,
+                    })
+                    .is_some_and(|result| result.error.is_none());
+            }
         }
     }
 
@@ -108,7 +135,7 @@ impl DocWindow {
     fn r8_key(&mut self, k: Key, m: Mods) -> Option<bool> {
         let plain = !m.ctrl && !m.alt;
         Some(match k {
-            Key::F(8) if !m.alt => self.r8_extend_step(),
+            Key::F(8) if plain && !m.shift => self.r8_extend_step(),
             Key::F(4) if plain && !m.shift => match self.r8.last.clone() {
                 Some(cmd) => self.view.run_command(cmd),
                 None => false,
@@ -116,9 +143,8 @@ impl DocWindow {
             Key::F(3) if plain && m.shift => self.r8_format(Command::ChangeCase {
                 mode: CaseMode::Cycle,
             }),
-            Key::Enter if m.ctrl && !m.alt && !m.shift => {
-                self.view.run_command(Command::InsertPageBreak)
-            }
+            Key::Enter if m.ctrl && !m.alt && !m.shift => self.r8_page_break(),
+            Key::Enter if plain && !m.shift => return self.r8_enter(),
             Key::Enter if plain && m.shift => self.view.run_command(Command::InsertText {
                 text: LINE_BREAK.into(),
             }),
@@ -209,12 +235,95 @@ impl DocWindow {
         })
     }
 
+    /// Ctrl+Enter: the page break in a paragraph of its own (the text after the caret starts
+    /// the next page's paragraph), as the reference's `center` row of the key table shows.
+    fn r8_page_break(&mut self) -> bool {
+        let mid = self
+            .view
+            .engine()
+            .session()
+            .is_some_and(|s| s.selection().ordered().0.offset > 0);
+        if mid {
+            self.view.run_command(Command::SplitParagraph);
+        }
+        self.view.run_command(Command::InsertPageBreak)
+    }
+
+    /// Enter that the reference treats specially (`None`: an ordinary paragraph split): on
+    /// an empty list item it ends the list; after a line of three or more `-` `_` `=` `*`
+    /// `~` `#` it turns the line into a bottom border (AutoFormat As You Type).
+    fn r8_enter(&mut self) -> Option<bool> {
+        let s = self.view.engine().session()?;
+        let sel = s.selection();
+        if !sel.is_collapsed() {
+            return None;
+        }
+        let at = sel.focus;
+        let text = s.para_text(at.para).unwrap_or_default();
+        let f = self.view.format();
+        if text.is_empty() && (f.bullets || f.numbering) && f.table.is_none() {
+            let cmd = if f.bullets {
+                ParaFormat::Bullets
+            } else {
+                ParaFormat::Numbering
+            };
+            return Some(
+                self.view
+                    .run_command(Command::FormatParagraph { format: cmd }),
+            );
+        }
+        let lists_on = self
+            .view
+            .engine()
+            .autocorrect_options()
+            .is_some_and(|o| o.enabled && o.auto_lists);
+        let rule = text.len() >= 3
+            && at.offset == text.len()
+            && text
+                .chars()
+                .all(|c| c == text.chars().next().unwrap_or(' '))
+            && text.starts_with(['-', '_', '=', '*', '~', '#']);
+        if !(rule && lists_on && f.table.is_none()) {
+            return None;
+        }
+        let para = at.para;
+        // The line goes under the paragraph before (measured: "Last paragraph." gets the
+        // border and the typed line's paragraph stays for the next text); after a table or
+        // at the start, under the typed line's own paragraph, with a new one after it.
+        let doc = s.doc();
+        let body_level =
+            |id: usize| bo_model::index::para_path(doc, id).is_some_and(|p| p.len() == 2);
+        let above = para > 0 && body_level(para - 1) && body_level(para);
+        self.r8_select(Pos::new(para, 0), Pos::new(para, text.len()));
+        self.view.run_command(Command::DeleteBackward);
+        if above {
+            self.r8_select(Pos::new(para - 1, 0), Pos::new(para - 1, 0));
+            self.view.run_command(Command::FormatParagraph {
+                format: ParaFormat::Borders {
+                    preset: bo_edit::ParaBorderPreset::Bottom,
+                },
+            });
+            return Some(self.r8_select(Pos::new(para, 0), Pos::new(para, 0)));
+        }
+        self.view.run_command(Command::SplitParagraph);
+        self.r8_select(Pos::new(para, 0), Pos::new(para, 0));
+        self.view.run_command(Command::FormatParagraph {
+            format: ParaFormat::Borders {
+                preset: bo_edit::ParaBorderPreset::Bottom,
+            },
+        });
+        Some(self.r8_select(Pos::new(para + 1, 0), Pos::new(para + 1, 0)))
+    }
+
     /// Ctrl+Shift+L: the List Bullet style (the bulleted list when the document lacks it).
     fn r8_list_bullet(&mut self) -> bool {
         let cmd = Command::ApplyStyle {
             id: "ListBullet".into(),
         };
-        let styled = self.view.exec(cmd.clone()).is_some_and(|r| r.error.is_none());
+        let styled = self
+            .view
+            .exec(cmd.clone())
+            .is_some_and(|r| r.error.is_none());
         if styled && self.view.format().bullets {
             self.r8.last = Some(cmd);
             return true;
@@ -337,9 +446,21 @@ fn heading_level(style: Option<&str>) -> Option<u8> {
 fn is_motion(k: Key) -> bool {
     matches!(
         k,
-        Key::Left | Key::Right | Key::Up | Key::Down | Key::Home | Key::End | Key::PageUp | Key::PageDown
+        Key::Left
+            | Key::Right
+            | Key::Up
+            | Key::Down
+            | Key::Home
+            | Key::End
+            | Key::PageUp
+            | Key::PageDown
     )
 }
+
+#[path = "doc_r8_mouse.rs"]
+mod mouse;
+#[path = "doc_r8_ui.rs"]
+mod ui;
 
 #[cfg(test)]
 #[path = "doc_r8_tests.rs"]

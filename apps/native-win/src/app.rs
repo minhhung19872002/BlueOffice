@@ -42,6 +42,8 @@ fn ui_size(size: f32) -> f32 {
 #[allow(clippy::too_many_lines)]
 pub fn run() -> Result<(), String> {
     let mut engine = Engine::with_bundled_fonts();
+    // Table gridlines for View Gridlines (drawn by the window, never printed).
+    engine.set_table_grid(true);
     // DATE / TIME fields show the local time, as desktop word processors do.
     engine.set_utc_offset_minutes(win32::utc_offset_minutes());
     if std::env::var("BLUEOFFICE_SYSTEM_FONTS").as_deref() != Ok("0") {
@@ -785,6 +787,10 @@ impl Handler for Shell {
         // BLUEOFFICE_INPUT_LOG=1 (measurement scripts): each pointer input on stderr.
         if std::env::var_os("BLUEOFFICE_INPUT_LOG").is_some() && !matches!(kind, "blink" | "tick") {
             eprintln!("input {input:?}");
+        }
+        // Ctrl with a click selects a sentence (its MK_CONTROL flag, set for posted clicks too).
+        if matches!(input, Input::Press { .. }) {
+            self.view.set_pointer_mods(win32::mouse_mods());
         }
         let m = Measure(self.gpu.as_ref().map(|g| &g.device));
         let mut redraw = self.view.handle(input, &m);

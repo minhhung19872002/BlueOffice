@@ -21,6 +21,9 @@ pub(crate) mod options6;
 
 #[path = "doc_forms7.rs"]
 mod r7;
+
+#[path = "doc_autocorrect8.rs"]
+pub(crate) mod autocorrect8;
 pub(crate) use r5::{open_manage_styles, ManagedStyle};
 pub(crate) use r7::INSPECT;
 

@@ -14732,5 +14732,48 @@
       "linkText": "Unclear hyperlink text",
       "mergedCells": "Merged cells"
     }
+  },
+  "docR8": {
+    "ac": {
+      "title": "AutoCorrect",
+      "tabAutoCorrect": "AutoCorrect",
+      "tabFormat": "AutoFormat As You Type",
+      "showButtons": "Show AutoCorrect Options buttons",
+      "twoCaps": "Correct TWo INitial CApitals",
+      "capSentences": "Capitalize first letter of sentences",
+      "capCells": "Capitalize first letter of table cells",
+      "days": "Capitalize names of days",
+      "capsLock": "Correct accidental usage of cAPS LOCK key",
+      "exceptions": "Exceptions...",
+      "replace": "Replace text as you type",
+      "replaceL": "Replace:",
+      "withL": "With:",
+      "add": "Add",
+      "delete": "Delete",
+      "spelling": "Automatically use suggestions from the spelling checker",
+      "replaceAsYouType": "Replace as you type",
+      "applyAsYouType": "Apply as you type",
+      "always": "Always",
+      "quotes": "\"Straight quotes\" with “smart quotes”",
+      "ordinals": "Ordinals (1st) with superscript",
+      "fractions": "Fractions (1/2) with fraction character (½)",
+      "dashes": "Hyphens (--) with dash (—)",
+      "links": "Internet and network paths with hyperlinks",
+      "lists": "Automatic bulleted and numbered lists",
+      "enabled": "Correct and format as you type"
+    },
+    "undo": {
+      "typing": "Typing \"{{text}}\"",
+      "font": "Font Formatting",
+      "paragraph": "Paragraph Formatting",
+      "style": "Apply Style",
+      "autoCorrect": "AutoCorrect",
+      "delete": "Delete",
+      "paste": "Paste",
+      "case": "Change Case",
+      "move": "Move Paragraphs",
+      "edit": "Edit",
+      "list": "Undo list"
+    }
   }
 }

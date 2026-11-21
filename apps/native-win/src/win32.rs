@@ -361,10 +361,12 @@ fn doc_sys_key(vk: u16) -> Option<Key> {
 
 fn key(vk: u16, m: Mods) -> Option<Key> {
     if m.ctrl && DOC_KEYS.load(std::sync::atomic::Ordering::Relaxed) {
-        // VK_OEM_6 ], VK_OEM_4 [, VK_SPACE.
+        // VK_OEM_6 ], VK_OEM_4 [, VK_OEM_PERIOD, VK_OEM_COMMA, VK_SPACE.
         match vk {
             0xDD => return Some(Key::Letter(']')),
             0xDB => return Some(Key::Letter('[')),
+            0xBE => return Some(Key::Letter('.')),
+            0xBC => return Some(Key::Letter(',')),
             0x20 => return Some(Key::Letter(' ')),
             _ => {}
         }
@@ -1534,5 +1536,24 @@ pub fn activate_window(hwnd: isize) {
             let _ = ShowWindow(hwnd, SW_RESTORE);
         }
         let _ = SetForegroundWindow(hwnd);
+    }
+}
+
+#[cfg(test)]
+mod doc_key_tests {
+    use super::*;
+
+    #[test]
+    fn doc_control_punctuation_reaches_the_window() {
+        enable_doc_keys();
+        let mods = Mods {
+            ctrl: true,
+            shift: true,
+            ..Mods::default()
+        };
+        assert_eq!(key(0xBE, mods), Some(Key::Letter('.')));
+        assert_eq!(key(0xBC, mods), Some(Key::Letter(',')));
+        assert_eq!(key(0xDD, mods), Some(Key::Letter(']')));
+        assert_eq!(key(0xDB, mods), Some(Key::Letter('[')));
     }
 }

@@ -860,6 +860,7 @@ impl DocWindow {
         match o.input(input) {
             options::OptOut::None => false,
             options::OptOut::Redraw => true,
+            options::OptOut::AutoCorrect => self.r8_open_autocorrect(),
             options::OptOut::Close => {
                 self.r6.options = None;
                 true

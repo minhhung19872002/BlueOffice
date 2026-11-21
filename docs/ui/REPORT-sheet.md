@@ -1281,3 +1281,31 @@ PivotTable, hai thẻ ngữ cảnh "PivotTable Analyze" và "Design" hiện sau 
 - Mỗi thay đổi là một `pivotUpdate` giữ nguyên các vùng (tên giá trị mặc định không bị biến thành tên riêng, bộ lọc
   giữ mục đã chọn), cột vừa khít trong cùng một bước hoàn tác. Test `design_tab_sets_layout_totals_and_style_options_in_one_undo_step_each`,
   `pivot_tabs_show_in_a_pivot_table_and_hide_outside`, `analyze_tab_moves_and_selects_the_report`.
+- Sau góp ý (`sheet-87`, `sheet-88`; kết quả `sheet-89`, `sheet-90`, `sheet-91`): Show Details, Expand / Collapse Field (cột nút nhỏ mới sau Show Details),
+  Insert Timeline, Filter Connections mờ như đối chứng trên báo cáo lấy từ vùng ô; Field Settings chỉ bật ở ô giá
+  trị (ribbon `set_extra_dim`). Ô kiểu là Light14…Light20 (kiểu mặc định Light16 đứng thứ ba như đối chứng) trong
+  hộp trắng viền xám có cột More; menu Subtotals có thêm hàng mờ "Include Filtered Items in Totals" sau vạch ngăn.
+- File › Print: ô "Print One Sided" ẩn hẳn — driver máy in ở đây báo `DC_DUPLEX` = 1 (in hai mặt thủ công) nhưng
+  đối chứng không hiện ô này; in hai mặt vẫn chọn trong Printer Properties của driver. Trang xem trước A4 616 × 871 px,
+  đỉnh ở 167 px (đối chứng 168). Info: nhãn "Last Modified", "Last Modified By", huy hiệu chữ đầu của tác giả.
+  Không có lệnh in nào được gửi tới máy in (hàng đợi trống); "Last Printed: Today" của đối chứng là lúc mở trang Print.
+
+### Vòng 65 — phím truy cập trong menu, kiểu PivotTable theo theme
+
+- Menu popup dùng chung (`bo-ui`) có phím truy cập tuỳ chọn (`Menu::with_access_keys`): nhãn đánh dấu bằng `&`
+  (`&&` là dấu & thật), gõ chữ cái chọn mục (bỏ qua mục mờ), gạch dưới khi menu mở bằng bàn phím hoặc Windows bật
+  "luôn gạch dưới phím truy cập" (`SPI_GETKEYBOARDCUES`, host BlueSheet đọc). Mặc định tắt — menu khác không đổi.
+  Các menu của thẻ Design dùng nó (_Do Not Show…, _Bottom, _Top, _Include…). Test
+  `access_keys_strip_markers_choose_items_and_underline_on_cues`.
+- Kiểu PivotTable dựng sẵn vẽ theo màu theme của sổ (ECMA-376 §18.8.40–41): số thứ tự kiểu lần lượt lấy dark 1,
+  accent 1…6 (Light16 = accent 1, Light17 = accent 2, Light14 = accent 6), sổ đổi theme thì báo cáo đổi màu như đối
+  chứng; ô kiểu trên ribbon theo cùng bảng màu (test với theme Office 2007: Light17 = C0504D, Light14 = F79646).
+
+## Còn lại (sau vòng 13)
+
+- PivotTable: Group / Calculations / Options của thẻ Analyze còn mờ; Field Settings của trường hàng / cột; menu
+  sắp xếp / lọc của nút trường trên báo cáo; bố cục ngăn cạnh nhau / chỉ trường / chỉ vùng; độ đậm nhạt của từng họ
+  kiểu (Light / Medium / Dark) vẫn là cách tô riêng của BlueSheet trên màu theme.
+- File › Print: chọn máy in khác chưa đọc lại khổ giấy mặc định của máy đó; chữ dài trong ô thiết đặt bị cắt (chưa có "…").
+- Enter 22–24 ms trên sổ lớn; bánh xe 11–12 ms khi màn hình đầy ô chữ số (đã có lối tắt ASCII khi tách chữ theo
+  phông, chưa đo lại).

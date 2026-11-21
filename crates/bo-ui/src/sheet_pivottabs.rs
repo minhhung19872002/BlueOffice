@@ -681,6 +681,32 @@ impl SheetWindow {
                 return Some((f as u32, name(f), false));
             }
         }
+        // Items shown in another form than the cache lists them (dates of a file's cache):
+        // a cell of the compact row label column below the header names the innermost row
+        // field, as the reference's Active Field box does.
+        let loc = info.get("location");
+        let at = |k: &str| {
+            loc.and_then(|l| l.get(k))
+                .and_then(Value::as_u64)
+                .unwrap_or(u64::MAX)
+        };
+        let grand = self.t("sheetInsert.grandTotal", "Grand Total");
+        let last_row = info
+            .get("rows")
+            .and_then(Value::as_array)
+            .and_then(|a| a.last())
+            .and_then(Value::as_u64);
+        if let Some(f) = last_row {
+            if info.get("layout").and_then(Value::as_str) == Some("compact")
+                && u64::from(c) == at("c0")
+                && u64::from(r) > at("r0")
+                && u64::from(r) <= at("r1")
+                && !text.is_empty()
+                && text != grand
+            {
+                return Some((f as u32, name(f), false));
+            }
+        }
         let values = info.get("values").and_then(Value::as_array)?;
         let area = info.get("dataArea");
         let n = |k: &str| {

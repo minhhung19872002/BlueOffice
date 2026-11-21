@@ -84,7 +84,7 @@ fn grouping_dates_by_months_and_years_then_ungroup() {
     assert_eq!(w.form_kind, FormKind::PivotGrouping);
     let f = w.form.as_ref().expect("form");
     assert_eq!(f.text("start"), "1/5/2025");
-    assert_eq!(f.text("end"), "3/3/2026");
+    assert_eq!(f.text("end"), "3/4/2026", "the day after the last date");
     // Months is proposed; add Years with a click in the By list (row 6).
     assert_eq!(
         w.pvt_dlg.as_ref().map(|d| d.by),

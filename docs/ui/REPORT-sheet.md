@@ -1309,3 +1309,93 @@ PivotTable, hai thẻ ngữ cảnh "PivotTable Analyze" và "Design" hiện sau 
 - File › Print: chọn máy in khác chưa đọc lại khổ giấy mặc định của máy đó; chữ dài trong ô thiết đặt bị cắt (chưa có "…").
 - Enter 22–24 ms trên sổ lớn; bánh xe 11–12 ms khi màn hình đầy ô chữ số (đã có lối tắt ASCII khi tách chữ theo
   phông, chưa đo lại).
+
+## Vòng 14 — hộp thoại PivotTable, nút trường, bố cục ngăn, kiểu dựng sẵn đo trên đối chứng
+
+Nhánh `worktree-agent-a832dec862d6492cf` (từ `work/desktop-performance` sau "Merge BlueSheet round 13"). Đối chứng mở
+bằng COM trên bản sao `piv2.xlsx` (Date / Region / Product / Sales / Qty, 24 bản ghi), hộp thoại mở bằng
+`ExecuteMso` (PivotTableOptions, PivotTableGroupField, PivotTableCalculatedItem, PivotTableFieldSettings) và chụp bằng
+PrintWindow; BlueSheet mở cùng hộp thoại bằng `BLUEOFFICE_SHEET_ACTIONS` trên tệp có PivotTable do đối chứng lưu.
+
+### Vòng 66 — thẻ PivotTable Analyze làm thật
+
+- **Insert Timeline** bật trong báo cáo (đối chứng bật ở mọi báo cáo lấy từ vùng ô; bấm thì liệt kê trường ngày
+  hoặc báo không có) — trước BlueSheet làm mờ.
+- **Grouping** (Group Field / Group Selection trên trường ngày hoặc số; 364 × 404 và 306 × 228 px như đối chứng,
+  `sheet-92`, `sheet-93`): Auto Starting at / Ending at (gõ vào ô thì bỏ dấu Auto), danh sách By chọn nhiều
+  (Seconds … Years, đề xuất Months), Number of days chỉ bật khi chỉ chọn Days; số: By. Engine `pivotGroup` thêm
+  giờ / phút / giây, cận đầu / cuối cho ngày và nhóm n ngày (§18.10.1.77 `groupInterval`; nhãn "01/01/2025 -
+  07/01/2025"), tên trường nhóm Days / Hours / Minutes theo ngôn ngữ.
+- **Group Selection** trên mục chữ: nhóm thủ công các mục đang chọn (`pivotGroupItems`); **Ungroup**: bỏ nhóm theo
+  khoảng (cả khi đứng trên trường Years / Quarters dựng thêm) hoặc gỡ mục khỏi nhóm thủ công.
+- **Insert Calculated Field / Item** (678 × 406 px, `sheet-94`): Name, Formula "= 0", Add ↔ Modify theo tên đã có,
+  Delete, danh sách Fields / Items, Insert Field / Insert Item (tên có dấu cách được bọc '…'), OK / Close.
+- **PivotTable Options** (580 × 652 px, `sheet-96`): tên báo cáo (không trùng), Layout & Format (gộp nhãn, thụt lề
+  dạng gọn, thứ tự / số trường lọc, chữ cho ô lỗi / ô trống, tự khớp cột, giữ định dạng), Totals & Filters (tổng
+  chung hàng / cột, tổng phụ mục trang đã lọc, nhiều bộ lọc mỗi trường, danh sách tuỳ chỉnh), Display (nút +/-,
+  chú giải, tiêu đề trường và nút lọc, bố cục cổ điển, sắp xếp danh sách trường), Printing, Data, Alt Text. Mô hình
+  mới `PivotOptions` (§18.10.1.73 `mergeItem`, `indent`, `showError`/`errorCaption`, `showMissing`/`missingCaption`,
+  `useAutoFormatting`, `showHeaders`, `gridDropZones`, `fieldListSortAscending`, `printDrill`, `itemPrintTitles`…;
+  alt text ở `x14:pivotTableDefinition`) đọc / ghi bằng bo-xlsx; khi vẽ báo cáo áp chữ cho ô lỗi / ô trống, ẩn
+  "Row Labels" / "Column Labels" và nút trường khi tắt tiêu đề, nhân thụt lề; tắt "Autofit" thì không khớp cột.
+  Show ▾ › +/- Buttons / Field Headers bật tắt cùng các cờ này. Khác đối chứng: sáu thẻ trên một hàng (đối chứng
+  hai hàng ba thẻ).
+- Mục menu không áp dụng cho ô hiện hoạt được tính lại mỗi lần (Group Field chỉ ở trường ngày / số, Ungroup chỉ
+  khi trường đã nhóm, Calculated Item chỉ ở trường hàng / cột chưa nhóm).
+
+### Vòng 67 — Field Settings của trường hàng / cột, nút trường ▾
+
+- **Field Settings** (519 × 546 px, `sheet-95`): Source Name, Custom Name (§18.10.1.69 `pivotField/@name`: đổi
+  tiêu đề trường trong báo cáo và ô Active Field), Subtotals Automatic / None (Custom và danh sách hàm hiện như đối
+  chứng nhưng chưa tính tổng phụ theo nhiều hàm), Include new items in manual filter; Layout & Print: dạng đề cương /
+  gọn / bảng (áp cho cả báo cáo — engine giữ bố cục theo bảng), tổng phụ ở đầu nhóm, lặp nhãn, dòng trống, mục
+  không có dữ liệu (`showAll`), ngắt trang sau mỗi mục (`insertPageBreak`).
+- **Nút trường ▾** trên "Row Labels" / "Column Labels" mở cùng kiểu menu như đối chứng (`sheet-97`): Sort A to Z /
+  Z to A (`sortType`), More Sort Options… (mờ), Clear Filter From "Region", Label Filters ▸ (14 phép so nhãn) và
+  Value Filters ▸ (8 phép so giá trị, Top 10…) mở hộp thoại Label / Value / Top 10 Filter (§18.10.1.35 `filter`,
+  một bộ lọc mỗi trường), ô Search và danh sách mục có (Select All); OK ẩn mục bỏ chọn (`pivotFieldItems`). Nút có
+  phễu khi trường đang lọc.
+
+### Vòng 68 — bố cục ngăn PivotTable Fields, kiểu dựng sẵn
+
+- Menu bánh răng: Fields Section and Areas Section Stacked / Side-By-Side, Fields Section Only, Areas Section Only
+  (2 by 2) / (1 by 4) — bố cục giữ trong phiên; Sort A to Z / in Data Source Order lưu vào báo cáo
+  (`fieldListSortAscending`, cũng là lựa chọn Field List của PivotTable Options).
+- **Kiểu PivotTable dựng sẵn theo định nghĩa của đối chứng**: đo DisplayFormat của cả 84 kiểu (Light / Medium / Dark
+  1–28) trên báo cáo hai trường hàng, có / không hàng xen màu (`pstyles.ps1`), rồi quy từng màu về màu theme + tint
+  (§18.8.19) — mọi màu khớp (±3 đơn vị) trừ một viền của Dark15. Bảng `bo-sheet/src/pivot/style_table.rs` giữ cho mỗi
+  kiểu: tiêu đề, hàng tiêu đề phụ (mục nhóm), dòng dữ liệu thường / xen màu, Grand Total và dòng cuối (nền, màu chữ,
+  đậm, viền trên / dưới với độ dày / kép), cột nhãn và cột giá trị riêng. Ví dụ theme Office 2007: Light16 tiêu đề
+  DCE6F1 (accent 1 tint 0,8) viền 95B3D7 (0,4), hàng xen màu D9D9D9 (dark 1 tint 0,85); Medium2 tiêu đề 366092
+  (shade 25 %) chữ trắng, nhóm 95B3D7; Dark2 tiêu đề 244062 (shade 50 %). Ô kiểu trên ribbon dùng cùng bảng
+  (`sheet-98`). Tên kiểu tuỳ chỉnh vẫn dùng cách tô riêng.
+
+### Vòng 69 — File › Print
+
+- Chọn máy in khác: khổ giấy mặc định của sổ lấy lại từ driver của máy đó (host đọc `dmPaperSize` của từng máy in
+  khi mở), bản xem trước vẽ lại.
+- Chữ dài trong ô thiết đặt (tên máy in, khổ giấy…) cắt bằng "…" theo bề rộng đo được.
+
+### Vòng 70 — đo tốc độ (bản release, `perf12.ps1`, `BLUEOFFICE_NATIVE_PERF`, phím / bánh xe gửi bằng PostMessage)
+
+Máy có các phiên build khác chạy song song. "Trước" = bản `bluesheet-native.next.exe` của vòng 13 (đã có lối tắt
+ASCII khi tách chữ theo phông), "sau" = bản vòng 14:
+
+| | vòng 12 | trước (vòng 13) | sau (vòng 14) |
+|---|---|---|---|
+| `big-1m` sửa A1, Enter — handle | 22–24 ms | 21,3–24,3 ms | 23,0–24,2 ms |
+| `big-1m` Enter — tới present | 28–34 ms | 29,0–31,3 ms | 30,0–32,0 ms |
+| `dense400` bánh xe, p50 / p95 (40 nấc) | 11,7 ms / — | 7,9 / 12,1 ms | 8,7 / 11,9 ms |
+
+Lối tắt tách chữ ASCII (đã commit ở vòng 13) đưa nấc bánh xe trên màn hình đầy số từ 11,7 ms xuống ~8 ms p50; p95
+vẫn ~12 ms (nấc lộ dải mới nhiều chữ). Enter không đổi (vòng này không sửa đường Enter): ~23 ms handle, phần lớn là
+ghi 10 000 kết quả về mô hình và vẽ lại lưới — mục tiêu < 16 ms p95 chưa đạt.
+
+## Còn lại (sau vòng 14)
+
+- Tốc độ: Enter ~23 ms handle trên `big-1m` (mục tiêu < 16 ms), bánh xe p95 ~12 ms (mục tiêu < 8 ms).
+- Field Settings › Subtotals Custom (tổng phụ theo nhiều hàm) chưa tính; chọn Custom giữ tổng phụ tự động. Dạng
+  đề cương / gọn / bảng của Field Settings áp cho cả báo cáo (engine chưa có bố cục theo từng trường).
+- Báo cáo đọc từ tệp chỉ được tô kiểu khi BlueSheet vẽ lại nó (Refresh hay sửa bất kỳ); đối chứng tô kiểu khi hiển
+  thị. PivotTable Options: sáu thẻ trên một hàng; Merge and center, Data tab (lưu dữ liệu nguồn, làm mới khi mở)
+  chỉ lưu / hiện, chưa có tác dụng khi vẽ. More Sort Options… còn mờ.

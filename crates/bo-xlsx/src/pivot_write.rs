@@ -623,7 +623,7 @@ pub fn pivot_table_xml(pt: &PivotTable, cache: &PivotCache) -> String {
     if pt.layout != PivotLayout::Compact {
         a(&mut out, "indent", "0");
     } else if o.indent != 1 {
-        a(&mut out, "indent", &o.indent.to_string());
+        a(&mut out, "indent", &o.indent.saturating_sub(1).to_string());
     }
     // §18.10.1.73 compact / compactData / outline / outlineData.
     match pt.layout {

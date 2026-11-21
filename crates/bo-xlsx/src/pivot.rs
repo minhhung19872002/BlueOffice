@@ -363,7 +363,9 @@ fn read_options(dom: &Node) -> PivotOptions {
     };
     PivotOptions {
         merge_item: flag(dom, "mergeItem", false),
-        indent: num(dom, "indent").unwrap_or(1),
+        // The reference writes indent="0" for its one-character compact indent (its dialog
+        // shows 1): the dialog value is the attribute + 1.
+        indent: num(dom, "indent").map_or(1, |v: u32| v + 1),
         page_over_then_down: flag(dom, "pageOverThenDown", false),
         page_wrap: num(dom, "pageWrap").unwrap_or(0),
         show_error: flag(dom, "showError", false),

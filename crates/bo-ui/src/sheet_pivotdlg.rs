@@ -129,8 +129,15 @@ impl SheetWindow {
         }
         let items = fi.get("items").and_then(Value::as_array)?;
         let numeric = |t: &str| t.trim().is_empty() || t.replace(',', "").parse::<f64>().is_ok();
-        (!items.is_empty() && items.iter().all(|i| numeric(i.as_str().unwrap_or(""))))
-            .then_some(false)
+        if !items.is_empty() && items.iter().all(|i| numeric(i.as_str().unwrap_or(""))) {
+            return Some(false);
+        }
+        // Dates of a cache read from a file (`sharedItems` of type `d`, ISO text).
+        let date = |t: &str| {
+            t.trim().is_empty()
+                || parse_datetime_text(&t.replacen('T', " ", 1), DateSystem::Date1900).is_some()
+        };
+        (!items.is_empty() && items.iter().all(|i| date(i.as_str().unwrap_or("")))).then_some(true)
     }
 
     /// Menu entries of the Analyze tab that do not apply to the active cell (dimmed).
@@ -255,7 +262,7 @@ impl SheetWindow {
                 .filter_map(Value::as_str)
                 .filter_map(|t| {
                     if dates {
-                        parse_datetime_text(t, sys)
+                        parse_datetime_text(&t.replacen('T', " ", 1), sys)
                     } else {
                         t.replace(',', "").parse::<f64>().ok()
                     }
@@ -276,7 +283,10 @@ impl SheetWindow {
                 bo_sheet::pivot::value_text(&bo_model::sheet::CellValue::Number(v))
             }
         };
-        let (start_t, end_t) = (fmt(start), fmt(end));
+        // The reference shows the date range's end as the day after the last date (the
+        // exclusive `endDate`); the engine keeps the last day.
+        let end_shown = if dates { end.floor() + 1.0 } else { end };
+        let (start_t, end_t) = (fmt(start), fmt(end_shown));
         let size = if dates {
             (364.0, 404.0)
         } else {
@@ -287,7 +297,7 @@ impl SheetWindow {
         form.add(
             "autoG",
             None,
-            [18.0, 56.0, size.0 - 36.0, 0.0],
+            [18.0, 47.0, size.0 - 36.0, 0.0],
             Kind::Group(t("sheetPvt.auto", "Auto")),
         );
         form.add(
@@ -324,14 +334,14 @@ impl SheetWindow {
             form.add(
                 "byL",
                 None,
-                [18.0, 149.0, 0.0, 0.0],
+                [18.0, 140.0, 0.0, 0.0],
                 Kind::Label(t("sheetPvt.by", "By")),
             );
             form.add("by", None, [32.0, 165.0, 314.0, 139.0], Kind::Canvas);
             form.add(
                 "daysL",
                 None,
-                [159.0, 322.0, 0.0, 0.0],
+                [159.0, 313.0, 0.0, 0.0],
                 Kind::Label(t("sheetPvt.numberOfDays", "Number of days:")),
             );
             let days = g.get("daysInterval").and_then(Value::as_f64).unwrap_or(1.0) as i32;
@@ -350,7 +360,7 @@ impl SheetWindow {
             form.add(
                 "byL",
                 None,
-                [56.0, 147.0, 0.0, 0.0],
+                [56.0, 138.0, 0.0, 0.0],
                 Kind::Label(t("sheetPvt.byColon", "By:")),
             );
             form.add(
@@ -499,7 +509,7 @@ impl SheetWindow {
             cmd["start"] = json!(v);
         }
         if let Some(v) = end {
-            cmd["end"] = json!(v);
+            cmd["end"] = json!(if st.dates { v - 1.0 } else { v });
         }
         self.pivot_dlg_run(&st, cmd);
     }
@@ -734,14 +744,14 @@ impl SheetWindow {
         form.add(
             "nameL",
             None,
-            [18.0, 66.0, 0.0, 0.0],
+            [18.0, 57.0, 0.0, 0.0],
             Kind::Label(t("sheetPvt.calcName", "Name:")),
         );
         form.add("name", None, [84.0, 53.0, box_w, 25.0], chars(&n));
         form.add(
             "formulaL",
             None,
-            [18.0, 96.0, 0.0, 0.0],
+            [18.0, 87.0, 0.0, 0.0],
             Kind::Label(t("sheetPvt.calcFormula", "Formula:")),
         );
         form.add("formula", None, [84.0, 83.0, box_w, 25.0], chars("= 0"));
@@ -772,7 +782,7 @@ impl SheetWindow {
         form.add(
             "fieldsL",
             None,
-            [18.0, 157.0, 0.0, 0.0],
+            [18.0, 148.0, 0.0, 0.0],
             Kind::Label(t("sheetPvt.calcFields", "Fields:")),
         );
         form.add(
@@ -807,7 +817,7 @@ impl SheetWindow {
             form.add(
                 "itemsL",
                 None,
-                [346.0, 157.0, 0.0, 0.0],
+                [346.0, 148.0, 0.0, 0.0],
                 Kind::Label(t("sheetPvt.calcItems", "Items:")),
             );
             form.add(
@@ -1029,14 +1039,14 @@ impl SheetWindow {
         form.add(
             "srcL",
             None,
-            [18.0, 56.0, 0.0, 0.0],
+            [18.0, 47.0, 0.0, 0.0],
             Kind::Label(t("sheetPivot.sourceName", "Source Name:")),
         );
-        form.add("src", None, [114.0, 56.0, 0.0, 0.0], Kind::Label(src));
+        form.add("src", None, [114.0, 47.0, 0.0, 0.0], Kind::Label(src));
         form.add(
             "nameL",
             None,
-            [18.0, 88.0, 0.0, 0.0],
+            [18.0, 79.0, 0.0, 0.0],
             Kind::Label(t("sheetPivot.customName", "Custom Name:")),
         );
         form.add("name", None, [117.0, 75.0, 378.0, 26.0], chars(&custom));
@@ -1044,7 +1054,7 @@ impl SheetWindow {
         form.add(
             "subG",
             Some(0),
-            [32.0, 161.0, 455.0, 0.0],
+            [32.0, 152.0, 455.0, 0.0],
             Kind::Group(t("sheetPvt.fsSubtotals", "Subtotals")),
         );
         form.set_bold("subG");
@@ -1067,7 +1077,7 @@ impl SheetWindow {
         form.add(
             "funcsL",
             Some(0),
-            [59.0, 263.0, 0.0, 0.0],
+            [59.0, 254.0, 0.0, 0.0],
             Kind::Label(t(
                 "sheetPvt.fsSelectFunctions",
                 "Select one or more functions:",
@@ -1102,7 +1112,7 @@ impl SheetWindow {
         form.add(
             "filtG",
             Some(0),
-            [32.0, 394.0, 455.0, 0.0],
+            [32.0, 385.0, 455.0, 0.0],
             Kind::Group(t("sheetPvt.fsFilter", "Filter")),
         );
         form.set_bold("filtG");
@@ -1119,7 +1129,7 @@ impl SheetWindow {
         form.add(
             "layG",
             Some(1),
-            [32.0, 161.0, 455.0, 0.0],
+            [32.0, 152.0, 455.0, 0.0],
             Kind::Group(t("sheetPvt.fsLayout", "Layout")),
         );
         form.set_bold("layG");
@@ -1204,7 +1214,7 @@ impl SheetWindow {
         form.add(
             "printG",
             Some(1),
-            [32.0, 424.0, 455.0, 0.0],
+            [32.0, 415.0, 455.0, 0.0],
             Kind::Group(t("sheetPvt.fsPrint", "Print")),
         );
         form.set_bold("printG");
@@ -1306,7 +1316,7 @@ impl SheetWindow {
         form.add(
             "nameL",
             None,
-            [18.0, 60.0, 0.0, 0.0],
+            [18.0, 51.0, 0.0, 0.0],
             Kind::Label(t("sheetPvt.optName", "PivotTable Name:")),
         );
         form.add(
@@ -1332,7 +1342,7 @@ impl SheetWindow {
             );
         };
         // Layout & Format.
-        group(&mut form, "g0", 0, 157.0, t("sheetPvt.optLayout", "Layout"));
+        group(&mut form, "g0", 0, 148.0, t("sheetPvt.optLayout", "Layout"));
         check(
             &mut form,
             "merge",
@@ -1344,7 +1354,7 @@ impl SheetWindow {
         form.add(
             "indentL",
             Some(0),
-            [46.0, 211.0, 0.0, 0.0],
+            [46.0, 202.0, 0.0, 0.0],
             Kind::Label(t(
                 "sheetPvt.optIndent",
                 "When in compact form indent row labels:",
@@ -1363,13 +1373,13 @@ impl SheetWindow {
         form.add(
             "indentU",
             Some(0),
-            [371.0, 211.0, 0.0, 0.0],
+            [371.0, 202.0, 0.0, 0.0],
             Kind::Label(t("sheetPvt.optChars", "character(s)")),
         );
         form.add(
             "pageL",
             Some(0),
-            [46.0, 259.0, 0.0, 0.0],
+            [46.0, 250.0, 0.0, 0.0],
             Kind::Label(t(
                 "sheetPvt.optPageOrder",
                 "Display fields in report filter area:",
@@ -1390,7 +1400,7 @@ impl SheetWindow {
         form.add(
             "wrapL",
             Some(0),
-            [46.0, 289.0, 0.0, 0.0],
+            [46.0, 280.0, 0.0, 0.0],
             Kind::Label(t("sheetPvt.optWrap", "Report filter fields per column:")),
         );
         form.add(
@@ -1403,7 +1413,7 @@ impl SheetWindow {
                 max: 255,
             },
         );
-        group(&mut form, "g1", 0, 322.0, t("sheetPvt.optFormat", "Format"));
+        group(&mut form, "g1", 0, 313.0, t("sheetPvt.optFormat", "Format"));
         check(
             &mut form,
             "showErr",
@@ -1453,7 +1463,7 @@ impl SheetWindow {
             &mut form,
             "g2",
             1,
-            157.0,
+            148.0,
             t("sheetPvt.optGrand", "Grand Totals"),
         );
         check(
@@ -1476,7 +1486,7 @@ impl SheetWindow {
             &mut form,
             "g3",
             1,
-            238.0,
+            229.0,
             t("sheetPvt.optFilters", "Filters"),
         );
         check(
@@ -1502,7 +1512,7 @@ impl SheetWindow {
             &mut form,
             "g4",
             1,
-            320.0,
+            311.0,
             t("sheetPvt.optSorting", "Sorting"),
         );
         check(
@@ -1518,7 +1528,7 @@ impl SheetWindow {
             &mut form,
             "g5",
             2,
-            157.0,
+            148.0,
             t("sheetPvt.optDisplay", "Display"),
         );
         let display: [(&'static str, f32, &str, &str, bool); 9] = [
@@ -1593,7 +1603,7 @@ impl SheetWindow {
             &mut form,
             "g6",
             2,
-            485.0,
+            476.0,
             t("sheetPvt.optFieldList", "Field List"),
         );
         let asc = b(&o, "fieldListSortAscending", false);
@@ -1614,7 +1624,7 @@ impl SheetWindow {
             !asc,
         );
         // Printing.
-        group(&mut form, "g7", 3, 157.0, t("sheetPvt.optPrint", "Print"));
+        group(&mut form, "g7", 3, 148.0, t("sheetPvt.optPrint", "Print"));
         check(
             &mut form,
             "printDrill",
@@ -1650,7 +1660,7 @@ impl SheetWindow {
             &mut form,
             "g8",
             4,
-            157.0,
+            148.0,
             t("sheetPvt.optData", "PivotTable Data"),
         );
         check(
@@ -1684,7 +1694,7 @@ impl SheetWindow {
         form.add(
             "altTL",
             Some(5),
-            [32.0, 157.0, 0.0, 0.0],
+            [32.0, 148.0, 0.0, 0.0],
             Kind::Label(t("sheetPvt.optAltTitle", "Title")),
         );
         form.add(
@@ -1696,7 +1706,7 @@ impl SheetWindow {
         form.add(
             "altDL",
             Some(5),
-            [32.0, 207.0, 0.0, 0.0],
+            [32.0, 198.0, 0.0, 0.0],
             Kind::Label(t("sheetPvt.optAltDesc", "Description")),
         );
         form.add(

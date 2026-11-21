@@ -987,3 +987,29 @@ fn dot_leader_runs_up_to_the_right_tab() {
         );
     }
 }
+
+/// §17.4.50 tblInd before compatibility mode 15: the cell text lines up with the body text
+/// and the table edge sits one left cell margin (5.4 pt) further left (measured on the
+/// reference word processor with a mode-14 file, BlueDoc round 8); mode 15 keeps the edge
+/// at the margin.
+#[test]
+fn table_edge_outdented_by_the_cell_margin_before_mode_15() {
+    let first_line_x = |mode: Option<u16>| {
+        let mut d = doc(vec![Section::new(vec![
+            p("Body"),
+            Block::Table(Table::simple(1, 2, Twips(9000))),
+        ])]);
+        if let Block::Table(t) = &mut d.sections[0].blocks[1] {
+            t.rows[0].cells[0] = cell("c00");
+        }
+        d.compat_mode = mode;
+        let l = run(&d);
+        let body = l.pages[0].lines[0].fragments[0].x;
+        let cell = l.pages[0].lines[1].fragments[0].x;
+        (body, cell)
+    };
+    let (body, cell15) = first_line_x(Some(15));
+    assert!((cell15 - body - 5.4).abs() < 0.2, "{body} {cell15}");
+    let (body, cell14) = first_line_x(Some(14));
+    assert!((cell14 - body).abs() < 0.2, "{body} {cell14}");
+}

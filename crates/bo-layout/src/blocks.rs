@@ -1161,10 +1161,21 @@ pub(crate) fn layout_table(
     let ncols = grid.len();
     let total: f32 = grid.iter().sum();
     let indent = t.props.indent.map_or(0.0, Twips::to_pt);
-    // §17.4.29 jc on tables.
+    let (ml, mr) = t
+        .props
+        .cell_margin
+        .map_or((DEFAULT_CELL_MARGIN, DEFAULT_CELL_MARGIN), |(l, r)| {
+            (l.to_pt(), r.to_pt())
+        });
+    // §17.4.29 jc on tables. §17.4.50 tblInd: before compatibility mode 15 ([MS-DOCX]
+    // §2.3.1 compatSetting) the indent places the first cell's text, so the table edge
+    // sits one left cell margin (§17.4.43 tblCellMar) left of it — the cell text lines up
+    // with the body text, as the desktop word processor draws such files; from mode 15 on
+    // it places the table edge.
     let x = match t.props.align {
         Some(bo_model::Alignment::Center) => (avail - total) / 2.0,
         Some(bo_model::Alignment::Right) => avail - total,
+        _ if !ctx.doc.modern_layout() => indent - ml,
         _ => indent,
     };
     let tb = table_borders(ctx.doc, t);
@@ -1173,12 +1184,6 @@ pub(crate) fn layout_table(
         .props
         .cell_margin_vertical
         .map_or((0.0, 0.0), |(a, b)| (a.to_pt(), b.to_pt()));
-    let (ml, mr) = t
-        .props
-        .cell_margin
-        .map_or((DEFAULT_CELL_MARGIN, DEFAULT_CELL_MARGIN), |(l, r)| {
-            (l.to_pt(), r.to_pt())
-        });
     let nrows = t.rows.len();
 
     // Placement of each cell in the view, per row.

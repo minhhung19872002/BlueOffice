@@ -281,6 +281,8 @@ pub(crate) struct SlideBackstage {
     button_w: [f32; 3],
     /// Print page: texts of the setting boxes cut to fit with "…" (full text, shown text).
     fitted: Vec<(String, String)>,
+    /// Measured widths of the Print page's links (Printer Properties, Edit Header & Footer).
+    link_w: [f32; 2],
     hits: Vec<(Hit, [f32; 4])>,
 }
 
@@ -324,6 +326,7 @@ impl SlideBackstage {
             pages_focus: false,
             button_w: [0.0; 3],
             fitted: Vec::new(),
+            link_w: [0.0; 2],
             hits: Vec::new(),
         }
     }
@@ -349,6 +352,15 @@ impl SlideBackstage {
             .0;
         // Print settings: a text wider than its box ends with "…" (reference).
         if self.page == BsPage::Print {
+            for (i, (k, f)) in [
+                ("slideR10.bs.printerProps", "Printer Properties"),
+                ("slideR10.bs.editHf", "Edit Header & Footer"),
+            ]
+            .iter()
+            .enumerate()
+            {
+                self.link_w[i] = m.measure(&tr(strings, k, f), style).0;
+            }
             let avail = self.px(293.0 - 56.0 - 24.0);
             self.fitted = self
                 .print_boxes(strings)
@@ -448,6 +460,14 @@ impl SlideBackstage {
             (collate, collate_sub, 4),
             (color, String::new(), 5),
         ]
+    }
+
+    /// Width of Print page link `i` (measured, else estimated).
+    fn link_width(&self, label: &str, i: usize) -> f32 {
+        match self.link_w.get(i) {
+            Some(w) if *w > 0.0 => w.round(),
+            _ => label.chars().count() as f32 * self.px(6.4),
+        }
     }
 
     /// A Print setting's text as shown (cut to its box when measured too wide).
@@ -1888,7 +1908,8 @@ impl SlideBackstage {
             );
             y += self.px(22.0);
         }
-        y += self.px(30.0);
+        // Kept inside the window (the reference scrolls this column).
+        y = (y + self.px(24.0)).min(self.size.1 - self.px(26.0));
         p.text(
             &tr(s, "slideR10.bs.allProps", "Show All Properties"),
             x,
@@ -2068,7 +2089,7 @@ impl SlideBackstage {
             let r = self.printer_props_rect();
             let label = tr(s, "slideR10.bs.printerProps", "Printer Properties");
             let link = Rgba(t.accent_text.0, t.accent_text.1, t.accent_text.2, 255);
-            let lw = label.chars().count() as f32 * self.px(6.9);
+            let lw = self.link_width(&label, 0);
             let lx = (r[0] + r[2] - lw).round();
             p.text(&label, lx, r[1], body, link);
             p.fill_rect(lx, r[1] + self.px(18.0), lw, 1.0, link);
@@ -2089,7 +2110,7 @@ impl SlideBackstage {
         if let Some(r) = self.rect_of(Hit::HfLink) {
             let label = tr(s, "slideR10.bs.editHf", "Edit Header & Footer");
             let link = Rgba(t.accent_text.0, t.accent_text.1, t.accent_text.2, 255);
-            let lw = label.chars().count() as f32 * self.px(6.9);
+            let lw = self.link_width(&label, 1);
             let lx = (r[0] + r[2] - lw).round();
             p.text(&label, lx, r[1], body, link);
             p.fill_rect(lx, r[1] + self.px(18.0), lw, 1.0, link);

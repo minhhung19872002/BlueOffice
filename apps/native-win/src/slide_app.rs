@@ -121,7 +121,12 @@ pub fn run() -> Result<(), String> {
     let default = default
         .and_then(|d| printers.iter().position(|p| *p == d))
         .unwrap_or(0);
+    let gray = printers
+        .iter()
+        .map(|p| host10::printer_prints_gray(p))
+        .collect();
     view.set_printers(printers, default);
+    view.set_printer_grayscale(gray);
     let perf = std::env::var_os("BLUEOFFICE_NATIVE_PERF").and_then(|p| {
         std::fs::OpenOptions::new()
             .create(true)

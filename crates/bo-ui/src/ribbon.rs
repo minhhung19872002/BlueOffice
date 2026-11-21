@@ -2095,13 +2095,29 @@ impl Ribbon {
                     if let Some(lines) = self.large_lines.borrow().get(id) {
                         // Two lines 19.2 pt apart, each centred (measured on the reference).
                         for (i, (line, lw)) in lines.iter().enumerate() {
-                            p.text(
-                                line,
-                                (r.x + (r.w - lw) / 2.0).round(),
-                                r.y + self.px(40.0) + i as f32 * self.px(19.2),
-                                style,
-                                ink,
-                            );
+                            let lx = (r.x + (r.w - lw) / 2.0).round();
+                            let ly = r.y + self.px(40.0) + i as f32 * self.px(19.2);
+                            // BlueSlide: the drop-down mark is a thin chevron (reference).
+                            if let Some(text) =
+                                line.strip_suffix('\u{25BE}').filter(|_| self.mark_line)
+                            {
+                                p.text(text, lx, ly, style, ink);
+                                let cw = self.px(7.2);
+                                let cx = (lx + lw - cw / 2.0).round();
+                                let cy = (ly + style.size * 0.72).round();
+                                let hh = self.px(2.6);
+                                p.path(
+                                    &[
+                                        bo_render::PathSeg::M(cx - cw / 2.0 + 0.5, cy - hh / 2.0),
+                                        bo_render::PathSeg::L(cx, cy + hh / 2.0),
+                                        bo_render::PathSeg::L(cx + cw / 2.0 - 0.5, cy - hh / 2.0),
+                                    ],
+                                    None,
+                                    Some((ink, self.px(1.0))),
+                                );
+                            } else {
+                                p.text(line, lx, ly, style, ink);
+                            }
                         }
                     } else {
                         p.text(

@@ -137,6 +137,9 @@ pub(super) struct F10 {
     recent: Vec<Recent>,
     printers: Vec<String>,
     printer: usize,
+    /// Printers whose driver settings print in grayscale by default (the Print page then
+    /// starts on Grayscale, as the reference's).
+    gray: Vec<bool>,
     /// Print settings kept between openings.
     print: Option<super::file10::PrintSettings>,
     out: Vec<FileRequest>,
@@ -166,6 +169,11 @@ impl SlideWindow {
     pub fn set_printers(&mut self, names: Vec<String>, default: usize) {
         self.f10.printers = names;
         self.f10.printer = default;
+    }
+
+    /// Per installed printer: its driver's default settings print in grayscale.
+    pub fn set_printer_grayscale(&mut self, gray: Vec<bool>) {
+        self.f10.gray = gray;
     }
 
     /// Requests of the File screen made since the last call.
@@ -233,6 +241,9 @@ impl SlideWindow {
         print.printers.clone_from(&self.f10.printers);
         if self.f10.print.is_none() {
             print.printer = self.f10.printer;
+            if self.f10.gray.get(print.printer).copied().unwrap_or(false) {
+                print.color = 1;
+            }
         }
         print.printer = print.printer.min(print.printers.len().saturating_sub(1));
         b.print = print;

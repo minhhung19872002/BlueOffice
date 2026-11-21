@@ -268,3 +268,48 @@ fn print_page_has_printer_properties_and_zoom() {
         vec![FileRequest::PrinterProperties("Printer A".into())]
     );
 }
+
+#[test]
+fn background_styles_gallery_applies_to_every_slide() {
+    let mut w = window();
+    let i = w
+        .ribbon
+        .tab_index("slideNative.design")
+        .expect("design tab");
+    let [x, y, tw, th] = w
+        .ribbon
+        .rect_of(crate::ribbon::RibbonHit::Tab(i))
+        .expect("design tab");
+    for input in [
+        Input::Press {
+            x: x + tw / 2.0,
+            y: y + th / 2.0,
+            count: 1,
+            shift: false,
+        },
+        Input::Release {
+            x: x + tw / 2.0,
+            y: y + th / 2.0,
+        },
+    ] {
+        w.handle(input, &Fixed);
+    }
+    assert!(w.open_bg_styles());
+    let g = w.bgs.as_ref().expect("gallery");
+    assert_eq!(g.tiles.len(), 12);
+    // 505 x 370 device px at 125 %.
+    assert!(
+        (g.rect[2] - 505.0).abs() <= 1.0 && (g.rect[3] - 370.0).abs() <= 1.0,
+        "{:?}",
+        g.rect
+    );
+    assert!(matches!(g.tiles[11].1, bgstyles::BgStyle::Gradient(..)));
+    let modified = w.view.modified();
+    let r = g.tiles[11].0;
+    let (cx, cy) = (r[0] + 4.0, r[1] + 4.0);
+    w.handle(Input::Move { x: cx, y: cy }, &Fixed);
+    assert_eq!(w.bgs.as_ref().and_then(|g| g.hover), Some(11));
+    w.handle(Input::Release { x: cx, y: cy }, &Fixed);
+    assert!(w.bgs.is_none());
+    assert!(w.view.modified() && !modified);
+}

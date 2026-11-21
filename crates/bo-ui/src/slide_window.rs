@@ -318,6 +318,8 @@ pub struct SlideWindow {
     side: selpane::SidePane,
     /// Picture Format gallery of previews (Corrections, Color, Transparency).
     gallery: Option<pic::PicGallery>,
+    /// Design › Background Styles gallery.
+    bgs: Option<bgstyles::BgStyles>,
     /// Remove Background mode.
     bg_mode: Option<pic::BgMode>,
     /// Draw Borders pen of Table Design.
@@ -434,6 +436,9 @@ mod file10;
 #[path = "slide_file10_win.rs"]
 mod file10_win;
 
+#[path = "slide_bgstyles10.rs"]
+mod bgstyles;
+
 #[path = "slide_showmenu10.rs"]
 mod showmenu10;
 pub use file10_win::{FileRequest, SlidePrintJob};
@@ -495,11 +500,10 @@ enum MenuKind {
     Font,
     Size,
     Layout,
-    /// Design: colour variants, font variants, slide size, background colour.
+    /// Design: colour variants, font variants, slide size.
     Colors,
     Fonts,
     SlideSize,
-    Background,
     /// Transitions: effect options (direction), duration.
     TransitionEffect,
     Duration,
@@ -517,19 +521,6 @@ const RIBBON_EXTRA: f32 = 0.8;
 
 /// Durations offered for a transition (ms).
 const DURATIONS: [u32; 8] = [250, 500, 750, 1000, 1500, 2000, 3000, 5000];
-
-/// Background colours offered by Format Background (`RRGGBB`; `None` resets).
-const BACKGROUNDS: [Option<&str>; 9] = [
-    None,
-    Some("FFFFFF"),
-    Some("F2F2F2"),
-    Some("D9D9D9"),
-    Some("000000"),
-    Some("DEEAF6"),
-    Some("E2F0D9"),
-    Some("FFF2CC"),
-    Some("FBE5D6"),
-];
 
 /// Ribbon state the enabling rule reads, carried in the format state's `style` (BlueSlide
 /// has no paragraph style gallery): `sel` with a selection, `anim` when it has an effect.
@@ -719,6 +710,7 @@ impl SlideWindow {
             status9: status9::Status9::default(),
             side: selpane::SidePane::default(),
             gallery: None,
+            bgs: None,
             bg_mode: None,
             pen: fmt::Pen::default(),
             page_master: None,
@@ -1281,7 +1273,7 @@ impl SlideWindow {
                     "design.more" => (MenuKind::Themes, "design.more"),
                     "design.fonts" => (MenuKind::Fonts, "design.fonts"),
                     "design.slideSize" => (MenuKind::SlideSize, "design.slideSize"),
-                    "design.background" => (MenuKind::Background, "design.background"),
+                    "design.background" => return self.open_bg_styles(),
                     "transition.effect" => (MenuKind::TransitionEffect, "transition.effect"),
                     "transition.duration" => (MenuKind::Duration, "transition.duration"),
                     "transition.more" => {
@@ -2003,35 +1995,6 @@ impl SlideWindow {
                 dim: false,
             }))
             .collect(),
-            MenuKind::Background => BACKGROUNDS
-                .iter()
-                .map(|c| MenuItem {
-                    label: match c {
-                        Some(hex) => format!("#{hex}"),
-                        None => self
-                            .strings
-                            .get("slideEditor.design.resetBackground")
-                            .to_owned(),
-                    },
-                    choice: Choice::Command(format!("bg:{}", c.unwrap_or(""))),
-                    checked: false,
-                    dim: false,
-                })
-                .chain([
-                    MenuItem {
-                        label: self.t("slideNative.formatBackgroundMenu", "Format Background..."),
-                        choice: Choice::Command("ins:formatBg".into()),
-                        checked: false,
-                        dim: false,
-                    },
-                    MenuItem {
-                        label: self.t("slideNative.hideGraphics", "Hide Background Graphics"),
-                        choice: Choice::Command("ins:hideGraphics".into()),
-                        checked: self.bg_pane.hide_graphics,
-                        dim: false,
-                    },
-                ])
-                .collect(),
             MenuKind::TransitionEffect => {
                 let t = self.view.state().and_then(|s| s.transition.clone());
                 t.map(|t| {
@@ -2385,6 +2348,11 @@ impl SlideWindow {
                 return r;
             }
         }
+        if self.bgs.is_some() {
+            if let Some(r) = self.bgs_input(&input) {
+                return r;
+            }
+        }
         if self.gallery.is_some() {
             if let Some(r) = self.gallery_input(&input) {
                 return r;
@@ -2692,6 +2660,7 @@ impl SlideWindow {
         self.paint_status(p);
         self.paint_status9(p);
         self.paint_gallery(p);
+        self.paint_bg_styles(p);
         if let Some(menu) = &self.menu {
             menu.paint(p, &self.theme, &self.icons);
         } else if let Some((label, tw, anchor)) = &self.tooltip {

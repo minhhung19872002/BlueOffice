@@ -14910,6 +14910,7 @@
       "jpg": "Ảnh JPEG (*.jpg)",
       "svg": "Ảnh véc-tơ SVG (*.svg)",
       "gif": "Ảnh động GIF (*.gif)"
-    }
+    },
+    "bgReset": "Đặt lại Nền Trang chiếu"
   }
 }

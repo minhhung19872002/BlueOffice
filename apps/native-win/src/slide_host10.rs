@@ -8,6 +8,46 @@ use bo_render::PageList;
 use bo_ui::SlidePrintJob;
 use std::path::{Path, PathBuf};
 
+/// Whether `printer`'s default driver settings print in black and white (`dmColor`
+/// DMCOLOR_MONOCHROME, or a device without colour): the reference's Print page then starts
+/// on Grayscale.
+#[allow(unsafe_code)]
+pub fn printer_prints_gray(printer: &str) -> bool {
+    use windows::core::PCWSTR;
+    use windows::Win32::Graphics::Gdi::{DEVMODEW, DMCOLOR_MONOCHROME, DM_COLOR, DM_OUT_BUFFER};
+    use windows::Win32::Graphics::Printing::{
+        ClosePrinter, DocumentPropertiesW, OpenPrinterW, PRINTER_HANDLE,
+    };
+    let name: Vec<u16> = printer.encode_utf16().chain(std::iter::once(0)).collect();
+    // SAFETY: the printer handle is closed on every path; the buffer is as large as the
+    // driver asked and u64-aligned for DEVMODEW.
+    unsafe {
+        let mut h = PRINTER_HANDLE::default();
+        if OpenPrinterW(PCWSTR(name.as_ptr()), &raw mut h, None).is_err() {
+            return false;
+        }
+        let size = DocumentPropertiesW(None, h, PCWSTR(name.as_ptr()), None, None, 0);
+        let mut gray = false;
+        if size > 0 {
+            let mut buf = vec![0_u64; (size as usize).div_ceil(8)];
+            let dm = buf.as_mut_ptr().cast::<DEVMODEW>();
+            let r = DocumentPropertiesW(
+                None,
+                h,
+                PCWSTR(name.as_ptr()),
+                Some(dm),
+                None,
+                DM_OUT_BUFFER.0,
+            );
+            if r >= 0 && ((*dm).dmFields & DM_COLOR).0 != 0 {
+                gray = (*dm).dmColor == DMCOLOR_MONOCHROME;
+            }
+        }
+        let _ = ClosePrinter(h);
+        gray
+    }
+}
+
 fn app_dir() -> Option<PathBuf> {
     std::env::var_os("LOCALAPPDATA").map(|d| PathBuf::from(d).join("BlueOffice"))
 }

@@ -805,14 +805,14 @@ pub(crate) fn install_icons(icons: &mut Icons) {
         "design.fonts",
         &[
             (
-                "M1 19L6 5H8.4L13.4 19H11L9.9 15.8H4.5L3.4 19Z M5.2 13.8L7.2 8L9.2 13.8Z",
+                "M0.5 21.5L6 2.5H9L14.5 21.5H11.8L10.6 17.4H4.4L3.2 21.5Z M5.1 14.9L7.5 6.8L9.9 14.9Z",
                 Some(Rgba(0x40, 0x40, 0x40, 255)),
             ),
             (
-                "M14.6 15.4a3.5 3.5 0 1 0 7 0a3.5 3.5 0 1 0 -7 0Z M16.4 15.4a1.7 1.7 0 1 1 3.4 0a1.7 1.7 0 1 1 -3.4 0Z",
+                "M14.4 17.2a4.4 4.4 0 1 0 8.8 0a4.4 4.4 0 1 0 -8.8 0Z M16.5 17.2a2.3 2.3 0 1 1 4.6 0a2.3 2.3 0 1 1 -4.6 0Z",
                 Some(Rgba(0x40, 0x40, 0x40, 255)),
             ),
-            ("M20 11H21.9V19H20Z", Some(Rgba(0x40, 0x40, 0x40, 255))),
+            ("M21.4 12.3H23.5V21.5H21.4Z", Some(Rgba(0x40, 0x40, 0x40, 255))),
         ],
     );
     // Variants: a card with a brush; Effects: a bevelled tile (own drawings).
@@ -820,15 +820,15 @@ pub(crate) fn install_icons(icons: &mut Icons) {
         "design.variants",
         &[
             (
-                "M4 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-14a2 2 0 0 1-2-2v-12a2 2 0 0 1 2-2Z",
+                "M3 2h16a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2h-16a2 2 0 0 1-2-2v-16a2 2 0 0 1 2-2Z",
                 Some(Rgba(255, 255, 255, 255)),
             ),
             (
-                "M4 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-14a2 2 0 0 1-2-2v-12a2 2 0 0 1 2-2Z",
+                "M3 2h16a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2h-16a2 2 0 0 1-2-2v-16a2 2 0 0 1 2-2Z",
                 None,
             ),
             (
-                "M12 16l9-9l1.5 1.5l-9 9Z",
+                "M11 18l11-11l1.8 1.8l-11 11Z",
                 Some(Rgba(0x5b, 0x8f, 0xd0, 255)),
             ),
         ],
@@ -837,25 +837,22 @@ pub(crate) fn install_icons(icons: &mut Icons) {
         "design.effects",
         &[
             (
-                "M5 6h12l3 3v10h-12l-3-3Z",
+                "M2 3h16l4 4v14h-16l-4-4Z",
                 Some(Rgba(0x80, 0x80, 0x80, 255)),
             ),
-            ("M5 6h12v10h-12Z", Some(Rgba(0xe6, 0xe6, 0xe6, 255))),
-            ("M5 6h12v10h-12Z", None),
+            ("M2 3h16v14h-16Z", Some(Rgba(0xe6, 0xe6, 0xe6, 255))),
+            ("M2 3h16v14h-16Z", None),
         ],
     );
     // Layout: a slide with its title bar and two content placeholders (own drawing).
     icons.add_solid(
         "design.layout",
         &[
-            ("M2 4h20v16h-20Z", Some(Rgba(0xff, 0xff, 0xff, 255))),
-            ("M2 4h20v16h-20Z", None),
-            ("M4 6.5h16v3h-16Z", Some(Rgba(0x5b, 0x8f, 0xd0, 255))),
-            ("M4 11.5h7.4v6.5h-7.4Z", Some(Rgba(0xc6, 0xc6, 0xc6, 255))),
-            (
-                "M12.6 11.5h7.4v6.5h-7.4Z",
-                Some(Rgba(0xc6, 0xc6, 0xc6, 255)),
-            ),
+            ("M1 3h22v18h-22Z", Some(Rgba(0xff, 0xff, 0xff, 255))),
+            ("M1 3h22v18h-22Z", None),
+            ("M3.5 5.5h17v3.5h-17Z", Some(Rgba(0x5b, 0x8f, 0xd0, 255))),
+            ("M3.5 11h7.8v7.8h-7.8Z", Some(Rgba(0xc6, 0xc6, 0xc6, 255))),
+            ("M12.7 11h7.8v7.8h-7.8Z", Some(Rgba(0xc6, 0xc6, 0xc6, 255))),
         ],
     );
     icons.alias("design.more", "transition.more");

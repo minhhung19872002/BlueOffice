@@ -14910,6 +14910,7 @@
       "jpg": "JPEG File Interchange Format (*.jpg)",
       "svg": "Scalable Vector Graphics (*.svg)",
       "gif": "Animated GIF Format (*.gif)"
-    }
+    },
+    "bgReset": "Reset Slide Background"
   }
 }

@@ -220,6 +220,9 @@ fn rotated_rect(
     (ax.min(bx), ay.min(by), (ax - bx).abs(), (ay - by).abs())
 }
 
+/// Most space after a paragraph that its last line's highlight covers (points).
+const MAX_SPACE_AFTER: f32 = 36.0;
+
 /// Highlight rectangles of a selection.
 pub fn selection_rects(layout: &LayoutDocument, sel: Selection) -> Vec<SelRect> {
     if sel.is_collapsed() {
@@ -227,7 +230,8 @@ pub fn selection_rects(layout: &LayoutDocument, sel: Selection) -> Vec<SelRect> 
     }
     let (a, b) = sel.ordered();
     let mut out = Vec::new();
-    for (page, l) in body_lines(layout) {
+    let lines = body_lines(layout);
+    for (i, &(page, l)) in lines.iter().enumerate() {
         let Some(id) = body_id(l) else { continue };
         if id < a.para || id > b.para {
             continue;
@@ -245,7 +249,22 @@ pub fn selection_rects(layout: &LayoutDocument, sel: Selection) -> Vec<SelRect> 
         if continues && e == le {
             x1 = x1.max(right_x(l)) + MARK_W;
         }
-        let (x, y, w, h) = (x0, l.top, (x1 - x0).max(0.5), l.height);
+        // The last line of a paragraph is highlighted down through the paragraph's space
+        // after (to the next paragraph's first line below it on the page), as the desktop
+        // word processor does (measured: a 24 px line + 17 px space after at 125 %).
+        let mut h = l.height;
+        if let Some(&(np, next)) = lines.get(i + 1) {
+            let below = next.top - (l.top + l.height);
+            if np == page
+                && body_id(next) != Some(id)
+                && l.rotation.is_none()
+                && below > 0.0
+                && below <= MAX_SPACE_AFTER
+            {
+                h += below;
+            }
+        }
+        let (x, y, w, h) = (x0, l.top, (x1 - x0).max(0.5), h);
         let (x, y, w, h) = match &l.rotation {
             Some(r) => rotated_rect(r, x, y, w, h),
             None => (x, y, w, h),
@@ -584,6 +603,30 @@ mod tests {
         assert_eq!(p, Pos::new(0, 4));
         let (p, _) = vertical(&l, Pos::new(0, 1), Motion::PageDown, None).unwrap();
         assert_eq!(p.para, 1);
+    }
+
+    #[test]
+    fn last_line_highlight_covers_the_space_after() {
+        // Paragraph 0 (two lines) then paragraph 1 eight points lower.
+        let mut l = layout();
+        l.pages[0].lines.push(line(1, 38.0, 0, 3, 10.0));
+        let sel = |a: Pos, b: Pos| {
+            selection_rects(
+                &l,
+                Selection {
+                    anchor: a,
+                    focus: b,
+                },
+            )
+        };
+        // The first line keeps its own height; the last one runs down to the next paragraph.
+        let r = sel(Pos::new(0, 0), Pos::new(0, 2));
+        assert_eq!((r[0].y, r[0].h), (10.0, 10.0));
+        let r = sel(Pos::new(0, 5), Pos::new(0, 7));
+        assert_eq!((r[0].y, r[0].h), (20.0, 18.0));
+        // A paragraph's last line on a page with nothing below keeps its height.
+        let r = sel(Pos::new(1, 0), Pos::new(1, 2));
+        assert_eq!(r[0].h, 10.0);
     }
 
     #[test]

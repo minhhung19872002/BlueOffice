@@ -36,6 +36,8 @@ mod r5;
 mod r6;
 #[path = "doc_r7.rs"]
 mod r7;
+#[path = "doc_r8.rs"]
+mod r8;
 pub(crate) use r6::{
     install_icons as install_round6_icons, install_strings as install_round6_strings,
 };
@@ -242,6 +244,7 @@ pub struct DocWindow {
     r5: r5::R5,
     r6: r6::R6,
     r7: r7::R7,
+    r8: r8::R8,
 }
 
 /// Font sizes offered by the size box (points).
@@ -434,6 +437,7 @@ impl DocWindow {
             r5: r5::R5::default(),
             r6: r6::R6::default(),
             r7: r7::R7::default(),
+            r8: r8::R8::default(),
         }
     }
 
@@ -2099,6 +2103,9 @@ impl DocWindow {
 
     /// Run interface command `id` from the ribbon, title bar, a menu or a shortcut.
     fn action(&mut self, id: &str) -> bool {
+        if let Some(r) = self.r8_action(id) {
+            return r;
+        }
         if let Some(r) = self.r7_action(id) {
             return r;
         }
@@ -2752,6 +2759,7 @@ impl DocWindow {
         };
         self.view.set_thumbnails(thumbs.0, thumbs.1);
         self.r6_layout(text);
+        self.r8_layout(text);
         if let Some(e) = &self.cell_spin {
             let style = TextStyle {
                 size: (12.0 * self.scale).round(),
@@ -2819,10 +2827,16 @@ impl DocWindow {
     }
 
     fn route(&mut self, input: Input, text: &dyn TextMeasure) -> bool {
+        if let Some(r) = self.r8_dialog_input(&input) {
+            return r;
+        }
         if let Some(r) = self.r6_input(&input, text) {
             return r;
         }
         if let Some(r) = self.r7_input(&input) {
+            return r;
+        }
+        if let Some(r) = self.r8_input(&input) {
             return r;
         }
         // The File screen covers everything below the title bar.
@@ -3095,6 +3109,8 @@ impl DocWindow {
         ) = input
         {
             let id = match (c, shift) {
+                // Ctrl+Shift+K is small capitals (round 8), not a hyperlink.
+                ('k', true) => return self.r8_doc_input(input),
                 ('s', _) => "file.save",
                 ('c', true) => "format.painter",
                 ('c', _) => "edit.copy",
@@ -3315,6 +3331,11 @@ impl DocWindow {
                         }
                     }
                 }
+                if let Input::Press { shift, .. } = input {
+                    if let Some(r) = self.r8_press(x, y, count, shift) {
+                        return r || cleared;
+                    }
+                }
                 self.view.handle(input) || cleared
             }
             Input::Drag { .. } if !self.doc_press => false,
@@ -3367,7 +3388,7 @@ impl DocWindow {
             | Input::Key(..)
             | Input::Blink
             | Input::Preedit(_)
-            | Input::Drag { .. } => self.view.handle(input),
+            | Input::Drag { .. } => self.r8_doc_input(input),
         };
         redraw || tip_before != self.tooltip.is_some()
     }
@@ -3552,6 +3573,7 @@ impl DocWindow {
         p.clear(self.theme.bg);
         self.view.paint(p);
         self.r4_paint_grid(p);
+        self.r8_paint_gridlines(p);
         self.paint_read_arrows(p);
         self.paint_story_frame(p);
         // Title bar and ribbon: one cached layer, redrawn only when what it shows changes
@@ -3803,6 +3825,7 @@ impl DocWindow {
         }
         self.r3_paint_popups(p);
         self.r6_paint(p);
+        self.r8_paint(p);
     }
 
     /// Paint `paint` through cached layer `id` over `rect` (window pixels): the backend

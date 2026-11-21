@@ -202,6 +202,8 @@ pub(crate) enum OptOut {
     Close,
     /// OK with these preferences.
     Apply(DocPrefs),
+    /// Proofing › AutoCorrect Options… (round 8): open the AutoCorrect dialog over this one.
+    AutoCorrect,
 }
 
 /// The open Options dialog.
@@ -627,7 +629,6 @@ impl OptionsDialog {
                 default: false,
             },
         );
-        f.enable("pAutoB", false);
         heading(
             &mut f,
             "pAll",
@@ -1204,6 +1205,7 @@ impl OptionsDialog {
                 self.sync_quick();
                 OptOut::Redraw
             }
+            Event::Clicked("pAutoB") => OptOut::AutoCorrect,
             Event::Ok | Event::Clicked("ok") => OptOut::Apply(self.collect()),
             _ => OptOut::Redraw,
         }

@@ -14921,6 +14921,68 @@
       "mergedCells": "Ô đã gộp"
     }
   },
+  "docR8": {
+    "ac": {
+      "title": "Tự động sửa",
+      "tabAutoCorrect": "Tự động sửa",
+      "tabFormat": "Tự định dạng khi gõ",
+      "showButtons": "Hiện nút Tùy chọn tự động sửa",
+      "twoCaps": "Sửa HAi CHữ HOa đầu từ",
+      "capSentences": "Viết hoa chữ đầu câu",
+      "capCells": "Viết hoa chữ đầu ô bảng",
+      "days": "Viết hoa tên các ngày",
+      "capsLock": "Sửa lỗi vô tình bật cAPS LOCK",
+      "exceptions": "Ngoại lệ...",
+      "replace": "Thay thế văn bản khi gõ",
+      "replaceL": "Thay:",
+      "withL": "Bằng:",
+      "add": "Thêm",
+      "delete": "Xóa",
+      "spelling": "Tự động dùng gợi ý của trình kiểm tra chính tả",
+      "replaceAsYouType": "Thay thế khi gõ",
+      "applyAsYouType": "Áp dụng khi gõ",
+      "always": "Luôn luôn",
+      "quotes": "Dấu nháy \"thẳng\" thành dấu nháy “cong”",
+      "ordinals": "Số thứ tự (1st) thành chỉ số trên",
+      "fractions": "Phân số (1/2) thành ký tự phân số (½)",
+      "dashes": "Gạch nối (--) thành gạch dài (—)",
+      "links": "Địa chỉ Internet và mạng thành siêu liên kết",
+      "lists": "Danh sách dấu đầu dòng và đánh số tự động",
+      "enabled": "Sửa và định dạng khi gõ",
+      "plain": "Văn bản thường",
+      "formatted": "Văn bản có định dạng"
+    },
+    "ex": {
+      "title": "Ngoại lệ tự động sửa",
+      "first": "Chữ đầu",
+      "caps": "HAi CHữ HOa",
+      "firstL": "Không viết hoa sau:",
+      "capsL": "Không sửa:"
+    },
+    "acMark": {
+      "undo": "Đổi lại",
+      "options": "Tùy chọn tự động sửa..."
+    },
+    "undo": {
+      "typing": "Gõ \"{{text}}\"",
+      "font": "Định dạng phông",
+      "paragraph": "Định dạng đoạn",
+      "style": "Áp dụng kiểu",
+      "autoCorrect": "Tự động sửa",
+      "delete": "Xóa",
+      "paste": "Dán",
+      "case": "Đổi chữ hoa/thường",
+      "move": "Di chuyển đoạn",
+      "edit": "Chỉnh sửa",
+      "list": "Danh sách hoàn tác",
+      "typingPlain": "Gõ",
+      "bold": "Đậm",
+      "italic": "Nghiêng",
+      "underline": "Gạch chân",
+      "cancel": "Hủy",
+      "footer": "Hoàn tác {{n}} thao tác"
+    }
+  },
   "sheetPvt": {
     "tabAnalyze": "Phân tích PivotTable",
     "tabDesign": "Thiết kế",

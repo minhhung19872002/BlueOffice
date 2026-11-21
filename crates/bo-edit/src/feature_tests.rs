@@ -291,6 +291,13 @@ fn table_rows_columns_merge_split_delete() {
     assert!(b.top.unwrap().is_visible() && !b.inside_v.unwrap().is_visible());
     s.edit_table(&TableEdit::Borders {
         preset: BorderPreset::Top,
+        pen: Some(pen.clone()),
+    })
+    .unwrap();
+    let top = table(&s).props.borders.unwrap().top.unwrap();
+    assert_eq!((top.style.as_str(), top.size), ("double", 12));
+    s.edit_table(&TableEdit::Borders {
+        preset: BorderPreset::Top,
         pen: Some(pen),
     })
     .unwrap();

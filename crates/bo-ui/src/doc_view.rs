@@ -429,6 +429,12 @@ impl DocView {
         self.tracking_locked
     }
 
+    /// Typing joins one undo step across words, as on the desktop word processor
+    /// ([`Engine::set_typing_runs`]).
+    pub fn set_typing_runs(&mut self, on: bool) {
+        self.engine.set_typing_runs(on);
+    }
+
     /// Run a command and return the engine's result (applied to the view).
     pub fn exec(&mut self, cmd: Command) -> Option<EditResult> {
         let r = self.engine.command(cmd).ok()?;

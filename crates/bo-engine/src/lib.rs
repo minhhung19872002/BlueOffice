@@ -37,6 +37,7 @@ pub mod fill;
 pub mod fonts;
 pub mod forms;
 pub mod gallery;
+pub mod gridlines;
 mod guid;
 pub mod inspect;
 mod legacy_slides;
@@ -76,6 +77,7 @@ pub mod templates;
 pub mod textbox;
 pub mod theme_file;
 pub mod translate;
+pub mod undo_labels;
 pub mod variant;
 pub mod vba_view;
 pub mod views;
@@ -387,6 +389,10 @@ pub struct Engine {
     /// An equation just refused for in-place editing and selected (start, document version):
     /// typing right after does not replace it (ADR-0015 addendum).
     math_refused: Option<(bo_edit::Pos, u64)>,
+    /// Names of the main text's undo / redo steps (BlueDoc round 8).
+    undo_labels: undo_labels::UndoLabels,
+    /// Typing joins one undo step across words ([`Engine::set_typing_runs`]).
+    typing_runs: bool,
 }
 
 impl Engine {
@@ -1088,6 +1094,11 @@ impl Engine {
     /// The editing session of the open document.
     pub fn session(&self) -> Option<&bo_edit::Session> {
         self.session.as_ref()
+    }
+
+    /// AutoCorrect settings supplied by the host, or `None` before configuration.
+    pub fn autocorrect_options(&self) -> Option<&bo_edit::AutoCorrectOptions> {
+        self.autocorrect.as_ref()
     }
 
     /// The caret is inside an equation being edited in place (CORE-MATH-010).

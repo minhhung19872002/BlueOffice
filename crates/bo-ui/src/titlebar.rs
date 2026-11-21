@@ -59,7 +59,12 @@ pub struct TitleBar {
     app: (&'static str, &'static str),
     /// Quick access commands chosen in an app's options (`None`: the default three).
     custom_quick: Option<Vec<&'static str>>,
+    /// A narrow list arrow right of Undo ([`UNDO_LIST`], BlueDoc).
+    undo_menu: bool,
 }
+
+/// Id of the list arrow right of the quick access Undo button.
+pub const UNDO_LIST: &str = "edit.undoList";
 
 impl Default for TitleBar {
     fn default() -> Self {
@@ -83,7 +88,21 @@ impl TitleBar {
             pressed: None,
             app: ("BlueDoc", "app.doc"),
             custom_quick: None,
+            undo_menu: false,
         }
+    }
+
+    /// Show the list arrow of Undo (the steps it can revert) next to the Undo button.
+    pub fn set_undo_menu(&mut self, on: bool) {
+        self.undo_menu = on;
+    }
+
+    /// Rectangle (x, y, w, h) of a quick access button.
+    pub fn quick_rect(&self, id: &str) -> Option<[f32; 4]> {
+        self.quick
+            .iter()
+            .find(|(q, _)| *q == id)
+            .map(|(_, r)| [r.x, r.y, r.w, r.h])
     }
 
     /// Quick access commands (an app's Quick Access Toolbar option); laid out at the next
@@ -135,17 +154,32 @@ impl TitleBar {
         let app = text.measure(self.app.0, self.style(true)).0;
         let mut x = self.px(40.0) + app + self.px(12.0);
         let size = self.px(30.0);
-        let ids: Vec<&'static str> = self.custom_quick.clone().unwrap_or_else(|| QUICK.to_vec());
+        let mut ids: Vec<&'static str> =
+            self.custom_quick.clone().unwrap_or_else(|| QUICK.to_vec());
+        if self.undo_menu {
+            if let Some(i) = ids.iter().position(|id| *id == "edit.undo") {
+                ids.insert(i + 1, UNDO_LIST);
+            }
+        }
+        let arrow = self.px(14.0);
         self.quick = ids
             .iter()
             .map(|id| {
+                let w = if *id == UNDO_LIST { arrow } else { size };
                 let r = R {
                     x,
                     y: ((h - size) / 2.0).round(),
-                    w: size,
+                    w,
                     h: size,
                 };
-                x += size + self.px(2.0);
+                // The list arrow sits right against its button.
+                let next = ids.get(ids.iter().position(|i| i == id).unwrap_or(0) + 1);
+                let gap = if next == Some(&UNDO_LIST) {
+                    0.0
+                } else {
+                    self.px(2.0)
+                };
+                x += w + gap;
                 (*id, r)
             })
             .collect();
@@ -252,6 +286,7 @@ impl TitleBar {
         for (id, r) in &self.quick {
             let enabled = match *id {
                 "file.save" => modified,
+                UNDO_LIST => commands::enabled("edit.undo", format),
                 other => commands::enabled(other, format),
             };
             if enabled && self.hover.is_some_and(|h| h.1 == Some(*id)) {
@@ -267,6 +302,22 @@ impl TitleBar {
                 ink: if enabled { t.text } else { t.border },
                 ..ink
             };
+            if *id == UNDO_LIST {
+                // A small down-pointing triangle, centred.
+                let k = self.px(1.0).max(1.0);
+                let (cx, cy) = ((r.x + r.w / 2.0).round(), (r.y + r.h / 2.0).round());
+                for row in 0..3 {
+                    let half = (2 - row) as f32 * k;
+                    p.fill_rect(
+                        cx - half - k,
+                        cy - k + row as f32 * k,
+                        2.0 * half + 2.0 * k - k,
+                        k,
+                        colors.ink,
+                    );
+                }
+                continue;
+            }
             icons.draw(
                 p,
                 id,

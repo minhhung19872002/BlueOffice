@@ -225,6 +225,11 @@ fn capitals(text: &str, out: &mut Vec<Issue>) {
         if !first.is_lowercase() || word.chars().any(char::is_uppercase) {
             continue; // iPhone, eBay: mixed case is deliberate
         }
+        // Codes and words with digits (c00, x2) are left alone, as the desktop word
+        // processor does ("Ignore words that contain numbers").
+        if word.chars().any(|c| c.is_ascii_digit()) {
+            continue;
+        }
         let before = text[..w.start].trim_end_matches([' ', '"', '“', '(', '\'', '‘']);
         let starts_sentence = if n == 0 {
             // Paragraph start, unless it is a list marker (a) b. …) or the text begins with a symbol.
@@ -389,6 +394,9 @@ mod tests {
             ("He said \"yes\" and left… then came back...", vec![]),
             ("    Thụt đầu dòng bằng dấu cách.", vec![]),
             ("1. bước một", vec![]),
+            // Cell codes with digits are not sentences to capitalise (BlueDoc round 8).
+            ("c00", vec![]),
+            ("Done. x2 then.", vec![]),
             (
                 "Ô `[ ]` chưa làm, mở tệp .docx hoặc gói BlueOffice.Api.",
                 vec![],

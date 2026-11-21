@@ -1560,7 +1560,13 @@ impl crate::Engine {
         if let Some(r) = self.math_command(&cmd)? {
             return Ok(r);
         }
+        if let Some(s) = self.session.as_mut() {
+            s.set_typing_runs(self.typing_runs);
+        }
+        let labels = self.undo_labels_before();
+        let (kind, typed) = Self::undo_label_of(&cmd);
         let mut r = self.command_inner(cmd, now)?;
+        self.undo_labels_after(labels, &kind, typed, &r);
         if self.math.is_some() {
             self.math_decorate(&mut r);
         }
@@ -1805,6 +1811,7 @@ impl crate::Engine {
             };
             let autocorrect = self.autocorrect.as_ref();
             let auto_language = self.spell.auto_language;
+            let speller = &self.spell.speller;
             // CORE-SEC-001: edits of a read-only file, or outside the editable
             // regions of a protected one, are applied then taken back.
             // Restricted editing of the Restrict Editing pane (§17.15.1.29 `readOnly` /
@@ -2183,6 +2190,28 @@ impl crate::Engine {
                         let mut cs = text.chars();
                         if let (Some(c), None, Some(o)) = (cs.next(), cs.next(), autocorrect) {
                             corrected = s.autocorrect(o, c)?;
+                            // The spelling checker's only suggestion for the word just ended
+                            // (AutoCorrect › "Automatically use suggestions from the spelling
+                            // checker").
+                            if corrected.is_none() && o.enabled && o.spelling_suggestions {
+                                let at = s.selection().focus;
+                                let head = s
+                                    .para_text(at.para)
+                                    .and_then(|t| t.get(..at.offset).map(str::to_owned))
+                                    .unwrap_or_default();
+                                let fix = bo_edit::AutoCorrectOptions::word_before(&head, c)
+                                    .filter(|w| !speller.check(w))
+                                    .and_then(|w| {
+                                        let sug = speller.suggest(w);
+                                        (sug.len() == 1).then(|| (w.to_owned(), sug[0].clone()))
+                                    });
+                                if let Some((from, to)) = fix {
+                                    let one = bo_edit::AutoCorrectOptions::only_replacement(&from, &to);
+                                    corrected = s
+                                        .autocorrect(&one, c)?
+                                        .map(|_| bo_edit::autocorrect::Rule::Spelling);
+                                }
+                            }
                         }
                         // Language detection after a word (its own undo step, off by default).
                         if auto_language && text.chars().count() == 1 {

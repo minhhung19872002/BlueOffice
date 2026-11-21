@@ -392,3 +392,32 @@ fn tracked_correction() {
     assert!(s.undo());
     assert_eq!(text0(&s), "Có teh ");
 }
+
+#[test]
+fn day_names_caps_lock_and_spelling_helpers() {
+    // BlueDoc round 8: the reference's AutoCorrect page options.
+    assert_eq!(run("See you monday |", ' '), "See you Monday |");
+    assert_eq!(run("It was tHE |", ' '), "It was The |");
+    // Two letters and mixed words are left alone.
+    assert_eq!(run("Go tO |", ' '), "Go tO |");
+    assert_eq!(run("Use iPHONE |", ' '), "Use Iphone |");
+    let off = AutoCorrectOptions {
+        capitalize_days: false,
+        caps_lock: false,
+        ..AutoCorrectOptions::default()
+    };
+    assert_eq!(
+        run_ctx("x monday |", ' ', Context::default(), &off),
+        "x monday |"
+    );
+    assert_eq!(
+        AutoCorrectOptions::word_before("a wrng ", ' '),
+        Some("wrng")
+    );
+    assert_eq!(AutoCorrectOptions::word_before("a wrng", 'g'), None);
+    let one = AutoCorrectOptions::only_replacement("wrng", "wrong");
+    assert_eq!(
+        run_ctx("x wrng |", ' ', Context::default(), &one),
+        "x wrong |"
+    );
+}

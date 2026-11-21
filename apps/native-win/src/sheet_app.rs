@@ -122,6 +122,8 @@ pub fn run() -> Result<(), String> {
             .and_then(|p| std::fs::metadata(p).ok())
             .map(|m| m.len()),
     );
+    // Menus with access keys underline them when Windows always shows them.
+    bo_ui::set_keyboard_cues(win32::keyboard_cues());
     let (printers, default) = print::printers();
     let chosen = default
         .and_then(|d| printers.iter().position(|p| *p == d))

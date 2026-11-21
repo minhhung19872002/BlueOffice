@@ -903,6 +903,8 @@ impl SheetWindow {
                 Rgba(255, 255, 255, 255),
             );
         }
+        // The workbook's theme colours (the built-in styles are defined on them).
+        let theme = self.view.engine().workbook().and_then(|w| w.theme.clone());
         for (id, name) in STYLE_TILES.iter().zip(TILE_STYLES) {
             let Some([x, y, w, h]) = self.ribbon.rect_of(RibbonHit::Command(id)) else {
                 continue;
@@ -929,7 +931,7 @@ impl SheetWindow {
                     Rgba(0xd2, 0xd2, 0xd2, 255),
                 );
             }
-            let pal = bo_sheet::pivot::style::palette(name);
+            let pal = bo_sheet::pivot::style::palette_themed(name, theme.as_ref());
             p.fill_rect(tx, ty, tw, th, Rgba(255, 255, 255, 255));
             let rows = 7;
             let rh = (th / rows as f32).floor();
@@ -995,7 +997,7 @@ impl SheetWindow {
         id: &str,
         text: &dyn crate::TextMeasure,
     ) -> Option<bool> {
-        if let Some(done) = self.open_design_menu(id) {
+        if let Some(done) = self.open_design_menu(id, text) {
             return Some(done);
         }
         if let Some(m) = MENUS.iter().find(|m| **m == id) {
@@ -1394,7 +1396,11 @@ fn design_icon(p: &mut dyn Painter, name: &str, x: f32, y: f32, size: f32, enabl
 
 impl SheetWindow {
     /// Open a Design tab menu with its pictures; `None` for other ids.
-    pub(super) fn open_design_menu(&mut self, id: &str) -> Option<bool> {
+    pub(super) fn open_design_menu(
+        &mut self,
+        id: &str,
+        text: &dyn crate::TextMeasure,
+    ) -> Option<bool> {
         if !DESIGN_MENUS.contains(&id) {
             return None;
         }
@@ -1423,7 +1429,8 @@ impl SheetWindow {
         self.menu = Some(
             crate::popup::Menu::open_with(items, anchor, self.size, self.scale, design_look())
                 .with_decor(icons, separators)
-                .with_icon_fn(design_icon),
+                .with_icon_fn(design_icon)
+                .with_access_keys(text, false),
         );
         Some(true)
     }

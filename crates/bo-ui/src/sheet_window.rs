@@ -1618,6 +1618,15 @@ impl SheetWindow {
                 }
                 true
             }
+            // A menu with access keys: the letter chooses its item.
+            Input::Text(ref t) if menu.has_access_keys() => {
+                let choice = t.chars().next().and_then(|c| menu.access_choice(c));
+                if let Some(c) = choice {
+                    self.menu = None;
+                    self.choose(c, text);
+                }
+                true
+            }
             Input::Text(_) | Input::Key(..) => true,
             _ => return None,
         })

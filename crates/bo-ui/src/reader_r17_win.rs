@@ -179,11 +179,15 @@ impl ReaderWindow {
                 self.open_cascade17(i, false, m);
                 Some(true)
             }
-            Input::Key(Key::Right | Key::Enter, _) => {
-                let i = cascade?;
-                self.open_cascade17(i, true, m);
+            Input::Key(Key::Right | Key::Enter, _) if cascade.is_some() => {
+                if let Some(i) = cascade {
+                    self.open_cascade17(i, true, m);
+                }
                 Some(true)
             }
+            // ← / → on a row without a cascade do nothing (they used to reach the page and
+            // scroll it under the open menu).
+            Input::Key(Key::Left | Key::Right, _) => Some(false),
             _ => None,
         }
     }
@@ -242,6 +246,12 @@ impl ReaderWindow {
             }
             Input::Key(Key::Up, _) => {
                 sub.step(-1);
+                Some(true)
+            }
+            Input::Key(Key::Enter | Key::Right, _) if sub.hovered().is_none() => {
+                // A cascade opened by the pointer: the keyboard enters it at its first row.
+                let first = sub.items().iter().position(|it| !it.dim);
+                sub.set_hovered(first);
                 Some(true)
             }
             Input::Key(Key::Enter | Key::Right, _) => {

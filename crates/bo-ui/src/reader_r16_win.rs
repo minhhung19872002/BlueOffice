@@ -252,12 +252,10 @@ impl ReaderWindow {
                         self.r16.dragging = true;
                         self.slide16(x);
                     }
-                    Some(Part::Center(j)) => {
-                        if self.note_selected17() {
-                            self.center17(j != 1, j != 0);
-                        }
+                    Some(Part::Center(j)) if self.note_selected17() => {
+                        self.center17(j != 1, j != 0);
                     }
-                    None => {}
+                    Some(Part::Center(_)) | None => {}
                 }
                 Some(true)
             }

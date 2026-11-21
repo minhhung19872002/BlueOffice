@@ -176,9 +176,10 @@ fn the_comment_menu_cascades_like_the_reference() {
     let sub = w.sub_labels17();
     let names: Vec<&str> = sub.iter().map(|s| s.0.as_str()).collect();
     assert_eq!(names, ["Vertically", "Horizontally", "Both"]);
+    assert_eq!(w.access_focus17().as_deref(), Some("subitem:0"));
     // ← closes only the cascade; Down to Set Status and hovering it opens the seven states.
     key(&mut w, Key::Left);
-    assert!(w.sub_labels17().is_empty());
+    assert_eq!(w.sub_labels17(), Vec::new());
     assert!(w.modal_open());
     let row = w.menu.as_ref().expect("menu").0.row_rect(8);
     w.handle(
@@ -258,6 +259,25 @@ fn center_moves_the_note_to_the_middle_and_the_pane_shows() {
     w.handle(Input::Tick, &Fixed);
     assert_eq!(w.tool, Tool::Select);
     assert!(w.right_pane_rect()[2] <= 0.0);
+}
+
+#[test]
+fn arrows_in_a_menu_without_cascade_leave_the_page_alone() {
+    let mut w = window();
+    w.run_command("zoom.set.400", &Fixed);
+    let d = w.doc_area();
+    w.handle(
+        Input::Context {
+            x: d[0] + 40.0,
+            y: d[1] + 40.0,
+        },
+        &Fixed,
+    );
+    let before = w.view().expect("view").scroll_state().0;
+    key(&mut w, Key::Right);
+    key(&mut w, Key::Left);
+    assert_eq!(w.view().expect("view").scroll_state().0, before);
+    assert!(w.modal_open());
 }
 
 #[test]

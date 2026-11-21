@@ -773,6 +773,7 @@ impl ReaderWindow {
         self.paint_tabs5(p);
         self.paint_keys7(p);
         self.paint15(p);
+        self.paint16(p);
     }
 
     /// Dialogs of the additions, over everything else.

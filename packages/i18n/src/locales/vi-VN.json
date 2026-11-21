@@ -8170,6 +8170,17 @@
     "cut": "Cắt",
     "paste": "Dán"
   },
+  "pdfReader16": {
+    "format": "Định dạng",
+    "preview": "Xem trước",
+    "noteStyle": "Kiểu ghi chú",
+    "opacity": "Độ mờ:",
+    "arrange": "Sắp xếp",
+    "pageCenter": "Giữa trang",
+    "alignment": "Căn chỉnh",
+    "distribute": "Phân bố",
+    "pageText": "Chữ trên trang"
+  },
   "pdfReader15": {
     "find": "Tìm kiếm",
     "findHint": "Tìm",

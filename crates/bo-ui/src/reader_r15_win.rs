@@ -72,6 +72,13 @@ pub(crate) struct FindBox {
     found: Option<String>,
 }
 
+impl FindBox {
+    /// The find field (window pixels), for assistive technology.
+    pub(crate) fn field_rect(&self) -> [f32; 4] {
+        self.field
+    }
+}
+
 /// Round 15 state of the window.
 #[derive(Debug, Default)]
 pub(crate) struct R15 {

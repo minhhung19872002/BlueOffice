@@ -58,6 +58,8 @@ pub enum AccessRole {
     Tab,
     /// The page view.
     Document,
+    /// A text field (search, find, page number; round 16).
+    Edit,
 }
 
 /// One element of the window for assistive technology (round 12).

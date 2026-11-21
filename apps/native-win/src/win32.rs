@@ -389,6 +389,15 @@ fn key(vk: u16, m: Mods) -> Option<Key> {
         _ if m.ctrl && matches!(vk, 0xBB | 0x6B) => Key::Letter('+'),
         _ if m.ctrl && matches!(vk, 0xBD | 0x6D) => Key::Letter('-'),
         _ if m.ctrl && (0x30..=0x39).contains(&vk) => Key::Letter(char::from(vk as u8)),
+        // BlueReader: Shift+Space (pages up); the space text still follows as WM_CHAR.
+        _ if vk == 0x20
+            && m.shift
+            && !m.ctrl
+            && !m.alt
+            && RIBBON_KEYS.load(std::sync::atomic::Ordering::Relaxed) =>
+        {
+            Key::Letter(' ')
+        }
         _ => return None,
     })
 }

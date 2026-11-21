@@ -278,7 +278,7 @@ fn floating_table_and_vertical_text_round_trip() {
 fn self_closing_body_paragraph_is_a_paragraph() {
     // `<w:p/>` after a table (python-docx writes empty paragraphs this way): an empty,
     // editable paragraph as on the reference, and still there after a save.
-    let body = r#"<w:tbl><w:tr><w:tc><w:p><w:r><w:t>c</w:t></w:r></w:p></w:tc></w:tr></w:tbl><w:p/><w:p><w:r><w:t>Last</w:t></w:r></w:p>"#;
+    let body = r"<w:tbl><w:tr><w:tc><w:p><w:r><w:t>c</w:t></w:r></w:p></w:tc></w:tr></w:tbl><w:p/><w:p><w:r><w:t>Last</w:t></w:r></w:p>";
     let doc = read_docx(&docx(body)).unwrap();
     let blocks = &doc.sections[0].blocks;
     assert_eq!(blocks.len(), 3);

@@ -68,6 +68,15 @@ pub struct AutoCorrectOptions {
     pub exceptions: Vec<String>,
     /// Words that keep two initial capitals.
     pub caps_exceptions: Vec<String>,
+    /// English day names get their capital.
+    pub capitalize_days: bool,
+    /// "tHE" → "The" (caps lock on by accident).
+    pub caps_lock: bool,
+    /// A misspelt word with exactly one suggestion of the spelling checker is replaced by it
+    /// (the host runs the checker).
+    pub spelling_suggestions: bool,
+    /// Show the AutoCorrect Options mark under a corrected word (view only).
+    pub show_buttons: bool,
 }
 
 impl Default for AutoCorrectOptions {
@@ -90,7 +99,56 @@ impl Default for AutoCorrectOptions {
                 .iter()
                 .map(|s| (*s).to_owned())
                 .collect(),
+            capitalize_days: true,
+            caps_lock: true,
+            spelling_suggestions: true,
+            show_buttons: true,
         }
+    }
+}
+
+impl AutoCorrectOptions {
+    /// Options that only replace `from` with `to` as a word is ended (the spelling
+    /// checker's single suggestion, [`AutoCorrectOptions::spelling_suggestions`]).
+    #[must_use]
+    pub fn only_replacement(from: &str, to: &str) -> Self {
+        AutoCorrectOptions {
+            enabled: true,
+            replace_text: true,
+            capitalize_sentences: false,
+            capitalize_cells: false,
+            two_initial_caps: false,
+            smart_quotes: false,
+            dashes: false,
+            ordinals: false,
+            fractions: false,
+            auto_lists: false,
+            auto_links: false,
+            entries: vec![Replacement::new(from, to)],
+            exceptions: Vec::new(),
+            caps_exceptions: Vec::new(),
+            capitalize_days: false,
+            caps_lock: false,
+            spelling_suggestions: false,
+            show_buttons: false,
+        }
+    }
+
+    /// The misspelt word ending just before `typed` at the end of `head` (paragraph text up
+    /// to the caret), when it is a whole word of letters.
+    #[must_use]
+    pub fn word_before(head: &str, typed: char) -> Option<&str> {
+        if !is_delimiter(typed) {
+            return None;
+        }
+        let body = head.strip_suffix(typed)?;
+        let start = body
+            .char_indices()
+            .rev()
+            .find(|(_, c)| !c.is_alphabetic())
+            .map_or(0, |(i, c)| i + c.len_utf8());
+        let w = &body[start..];
+        (w.chars().count() >= 2).then_some(w)
     }
 }
 
@@ -212,6 +270,12 @@ pub enum Rule {
     List,
     /// Automatic hyperlink.
     Link,
+    /// Capital of an English day name ("monday" → "Monday").
+    CapitalizeDay,
+    /// Text typed with caps lock on by accident ("tHE" → "The").
+    CapsLock,
+    /// The spelling checker's only suggestion for a misspelt word.
+    Spelling,
 }
 
 /// One text change: bytes `start..end` of the index text become `text`.
@@ -517,6 +581,16 @@ fn word_rules(
             rule.get_or_insert(Rule::TwoCaps);
         }
     }
+    if opts.caps_lock {
+        if let Some(fixed) = caps_lock(&word) {
+            word = fixed;
+            rule.get_or_insert(Rule::CapsLock);
+        }
+    }
+    if opts.capitalize_days && DAYS.contains(&word.as_str()) {
+        word = upper_first(&word);
+        rule.get_or_insert(Rule::CapitalizeDay);
+    }
     // Sentence capital: the text before the edit is blank, or ends a sentence.
     let mut prefix = &before[..es];
     prefix = prefix.trim_end_matches(is_opener);
@@ -614,6 +688,33 @@ fn sentence_start(prefix: &str, ctx: Context, opts: &AutoCorrectOptions) -> Opti
         }
     }
     Some(Rule::Capitalize)
+}
+
+/// English day names written in small letters.
+const DAYS: [&str; 7] = [
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+    "sunday",
+];
+
+/// "tHE" → "The": a small first letter, then only capitals (at least three letters).
+fn caps_lock(word: &str) -> Option<String> {
+    let cs: Vec<char> = word.chars().collect();
+    if cs.len() < 3 || !cs.iter().all(|c| c.is_alphabetic()) {
+        return None;
+    }
+    if !(cs[0].is_lowercase() && cs[1..].iter().all(|c| c.is_uppercase())) {
+        return None;
+    }
+    let mut out: String = cs[0].to_uppercase().collect();
+    for c in &cs[1..] {
+        out.extend(c.to_lowercase());
+    }
+    Some(out)
 }
 
 /// "THe" → "The" (two capitals, then small letters only).

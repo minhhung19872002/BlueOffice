@@ -14766,7 +14766,20 @@
       "dashes": "Hyphens (--) with dash (—)",
       "links": "Internet and network paths with hyperlinks",
       "lists": "Automatic bulleted and numbered lists",
-      "enabled": "Correct and format as you type"
+      "enabled": "Correct and format as you type",
+      "plain": "Plain text",
+      "formatted": "Formatted text"
+    },
+    "ex": {
+      "title": "AutoCorrect Exceptions",
+      "first": "First Letter",
+      "caps": "INitial CAps",
+      "firstL": "Don't capitalize after:",
+      "capsL": "Don't correct:"
+    },
+    "acMark": {
+      "undo": "Change Back",
+      "options": "Control AutoCorrect Options..."
     },
     "undo": {
       "typing": "Typing \"{{text}}\"",

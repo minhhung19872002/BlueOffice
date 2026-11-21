@@ -665,3 +665,34 @@ fn three_hyphens_after_a_paragraph_underline_that_paragraph() {
     };
     assert!(bottom(0) && !bottom(1));
 }
+
+#[test]
+fn a_correction_leaves_the_autocorrect_options_mark_and_its_menu_changes_back() {
+    let mut w = window();
+    for c in "x teh ".chars() {
+        w.handle(Input::Text(c.to_string()), &Fixed);
+    }
+    assert_eq!(para_text(&w, 0), "X the ");
+    assert_eq!(w.r8.ac_mark, Some(Pos::new(0, 2)));
+    let r = w.r8_ac_mark_rect().expect("mark drawn");
+    w.handle(
+        Input::Press {
+            x: r[0] + 1.0,
+            y: r[1] + 1.0,
+            count: 1,
+            shift: false,
+        },
+        &Fixed,
+    );
+    assert!(w.menu.is_some());
+    w.menu = None;
+    assert_eq!(w.r8_action("edit.undoSteps:1"), Some(true));
+    assert_eq!(para_text(&w, 0), "X teh ");
+    // A key press takes the mark away.
+    for c in "teh ".chars() {
+        w.handle(Input::Text(c.to_string()), &Fixed);
+    }
+    assert!(w.r8.ac_mark.is_some());
+    key(&mut w, Key::Left, Mods::default());
+    assert!(w.r8.ac_mark.is_none());
+}

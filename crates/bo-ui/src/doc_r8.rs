@@ -25,6 +25,9 @@ pub(super) struct R8 {
     pub(super) autocorrect: Option<crate::doc_forms::autocorrect8::AutoCorrectDialog>,
     /// The title bar shows Undo's list arrow.
     pub(super) undo_menu: bool,
+    /// Start of the word AutoCorrect just changed: the AutoCorrect Options mark is drawn
+    /// under its first letter until the caret moves on.
+    pub(super) ac_mark: Option<Pos>,
 }
 
 /// Line break inside a paragraph (Shift+Enter; the engine's §17.3.3.1 br for U+2028).
@@ -51,6 +54,7 @@ impl DocWindow {
         }
         match input {
             Input::Key(k, m) => {
+                self.r8.ac_mark = None;
                 if let Some(r) = self.r8_key(k, m) {
                     return r;
                 }
@@ -68,7 +72,10 @@ impl DocWindow {
             Input::Text(_) => {
                 self.r8.extend = None;
                 self.r8_keep_last_mark();
-                self.view.handle(input)
+                let before = self.r8_newest_step();
+                let r = self.view.handle(input);
+                self.r8_note_correction(&before);
+                r
             }
             other => self.view.handle(other),
         }

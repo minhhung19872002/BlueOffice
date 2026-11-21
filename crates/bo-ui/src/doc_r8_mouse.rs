@@ -25,6 +25,9 @@ impl DocWindow {
         shift: bool,
     ) -> Option<bool> {
         let mods = std::mem::take(&mut self.r8.pointer);
+        if let Some(r) = self.r8_ac_mark_press(x, y) {
+            return Some(r);
+        }
         if self.view.story().is_some() || self.view.engine().math_active() {
             return None;
         }

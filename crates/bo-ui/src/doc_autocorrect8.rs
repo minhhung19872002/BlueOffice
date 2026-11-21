@@ -17,6 +17,10 @@ use bo_render::Rgba;
 
 /// Rows of the replacement list shown at once (78 px, 19 px rows on the reference).
 const ROWS: usize = 4;
+/// The list's size and its scroll bar's width (reference pixels).
+const LIST_W: f32 = 554.0;
+const LIST_H: f32 = 78.0;
+const BAR_W: f32 = 17.0;
 /// Row height and the "With" column's left edge (reference pixels).
 const ROW_H: f32 = 19.0;
 const COL2: f32 = 126.0;
@@ -24,6 +28,10 @@ const COL2: f32 = 126.0;
 const SEL: Rgba = Rgba(0x00, 0x78, 0xD7, 255);
 /// Grid lines between rows and columns (#D5D5D5 measured).
 const GRID: Rgba = Rgba(0xD5, 0xD5, 0xD5, 255);
+/// Scroll bar track, thumb and arrows of the list (the reference's thin bar).
+const BAR_FACE: Rgba = Rgba(0xf0, 0xf0, 0xf0, 255);
+const BAR_THUMB: Rgba = Rgba(0x85, 0x85, 0x85, 255);
+const BAR_ARROW: Rgba = Rgba(0x60, 0x60, 0x60, 255);
 /// The list's frame (#828790, the classic list box frame).
 const FRAME: Rgba = Rgba(0x82, 0x87, 0x90, 255);
 
@@ -130,6 +138,158 @@ pub(crate) struct AutoCorrectDialog {
     sel: Option<usize>,
     top: usize,
     pointer: (f32, f32),
+    /// The Exceptions dialog over this one.
+    exceptions: Option<ExceptionsDialog>,
+    strings_title: String,
+    /// First Letter, INitial CAps, their labels, Add, Delete, OK, Cancel.
+    strings_ex: [String; 8],
+}
+
+/// AutoCorrect Exceptions (505 x 371 at 125 % on the reference, `doc8/ref-exdlg.png`): First
+/// Letter (abbreviations after which no capital is forced) and INitial CAps (words that keep
+/// two capitals), each a box, a list, Add and Delete.
+pub(crate) struct ExceptionsDialog {
+    form: Form,
+    lists: [Vec<String>; 2],
+    pointer: (f32, f32),
+}
+
+/// What the Exceptions dialog's owner does.
+enum ExOut {
+    Stay(bool),
+    Close,
+    Apply([Vec<String>; 2]),
+}
+
+impl ExceptionsDialog {
+    fn open(title: &str, s: &[String; 8], first: &[String], caps: &[String]) -> Self {
+        let mut f = Form::new(title, (505.0, 371.0), vec![s[0].clone(), s[1].clone()]);
+        for (page, label, edit, list, add, del) in [
+            (0, "l0", "e0", "list0", "add0", "del0"),
+            (1, "l1", "e1", "list1", "add1", "del1"),
+        ] {
+            f.add(
+                label,
+                Some(page),
+                [33.0, 86.0, 300.0, 20.0],
+                Kind::Label(s[2 + page].clone()),
+            );
+            f.add(
+                edit,
+                Some(page),
+                [32.0, 108.0, 314.0, 25.0],
+                Kind::Edit {
+                    value: Vec::new(),
+                    caret: 0,
+                },
+            );
+            f.add(
+                list,
+                Some(page),
+                [32.0, 134.0, 314.0, 138.0],
+                Kind::List {
+                    items: Vec::new(),
+                    sel: None,
+                    top: 0,
+                },
+            );
+            for (id, y, k) in [(add, 108.0, 4), (del, 147.0, 5)] {
+                f.add(
+                    id,
+                    Some(page),
+                    [360.0, y, 112.0, 28.0],
+                    Kind::Button {
+                        label: s[k].clone(),
+                        default: false,
+                    },
+                );
+            }
+        }
+        f.ok_cancel(&s[6], &s[7]);
+        f.set_page(0);
+        let mut d = Self {
+            form: f,
+            lists: [first.to_vec(), caps.to_vec()],
+            pointer: (0.0, 0.0),
+        };
+        for l in &mut d.lists {
+            l.sort_by_key(|w| w.to_lowercase());
+        }
+        d.sync();
+        d
+    }
+
+    fn sync(&mut self) {
+        for (i, id) in ["list0", "list1"].into_iter().enumerate() {
+            let sel = (!self.lists[i].is_empty()).then_some(0);
+            self.form.set_items(id, self.lists[i].clone(), sel);
+        }
+    }
+
+    fn input(&mut self, input: &Input) -> ExOut {
+        let ev = match input {
+            Input::Text(s) => self.form.type_text(s),
+            Input::Key(Key::Escape, _) => Event::Cancel,
+            Input::Key(k, m) => self.form.key(*k, *m),
+            Input::Move { x, y } => {
+                self.pointer = (*x, *y);
+                return ExOut::Stay(self.form.hover(*x, *y));
+            }
+            Input::Press { x, y, count, .. } => {
+                self.pointer = (*x, *y);
+                self.form.press(*x, *y, *count)
+            }
+            Input::Wheel(d) => {
+                let (x, y) = self.pointer;
+                return ExOut::Stay(self.form.wheel(x, y, *d));
+            }
+            Input::Blink => return ExOut::Stay(true),
+            _ => return ExOut::Stay(false),
+        };
+        self.event(&ev)
+    }
+
+    fn event(&mut self, ev: &Event) -> ExOut {
+        let page = |id: &str| usize::from(id.ends_with('1'));
+        match ev {
+            Event::Cancel | Event::Clicked("cancel") => ExOut::Close,
+            Event::Ok | Event::Clicked("ok") => ExOut::Apply(self.lists.clone()),
+            Event::Clicked(id @ ("add0" | "add1")) => {
+                let i = page(id);
+                let edit = if i == 0 { "e0" } else { "e1" };
+                let w = self.form.text(edit).trim().to_owned();
+                if !w.is_empty() && !self.lists[i].contains(&w) {
+                    self.lists[i].push(w);
+                    self.lists[i].sort_by_key(|w| w.to_lowercase());
+                }
+                self.form.set_text(edit, "");
+                self.sync();
+                ExOut::Stay(true)
+            }
+            Event::Clicked(id @ ("del0" | "del1")) => {
+                let i = page(id);
+                let list = if i == 0 { "list0" } else { "list1" };
+                if let Some(k) = self.form.sel(list) {
+                    if k < self.lists[i].len() {
+                        self.lists[i].remove(k);
+                    }
+                }
+                self.sync();
+                ExOut::Stay(true)
+            }
+            // Choosing a row puts it in the box, as on the reference.
+            Event::Changed(id @ ("list0" | "list1")) => {
+                let i = page(id);
+                let list = if i == 0 { "list0" } else { "list1" };
+                if let Some(w) = self.form.sel(list).and_then(|k| self.lists[i].get(k)) {
+                    let w = w.clone();
+                    self.form.set_text(if i == 0 { "e0" } else { "e1" }, &w);
+                }
+                ExOut::Stay(true)
+            }
+            _ => ExOut::Stay(true),
+        }
+    }
 }
 
 fn check_rect(y: f32) -> [f32; 4] {
@@ -138,10 +298,12 @@ fn check_rect(y: f32) -> [f32; 4] {
 
 impl AutoCorrectDialog {
     /// The dialog showing `opts` (the engine's current options).
-    pub(crate) fn open(s: &Strings, opts: &AutoCorrectOptions) -> Self {
+    pub(crate) fn open(s: &Strings, opts: &AutoCorrectOptions, language: &str) -> Self {
         let tr = |k: &str, f: &str| t(s, k, f);
+        // "AutoCorrect: English (United States)": the proofing language at the caret.
+        let title = format!("{}: {language}", tr("docR8.ac.title", "AutoCorrect"));
         let mut f = Form::new(
-            &tr("docR8.ac.title", "AutoCorrect"),
+            &title,
             (618.0, 533.0 + DY),
             vec![
                 tr("docR8.ac.tabAutoCorrect", "AutoCorrect"),
@@ -158,7 +320,6 @@ impl AutoCorrectDialog {
                 on: false,
             },
         );
-        f.enable("showButtons", false);
         for (id, y, key, fb) in [
             ("days", 164.0, "docR8.ac.days", "Capitalize names of days"),
             (
@@ -177,7 +338,6 @@ impl AutoCorrectDialog {
                     on: false,
                 },
             );
-            f.enable(id, false);
         }
         f.add(
             "exceptions",
@@ -188,7 +348,6 @@ impl AutoCorrectDialog {
                 default: false,
             },
         );
-        f.enable("exceptions", false);
         f.add(
             "frame",
             Some(0),
@@ -236,6 +395,30 @@ impl AutoCorrectDialog {
             [157.0, 256.0 + DY, 120.0, 20.0],
             Kind::Label(tr("docR8.ac.withL", "With:")),
         );
+        // Plain / Formatted text: BlueDoc's entries are plain text (Formatted needs a
+        // selection with formatting, greyed as on the reference without one).
+        for (id, x, key, fb, on) in [
+            ("plain", 201.0, "docR8.ac.plain", "Plain text", true),
+            (
+                "formatted",
+                293.0,
+                "docR8.ac.formatted",
+                "Formatted text",
+                false,
+            ),
+        ] {
+            f.add(
+                id,
+                Some(0),
+                [x, 255.0 + DY, 110.0, 22.0],
+                Kind::Check {
+                    label: tr(key, fb),
+                    on,
+                },
+            );
+            f.enable(id, false);
+        }
+        f.set_radios(&["plain", "formatted"]);
         f.add(
             "from",
             Some(0),
@@ -290,7 +473,6 @@ impl AutoCorrectDialog {
                 on: false,
             },
         );
-        f.enable("spell", false);
         f.ok_cancel(&tr("common.ok", "OK"), &tr("common.cancel", "Cancel"));
         f.set_page(0);
         let mut entries = opts.entries.clone();
@@ -299,9 +481,22 @@ impl AutoCorrectDialog {
             form: f,
             opts: opts.clone(),
             entries,
-            sel: None,
+            // The reference opens with the first entry chosen.
+            sel: Some(0),
             top: 0,
             pointer: (0.0, 0.0),
+            exceptions: None,
+            strings_title: tr("docR8.ex.title", "AutoCorrect Exceptions"),
+            strings_ex: [
+                tr("docR8.ex.first", "First Letter"),
+                tr("docR8.ex.caps", "INitial CAps"),
+                tr("docR8.ex.firstL", "Don't capitalize after:"),
+                tr("docR8.ex.capsL", "Don't correct:"),
+                tr("docR8.ac.add", "Add"),
+                tr("docR8.ac.delete", "Delete"),
+                tr("common.ok", "OK"),
+                tr("common.cancel", "Cancel"),
+            ],
         };
         d.load();
         d.sync_buttons();
@@ -322,6 +517,10 @@ impl AutoCorrectDialog {
             ("links", o.auto_links),
             ("lists", o.auto_lists),
             ("enabled", o.enabled),
+            ("showButtons", o.show_buttons),
+            ("days", o.capitalize_days),
+            ("capsLock", o.caps_lock),
+            ("spell", o.spelling_suggestions),
         ] {
             self.form.set_on(id, on);
         }
@@ -342,6 +541,10 @@ impl AutoCorrectDialog {
             fractions: f.on("fractions"),
             auto_lists: f.on("lists"),
             auto_links: f.on("links"),
+            show_buttons: f.on("showButtons"),
+            capitalize_days: f.on("days"),
+            caps_lock: f.on("capsLock"),
+            spelling_suggestions: f.on("spell"),
             entries: self.entries.clone(),
             ..self.opts.clone()
         }
@@ -349,6 +552,9 @@ impl AutoCorrectDialog {
 
     pub(crate) fn layout(&mut self, m: &dyn TextMeasure, size: (f32, f32), scale: f32) {
         self.form.layout(m, size, scale);
+        if let Some(x) = self.exceptions.as_mut() {
+            x.form.layout(m, size, scale);
+        }
     }
 
     /// Add is offered for a new or changed replacement, Delete for a listed one.
@@ -374,6 +580,22 @@ impl AutoCorrectDialog {
     }
 
     pub(crate) fn input(&mut self, input: &Input) -> AcOut {
+        if let Some(x) = self.exceptions.as_mut() {
+            return match x.input(input) {
+                ExOut::Stay(true) => AcOut::Redraw,
+                ExOut::Stay(false) => AcOut::None,
+                ExOut::Close => {
+                    self.exceptions = None;
+                    AcOut::Redraw
+                }
+                ExOut::Apply([first, caps]) => {
+                    self.opts.exceptions = first;
+                    self.opts.caps_exceptions = caps;
+                    self.exceptions = None;
+                    AcOut::Redraw
+                }
+            };
+        }
         let ev = match input {
             Input::Text(s) => self.form.type_text(s),
             Input::Key(Key::Escape, _) => Event::Cancel,
@@ -416,6 +638,15 @@ impl AutoCorrectDialog {
         match ev {
             Event::Cancel | Event::Clicked("cancel") => AcOut::Close,
             Event::Ok | Event::Clicked("ok") => AcOut::Apply(Box::new(self.collect())),
+            Event::Clicked("exceptions") => {
+                self.exceptions = Some(ExceptionsDialog::open(
+                    &self.strings_title,
+                    &self.strings_ex,
+                    &self.opts.exceptions,
+                    &self.opts.caps_exceptions,
+                ));
+                AcOut::Redraw
+            }
             // Typing in Replace finds the first entry from there, as on the reference.
             Event::Changed("from") => {
                 let from = self.form.text("from").to_lowercase();
@@ -436,6 +667,20 @@ impl AutoCorrectDialog {
             }
             Event::Changed(_) => {
                 self.sync_buttons();
+                AcOut::Redraw
+            }
+            Event::Canvas("list", x, y) if *x >= LIST_W - BAR_W => {
+                // The scroll bar: arrows step a row, the track a page.
+                let max = self.entries.len().saturating_sub(ROWS);
+                self.top = if *y < BAR_W {
+                    self.top.saturating_sub(1)
+                } else if *y > LIST_H - BAR_W {
+                    (self.top + 1).min(max)
+                } else if *y < LIST_H / 2.0 {
+                    self.top.saturating_sub(ROWS)
+                } else {
+                    (self.top + ROWS).min(max)
+                };
                 AcOut::Redraw
             }
             Event::Canvas("list", _, y) => {
@@ -498,6 +743,10 @@ impl AutoCorrectDialog {
             }
         };
         self.form.paint(p, window, caret_on, &mut canvas);
+        if let Some(x) = &self.exceptions {
+            let mut none = |_: &str, _: [f32; 4], _: &mut dyn Painter| {};
+            x.form.paint(p, window, caret_on, &mut none);
+        }
     }
 }
 
@@ -523,23 +772,55 @@ fn paint_list(
     let row_h = (ROW_H * k).round();
     let col = r[0] + (COL2 * k).round();
     let line = font.size * 1.33;
-    p.push_clip(r[0] + 1.0, r[1] + 1.0, r[2] - 2.0, r[3] - 2.0);
+    // The vertical scroll bar of the reference's list (17 px at 125 %).
+    let bar = (BAR_W * k).round();
+    let inner = r[2] - 2.0 - bar;
+    p.push_clip(r[0] + 1.0, r[1] + 1.0, inner, r[3] - 2.0);
     for (n, e) in entries.iter().enumerate().skip(top).take(ROWS) {
         let y = r[1] + 1.0 + (n - top) as f32 * row_h;
         let chosen = sel == Some(n);
         let ink = if chosen {
-            p.fill_rect(r[0] + 1.0, y, r[2] - 2.0, row_h - 1.0, SEL);
+            p.fill_rect(r[0] + 1.0, y, inner, row_h - 1.0, SEL);
             Rgba(255, 255, 255, 255)
         } else {
             Rgba(0, 0, 0, 255)
         };
-        p.fill_rect(r[0] + 1.0, y + row_h - 1.0, r[2] - 2.0, 1.0, GRID);
+        p.fill_rect(r[0] + 1.0, y + row_h - 1.0, inner, 1.0, GRID);
         let ty = (y + (row_h - line) / 2.0).round();
         p.text_font(&e.from, r[0] + (4.0 * k).round(), ty, font, ink);
         p.text_font(&e.to, col + (4.0 * k).round(), ty, font, ink);
     }
     p.fill_rect(col, r[1] + 1.0, 1.0, r[3] - 2.0, GRID);
     p.pop_clip();
+    let sx = r[0] + 1.0 + inner;
+    p.fill_rect(sx, r[1] + 1.0, bar, r[3] - 2.0, BAR_FACE);
+    let n = entries.len().max(1) as f32;
+    let track = r[3] - 2.0 - 2.0 * bar;
+    let th = (track * ROWS as f32 / n).clamp(8.0 * k, track);
+    let ty = r[1] + 1.0 + bar + (track - th) * top as f32 / (n - ROWS as f32).max(1.0);
+    p.fill_rect(sx + (6.0 * k).round(), ty, (5.0 * k).round(), th, BAR_THUMB);
+    // Arrows: small filled triangles.
+    let cx = sx + bar / 2.0;
+    for (cy, up) in [
+        (r[1] + 1.0 + bar / 2.0, true),
+        (r[1] + r[3] - 1.0 - bar / 2.0, false),
+    ] {
+        for i in 0..3 {
+            let half = i as f32 * k;
+            let y = if up {
+                cy - k + i as f32 * k
+            } else {
+                cy + k - i as f32 * k
+            };
+            p.fill_rect(
+                (cx - half - k / 2.0).round(),
+                y.round(),
+                (2.0 * half + k).round(),
+                k.max(1.0),
+                BAR_ARROW,
+            );
+        }
+    }
 }
 
 #[cfg(test)]
@@ -547,7 +828,11 @@ mod tests {
     use super::*;
 
     fn dialog() -> AutoCorrectDialog {
-        AutoCorrectDialog::open(&Strings::load("en-US"), &AutoCorrectOptions::default())
+        AutoCorrectDialog::open(
+            &Strings::load("en-US"),
+            &AutoCorrectOptions::default(),
+            "English (United States)",
+        )
     }
 
     #[test]
@@ -592,6 +877,51 @@ mod tests {
         d.form.set_text("from", "bo");
         d.event(&Event::Clicked("delete"));
         assert!(!d.entries.iter().any(|e| e.from == "bo"));
+    }
+
+    #[test]
+    fn title_names_the_language_and_every_option_is_live() {
+        let mut d = dialog();
+        assert_eq!(d.form.title, "AutoCorrect: English (United States)");
+        for id in ["showButtons", "days", "capsLock", "spell", "exceptions"] {
+            assert!(d.form.get(id).is_some_and(|c| c.enabled), "{id}");
+        }
+        d.form.set_on("days", false);
+        d.form.set_on("capsLock", false);
+        let AcOut::Apply(o) = d.event(&Event::Ok) else {
+            panic!("ok applies");
+        };
+        assert!(!o.capitalize_days && !o.caps_lock && o.spelling_suggestions);
+    }
+
+    #[test]
+    fn exceptions_dialog_edits_both_lists() {
+        let mut d = dialog();
+        d.event(&Event::Clicked("exceptions"));
+        let x = d.exceptions.as_mut().expect("exceptions open");
+        x.form.set_text("e0", "approx.");
+        x.event(&Event::Clicked("add0"));
+        x.form.set_text("e1", "PDFs");
+        x.event(&Event::Clicked("add1"));
+        assert!(matches!(
+            d.input(&Input::Key(Key::Enter, crate::Mods::default())),
+            AcOut::Redraw
+        ));
+        assert!(d.exceptions.is_none());
+        let AcOut::Apply(o) = d.event(&Event::Ok) else {
+            panic!("ok applies");
+        };
+        assert!(o.exceptions.iter().any(|w| w == "approx."));
+        assert!(o.caps_exceptions.iter().any(|w| w == "PDFs"));
+    }
+
+    #[test]
+    fn scroll_bar_steps_the_list() {
+        let mut d = dialog();
+        d.event(&Event::Canvas("list", LIST_W - 5.0, LIST_H - 5.0));
+        assert_eq!(d.top, 1);
+        d.event(&Event::Canvas("list", LIST_W - 5.0, 5.0));
+        assert_eq!(d.top, 0);
     }
 
     #[test]

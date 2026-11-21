@@ -1492,6 +1492,14 @@ export interface AutoCorrectOptions {
   exceptions: string[];
   /** Words that keep two initial capitals. */
   capsExceptions: string[];
+  /** English day names get their capital. */
+  capitalizeDays?: boolean;
+  /** "tHE" → "The" (caps lock on by accident). */
+  capsLock?: boolean;
+  /** A misspelt word with one spelling suggestion is replaced by it. */
+  spellingSuggestions?: boolean;
+  /** Show the AutoCorrect Options mark under a corrected word. */
+  showButtons?: boolean;
 }
 
 /** AutoCorrect rules (mirrors `bo_edit::autocorrect::Rule`). */
@@ -1505,7 +1513,10 @@ export type AutoCorrectRule =
   | 'ordinal'
   | 'fraction'
   | 'list'
-  | 'link';
+  | 'link'
+  | 'capitalizeDay'
+  | 'capsLock'
+  | 'spelling';
 
 /** Kinds of content control the editor inserts. */
 export type ControlKind =

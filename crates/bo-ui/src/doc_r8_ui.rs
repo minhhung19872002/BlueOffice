@@ -38,7 +38,17 @@ impl DocWindow {
             .autocorrect_options()
             .cloned()
             .unwrap_or_default();
-        self.r8.autocorrect = Some(AutoCorrectDialog::open(&self.strings, &opts));
+        let lang = self
+            .view
+            .format()
+            .lang
+            .clone()
+            .unwrap_or_else(|| "en-US".into());
+        let language = crate::doc_forms::LANGUAGES
+            .iter()
+            .find(|(tag, _)| tag.eq_ignore_ascii_case(&lang))
+            .map_or(lang.clone(), |(_, name)| (*name).to_owned());
+        self.r8.autocorrect = Some(AutoCorrectDialog::open(&self.strings, &opts, &language));
         self.relayout_pending = true;
         true
     }
@@ -87,6 +97,7 @@ impl DocWindow {
     /// over the visible pages as on the reference (1 px #939393, 3 px on / 1 px off at
     /// 125 %). On by default, as on the reference.
     pub(in crate::shell) fn r8_paint_gridlines(&self, p: &mut dyn Painter) {
+        self.r8_paint_ac_mark(p);
         if !self.r7.gridlines {
             return;
         }
@@ -121,6 +132,109 @@ impl DocWindow {
                 }
             }
         }
+    }
+
+    /// Number and kind of the newest undo step (to see what a keystroke added).
+    pub(in crate::shell) fn r8_newest_step(&self) -> (usize, String) {
+        let list = self.view.engine().undo_list();
+        let kind = list.first().map(|l| l.kind.clone()).unwrap_or_default();
+        (list.len(), kind)
+    }
+
+    /// After typing: when AutoCorrect changed the word just ended (a new AutoCorrect step),
+    /// remember its start for the AutoCorrect Options mark.
+    pub(in crate::shell) fn r8_note_correction(&mut self, before: &(usize, String)) {
+        let after = self.r8_newest_step();
+        let show = self
+            .view
+            .engine()
+            .autocorrect_options()
+            .is_some_and(|o| o.show_buttons);
+        if !show || &after == before || after.1 != "AutoCorrect" {
+            return;
+        }
+        let Some(s) = self.view.engine().session() else {
+            return;
+        };
+        let at = s.selection().focus;
+        let text = s.para_text(at.para).unwrap_or_default();
+        let head = text.get(..at.offset).unwrap_or("");
+        // Back over the delimiter just typed, then over the word.
+        let body = head.trim_end_matches(|c: char| !c.is_alphanumeric());
+        let start = body
+            .char_indices()
+            .rev()
+            .find(|(_, c)| c.is_whitespace())
+            .map_or(0, |(i, c)| i + c.len_utf8());
+        self.r8.ac_mark = Some(bo_edit::Pos::new(at.para, start));
+    }
+
+    /// The AutoCorrect Options mark: a short blue bar under the corrected word's first letter
+    /// (window pixels), as the reference shows it.
+    pub(in crate::shell) fn r8_ac_mark_rect(&self) -> Option<[f32; 4]> {
+        let a = self.r8.ac_mark?;
+        let s = self.view.engine().session()?;
+        let text = s.para_text(a.para)?;
+        let next = text.get(a.offset..)?.chars().next()?;
+        let b = bo_edit::Pos::new(a.para, a.offset + next.len_utf8());
+        let r = self.view.engine().range_rects(a, b).into_iter().next()?;
+        let slot = self
+            .view
+            .slots()
+            .into_iter()
+            .find(|sl| sl.index == r.page)?;
+        let k = self.view.scale();
+        let x = (slot.x as f32 + r.x * k).round();
+        let y = (slot.y as f32 + (r.y + r.h) * k).round();
+        let w = (r.w * k).round().max((6.0 * self.scale).round());
+        Some([x, y, w, (2.0 * self.scale).round().max(1.0)])
+    }
+
+    fn r8_paint_ac_mark(&self, p: &mut dyn Painter) {
+        if let Some(r) = self.r8_ac_mark_rect() {
+            p.fill_rect(
+                r[0],
+                r[1],
+                r[2],
+                r[3],
+                bo_render::Rgba(0x2B, 0x57, 0x9A, 255),
+            );
+        }
+    }
+
+    /// A click on the AutoCorrect Options mark opens its menu: change back (undo the
+    /// correction) or the AutoCorrect dialog.
+    pub(in crate::shell) fn r8_ac_mark_press(&mut self, x: f32, y: f32) -> Option<bool> {
+        let r = self.r8_ac_mark_rect()?;
+        let pad = (4.0 * self.scale).round();
+        let inside =
+            x >= r[0] - pad && x <= r[0] + r[2] + pad && y >= r[1] - pad && y <= r[1] + r[3] + pad;
+        if !inside {
+            self.r8.ac_mark = None;
+            return None;
+        }
+        let items = vec![
+            MenuItem {
+                label: self.strings.get("docR8.acMark.undo").to_owned(),
+                choice: Choice::Command(format!("{UNDO_STEPS}1")),
+                checked: false,
+                dim: false,
+            },
+            MenuItem {
+                label: self.strings.get("docR8.acMark.options").to_owned(),
+                choice: Choice::Command("tools.autoCorrect".into()),
+                checked: false,
+                dim: false,
+            },
+        ];
+        self.r8.ac_mark = None;
+        self.menu = Some(Menu::open(
+            items,
+            [r[0], r[1], r[2], r[3]],
+            self.size,
+            self.scale,
+        ));
+        Some(true)
     }
 
     /// Paint the round-8 dialogs over the window.

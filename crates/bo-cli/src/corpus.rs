@@ -10,6 +10,7 @@ use bo_opc::{Package, Relationship, TargetMode, REL_OFFICE_DOCUMENT, REL_STYLES}
 use std::path::Path;
 
 mod office;
+mod office2;
 
 const NS: &str = concat!(
     r#"xmlns:wpc="http://schemas.microsoft.com/office/word/2010/wordprocessingCanvas" "#,
@@ -2617,6 +2618,8 @@ fn documents() -> Vec<(&'static str, &'static str, &'static str, Doc)> {
     }));
     // Vietnamese office documents of the layout-fidelity corpus (round 3).
     v.extend(office::documents());
+    // More of them (round 4): charts, equations, cross-references, odd / even headers.
+    v.extend(office2::documents());
     v
 }
 

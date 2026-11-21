@@ -8136,6 +8136,12 @@
     "cut": "Cắt",
     "paste": "Dán"
   },
+  "pdfReader15": {
+    "find": "Tìm kiếm",
+    "findHint": "Tìm",
+    "previous": "Trước",
+    "next": "Tiếp"
+  },
   "pdfReader": {
     "tabs": {
       "file": "Tệp",

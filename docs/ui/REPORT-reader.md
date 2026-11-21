@@ -895,3 +895,54 @@ Lỗi rò đã sửa: đóng thẻ không trả ảnh trang GPU của thẻ (`Pd
 
 Còn lại: nhóm isolated có blend đầy đủ (vòng 13), trả lời / trạng thái tạo trong bản đối chiếu, UIA: focus / mẫu Text /
 menu và hộp thoại tự vẽ, `--bench` không đo được trang 200 inch ở 100 %.
+
+## Vòng 15 (2026-11-22)
+
+Bàn phím đo trên bản đối chiếu (cửa sổ 1500 × 1102 ở 125 %, phím gửi bằng thông điệp `WM_KEYDOWN` vào
+`FoxitDocWnd` của bản sao thử, trạng thái đọc từ ô zoom / ô trang / thanh cuộn; không thao tác thật). Cửa sổ của ta
+không có khung hệ thống nhưng có viền thay đổi kích thước vô hình 9 px: muốn thấy cùng 1500 px phải đặt 1518 px rồi cắt
+(trước đó so ở 1500 px làm vùng tài liệu của ta hẹp hơn 18 px, fit width 133,53 % thay vì 135,10 %).
+
+| Phím | Bản đối chiếu | Trước | Nay |
+| --- | --- | --- | --- |
+| ↓ / ↑ | 54 px | 54 px | = |
+| Page Down / Up, Space | chiều cao vùng xem − 41 px (773 / 814) | 0,9 × chiều cao | = (Shift+Space: xem dưới) |
+| → / ← | đầu trang sau / trước | = | = |
+| Home / End, Ctrl+Home / End | trang đầu / đầu trang cuối | = | = |
+| Ctrl+wheel, Ctrl + / − | 1 · 8,33 · 12,5 · 25 · 33,33 · 50 · 66,67 · 75 · 100 · 125 · 150 · 200 · **300** · 400 · 600 · 800 · **1200** · 1600 · 3200 · 6400 % và các mức vừa trang / vừa rộng / vừa nội dung của trang hiện tại (60,38 · 135,10 · 188,77) | thiếu 300, 1200 và các mức vừa | = |
+| Ctrl+0 / 1 / 2 | vừa trang / 100 % / vừa rộng | = | = |
+| Ctrl+3 | **Fit Visible** 188,77 % | không có | 188,99 % |
+| Alt+← / Alt+→ | khung nhìn trước / sau (mỗi phím, zoom, nhấp làm dời khung nhìn đều được ghi) | không có (nút thanh trạng thái mờ) | = (mỗi thẻ một lịch sử, nút thanh trạng thái dùng được) |
+| F4 | ẩn / hiện cột điều hướng (fit width thành 141,67 %) | không có | = |
+| F8, F9 | không làm gì | — | = |
+| Ctrl+D | File › Properties | không có | = |
+| Ctrl+K | hộp Preferences | không có | = |
+| Ctrl+G | ô trang được chọn toàn bộ "1 / 12" để gõ | không có | = |
+| Ctrl+F | hộp Search nhỏ ở góc trên phải vùng tài liệu | tiêu điểm ô tìm thanh tiêu đề | = |
+| Ctrl+Shift+N | công cụ Note (bảng Format) | — | chưa làm |
+
+**Fit Visible** (`reader_ink15.rs`), đo trên 4 trang: zoom = fit width × rộng trang / rộng *mực* của nội dung (hộp
+đường nét glyph, không phải bề rộng tiến: 82,2 pt cho hộp tiến 83,75 pt; đường vẽ cộng nửa nét). Tỉ số với fit width,
+bản đối chiếu / ta: tài liệu 12 trang 1,3973 / 1,3964; khung chữ nhật nét 2 pt 1,1930 / 1,1953; chữ 150–380 pt
+2,6842 / 2,6778; chữ hẹp 84 pt 7,4452 / 7,3990. Phần lệch còn lại của chữ là font Helvetica thay thế (mực của bản đối
+chiếu hẹp hơn ~0,5 pt mỗi dòng). Sau Ctrl+3 bản đối chiếu cuộn không theo quy tắc gọn (đỉnh khung nhìn cách nội dung
+12–60 pt, mép trái 11–30 pt, có khi cắt mất bên phải); ta đặt mép trái nội dung cách 7,5 px và đỉnh 12,4 pt trên mực
+(khớp tài liệu thử).
+
+**Hộp Search (Ctrl+F)** (`reader-99`, `reader-100`): 304 × 123 px, sát trái thanh cuộn 4 px, đỉnh ở chân hàng thẻ;
+dải tiêu đề (235, 246, 249) "Search" và ×; ô Find có nút tuỳ chọn (bánh răng của ta); Previous / Next (nền 230, viền
+173, chữ xám khi chưa có chuỗi). Chụp trên màn hình: cửa sổ bật lên Windows 11 bo góc 8 px, viền mảnh (174 trên nền
+trắng), bóng mềm ~15 px hai bên, ~30 px phía dưới (vạch đen 3 px trong ảnh PrintWindow là viền vô hình, không có thật).
+Enter / F3 / Shift+F3 đi tới / lui; chỉ kết quả hiện tại được tô, màu (176, 206, 225) trên nền trắng như bản đối chiếu;
+Esc / × đóng hộp và bỏ tô.
+
+**Ô trang khi sửa (Ctrl+G)** (`reader-98`): viền xám 100, vòng trong 2 px (251, 251, 253), phần mũi tên (230, 233, 240),
+chữ chọn (0, 120, 212); gõ số thay toàn bộ, Enter đi tới trang, Esc huỷ. Ô zoom ghi "100%" / "135.10%" như bản đối chiếu
+(trước "100.00%"). Xám biểu tượng thanh trạng thái đo lại: trùng (175 mờ, 51 thường).
+
+Ảnh: `reader-96` (Ctrl+3), `reader-97` (F4), `reader-98` (Ctrl+G), `reader-99` / `reader-100` (Ctrl+F). Test:
+`reader_r15_tests.rs` (10, một test `#[ignore]` đo Fit Visible của tệp thật qua `BO_FV_PDFS`).
+
+Còn lại: Shift+Space (đến dưới dạng văn bản, không biết Shift; hiện cuộn xuống), Ctrl+Shift+N; chuột (nhấp đúp / ba
+lần, Shift+nhấp, nút giữa, menu chuột phải) — nhấp gửi bằng thông điệp tới `FoxitDocWnd` không chọn chữ ở công cụ Hand,
+cần cách đo khác; nhóm isolated có blend; UIA sâu (focus, mẫu Text).

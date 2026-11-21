@@ -663,6 +663,19 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             }
             LRESULT(0)
         }
+        // BlueReader: Alt+← / Alt+→ step through the views (previous / next view).
+        WM_SYSKEYDOWN
+            if RIBBON_KEYS.load(std::sync::atomic::Ordering::Relaxed)
+                && matches!(wparam.0, 0x25 | 0x27) =>
+        {
+            let k = if wparam.0 == 0x25 {
+                Key::Left
+            } else {
+                Key::Right
+            };
+            input(hwnd, Input::Key(k, mods()));
+            LRESULT(0)
+        }
         WM_SYSKEYDOWN if sheet_sys_key(wparam.0 as u16).is_some() => {
             if let Some(k) = sheet_sys_key(wparam.0 as u16) {
                 input(hwnd, Input::Key(k, mods()));

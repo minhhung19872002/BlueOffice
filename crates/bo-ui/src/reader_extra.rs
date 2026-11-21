@@ -70,6 +70,10 @@ impl ReaderWindow {
         }
         d.set_page_sizes((0..n).map(|i| t.view.page_size(i)).collect());
         d.set_has_comments(!t.view.doc().comment_threads().is_empty());
+        // A bookmark's Print Page(s) / Print Section(s) (round 17).
+        if let Some(pages) = self.r17.print_pages.take() {
+            d.set_pages(&pages);
+        }
         d.layout(m, self.size, self.scale);
         self.extra.print = Some(d);
         self.update_print_preview();

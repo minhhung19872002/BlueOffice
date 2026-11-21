@@ -91,6 +91,10 @@ mod r15;
 // (BlueReader round 16).
 #[path = "reader_r16_win.rs"]
 mod r16;
+// Character-boundary drags with edge scrolling, cascading context menus, Arrange › Center,
+// the Format pane for a selected note (BlueReader round 17).
+#[path = "reader_r17_win.rs"]
+mod r17;
 pub use r12::{AccessItem, AccessRole};
 pub use r16::AccessText;
 
@@ -554,6 +558,7 @@ pub struct ReaderWindow {
     keys7: keys7::KeyLevel,
     r15: r15::R15,
     r16: r16::R16,
+    r17: r17::R17,
     /// Layers / Attachments panels and the comment list of round 8.
     panels8: panels8::Panels8,
     /// Ribbon tooltips of round 9.
@@ -650,6 +655,7 @@ impl ReaderWindow {
             keys7: keys7::KeyLevel::Off,
             r15: r15::R15::default(),
             r16: r16::R16::default(),
+            r17: r17::R17::default(),
             panels8: panels8::Panels8::default(),
             nine: dark9::Nine::default(),
             search9: search9::Search9::default(),
@@ -1552,6 +1558,9 @@ impl ReaderWindow {
 
     #[allow(clippy::too_many_lines)]
     fn route(&mut self, input: Input, m: &dyn TextMeasure) -> bool {
+        if let Some(redraw) = self.route17(&input, m) {
+            return redraw;
+        }
         if let Some(redraw) = self.route16(&input, m) {
             return redraw;
         }
@@ -1744,7 +1753,14 @@ impl ReaderWindow {
         }
         // Document tabs.
         if inside(self.start_tab, x, y) {
-            self.show_start = true;
+            let r = self.start_tab;
+            let cs = self.px(12.8);
+            let on_close = x >= r[0] + r[2] - cs - self.px(9.6);
+            // The Start tab's close mark goes back to the document (round 17).
+            self.show_start = !(self.show_start && on_close && !self.tabs.is_empty());
+            if !self.show_start {
+                self.layout_doc();
+            }
             return true;
         }
         for (i, (r, close)) in self.doc_tab_rects.clone().into_iter().enumerate() {
@@ -1861,6 +1877,11 @@ impl ReaderWindow {
                         None
                     });
                     self.drag = Some(Drag::Select { page, a });
+                    // Round 17: a plain press drags between character boundaries.
+                    self.r17.anchor = None;
+                    if count < 2 && !shift {
+                        self.start_drag17(page, x, y);
+                    }
                 } else {
                     t.view.set_selection(None);
                     if self.tool == Tool::Hand {
@@ -1898,6 +1919,9 @@ impl ReaderWindow {
                 true
             }
             Some(Drag::Select { page, a }) => {
+                if let Some(redraw) = self.drag17(page, x, y) {
+                    return redraw;
+                }
                 let Some(t) = self.tabs.get_mut(self.active) else {
                     return false;
                 };
@@ -1943,6 +1967,7 @@ impl ReaderWindow {
         }
         match self.drag.take() {
             Some(Drag::Select { page, .. }) => {
+                self.release17();
                 if let Tool::Markup(kind) = self.tool {
                     self.markup_selection(kind, page);
                     self.after_markup(m);
@@ -2430,6 +2455,9 @@ impl ReaderWindow {
 
     #[allow(clippy::too_many_lines)]
     fn command(&mut self, cmd: &str, m: &dyn TextMeasure) {
+        if self.command17(cmd) {
+            return;
+        }
         if self.command_extra(cmd, m) {
             return;
         }
@@ -3096,6 +3124,7 @@ impl ReaderWindow {
         if let Some((menu, _)) = &self.menu {
             menu.paint(p, &self.theme, &self.icons);
         }
+        self.paint17(p);
         if let Some((d, _)) = &self.dialog {
             d.paint(p, &self.theme, self.size, true);
         }
@@ -3203,14 +3232,31 @@ impl ReaderWindow {
         // Start tab.
         let start_on = self.show_start || self.tabs.is_empty();
         self.start_tab = [x, ty0, tab_w, th];
+        // Round 17: the current Start tab has the accent label and a close mark, as the
+        // reference's (closing it goes back to the last document).
         self.paint_tab(
             p,
             self.start_tab,
             &self.t("pdfReader.start"),
             start_on,
-            false,
+            start_on && !self.tabs.is_empty(),
             st,
         );
+        if start_on && !self.tabs.is_empty() {
+            let r = self.start_tab;
+            let cs = self.px(12.8);
+            reader_icons::draw(
+                p,
+                "close",
+                r[0] + r[2] - cs - self.px(6.4),
+                r[1] + ((r[3] - cs) / 2.0).round(),
+                cs,
+                Ink {
+                    ink: TEXT,
+                    accent: TEXT,
+                },
+            );
+        }
         x += tab_w + self.px(1.6);
         let mut rects = Vec::new();
         for i in 0..self.tabs.len() {
@@ -3285,17 +3331,18 @@ impl ReaderWindow {
     }
 
     /// Start page: a "Recent Files" card with an Open File row, as on the reference's start tab
-    /// (125 %: card 34–409 px, title 292 px, rows 29.5 px apart; no promotions).
+    /// (125 %: card 34–409 px, title 292 px, rows 29.5 px apart; no promotions). Round 17:
+    /// grey 165 behind the card, the card ends 21 px above the status bar, its rule is 238 grey.
     fn paint_start(&mut self, p: &mut dyn Painter) {
         let top = self.nav_rect[1];
         let (w, h) = self.size;
         let d = [1.0, top, w - 2.0, h - self.status_h() - top];
-        p.fill_rect(d[0], d[1], d[2], d[3], Rgba(235, 236, 240, 255));
+        p.fill_rect(d[0], d[1], d[2], d[3], Rgba(165, 165, 165, 255));
         let card = [
             self.px(27.2),
             top + self.px(20.0),
             self.px(300.0),
-            d[3] - self.px(40.0),
+            d[3] - self.px(36.8),
         ];
         p.fill_rect(card[0], card[1], card[2], card[3], WHITE);
         let title = self.style(19.0, false);
@@ -3304,20 +3351,20 @@ impl ReaderWindow {
         p.text(
             &self.t("pdfReader.recent"),
             x,
-            card[1] + self.px(10.4),
+            card[1] + self.px(7.2),
             title,
             TEXT,
         );
-        let line_y = card[1] + self.px(36.0);
+        let line_y = card[1] + self.px(35.2);
         p.fill_rect(
             x,
             line_y,
             card[2] - self.px(20.8),
             1.0,
-            Rgba(229, 229, 229, 255),
+            Rgba(238, 238, 238, 255),
         );
         let row = self.px(23.6);
-        let mut y = line_y + self.px(12.0);
+        let mut y = line_y + self.px(8.8);
         let ink = Ink {
             ink: TEXT,
             accent: self.theme.accent,
@@ -3668,11 +3715,14 @@ impl ReaderWindow {
         let b = self.page_box;
         p.fill_rect(b[0], b[1], b[2], b[3], self.look.box_edge);
         p.fill_rect(b[0] + 1.0, b[1] + 1.0, b[2] - 2.0, b[3] - 2.0, WHITE);
-        let label = self.view().map_or_else(String::new, |v| {
-            let n = v.page_count();
-            let i = v.current_page();
-            page_label(v.doc(), i, n)
-        });
+        let label = self
+            .view()
+            .filter(|_| !self.show_start)
+            .map_or_else(String::new, |v| {
+                let n = v.page_count();
+                let i = v.current_page();
+                page_label(v.doc(), i, n)
+            });
         p.text(
             &label,
             b[0] + self.px(4.0),

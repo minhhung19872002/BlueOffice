@@ -961,6 +961,9 @@ impl Handler for Shell {
             if let Some(step) = autoscroll::take_step() {
                 self.more |= self.window.autoscroll_step(step.0, step.1);
             }
+            if let Some(ms) = autoscroll::take_edge() {
+                self.more |= self.window.edge_step(ms);
+            }
             let keys = uia::take_invokes();
             if !keys.is_empty() {
                 let m = Measure(self.gpu.as_ref().map(|g| &g.device));
@@ -1008,6 +1011,7 @@ impl Handler for Shell {
         }
         let m = Measure(self.gpu.as_ref().map(|g| &g.device));
         let mut redraw = self.window.handle(input, &m);
+        autoscroll::set_edge(self.window.edge_scroll());
         // Read Aloud follows the voice: the word being spoken is highlighted (round 11).
         if kind == "tick" && self.window.reading() {
             if let Some((pos, len)) = self.speech.word() {

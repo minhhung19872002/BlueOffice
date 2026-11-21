@@ -46,8 +46,9 @@ use windows::Win32::UI::Accessibility::{
 use windows::Win32::UI::Accessibility::{
     ITextProvider, ITextProvider_Impl, ITextRangeProvider, SupportedTextSelection,
     SupportedTextSelection_Single, UIA_AutomationFocusChangedEventId, UIA_EditControlTypeId,
-    UIA_TextPatternId, UIA_Text_TextSelectionChangedEventId, UiaClientsAreListening, UiaPoint,
-    UiaRaiseAutomationEvent,
+    UIA_MenuControlTypeId, UIA_MenuItemControlTypeId, UIA_TextPatternId,
+    UIA_Text_TextSelectionChangedEventId, UIA_WindowControlTypeId, UiaClientsAreListening,
+    UiaPoint, UiaRaiseAutomationEvent,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CallWindowProcW, PostMessageW, SetWindowLongPtrW, GWLP_WNDPROC, WM_GETOBJECT, WM_TIMER, WNDPROC,
@@ -360,7 +361,11 @@ impl IRawElementProviderSimple_Impl for Element_Impl {
     }
     fn GetPatternProvider(&self, id: UIA_PATTERN_ID) -> Result<windows::core::IUnknown> {
         let (_, it) = self.current()?;
-        if id == UIA_InvokePatternId && !matches!(it.role, AccessRole::Document | AccessRole::Edit)
+        if id == UIA_InvokePatternId
+            && !matches!(
+                it.role,
+                AccessRole::Document | AccessRole::Edit | AccessRole::Menu | AccessRole::Window
+            )
         {
             let me: IInvokeProvider = self.to_interface();
             return me.cast();
@@ -378,15 +383,19 @@ impl IRawElementProviderSimple_Impl for Element_Impl {
             AccessRole::Tab => UIA_TabItemControlTypeId,
             AccessRole::Document => UIA_DocumentControlTypeId,
             AccessRole::Edit => UIA_EditControlTypeId,
+            AccessRole::Menu => UIA_MenuControlTypeId,
+            AccessRole::MenuItem => UIA_MenuItemControlTypeId,
+            AccessRole::Window => UIA_WindowControlTypeId,
         };
         Ok(match id {
             i if i == UIA_ControlTypePropertyId => VARIANT::from(control.0),
             i if i == UIA_NamePropertyId => VARIANT::from(BSTR::from(it.name.as_str())),
             i if i == UIA_AutomationIdPropertyId => VARIANT::from(BSTR::from(it.key.as_str())),
             i if i == UIA_IsEnabledPropertyId => VARIANT::from(it.enabled),
-            i if i == UIA_IsKeyboardFocusablePropertyId => {
-                VARIANT::from(matches!(it.role, AccessRole::Document | AccessRole::Edit))
-            }
+            i if i == UIA_IsKeyboardFocusablePropertyId => VARIANT::from(matches!(
+                it.role,
+                AccessRole::Document | AccessRole::Edit | AccessRole::MenuItem
+            )),
             i if i == UIA_HasKeyboardFocusPropertyId => {
                 VARIANT::from(focus_key().as_deref() == Some(it.key.as_str()))
             }

@@ -380,6 +380,9 @@ impl ReaderWindow {
             {
                 if let Some(p) = self.outline_row_at9(*x, *y) {
                     self.selected_outline = Some(p);
+                    // On a bookmark: the reference's rows (round 17).
+                    self.bookmark_menu17(*x, *y, m);
+                    return Some(true);
                 }
                 self.bookmark_menu9(*x, *y, m);
                 Some(true)

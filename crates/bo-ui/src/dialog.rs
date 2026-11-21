@@ -431,6 +431,20 @@ impl Dialog {
         }
     }
 
+    /// For assistive technology: the title, the dialog's box and each button's label and box
+    /// (window pixels: x, y, width, height).
+    pub fn access_parts(&self) -> (&str, [f32; 4], Vec<(String, [f32; 4])>) {
+        let r = |r: R| [r.x, r.y, r.w, r.h];
+        (
+            &self.title,
+            r(self.frame),
+            self.buttons
+                .iter()
+                .map(|(label, _, b)| (label.clone(), r(*b)))
+                .collect(),
+        )
+    }
+
     /// Whether a window position is over the dialog.
     pub fn contains(&self, x: f32, y: f32) -> bool {
         self.frame.contains(x, y)

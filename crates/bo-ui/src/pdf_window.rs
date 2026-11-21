@@ -125,6 +125,14 @@ pub trait PdfWindow {
     fn autoscroll_step(&mut self, _dy: f32, _ms: f32) -> bool {
         false
     }
+    /// A selection drag is past the view's edge (the host runs a step timer); none by default.
+    fn edge_scroll(&self) -> bool {
+        false
+    }
+    /// Edge timer step after `ms` milliseconds; true when a new frame is needed.
+    fn edge_step(&mut self, _ms: f32) -> bool {
+        false
+    }
 }
 
 impl PdfWindow for ReaderWindow {
@@ -221,13 +229,13 @@ impl PdfWindow for ReaderWindow {
         ReaderWindow::reading11(self)
     }
     fn accessibility(&self) -> Vec<crate::AccessItem> {
-        ReaderWindow::accessibility16(self)
+        ReaderWindow::accessibility17(self)
     }
     fn invoke(&mut self, key: &str, m: &dyn TextMeasure) -> bool {
-        ReaderWindow::invoke12(self, key, m)
+        ReaderWindow::invoke17(self, key, m)
     }
     fn access_focus(&self) -> Option<String> {
-        ReaderWindow::access_focus16(self)
+        ReaderWindow::access_focus17(self)
     }
     fn access_text(&mut self) -> Option<crate::AccessText> {
         ReaderWindow::access_text16(self)
@@ -240,6 +248,12 @@ impl PdfWindow for ReaderWindow {
     }
     fn autoscroll_step(&mut self, dy: f32, ms: f32) -> bool {
         ReaderWindow::autoscroll_step16(self, dy, ms)
+    }
+    fn edge_scroll(&self) -> bool {
+        ReaderWindow::edge_scroll17(self)
+    }
+    fn edge_step(&mut self, ms: f32) -> bool {
+        ReaderWindow::edge_step17(self, ms)
     }
 }
 

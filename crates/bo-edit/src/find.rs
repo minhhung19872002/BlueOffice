@@ -7,6 +7,7 @@
 //! paragraph mark (`\n`), so `^p` matches across paragraph boundaries. Matches never
 //! cross a container (a table cell end is not a paragraph mark).
 
+mod forms;
 mod pattern;
 
 use crate::{EditError, Result};
@@ -29,6 +30,19 @@ pub struct FindOptions {
     /// Wildcard pattern (`?`, `*`, `[a-z]`, `[!x]`, `{n,m}`, `@`, `<`, `>`, `( )`;
     /// replacement uses `\1`). Always case-sensitive; whole word is ignored.
     pub wildcards: bool,
+    /// Sounds like (English): words with the query's Soundex code ("Smith" finds "Smyth").
+    pub sounds_like: bool,
+    /// Find all word forms (English): the query's inflections ("run" finds "runs", "ran",
+    /// "running").
+    pub word_forms: bool,
+    /// Match prefix: the match starts a word.
+    pub match_prefix: bool,
+    /// Match suffix: the match ends a word.
+    pub match_suffix: bool,
+    /// Ignore punctuation characters between the query's letters ("dont" finds "don't").
+    pub ignore_punctuation: bool,
+    /// Ignore white-space characters between the query's letters ("upto" finds "up to").
+    pub ignore_space: bool,
 }
 
 /// A match: body paragraph id and byte range of its index text. A match running over
@@ -88,6 +102,8 @@ enum Mode {
 pub struct Searcher {
     re: regex::Regex,
     mode: Mode,
+    /// Sounds like: the Soundex code a matched word must have.
+    soundex: Option<String>,
 }
 
 impl Searcher {
@@ -103,12 +119,29 @@ impl Searcher {
         } else if opts.wildcards {
             // Wildcard search is always case-sensitive and ignores "whole word".
             (Mode::Wildcard, translate_wildcards(query)?, false)
+        } else if opts.sounds_like {
+            // Any word; the Soundex code decides (`Searcher::accepts`).
+            (Mode::Plain, r"\b\p{L}+\b".to_owned(), true)
         } else {
-            let pat = translate_special(query)?;
-            let pat = if opts.whole_word {
+            let pat = if opts.word_forms {
+                let forms = forms::word_forms(query.trim());
+                let alts: Vec<String> = forms.iter().map(|f| regex::escape(f)).collect();
+                format!(r"\b(?:{})\b", alts.join("|"))
+            } else if opts.ignore_punctuation || opts.ignore_space {
+                loose_pattern(query, opts.ignore_punctuation, opts.ignore_space)
+            } else {
+                translate_special(query)?
+            };
+            let pat = if opts.whole_word && !opts.word_forms {
                 format!(r"\b(?:{pat})\b")
             } else {
                 pat
+            };
+            let pat = match (opts.match_prefix, opts.match_suffix) {
+                (true, true) => format!(r"\b(?:{pat})\b"),
+                (true, false) => format!(r"\b(?:{pat})"),
+                (false, true) => format!(r"(?:{pat})\b"),
+                (false, false) => pat,
             };
             (Mode::Plain, pat, !opts.match_case)
         };
@@ -118,7 +151,18 @@ impl Searcher {
             .size_limit(1 << 22)
             .build()
             .map_err(|e| EditError::Regex(e.to_string()))?;
-        Ok(Self { re, mode })
+        let soundex = (opts.sounds_like && !opts.regex && !opts.wildcards)
+            .then(|| forms::soundex(query.trim()))
+            .flatten();
+        Ok(Self { re, mode, soundex })
+    }
+
+    /// Whether the matched text `m` counts (Sounds like checks its Soundex code).
+    #[must_use]
+    pub fn accepts(&self, m: &str) -> bool {
+        self.soundex
+            .as_deref()
+            .is_none_or(|code| forms::soundex(m).as_deref() == Some(code))
     }
 
     /// The compiled regular expression (over story text, paragraphs joined by `\n`).
@@ -142,6 +186,23 @@ impl Searcher {
             Mode::Plain => expand_replacement(with, Some(caps), false),
         }
     }
+}
+
+/// The query with its punctuation (and / or white space) left out and any run of them
+/// allowed between its other characters.
+fn loose_pattern(query: &str, punct: bool, space: bool) -> String {
+    let skip = |c: char| (punct && c.is_ascii_punctuation()) || (space && c.is_whitespace());
+    let gap = match (punct, space) {
+        (true, true) => r"[\p{P}\s]*",
+        (true, false) => r"\p{P}*",
+        _ => r"\s*",
+    };
+    let chars: Vec<String> = query
+        .chars()
+        .filter(|c| !skip(*c))
+        .map(|c| regex::escape(&c.to_string()))
+        .collect();
+    chars.join(gap)
 }
 
 /// Compile the search pattern.
@@ -239,7 +300,7 @@ pub fn scan(
     for st in stories(doc) {
         for caps in searcher.re.captures_iter(&st.text) {
             let Some(m) = caps.get(0) else { continue };
-            if m.start() == m.end() {
+            if m.start() == m.end() || !searcher.accepts(m.as_str()) {
                 continue;
             }
             if !f(&st, &caps, st.to_match(m.start(), m.end())) {

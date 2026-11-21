@@ -100,6 +100,16 @@ pub struct AutoCorrectOptions {
     pub auto_add_caps: bool,
     /// Other corrections undone right away add the word to [`Self::other_exceptions`].
     pub auto_add_other: bool,
+    /// Enter after a list item that begins with formatted text before punctuation ("**Term**:
+    /// …") starts the next item with that formatting until the same punctuation is typed
+    /// (AutoFormat As You Type › Format beginning of list item like the one before; on).
+    pub format_list_beginning: bool,
+    /// A short line without closing punctuation followed by two Enters becomes Heading 1, after
+    /// n Tabs Heading n+1 (Built-in Heading styles; off, as on the reference).
+    pub builtin_headings: bool,
+    /// A paragraph formatted by hand gets a style of its own based on the one it had (Define
+    /// styles based on your formatting; off, as on the reference).
+    pub define_styles: bool,
 }
 
 impl Default for AutoCorrectOptions {
@@ -136,6 +146,9 @@ impl Default for AutoCorrectOptions {
             auto_add_first: true,
             auto_add_caps: true,
             auto_add_other: true,
+            format_list_beginning: true,
+            builtin_headings: false,
+            define_styles: false,
         }
     }
 }
@@ -182,6 +195,9 @@ impl AutoCorrectOptions {
             auto_add_first: false,
             auto_add_caps: false,
             auto_add_other: false,
+            format_list_beginning: false,
+            builtin_headings: false,
+            define_styles: false,
         }
     }
 

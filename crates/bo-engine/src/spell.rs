@@ -525,6 +525,15 @@ impl Engine {
         } else {
             None
         };
+        // Table cells hold fragments: a small first letter there is not flagged (the reference
+        // leaves "cell one" alone; BlueDoc round 10 capture).
+        let in_cell: BTreeSet<usize> = self.document().map_or_else(BTreeSet::new, |doc| {
+            let paths = bo_model::index::body_paragraphs(doc);
+            ids.iter()
+                .copied()
+                .filter(|id| paths.get(*id).is_some_and(|p| p.len() > 2))
+                .collect()
+        });
         let mut out = Vec::new();
         for (page, l) in lines {
             let LineSource::Body(id) = l.source else {
@@ -541,10 +550,12 @@ impl Engine {
                 .iter()
                 .map(|m| (m.range.clone(), false))
                 .collect();
+            let cell = in_cell.contains(&(id as usize));
             ranges.extend(
                 self.spell
                     .issues(text, sp, style)
                     .into_iter()
+                    .filter(|i| !(cell && i.rule == grammar::Rule::Capitalize))
                     .map(|i| (i.range, true)),
             );
             for (r, grammar) in ranges {

@@ -16,6 +16,7 @@ use std::cell::OnceCell;
 use std::collections::BTreeMap;
 
 mod ac_learn;
+mod autoformat10;
 mod block_sel;
 pub mod blocks;
 #[cfg(feature = "bundled-fonts")]
@@ -72,6 +73,7 @@ pub mod sigline;
 pub mod slide_compare;
 pub mod slide_edit;
 pub mod slide_export;
+mod smart_cut;
 pub mod smartart;
 pub mod speech;
 pub mod spell;
@@ -401,6 +403,10 @@ pub struct Engine {
     block: Option<block_sel::BlockSel>,
     /// The last correction made as you type (AutoCorrect learns when it is undone).
     ac_last: Option<ac_learn::LastCorrection>,
+    /// Smart cut and paste is switched off (BlueDoc round 10; on by default).
+    smart_off: bool,
+    /// The formatted lead the list item being typed starts with (round 10 AutoFormat).
+    list_lead: Option<autoformat10::ListLead>,
 }
 
 impl Engine {

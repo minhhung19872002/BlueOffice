@@ -42,6 +42,8 @@ pub struct ShowStroke {
     pub pts: Vec<(f32, f32)>,
     /// Highlighter (else pen).
     pub highlight: bool,
+    /// Ink colour chosen in Pointer Options › Ink Color (`None`: the tool's default).
+    pub color: Option<Rgba>,
 }
 
 /// State of the show tools.
@@ -70,6 +72,9 @@ pub struct ShowTools {
     pub arrow_mode: u8,
     /// Show clock of the last pointer move.
     pub last_move: f64,
+    /// Pointer Options › Ink Color (round 22): pen and highlighter ink (`None`: red pen,
+    /// yellow highlighter).
+    pub ink: Option<Rgba>,
 }
 
 /// Pen ink (reference default: red) and highlighter (yellow, translucent).
@@ -201,6 +206,7 @@ impl SlideView {
                 self.show_tools.drawing = Some(ShowStroke {
                     pts: vec![self.show_fraction(x, y)],
                     highlight: self.show_tools.pointer == Pointer::Highlighter,
+                    color: self.show_tools.ink,
                 });
                 Some(true)
             }
@@ -316,6 +322,32 @@ impl SlideView {
             }
             "arrow" => {
                 self.set_show_pointer(Pointer::Arrow);
+                true
+            }
+            // Pointer Options › Ink Color: the colour of the next strokes (the pen comes on).
+            c if c.starts_with("ink:") => {
+                let Some(v) = c
+                    .strip_prefix("ink:")
+                    .and_then(|h| u32::from_str_radix(h, 16).ok())
+                else {
+                    return false;
+                };
+                self.show_tools.ink = Some(Rgba((v >> 16) as u8, (v >> 8) as u8, v as u8, 255));
+                if !matches!(self.show_tools.pointer, Pointer::Pen | Pointer::Highlighter) {
+                    self.set_show_pointer(Pointer::Pen);
+                }
+                true
+            }
+            // Pointer Options › Arrow Options: Automatic (hidden after 3 s still), Visible,
+            // Hidden.
+            "arrowAuto" | "arrowVisible" | "arrowHidden" => {
+                self.set_show_pointer(Pointer::Arrow);
+                self.show_tools.arrow_mode = match id {
+                    "arrowAuto" => 2,
+                    "arrowVisible" => 0,
+                    _ => 1,
+                };
+                self.show_tools.last_move = self.clock;
                 true
             }
             "eraseAll" => match self.show_slide() {
@@ -494,9 +526,13 @@ impl SlideView {
         let strokes = self.show_tools.strokes.get(&i).into_iter().flatten();
         for s in strokes.chain(self.show_tools.drawing.as_ref()) {
             let (color, width) = if s.highlight {
-                (HIGHLIGHT, (14.0 * k).max(6.0))
+                (
+                    s.color
+                        .map_or(HIGHLIGHT, |c| Rgba(c.0, c.1, c.2, HIGHLIGHT.3)),
+                    (14.0 * k).max(6.0),
+                )
             } else {
-                (PEN, (2.6 * k).max(2.0))
+                (s.color.unwrap_or(PEN), (2.6 * k).max(2.0))
             };
             let segs: Vec<PathSeg> = s
                 .pts

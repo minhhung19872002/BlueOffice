@@ -312,7 +312,15 @@ pub fn parse_blip_fill(el: &XmlElement) -> BlipFill {
                 let v = |n| attr_int(c, n).unwrap_or(0);
                 b.src_rect = Some([v("l"), v("t"), v("r"), v("b")]);
             }
-            "stretch" => b.stretch = true,
+            "stretch" => {
+                b.stretch = true;
+                // §20.1.8.30 fillRect: insets of the stretched picture.
+                if let Some(f) = c.elements().find(|e| e.local() == "fillRect") {
+                    let v = |n| attr_int(f, n).unwrap_or(0);
+                    let r = [v("l"), v("t"), v("r"), v("b")];
+                    b.fill_rect = r.iter().any(|v| *v != 0).then(|| Box::new(r));
+                }
+            }
             "tile" => b.tile = Some(c.clone()),
             _ => {}
         }
@@ -346,11 +354,15 @@ pub fn write_blip_fill(b: &BlipFill, name: &str) -> XmlElement {
         e = e.child(t.clone());
     }
     if b.stretch {
-        e = e.child(
-            El::new("a:stretch")
-                .child(El::new("a:fillRect").done())
-                .done(),
-        );
+        let mut f = El::new("a:fillRect");
+        if let Some(&[l, t, r, bb]) = b.fill_rect.as_deref() {
+            for (k, v) in [("l", l), ("t", t), ("r", r), ("b", bb)] {
+                if v != 0 {
+                    f = f.a(k, v);
+                }
+            }
+        }
+        e = e.child(El::new("a:stretch").child(f.done()).done());
     }
     e.done()
 }

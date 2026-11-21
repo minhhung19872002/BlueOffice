@@ -138,6 +138,7 @@ mod slide_pickers;
 mod slide_reveal;
 mod slide_ribbon;
 mod slide_show;
+mod slide_textures22;
 mod slide_view;
 mod slide_window;
 mod spell_pane;

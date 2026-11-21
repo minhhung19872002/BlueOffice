@@ -45,6 +45,35 @@ export type SlideMasterCommand =
       preset?: string;
       all?: boolean;
     }
+  /** Gradient with explicit stops (`pos` / `transparency` in %); `path` for radial-like fills. */
+  | {
+      cmd: 'setBackgroundGradient';
+      stops: { pos: number; color: string; transparency?: number }[];
+      path?: 'linear' | 'circle' | 'rect' | 'shape';
+      angle?: number;
+      /** Fill-to rectangle l, t, r, b in %. */
+      focus?: [number, number, number, number];
+      rotate?: boolean;
+      all?: boolean;
+    }
+  /** Picture / texture background; `data` (base64) omitted keeps the current picture. */
+  | {
+      cmd: 'setBackgroundPicture';
+      data?: string;
+      tile?: {
+        tx?: number;
+        ty?: number;
+        sx?: number;
+        sy?: number;
+        algn?: 'tl' | 't' | 'tr' | 'l' | 'ctr' | 'r' | 'bl' | 'b' | 'br';
+        flip?: 'none' | 'x' | 'y' | 'xy';
+      };
+      /** Stretch insets l, t, r, b in %. */
+      offsets?: [number, number, number, number];
+      transparency?: number;
+      rotate?: boolean;
+      all?: boolean;
+    }
   | {
       cmd: 'masterTextStyle';
       style: 'title' | 'body' | 'other';

@@ -132,8 +132,11 @@ fn show_menu_has_the_reference_rows_and_cascades() {
     assert!(first[0] >= row[0] + row[2] - 10.0, "beside the menu");
     let pen = sub.row_rect(1);
     assert_eq!(sub.items()[1].label, "Pen");
-    // The arrow is ticked.
-    assert!(sub.items()[5].checked);
+    // Arrow Options and Ink Color open their own submenus (round 22).
+    assert_eq!(
+        sub.items()[6].choice,
+        Choice::Command("shwsub2:arrowopt".into())
+    );
     w.handle(
         Input::Move {
             x: pen[0] + 20.0,

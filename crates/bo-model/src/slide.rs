@@ -252,6 +252,9 @@ pub struct BlipFill {
     pub src_rect: Option<[i32; 4]>,
     /// §20.1.8.56 stretch/fillRect present.
     pub stretch: bool,
+    /// §20.1.8.30 fillRect l,t,r,b in 1/1000 % (insets of the stretched picture).
+    #[serde(default)]
+    pub fill_rect: Option<Box<[i32; 4]>>,
     /// Raw `a:tile` when tiling.
     pub tile: Option<XmlElement>,
     /// `dpi` attribute.

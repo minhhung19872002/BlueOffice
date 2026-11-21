@@ -100,10 +100,11 @@ const PAGES: [(&str, &str, &str, &str, &[Row]); 5] = [
         "Media",
         "slideR10.help.headMedia",
         "Video and audio",
+        // Round 22: only what the show does — no media keys are listed.
         &[(
             "",
-            "slideR10.help.noMedia",
-            "Media plays as the slide's effects set it; no keys yet.",
+            "slideR22.help.media",
+            "Video and audio show their first frame; the show has no media keys yet.",
         )],
     ),
     (
@@ -125,11 +126,20 @@ const PAGES: [(&str, &str, &str, &str, &[Row]); 5] = [
         "Touch",
         "slideR10.help.headTouch",
         "Touch screens",
-        &[(
-            "",
-            "slideR10.help.noTouch",
-            "Tap to go on; touch gestures are not supported yet.",
-        )],
+        // Round 22: the gestures Windows turns into mouse input, which the show handles.
+        &[
+            ("Tap", "slideR22.help.tap", "Next animation or slide"),
+            (
+                "Press and hold",
+                "slideR22.help.hold",
+                "Open the show menu (Previous, See All Slides, Pointer Options…)",
+            ),
+            (
+                "Two-finger scroll",
+                "slideR22.help.swipe",
+                "Next / previous slide (touchpad)",
+            ),
+        ],
     ),
 ];
 

@@ -814,11 +814,12 @@ mod tests {
         // Dark 2: black header, dark accent bands.
         assert_eq!(g[49 + 1].header.as_deref(), Some("000000"));
         assert_eq!(g[49 + 1].stripe, "305496");
-        // Custom names keep BlueSheet's own palette.
+        // Custom names use the pivot palette, which follows the default theme
+        // (Medium2 = accent 1 of BlueSheet's default theme).
         assert!(!is_builtin("MyStyle"));
         assert_eq!(
             palette("TableStyleMedium2").header_fill.as_deref(),
-            Some("2F6FB3")
+            Some("2F6FB5")
         );
     }
 

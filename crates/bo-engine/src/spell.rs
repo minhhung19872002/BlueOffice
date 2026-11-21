@@ -736,6 +736,26 @@ mod tests {
         assert!(e.spell_at(0, 1.0, 1.0).is_none());
     }
 
+    // source: COM SpellingErrors of the reference word processor on this probe text (BlueDoc
+    // round 9): it flagged exactly PgUp PgDn Fn Cmd ok Xyzzq Blorft Qwz Zzxb abcxyz BlueDoc Ctrls.
+    #[test]
+    fn probe_words_flagged_as_on_the_reference() {
+        let e = engine("x");
+        let probe = "Press Ctrl and Alt and Shift with Esc Del Tab Enter PgUp PgDn Ins Fn Cmd Win \
+                     key PDF USB HTML URL CPU GPU RAM SSD LED NASA DOCX XLSX iPhone eBay \
+                     JavaScript Wi-Fi OK ok Xyzzq Blorft QWZX Qwz Zzxb abcxyz BlueDoc Bluestar \
+                     ctrl alt esc xlsx pdf Ctrls";
+        let flagged: Vec<&str> = probe
+            .split(' ')
+            .filter(|w| !e.spell.speller.check(w))
+            .collect();
+        let reference = [
+            "PgUp", "PgDn", "Fn", "Cmd", "ok", "Xyzzq", "Blorft", "Qwz", "Zzxb", "abcxyz",
+            "BlueDoc", "Ctrls",
+        ];
+        assert_eq!(flagged, reference);
+    }
+
     #[test]
     fn commands_ignore_add_and_switch_off() {
         let mut e = engine("Một tư sai: documnet và BlueOffise.");

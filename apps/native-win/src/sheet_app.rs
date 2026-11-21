@@ -126,6 +126,14 @@ pub fn run() -> Result<(), String> {
     let chosen = default
         .and_then(|d| printers.iter().position(|p| *p == d))
         .unwrap_or(0);
+    // The default printer's paper for sheets without a paper size and its both-sides
+    // ability (File › Print), as the reference takes them from the printer driver.
+    if let Some((paper, duplex)) = printers.get(chosen).and_then(|n| print::defaults(n)) {
+        if paper > 0 {
+            view.view_mut().engine_mut().set_default_paper(Some(paper));
+        }
+        view.set_print_duplex(duplex);
+    }
     view.set_printers(printers, chosen, Vec::new());
     // Insert Hyperlink browses the workbook's folder.
     if let Some(dir) = file.as_ref().and_then(|p| p.parent()) {

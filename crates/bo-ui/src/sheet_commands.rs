@@ -84,6 +84,11 @@ impl SheetWindow {
         let Some(anchor) = self.ribbon.rect_of(RibbonHit::Command(id)) else {
             return false;
         };
+        let ticked = if id.starts_with("sheet.pvt") {
+            self.pivot_menu_current(id)
+        } else {
+            Vec::new()
+        };
         let current = if id == "sheet.numberFormat" {
             let cat = sheet_ribbon::number_category(&self.view.format().num_fmt);
             sheet_ribbon::NUMBER_FORMATS
@@ -101,9 +106,9 @@ impl SheetWindow {
                 } else {
                     label
                 },
-                checked: current.as_deref() == Some(choice.as_str()),
+                checked: current.as_deref() == Some(choice.as_str()) || ticked.contains(&choice),
+                dim: Self::pivot_menu_dim(&choice),
                 choice: Choice::Command(choice),
-                dim: false,
             })
             .collect();
         self.menu = Some(Menu::open(items, anchor, self.size, self.scale));
@@ -637,6 +642,9 @@ impl SheetWindow {
             return Some(r);
         }
         if let Some(r) = self.table_action(id, text) {
+            return Some(r);
+        }
+        if let Some(r) = self.pivot_tab_action(id, text) {
             return Some(r);
         }
         if let Some(r) = self.theme_action(id) {

@@ -170,6 +170,8 @@ pub(crate) struct PrintSettings {
     pub(crate) scaling: u8,
     /// Spooler state of each printer: (error, offline, jobs waiting).
     pub(crate) states: Vec<(bool, bool, u32)>,
+    /// The chosen printer prints on both sides (the reference shows the sides box only then).
+    pub(crate) duplex: bool,
 }
 
 impl Default for PrintSettings {
@@ -185,6 +187,7 @@ impl Default for PrintSettings {
             collated: true,
             scaling: 0,
             states: Vec::new(),
+            duplex: true,
         }
     }
 }
@@ -551,9 +554,9 @@ impl SheetBackstage {
                         self.px(15.0),
                     ],
                 ));
-                for (i, ry) in self.setting_tops().into_iter().enumerate() {
+                for (i, ry) in self.shown_settings().into_iter().zip(self.setting_tops()) {
                     r.push((
-                        Hit::PrintSetting(i as u8),
+                        Hit::PrintSetting(i),
                         [cx + self.px(4.0), ry, self.px(293.0), self.px(51.0)],
                     ));
                 }
@@ -656,8 +659,9 @@ impl SheetBackstage {
         [x, y + self.px(8.0), self.px(180.0), self.px(24.0)]
     }
 
-    /// Printer Properties (under the printer box) and Page Setup (under the settings).
-    fn print_links(&self) -> [[f32; 4]; 2] {
+    /// Printer Properties (under the printer box), Find more print settings and Page Setup
+    /// (under the settings, right-aligned as the reference).
+    fn print_links(&self) -> [[f32; 4]; 3] {
         let cx = self.content_x();
         let tops = self.setting_tops();
         let last = tops.last().copied().unwrap_or(0.0);
@@ -670,8 +674,14 @@ impl SheetBackstage {
             ],
             [
                 cx + self.px(220.0),
-                last + self.px(58.0),
+                last + self.px(84.0),
                 self.px(77.0),
+                self.px(20.0),
+            ],
+            [
+                cx + self.px(143.0),
+                last + self.px(58.0),
+                self.px(154.0),
                 self.px(20.0),
             ],
         ]
@@ -692,6 +702,12 @@ impl SheetBackstage {
         [margins, fit]
     }
 
+    /// The settings boxes shown: printer, range, sides (when the printer prints on both
+    /// sides), collated, orientation, paper, margins, scaling.
+    fn shown_settings(&self) -> Vec<u8> {
+        (0..8u8).filter(|i| *i != 2 || self.print.duplex).collect()
+    }
+
     fn setting_tops(&self) -> Vec<f32> {
         let y = self.top + self.px(262.0);
         // Printer, then Settings: range, (Pages box), sides, collated, orientation, paper,
@@ -700,7 +716,7 @@ impl SheetBackstage {
         let s = y + self.px(122.0);
         v.push(s);
         let mut yy = s + self.px(51.0) + self.px(38.0);
-        for _ in 0..6 {
+        for _ in 2..self.shown_settings().len() {
             v.push(yy);
             yy += self.px(55.0);
         }
@@ -990,12 +1006,20 @@ impl SheetBackstage {
         };
         let light = Font {
             family: "Segoe UI Light",
-            size: self.px(40.0),
+            size: self.px(48.0),
             weight: 300,
             italic: false,
             underline: false,
         };
-        p.text_font(&title, cx, self.top + self.px(8.0), &light, INK);
+        // Measured on the reference at 125 %: the title's capitals 42 px high, their top
+        // 81 px below the window's top, 10 px left of the content.
+        p.text_font(
+            &title,
+            cx - self.px(8.0),
+            self.top + self.px(8.0),
+            &light,
+            INK,
+        );
         match self.page {
             BsPage::Home => self.paint_home(p, t, s),
             BsPage::New => self.paint_new(p, t, s),
@@ -1578,20 +1602,23 @@ impl SheetBackstage {
             t.accent_text,
         );
         let body = self.body();
+        // The folder holding the workbook, as the reference (the file name is the heading).
         let path = match &self.facts.path {
-            Some(path) => path
-                .split(['\\', '/'])
-                .filter(|x| !x.is_empty())
-                .collect::<Vec<_>>()
-                .join(" » "),
+            Some(path) => {
+                let mut parts: Vec<&str> =
+                    path.split(['\\', '/']).filter(|x| !x.is_empty()).collect();
+                parts.pop();
+                parts.join(" » ")
+            }
             None => tr(
                 s,
                 "sheetBs.notSaved",
                 "This workbook has not been saved yet.",
             ),
         };
-        // Clipped before the properties column.
-        let clip_w = (w - self.px(322.0)).max(cx + self.px(640.0)) - cx - self.px(16.0);
+        // The path line runs above the properties column, up to the window's edge (measured:
+        // the reference shows the whole folder at 1500 px).
+        let clip_w = w - cx - self.px(24.0);
         p.push_clip(
             cx,
             self.top + self.px(120.0),
@@ -2130,7 +2157,8 @@ impl SheetBackstage {
             (self.facts.margins.clone(), String::new(), 6),
             (per, per_sub, 7),
         ];
-        for ((label, sub, icon), ry) in boxes.iter().zip(&tops) {
+        let shown = self.shown_settings();
+        for ((label, sub, icon), ry) in boxes.iter().filter(|b| shown.contains(&b.2)).zip(&tops) {
             let r = [cx + self.px(4.0), *ry, self.px(293.0), self.px(51.0)];
             let hover = self.hover == Some(Hit::PrintSetting(*icon));
             p.fill_rect(
@@ -2194,6 +2222,7 @@ impl SheetBackstage {
         for (i, (k, fb)) in [
             ("sheetBs.printerProps", "Printer Properties"),
             ("sheetBs.pageSetup", "Page Setup"),
+            ("sheetBs.morePrint", "Find more print settings"),
         ]
         .into_iter()
         .enumerate()
@@ -2252,12 +2281,14 @@ impl SheetBackstage {
         );
         if let Some((_, r)) = self.preview_rect() {
             p.push_clip(a[0], a[1], a[2], a[3]);
+            // A black outline 2 px wide at 125 % (measured).
+            let e = self.px(1.6);
             p.fill_rect(
-                r[0] - 1.0,
-                r[1] - 1.0,
-                r[2] + 2.0,
-                r[3] + 2.0,
-                Rgba(64, 64, 64, 255),
+                r[0] - e,
+                r[1] - e,
+                r[2] + 2.0 * e,
+                r[3] + 2.0 * e,
+                Rgba(0, 0, 0, 255),
             );
             p.fill_rect(r[0], r[1], r[2], r[3], WHITE);
             p.pop_clip();
@@ -2365,7 +2396,8 @@ impl SheetBackstage {
         );
         let rx = cx + self.px(410.0);
         if self.export == 0 {
-            self.heading(p, &items[0], rx, y + self.px(2.0), 21.0, t.accent_text);
+            let head = tr(s, "sheetBs.createPdfHead", "Create a PDF/XPS Document");
+            self.heading(p, &head, rx, y + self.px(2.0), 21.0, t.accent_text);
             for (i, (k, f)) in [
                 (
                     "sheetBs.pdf1",

@@ -509,6 +509,7 @@ pub(crate) fn menu(id: &str, functions: &[String]) -> Vec<Entry> {
             e("calc.auto", "sheetMenu.calcAuto"),
             e("calc.manual", "sheetMenu.calcManual"),
         ],
+        _ if id.starts_with("sheet.pvt") => crate::sheet_window::pivot_menu(id),
         _ if id.starts_with("sheet.chart") && !crate::sheet_window::chart_menu(id).is_empty() => {
             crate::sheet_window::chart_menu(id)
         }

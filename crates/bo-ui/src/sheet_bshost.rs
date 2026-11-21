@@ -61,6 +61,8 @@ pub(super) struct BsState {
     printers: Vec<String>,
     default_printer: usize,
     states: Vec<(bool, bool, u32)>,
+    /// The chosen printer prints on both sides (host; `None`: not known, the box shows).
+    duplex: Option<bool>,
     /// The open workbook's path and size, given by the host.
     path: Option<String>,
     bytes: Option<u64>,
@@ -111,6 +113,56 @@ fn inches(v: f64) -> String {
 }
 
 /// Text of element `local` (any prefix) in a small XML part.
+/// A W3CDTF UTC time of `docProps/core.xml` (`2026-11-16T05:54:29Z`) in local time as the
+/// reference's Info page shows it (`11/16/2026 12:54 PM`); other text as it is.
+pub(super) fn local_stamp(iso: &str) -> String {
+    local_stamp_at(
+        iso,
+        i64::from(super::UTC_OFFSET.load(std::sync::atomic::Ordering::Relaxed)),
+    )
+}
+
+/// [`local_stamp`] at `offset` minutes from UTC.
+pub(super) fn local_stamp_at(iso: &str, offset: i64) -> String {
+    let s = iso.trim();
+    let num = |a: usize, b: usize| s.get(a..b).and_then(|x| x.parse::<i64>().ok());
+    let (Some(y), Some(mo), Some(d), Some(h), Some(mi)) =
+        (num(0, 4), num(5, 7), num(8, 10), num(11, 13), num(14, 16))
+    else {
+        return s.replace(['T', 'Z'], " ").trim().to_owned();
+    };
+    // Days from the civil date (H. Hinnant's algorithm), then the local offset.
+    let (yy, mm) = if mo <= 2 {
+        (y - 1, mo + 9)
+    } else {
+        (y, mo - 3)
+    };
+    let era = yy.div_euclid(400);
+    let yoe = yy - era * 400;
+    let doy = (153 * mm + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146_097 + doe - 719_468;
+    let t = days * 86_400 + h * 3600 + mi * 60 + offset * 60;
+    let (days, rem) = (t.div_euclid(86_400), t.rem_euclid(86_400));
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    let (hh, min) = (rem / 3600, rem % 3600 / 60);
+    let (h12, ap) = match hh {
+        0 => (12, "AM"),
+        1..=11 => (hh, "AM"),
+        12 => (12, "PM"),
+        _ => (hh - 12, "PM"),
+    };
+    format!("{month}/{day}/{year} {h12}:{min:02} {ap}")
+}
+
 fn element_text(xml: &str, local: &str) -> String {
     let mut from = 0;
     while let Some(i) = xml[from..].find('<') {
@@ -149,6 +201,12 @@ impl SheetWindow {
         self.bs.printers = names;
         self.bs.default_printer = default;
         self.bs.states = states;
+    }
+
+    /// Host: whether the chosen printer prints on both sides (the reference's Print page
+    /// shows the sides box only then).
+    pub fn set_print_duplex(&mut self, duplex: bool) {
+        self.bs.duplex = Some(duplex);
     }
 
     /// Host: the open workbook's file (path and size in bytes).
@@ -350,14 +408,8 @@ impl SheetWindow {
             tags: element_text(&core, "keywords"),
             author: element_text(&core, "creator"),
             last_modified_by: element_text(&core, "lastModifiedBy"),
-            created: element_text(&core, "created")
-                .replace(['T', 'Z'], " ")
-                .trim()
-                .to_owned(),
-            last_modified: element_text(&core, "modified")
-                .replace(['T', 'Z'], " ")
-                .trim()
-                .to_owned(),
+            created: local_stamp(&element_text(&core, "created")),
+            last_modified: local_stamp(&element_text(&core, "modified")),
             protected,
             landscape,
             paper,
@@ -365,6 +417,7 @@ impl SheetWindow {
             page_sizes: vec![page_size; count],
             ..BookFacts::default()
         };
+        let duplex = self.bs.duplex;
         let (printers, states, top, size, scale) = (
             self.bs.printers.clone(),
             self.bs.states.clone(),
@@ -376,6 +429,7 @@ impl SheetWindow {
             b.facts = facts;
             b.print.printers = printers;
             b.print.states = states;
+            b.print.duplex = duplex.unwrap_or(true);
             b.print.scaling = scaling;
             if b.preview >= count.max(1) {
                 b.preview = count.saturating_sub(1);

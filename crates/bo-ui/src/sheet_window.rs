@@ -69,6 +69,8 @@ mod panes_impl;
 mod paste_impl;
 #[path = "sheet_pivotpane.rs"]
 mod pivotpane_impl;
+#[path = "sheet_pivottabs.rs"]
+mod pivottabs_impl;
 #[path = "sheet_protect.rs"]
 mod protect_impl;
 #[path = "sheet_rangepick.rs"]
@@ -103,6 +105,21 @@ pub use viewmode_impl::ViewMode;
 /// Menus of the chart tabs.
 pub(crate) fn chart_menu(id: &str) -> Vec<(String, String)> {
     chart_impl::chart_menu(id)
+}
+
+/// Menus of the PivotTable Analyze / Design tabs.
+pub(crate) fn pivot_menu(id: &str) -> Vec<(String, String)> {
+    pivottabs_impl::pivot_menu(id)
+}
+
+/// Fixed row item widths of the contextual tabs.
+fn context_row_width(id: &str) -> Option<f32> {
+    tabledesign_impl::row_width(id).or_else(|| pivottabs_impl::row_width(id))
+}
+
+/// Fixed large button widths of the contextual tabs (inline style tiles).
+fn context_large_width(id: &str) -> Option<f32> {
+    chart_impl::large_width(id).or_else(|| pivottabs_impl::large_width(id))
 }
 
 /// SmartArt layout families and built-in equations of the Insert tab's menus.
@@ -520,6 +537,9 @@ pub struct SheetWindow {
     chart_data: Option<chartdata_impl::ChartDataState>,
     /// The Table Design tab is shown (the active cell is in a table).
     table_tab: bool,
+    /// The PivotTable Analyze / Design tabs are shown; the Active Field box's caption.
+    pivot_tab: bool,
+    pivot_field_caption: String,
     /// Open Conditional Formatting menu.
     cf_menu: Option<cfmenu_impl::CfMenu>,
     /// Rule of the open simple rule dialog (greaterThan, top, …).
@@ -553,13 +573,13 @@ impl SheetWindow {
                 })
                 .with_trailing(sheet_ribbon::trailing)
                 .with_late_rows(sheet_ribbon::late)
-                .with_large_widths(chart_impl::large_width)
+                .with_large_widths(context_large_width)
                 .with_plain_contextual()
                 .with_two_line_labels()
                 // Measured on the reference's Insert tab at 125 % (round 27): large buttons
                 // 50 px or the label + 6 px; a one-word menu label puts ▾ on its own line.
                 .with_large_metrics(40.0, 5.0)
-                .with_row_widths(tabledesign_impl::row_width)
+                .with_row_widths(context_row_width)
                 .with_mark_on_own_line(),
             wide_ribbon: true,
             theme: Theme::light("sheet"),
@@ -667,6 +687,8 @@ impl SheetWindow {
             chart_sel: None,
             chart_data: None,
             table_tab: false,
+            pivot_tab: false,
+            pivot_field_caption: String::new(),
             cf_menu: None,
             cf_which: String::new(),
             cf_edit: None,
@@ -679,6 +701,7 @@ impl SheetWindow {
         data_impl::add_icons(&mut w.icons);
         chart_impl::add_icons(&mut w.icons);
         tabledesign_impl::add_icons(&mut w.icons);
+        pivottabs_impl::add_icons(&mut w.icons);
         pagelayout_impl::add_icons(&mut w.icons);
         data_impl::install_labels(&mut w.strings);
         reviewtab_impl::install_labels(&mut w.strings);
@@ -973,6 +996,9 @@ impl SheetWindow {
                 } else if self.table_tab {
                     self.ribbon
                         .set_contextual(tabledesign_impl::table_tabs(), false);
+                } else if self.pivot_tab {
+                    self.ribbon
+                        .set_contextual(pivottabs_impl::pivot_tabs(), false);
                 }
                 // The same tab stays active (also a contextual one).
                 self.ribbon.set_active_tab(active);
@@ -2176,6 +2202,7 @@ impl SheetWindow {
         self.paint_check_items(p);
         self.paint_chart_style_tiles(p);
         self.paint_table_checks(p);
+        self.paint_pivot_tabs(p);
     }
 
     /// Formula bar, sheet tabs, scroll bars, status bar, then menus, tooltips and dialogs

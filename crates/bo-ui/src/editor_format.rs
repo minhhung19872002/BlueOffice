@@ -531,7 +531,11 @@ impl EditorWindow {
         // Round 8: a comment tool does not open the pane (nor shrink the page) by itself, as
         // in the reference; its properties show when asked for (`cmt8.props`).
         (matches!(self.edit_tool(), Some(EditTool::Text | EditTool::Object))
-            || (self.comment.tool.is_some() && self.comment_pane8))
+            || (self.comment.tool.is_some() && self.comment_pane8)
+            || matches!(
+                self.tools.tool,
+                Some(crate::editor_tools::BoxTool::Shape(_))
+            ))
             && !self.format_closed
             && self.r.showing_doc()
     }
@@ -540,6 +544,10 @@ impl EditorWindow {
     pub(crate) fn sync_format(&mut self) {
         if !matches!(self.edit_tool(), Some(EditTool::Text | EditTool::Object))
             && self.comment.tool.is_none()
+            && !matches!(
+                self.tools.tool,
+                Some(crate::editor_tools::BoxTool::Shape(_))
+            )
         {
             self.format_closed = false;
             self.comment_pane8 = false;
@@ -588,7 +596,9 @@ impl EditorWindow {
             .find(|h| inside(h.0, x, y))
             .map(|h| h.1);
         if let Some(cmd) = hit {
-            if cmd.starts_with("obj.") {
+            if cmd.starts_with("sh11.") {
+                self.shapes11_command(cmd);
+            } else if cmd.starts_with("obj.") {
                 if !self.split_command(cmd) && !self.image_command(cmd) {
                     self.arrange_command(cmd);
                 }
@@ -693,6 +703,13 @@ impl EditorWindow {
         ));
         if self.comment.tool.is_some() && self.edit_tool() != Some(EditTool::Text) {
             self.paint_comment_props(p, x0, y0);
+            return;
+        }
+        if matches!(
+            self.tools.tool,
+            Some(crate::editor_tools::BoxTool::Shape(_))
+        ) {
+            self.paint_shape_pane11(p, x0, y0);
             return;
         }
         // Edit Object: a text object shows Text Style, Split and Arrange (the pane scrolls),

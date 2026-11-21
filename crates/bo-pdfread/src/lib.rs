@@ -40,6 +40,7 @@ mod exchange_data;
 mod extract;
 mod fallback;
 mod field_detect;
+mod field_props;
 mod filters;
 mod font;
 mod font_subset;
@@ -61,9 +62,11 @@ mod optimize10;
 mod pages_edit;
 mod paragraph;
 mod paragraph_push;
+mod repair;
 mod sanitize;
 mod security10;
 mod sfnt;
+mod shapes11;
 mod sigappear;
 mod store;
 mod stroke_outline;
@@ -94,6 +97,10 @@ pub use edit::{Cipher, Permissions, SaveOptions};
 pub use exchange::SummaryLabels;
 pub use exchange_data::ImportReport;
 pub use extract::ExtractedImage;
+pub use field_props::{
+    format_example, format_scripts, FieldAction, FieldActionKind, FieldCalc, FieldFormat,
+    FieldProps, FieldValidate, CALC_OPS, DATE_FORMATS, FIELD_FONTS, TRIGGERS,
+};
 pub use forms::{FieldKind, FormField};
 pub use forms11::{
     calc_text, parse_simple_calculate, typed_outline, typed_outline_in, typed_width, Calculation,
@@ -116,6 +123,7 @@ pub use paragraph::{text_blocks, Align, BlockEdit, RunStyle, StyleChange, TextBl
 pub use paragraph_push::PushMode;
 pub use sanitize::{ButtonAction, HiddenCounts, HiddenData};
 pub use security10::SecurityInfo;
+pub use shapes11::ShapeStyle;
 pub use sigappear::{signature_appearance, SignatureLook};
 pub use templates::EmbeddedFile;
 pub use text::TextLayer;
@@ -562,7 +570,7 @@ impl PdfDocument {
             .take(1024)
             .position(|w| w == b"%PDF-")
             .ok_or("not a PDF file")?;
-        let bytes = Arc::new(bytes);
+        let mut bytes = Arc::new(bytes);
         // Read objects on demand when the cross-reference information allows (store.rs);
         // encrypted and damaged files load in full as before.
         let lazy = store::Document::open_lazy(&bytes, start)
@@ -571,7 +579,16 @@ impl PdfDocument {
         let (doc, (pages, labelled)) = if let Some((scan, d)) = lazy {
             (d, scan)
         } else {
-            let d = Self::load_full(&bytes[start..], password)?;
+            let d = match Self::load_full(&bytes[start..], password) {
+                Ok(d) => d,
+                // A damaged cross-reference table: rebuilt from the objects found (round 14).
+                Err(e) => {
+                    let fixed = repair::rebuild(&bytes[start..]).ok_or(e.clone())?;
+                    let d = Self::load_full(&fixed, password).map_err(|_| e)?;
+                    bytes = Arc::new(fixed);
+                    d
+                }
+            };
             let scan = scan_pages(&d);
             (d, scan)
         };

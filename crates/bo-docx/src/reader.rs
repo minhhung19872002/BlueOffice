@@ -124,6 +124,8 @@ pub fn read_docx(bytes: &[u8]) -> Result<Document> {
     {
         read_settings(&p.data, &p.name, &mut doc)?;
     }
+    // A file that names no compatibility mode is laid out as an older one.
+    doc.compat_mode.get_or_insert(0);
     let mut media = BTreeMap::new();
     for (rel, notes) in [(REL_FOOTNOTES, true), (REL_ENDNOTES, false)] {
         if let Some(name) = pkg.related_part(&main, rel)? {
@@ -659,6 +661,10 @@ fn read_settings(data: &[u8], part: &str, doc: &mut Document) -> Result<()> {
                 }
                 // §17.15.1.89 trackRevisions (CT_OnOff)
                 b"trackRevisions" => doc.track_revisions = on_off(&e),
+                // [MS-DOCX] §2.3.1 compatSetting `compatibilityMode` (in §17.15.1.21 compat)
+                b"compatSetting" if attr(&e, b"name").as_deref() == Some("compatibilityMode") => {
+                    doc.compat_mode = int(&e, b"val").and_then(|v| u16::try_from(v).ok());
+                }
                 _ => {}
             },
             Event::Eof => break,

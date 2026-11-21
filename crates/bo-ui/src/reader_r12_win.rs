@@ -44,6 +44,8 @@ pub(crate) struct Twelve {
     pub(crate) pw_prompt: Option<(usize, String, bool)>,
     /// Loupe and Magnifier (round 13).
     pub(crate) thirteen: super::r13::Thirteen,
+    /// Store keys of closed tabs, freed at the next `prepare` (round 14).
+    pub(crate) freed14: Vec<usize>,
 }
 
 /// What an element exposed to assistive technology is (UI Automation control types in the
@@ -157,6 +159,10 @@ impl ReaderWindow {
 
     /// Distance between the two lines of a large button's label (19 px at 125 % in BlueReader).
     pub(crate) fn label_pitch12(&self, size: f32) -> f32 {
+        // BlueEditor round 11 (measured on the reference editor at 125 %): 23 px.
+        if self.profile.as_ref().is_some_and(|p| p.app == "BlueEditor") {
+            return self.px(18.4);
+        }
         if self.profile.is_none() {
             self.px(15.2)
         } else {
@@ -272,7 +278,7 @@ impl ReaderWindow {
                     self.item12("select.text", "pdfSelect12.text", text, false),
                     self.item12("select.annot", "pdfSelect12.annot", annot, false),
                 ];
-                self.menu_at(items, r, "tool.select");
+                self.menu_icons14(items, r, "tool.select", &["selectText", "selectAnnot"]);
                 true
             }
             "form.toSheet" if lower => {
@@ -328,7 +334,12 @@ impl ReaderWindow {
             "menu.assistant" => {
                 let items = self.assistant_items13();
                 let r = self.control_rect("menu.assistant").unwrap_or([0.0; 4]);
-                self.menu_at(items, r, "menu.assistant");
+                self.menu_icons14(
+                    items,
+                    r,
+                    "menu.assistant",
+                    &["marquee", "loupe", "magnifier"],
+                );
                 true
             }
             "assist.marquee" => {
@@ -532,12 +543,16 @@ impl ReaderWindow {
                 selected: false,
             });
         }
+        out.extend(self.access14());
         out
     }
 
     /// Run an element of [`Self::accessibility12`] (UI Automation Invoke): a tab is selected,
     /// a command runs as if clicked. Unknown or grey elements do nothing; `true` when run.
     pub fn invoke12(&mut self, key: &str, m: &dyn TextMeasure) -> bool {
+        if self.invoke14(key, m) {
+            return true;
+        }
         if let Some(i) = key
             .strip_prefix("tab:")
             .and_then(|v| v.parse::<usize>().ok())

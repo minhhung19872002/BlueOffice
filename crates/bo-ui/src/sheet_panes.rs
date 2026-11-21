@@ -37,6 +37,9 @@ const CATS: [(&str, &str); 5] = [
 
 /// Rules: category, id (keys `sheetAcc.<id>`, `sheetAcc.<id>Why`, `sheetAcc.<id>Fix`),
 /// title, reason and fix fallbacks.
+/// Index in [`RULES`] of the default sheet name rule (`out[6]` of `acc_check`).
+const DEFAULT_NAME_RULE: usize = 6;
+
 const RULES: [(usize, &str, &str, &str, &str); 8] = [
     (
         0,
@@ -269,7 +272,14 @@ impl SheetWindow {
 
     /// Issues in the whole workbook (status bar).
     pub(super) fn acc_issue_count(&self) -> usize {
-        self.acc_check().iter().map(Vec::len).sum()
+        // Default sheet names are a tip in the pane only: the reference's status bar stays
+        // "Good to go" on a workbook whose sheets keep their default names (round 61).
+        self.acc_check()
+            .iter()
+            .enumerate()
+            .filter(|(rule, _)| *rule != DEFAULT_NAME_RULE)
+            .map(|(_, v)| v.len())
+            .sum()
     }
 
     /// Review › Check Accessibility: open (or close) the pane.
@@ -410,6 +420,19 @@ impl SheetWindow {
                 }
                 Some(self.acc_press(lx, ly, text))
             }
+            // A field dragged out of the PivotTable Fields pane: inside, it moves; dropped
+            // outside, it is taken out of the report (as the reference does).
+            Input::Release { x, y } if self.acc.is_none() && self.pivot_drag.is_some() => {
+                if inside(x, y) {
+                    let lx = (x - r[0]) / (self.scale / 1.25);
+                    let ly = (y - r[1]) / (self.scale / 1.25);
+                    Some(self.pivot_release(lx, ly))
+                } else {
+                    let (from, f, ..) = self.pivot_drag.take()?;
+                    Some(self.pivot_item_command("remove", from, f))
+                }
+            }
+            Input::Drag { .. } if self.acc.is_none() && self.pivot_drag.is_some() => Some(false),
             Input::Drag { x, y } | Input::Release { x, y } if inside(x, y) => Some(false),
             _ => None,
         }

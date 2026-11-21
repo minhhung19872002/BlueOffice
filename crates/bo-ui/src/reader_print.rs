@@ -158,6 +158,15 @@ enum Part {
     PerSheet,
     Order,
     Border,
+    /// "Custom…" columns and rows with their spinners, the Margins check box and box (round 14).
+    Cols,
+    ColsUp,
+    ColsDown,
+    Rows,
+    RowsUp,
+    RowsDown,
+    MarginCheck,
+    MarginText,
     BookletSubset,
     Binding,
     Rotate,
@@ -186,9 +195,12 @@ enum Field {
     Scale,
     TileZoom,
     Overlap,
+    Cols,
+    Rows,
+    Margin,
 }
 
-/// Pages per sheet offered, in order.
+/// Pages per sheet offered, in order (then "Custom…").
 const PER_SHEET: [u8; 5] = [2, 4, 6, 9, 16];
 /// Print What choices in the reference's order.
 const WHAT: [PrintWhat; 5] = [
@@ -275,6 +287,12 @@ pub struct PrintDialog {
     per_sheet: u8,
     order: PageOrder,
     border: bool,
+    /// Round 14: "Custom…" columns × rows, the Margins check box and its value (inch).
+    custom: bool,
+    cols: Vec<char>,
+    rows: Vec<char>,
+    margin_on: bool,
+    margin_text: Vec<char>,
     booklet_sides: BookletSides,
     right_binding: bool,
     duplex: bool,
@@ -363,6 +381,12 @@ impl PrintDialog {
             per_sheet: 4,
             order: PageOrder::Horizontal,
             border: false,
+            custom: false,
+            cols: vec!['2'],
+            rows: vec!['2'],
+            // The reference: Margins ticked, 0.200 inch.
+            margin_on: true,
+            margin_text: "0.200".chars().collect(),
             booklet_sides: BookletSides::Both,
             right_binding: false,
             duplex: false,
@@ -485,6 +509,8 @@ impl PrintDialog {
         };
         let portrait = base.size.0 <= base.size.1;
         let landscape = match self.orientation {
+            // Round 14: a booklet is printed on landscape paper (the reference's preview).
+            _ if self.handling == Handling::Booklet => true,
             Orientation::Portrait => false,
             Orientation::Landscape => true,
             Orientation::Auto => self.pages().first().is_some_and(|&i| {
@@ -599,7 +625,8 @@ impl PrintDialog {
         match part {
             Part::Printer => self.printers.len(),
             Part::Subset | Part::Orientation | Part::BookletSubset => 3,
-            Part::What | Part::PerSheet => 5,
+            Part::What => 5,
+            Part::PerSheet => 6,
             Part::Order => 4,
             Part::Binding => 2,
             _ => 0,
@@ -613,6 +640,7 @@ impl PrintDialog {
             Part::Subset => usize::from(self.subset),
             Part::Orientation => self.orientation as usize,
             Part::What => WHAT.iter().position(|w| *w == self.what).unwrap_or(1),
+            Part::PerSheet if self.custom => PER_SHEET.len(),
             Part::PerSheet => PER_SHEET
                 .iter()
                 .position(|n| *n == self.per_sheet)
@@ -649,10 +677,10 @@ impl PrintDialog {
                 "pdfPrint.whatForms",
                 "pdfPrint.whatAnnots",
             ]),
-            Part::PerSheet => PER_SHEET
-                .get(i)
-                .map(ToString::to_string)
-                .unwrap_or_default(),
+            Part::PerSheet => PER_SHEET.get(i).map_or_else(
+                || s.get("pdfPrint14.custom").to_owned(),
+                ToString::to_string,
+            ),
             Part::Order => key(&[
                 "pdfPrint.orderH",
                 "pdfPrint.orderHR",
@@ -682,7 +710,12 @@ impl PrintDialog {
                 ][i.min(2)];
             }
             Part::What => self.what = WHAT[i.min(4)],
-            Part::PerSheet => self.per_sheet = PER_SHEET[i.min(4)],
+            Part::PerSheet => {
+                self.custom = i >= PER_SHEET.len();
+                if !self.custom {
+                    self.per_sheet = PER_SHEET[i];
+                }
+            }
             Part::Order => self.order = ORDERS[i.min(3)],
             Part::BookletSubset => self.booklet_sides = SIDES[i.min(2)],
             Part::Binding => self.right_binding = i == 1,
@@ -739,7 +772,12 @@ impl PrintDialog {
                 Range::View => self.view.map(|v| v.1),
                 _ => None,
             },
-            orientation: self.orientation,
+            // Round 14: booklets go on landscape paper (as previewed).
+            orientation: if self.handling == Handling::Booklet {
+                Orientation::Landscape
+            } else {
+                self.orientation
+            },
             what: self.what,
             as_image: self.as_image,
             overprint: self.overprint,
@@ -750,6 +788,13 @@ impl PrintDialog {
             margins: self.sub.margins_pt(),
             bleed: self.bleed && self.handling == Handling::Scale,
         })
+    }
+
+    /// Summarize Comments is offered: the reference enables it whether or not the document has
+    /// comments (round 14, measured on a document without any).
+    pub(super) fn summarize_on14(&self) -> bool {
+        let _ = self.has_comments;
+        true
     }
 
     /// The document has comments (Summarize Comments is offered).
@@ -765,10 +810,13 @@ impl PrintDialog {
                 per_sheet: self.per_sheet,
                 order: self.order,
                 border: self.border,
+                margin: self.margin14(),
+                custom: self.custom.then(|| self.grid14()),
             },
             Handling::Booklet => PrintLayout::Booklet {
                 sides: self.booklet_sides,
                 right_binding: self.right_binding,
+                margin: self.margin14(),
             },
             Handling::Tile => {
                 let zoom: String = self.tile_zoom.iter().collect();
@@ -924,16 +972,36 @@ impl PrintDialog {
                     .push((Part::PaperByPage, r(28.8, 584.0, 360.0, 20.0)));
             }
             Handling::Multiple => {
+                // Round 14, measured on the reference at 125 %: Pages per sheet 117 px wide,
+                // "Custom…" adds columns × rows boxes with spinners; Page Order; Margins
+                // (check box, box, inch); Print Page Border.
                 self.parts
-                    .push((Part::PerSheet, r(160.0, 462.0, 120.0, 26.0)));
-                self.parts.push((Part::Order, r(160.0, 498.0, 180.0, 26.0)));
-                self.parts.push((Part::Border, r(28.0, 536.0, 240.0, 20.0)));
+                    .push((Part::PerSheet, r(160.0, 462.0, 96.0, 26.0)));
+                if self.custom {
+                    for (box_, up, down, x) in [
+                        (Part::Cols, Part::ColsUp, Part::ColsDown, 264.0),
+                        (Part::Rows, Part::RowsUp, Part::RowsDown, 348.0),
+                    ] {
+                        self.parts.push((box_, r(x, 462.0, 40.0, 26.0)));
+                        self.parts.push((up, r(x + 40.0, 462.0, 14.0, 13.0)));
+                        self.parts.push((down, r(x + 40.0, 475.0, 14.0, 13.0)));
+                    }
+                }
+                self.parts.push((Part::Order, r(160.0, 498.0, 176.0, 26.0)));
+                self.parts
+                    .push((Part::MarginCheck, r(28.0, 536.0, 110.0, 20.0)));
+                self.parts
+                    .push((Part::MarginText, r(160.0, 533.0, 48.0, 26.0)));
+                self.parts.push((Part::Border, r(28.0, 572.0, 240.0, 20.0)));
             }
             Handling::Booklet => {
+                // The reference's order: Binding, Booklet subset, Margins.
                 self.parts
-                    .push((Part::BookletSubset, r(160.0, 462.0, 180.0, 26.0)));
+                    .push((Part::Binding, r(160.0, 462.0, 164.0, 26.0)));
                 self.parts
-                    .push((Part::Binding, r(160.0, 498.0, 120.0, 26.0)));
+                    .push((Part::BookletSubset, r(160.0, 498.0, 129.0, 26.0)));
+                self.parts
+                    .push((Part::MarginText, r(160.0, 533.0, 48.0, 26.0)));
             }
             Handling::Tile => {
                 // Reference: Page Zoom / Overlap boxes 124 × 34 px at x 209, spinners after.
@@ -1056,7 +1124,7 @@ impl PrintDialog {
             Part::Bleed if self.handling != Handling::Scale => {}
             Part::Bleed => self.bleed = !self.bleed,
             Part::Summarize => {
-                if self.has_comments {
+                if self.summarize_on14() {
                     return Some(PrintAction::Summarize);
                 }
             }
@@ -1153,8 +1221,52 @@ impl PrintDialog {
             }
             Part::Ok => return self.settings().map(PrintAction::Print),
             Part::Cancel | Part::Close => return Some(PrintAction::Cancel),
+            Part::Cols => self.focus = Field::Cols,
+            Part::Rows => self.focus = Field::Rows,
+            p @ (Part::ColsUp | Part::ColsDown | Part::RowsUp | Part::RowsDown) => {
+                let up = matches!(p, Part::ColsUp | Part::RowsUp);
+                let t = if matches!(p, Part::ColsUp | Part::ColsDown) {
+                    &mut self.cols
+                } else {
+                    &mut self.rows
+                };
+                let v = t.iter().collect::<String>().parse::<i32>().unwrap_or(2);
+                *t = (v + if up { 1 } else { -1 })
+                    .clamp(1, 32)
+                    .to_string()
+                    .chars()
+                    .collect();
+                self.preview_at = 0;
+            }
+            Part::MarginCheck => {
+                self.margin_on = !self.margin_on;
+                self.preview_at = 0;
+            }
+            Part::MarginText if self.handling == Handling::Multiple && !self.margin_on => {}
+            Part::MarginText => self.focus = Field::Margin,
         }
         None
+    }
+
+    /// Columns × rows typed after "Custom…".
+    fn grid14(&self) -> (u8, u8) {
+        let n = |t: &[char]| {
+            t.iter()
+                .collect::<String>()
+                .parse::<u8>()
+                .unwrap_or(1)
+                .clamp(1, 32)
+        };
+        (n(&self.cols), n(&self.rows))
+    }
+
+    /// The Margins box in points (0 when unticked for several pages per sheet).
+    fn margin14(&self) -> f32 {
+        if self.handling == Handling::Multiple && !self.margin_on {
+            return 0.0;
+        }
+        let v: String = self.margin_text.iter().collect();
+        v.parse::<f32>().unwrap_or(0.0).clamp(0.0, 5.0) * 72.0
     }
 
     /// Typed text: page list, custom scale or copies.
@@ -1172,7 +1284,21 @@ impl PrintDialog {
             }
             return;
         }
-        if self.focus == Field::TileZoom {
+        if matches!(self.focus, Field::Cols | Field::Rows) {
+            let t = if self.focus == Field::Cols {
+                &mut self.cols
+            } else {
+                &mut self.rows
+            };
+            t.extend(s.chars().filter(char::is_ascii_digit));
+            t.truncate(2);
+            self.preview_at = 0;
+        } else if self.focus == Field::Margin {
+            self.margin_text
+                .extend(s.chars().filter(|c| c.is_ascii_digit() || *c == '.'));
+            self.margin_text.truncate(6);
+            self.preview_at = 0;
+        } else if self.focus == Field::TileZoom {
             self.tile_zoom
                 .extend(s.chars().filter(char::is_ascii_digit));
             self.tile_zoom.truncate(4);
@@ -1218,7 +1344,13 @@ impl PrintDialog {
                 return Some(PrintAction::Cancel);
             }
             Key::Backspace => {
-                if self.focus == Field::TileZoom {
+                if self.focus == Field::Cols {
+                    self.cols.pop();
+                } else if self.focus == Field::Rows {
+                    self.rows.pop();
+                } else if self.focus == Field::Margin {
+                    self.margin_text.pop();
+                } else if self.focus == Field::TileZoom {
                     self.tile_zoom.pop();
                 } else if self.focus == Field::Overlap {
                     self.overlap.pop();
@@ -1494,6 +1626,9 @@ impl PrintDialog {
                 self.collate,
                 s.get("pdfPrint.collate"),
             );
+        } else if self.collate {
+            // Round 14: the reference shows it ticked and grey with one copy.
+            self.check_grey_on14(p, self.rect(Part::Collate), s.get("pdfPrint.collate"));
         } else {
             self.check_off(p, self.rect(Part::Collate), s.get("pdfPrint.collate"));
         }
@@ -1583,7 +1718,10 @@ impl PrintDialog {
         // Both sides, rotate and centre (an untitled group like the reference's).
         self.group(p, "", [479.0, 132.0, 316.0, 235.0]);
         // Round 12: Tile Large Pages and Booklet fix both sides (grey, like the reference).
-        if matches!(self.handling, Handling::Tile | Handling::Booklet) {
+        if self.handling == Handling::Booklet {
+            // Round 14: a booklet is printed on both sides: ticked and grey (the reference).
+            self.check_grey_on14(p, self.rect(Part::Duplex), s.get("pdfPrint.duplex"));
+        } else if self.handling == Handling::Tile {
             self.check_off(p, self.rect(Part::Duplex), s.get("pdfPrint.duplex"));
         } else {
             self.check(
@@ -1638,7 +1776,7 @@ impl PrintDialog {
             &what,
             self.drop == Some(Part::What),
         );
-        if self.has_comments {
+        if self.summarize_on14() {
             self.button(p, Part::Summarize, s.get("pdfPrint.summarize"), false);
         } else {
             self.button_off(p, Part::Summarize, s.get("pdfPrint.summarize"));
@@ -1834,11 +1972,8 @@ impl PrintDialog {
         );
         let nr = self.rect(Part::NextPage);
         let page_of = s
-            .get(if self.handling == Handling::Scale {
-                "pdfPrint.pageOf"
-            } else {
-                "pdfPrint.sheetOf"
-            })
+            // Round 14: the reference says "Page n of m" for sheets too.
+            .get("pdfPrint.pageOf")
             .replace("{{n}}", &at_n.to_string())
             .replace("{{total}}", &n.to_string());
         self.text_in(
@@ -1861,6 +1996,24 @@ impl PrintDialog {
     }
 
     /// A check box that is not offered: grey box and label.
+    /// A ticked check box that cannot be changed (measured: 195 grey box, white tick).
+    fn check_grey_on14(&self, p: &mut dyn Painter, r: [f32; 4], label: &str) {
+        let b = self.px(12.8);
+        let (bx, by) = (r[0] + 1.0, (r[1] + (r[3] - b) / 2.0).round());
+        p.fill_rect(bx, by, b, b, Rgba(195, 195, 195, 255));
+        let k = b / 4.0;
+        p.path(
+            &[
+                PathSeg::M(bx + k * 0.9, by + b / 2.0),
+                PathSeg::L(bx + b / 2.0 - k / 4.0, by + b - k * 1.1),
+                PathSeg::L(bx + b - k * 0.9, by + k * 1.1),
+            ],
+            None,
+            Some((WHITE, self.scale.max(1.0))),
+        );
+        self.text_in(p, label, r, b + self.px(6.4), GREY_TEXT);
+    }
+
     fn check_off(&self, p: &mut dyn Painter, r: [f32; 4], label: &str) {
         let b = self.px(12.8);
         let (bx, by) = (r[0] + 1.0, (r[1] + (r[3] - b) / 2.0).round());
@@ -2000,12 +2153,51 @@ impl PrintDialog {
             }
             Handling::Multiple => {
                 caption(p, Part::PerSheet, "pdfPrint.perSheet");
+                let n = if self.custom {
+                    s.get("pdfPrint14.custom").to_owned()
+                } else {
+                    self.per_sheet.to_string()
+                };
                 self.combo(
                     p,
                     self.rect(Part::PerSheet),
-                    &self.per_sheet.to_string(),
+                    &n,
                     self.drop == Some(Part::PerSheet),
                 );
+                if self.custom {
+                    for (box_, up, down, f, t) in [
+                        (
+                            Part::Cols,
+                            Part::ColsUp,
+                            Part::ColsDown,
+                            Field::Cols,
+                            &self.cols,
+                        ),
+                        (
+                            Part::Rows,
+                            Part::RowsUp,
+                            Part::RowsDown,
+                            Field::Rows,
+                            &self.rows,
+                        ),
+                    ] {
+                        let text: String = t.iter().collect();
+                        self.field(p, self.rect(box_), self.focus == f, &text, caret);
+                        self.spinner(p, up, true);
+                        self.spinner(p, down, false);
+                    }
+                    let c = self.rect(Part::ColsUp);
+                    let rr = self.rect(Part::Rows);
+                    let st = self.style();
+                    let xw = st.size * 0.5;
+                    self.text_in(
+                        p,
+                        "x",
+                        [c[0] + c[2], rr[1], 0.0, rr[3]],
+                        ((rr[0] - c[0] - c[2] - xw) / 2.0).round(),
+                        TEXT,
+                    );
+                }
                 caption(p, Part::Order, "pdfPrint.order");
                 let order = match self.order {
                     PageOrder::Horizontal => "pdfPrint.orderH",
@@ -2021,12 +2213,21 @@ impl PrintDialog {
                 );
                 self.check(
                     p,
+                    self.rect(Part::MarginCheck),
+                    self.margin_on,
+                    s.get("pdfPrint14.margins"),
+                );
+                self.margin_box14(p, s, caret, self.margin_on);
+                self.check(
+                    p,
                     self.rect(Part::Border),
                     self.border,
                     s.get("pdfPrint.border"),
                 );
             }
             Handling::Booklet => {
+                caption(p, Part::MarginText, "pdfPrint14.margins");
+                self.margin_box14(p, s, caret, true);
                 caption(p, Part::BookletSubset, "pdfPrint.bookletSubset");
                 let sides = match self.booklet_sides {
                     BookletSides::Both => "pdfPrint.bothSides",
@@ -2094,6 +2295,28 @@ impl PrintDialog {
                 );
             }
         }
+    }
+}
+
+impl PrintDialog {
+    /// The Margins box and its unit (grey when the check box is off).
+    fn margin_box14(&self, p: &mut dyn Painter, s: &Strings, caret: bool, on: bool) {
+        let r = self.rect(Part::MarginText);
+        let text: String = self.margin_text.iter().collect();
+        if on {
+            self.field(p, r, self.focus == Field::Margin, &text, caret);
+        } else {
+            p.fill_rect(r[0], r[1], r[2], r[3], GROUP);
+            p.fill_rect(r[0] + 1.0, r[1] + 1.0, r[2] - 2.0, r[3] - 2.0, CAPTION);
+            self.text_in(p, &text, r, self.px(3.2), GREY_TEXT);
+        }
+        self.text_in(
+            p,
+            s.get("pdfPrint.inch"),
+            [r[0] + r[2], r[1], 0.0, r[3]],
+            self.px(8.8),
+            if on { TEXT } else { GREY_TEXT },
+        );
     }
 }
 
@@ -2176,6 +2399,8 @@ mod tests {
                 per_sheet: 4,
                 order: PageOrder::HorizontalReversed,
                 border: true,
+                margin: 0.2_f32 * 72.0,
+                custom: None,
             }
         );
         assert_eq!(d.sheet_count(), 3);
@@ -2189,6 +2414,7 @@ mod tests {
             PrintLayout::Booklet {
                 sides: BookletSides::Both,
                 right_binding: true,
+                margin: 0.2_f32 * 72.0,
             }
         );
         assert_eq!(s.duplex, Duplex::ShortEdge);
@@ -2293,8 +2519,8 @@ mod tests {
         assert_eq!(&order[order.len() - 2..], &[Part::Ok, Part::Cancel]);
         let pos = |p: Part| order.iter().position(|q| *q == p).expect("part");
         // Greyed controls are not tab stops (Bleed Marks is offered since round 9; Summarize
-        // only with comments).
-        assert!(!order.contains(&Part::Summarize) && !order.contains(&Part::Collate));
+        // always since round 14, like the reference's).
+        assert!(order.contains(&Part::Summarize) && !order.contains(&Part::Collate));
         assert!(order.contains(&Part::Bleed));
         // Bleed Marks marks every page printed; Summarize Comments closes the dialog.
         let (x, y) = centre(&d, Part::Bleed);
@@ -2425,5 +2651,57 @@ mod tests {
             d.key(Key::Escape, Mods::default()),
             Some(PrintAction::Cancel)
         );
+    }
+
+    #[test]
+    fn custom_grid_margins_and_landscape_booklet() {
+        let mut d = PrintDialog::new(vec!["A".into()], None, 10, 0);
+        d.layout(&Fixed, (1600.0, 1000.0), 1.25);
+        let click = |d: &mut PrintDialog, part| {
+            let (x, y) = centre(d, part);
+            d.press(x, y)
+        };
+        click(&mut d, Part::Handling(Handling::Multiple));
+        // "Custom…" is the last item; it shows the columns × rows boxes.
+        click(&mut d, Part::PerSheet);
+        assert_eq!(d.item_count(Part::PerSheet), 6);
+        click(&mut d, Part::Item(5));
+        assert!(d.rect(Part::Cols)[2] > 0.0);
+        click(&mut d, Part::ColsUp);
+        click(&mut d, Part::Rows);
+        d.key(Key::Backspace, Mods::default());
+        d.text("1");
+        // Margins 0.5 inch.
+        click(&mut d, Part::MarginText);
+        for _ in 0..5 {
+            d.key(Key::Backspace, Mods::default());
+        }
+        d.text("0.5");
+        assert_eq!(
+            d.settings().unwrap().layout,
+            PrintLayout::Multiple {
+                per_sheet: 4,
+                order: PageOrder::Horizontal,
+                border: false,
+                margin: 36.0,
+                custom: Some((3, 1)),
+            }
+        );
+        // 10 pages, 3 per sheet.
+        assert_eq!(d.sheet_count(), 4);
+        // Unticked Margins: no space, and the box takes no typing.
+        click(&mut d, Part::MarginCheck);
+        assert!(matches!(
+            d.settings().unwrap().layout,
+            PrintLayout::Multiple { margin, .. } if margin == 0.0
+        ));
+        // Booklet: landscape paper, pages upright; Binding comes first like the reference.
+        click(&mut d, Part::Handling(Handling::Booklet));
+        assert!(d.rect(Part::Binding)[1] < d.rect(Part::BookletSubset)[1]);
+        let paper = d.paper();
+        assert!(paper.size.0 > paper.size.1);
+        let s = d.settings().unwrap();
+        assert_eq!(s.orientation, Orientation::Landscape);
+        assert!(d.shown().iter().all(|it| !it.turn));
     }
 }

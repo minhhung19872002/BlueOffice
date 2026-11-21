@@ -246,10 +246,12 @@ pub fn run_style(doc: &Document, fonts: &mut FontManager, rp: &RunProps) -> Opti
 
 /// Colours used to tell revision authors apart (BlueDoc palette).
 const AUTHOR_COLORS: [Color; 8] = [
+    // The first reviewer: the red desktop word processors give the first author "by
+    // author" (measured #D13438 on the reference, BlueDoc round 6).
     Color {
-        r: 0xB3,
-        g: 0x26,
-        b: 0x1E,
+        r: 0xD1,
+        g: 0x34,
+        b: 0x38,
     },
     Color {
         r: 0x1F,
@@ -297,10 +299,26 @@ pub const MOVE_COLOR: Color = Color {
     b: 0x3E,
 };
 
-/// Stable colour of a revision author.
+thread_local! {
+    /// Reviewers in the order they were first seen (layout runs in document order), so the
+    /// first author gets the first colour, the next one the second, as word processors
+    /// colour changes "by author".
+    static AUTHORS: std::cell::RefCell<Vec<u64>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Colour of a revision author: by order of appearance, stable for the process.
 pub fn author_color(author: &str) -> Color {
     let h = bo_model::fingerprint(author);
-    AUTHOR_COLORS[(h % AUTHOR_COLORS.len() as u64) as usize]
+    let i = AUTHORS.with(|a| {
+        let mut a = a.borrow_mut();
+        if let Some(i) = a.iter().position(|k| *k == h) {
+            i
+        } else {
+            a.push(h);
+            a.len() - 1
+        }
+    });
+    AUTHOR_COLORS[i % AUTHOR_COLORS.len()]
 }
 
 /// Apply the tracked-change display (ECMA-376 Part 1, §17.13.5) to a run style.

@@ -15,7 +15,14 @@ use form::{Form, Kind};
 
 #[path = "doc_forms5.rs"]
 mod r5;
+
+#[path = "doc_options6.rs"]
+pub(crate) mod options6;
+
+#[path = "doc_forms7.rs"]
+mod r7;
 pub(crate) use r5::{open_manage_styles, ManagedStyle};
+pub(crate) use r7::INSPECT;
 
 use crate::strings::Strings;
 use crate::{Font, Input, Key, Painter, TextMeasure};
@@ -65,6 +72,14 @@ pub(crate) enum DocFormKind {
     FindRecipient,
     /// Styles pane › Manage Styles.
     ManageStyles,
+    /// Picture / Shape Format › Alt Text (round 7).
+    AltText,
+    /// File › Info › Protect Document › Encrypt with Password.
+    Encrypt,
+    /// File › Info › Check for Issues › Inspect Document.
+    Inspect,
+    /// File › Info › Check for Issues › Check Compatibility.
+    Compatibility,
 }
 
 /// What the owner does after an input.
@@ -93,6 +108,8 @@ pub(crate) enum FormOut {
     Compare(Option<(String, String)>, (String, String)),
     /// Date and Time › Set As Default: this format (index into [`DATE_PICTURES`]).
     DateDefault(usize),
+    /// Document Inspector: inspect these categories, or remove everything of one.
+    Inspect(Vec<String>, Option<String>),
 }
 
 /// A radio button drawn on a canvas control.
@@ -714,6 +731,7 @@ impl DocForm {
             }
             (DocFormKind::CrossRef | DocFormKind::Language, "list") => self.ok(),
             (k, _) if r5::handles(k) => self.r5_clicked(id),
+            (k, _) if r7::handles(k) => self.r7_clicked(id),
             (DocFormKind::DateTime, "setDefault") => FormOut::DateDefault(
                 self.sel("formats")
                     .unwrap_or(0)
@@ -1084,6 +1102,10 @@ impl DocForm {
             | DocFormKind::MatchFields
             | DocFormKind::FindRecipient
             | DocFormKind::ManageStyles => self.r5_ok(),
+            DocFormKind::AltText
+            | DocFormKind::Encrypt
+            | DocFormKind::Inspect
+            | DocFormKind::Compatibility => self.r7_ok(),
             DocFormKind::Zoom => {
                 let pct = match self.chosen("zoom") {
                     Some("z200") => "200".to_owned(),
@@ -3015,6 +3037,10 @@ pub(crate) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
         | DocFormKind::MatchFields
         | DocFormKind::FindRecipient
         | DocFormKind::ManageStyles => r5::open(kind, s, c),
+        DocFormKind::AltText
+        | DocFormKind::Encrypt
+        | DocFormKind::Inspect
+        | DocFormKind::Compatibility => r7::open(kind, s),
         DocFormKind::Zoom => {
             let mut f = DocForm::new(kind, &tr("docR4.zoomTitle", "Zoom"), (381.0, 258.0), vec![]);
             f.label(

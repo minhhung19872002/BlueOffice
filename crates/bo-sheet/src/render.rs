@@ -816,6 +816,24 @@ impl Renderer<'_> {
                 buttons.push((t.range.first.row, col, active));
             }
         }
+        // Pivot tables in compact layout: field buttons on the "Row Labels" / "Column Labels"
+        // headers (§18.10.1.73 `compact`, `location/@firstDataRow`, `@firstHeaderRow`).
+        for pt in &self.ws.pivots {
+            if pt.layout != bo_model::sheet::PivotLayout::Compact {
+                continue;
+            }
+            let at = pt.location.first;
+            if !pt.rows.is_empty() && pt.first_data_row > 0 {
+                buttons.push((at.row + pt.first_data_row - 1, at.col, false));
+            }
+            if !pt.cols.is_empty() && pt.first_header_row > 0 {
+                buttons.push((
+                    at.row + pt.first_header_row - 1,
+                    at.col + pt.first_data_col,
+                    false,
+                ));
+            }
+        }
         for (row, col, active) in buttons {
             if !p.rows.contains(&row)
                 || self.geom.row_height(row) <= 0.0

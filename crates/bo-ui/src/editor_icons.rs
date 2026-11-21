@@ -48,6 +48,9 @@ pub(crate) fn shape(name: &str) -> &'static [Part] {
         "drawing" => &[S("M3 4h9v7H3z"), A("M16.5 7.5a4 4 0 1 0 .01 0z M4 20l6-5 M14 21l7-7")],
         "stamp" => &[S("M9.5 3.5h5v6.5l4 2.5v3h-13v-3l4-2.5z"), A("M4 20h16")],
         // Form tab.
+        // Round 11: Protect › Settings (a page with two sliders) and Sensitivity (a tag).
+        "secSettings" => &[S("M5 2.5h10l4 4v15H5z M15 2.5v4h4 M8 11h8 M8 16h8"), A("M10.5 9.5v3 M13.5 14.5v3")],
+        "sensitivity" => &[S("M3 4h9l9 9-8 8-9-9V4z"), A("M7.5 8.5a1.5 1.5 0 1 0 .01 0z")],
         "properties" => &[S("M4 4h16v16H4z M8 9h8 M8 13h8 M8 17h5"), A("M7 4v3 M12 4v3 M17 4v3")],
         "fieldButton" => &[S("M3 7h18v10H3z"), A("M8 12h8")],
         "fieldCheck" => &[S("M4 4h16v16H4z"), A("M7.5 12.5l3 3 6-7")],

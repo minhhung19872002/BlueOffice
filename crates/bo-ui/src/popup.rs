@@ -150,7 +150,8 @@ impl Menu {
         } else {
             below_top
         };
-        let current = items.iter().position(|i| i.checked);
+        // A ticked row that cannot be chosen is not the current one (BlueEditor round 11).
+        let current = items.iter().position(|i| i.checked && !i.dim);
         let mut m = Self {
             items,
             x: left,
@@ -191,6 +192,11 @@ impl Menu {
         self.icons = icons;
         self.separators = separators;
         self
+    }
+
+    /// Whether any row has an icon.
+    pub fn has_icons(&self) -> bool {
+        self.icons.iter().any(Option::is_some)
     }
 
     /// A faint shadow spread on every side, as Windows 11 menus (BlueEditor round 9).
@@ -399,7 +405,22 @@ impl Menu {
                     t.hover,
                 );
             }
-            if item.checked {
+            if item.checked && item.dim {
+                // Ticked but unavailable (the reference PDF editor's Unrestricted Access): a
+                // grey check mark, no band.
+                let k = (4.0 * s).round();
+                let cx = self.x + self.pad() + (10.0 * s).round();
+                let cy = y.round() + self.item_h / 2.0;
+                p.path(
+                    &[
+                        PathSeg::M(cx - k, cy),
+                        PathSeg::L(cx - k / 3.0, cy + k * 0.7),
+                        PathSeg::L(cx + k * 1.2, cy - k),
+                    ],
+                    None,
+                    Some((Rgba(0xA0, 0xA0, 0xA0, 255), (1.6 * s).max(1.5))),
+                );
+            } else if item.checked {
                 // The current value: grey fill, darker frame and a check mark, as a desktop
                 // word processor marks it (198 / 128).
                 let (x0, w0) = (self.x + self.pad(), self.w - 2.0 * self.pad());

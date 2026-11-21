@@ -84,7 +84,7 @@ struct State {
     /// Header/footer/note list counters at the end of pagination.
     end_other_lists: ListCounters,
     section_start: Vec<Option<usize>>,
-    hf_heights: Vec<(f32, f32)>,
+    hf_heights: Vec<crate::flow::HfHeights>,
     /// Note numbers the layout used (per page with §17.11.19 numRestart eachPage).
     notes: HashMap<NoteKey, String>,
     /// Note numbers of the scan of the document (before per-page numbering).
@@ -292,8 +292,9 @@ fn new_ctx<'a>(
 }
 
 /// A flow with one (empty) checkpoint and built-block slot per top-level block.
-fn new_flow(doc: &Document, hf: Vec<(f32, f32)>) -> Flow {
+fn new_flow(doc: &Document, hf: Vec<crate::flow::HfHeights>) -> Flow {
     let mut flow = Flow::new(hf, doc.sections.len());
+    flow.even_odd = doc.even_and_odd_headers;
     flow.cps = doc
         .sections
         .iter()
@@ -619,6 +620,7 @@ impl IncrementalLayout {
         // layout: kept when the pages' notes stay the same (checked below).
         ctx.notes.clone_from(&st.notes);
         let mut flow = Flow::new(st.hf_heights.clone(), doc.sections.len());
+        flow.even_odd = doc.even_and_odd_headers;
         flow.pages = pages;
         for (s, v) in st.section_start.iter().enumerate().take(rs + 1) {
             flow.section_start[s] = *v;
@@ -782,24 +784,29 @@ impl IncrementalLayout {
     }
 }
 
-/// Header/footer heights per section (they push the body when taller than the
-/// margin, ECMA-376 Part 1, §17.6.11 pgMar header/footer) and whether any header
+/// Header/footer heights per section and variant (default, first, even: they push the
+/// body when taller than the margin, ECMA-376 Part 1, §17.6.11 pgMar header/footer;
+/// each page uses its own variant, §17.10.5, §17.10.6 titlePg) and whether any header
 /// or footer has fields.
-fn hf_heights(ctx: &mut Ctx<'_>, doc: &Document) -> Result<(Vec<(f32, f32)>, bool), LayoutError> {
+fn hf_heights(
+    ctx: &mut Ctx<'_>,
+    doc: &Document,
+) -> Result<(Vec<crate::flow::HfHeights>, bool), LayoutError> {
     let mut hf = Vec::with_capacity(doc.sections.len());
     let mut hf_fields = false;
     for (si, s) in doc.sections.iter().enumerate() {
         let w = content_width(s);
-        let mut heights = (0.0f32, 0.0f32);
+        let mut heights = [(0.0f32, 0.0f32); 3];
         for header in [true, false] {
             for v in 0..3u8 {
                 if let Some(blocks) = hf_blocks(doc, si, header, v) {
                     hf_fields |= blocks_have_fields(blocks);
                     let h = stack_blocks(ctx, blocks, w, false, None)?.h;
+                    let slot = &mut heights[usize::from(v)];
                     if header {
-                        heights.0 = heights.0.max(h);
+                        slot.0 = h;
                     } else {
-                        heights.1 = heights.1.max(h);
+                        slot.1 = h;
                     }
                 }
             }

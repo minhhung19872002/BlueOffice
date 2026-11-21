@@ -187,7 +187,8 @@ fn accessibility_pane_docks_lists_issues_and_fixes_them() {
     // Default sheet name ("Sheet1" with data) is the only issue.
     assert_eq!(p.issues[6].len(), 1);
     assert_eq!(p.issues.iter().map(Vec::len).sum::<usize>(), 1);
-    assert!(w.acc_status_text().contains("Investigate"));
+    // A tip only: the status bar stays "Good to go", as the reference's (round 61).
+    assert!(w.acc_status_text().contains("Good to go"));
     // Details, then Rename Sheet starts renaming the tab.
     w.pane_detail(6);
     assert_eq!(w.acc.as_ref().and_then(|p| p.detail), Some((6, 0)));
@@ -319,7 +320,9 @@ fn new_pivot_table_opens_its_fields_pane_and_ticks_build_the_report() {
     assert!(w.form.as_ref().is_some_and(|f| !f.on("model")));
     w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
     assert!(w.form.is_none());
-    assert_eq!(w.view().sheet(), 1, "a new sheet");
+    // A new sheet, in front of the source sheet (round 58).
+    assert_eq!(w.view().sheet(), 0, "a new sheet");
+    assert_eq!(w.view().sheet_names().len(), 2);
     let pane = w.pivot.clone().expect("fields pane");
     assert_eq!(
         pane.fields.iter().map(|f| f.0.as_str()).collect::<Vec<_>>(),
@@ -336,7 +339,7 @@ fn new_pivot_table_opens_its_fields_pane_and_ticks_build_the_report() {
         .map(|(r, c)| {
             w.view()
                 .engine()
-                .cell(1, r, c)
+                .cell(0, r, c)
                 .map(|d| d.display)
                 .unwrap_or_default()
         })

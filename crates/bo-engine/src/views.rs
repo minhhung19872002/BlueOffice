@@ -110,6 +110,69 @@ pub enum FormatMarkKind {
     CellEnd,
     /// End of a table row (¤ right of the row, §17.4.79 tr).
     RowEnd,
+    /// Optional hyphen (¬, §17.3.3.29 softHyphen).
+    OptionalHyphen,
+}
+
+/// Kinds of formatting marks shown one by one (File › Options › Display: Tab characters,
+/// Spaces, Paragraph marks, Hidden text, Optional hyphens, Object anchors). Line, page and
+/// column breaks and the cell / row ends go with the paragraph marks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct MarkKinds {
+    /// Tab characters (→).
+    pub tabs: bool,
+    /// Spaces (·, ° for no-break spaces).
+    pub spaces: bool,
+    /// Paragraph marks (¶) with breaks and table cell / row ends.
+    pub paragraphs: bool,
+    /// Hidden text (§17.3.2.41 vanish) is shown.
+    pub hidden: bool,
+    /// Optional hyphens (¬).
+    pub optional_hyphens: bool,
+    /// Object anchors.
+    pub anchors: bool,
+}
+
+impl MarkKinds {
+    /// Every kind (the ¶ button).
+    pub fn all() -> Self {
+        MarkKinds {
+            tabs: true,
+            spaces: true,
+            paragraphs: true,
+            hidden: true,
+            optional_hyphens: true,
+            anchors: true,
+        }
+    }
+
+    /// Some kind of mark is shown.
+    pub fn any(&self) -> bool {
+        self.tabs
+            || self.spaces
+            || self.paragraphs
+            || self.hidden
+            || self.optional_hyphens
+            || self.anchors
+    }
+
+    /// Marks of `kind` are shown.
+    pub fn shows(&self, kind: FormatMarkKind) -> bool {
+        use FormatMarkKind as K;
+        match kind {
+            K::Tab => self.tabs,
+            K::Space | K::NoBreakSpace => self.spaces,
+            K::Anchor => self.anchors,
+            K::OptionalHyphen => self.optional_hyphens,
+            K::Paragraph
+            | K::LineBreak
+            | K::PageBreak
+            | K::ColumnBreak
+            | K::CellEnd
+            | K::RowEnd => self.paragraphs,
+        }
+    }
 }
 
 /// A formatting mark on a page (points), drawn by the view only (never printed).
@@ -203,6 +266,15 @@ impl Engine {
         self.show_marks
     }
 
+    /// The kinds of formatting marks shown (every kind while all marks are shown).
+    pub fn formatting_mark_kinds(&self) -> MarkKinds {
+        if self.show_marks {
+            MarkKinds::all()
+        } else {
+            self.mark_kinds
+        }
+    }
+
     /// Formatting marks of a laid-out page (body text, table cells included).
     pub fn formatting_marks(&self, index: usize) -> Vec<FormatMark> {
         let (Some(s), Some(page)) = (
@@ -267,6 +339,7 @@ impl Engine {
                     '\u{2028}' => FormatMarkKind::LineBreak,
                     '\u{000C}' => FormatMarkKind::PageBreak,
                     '\u{000B}' => FormatMarkKind::ColumnBreak,
+                    '\u{00AD}' => FormatMarkKind::OptionalHyphen,
                     OBJECT if anchors.contains(&off) => FormatMarkKind::Anchor,
                     _ => continue,
                 };
@@ -289,6 +362,8 @@ impl Engine {
                 out.push(m);
             }
         }
+        let kinds = self.formatting_mark_kinds();
+        out.retain(|m| kinds.shows(m.kind));
         out
     }
 
@@ -412,11 +487,19 @@ impl Engine {
                 }
                 Ok(Some(self.edit_result(dirty, (None, None, None), None)?))
             }
-            Command::ShowFormattingMarks { on } => {
-                let dirty = if self.show_marks == *on {
+            Command::ShowFormattingMarks { on, kinds } => {
+                let next = kinds.unwrap_or(self.mark_kinds);
+                let hidden = |all: bool, k: &MarkKinds| all || k.hidden;
+                let dirty = if self.show_marks == *on && next == self.mark_kinds {
                     Vec::new()
+                } else if hidden(self.show_marks, &self.mark_kinds) == hidden(*on, &next) {
+                    // Only marks change: the text stays where it is; redraw every page.
+                    self.show_marks = *on;
+                    self.mark_kinds = next;
+                    (0..self.layout.document().pages.len()).collect()
                 } else {
                     self.show_marks = *on;
+                    self.mark_kinds = next;
                     // Hidden text (§17.3.2.41 vanish) comes and goes with the marks.
                     self.view_changed = true;
                     let mut d = self.relayout()?;

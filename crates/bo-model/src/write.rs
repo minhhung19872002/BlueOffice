@@ -261,6 +261,21 @@ pub struct Document {
     pub glossary: Option<Arc<crate::glossary::Glossary>>,
     /// Source package the document was read from (`None` for a new document).
     pub source: Option<Arc<SourcePackage>>,
+    /// Layout version the file asks for ([MS-DOCX] §2.3.1 `w:compatSetting`
+    /// `compatibilityMode`, inside ECMA-376 Part 1 §17.15.1.21 compat): 15 for files of
+    /// current desktop word processors, 14 / 12 for older ones, `Some(0)` when a read
+    /// file names none. `None` is a document created here (saved as 15).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compat_mode: Option<u16>,
+}
+
+impl Document {
+    /// Lines are laid out as current desktop word processors do (compatibility mode 15
+    /// or a new document): e.g. a justified line may narrow its spaces to keep a word.
+    #[must_use]
+    pub fn modern_layout(&self) -> bool {
+        self.compat_mode.is_none_or(|m| m >= 15)
+    }
 }
 
 /// Document-wide page background and theme (Design tab).

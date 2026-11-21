@@ -109,6 +109,17 @@ impl PdfDocument {
         Ok(())
     }
 
+    /// Subject of comment `a` (`/Subj`, ISO 32000-1 §12.5.6.2 Table 170), shown in its pop-up
+    /// note's header (BlueReader round 14).
+    pub fn annot_subject(&self, a: &Annot) -> Option<String> {
+        let d = self.doc.get_dictionary(a.id?).ok()?;
+        let s = crate::resolve(&self.doc, d.get(b"Subj").ok()?)
+            .as_str()
+            .ok()?;
+        let s = crate::text_string(s).trim().to_owned();
+        (!s.is_empty()).then_some(s)
+    }
+
     /// Whether comment `a` has a pop-up note.
     pub fn has_popup(&self, a: &Annot) -> bool {
         a.id.and_then(|id| self.doc.get_dictionary(id).ok())

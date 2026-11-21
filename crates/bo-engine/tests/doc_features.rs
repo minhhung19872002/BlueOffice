@@ -741,32 +741,66 @@ fn corpus_structure_and_story_revisions() {
     }
 }
 
-#[test]
-fn corpus_long_footnotes_continue() {
-    for name in [
-        "notes-05-long-footnote.docx",
-        "notes-06-continuation-notice.docx",
-        "notes-07-document-note-settings.docx",
-    ] {
-        let e = corpus(name);
-        let l = e.layout().unwrap();
-        // Some footnote has lines on two pages.
-        let mut pages: std::collections::HashMap<i32, Vec<usize>> =
-            std::collections::HashMap::default();
-        for (pi, p) in l.pages.iter().enumerate() {
-            for x in &p.lines {
-                if let bo_layout::LineSource::Note {
-                    endnote: false, id, ..
-                } = x.source
-                {
-                    let v = pages.entry(id).or_default();
-                    if !v.contains(&pi) {
-                        v.push(pi);
-                    }
+/// Pages (indices, in order) holding lines of each footnote, by note id.
+fn footnote_pages(e: &Engine) -> std::collections::BTreeMap<i32, Vec<usize>> {
+    let l = e.layout().unwrap();
+    let mut pages = std::collections::BTreeMap::<i32, Vec<usize>>::new();
+    for (pi, p) in l.pages.iter().enumerate() {
+        for x in &p.lines {
+            if let bo_layout::LineSource::Note {
+                endnote: false, id, ..
+            } = x.source
+            {
+                let v = pages.entry(id).or_default();
+                if !v.contains(&pi) {
+                    v.push(pi);
                 }
             }
         }
-        assert!(pages.values().any(|v| v.len() > 1), "{name}: {pages:?}");
+    }
+    pages
+}
+
+/// notes-06 with its long footnote (id 3) made three times as long (66 paragraphs),
+/// so it no longer fits on one page and must continue onto the next.
+fn longer_than_a_page_footnote() -> Engine {
+    let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/corpus/doc/notes-06-continuation-notice.docx");
+    let mut pkg =
+        bo_opc::Package::read(&std::fs::read(p).unwrap(), &bo_opc::Limits::default()).unwrap();
+    let xml = String::from_utf8(pkg.part("/word/footnotes.xml").unwrap().data.clone()).unwrap();
+    let start = xml.find(r#"<w:footnote w:id="3">"#).unwrap();
+    let end = start + xml[start..].find("</w:footnote>").unwrap();
+    // Paragraphs after the first one (which carries the footnote reference mark).
+    let rest_at = start + xml[start..end].find("</w:p>").unwrap() + "</w:p>".len();
+    let rest = &xml[rest_at..end];
+    let longer = format!("{}{rest}{rest}{}", &xml[..end], &xml[end..]);
+    pkg.put_part("/word/footnotes.xml", longer.into_bytes());
+    let mut e = Engine::with_bundled_fonts();
+    e.open(&pkg.write().unwrap(), "long-note.docx").unwrap();
+    e
+}
+
+/// A footnote that fits on one page is kept whole on the page of its reference
+/// (body lines move to the next page instead), as the reference word processor
+/// lays out notes-05/06/07 (black-box, 2026-11-22: every note on its reference page).
+#[test]
+fn corpus_long_footnotes_stay_whole() {
+    for (name, expected) in [
+        ("notes-05-long-footnote.docx", vec![(2, vec![1])]),
+        (
+            "notes-06-continuation-notice.docx",
+            vec![(2, vec![0]), (3, vec![1])],
+        ),
+        (
+            "notes-07-document-note-settings.docx",
+            vec![(2, vec![0]), (3, vec![2])],
+        ),
+    ] {
+        let e = corpus(name);
+        assert_eq!(e.layout().unwrap().pages.len(), 3, "{name}");
+        let pages: Vec<(i32, Vec<usize>)> = footnote_pages(&e).into_iter().collect();
+        assert_eq!(pages, expected, "{name}");
     }
     // §17.11.11 document-wide numFmt upperRoman, numStart 3.
     let e = corpus("notes-05-long-footnote.docx");
@@ -774,7 +808,15 @@ fn corpus_long_footnotes_continue() {
         .lines
         .iter()
         .any(|l| l.fragments.iter().any(|f| f.text == "III"))));
-    let e = corpus("notes-06-continuation-notice.docx");
+}
+
+/// A footnote longer than a page continues onto the next page, with the
+/// continuation notice (§17.11.1 `continuationNotice`) under the first part.
+#[test]
+fn footnote_longer_than_a_page_continues() {
+    let e = longer_than_a_page_footnote();
+    let pages = footnote_pages(&e);
+    assert!(pages[&3].len() > 1, "{pages:?}");
     let all: String = e
         .layout()
         .unwrap()
@@ -788,14 +830,14 @@ fn corpus_long_footnotes_continue() {
 
 #[test]
 fn continued_footnote_is_edited_on_its_second_page() {
-    let mut e = corpus("notes-05-long-footnote.docx");
+    let mut e = longer_than_a_page_footnote();
+    let pi = footnote_pages(&e)[&3][1];
     let l = e.layout().unwrap();
-    let pi = l.pages.len() - 1;
     let line = l.pages[pi]
         .lines
         .iter()
-        .find(|x| matches!(x.source, bo_layout::LineSource::Note { .. }))
-        .expect("continued note lines on the last page")
+        .find(|x| matches!(x.source, bo_layout::LineSource::Note { id: 3, .. }))
+        .expect("continued note lines on its second page")
         .clone();
     let y = line.top + line.height / 2.0;
     let r = cmd(

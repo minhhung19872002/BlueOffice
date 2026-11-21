@@ -417,6 +417,10 @@ fn item_commands_opaque(item: &PageItem, out: &mut Vec<Command>) {
             color,
             style,
         } => {
+            // Table gridlines are drawn by the view over the page, never into it.
+            if style == bo_layout::GRID_STYLE {
+                return;
+            }
             let color: Rgba = (*color).into();
             let mut line = |off: f32, w: f32| {
                 let horizontal = (y1 - y2).abs() < f32::EPSILON;

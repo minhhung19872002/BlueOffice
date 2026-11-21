@@ -1560,7 +1560,13 @@ impl crate::Engine {
         if let Some(r) = self.math_command(&cmd)? {
             return Ok(r);
         }
+        if let Some(s) = self.session.as_mut() {
+            s.set_typing_runs(self.typing_runs);
+        }
+        let labels = self.undo_labels_before();
+        let (kind, typed) = Self::undo_label_of(&cmd);
         let mut r = self.command_inner(cmd, now)?;
+        self.undo_labels_after(labels, &kind, typed, &r);
         if self.math.is_some() {
             self.math_decorate(&mut r);
         }

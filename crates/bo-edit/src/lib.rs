@@ -1347,6 +1347,8 @@ pub struct Session {
     /// Formatting applied to the next typed text (collapsed-selection formatting).
     pending: Option<RunProps>,
     typing: bool,
+    /// Typing joins one undo step across words ([`Session::set_typing_runs`]).
+    typing_runs: bool,
     /// The equation (its start) last edited in place by typing ([`Session::replace_equation`]
     /// with `group`): the next such edit of it joins the same undo step.
     math_group: Option<Pos>,
@@ -1432,6 +1434,7 @@ impl Session {
             redo: Vec::new(),
             pending: None,
             typing: false,
+            typing_runs: false,
             math_group: None,
             version: 0,
             block_spans_at: std::cell::RefCell::new(None),
@@ -3250,6 +3253,12 @@ impl Session {
         self.undo.len()
     }
 
+    /// Typed characters join one undo step across word boundaries until the caret moves or
+    /// another edit runs (the desktop word processor's grouping), instead of one per word.
+    pub fn set_typing_runs(&mut self, on: bool) {
+        self.typing_runs = on;
+    }
+
     /// The next typed character starts a new undo step (no merging into the last one).
     pub fn end_typing(&mut self) {
         self.typing = false;
@@ -3347,7 +3356,7 @@ impl Session {
                 prev.after = last.after;
             }
         }
-        self.typing = !text.ends_with(char::is_whitespace);
+        self.typing = self.typing_runs || !text.ends_with(char::is_whitespace);
         Ok(result)
     }
 
@@ -4807,8 +4816,9 @@ impl Session {
                 let after = text.get(hi..).and_then(|t| t.chars().next());
                 let whole = word.chars().any(char::is_alphanumeric)
                     && word.trim_end().chars().all(char::is_alphanumeric);
-                let closes =
-                    |c: char| c == ' ' || matches!(c, ',' | '.' | ';' | ':' | '!' | '?' | ')' | ']');
+                let closes = |c: char| {
+                    c == ' ' || matches!(c, ',' | '.' | ';' | ':' | '!' | '?' | ')' | ']')
+                };
                 if whole && before == Some(' ') && after.is_some_and(closes) {
                     lo -= 1;
                 }

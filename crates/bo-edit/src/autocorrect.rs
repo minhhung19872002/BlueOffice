@@ -527,7 +527,15 @@ fn word_rules(
         && !word.chars().any(|c| c.is_ascii_digit());
     // "a." / "a)" may be an enumeration: leave single letters before them alone.
     let marker = matches!(typed, '.' | ')') && word.chars().count() == 1;
-    if plain && !marker && typed != '.' && (prefix.is_empty() || prefix.ends_with(is_boundary)) {
+    // A sentence that opens with a quotation mark keeps its first letter (the reference
+    // leaves `"hi" it's` alone, BlueDoc round 8).
+    let quoted = word.starts_with(['"', '\'', '\u{201c}', '\u{2018}', '\u{ab}']);
+    if plain
+        && !marker
+        && !quoted
+        && typed != '.'
+        && (prefix.is_empty() || prefix.ends_with(is_boundary))
+    {
         if let Some(r) = sentence_start(prefix, ctx, opts) {
             word = upper_first(&word);
             rule.get_or_insert(r);

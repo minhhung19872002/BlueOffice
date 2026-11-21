@@ -609,6 +609,39 @@ pub(crate) fn stack_blocks(
 
 // ------------------------------------------------------------------ tables
 
+thread_local! {
+    /// Lay out table gridlines ([`GRID_STYLE`] rules on cell edges without a border) for a
+    /// view that shows them (BlueDoc's View Gridlines); off by default, never drawn by
+    /// `bo-render` (the view draws them over the page). Per thread: the engine lays out on
+    /// the thread that owns it.
+    static TABLE_GRID: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Style name of a table gridline rule (view only, not part of the document).
+pub const GRID_STYLE: &str = "viewGrid";
+
+/// Turn [`GRID_STYLE`] rules on or off for later layouts on this thread.
+pub fn set_table_grid(on: bool) {
+    TABLE_GRID.with(|g| g.set(on));
+}
+
+/// A gridline rule from (`x1`, `y1`) to (`x2`, `y2`).
+fn grid_rule(x1: f32, y1: f32, x2: f32, y2: f32) -> PageItem {
+    PageItem::Rule {
+        x1,
+        y1,
+        x2,
+        y2,
+        width: 0.5,
+        color: Color {
+            r: 0x93,
+            g: 0x93,
+            b: 0x93,
+        },
+        style: GRID_STYLE.into(),
+    }
+}
+
 /// A laid-out cell.
 #[derive(Debug, Clone)]
 pub(crate) struct CellBox {
@@ -1555,6 +1588,21 @@ pub(crate) fn row_band(
         }
         if let Some(b) = right {
             band.items.push(rule(b, x1, 0.0, x1, h));
+        }
+        // Gridlines where a cell edge has no border (View Gridlines).
+        if TABLE_GRID.with(std::cell::Cell::get) {
+            if top.is_none() && (force_top || !c.continued) {
+                band.items.push(grid_rule(x0, 0.0, x1, 0.0));
+            }
+            if bottom.is_none() && (force_bottom || !c.merged_below) {
+                band.items.push(grid_rule(x0, h, x1, h));
+            }
+            if left.is_none() {
+                band.items.push(grid_rule(x0, 0.0, x0, h));
+            }
+            if right.is_none() {
+                band.items.push(grid_rule(x1, 0.0, x1, h));
+            }
         }
     }
     // After the cells' lines (the first line of a row stays its first cell's).

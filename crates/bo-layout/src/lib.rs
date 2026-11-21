@@ -34,7 +34,7 @@ mod sigline;
 mod style;
 mod types;
 
-pub use blocks::TableMeasure;
+pub use blocks::{set_table_grid, TableMeasure, GRID_STYLE};
 pub use charfx::{FxPaint, FxReflection, FxRgba, FxShadow, TextFx};
 pub use incremental::{measure_table, IncrementalLayout, UpdateKind};
 pub use markup::{

@@ -1712,6 +1712,7 @@ impl Flow {
         let mut n = pb.lines.len();
         let mut i = 0;
         let mut segments: Vec<(usize, f32, f32, f32)> = Vec::new(); // (page, col x, y0, y1)
+        let mut ends_on_break = false;
         while i < n {
             if (self.col_w() - part_w).abs() > 0.01 && self.sides.is_empty() {
                 if let Some(p) = src {
@@ -1769,6 +1770,7 @@ impl Flow {
                 segments.push((page_idx, col_x, y0, self.y));
             }
             let last = &pb.lines[i - 1];
+            ends_on_break = i == n && last.brk != Brk::None;
             match last.brk {
                 Brk::Page => self.new_page(),
                 Brk::Column => {
@@ -1791,6 +1793,12 @@ impl Flow {
                     }
                 }
             }
+        }
+        if ends_on_break {
+            // A paragraph ending in a page / column break (§17.3.3.1 br) leaves its space
+            // after behind: the next page starts with the next paragraph at the margin
+            // (measured black-box, docs/ui/REPORT.md "Dàn trang vòng 3", office-04).
+            return Ok(());
         }
         self.y += pb.space_after;
         self.prev = Some(Prev {

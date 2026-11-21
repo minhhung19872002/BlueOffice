@@ -1125,3 +1125,58 @@ fn the_footnote_separator_takes_the_normal_paragraph_spacing() {
     let plain = body_lines(0);
     assert!(body_lines(480) < plain, "{plain}");
 }
+
+/// §17.6.11 pgMar top / header: the body starts at the top margin, or below the header when
+/// the header ends lower (measured black-box, cal-34: header at 36 pt with two Calibri
+/// 11 pt lines ends at 62.9 pt, body at 72 pt; three lines push the body to 76.3 pt; a
+/// 2 cm margin with the header at 35.45 pt and two lines starts the body at 62.3 pt).
+#[test]
+fn the_body_starts_at_the_top_margin_or_below_the_header() {
+    let top = |lines: usize, margin: i32, header: i32| {
+        let mut d = doc(vec![calibri_para(&[("Calibri", "body")])]);
+        let s = &mut d.sections[0];
+        s.page.margin_top = Twips(margin);
+        s.page.header = Twips(header);
+        s.headers.default = Some(
+            (0..lines)
+                .map(|i| calibri_para(&[("Calibri", &format!("header {i}"))]))
+                .collect(),
+        );
+        lines_top(&run(&d))
+    };
+    assert!(near(top(2, 1440, 720), 72.0), "{}", top(2, 1440, 720));
+    assert!(near(top(3, 1440, 720), 36.0 + 3.0 * CALIBRI_LINE));
+    assert!(near(top(2, 1134, 709), 35.45 + 2.0 * CALIBRI_LINE));
+}
+
+fn lines_top(l: &LayoutDocument) -> f32 {
+    l.pages[0]
+        .lines
+        .iter()
+        .filter(|x| matches!(x.source, LineSource::Body(_)))
+        .map(|x| x.top)
+        .fold(f32::MAX, f32::min)
+}
+/// A paragraph ending in a page break leaves its space after behind: the next page starts
+/// with the next paragraph at the top margin (measured black-box, office-04).
+#[test]
+fn a_page_break_paragraph_leaves_its_space_after_behind() {
+    let mut brk = Run::text("", RunProps::default());
+    brk.content = vec![RunContent::PageBreak];
+    let d = doc(vec![
+        Block::Paragraph(Paragraph::new(
+            ParaProps {
+                space_before: Some(Twips(0)),
+                space_after: Some(Twips(240)),
+                line_spacing: Some(SINGLE),
+                ..ParaProps::default()
+            },
+            vec![brk],
+        )),
+        para("next page", 240, 0, SINGLE),
+    ]);
+    let l = run(&d);
+    let next = lines(&l, 1)[0];
+    assert_eq!(l.page_text(1).trim(), "next page");
+    assert!(near(next.top, 72.0), "{}", next.top);
+}

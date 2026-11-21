@@ -407,3 +407,72 @@ layout-01 trang 2: bản đối chiếu cho phần giãn của dòng bội số 
 áp dụng ở đáy trang thì layout-01 96,0 → 96,5 % nhưng gen-11 (chú thích) 100 → 98,4 %, nên chưa nhận (cần đo riêng
 khi trang có chú thích); gen-14 drop cap,
 sections-04, images-03 là giới hạn của bộ chấm (chữ hoa thả và chân trang tách đoạn, ảnh không chữ).
+
+## Dàn trang vòng 3 — BlueDoc so với trình soạn thảo đối chiếu (2026-11-22)
+
+Cách chấm như vòng 2 (PDF xuất bằng COM trong instance riêng trên bản sao scratch, không in; BlueDoc
+`bo-cli convert`/`render`; raster 96 dpi + `bo-pdfread`). Corpus mở rộng thêm **20 tài liệu văn phòng Việt Nam tự
+sinh** (`tests/corpus/doc/office-01..20`, `crates/bo-cli/src/corpus/office.rs`, cả 20 qua OpenXmlValidator): công
+văn / quyết định với bảng 2 cột đầu văn bản, "Điều 1." có khoản, tờ trình đánh số I./1./a), báo cáo có mục lục TOC
+dẫn chấm, "Trang X/Y", section ngang, hộp văn bản, ảnh trong ô bảng, bảng dài lặp tiêu đề, chú thích cuối trang +
+cuối văn bản, Times New Roman / Arial 10–16 pt, bảng lương khổ ngang, bản tin 2 cột, hợp đồng, biên bản, phiếu
+đăng ký có dòng dẫn chấm. Bộ chấm thêm chế độ `SCORER=2`: dấu cách / dấu ô ở cuối dòng không kéo dài đoạn chữ (bản
+đối chiếu ghi một dấu cách sau dòng cuối mỗi ô, làm hai ô kề nhau dính thành một đoạn chỉ ở phía đối chiếu).
+
+| | Tệp | Số trang khớp | Đầu dòng khớp (TB tệp) | Đầu dòng khớp (theo dòng, SCORER=2) | Điểm ảnh lệch TB |
+|---|---|---|---|---|---|
+| 56 tệp cũ, trước | 56 | 56 / 56 | 96,9 % | 99,2 % | 0,0122 |
+| 56 tệp cũ, sau | 56 | 56 / 56 | 96,9 % | 99,2 % | 0,0118 |
+| 20 tệp office, trước | 20 | 20 / 20 | 99,0 % | 99,0 % | 0,0357 |
+| 20 tệp office, sau | 20 | 20 / 20 | 99,2 % | 99,1 % | 0,0239 |
+| Tất cả, trước → sau | 76 | 76 / 76 | 97,6 % | 99,1 → 99,2 % | 0,0184 → 0,0150 |
+
+Không tệp nào lùi về đầu dòng. Thay đổi theo tệp (đầu dòng, điểm ảnh): layout-01 96,0 → 96,5 %, 0,0280 → 0,0156;
+office-10 97,7 → 100 %, 0,0415 → 0,0283; office-17 98,5 → 99,3 %; office-18 0,0926 → 0,0225; office-16 0,0698 →
+0,0116; office-19 0,0513 → 0,0209; office-06 0,0439 → 0,0178; office-04 0,0393 → 0,0219; office-20 0,0326 → 0,0171;
+notes-03 0,0109 → 0,0069; gen-11 vẫn 100 % (0,0257 → 0,0237); gen-13 0,0337 → 0,0360 (chỉ số trên vẽ khác, vị trí
+dòng không đổi).
+
+Sửa (test trong `crates/bo-layout/tests/word_fidelity.rs`; tài liệu hiệu chuẩn `cal-30..36` xuất từ bản đối chiếu):
+1. **Dòng giãn bội số ở đáy trang** (§17.3.1.33): phần giãn dưới chữ được vượt lề dưới — chỉ phần chữ phải vừa —
+   **trừ khi trang có chú thích**: khi đó cả dòng phải nằm trên vùng chú thích. Đo cal-31 (60 trường hợp, Calibri
+   11 pt giãn 1,15 / 1,5; không chú thích, chú thích ở dòng 3, chú thích ở chính dòng cuối): dòng 26 vừa khi chữ còn
+   cách lề 1 pt, không vừa khi thiếu 1 pt; có chú thích thì dòng cách 8 pt vẫn sang trang. Giữ được cả layout-01
+   (96,0 → 96,5 %) lẫn gen-11 (100 %) — quy tắc vòng 2 bị huỷ vì không phân biệt hai trường hợp này.
+2. **Chỉ số trên / dưới** (§17.3.2.42): cỡ = 0,65 × cỡ làm tròn tới nửa point (8 → 5, 9 → 6, 11 → 7, 12 → 8,
+   13 → 8,5, 14 → 9, 24 → 15,5 pt — cal-30, 42 dòng Times / Calibri / Arial 8–24 pt); nâng 0,34 em, hạ 0,085 em (trước
+   0,33 / 0,14 em); **không làm dòng cao thêm** (phạm vi dòng tính theo cỡ gốc không dịch): trước đây mỗi dòng có chỉ
+   số cao thêm 0,1–0,6 pt, 42 dòng trôi 10 pt; nay lệch ≤ 0,15 pt.
+3. **Giãn dòng bội số không nhân chiều cao ảnh nội dòng**: dòng = ảnh + (bội số − 1) × dòng đơn của phông (cal-33:
+   ảnh 54 pt trong dòng Calibri 11 pt giãn 1,15 / 1,5 / 2 cộng 2,0 / 6,6 / 13,4 pt, trong thân văn bản và trong ô
+   bảng; dòng chỉ có ảnh dùng phông dấu đoạn). office-18 (ảnh 3×4 trong bảng) 0,093 → 0,023.
+4. **Đoạn rỗng chỉ mang dấu ngắt section trước section liên tục** không chiếm chỗ, khoảng cách hai đoạn quanh nó gộp
+   như không có nó (cal-32: 1 → 1, 1 → 2, 2 → 1 cột, có / không space after); dòng của nó không tham gia cân cột.
+5. **Cân cột trước ngắt liên tục giữ widow / orphan**: dòng đầu / cuối đoạn không đứng một mình ở chân cột 1 /
+   đầu cột 2 (office-16: hai cột khớp từng dòng).
+6. **vAlign center / bottom của ô gộp dọc** (§17.4.84, §17.4.85) căn trong cả ô gộp (tiêu đề 2 tầng office-17).
+7. **Đoạn phân cách chú thích** (§17.11.23) là đoạn kiểu Normal: space before + một dòng đơn của phông Normal (Times
+   New Roman 14 pt, trước 6 pt → 22,1 pt; Calibri 11 pt → 13,4 pt; trước: hằng 12 pt); đường kẻ ở 0,74 × độ cao
+   phần trên dòng. office-10: hai dòng cuối đoạn sang trang 3 như bản đối chiếu.
+8. **Đoạn kết thúc bằng ngắt trang bỏ space after** của nó: trang sau bắt đầu ngay ở lề (office-04, đề mục lệch
+   3 pt trước đây).
+9. **Space before của đoạn đầu section trang mới** = before − space after của đoạn cuối section trước, không âm
+   (cal-35 / 36: sau 6 / trước 12 pt → 6 pt; 12 / 12 → 0; 0 / 12 → 12). office-06, office-20 (phụ lục ngang).
+10. Kiểm tra theo yêu cầu (vòng 9): thân văn bản dưới đầu trang = max(lề trên, khoảng đầu trang + chiều cao đầu
+    trang kể cả space after) — cal-34, 8 trường hợp, BlueDoc đã khớp ≤ 0,08 pt; thêm test.
+
+Độ rộng lưới 600 dpi (mục 4 của brief): đo lại trên corpus mới bằng `squeeze.py` (1 475 dòng đều hai bên một
+phông: 401 dòng giữ từ cuối bằng cách nén dấu cách, 1 074 dòng đẩy từ xuống). Làm tròn bề rộng từng glyph về 1/600",
+1/1440" hay 0,05–0,5 pt đều **tăng** số dòng phân loại sai (5 → 9–79), nên không mô phỏng. Ranh giới "giữ / đẩy"
+của dòng đều hai bên nằm trong vùng tỉ lệ (từ cuối) / (phần tràn) 2,86–2,98: TNR 14 pt giữ ở 2,86, TNR 13 pt đẩy ở
+2,92–2,97 — chưa tìm ra quy tắc tách được cả hai (còn 3 dòng ở office-04 / 08 / 13, cùng một câu "… định kỳ báo").
+
+Còn lệch: số trang ở chân trang (office-04 / 05 / 20) là giới hạn bộ chấm (khớp vị trí và chữ, khác thứ tự luồng
+nội dung PDF); điểm ảnh của bảng dày chữ số (office-09, office-17, gen-07) là khác biệt vẽ chữ, vị trí dòng lệch
+≤ 0,1 pt; ranh giới nén dấu cách ở trên.
+
+Ảnh (đối chiếu trái / trên, BlueDoc trước, BlueDoc sau): `scratchpad/show/docfid-15-bottom-margin-layout01-before-after.png`,
+`docfid-16-picture-line-spacing-office18-before-after.png`, `docfid-17-section-mark-office16-before-after.png`,
+`docfid-18-merged-cell-centre-office17-before-after.png`, `docfid-19-footnote-separator-office10-before-after.png`,
+`docfid-20-page-break-space-after-office04-before-after.png`, `docfid-21-section-space-before-office06-before-after.png`,
+`docfid-22-two-columns-office16-before-after.png`, `docfid-23-worst6-after.png`.

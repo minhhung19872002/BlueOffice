@@ -278,3 +278,23 @@ fn shape_cache_is_bounded_in_bytes() {
     assert!(most <= 64 << 20, "{most} bytes cached");
     assert!(fm.cached_shapes() < 300);
 }
+
+/// Vietnamese letters Caladea lacks keep Cambria's advance when a fallback face draws
+/// them: the base letter's, plus the horn for ơ / ư.
+#[test]
+fn letters_missing_from_caladea_keep_cambria_advances() {
+    let mut fm = manager();
+    let cam = fm.resolve("Cambria", false, false).unwrap();
+    assert!(!fm.has_glyph(cam, 'ệ'), "Caladea lacks ệ");
+    let e = fm.stand_in_advance(cam, 'ệ').unwrap();
+    let base = fm.stand_in_advance(cam, 'e').unwrap();
+    assert!(
+        (e - base).abs() < 1e-4 && (base - 0.488).abs() < 0.002,
+        "{e} {base}"
+    );
+    let horn = fm.stand_in_advance(cam, 'ợ').unwrap();
+    assert!((horn - (0.5308 + 0.068)).abs() < 0.002, "{horn}");
+    // Not a stand-in: no override.
+    let times = fm.resolve("Times New Roman", false, false).unwrap();
+    assert!(fm.stand_in_advance(times, 'ệ').is_none());
+}

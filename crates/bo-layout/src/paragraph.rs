@@ -2519,22 +2519,25 @@ fn text_pieces(
                 }
             }
         }
-        let items: Vec<(std::ops::Range<usize>, FaceId)> = slots
+        let items: Vec<(std::ops::Range<usize>, FaceId, FaceId)> = slots
             .into_iter()
             .flat_map(|(r, f)| {
                 let base = r.start;
                 fonts
                     .itemize(f, &group[r])
                     .into_iter()
-                    .map(move |(rr, ff)| (rr.start + base..rr.end + base, ff))
+                    .map(move |(rr, ff)| (rr.start + base..rr.end + base, ff, f))
                     .collect::<Vec<_>>()
             })
             .collect();
-        for (r, face) in items {
+        for (r, face, primary) in items {
             let t = &group[r];
             let nc = t.chars().count();
-            let glyphs = shape_run(fonts, face, t, st);
+            let mut glyphs = shape_run(fonts, face, t, st);
             let upem = f32::from(fonts.info(face).units_per_em);
+            if face != primary {
+                glyphs = stand_in_widths(fonts, primary, upem, t, glyphs);
+            }
             let width = glyphs.iter().map(|g| i64::from(g.x_advance)).sum::<i64>() as f32 * st.size
                 / upem
                 + st.spacing * glyphs.len() as f32;
@@ -2559,6 +2562,40 @@ fn text_pieces(
         k = j;
     }
     out
+}
+
+/// Glyphs a fallback face draws for letters missing from a metric-compatible stand-in
+/// take the advance the stand-in's family gives them ([`FontManager::stand_in_advance`]),
+/// centred in it, so that lines break where the reference word processor breaks them.
+fn stand_in_widths(
+    fonts: &FontManager,
+    primary: FaceId,
+    upem: f32,
+    text: &str,
+    glyphs: Arc<[ShapedGlyph]>,
+) -> Arc<[ShapedGlyph]> {
+    let mut out = glyphs.to_vec();
+    let mut changed = false;
+    for g in &mut out {
+        let Some(c) = text
+            .get(g.cluster as usize..)
+            .and_then(|s| s.chars().next())
+        else {
+            continue;
+        };
+        if let Some(em) = fonts.stand_in_advance(primary, c) {
+            #[allow(clippy::cast_possible_truncation)]
+            let adv = (em * upem).round() as i32;
+            g.x_offset += (adv - g.x_advance) / 2;
+            g.x_advance = adv;
+            changed = true;
+        }
+    }
+    if changed {
+        Arc::from(out)
+    } else {
+        glyphs
+    }
 }
 
 fn word_pieces(

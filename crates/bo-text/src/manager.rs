@@ -356,6 +356,39 @@ impl FontManager {
         &self.faces[id.0 as usize].info
     }
 
+    /// Advance in em that a letter missing from the stand-in face `primary` has in the
+    /// family it stands in for, when a fallback face draws it: Caladea (for Cambria)
+    /// lacks most Vietnamese letters, which Cambria sets as wide as their base letter,
+    /// the horned ơ / ư families (U+031B) wider by the horn (measured black-box from the
+    /// reference word processor's Cambria: o / u / O / U + 0.068 / 0.071 / 0.072 / 0.106 em,
+    /// italic + 0.075 / 0.081 / 0.085 / 0.116 em). `None` when `primary` is not such a
+    /// stand-in or lacks the base letter.
+    #[must_use]
+    pub fn stand_in_advance(&self, primary: FaceId, c: char) -> Option<f32> {
+        let info = self.info(primary);
+        if info.family != "Caladea" {
+            return None;
+        }
+        let mut parts = std::iter::once(c).nfd();
+        let base = parts.next()?;
+        let horn = parts.any(|m| m == '\u{031B}');
+        let face = self.face(primary)?;
+        let gid = face.glyph_index(base)?;
+        let adv = f32::from(face.glyph_hor_advance(gid)?) / f32::from(info.units_per_em.max(1));
+        let extra = match (horn, base, info.italic) {
+            (false, ..) => 0.0,
+            (true, 'o', false) => 0.068,
+            (true, 'o', true) => 0.075,
+            (true, 'u', false) => 0.071,
+            (true, 'u', true) => 0.081,
+            (true, 'O', false) => 0.072,
+            (true, 'O', true) => 0.085,
+            (true, _, false) => 0.106,
+            (true, _, true) => 0.116,
+        };
+        Some(adv + extra)
+    }
+
     /// Text line extents (ascent, descent, external leading) in em for a run that asked
     /// for `family` and is drawn with `face` ([`FaceInfo::line_metrics`]); when `face`
     /// is an unrelated substitute of a symbol font or Courier New, the extents of the

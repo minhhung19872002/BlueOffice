@@ -1,6 +1,7 @@
 //! BlueEditor round 12 (resumed): Comment › Measure ▾ as the reference's drop-down — the
 //! editor's menu look (29 px rows at 125 %) with an icon before Distance, Perimeter and Area.
-//! The icon shapes are our own drawings in the BlueOffice icon family.
+//! The icon shapes are our own drawings in the BlueOffice icon family: neutral grey lines as
+//! the reference's, the accent only on the area's hatching.
 
 use crate::editor_window::EditorWindow;
 use crate::popup::{Choice, MenuItem};
@@ -19,7 +20,7 @@ fn shape12(name: &str) -> &'static [(&'static str, bool)] {
                 "M3 15h18v5H3z M7 15v2.5 M11 15v3 M15 15v2.5 M19 15v2",
                 false,
             ),
-            ("M3 8h18 M6 5L3 8l3 3 M18 5l3 3-3 3", true),
+            ("M3 8h18 M6 5L3 8l3 3 M18 5l3 3-3 3", false),
         ],
         // A ruler under a closed outline traced by the span.
         "mPerimeter" => &[
@@ -27,7 +28,7 @@ fn shape12(name: &str) -> &'static [(&'static str, bool)] {
                 "M3 15h18v5H3z M7 15v2.5 M11 15v3 M15 15v2.5 M19 15v2",
                 false,
             ),
-            ("M4 11V4h16v7z", true),
+            ("M4 11V4h16v7z", false),
         ],
         // A ruler under a hatched surface.
         "mArea" => &[
@@ -35,10 +36,8 @@ fn shape12(name: &str) -> &'static [(&'static str, bool)] {
                 "M3 15h18v5H3z M7 15v2.5 M11 15v3 M15 15v2.5 M19 15v2",
                 false,
             ),
-            (
-                "M4 4h16v7H4z M8 4l-4 4 M13 4l-7 7 M18 4l-7 7 M20 7l-4 4",
-                true,
-            ),
+            ("M4 4h16v7H4z", false),
+            ("M8 4l-4 4 M13 4l-7 7 M18 4l-7 7 M20 7l-4 4", true),
         ],
         _ => &[],
     }
@@ -132,6 +131,6 @@ mod tests {
         for l in ["Distance", "Perimeter", "Area"] {
             assert!(rec.texts.iter().any(|t| t == l), "{l}: {:?}", rec.texts);
         }
-        assert_eq!(super::shape12("mArea").len(), 2);
+        assert_eq!(super::shape12("mArea").len(), 3);
     }
 }

@@ -238,6 +238,9 @@ fn alignment(lines: &[VLine]) -> Align {
     Align::Left
 }
 
+/// Upper-case hexadecimal digits of a PDF hex string.
+const HEX_DIGITS: &[u8; 16] = b"0123456789ABCDEF";
+
 /// Group the text of a page into paragraph blocks (content order).
 pub fn text_blocks(objs: &[PageObject]) -> Vec<TextBlock> {
     let mut groups: Vec<Vec<VLine>> = Vec::new();
@@ -1200,8 +1203,11 @@ impl PdfDocument {
             tail.extend(format!("{} Tm <", mat_str(tm)).into_bytes());
             for q in j..end {
                 if let Some(m) = metric(e, q) {
+                    // Hex string bytes without a format call per byte (a 500-line
+                    // paragraph writes ~20 000 of them per key).
                     for b in &m.codes {
-                        tail.extend(format!("{b:02X}").into_bytes());
+                        tail.push(HEX_DIGITS[usize::from(b >> 4)]);
+                        tail.push(HEX_DIGITS[usize::from(b & 15)]);
                     }
                 }
             }

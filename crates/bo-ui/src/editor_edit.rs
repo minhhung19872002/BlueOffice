@@ -1204,22 +1204,18 @@ impl Editing {
         };
         let before = b.bbox;
         let shift = b.follower_shift();
+        let old_boxes = b.char_boxes.clone();
+        let caret = t.caret;
         match v.doc_mut().block_edit_update(b) {
             Ok(()) => {
-                // Only the paragraph's lines change: draw that band of the page again;
-                // down to the page's foot when what follows it moved.
+                // Only the lines whose characters moved change (round 12: a 500-line
+                // paragraph redraws one or two lines per key): draw that band of the page
+                // again; down to the page's foot when what follows the paragraph moved.
                 let (w, h) = v.page_size(page);
                 let moved = (b.follower_shift() - shift).abs() > 1e-3;
-                let r = [
-                    0.0,
-                    before[1].min(b.bbox[1]) - 4.0,
-                    w,
-                    if moved {
-                        h
-                    } else {
-                        before[3].max(b.bbox[3]) + 4.0
-                    },
-                ];
+                let (top, bottom) = changed_band(&old_boxes, &b.char_boxes, caret)
+                    .unwrap_or((before[1].min(b.bbox[1]), before[3].max(b.bbox[3])));
+                let r = [0.0, top - 4.0, w, if moved { h } else { bottom + 4.0 }];
                 v.invalidate_band(page, r);
             }
             Err(e) => self.status = Some(e),
@@ -1450,5 +1446,64 @@ fn side_resized(b: [f32; 4], side: usize, to: (f32, f32)) -> ([f32; 4], f32, f32
         let sx = (to.0 - ax).abs() / w0;
         let x0 = if to.0 < ax { ax - w0 * sx } else { ax };
         ([x0, b[1], x0 + w0 * sx, b[3]], sx, 1.0)
+    }
+}
+
+/// Vertical extent (page points) of the characters whose boxes differ between two layouts of
+/// a paragraph after one contiguous edit, plus the caret's neighbours: the common prefix and
+/// suffix kept their places. `None` when nothing is known (empty layouts).
+fn changed_band(old: &[[f32; 4]], new: &[[f32; 4]], caret: usize) -> Option<(f32, f32)> {
+    let same = |a: &[f32; 4], b: &[f32; 4]| a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-3);
+    let a = old.iter().zip(new).take_while(|(x, y)| same(x, y)).count();
+    let room = old.len().min(new.len()) - a;
+    let k = old
+        .iter()
+        .rev()
+        .zip(new.iter().rev())
+        .take(room)
+        .take_while(|(x, y)| same(x, y))
+        .count();
+    let mut span: Option<(f32, f32)> = None;
+    let mut add = |r: &[f32; 4]| {
+        let (t, b) = (r[1].min(r[3]), r[1].max(r[3]));
+        span = Some(span.map_or((t, b), |(t0, b0)| (t0.min(t), b0.max(b))));
+    };
+    old[a..old.len() - k].iter().for_each(&mut add);
+    new[a..new.len() - k].iter().for_each(&mut add);
+    for i in [caret.saturating_sub(1), caret] {
+        if let Some(r) = new.get(i) {
+            add(r);
+        }
+    }
+    span
+}
+
+#[cfg(test)]
+mod band_tests {
+    /// Typing on line 2 of a 4-line paragraph changes only that line's band.
+    #[test]
+    fn changed_band_covers_the_edited_line_only() {
+        let line = |l: usize, n: usize| -> Vec<[f32; 4]> {
+            (0..n)
+                .map(|i| {
+                    let x = i as f32 * 5.0;
+                    let y = l as f32 * 20.0;
+                    [x, y, x + 5.0, y + 10.0]
+                })
+                .collect()
+        };
+        let old: Vec<[f32; 4]> = (0..4).flat_map(|l| line(l, 10)).collect();
+        let mut new = old.clone();
+        // A character inserted at index 15 (line 1): the rest of line 1 moves right.
+        new.insert(15, [75.0, 20.0, 80.0, 30.0]);
+        for r in &mut new[16..21] {
+            r[0] += 5.0;
+            r[2] += 5.0;
+        }
+        let (top, bottom) = super::changed_band(&old, &new, 16).expect("band");
+        assert!(
+            (top - 20.0).abs() < 1e-3 && (bottom - 30.0).abs() < 1e-3,
+            "{top} {bottom}"
+        );
     }
 }

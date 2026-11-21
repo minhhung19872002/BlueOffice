@@ -2243,7 +2243,14 @@ impl Writer<'_> {
         // §17.11.11 footnotePr / §17.11.4 endnotePr (document-wide), before compat.
         s.push_str(&note_pr_xml("footnotePr", &self.doc.footnote_pr));
         s.push_str(&note_pr_xml("endnotePr", &self.doc.endnote_pr));
-        let _ = write!(s, "<w:compat><w:compatSetting w:name=\"compatibilityMode\" w:uri=\"http://schemas.microsoft.com/office/word\" w:val=\"15\"/></w:compat></w:settings>");
+        // [MS-DOCX] §2.3.1 compatSetting compatibilityMode: a new document is 15; a read
+        // file keeps its own mode (none named: no compat element, laid out as older files).
+        match self.doc.compat_mode {
+            Some(0) => s.push_str("</w:settings>"),
+            mode => {
+                let _ = write!(s, "<w:compat><w:compatSetting w:name=\"compatibilityMode\" w:uri=\"http://schemas.microsoft.com/office/word\" w:val=\"{}\"/></w:compat></w:settings>", mode.unwrap_or(15));
+            }
+        }
         self.pkg
             .add_part("/word/settings.xml", CT_SETTINGS, s.into_bytes())?;
         self.rels.id_for(REL_SETTINGS, "/word/settings.xml", false);
@@ -4054,6 +4061,10 @@ mod tests {
             }
         }
         d.source = None;
+        // A new document is written in compatibility mode 15.
+        if d.compat_mode == Some(15) {
+            d.compat_mode = None;
+        }
         // A new document gets settings.xml with the default tab stop (720 twips).
         if d.default_tab_stop == Some(Twips(720)) {
             d.default_tab_stop = None;

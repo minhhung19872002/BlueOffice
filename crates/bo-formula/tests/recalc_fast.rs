@@ -89,7 +89,8 @@ fn far_apart_cells_and_structural_changes() {
     let mut wb = Workbook::with_sheets(&["S"]);
     wb.set_value(0, 999_999, 16_383, 4.0);
     wb.set_value(0, 300, 2, 3.0);
-    wb.set_formula(0, 0, 0, "=XFD1000000*C301").expect("formula");
+    wb.set_formula(0, 0, 0, "=XFD1000000*C301")
+        .expect("formula");
     wb.recalculate();
     assert_eq!(wb.value(0, 0, 0), num(12.0));
     wb.apply_structural_change(

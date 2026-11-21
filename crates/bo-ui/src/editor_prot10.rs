@@ -40,12 +40,22 @@ pub(crate) fn protect_tab_items() -> Vec<(&'static str, Kind)> {
         ("prot.secureMenu", Big("secure", "pdfEditor.secure", true)),
         ("sep4", Sep),
         (
-            "prot.restrict",
-            Big("restrictAccess", "pdfEditor.restrictAccess", false),
+            "prot.restrictMenu",
+            Big("restrictAccess", "pdfEditor.restrictAccess", true),
         ),
         (
             "prot.batchEncrypt",
             Big("secure", "pdfEditor.batchEncrypt", false),
+        ),
+        // Round 11: Settings ▾ and Sensitivity ▾ as the reference's.
+        (
+            "prot.settingsMenu",
+            Big("secSettings", "pdfEditor11.settings", true),
+        ),
+        ("sep5a", Sep),
+        (
+            "prot.sensMenu",
+            Big("sensitivity", "pdfEditor11.sensitivity", true),
         ),
         ("sep5", Sep),
         ("form.fill", Big("fillSign", "pdfEditor.fillSign", false)),
@@ -86,10 +96,67 @@ impl EditorWindow {
         self.r.set_menu9(menu, id);
     }
 
+    /// Round 11: a drop-down like [`Self::menu10`] with ticked rows.
+    pub(crate) fn menu11(&mut self, rows: &[Row10], ticked: &[usize], id: &'static str) {
+        let Some(r) = self.r.control_rect(id) else {
+            return;
+        };
+        let items: Vec<MenuItem> = rows
+            .iter()
+            .enumerate()
+            .map(|(i, (cmd, key, _, dim))| MenuItem {
+                label: self.t(key),
+                choice: Choice::Command((*cmd).to_owned()),
+                checked: ticked.contains(&i),
+                dim: *dim,
+            })
+            .collect();
+        let icons = rows.iter().map(|r| r.2).collect();
+        let menu = self
+            .menu_open9(items, r)
+            .with_decor(icons, Vec::new())
+            .with_icon_fn(crate::reader_icons::menu_icon);
+        self.r.set_menu9(menu, id);
+    }
+
     /// Commands of the round-10 Protect tab; false when not one of them.
     pub(crate) fn prot10_command(&mut self, cmd: &str) -> bool {
         let encrypted = self.view().is_some_and(|v| v.doc().is_encrypted());
         match cmd {
+            // Round 11 (measured on the reference: Restrict Access ▾ has Unrestricted Access,
+            // ticked and greyed, and rights-management templates; Settings ▾ has Custom
+            // Templates, greyed, and Security Watermark; Sensitivity ▾ one service row).
+            "prot.restrictMenu" => self.menu11(
+                &[
+                    ("prot.unrestricted", "pdfEditor11.unrestricted", None, true),
+                    ("prot.drm", "pdfEditor11.drmTemplates", None, true),
+                ],
+                &[0],
+                "prot.restrictMenu",
+            ),
+            "prot.settingsMenu" => self.menu11(
+                &[
+                    (
+                        "prot.customTemplates",
+                        "pdfEditor11.customTemplates",
+                        None,
+                        true,
+                    ),
+                    (
+                        "org8.add.watermark",
+                        "pdfEditor11.securityWatermark",
+                        None,
+                        false,
+                    ),
+                ],
+                &[],
+                "prot.settingsMenu",
+            ),
+            "prot.sensMenu" => self.menu11(
+                &[("prot.sensService", "pdfEditor11.sensService", None, true)],
+                &[],
+                "prot.sensMenu",
+            ),
             "prot.redactMenu" => {
                 let none = self.x.marks.is_empty();
                 self.menu10(

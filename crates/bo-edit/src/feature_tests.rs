@@ -269,10 +269,32 @@ fn table_rows_columns_merge_split_delete() {
     );
     s.edit_table(&TableEdit::Borders {
         preset: BorderPreset::Outside,
+        pen: None,
     })
     .unwrap();
     let b = table(&s).props.borders.unwrap();
     assert!(b.top.unwrap().is_visible() && !b.inside_h.unwrap().is_visible());
+    // One edge toggles with the pen and keeps the others (Table Design › Borders).
+    let pen = crate::BorderPen {
+        style: "double".into(),
+        size: 12,
+        color: Some("C00000".into()),
+    };
+    s.edit_table(&TableEdit::Borders {
+        preset: BorderPreset::InsideH,
+        pen: Some(pen.clone()),
+    })
+    .unwrap();
+    let b = table(&s).props.borders.unwrap();
+    let h = b.inside_h.unwrap();
+    assert_eq!((h.style.as_str(), h.size), ("double", 12));
+    assert!(b.top.unwrap().is_visible() && !b.inside_v.unwrap().is_visible());
+    s.edit_table(&TableEdit::Borders {
+        preset: BorderPreset::Top,
+        pen: Some(pen),
+    })
+    .unwrap();
+    assert!(!table(&s).props.borders.unwrap().top.unwrap().is_visible());
     s.edit_table(&TableEdit::Properties {
         width_pct: Some(80),
         width: None,

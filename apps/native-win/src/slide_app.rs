@@ -110,11 +110,14 @@ struct Gpu {
     device: Device,
     surface: WindowSurface,
     bitmaps: HashMap<usize, PageBitmap>,
+    /// Decoded pictures by media id.
+    decoded: HashMap<String, bo_gpu_win::Bitmap>,
 }
 
 struct Store<'a> {
     device: &'a Device,
     bitmaps: &'a mut HashMap<usize, PageBitmap>,
+    decoded: &'a mut HashMap<String, bo_gpu_win::Bitmap>,
 }
 
 impl PageStore for Store<'_> {
@@ -140,14 +143,26 @@ impl PageStore for Store<'_> {
             self.bitmaps.insert(index, bitmap);
         }
         let bitmap = self.bitmaps.get(&index).ok_or("slide bitmap")?;
+        // Decoded pictures are kept by id (round 19): redrawing a band of a slide with a
+        // photo no longer decodes it again on every keystroke.
+        let cache = std::cell::RefCell::new(&mut *self.decoded);
         let pictures = |id: &str| {
+            if let Some(b) = cache.borrow().get(id) {
+                return Some(b.clone());
+            }
             let bytes = engine.media_resolved(id)?;
             let (width, height, pixels) = bo_raster::decode_premultiplied(&bytes)?;
-            Some(bo_gpu_win::Bitmap {
+            let b = bo_gpu_win::Bitmap {
                 width,
                 height,
                 pixels,
-            })
+            };
+            let mut c = cache.borrow_mut();
+            if c.len() >= 64 {
+                c.clear();
+            }
+            c.insert(id.to_owned(), b.clone());
+            Some(b)
         };
         self.device
             .draw_page(list, engine.fonts(), scale, &pictures, band, bitmap)
@@ -503,6 +518,7 @@ impl Shell {
         self.view.prepare(&mut Store {
             device: &gpu.device,
             bitmaps: &mut gpu.bitmaps,
+            decoded: &mut gpu.decoded,
         })?;
         let t1 = Instant::now();
         let (view, bitmaps) = (&self.view, &gpu.bitmaps);
@@ -546,6 +562,7 @@ impl Handler for Shell {
             device,
             surface,
             bitmaps: HashMap::new(),
+            decoded: HashMap::new(),
         });
         let m = Measure(self.gpu.as_ref().map(|g| &g.device));
         self.view.handle(Input::Scale(scale), &m);
@@ -683,6 +700,7 @@ impl Handler for Shell {
                     .prefetch(&mut Store {
                         device: &gpu.device,
                         bitmaps: &mut gpu.bitmaps,
+                        decoded: &mut gpu.decoded,
                     })
                     .unwrap_or(false),
                 None => false,
@@ -704,10 +722,15 @@ impl Handler for Shell {
         }
         if let (Some(file), Some(p)) = (self.perf.as_mut(), self.pending_input.take()) {
             let total = p.first.elapsed();
+            let e = self.view.view().ensure_ms();
             let _ = writeln!(
                 file,
-                r#"{{"input":"{}","inputs":{},"age_ms":{},"handle_ms":{:.3},"prepare_ms":{:.3},"paint_ms":{:.3},"submit_ms":{:.3},"present_ms":{:.3},"total_ms":{:.3}}}"#,
+                r#"{{"input":"{}","ensure":[{:.2},{:.2},{:.2},{:.2}],"inputs":{},"age_ms":{},"handle_ms":{:.3},"prepare_ms":{:.3},"paint_ms":{:.3},"submit_ms":{:.3},"present_ms":{:.3},"total_ms":{:.3}}}"#,
                 p.kind,
+                e[0],
+                e[1],
+                e[2],
+                e[3],
                 p.count,
                 p.age_ms,
                 p.handle.as_secs_f64() * 1e3,

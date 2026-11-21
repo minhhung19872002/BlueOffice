@@ -32,6 +32,14 @@ mod r3;
 mod r4;
 #[path = "doc_r5.rs"]
 mod r5;
+#[path = "doc_r6.rs"]
+mod r6;
+#[path = "doc_r7.rs"]
+mod r7;
+pub(crate) use r6::{
+    install_icons as install_round6_icons, install_strings as install_round6_strings,
+};
+pub use r6::{FileDetails, PrintJob};
 
 /// Something only the platform host can do.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -80,6 +88,28 @@ pub enum Request {
     /// Store the Design tab's theme, style set and effects as the defaults of new documents
     /// (Design › Set as Default; [`DocWindow::design_defaults`]).
     SaveDefaults,
+    /// Open this file in a new window (File › Open / Home recent list).
+    OpenPath(String),
+    /// New document from one of BlueOffice's own templates (new window; the host calls
+    /// [`DocWindow::apply_template`] on it).
+    NewFromTemplate(String),
+    /// Pick a name and save a copy as this type (`dotx`, `pdf`, `html`, `mht`, `xml`, `epub`).
+    SaveAsType(String),
+    /// Show this file in the system file manager (File › Info).
+    OpenLocation(String),
+    /// Print with the File screen's settings.
+    PrintJob(PrintJob),
+    /// Store the application preferences ([`DocWindow::take_prefs`]).
+    SavePrefs,
+    /// Show this printer's driver settings (File › Print › Printer Properties).
+    PrinterProperties(String),
+    /// A new mail message (File › Share › Email): subject and body.
+    Email {
+        /// Subject line (the document's name).
+        subject: String,
+        /// Body (where the document is saved).
+        body: String,
+    },
 }
 
 /// Window contents of BlueDoc.
@@ -210,6 +240,8 @@ pub struct DocWindow {
     r3: r3::R3,
     r4: r4::R4,
     r5: r5::R5,
+    r6: r6::R6,
+    r7: r7::R7,
 }
 
 /// Font sizes offered by the size box (points).
@@ -313,6 +345,8 @@ impl DocWindow {
         crate::doc_r4_menus::install_strings(&mut strings);
         crate::doc_r4_fit::install_strings(&mut strings);
         crate::doc_r4_fit::install_icons(&mut icons);
+        crate::doc_tabs7::install_icons(&mut icons);
+        crate::doc_tabs7::install_strings(&mut strings);
         icons.set_grey_disabled(true);
         Self {
             view,
@@ -398,6 +432,8 @@ impl DocWindow {
             r3: r3::R3::default(),
             r4: r4::R4::default(),
             r5: r5::R5::default(),
+            r6: r6::R6::default(),
+            r7: r7::R7::default(),
         }
     }
 
@@ -600,6 +636,12 @@ impl DocWindow {
                 json!({ "cmd": "resolveComment", "id": id, "done": done })
             }
             CommentAction::Delete(id) => json!({ "cmd": "deleteComment", "id": id }),
+            // The in-card editor's Post (round 7): an empty comment is not posted.
+            CommentAction::Post(_, ref text) if text.trim().is_empty() => return true,
+            CommentAction::Post(None, text) => json!({ "cmd": "addComment", "text": text }),
+            CommentAction::Post(Some(id), text) => {
+                json!({ "cmd": "replyComment", "id": id, "text": text })
+            }
         };
         if let Some(c) = catalog::from_json(cmd) {
             self.view.run_command(c);
@@ -765,10 +807,11 @@ impl DocWindow {
 
     /// Width taken by the navigation pane on the left (0 when hidden).
     fn nav_w(&self) -> f32 {
+        let review = self.r6_review_w();
         if self.nav.is_some() {
-            NavPane::width(self.scale)
+            NavPane::width(self.scale) + review
         } else {
-            0.0
+            review
         }
     }
 
@@ -922,6 +965,14 @@ impl DocWindow {
 
     /// Insert a picture file the host read (`name` with its extension).
     pub fn insert_picture(&mut self, bytes: Vec<u8>, name: &str) -> bool {
+        // Picture Format › Change Picture: the picked file replaces the selected picture.
+        if std::mem::take(&mut self.r7.change_pending) {
+            use base64::Engine as _;
+            let data = base64::engine::general_purpose::STANDARD.encode(&bytes);
+            return self.view.picture_command(&json!({
+                "cmd": "pictureChange", "data": data, "name": name,
+            }));
+        }
         self.activate_context = true;
         let ok = self.view.insert_picture(bytes, name);
         self.sync_context();
@@ -1019,13 +1070,24 @@ impl DocWindow {
     fn sync_context(&mut self) {
         let mut c = Context::of(self.view.format(), self.view.story().map(|s| s.kind));
         c.outline = self.r3.outline.is_some();
+        let engine = self.view.engine();
+        // A drawing shape (not a picture) gets Shape Format instead of Picture Format.
+        c.shape = c.picture
+            && engine
+                .session()
+                .and_then(bo_edit::Session::tools_picture)
+                .is_some_and(|i| i.shape.is_some() && i.media.is_empty());
+        c.picture &= !c.shape;
+        c.equation = engine.equation_selected();
         if c == self.context && !self.activate_context {
             return;
         }
         // Opening a header or footer, inserting a table or a picture brings its tab
         // forward; moving the caret into an existing table only shows the tabs.
         let story_opened = c.story.is_some() && self.context.story.is_none();
-        let new_object = (c.table && !self.context.table) || (c.picture && !self.context.picture);
+        let new_object = (c.table && !self.context.table)
+            || (c.picture && !self.context.picture)
+            || (c.shape && !self.context.shape);
         let activate = story_opened
             || (self.activate_context && new_object)
             || (c.outline && !self.context.outline);
@@ -2000,6 +2062,7 @@ impl DocWindow {
             on.push("mailings.preview");
         }
         on.extend(doc_tools::on_ids(self.view.format(), self.story_options()));
+        on.extend(self.r7_on_ids());
         on
     }
 
@@ -2036,6 +2099,12 @@ impl DocWindow {
 
     /// Run interface command `id` from the ribbon, title bar, a menu or a shortcut.
     fn action(&mut self, id: &str) -> bool {
+        if let Some(r) = self.r7_action(id) {
+            return r;
+        }
+        if let Some(r) = self.r6_action(id) {
+            return r;
+        }
         if let Some(r) = self.r5_action(id) {
             return r;
         }
@@ -2170,7 +2239,8 @@ impl DocWindow {
             "view.formattingMarks" => {
                 self.marks = !self.marks;
                 let on = self.marks;
-                self.view.run_command(Command::ShowFormattingMarks { on });
+                self.view
+                    .run_command(Command::ShowFormattingMarks { on, kinds: None });
                 true
             }
             "view.zoomIn" | "view.zoomOut" | "view.zoomReset" => {
@@ -2486,7 +2556,7 @@ impl DocWindow {
         if self.show_ruler {
             top += Ruler::height(self.scale);
         }
-        let h = (self.size.1 - top - self.status_h()).max(1.0);
+        let h = (self.size.1 - top - self.status_h() - self.r6_review_h()).max(1.0);
         // The vertical scroll bar takes the right edge, the vertical ruler the left one.
         let vr = self.vr_w();
         let left = self.nav_w();
@@ -2647,6 +2717,7 @@ impl DocWindow {
         }
         self.r3_layout(text);
         self.r5_layout();
+        self.r7_layout(text);
         if let Some(d) = self.dialog.as_mut() {
             d.layout(text, self.size, self.scale);
         }
@@ -2680,6 +2751,7 @@ impl DocWindow {
             None => (Vec::new(), 0.0),
         };
         self.view.set_thumbnails(thumbs.0, thumbs.1);
+        self.r6_layout(text);
         if let Some(e) = &self.cell_spin {
             let style = TextStyle {
                 size: (12.0 * self.scale).round(),
@@ -2747,6 +2819,12 @@ impl DocWindow {
     }
 
     fn route(&mut self, input: Input, text: &dyn TextMeasure) -> bool {
+        if let Some(r) = self.r6_input(&input, text) {
+            return r;
+        }
+        if let Some(r) = self.r7_input(&input) {
+            return r;
+        }
         // The File screen covers everything below the title bar.
         if let Some(b) = self.backstage.as_mut() {
             match input {
@@ -3259,33 +3337,7 @@ impl DocWindow {
                 let (fired, changed) = self.ribbon.release(x, y);
                 let ran = match fired {
                     Some(RibbonHit::File) => {
-                        let mut b = Backstage::default();
-                        if let Some(props) = self.view.doc_properties() {
-                            let date = |s: &str| s.split('T').next().unwrap_or("").to_owned();
-                            let rows = [
-                                ("backstage.props.title", "Title", props.title.clone()),
-                                ("backstage.props.author", "Author", props.author.clone()),
-                                (
-                                    "backstage.props.lastModifiedBy",
-                                    "Last modified by",
-                                    props.last_modified_by.clone(),
-                                ),
-                                ("backstage.props.created", "Created", date(&props.created)),
-                                (
-                                    "backstage.props.modified",
-                                    "Last modified",
-                                    date(&props.modified),
-                                ),
-                            ];
-                            b.set_properties(
-                                rows.into_iter()
-                                    .map(|(k, f, v)| (self.t(k, f), v))
-                                    .collect(),
-                            );
-                        }
-                        b.layout(self.title.height(), self.size, self.scale);
-                        self.backstage = Some(b);
-                        true
+                        self.r6_open_backstage(crate::doc_backstage6::BsPage::Info)
                     }
                     Some(RibbonHit::Command(id)) => self.action(id),
                     Some(RibbonHit::Style(i)) => match self.styles.get(i) {
@@ -3445,7 +3497,8 @@ impl DocWindow {
             return false;
         };
         self.rest += 1;
-        if self.rest != TOOLTIP_TICKS || self.menu.is_some() {
+        // File › Options › ScreenTip style: none.
+        if self.rest != TOOLTIP_TICKS || self.menu.is_some() || self.r6_screentips() == 2 {
             return false;
         }
         let Some(anchor) = self.ribbon.rect_of(RibbonHit::Command(id)) else {
@@ -3461,7 +3514,8 @@ impl DocWindow {
             bold: false,
         };
         let (w, _) = text.measure(&label, style);
-        let desc = crate::doc_tips::description(&self.strings, id);
+        let desc =
+            crate::doc_tips::description(&self.strings, id).filter(|_| self.r6_screentips() == 0);
         self.tip = Some(crate::doc_tips::layout(
             &label,
             desc.as_deref(),
@@ -3489,7 +3543,8 @@ impl DocWindow {
 
     /// Update page images of the visible pages.
     pub fn prepare(&mut self, store: &mut dyn PageStore) -> Result<(), String> {
-        self.view.prepare(store)
+        self.view.prepare(store)?;
+        self.r7_prepare(store)
     }
 
     /// Paint the whole window.
@@ -3585,6 +3640,7 @@ impl DocWindow {
                     self.scale,
                 );
             }
+            self.r7_paint_ribbon(p);
             // Design › Document Formatting: the style set gallery in the theme's faces.
             if crate::doc_design::more_rect(&self.ribbon, self.scale).is_some() {
                 let (major, minor) = self
@@ -3641,6 +3697,8 @@ impl DocWindow {
         }
         self.r3_paint_panes(p);
         self.r5_paint(p);
+        self.r6_paint_panes(p);
+        self.r7_paint(p);
         // Status bar.
         let (w, h) = self.size;
         let sh = self.status_h();
@@ -3744,6 +3802,7 @@ impl DocWindow {
             bd.paint(p, &self.theme);
         }
         self.r3_paint_popups(p);
+        self.r6_paint(p);
     }
 
     /// Paint `paint` through cached layer `id` over `rect` (window pixels): the backend
@@ -3907,6 +3966,25 @@ impl DocWindow {
     /// word processor (text 0 → 128, line 119 in 3 px dashes, tag 225 with text 68).
     fn paint_story_frame(&self, p: &mut dyn Painter) {
         if self.story_options().is_none() {
+            // While the body is edited the headers and footers show lighter, as the
+            // reference draws them (round 7): a half-white veil over the top and bottom
+            // margins of each printed page.
+            if self.view_mode == "print" && self.read_mode.is_none() {
+                let sec = &self.view.format().section;
+                let s = self.view.scale();
+                for slot in self.view.slots() {
+                    let (x, y, w, h) = (
+                        slot.x as f32,
+                        slot.y as f32,
+                        slot.width as f32,
+                        slot.height as f32,
+                    );
+                    let top = (sec.margin_top.max(0) as f32 / 20.0 * s).round().min(h);
+                    let bottom = (sec.margin_bottom.max(0) as f32 / 20.0 * s).round().min(h);
+                    p.fill_rect(x, y, w, top, Rgba(255, 255, 255, 120));
+                    p.fill_rect(x, y + h - bottom, w, bottom, Rgba(255, 255, 255, 120));
+                }
+            }
             return;
         }
         let sec = &self.view.format().section;
@@ -3921,7 +3999,9 @@ impl DocWindow {
             let bottom =
                 (slot.y as f32 + slot.height as f32 - sec.margin_bottom as f32 / 20.0 * s).round();
             if bottom > top {
-                p.fill_rect(x, top, w, bottom - top, Rgba(255, 255, 255, 128));
+                // Show Document Text off (round 7) hides the body instead of dimming it.
+                let a = if self.r7.hide_body { 255 } else { 128 };
+                p.fill_rect(x, top, w, bottom - top, Rgba(255, 255, 255, a));
             }
             for y in [top, bottom] {
                 let mut dx = 0.0;

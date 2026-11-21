@@ -99,6 +99,10 @@ pub enum SideHit {
     ThesLookup(String),
     /// Thesaurus: fold / unfold meaning `n`.
     ThesToggle(usize),
+    /// Thesaurus: the drop-down of a hovered word (Insert / Copy; round 19).
+    ThesMenu(String),
+    /// Thesaurus: scroll the list by this many rows (its scroll bar's arrows and track).
+    ThesScroll(i32),
 }
 
 /// An issue listed by the Accessibility pane.
@@ -270,6 +274,11 @@ impl SidePane {
     pub fn layout(&mut self, rect: [f32; 4], scale: f32) {
         self.rect = rect;
         self.scale = scale;
+    }
+
+    /// The pane's place (window pixels).
+    pub fn rect(&self) -> [f32; 4] {
+        self.rect
     }
 
     /// Whether a window position is inside the pane.

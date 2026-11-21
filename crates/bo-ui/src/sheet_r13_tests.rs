@@ -169,10 +169,7 @@ fn wheel_bands_on_a_dense_book() {
         let _ = w.view.engine_mut().render_viewport_with(0, &band, |_| {});
     }
     eprintln!("new 3-row band: {:.3} ms", ms(t));
-    let band = bo_sheet::viewport::Viewport {
-        height: 45.0,
-        ..vp
-    };
+    let band = bo_sheet::viewport::Viewport { height: 45.0, ..vp };
     let t = std::time::Instant::now();
     for _ in 0..n {
         let _ = w.view.engine_mut().render_viewport_with(0, &band, |_| {});
@@ -180,8 +177,5 @@ fn wheel_bands_on_a_dense_book() {
     eprintln!("same 3-row band: {:.3} ms", ms(t));
     let t = std::time::Instant::now();
     let _ = w.view.engine_mut().render_viewport_with(0, &vp, |_| {});
-    eprintln!(
-        "whole viewport: {:.3} ms",
-        t.elapsed().as_secs_f64() * 1e3
-    );
+    eprintln!("whole viewport: {:.3} ms", t.elapsed().as_secs_f64() * 1e3);
 }

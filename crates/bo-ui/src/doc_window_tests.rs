@@ -223,7 +223,9 @@ fn insert_pictures_asks_the_host_and_shows_picture_format() {
     assert!(doc.contains("r:embed"), "picture in the document");
     // The new (inline) picture is selected: Picture Format comes forward.
     assert_eq!(w.ribbon.active_label(), doc_tools::PICTURE_FORMAT);
-    click(&mut w, "picture.reset");
+    // Reset Picture is a menu at this width, as the reference's.
+    click(&mut w, "picture.resetMenu");
+    assert!(w.menu.is_some());
 }
 
 #[test]
@@ -239,6 +241,8 @@ fn every_contextual_button_has_a_label_an_icon_and_a_command() {
         table: true,
         picture: true,
         outline: true,
+        shape: true,
+        equation: true,
     });
     for tab in &all {
         assert_ne!(w.strings.get(tab.label), tab.label, "{}", tab.label);
@@ -266,6 +270,10 @@ fn every_contextual_button_has_a_label_an_icon_and_a_command() {
                     drawn || w.icons.has(crate::ribbon::icon_of(id)),
                     "icon of {id}"
                 );
+                // Round-7 commands run in the window (doc_r7, tested there).
+                if crate::doc_tabs7::window_command(id) {
+                    continue;
+                }
                 assert!(
                     catalog::is_menu(id)
                         || crate::doc_r3_menus::static_id(id).is_some()

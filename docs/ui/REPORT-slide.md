@@ -553,3 +553,47 @@ clippy 1.99, gộp `work/desktop-performance` (BlueSheet vòng 10). Tham chiếu
 - Còn lại: Outline View chưa sửa chữ tại chỗ và chỉ đánh số theo `buAutoNum` đặt trên đoạn (không theo
   kế thừa master); thanh trạng thái của ta chưa có mục ngôn ngữ / Accessibility (cả ở Normal); Thesaurus chưa
   có menu Insert / Copy khi rê chuột và chưa cuộn danh sách dài; Reading View chưa so ảnh.
+
+## Vòng 19 — sửa dàn bài tại chỗ, thanh trạng thái, ngăn Accessibility, Reading View, tốc độ (`slide-54…`, 1500 × 1102, 125 %)
+
+Tham chiếu điều khiển qua COM / UI Automation (Invoke) trên bản sao (`ol.pptx`, `a11y.pptx`, `rd.pptx`,
+`anim.pptx`, `pp300.pptx`); của ta qua `PostMessage`. Không gửi nhập liệu thật.
+
+| Đo (thiết bị) | Tham chiếu | BlueSlide |
+|---|---|---|
+| Outline: run b="1" trong đoạn thân | vẽ thường (bỏ đậm), giữ nghiêng / gạch dưới; tiêu đề đậm + nghiêng của run | như vậy (trước: "3. Bước ba" đậm) |
+| Outline: số kế thừa từ bố cục (`buAutoNum` trên placeholder của layout) | "1.One" (không cách) | như vậy (`outline::outline_paras`: chồng kiểu danh sách slide → layout → master) |
+| Outline: chữ sau số | tại max(độ thụt treo × 19 px / 0,5", bề rộng số): "1. Bước" (treo 0,5") / "1.One" (treo 0,25") | như vậy |
+| Outline: sửa tại chỗ | con trỏ, gõ, Enter, Backspace, Tab | nhấp đặt con trỏ gần nhất; gõ; Enter tách đoạn (giữ cấp) / tách tiêu đề thành trang mới nhận các đoạn sau (đầu tiêu đề: trang trống trước); Backspace / Delete nối dòng (tiêu đề nối vào dòng cuối trang trước); ←→↑↓ Home End; mỗi thay đổi một bước hoàn tác (`applyOutline`) |
+| Thanh trạng thái (sau "Slide 1 of 4") | biểu tượng kiểm lỗi +29, ngôn ngữ +23, "Accessibility: Investigate" đậm sau biểu tượng +23; phải: Notes, Comments kết thúc 25 px trước nút chế độ xem | như vậy; không sửa chữ: ngôn ngữ của giao diện ("English (United States)" như tham chiếu); đang sửa: `lang` của run; Outline / Notes Page / Sorter cũng có (không Notes / Comments) |
+| Nhấp ngôn ngữ | hộp Language 454 × 416: Update What? Document / Slide / Selected Text, danh sách, ghi chú từ điển, Do not check spelling, Default… / OK / Cancel | như vậy (Default… mờ); OK đặt `rPr@lang` / `noProof` cho vùng chọn, trang hoặc cả bản (một bước hoàn tác) |
+| Ngăn Accessibility | 400 px; thẻ "Keep going!" màu nhấn của ứng dụng; công tắc "Show only issues on current slide"; Color and Contrast / Media and Illustrations / Tables / Document Structure / Document Access, hàng 55 px; thanh cuộn cổ điển x 371 | như vậy (màu nhấn BlueSlide); kiểm tra trong engine `slide_edit::a11y_check` (12 quy tắc) |
+| Kết quả trên `pp8` | Missing alt text = 1 (hình elip không chữ; mũi tên có chữ "Tiếp", bảng, hộp chữ không tính); tương phản đạt | như vậy sau sửa: hình vẽ không chữ, không phải placeholder cần alt; nền của chữ lấy `fillRef` của style (trước: coi nền trắng → chữ trắng trên mũi tên bị báo tương phản) |
+| Animation Pane | ngăn xám 275 px, Play From 125 × 40, nút lên / xuống 40 × 40 (khung nhạt khi mờ), hàng 31 px, thanh thời gian: hộp 23 px viền đậm hơn 1 px, 20 px / giây từ 184 px trong danh sách; "After Previous" có vạch dọc tại điểm bắt đầu | như vậy; menu hàng: Start On Click / With / After Previous, Effect Options…, Timing… (hộp Start / Delay / Duration / Repeat), Hide / Show Advanced Timeline, Remove; Shift+nhấp: "Play Selected" |
+| Thesaurus | rê chuột trên từ: dải sáng + nút ▾ (Insert / Copy); danh sách dài cuộn | như vậy: bánh xe 3 hàng, thanh cuộn (mũi tên, trang) |
+| Reading View | thanh trạng thái: "Slide 1 of 4", ◀ ☰ ▶ tâm 126 / 82 / 38 px trước nút xem, không thu phóng, nút xem kết thúc cách mép phải 17 px | như vậy (lệch ≤ 1 px); ☰: Next / Previous / Edit View |
+| Nút Slide Show / Fit (thanh trạng thái) | màn chiếu trên chân / khung | màn chiếu tự vẽ; khung với bốn mũi tên nhỏ hướng ra |
+
+Tốc độ (`deck-300.pptx`, bản release, máy còn tiến trình rustc của tác tử khác):
+
+| | Tham chiếu (COM) | BlueSlide |
+|---|---|---|
+| Mở | 1310 ms (Presentations.Open có cửa sổ) | mở 267 ms, khung đầu 746 ms |
+| Cuộn ngăn hình thu nhỏ | — | trung vị 3,0 ms / p95 3,5 ms mỗi nấc |
+| Gõ chữ tiêu đề (phím → hiện) | — (không gửi phím thật) | trung vị 6,9 ms / p95 16,6 ms (3 rustc khác đang chạy); sau khi bỏ kiểm tra giữa lúc gõ: 9,1 / 11,1 ms với 8 rustc khác (xử lý 2,7 ms, dải GPU 2,0 ms). Trước: 33,3 / 37,1 ms |
+| Trình chiếu | bắt đầu 327 ms; Next trung vị 4,7 ms | phím tiến trung vị 1,4 ms |
+
+- Hai chỗ chậm khi gõ, tìm bằng bảng chia thời gian mới của `BLUEOFFICE_NATIVE_PERF` (`"ensure"`: danh
+  sách vẽ / dải thay đổi / GPU / bản giữ lại):
+  1. kiểm tra trợ năng của thanh trạng thái chạy lại cả bản trình bày sau mỗi phím (≈ 15 ms trên 300
+     trang): nay chỉ chạy khi bản trình bày không đổi trong 0,8 s;
+  2. vẽ lại dải chữ của trang (11,3 ms) giải mã lại ảnh của trang mỗi phím: `bo-gpu-win` bỏ qua ảnh nằm
+     ngoài dải (như các dòng chữ), host BlueSlide giữ ảnh đã giải mã theo id — dải còn 2,0 ms.
+- Kiểm thử: `slide_round19_tests.rs` (gõ / Enter / Backspace / hoàn tác trong Outline, thanh trạng thái,
+  ngăn và thanh cuộn, hộp Language), `slide_outline9.rs`, `slide_lang9.rs`, `slide_timing9.rs`,
+  `bo-engine/tests/outline_paras.rs` (số kế thừa), `slide_edit::a11y_check` (tương phản, alt text, tiêu đề trùng).
+- Còn lại: hộp Language chưa có biểu tượng từ điển trên hàng và danh sách chỉ 14 ngôn ngữ; Default… chưa
+  đổi ngôn ngữ mặc định; chi tiết vấn đề trong ngăn Accessibility chưa có ô nhập mô tả tại chỗ (nút mở ngăn
+  Alt Text); Play Selected phát từ hàng đầu tiên được chọn; dòng thời gian chưa có thước giây ở chân ngăn;
+  Reading View vẫn ở trong cửa sổ chính (tham chiếu mở cửa sổ riêng "Slide Show"); menu Thesaurus và
+  hộp Timing chưa so ảnh (cần rê chuột / hộp thoại nhiều trang của tham chiếu).

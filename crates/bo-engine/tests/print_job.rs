@@ -152,8 +152,8 @@ fn doc_markup_widens_the_page_and_draws_balloons() {
     let mut e = commented();
     let on = PrintOptions::default();
     let s = e.print_sheets(&on).unwrap();
-    // A4 width + the 180 pt markup area (bo_engine::markup::AREA_WIDTH).
-    close(s[0].width, DOC_A4.0 + 180.0);
+    // A4 width + the markup area (bo_engine::markup::AREA_WIDTH).
+    close(s[0].width, DOC_A4.0 + bo_engine::markup::AREA_WIDTH);
     assert!(texts(&s[0]).iter().any(|t| t == "Kiểm tra"));
     assert!(texts(&s[0]).iter().any(|t| t == "An"));
     let off = PrintOptions {
@@ -168,7 +168,10 @@ fn doc_markup_widens_the_page_and_draws_balloons() {
     assert!(!texts(&s[0]).iter().any(|t| t == "Kiểm tra"));
     // The view keeps its markup: the page markup is still sent with the page.
     let page: Value = serde_json::from_str(&e.page_json(0).unwrap()).unwrap();
-    assert_eq!(page["markup"]["width"], 180.0);
+    assert_eq!(
+        page["markup"]["width"],
+        f64::from(bo_engine::markup::AREA_WIDTH)
+    );
     // Markup on, scaled to A4: the widened page fits the paper's width.
     let fit = PrintOptions {
         paper: Some(PaperSize::A4),
@@ -177,7 +180,7 @@ fn doc_markup_widens_the_page_and_draws_balloons() {
     let p = pdf::pages(&e.print_pdf(&fit).unwrap());
     close(p[0].media_box[2], A4.0);
     let cm = &p[0].all("cm")[0];
-    close(cm[0], A4.0 / (DOC_A4.0 + 180.0));
+    close(cm[0], A4.0 / (DOC_A4.0 + bo_engine::markup::AREA_WIDTH));
 }
 
 #[test]

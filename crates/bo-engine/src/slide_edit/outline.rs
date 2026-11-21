@@ -158,22 +158,25 @@ pub struct OutlineRun {
 }
 
 /// A body paragraph of the outline as drawn: level, its automatic number (§21.1.2.4.1
-/// buAutoNum set on the paragraph) and its runs.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+/// buAutoNum, on the paragraph or inherited from the list styles) and its runs.
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OutlinePara {
     /// Level 0–8.
     pub level: u8,
     /// Automatic number ("1.", "a)") of a numbered paragraph.
     pub number: Option<String>,
+    /// Hanging indent in points (`-indent`, §21.1.2.2.7 pPr@indent, effective value): the
+    /// reference outline starts the text of a numbered paragraph at least this far
+    /// (scaled) after the number's start.
+    pub hang: f32,
     /// Runs in order (a line break is a run of `\u{b}`).
     pub runs: Vec<OutlineRun>,
 }
 
 /// The body paragraphs of a slide's outline with numbers and run emphasis, in the order
-/// of [`slide_outline`]'s bullets.
+/// of [`slide_outline`]'s bullets — numbering as set on the paragraphs only.
 pub fn slide_outline_paras(s: &Slide) -> Vec<OutlinePara> {
-    use bo_model::slide::{Bullet, TextRun};
     let Some(tb) = parts(s)
         .1
         .and_then(|i| shape_at(s, i))
@@ -181,6 +184,34 @@ pub fn slide_outline_paras(s: &Slide) -> Vec<OutlinePara> {
     else {
         return Vec::new();
     };
+    paras_with(tb, |p| p.props.clone().unwrap_or_default())
+}
+
+/// [`slide_outline_paras`] of slide `index` with the numbering and indents its paragraphs
+/// inherit from the layout / master placeholders and the master's body style
+/// (§19.3.1.36 ph, §19.3.1.51 txStyles), as the reference outline shows them.
+pub fn outline_paras(pres: &Presentation, index: usize) -> Vec<OutlinePara> {
+    use bo_pptx::inherit::{chain, Level, TextStyleStack};
+    let Some(s) = pres.slides.get(index) else {
+        return Vec::new();
+    };
+    let Some(sh) = parts(s).1.and_then(|i| shape_at(s, i)) else {
+        return Vec::new();
+    };
+    let Some(tb) = sh.text.as_ref() else {
+        return Vec::new();
+    };
+    let ch = chain(pres, Level::Slide(index), sh);
+    let stack = TextStyleStack::new(pres, Level::Slide(index), &ch);
+    paras_with(tb, |p| stack.paragraph(p))
+}
+
+#[allow(clippy::cast_precision_loss)]
+fn paras_with(
+    tb: &TextBody,
+    props: impl Fn(&bo_model::slide::Paragraph) -> ParaProps,
+) -> Vec<OutlinePara> {
+    use bo_model::slide::{Bullet, TextRun};
     // Counters per level, as the slide's text layout numbers paragraphs.
     let mut counters: [Option<(String, i32)>; 9] = Default::default();
     tb.paragraphs
@@ -192,9 +223,10 @@ pub fn slide_outline_paras(s: &Slide) -> Vec<OutlinePara> {
                 .and_then(|pp| pp.lvl)
                 .unwrap_or(0)
                 .min(MAX_LEVEL);
+            let pp = props(p);
             let lvl = usize::from(level);
             let has_text = !p.text().trim().is_empty();
-            let number = match p.props.as_ref().and_then(|pp| pp.bullet.as_ref()) {
+            let number = match pp.bullet.as_ref() {
                 Some(Bullet::AutoNum { scheme, start_at }) if has_text => {
                     let n = match &counters[lvl] {
                         Some((sc, n)) if sc == scheme => n + 1,
@@ -234,9 +266,12 @@ pub fn slide_outline_paras(s: &Slide) -> Vec<OutlinePara> {
                     TextRun::Other(_) => None,
                 })
                 .collect();
+            // EMU → points (12 700 EMU per point).
+            let hang = (-pp.indent.unwrap_or(0)).max(0) as f32 / 12_700.0;
             OutlinePara {
                 level,
                 number,
+                hang,
                 runs,
             }
         })

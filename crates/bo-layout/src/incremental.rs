@@ -477,7 +477,9 @@ impl IncrementalLayout {
 
         // Pagination with the total page count found by the probe layout.
         ctx.fields.pages = total;
+        let sep = crate::flow::note_separator(&mut ctx)?;
         let mut flow = new_flow(doc, hf.clone());
+        (flow.sep_h, flow.sep_rule) = sep;
         flow.run(&mut ctx, None)?;
         // §17.11.19 numRestart eachPage: number the footnotes per page, lay out again.
         let each_page = if self.probe_mode {
@@ -492,6 +494,7 @@ impl IncrementalLayout {
                 ctx.other_lists = ListCounters::default();
                 ctx.next_id = 0;
                 flow = new_flow(doc, hf.clone());
+                (flow.sep_h, flow.sep_rule) = sep;
                 flow.run(&mut ctx, None)?;
             }
         }
@@ -619,7 +622,9 @@ impl IncrementalLayout {
         // Per-page footnote numbers (§17.11.19 numRestart eachPage) of the previous
         // layout: kept when the pages' notes stay the same (checked below).
         ctx.notes.clone_from(&st.notes);
+        let sep = crate::flow::note_separator(&mut ctx)?;
         let mut flow = Flow::new(st.hf_heights.clone(), doc.sections.len());
+        (flow.sep_h, flow.sep_rule) = sep;
         flow.even_odd = doc.even_and_odd_headers;
         flow.pages = pages;
         for (s, v) in st.section_start.iter().enumerate().take(rs + 1) {

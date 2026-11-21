@@ -9,6 +9,8 @@
 use bo_opc::{Package, Relationship, TargetMode, REL_OFFICE_DOCUMENT, REL_STYLES};
 use std::path::Path;
 
+mod office;
+
 const NS: &str = concat!(
     r#"xmlns:wpc="http://schemas.microsoft.com/office/word/2010/wordprocessingCanvas" "#,
     r#"xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" "#,
@@ -2613,6 +2615,8 @@ fn documents() -> Vec<(&'static str, &'static str, &'static str, Doc)> {
         }),
         ..Doc::default()
     }));
+    // Vietnamese office documents of the layout-fidelity corpus (round 3).
+    v.extend(office::documents());
     v
 }
 

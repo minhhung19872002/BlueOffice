@@ -861,3 +861,413 @@ fn a_left_wrapped_picture_keeps_its_right_side_empty() {
         }
     }
 }
+
+// ---------------------------------------------------------------- round 3
+
+/// Calibri 11 pt paragraph of one line at `line` 240ths of a line, no spacing, with a
+/// footnote reference to note 1 when `note`.
+fn calibri_line(text: &str, line: u32, note: bool) -> Block {
+    let mut r = Run::text(
+        text,
+        RunProps {
+            font: Some("Calibri".into()),
+            size: Some(HalfPoints(22)),
+            ..Default::default()
+        },
+    );
+    if note {
+        r.content.push(RunContent::FootnoteRef(1));
+    }
+    Block::Paragraph(Paragraph::new(
+        ParaProps {
+            space_before: Some(Twips(0)),
+            space_after: Some(Twips(0)),
+            line_spacing: Some(LineSpacing::Auto(line)),
+            ..ParaProps::default()
+        },
+        vec![r],
+    ))
+}
+
+/// Page (0-based) of the first line containing `needle`.
+fn page_of(l: &LayoutDocument, needle: &str) -> usize {
+    (0..l.pages.len())
+        .find(|&i| l.page_text(i).contains(needle))
+        .unwrap()
+}
+
+/// `n` lines at `line` after a spacer that leaves the text of line n + 1 `d` points more
+/// than it needs above the bottom margin; footnote referenced on line 3 when `note`.
+fn bottom_case(line: u32, n: usize, d: f32, note: bool) -> LayoutDocument {
+    let h = CALIBRI_LINE * line as f32 / 240.0;
+    let spacer = 697.9 - n as f32 * h - CALIBRI_LINE - d;
+    let mut blocks = vec![para(
+        "spacer",
+        0,
+        0,
+        LineSpacing::Exact(Twips((spacer * 20.0).round() as i32)),
+    )];
+    for k in 1..=n + 1 {
+        blocks.push(calibri_line(&format!("row {k}."), line, note && k == 3));
+    }
+    let mut d = doc(blocks);
+    if note {
+        d.footnotes
+            .insert(1, vec![para("Note of the test.", 0, 0, SINGLE)]);
+    }
+    run(&d)
+}
+
+/// The extra space of a multiple-spaced line may pass the bottom margin: only its text must
+/// fit (measured black-box, docs/ui/REPORT.md "Dàn trang vòng 3", cal-31: line 26 of 1.5
+/// lines fits 1 pt above the margin, not 1 pt below; 1.15 lines alike). With a footnote on
+/// the page the whole line must fit above the note area (line 25 moves even 8 pt clear).
+#[test]
+fn multiple_spacing_passes_the_bottom_margin_unless_a_footnote_is_there() {
+    for (line, n) in [(360, 25), (276, 34)] {
+        let last = format!("row {}.", n + 1);
+        assert_eq!(
+            page_of(&bottom_case(line, n, 1.0, false), &last),
+            0,
+            "{line}"
+        );
+        assert_eq!(
+            page_of(&bottom_case(line, n, -1.0, false), &last),
+            1,
+            "{line}"
+        );
+        let with_note = bottom_case(line, n, 8.0, true);
+        assert_eq!(page_of(&with_note, &format!("row {n}.")), 1, "{line}");
+    }
+}
+
+/// §17.3.2.42 vertAlign: 0.65 × the size rounded to the nearest half point, superscript
+/// raised 0.34 em, subscript lowered 0.085 em (measured black-box, cal-30).
+#[test]
+fn super_and_subscripts_round_their_size_to_half_points() {
+    for (hp, want) in [
+        (16u32, 5.0f32),
+        (22, 7.0),
+        (24, 8.0),
+        (26, 8.5),
+        (28, 9.0),
+        (48, 15.5),
+    ] {
+        let base = RunProps {
+            size: Some(HalfPoints(hp)),
+            ..Default::default()
+        };
+        let sup = RunProps {
+            vert_align: Some(bo_model::VertAlign::Superscript),
+            ..base.clone()
+        };
+        let sub = RunProps {
+            vert_align: Some(bo_model::VertAlign::Subscript),
+            ..base.clone()
+        };
+        let d = doc(vec![Block::Paragraph(Paragraph::new(
+            ParaProps::default(),
+            vec![
+                Run::text("X", base),
+                Run::text("S", sup),
+                Run::text("B", sub),
+            ],
+        ))]);
+        let l = run(&d);
+        let line = lines(&l, 0)[0];
+        let size = hp as f32 / 2.0;
+        let frag = |t: &str| line.fragments.iter().find(|f| &*f.text == t).unwrap();
+        // Baseline shifts are glyph offsets from the line's baseline.
+        let (x, s, b) = (frag("X"), frag("S"), frag("B"));
+        let rise = |f: &bo_layout::Fragment| f.y - f.glyphs[0].y;
+        assert!(
+            near(s.size, want) && near(b.size, want),
+            "{hp}: {} {}",
+            s.size,
+            b.size
+        );
+        let (up, down) = (rise(s) - rise(x), rise(x) - rise(b));
+        assert!((up - 0.34 * size).abs() < 0.05, "{hp}: sup {up}");
+        assert!((down - 0.085 * size).abs() < 0.05, "{hp}: sub {down}");
+    }
+}
+/// The empty paragraph that only carries a section break before a continuous section takes
+/// no room: the next section's line follows the last text line, and the spacing between
+/// those two paragraphs collapses as if the mark were not there (measured black-box,
+/// docs/ui/REPORT.md "Dàn trang vòng 3", cal-32).
+#[test]
+fn an_empty_section_mark_before_a_continuous_section_takes_no_room() {
+    let line = 2355.0 * 12.0 / 2048.0;
+    for after in [0, 240] {
+        let mut d = doc(vec![
+            para("first", 0, after, SINGLE),
+            para("", 0, after, SINGLE),
+        ]);
+        let mut next = Section {
+            page: a4(),
+            ..Section::new(vec![para("next", 0, after, SINGLE)])
+        };
+        next.break_type = SectionBreak::Continuous;
+        d.sections.push(next);
+        let l = run(&d);
+        let gap = lines(&l, 2)[0].top - lines(&l, 0)[0].top;
+        assert!(
+            near(gap, line + after as f32 / 20.0),
+            "after {after}: {gap}"
+        );
+    }
+}
+
+/// A multiple of single spacing scales the text's line, not an inline picture: a 54 pt
+/// picture at 1.15 / 1.5 lines adds 0.15 / 0.5 of the font's line (measured black-box,
+/// cal-33, in the body and in table cells).
+#[test]
+fn line_spacing_multiples_do_not_scale_inline_pictures() {
+    let pic = || {
+        RunContent::Image(Box::new(Image {
+            media: "/word/media/image1.png".into(),
+            width: Emu(914_400),
+            height: Emu(54 * 12_700),
+            anchor: None,
+            crop: None,
+            rotation: 0,
+            description: String::new(),
+            shape: None,
+            format: None,
+            src: None,
+            ole: None,
+        }))
+    };
+    let height = |line: u32| {
+        let mut r = Run::text("P", RunProps::default());
+        r.content.push(pic());
+        let d = doc(vec![
+            Block::Paragraph(Paragraph::new(
+                ParaProps {
+                    space_before: Some(Twips(0)),
+                    space_after: Some(Twips(0)),
+                    line_spacing: Some(LineSpacing::Auto(line)),
+                    ..ParaProps::default()
+                },
+                vec![r],
+            )),
+            para("after", 0, 0, SINGLE),
+        ]);
+        let l = run(&d);
+        lines(&l, 1)[0].top - lines(&l, 0)[0].top
+    };
+    let text = 2355.0 * 12.0 / 2048.0;
+    let single = height(240);
+    assert!(single > 54.0, "{single}");
+    for (line, k) in [(276, 0.15), (360, 0.5), (480, 1.0)] {
+        let h = height(line);
+        assert!(near(h, single + k * text), "{line}: {h} vs {single}");
+    }
+}
+
+/// §17.4.84 vAlign center in a vertically merged cell (§17.4.85 vMerge) centres the
+/// content in the whole merged cell (measured black-box, office-17 header rows).
+#[test]
+fn a_merged_cell_centres_its_content_over_all_its_rows() {
+    let mut t = Table::simple(2, 2, Twips(6000));
+    t.props.borders = Some(grid_borders());
+    t.rows[0].cells[0].props.v_merge = Some(bo_model::VMerge::Restart);
+    t.rows[0].cells[0].props.v_align = Some(bo_model::CellVAlign::Center);
+    t.rows[0].cells[0].blocks = vec![para("M", 0, 0, SINGLE)];
+    t.rows[1].cells[0].props.v_merge = Some(bo_model::VMerge::Continue);
+    t.rows[1].cells[0].blocks = vec![para("", 0, 0, SINGLE)];
+    t.rows[0].cells[1].blocks = vec![para("a", 0, 0, SINGLE), para("b", 0, 0, SINGLE)];
+    t.rows[1].cells[1].blocks = vec![para("c", 0, 0, SINGLE), para("d", 0, 0, SINGLE)];
+    let l = run(&doc(vec![Block::Table(t), para("after", 0, 0, SINGLE)]));
+    let m = lines(&l, 0)[0];
+    let top = lines(&l, 1)[0].top;
+    // The continued cell's paragraph is not laid out: "d" is body paragraph 4.
+    let bottom = lines(&l, 4)[0].top + lines(&l, 4)[0].height;
+    let mid = m.top + m.height / 2.0;
+    assert!(
+        (mid - f32::midpoint(top, bottom)).abs() < 0.6,
+        "{mid} vs {top}..{bottom}"
+    );
+}
+
+/// The footnote separator is laid out as a paragraph of the Normal style — its space
+/// before and its font's single line — so a document whose paragraphs have space before
+/// keeps fewer body lines above its footnotes (measured black-box, office-10: Times New
+/// Roman 14 pt with 6 pt before reserves 22.1 pt, not a fixed 12 pt).
+#[test]
+fn the_footnote_separator_takes_the_normal_paragraph_spacing() {
+    let body_lines = |before: i32| {
+        let mut blocks = Vec::new();
+        let mut r = Run::text("reference", RunProps::default());
+        r.content.push(RunContent::FootnoteRef(1));
+        blocks.push(Block::Paragraph(Paragraph::new(
+            ParaProps {
+                space_before: Some(Twips(0)),
+                space_after: Some(Twips(0)),
+                line_spacing: Some(SINGLE),
+                ..ParaProps::default()
+            },
+            vec![r],
+        )));
+        for i in 0..60 {
+            blocks.push(para(&format!("body {i}"), 0, 0, SINGLE));
+        }
+        let mut d = doc(blocks);
+        d.default_para.space_before = Some(Twips(before));
+        d.footnotes.insert(1, vec![para("The note.", 0, 0, SINGLE)]);
+        let l = run(&d);
+        l.pages[0]
+            .lines
+            .iter()
+            .filter(|x| matches!(x.source, LineSource::Body(_)))
+            .count()
+    };
+    let plain = body_lines(0);
+    assert!(body_lines(480) < plain, "{plain}");
+}
+
+/// §17.6.11 pgMar top / header: the body starts at the top margin, or below the header when
+/// the header ends lower (measured black-box, cal-34: header at 36 pt with two Calibri
+/// 11 pt lines ends at 62.9 pt, body at 72 pt; three lines push the body to 76.3 pt; a
+/// 2 cm margin with the header at 35.45 pt and two lines starts the body at 62.3 pt).
+#[test]
+fn the_body_starts_at_the_top_margin_or_below_the_header() {
+    let top = |lines: usize, margin: i32, header: i32| {
+        let mut d = doc(vec![calibri_para(&[("Calibri", "body")])]);
+        let s = &mut d.sections[0];
+        s.page.margin_top = Twips(margin);
+        s.page.header = Twips(header);
+        s.headers.default = Some(
+            (0..lines)
+                .map(|i| calibri_para(&[("Calibri", &format!("header {i}"))]))
+                .collect(),
+        );
+        lines_top(&run(&d))
+    };
+    assert!(near(top(2, 1440, 720), 72.0), "{}", top(2, 1440, 720));
+    assert!(near(top(3, 1440, 720), 36.0 + 3.0 * CALIBRI_LINE));
+    assert!(near(top(2, 1134, 709), 35.45 + 2.0 * CALIBRI_LINE));
+}
+
+fn lines_top(l: &LayoutDocument) -> f32 {
+    l.pages[0]
+        .lines
+        .iter()
+        .filter(|x| matches!(x.source, LineSource::Body(_)))
+        .map(|x| x.top)
+        .fold(f32::MAX, f32::min)
+}
+/// A paragraph ending in a page break leaves its space after behind: the next page starts
+/// with the next paragraph at the top margin (measured black-box, office-04).
+#[test]
+fn a_page_break_paragraph_leaves_its_space_after_behind() {
+    let mut brk = Run::text("", RunProps::default());
+    brk.content = vec![RunContent::PageBreak];
+    let d = doc(vec![
+        Block::Paragraph(Paragraph::new(
+            ParaProps {
+                space_before: Some(Twips(0)),
+                space_after: Some(Twips(240)),
+                line_spacing: Some(SINGLE),
+                ..ParaProps::default()
+            },
+            vec![brk],
+        )),
+        para("next page", 240, 0, SINGLE),
+    ]);
+    let l = run(&d);
+    let next = lines(&l, 1)[0];
+    assert_eq!(l.page_text(1).trim(), "next page");
+    assert!(near(next.top, 72.0), "{}", next.top);
+}
+
+/// The space before of a new-page section's first paragraph is kept, less the previous
+/// section's last space after (measured black-box, cal-36: after 6 / before 12 pt leaves
+/// 6 pt, after 12 / before 12 pt none, after 0 / before 12 pt all of it).
+#[test]
+fn a_new_page_section_keeps_its_space_before_less_the_last_space_after() {
+    let start = |after: i32, before: i32| {
+        let mut d = doc(vec![para("first", 0, after, SINGLE)]);
+        let next = Section {
+            page: a4(),
+            ..Section::new(vec![para("second", before, 0, SINGLE)])
+        };
+        d.sections.push(next);
+        let l = run(&d);
+        lines(&l, 1)[0].top - 72.0
+    };
+    assert!(near(start(0, 240), 12.0), "{}", start(0, 240));
+    assert!(near(start(120, 240), 6.0), "{}", start(120, 240));
+    assert!(near(start(240, 240), 0.0), "{}", start(240, 240));
+    assert!(near(start(360, 240), 0.0), "{}", start(360, 240));
+}
+
+/// A paragraph of `n` lines (explicit line breaks, §17.3.3.1 br).
+fn lines_para(name: &str, n: usize) -> Block {
+    let mut r = Run::text(format!("{name} 0"), RunProps::default());
+    for i in 1..n {
+        r.content.push(RunContent::LineBreak);
+        r.content.push(RunContent::Text(format!("{name} {i}")));
+    }
+    Block::Paragraph(Paragraph::new(
+        ParaProps {
+            space_before: Some(Twips(0)),
+            space_after: Some(Twips(0)),
+            line_spacing: Some(SINGLE),
+            ..ParaProps::default()
+        },
+        vec![r],
+    ))
+}
+
+/// Balanced columns before a continuous break keep widow / orphan control: a paragraph's
+/// first line does not stay alone at the foot of the first column (office-16).
+#[test]
+fn balanced_columns_keep_a_paragraphs_first_two_lines_together() {
+    let mut d = doc(vec![lines_para("A", 4), lines_para("B", 5)]);
+    d.sections[0].columns = Columns {
+        count: 2,
+        space: Twips(720),
+        ..Columns::default()
+    };
+    let mut after = Section {
+        page: a4(),
+        ..Section::new(vec![para("after", 0, 0, SINGLE)])
+    };
+    after.break_type = SectionBreak::Continuous;
+    d.sections.push(after);
+    let l = run(&d);
+    let b = lines(&l, 1);
+    assert!(
+        b[0].fragments[0].x > 200.0,
+        "B's first line left alone in column 1"
+    );
+}
+
+/// The empty paragraph ending a one-column section before a continuous two-column one
+/// takes no room, also when the columns are balanced (office-16).
+#[test]
+fn a_section_mark_takes_no_room_before_balanced_columns() {
+    let line = 2355.0 * 12.0 / 2048.0;
+    let mut d = doc(vec![para("intro", 0, 0, SINGLE), para("", 0, 0, SINGLE)]);
+    let mut cols = Section {
+        page: a4(),
+        ..Section::new(vec![lines_para("A", 4), lines_para("B", 4)])
+    };
+    cols.break_type = SectionBreak::Continuous;
+    cols.columns = Columns {
+        count: 2,
+        space: Twips(720),
+        ..Columns::default()
+    };
+    d.sections.push(cols);
+    let mut end = Section {
+        page: a4(),
+        ..Section::new(vec![para("end", 0, 0, SINGLE)])
+    };
+    end.break_type = SectionBreak::Continuous;
+    d.sections.push(end);
+    let l = run(&d);
+    let a = lines(&l, 2)[0].top;
+    assert!(near(a, 72.0 + line), "{a}");
+}

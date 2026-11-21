@@ -153,17 +153,32 @@ impl Extents {
     /// stand-in lacks Vietnamese glyphs).
     fn add(&mut self, st: &RunStyle) {
         let (a, d, g) = st.line;
-        let ascent = a * st.size - st.shift.min(0.0);
+        let (size, shift) = match st.script {
+            Some((base, s)) => (base, st.shift - s),
+            None => (st.size, st.shift),
+        };
+        let ascent = a * size - shift.min(0.0);
         self.ascent = self.ascent.max(ascent);
-        self.top = self.top.max(ascent + g * st.size);
+        self.top = self.top.max(ascent + g * size);
         if !st.label {
-            self.descent = self.descent.max(d * st.size + st.shift.max(0.0));
+            self.descent = self.descent.max(d * size + shift.max(0.0));
         }
     }
 
     /// External leading above the highest ascent.
     fn gap(&self) -> f32 {
         (self.top - self.ascent).max(0.0)
+    }
+
+    /// Single line height of the line's text, or of the paragraph mark's font on a line
+    /// holding only objects: what a multiple of single spacing scales (§17.3.1.33).
+    fn text_line(&self, mark: &RunStyle) -> f32 {
+        if self.top > 0.0 || self.descent > 0.0 {
+            self.ascent + self.descent + self.gap()
+        } else {
+            let (a, d, g) = mark.line;
+            (a + d + g) * mark.size
+        }
     }
 }
 
@@ -193,12 +208,13 @@ fn row_height(pieces: &[Piece], styles: &[RunStyle], mark: &RunStyle, spacing: L
         ext.add(&RunStyle {
             shift: 0.0,
             label: false,
+            script: None,
             ..mark.clone()
         });
     }
     let natural = ext.ascent.max(obj) + ext.descent.max(obj_depth) + ext.gap();
     match spacing {
-        LineSpacing::Auto(v) => natural * v as f32 / 240.0,
+        LineSpacing::Auto(v) => natural + ext.text_line(mark) * (v as f32 / 240.0 - 1.0),
         LineSpacing::Exact(t) => t.to_pt(),
         LineSpacing::AtLeast(t) => natural.max(t.to_pt()),
     }
@@ -1759,6 +1775,7 @@ fn layout_uncached(
             ext.add(&RunStyle {
                 shift: 0.0,
                 label: false,
+                script: None,
                 ..mark_style.clone()
             });
         }
@@ -1771,9 +1788,14 @@ fn layout_uncached(
         // docs/ui/REPORT.md Fidelity round 1): the external leading above the ascent; a
         // multiple of single spacing adds its extra space below the text; "at least" adds it
         // above; an exact height puts the baseline at 80 % of the line whatever the font.
+        // The multiple scales the text's single line only: an inline picture keeps its
+        // height, the line grows by (multiple − 1) × the font's line (measured black-box,
+        // docs/ui/REPORT.md "Dàn trang vòng 3", cal-33: a 54 pt picture in a Calibri 11 pt
+        // line at 1.15 / 1.5 / 2 lines adds 2.0 / 6.6 / 13.4 pt, in body and table cells).
+        let text_line = ext.text_line(&mark_style);
         let (height, baseline) = match spacing {
             LineSpacing::Auto(v) => {
-                let h = natural * v as f32 / 240.0;
+                let h = natural + text_line * (v as f32 / 240.0 - 1.0);
                 (h, gap + ascent)
             }
             LineSpacing::Exact(t) => {

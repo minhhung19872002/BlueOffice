@@ -18,7 +18,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 const EPS: f32 = 0.01;
-/// Space reserved above the footnote area for the separator (ECMA-376 Part 1, §17.11.23 separator).
+/// Space reserved above the footnote area for the separator (ECMA-376 Part 1, §17.11.23
+/// separator) when it has not been measured ([`note_separator`]).
 const NOTE_SEPARATOR: f32 = 12.0;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -97,6 +98,7 @@ pub(crate) struct Snap {
     notes_on_page: Vec<NoteKey>,
     foot_h: f32,
     foot_slack: f32,
+    page_after: f32,
     carry: Vec<(NoteKey, usize)>,
     text_bottom: Option<f32>,
     excl: Vec<(f32, f32)>,
@@ -161,6 +163,15 @@ pub(crate) struct Flow {
     /// Part of the footnote area that may continue on the next page: the last note
     /// beyond its first line (a note starts on the page of its reference).
     foot_slack: f32,
+    /// Space after of the last paragraph before the current page (see [`Flow::new_page`]).
+    page_after: f32,
+    /// Lines of empty section-mark paragraphs (page, line index): no room, so the
+    /// balancing of the next section's columns leaves them out.
+    mark_lines: Vec<(usize, usize)>,
+    /// Height of the footnote separator paragraph (§17.11.23) and where its rule is drawn
+    /// below its top ([`note_separator`]).
+    pub(crate) sep_h: f32,
+    pub(crate) sep_rule: f32,
     /// Footnotes continued from the previous page: (note, first band shown here).
     carry: Vec<(NoteKey, usize)>,
     /// Bottom of the lowest body line on the current page (any column); part of the
@@ -596,6 +607,10 @@ impl Flow {
             notes_on_page: Vec::new(),
             foot_h: 0.0,
             foot_slack: 0.0,
+            page_after: 0.0,
+            mark_lines: Vec::new(),
+            sep_h: NOTE_SEPARATOR,
+            sep_rule: NOTE_SEPARATOR / 2.0,
             carry: Vec::new(),
             text_bottom: None,
             notice: None,
@@ -648,6 +663,7 @@ impl Flow {
                 notes_on_page: self.notes_on_page.clone(),
                 foot_h: self.foot_h,
                 foot_slack: self.foot_slack,
+                page_after: self.page_after,
                 carry: self.carry.clone(),
                 text_bottom: self.text_bottom,
                 excl: self.excl.clone(),
@@ -683,6 +699,7 @@ impl Flow {
         self.notes_on_page.clone_from(&s.notes_on_page);
         self.foot_h = s.foot_h;
         self.foot_slack = s.foot_slack;
+        self.page_after = s.page_after;
         self.carry.clone_from(&s.carry);
         self.text_bottom = s.text_bottom;
         self.excl.clone_from(&s.excl);
@@ -776,7 +793,7 @@ impl Flow {
         // Footnotes continued from the previous page (ECMA-376 Part 1, §17.11.1
         // continuationSeparator) open the footnote area.
         if !self.carry.is_empty() {
-            self.foot_h = NOTE_SEPARATOR;
+            self.foot_h = self.sep_h;
             for &(key, from) in &self.carry {
                 let (rem, first) = self.remaining(key, from);
                 self.foot_h += rem;
@@ -785,6 +802,7 @@ impl Flow {
         }
         self.excl.clear();
         self.sides.clear();
+        self.page_after = self.prev.as_ref().map_or(0.0, |p| p.after);
         self.prev = None;
     }
 
@@ -824,6 +842,8 @@ impl Flow {
         }
         let top = self.cols_top;
         let cols = self.cols.clone();
+        let page_idx = self.pages.len().saturating_sub(1);
+        let marks = &self.mark_lines;
         let Some(page) = self.pages.last_mut() else {
             return;
         };
@@ -831,7 +851,7 @@ impl Flow {
         // Lines of this section's columns: (line index, column).
         let mut mine: Vec<(usize, usize)> = Vec::new();
         for (i, l) in page.lines.iter().enumerate() {
-            if l.top < top - EPS || l.rotation.is_some() {
+            if l.top < top - EPS || l.rotation.is_some() || marks.contains(&(page_idx, i)) {
                 continue;
             }
             if l.source == LineSource::RowEnd {
@@ -878,8 +898,14 @@ impl Flow {
         let lead = mine
             .first()
             .map_or(0.0, |m| (page.lines[m.0].top - top).max(0.0));
+        // Lines of one paragraph: widow / orphan control (§17.3.1.44) keeps a paragraph's
+        // first or last line with its neighbour across the column break (measured
+        // black-box, docs/ui/REPORT.md "Dàn trang vòng 3", office-16).
+        let same_prev: Vec<bool> = (0..units.len())
+            .map(|k| k > 0 && page.lines[units[k].0].source == page.lines[units[k - 1].0].source)
+            .collect();
         let fill = |limit: f32| -> Option<Vec<(usize, f32)>> {
-            let mut out = Vec::with_capacity(units.len());
+            let mut out: Vec<(usize, f32)> = Vec::with_capacity(units.len());
             let (mut col, mut y) = (0usize, lead);
             for (k, &(_, _, gap, h)) in units.iter().enumerate() {
                 let start = if k == 0 {
@@ -894,8 +920,19 @@ impl Flow {
                     if col >= n {
                         return None;
                     }
+                    let last_of_para = k + 1 == units.len() || !same_prev[k + 1];
+                    let first_before = k >= 1 && !same_prev[k - 1];
+                    let carry = same_prev[k]
+                        && (first_before || last_of_para)
+                        && out.last().is_some_and(|&(c, s)| c + 1 == col && s > EPS);
                     y = 0.0;
-                    out.push((col, 0.0));
+                    if carry {
+                        // The line before goes along to the new column.
+                        out.pop();
+                        out.push((col, 0.0));
+                        y = units[k - 1].3 + gap;
+                    }
+                    out.push((col, y));
                     y += h;
                     continue;
                 }
@@ -1058,6 +1095,8 @@ impl Flow {
             page.lines.truncate(start.lines);
             page.items.truncate(start.items);
         }
+        self.mark_lines
+            .retain(|&(pg, i)| pg < start.page || (pg == start.page && i < start.lines));
         self.foot_order.truncate(start.snap.foot_keys);
         self.restore(ctx, start);
     }
@@ -1087,6 +1126,45 @@ impl Flow {
             }
         }
         Ok(mark)
+    }
+
+    /// Place the empty paragraph that only carries a section break before a continuous
+    /// section (ECMA-376 Part 1, §17.6.17 sectPr in pPr, §17.6.22 type continuous): the
+    /// reference word processor gives it no height and no spacing — the next section's
+    /// first line follows the previous text line with the spacing between those two
+    /// paragraphs (measured black-box, docs/ui/REPORT.md "Dàn trang vòng 3", cal-32:
+    /// one → one, one → two and two → one columns, with and without space after).
+    fn place_section_mark(
+        &mut self,
+        ctx: &mut Ctx<'_>,
+        pb: &ParaBlock,
+        src: Option<&Paragraph>,
+    ) -> Result<(), LayoutError> {
+        let mut mark = pb.clone();
+        mark.space_before = 0.0;
+        mark.space_after = 0.0;
+        mark.page_break_before = false;
+        mark.deco = None;
+        for l in &mut mark.lines {
+            l.h = 0.0;
+            l.text_h = 0.0;
+        }
+        let prev = self.prev.clone();
+        let y = self.y;
+        let from = (
+            self.pages.len(),
+            self.pages.last().map_or(0, |p| p.lines.len()),
+        );
+        self.place_para(ctx, &mark, 0.0, src)?;
+        if self.pages.len() == from.0 {
+            let to = self.pages.last().map_or(0, |p| p.lines.len());
+            let pg = from.0.saturating_sub(1);
+            self.mark_lines.extend((from.1..to).map(|i| (pg, i)));
+        }
+        // The spacing between the paragraphs around the mark collapses as if it were not there.
+        self.y = self.y.max(y);
+        self.prev = prev;
+        Ok(())
     }
 
     /// Separator lines between the current columns (ECMA-376 Part 1, §17.6.4
@@ -1160,12 +1238,13 @@ impl Flow {
         }
         let notice_h = self.notice.as_ref().map_or(0.0, |n| n.h);
         let limit = self.bottom - if split { notice_h } else { 0.0 };
+        let rule = self.sep_rule;
         let sep = |page: &mut Page, y: f32, w: f32| {
             page.items.push(PageItem::Rule {
                 x1: x,
-                y1: y + NOTE_SEPARATOR / 2.0,
+                y1: y + rule,
                 x2: x + w,
-                y2: y + NOTE_SEPARATOR / 2.0,
+                y2: y + rule,
                 width: 0.5,
                 color: Color::BLACK,
                 style: "single".into(),
@@ -1173,7 +1252,7 @@ impl Flow {
         };
         // §17.11.1 continuationSeparator spans the text width; §17.11.23 separator.
         sep(page, y, if self.carry.is_empty() { 144.0 } else { full_w });
-        y += NOTE_SEPARATOR;
+        y += self.sep_h;
         let entries: Vec<(NoteKey, usize)> = self
             .carry
             .iter()
@@ -1261,7 +1340,7 @@ impl Flow {
             slack = h - self.remaining(*key, 0).1;
         }
         if add > 0.0 && self.foot_h <= 0.0 {
-            add += NOTE_SEPARATOR;
+            add += self.sep_h;
         }
         Ok((add, slack))
     }
@@ -1304,7 +1383,7 @@ impl Flow {
             }
             let h = self.note_stack(ctx, *key)?;
             if self.foot_h <= 0.0 {
-                self.foot_h += NOTE_SEPARATOR;
+                self.foot_h += self.sep_h;
             }
             self.foot_h += h;
             self.foot_slack = self.later_slack(h, self.remaining(*key, 0).1);
@@ -1487,7 +1566,7 @@ impl Flow {
             for key in &l.notes {
                 if !key.0 && !seen.contains(key) {
                     if foot <= 0.0 {
-                        foot += NOTE_SEPARATOR;
+                        foot += self.sep_h;
                     }
                     let h = self.note_stack(ctx, *key)?;
                     foot += h;
@@ -1498,7 +1577,12 @@ impl Flow {
                 }
             }
             let ly = self.skip_excl(y, l.text_h);
-            if ly + l.h > self.bottom - foot + here + EPS {
+            // The extra space a multiple of single spacing adds below the text may pass the
+            // bottom margin (only the text must fit), but not into a footnote area on the
+            // page: measured black-box, docs/ui/REPORT.md "Dàn trang vòng 3" (cal-31:
+            // Calibri 11 pt at 1.15 / 1.5 lines, with and without footnotes).
+            let need = if foot > 0.0 { l.h } else { l.text_h };
+            if ly + need > self.bottom - foot + here + EPS {
                 return Ok(i);
             }
             y = ly + l.h;
@@ -1516,7 +1600,7 @@ impl Flow {
     /// a note too tall for that continues on the next page (§17.11.1
     /// continuationSeparator).
     fn later_slack(&self, h: f32, first: f32) -> f32 {
-        if h + NOTE_SEPARATOR + 2.0 * first < self.full_height() {
+        if h + self.sep_h + 2.0 * first < self.full_height() {
             0.0
         } else {
             h - first
@@ -1563,8 +1647,13 @@ impl Flow {
             && self.col == 0
             && self.section_start.get(self.section).copied().flatten()
                 == self.pages.len().checked_sub(1);
-        if self.col_has_content || section_top {
+        if self.col_has_content {
             self.y += before;
+        } else if section_top {
+            // The previous section's last space after, spent on its page, still counts
+            // against this space before (cal-36: after 6 / before 12 pt leaves 6 pt; after
+            // 12 / before 12 leaves none).
+            self.y += (before - self.page_after).max(0.0);
         }
         let total = pb.height();
         let full = self.full_height();
@@ -1669,6 +1758,7 @@ impl Flow {
         let mut n = pb.lines.len();
         let mut i = 0;
         let mut segments: Vec<(usize, f32, f32, f32)> = Vec::new(); // (page, col x, y0, y1)
+        let mut ends_on_break = false;
         while i < n {
             if (self.col_w() - part_w).abs() > 0.01 && self.sides.is_empty() {
                 if let Some(p) = src {
@@ -1726,6 +1816,7 @@ impl Flow {
                 segments.push((page_idx, col_x, y0, self.y));
             }
             let last = &pb.lines[i - 1];
+            ends_on_break = i == n && last.brk != Brk::None;
             match last.brk {
                 Brk::Page => self.new_page(),
                 Brk::Column => {
@@ -1748,6 +1839,12 @@ impl Flow {
                     }
                 }
             }
+        }
+        if ends_on_break {
+            // A paragraph ending in a page / column break (§17.3.3.1 br) leaves its space
+            // after behind: the next page starts with the next paragraph at the margin
+            // (measured black-box, docs/ui/REPORT.md "Dàn trang vòng 3", office-04).
+            return Ok(());
         }
         self.y += pb.space_after;
         self.prev = Some(Prev {
@@ -2119,7 +2216,15 @@ impl Flow {
                             Block::Paragraph(p) => Some(p),
                             _ => None,
                         };
-                        self.place_para(ctx, pb, keep_with, src)?;
+                        let continuous_next = doc
+                            .sections
+                            .get(si + 1)
+                            .is_some_and(|n| matches!(n.break_type, SectionBreak::Continuous));
+                        if k + 1 == sec.blocks.len() && continuous_next && is_mark_only(pb, src) {
+                            self.place_section_mark(ctx, pb, src)?;
+                        } else {
+                            self.place_para(ctx, pb, keep_with, src)?;
+                        }
                     }
                     Built::Table(tb) => self.place_table(ctx, tb)?,
                     Built::Skip => {}
@@ -2177,12 +2282,12 @@ impl Flow {
         if keys.is_empty() {
             return Ok(());
         }
-        let mut sep = Band::empty(NOTE_SEPARATOR);
+        let mut sep = Band::empty(self.sep_h);
         sep.items.push(PageItem::Rule {
             x1: 0.0,
-            y1: NOTE_SEPARATOR / 2.0,
+            y1: self.sep_rule,
             x2: 144.0,
-            y2: NOTE_SEPARATOR / 2.0,
+            y2: self.sep_rule,
             width: 0.5,
             color: Color::BLACK,
             style: "single".into(),
@@ -2292,4 +2397,47 @@ pub(crate) fn hf_blocks(
         }
     }
     None
+}
+
+/// An empty paragraph (no text, objects or floats) that only carries its section's break.
+fn is_mark_only(pb: &ParaBlock, src: Option<&Paragraph>) -> bool {
+    src.is_some_and(|p| p.plain_text().is_empty())
+        && pb.floats.is_empty()
+        && pb.deco.is_none()
+        && pb.lines.len() == 1
+        && pb
+            .lines
+            .iter()
+            .all(|l| l.items.is_empty() && l.brk == Brk::None)
+}
+
+/// Height of the footnote / endnote separator paragraph (ECMA-376 Part 1, §17.11.23
+/// separator) and the offset of its rule from its top. The reference word processor lays
+/// the separator out as an ordinary paragraph — the document's Normal font and space
+/// before, single line, no space after (the paragraph it writes for the separator) — and
+/// draws the rule a quarter of the text ascent above the baseline (measured black-box,
+/// docs/ui/REPORT.md "Dàn trang vòng 3": Times New Roman 14 pt with 6 pt before reserves
+/// 22.1 pt, Calibri 11 pt 13.4 pt).
+pub(crate) fn note_separator(ctx: &mut Ctx<'_>) -> Result<(f32, f32), LayoutError> {
+    if ctx.doc.footnotes.is_empty() && ctx.doc.endnotes.is_empty() {
+        return Ok((NOTE_SEPARATOR, NOTE_SEPARATOR / 2.0));
+    }
+    let p = Paragraph::new(
+        bo_model::ParaProps {
+            space_after: Some(Twips(0)),
+            line_spacing: Some(bo_model::LineSpacing::Auto(240)),
+            ..Default::default()
+        },
+        Vec::new(),
+    );
+    let (next_id, origin, note) = (ctx.next_id, ctx.id_origin, ctx.note.take());
+    let pb = crate::blocks::build_para(ctx, &p, 400.0, false, None);
+    (ctx.next_id, ctx.id_origin, ctx.note) = (next_id, origin, note);
+    let pb = pb?;
+    let Some(line) = pb.lines.first().and_then(|b| b.lines.first()) else {
+        return Ok((NOTE_SEPARATOR, NOTE_SEPARATOR / 2.0));
+    };
+    let ascent = line.baseline - line.top;
+    let h = pb.space_before + pb.height();
+    Ok((h, pb.space_before + ascent * 0.74))
 }

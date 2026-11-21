@@ -141,6 +141,7 @@ pub(crate) struct Deco {
 }
 
 /// A laid-out paragraph ready for placement.
+#[derive(Clone)]
 pub(crate) struct ParaBlock {
     pub lines: Vec<Band>,
     pub space_before: f32,
@@ -666,6 +667,12 @@ pub(crate) struct CellBox {
     pub continued: bool,
     /// The cell below (same grid column) continues this cell's merge.
     pub merged_below: bool,
+    /// Rows a vMerge restart cell spans (1 otherwise) and the height of the rows below
+    /// this one that it spans, set once all rows are measured: §17.4.84 vAlign centres /
+    /// bottom-aligns its content in the whole merged cell, as the reference word processor
+    /// does (measured black-box, docs/ui/REPORT.md "Dàn trang vòng 3", office-17).
+    pub rows_spanned: usize,
+    pub span_below: f32,
     /// Tracked cell insertion/deletion in markup (§17.13.5.4 cellIns, §17.13.5.3
     /// cellDel): (author colour, deleted).
     pub revision: Option<(Color, bool)>,
@@ -1386,6 +1393,8 @@ pub(crate) fn layout_table(
                 v_align,
                 continued,
                 merged_below,
+                rows_spanned,
+                span_below: 0.0,
                 revision,
             });
         }
@@ -1453,6 +1462,16 @@ pub(crate) fn layout_table(
         if need > have {
             if let Some(last) = rows.get_mut(end - 1) {
                 last.h += need - have;
+            }
+        }
+    }
+    for ri in 0..rows.len() {
+        for ci in 0..rows[ri].cells.len() {
+            let span = rows[ri].cells[ci].rows_spanned;
+            if span > 1 {
+                let end = (ri + span).min(rows.len());
+                let below: f32 = rows[ri + 1..end].iter().map(|r| r.h).sum();
+                rows[ri].cells[ci].span_below = below;
             }
         }
     }
@@ -1581,7 +1600,7 @@ pub(crate) fn row_band(
         }
         if !c.continued {
             let [ml, _, mt, mb] = c.margins;
-            let free = (h - mt - mb - c.content_h).max(0.0);
+            let free = (h + c.span_below - mt - mb - c.content_h).max(0.0);
             // §17.4.84 vAlign
             let dy = mt
                 + match c.v_align {
@@ -1713,10 +1732,12 @@ pub(crate) fn split_row(row: &RowBox, avail: f32) -> Option<(RowBox, RowBox)> {
         fc.content_h = a.iter().map(|(t, band)| t + band.h).fold(0.0f32, f32::max);
         fc.content = a;
         fc.v_align = CellVAlign::Top;
+        fc.span_below = 0.0;
         let rc = &mut rest.cells[ci];
         rc.content_h = bh;
         rc.content = b;
         rc.v_align = CellVAlign::Top;
+        rc.span_below = 0.0;
     }
     if !any_first || !any_rest {
         return None;

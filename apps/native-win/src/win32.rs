@@ -221,6 +221,22 @@ pub fn text_scale_factor() -> f32 {
     }
 }
 
+/// Whether Windows always underlines access keys (`SPI_GETKEYBOARDCUES`).
+#[allow(dead_code)] // BlueSheet only (each window is its own binary)
+pub fn keyboard_cues() -> bool {
+    let mut on = windows::core::BOOL(0);
+    // SAFETY: the out pointer refers to a live BOOL.
+    unsafe {
+        let _ = SystemParametersInfoW(
+            windows::Win32::UI::WindowsAndMessaging::SPI_GETKEYBOARDCUES,
+            0,
+            Some((&raw mut on).cast()),
+            SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
+        );
+    }
+    on.as_bool()
+}
+
 /// A value of the user's region settings (`HKCU\Control Panel\International`), such as
 /// `sShortDate` (`M/d/yyyy`) or `sDecimal`.
 #[allow(dead_code)] // BlueSheet only (each window is its own binary)
@@ -617,6 +633,19 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             if ribbon_sys_key_last(msg, wparam.0 as u16) {
                 input(hwnd, Input::Key(Key::F(10), Mods::default()));
             }
+            LRESULT(0)
+        }
+        // BlueReader: Alt+← / Alt+→ step through the views (previous / next view).
+        WM_SYSKEYDOWN
+            if RIBBON_KEYS.load(std::sync::atomic::Ordering::Relaxed)
+                && matches!(wparam.0, 0x25 | 0x27) =>
+        {
+            let k = if wparam.0 == 0x25 {
+                Key::Left
+            } else {
+                Key::Right
+            };
+            input(hwnd, Input::Key(k, mods()));
             LRESULT(0)
         }
         WM_SYSKEYDOWN if sheet_sys_key(wparam.0 as u16).is_some() => {

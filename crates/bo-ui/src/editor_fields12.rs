@@ -11,7 +11,7 @@ use crate::editor_form8::{
 };
 use crate::editor_window::EditorWindow;
 use crate::popup::{Choice, MenuItem, MenuLook};
-use crate::{Input, Key, Painter};
+use crate::{Input, Key, Painter, TextMeasure};
 use bo_pdfread::{FieldClip, FieldKind, FieldProps};
 use bo_render::Rgba;
 
@@ -75,8 +75,6 @@ pub(crate) struct Fields12 {
     pub mn_next: Option<(Vec<char>, bool)>,
     /// Access keys of the open field menu: (lower-case letter, command, dimmed).
     pub mnem: Vec<(char, String, bool)>,
-    /// Where the open field menu underlines its access keys (keyboard-opened only).
-    pub underlines: Vec<Option<(f32, f32)>>,
 }
 
 /// Split Document › Output Options: where the parts go and how they are named (the
@@ -149,7 +147,13 @@ type Row12 = (&'static str, &'static str, bool, bool);
 impl EditorWindow {
     /// A context menu with the reference's field-menu look at window point `at`: rules before
     /// the rows in `seps`, a sub-menu mark on the rows set in `arrows`.
-    pub(crate) fn menu12(&mut self, rows: &[Row12], seps: Vec<usize>, at: [f32; 2]) {
+    pub(crate) fn menu12(
+        &mut self,
+        rows: &[Row12],
+        seps: Vec<usize>,
+        at: [f32; 2],
+        text: Option<&dyn TextMeasure>,
+    ) {
         let items: Vec<MenuItem> = rows
             .iter()
             .map(|(cmd, key, dim, _)| MenuItem {
@@ -160,7 +164,7 @@ impl EditorWindow {
             })
             .collect();
         let arrows = rows.iter().map(|r| r.3).collect();
-        self.menu12_items(items, seps, arrows, at);
+        self.menu12_items(items, seps, arrows, at, text);
     }
 
     /// A sub-menu of the field menu (Align, Center, Distribute, Size) with the same look.
@@ -172,7 +176,7 @@ impl EditorWindow {
                 i
             })
             .collect();
-        self.menu12_items(items, Vec::new(), Vec::new(), at);
+        self.menu12_items(items, Vec::new(), Vec::new(), at, None);
     }
 
     fn menu12_items(
@@ -181,6 +185,7 @@ impl EditorWindow {
         seps: Vec<usize>,
         arrows: Vec<bool>,
         at: [f32; 2],
+        text: Option<&dyn TextMeasure>,
     ) {
         let s = self.ui_scale();
         // Labels are drawn 1.1 × larger by the host (text size factor).
@@ -191,11 +196,12 @@ impl EditorWindow {
             .fold(0.0_f32, f32::max);
         let keys = vec![(String::new(), 0.0); items.len()];
         // Access keys (the reference's Proper_t_ies, Cu_t_, _C_opy …): the first matching
-        // letter of each label; underlined only when the menu came from the keyboard.
-        let (letters, show) = self.f12.mn_next.take().unwrap_or_default();
+        // letter of each label, marked with `&` for the shared menu (underlined when the menu
+        // came from the keyboard or Windows always underlines them).
+        let (letters, keyboard) = self.f12.mn_next.take().unwrap_or_default();
         self.f12.mnem.clear();
-        let mut lines = Vec::new();
-        for (i, item) in items.iter().enumerate() {
+        let mut items = items;
+        for (i, item) in items.iter_mut().enumerate() {
             let hit = letters.get(i).and_then(|&c| {
                 item.label
                     .char_indices()
@@ -206,19 +212,21 @@ impl EditorWindow {
                             .find(|&(_, l)| l.to_lowercase().eq(c.to_lowercase()))
                     })
             });
-            let line = hit.map(|(at, l)| {
-                if let Choice::Command(cmd) = &item.choice {
-                    self.f12.mnem.push((
-                        l.to_lowercase().next().unwrap_or(l),
-                        cmd.clone(),
-                        item.dim,
-                    ));
+            let label = item.label.replace('&', "&&");
+            item.label = match hit {
+                Some((at, l)) => {
+                    if let Choice::Command(cmd) = &item.choice {
+                        self.f12.mnem.push((
+                            l.to_lowercase().next().unwrap_or(l),
+                            cmd.clone(),
+                            item.dim,
+                        ));
+                    }
+                    let at = at + item.label[..at].matches('&').count();
+                    format!("{}&{}", &label[..at], &label[at..])
                 }
-                let x = text_w(&item.label[..at], size) * 0.93;
-                let w = text_w(&l.to_string(), size) * 0.93;
-                (x, w)
-            });
-            lines.push(if show { line } else { None });
+                None => label,
+            };
         }
         let gap = (2.0 * s).round();
         let view = self.window_size();
@@ -233,22 +241,29 @@ impl EditorWindow {
         .with_decor(Vec::new(), seps)
         .with_keys(keys, widest, RIGHT12, SEP_GAP12, view)
         .with_arrows(arrows, HOVER12);
-        // The underlines wait for the shared popup's access-key support (BlueSheet round):
-        // kept here, (x from the label start, width) per row.
-        self.f12.underlines = lines;
+        let menu = match text {
+            Some(m) => menu.with_access_keys(m, keyboard),
+            None => menu,
+        };
         self.r.set_menu9(menu, "field");
     }
 
     /// The context menu of the selected fields, as the reference's (enable rules measured with
     /// one field: Align, Distribute and Size need several, Duplicate another page, Paste a
     /// copied field).
-    pub(crate) fn field_menu12(&mut self, x: f32, y: f32) {
-        self.field_menu12_from(x, y, false);
+    pub(crate) fn field_menu12(&mut self, x: f32, y: f32, m: &dyn TextMeasure) {
+        self.field_menu12_from(x, y, false, m);
     }
 
     /// [`Self::field_menu12`]; `keyboard`: opened with Shift+F10 / the menu key, so the access
     /// keys are underlined as the reference shows them.
-    pub(crate) fn field_menu12_from(&mut self, x: f32, y: f32, keyboard: bool) {
+    pub(crate) fn field_menu12_from(
+        &mut self,
+        x: f32,
+        y: f32,
+        keyboard: bool,
+        m: &dyn TextMeasure,
+    ) {
         self.f12.mn_next = Some((FIELD_KEYS12.to_vec(), keyboard));
         self.f11.menu_at = [x, y];
         let n = self.f11.selected.len();
@@ -284,7 +299,7 @@ impl EditorWindow {
             ),
             ("fd12.defaults", "pdfEditor12.defaults", n != 1, false),
         ];
-        self.menu12(&rows, vec![1, 4, 5, 9], [x, y]);
+        self.menu12(&rows, vec![1, 4, 5, 9], [x, y], Some(m));
     }
 
     /// The context menu over the page (no field) in field mode: Paste.
@@ -296,13 +311,13 @@ impl EditorWindow {
             self.f12.clip.is_empty(),
             false,
         )];
-        self.menu12(&rows, Vec::new(), [x, y]);
+        self.menu12(&rows, Vec::new(), [x, y], None);
     }
 
     /// Keyboard of the field menu, before any other input: a letter runs the row with that
     /// access key while the menu is open; Shift+F10 opens the menu (keys underlined) at the
     /// first selected field. True when used.
-    pub(crate) fn field_keys12(&mut self, input: &Input) -> bool {
+    pub(crate) fn field_keys12(&mut self, input: &Input, m: &dyn TextMeasure) -> bool {
         if self.r.open_menu_id() == Some("field") {
             let c = match input {
                 Input::Text(t) if t.chars().count() == 1 => t.chars().next(),
@@ -325,14 +340,14 @@ impl EditorWindow {
             // Letters without a row are swallowed, as a menu does.
             return true;
         }
-        if let Input::Key(Key::F(10), m) = input {
-            if m.shift && self.design.tool.is_some() && !self.r.modal_open() {
+        if let Input::Key(Key::F(10), mods) = input {
+            if mods.shift && self.design.tool.is_some() && !self.r.modal_open() {
                 let at = self.f11.selected.first().cloned().and_then(|f| {
                     self.view()
                         .and_then(|v| v.doc_rect_to_window(f.page, f.rect))
                 });
                 if let Some(r) = at {
-                    self.field_menu12_from(r[0] + r[2] / 2.0, r[1] + r[3] / 2.0, true);
+                    self.field_menu12_from(r[0] + r[2] / 2.0, r[1] + r[3] / 2.0, true, m);
                     return true;
                 }
             }

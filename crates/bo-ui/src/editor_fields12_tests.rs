@@ -256,8 +256,8 @@ fn closing_a_tab_releases_its_page_images() {
     assert!(store.keys.is_empty(), "{:?}", store.keys.keys());
 }
 
-/// Access keys: Shift+F10 opens the menu with the letters underlined (a 1 px rule under the
-/// glyph); a letter runs its row (C = Copy) and closes the menu; a right click shows no rules.
+/// Access keys: Shift+F10 opens the menu (keys underlined by the shared menu); a letter runs
+/// its row (C = Copy) and closes the menu.
 #[test]
 fn field_menu_access_keys() {
     let mut w = form_window(1);
@@ -268,6 +268,14 @@ fn field_menu_access_keys() {
     };
     w.handle(Input::Key(crate::Key::F(10), mods), &Fixed);
     assert_eq!(w.r.open_menu_id(), Some("field"));
+    // The shared menu takes the `&` markers out of the labels.
+    let mut rec = Rec::default();
+    w.paint(&mut rec);
+    assert!(
+        rec.texts.iter().any(|t| t == "Properties…"),
+        "{:?}",
+        rec.texts
+    );
     let keys: Vec<char> = w.f12.mnem.iter().map(|m| m.0).collect();
     assert_eq!(keys.len(), 13, "{keys:?}");
     assert_eq!(keys[2], 'c');

@@ -1681,6 +1681,7 @@ impl SheetWindow {
                 self.chart_data_event(kind, ev);
             }
             FormKind::TableName | FormKind::TableResize => self.table_form_event(kind, ev),
+            FormKind::PivotMove | FormKind::PivotSource => self.pivot_tab_form_event(kind, ev),
             FormKind::CfRule | FormKind::CfNewRule | FormKind::CfManager => {
                 self.cf_form_event(kind, ev);
             }

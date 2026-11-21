@@ -234,6 +234,12 @@ impl SheetWindow {
     pub(super) fn sync_table_tab(&mut self) {
         if self.chart_sel.is_some() {
             self.table_tab = false;
+            self.pivot_tab = false;
+            return;
+        }
+        // In a pivot table the PivotTable Analyze / Design tabs show instead.
+        if self.sync_pivot_tabs() {
+            self.table_tab = false;
             return;
         }
         let want = self.in_table();

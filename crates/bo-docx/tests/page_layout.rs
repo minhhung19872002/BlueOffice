@@ -295,3 +295,30 @@ fn new_document_writes_everything() {
     assert_eq!(props(&back, 1).suppress_line_numbers, Some(true));
     assert_eq!(props(&back, 1).suppress_auto_hyphens, Some(false));
 }
+
+/// §17.4.42 tblCellMar: top / bottom cell margins survive writing and reading, beside
+/// the left / right ones.
+#[test]
+fn table_cell_margins_top_and_bottom_round_trip() {
+    let mut t = bo_model::Table::simple(1, 1, Twips(4000));
+    t.props.cell_margin = Some((Twips(108), Twips(115)));
+    t.props.cell_margin_vertical = Some((Twips(144), Twips(72)));
+    let doc = Document {
+        sections: vec![Section::new(vec![Block::Table(t)])],
+        ..Default::default()
+    };
+    let out = write_docx(&doc).unwrap();
+    let xml = part(&out, "/word/document.xml");
+    assert!(
+        xml.contains(
+            r#"<w:tblCellMar><w:top w:w="144" w:type="dxa"/><w:left w:w="108" w:type="dxa"/><w:bottom w:w="72" w:type="dxa"/><w:right w:w="115" w:type="dxa"/></w:tblCellMar>"#
+        ),
+        "{xml}"
+    );
+    let back = read_docx(&out).unwrap();
+    let Some(Block::Table(t)) = back.sections[0].blocks.first() else {
+        panic!("table");
+    };
+    assert_eq!(t.props.cell_margin, Some((Twips(108), Twips(115))));
+    assert_eq!(t.props.cell_margin_vertical, Some((Twips(144), Twips(72))));
+}

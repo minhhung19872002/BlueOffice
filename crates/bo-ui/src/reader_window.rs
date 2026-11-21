@@ -7,9 +7,7 @@
 use crate::dialog::{Dialog, DialogButton, DialogKind};
 use crate::popup::{Choice, Menu, MenuItem, MenuLook};
 use crate::reader_icons::{self, Ink};
-use crate::reader_view::{
-    Fit, Layout, PdfStore, ReaderView, Selection, HIT, HIT_CURRENT, SELECTION, THUMB_KEY,
-};
+use crate::reader_view::{Fit, Layout, PdfStore, ReaderView, Selection, SELECTION, THUMB_KEY};
 use crate::strings::Strings;
 use crate::theme::Theme;
 use crate::titlebar::NcHit;
@@ -86,6 +84,9 @@ mod r13;
 // View tab placement, menu icons (BlueReader round 14).
 #[path = "reader_r14_win.rs"]
 mod r14;
+// Keys, view history, Search box (BlueReader round 15).
+#[path = "reader_r15_win.rs"]
+mod r15;
 pub use r12::{AccessItem, AccessRole};
 
 /// Measured greys of the reference reader at 125 %.
@@ -546,6 +547,7 @@ pub struct ReaderWindow {
     prefs6: prefs6::Prefs6,
     /// Keyboard access to the ribbon (key tips, focus ring).
     keys7: keys7::KeyLevel,
+    r15: r15::R15,
     /// Layers / Attachments panels and the comment list of round 8.
     panels8: panels8::Panels8,
     /// Ribbon tooltips of round 9.
@@ -641,6 +643,7 @@ impl ReaderWindow {
             tabs5: tabs5::Tabs5::default(),
             prefs6: prefs6::Prefs6::default(),
             keys7: keys7::KeyLevel::Off,
+            r15: r15::R15::default(),
             panels8: panels8::Panels8::default(),
             nine: dark9::Nine::default(),
             search9: search9::Search9::default(),
@@ -1449,6 +1452,7 @@ impl ReaderWindow {
             (h - sh - top).max(1.0),
         ];
         self.mode_layout();
+        self.layout15();
         self.viewx_layout();
         let (rect, scale) = (self.doc_rect, self.scale);
         if let Some(t) = self.tabs.get_mut(self.active) {
@@ -1485,10 +1489,13 @@ impl ReaderWindow {
     /// Handle an input event; true when the window needs a new frame.
     #[allow(clippy::too_many_lines)]
     pub fn handle(&mut self, input: Input, m: &dyn TextMeasure) -> bool {
+        let (before, nav) = (self.snap15(), Self::nav_input15(&input));
         let redraw = self.handle_input(input, m);
+        self.after15(before, nav);
         // Reflowed text follows the page and the window width.
         self.reflow_layout(m);
         self.measure10(m);
+        self.measure15(m);
         redraw
     }
 
@@ -1541,6 +1548,9 @@ impl ReaderWindow {
 
     #[allow(clippy::too_many_lines)]
     fn route(&mut self, input: Input, m: &dyn TextMeasure) -> bool {
+        if let Some(redraw) = self.route15(&input) {
+            return redraw;
+        }
         if let Some(redraw) = self.route_extra(&input, m) {
             return redraw;
         }
@@ -1628,7 +1638,7 @@ impl ReaderWindow {
                     self.measure(m, &t, st);
                     return true;
                 }
-                false
+                s == " " && self.space15()
             }
             Input::Key(k, mods) => self.key(k, mods, m),
             Input::Wheel(dy) => {
@@ -2089,6 +2099,7 @@ impl ReaderWindow {
                 .freed14
                 .extend(t.view.stored_keys().into_iter().map(|k| base + k));
             drop(t);
+            self.forget15(base);
             if self.active >= self.tabs.len() {
                 self.active = self.tabs.len().saturating_sub(1);
             }
@@ -2161,6 +2172,9 @@ impl ReaderWindow {
                 Key::Letter('a') if mods.ctrl => return false,
                 _ => {}
             }
+        }
+        if let Some(r) = self.key15(k, mods, m) {
+            return r;
         }
         let Some(t) = self.tabs.get_mut(self.active) else {
             if let Key::Letter('o') = k {
@@ -2435,6 +2449,12 @@ impl ReaderWindow {
             return;
         }
         match cmd {
+            "view.prev" => {
+                self.step_view15(true);
+            }
+            "view.next" => {
+                self.step_view15(false);
+            }
             "file.open" => self.requests.push(ReaderRequest::Open(None)),
             "file.save" => self.requests.push(ReaderRequest::Save),
             "file.saveAs" => self.requests.push(ReaderRequest::SaveAs),
@@ -3157,7 +3177,9 @@ impl ReaderWindow {
         match id {
             "page.first" | "page.prev" => cur > 0,
             "page.next" | "page.last" => cur + 1 < n,
-            "edit.undo" | "edit.redo" | "view.prev" | "view.next" => false,
+            "view.prev" => self.has_view15(true),
+            "view.next" => self.has_view15(false),
+            "edit.undo" | "edit.redo" => false,
             "file.save" => v.modified(),
             _ => true,
         }
@@ -3583,12 +3605,15 @@ impl ReaderWindow {
                 p.page(t.key_base + i, (r[0] + ox) as i32, (r[1] + oy) as i32);
             }
             for (hr, cur) in v.hit_rects(i) {
+                let Some(colour) = self.hit_colour15(cur) else {
+                    continue;
+                };
                 p.fill_rect(
                     r[0] + hr[0] * s,
                     r[1] + hr[1] * s,
                     (hr[2] - hr[0]) * s,
                     (hr[3] - hr[1]) * s,
-                    if cur { HIT_CURRENT } else { HIT },
+                    colour,
                 );
             }
             if v.selection().is_some_and(|sel| sel.page == i) {
@@ -3662,7 +3687,7 @@ impl ReaderWindow {
         p.fill_rect(z[0] + 1.0, z[1] + 1.0, z[2] - 2.0, z[3] - 2.0, WHITE);
         let zt = self
             .view()
-            .map_or_else(String::new, |v| format!("{:.2}%", v.zoom() * 100.0));
+            .map_or_else(String::new, |v| zoom_label15(v.zoom()));
         p.text(
             &zt,
             z[0] + self.px(4.0),
@@ -3733,6 +3758,16 @@ impl PdfStore for Keyed<'_> {
     }
     fn remove(&mut self, key: usize) {
         self.inner.remove(self.base + key);
+    }
+}
+
+/// The zoom box's text like the reference's: "100%", "135.10%", "12.50%".
+fn zoom_label15(z: f32) -> String {
+    let pc = (z * 10_000.0).round() / 100.0;
+    if (pc - pc.round()).abs() < 0.005 {
+        format!("{pc:.0}%")
+    } else {
+        format!("{pc:.2}%")
     }
 }
 

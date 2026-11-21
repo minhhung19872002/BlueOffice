@@ -857,7 +857,7 @@ impl EditorWindow {
         if !self.form8.is_empty() || matches!(input, Input::Press { .. }) {
             self.r.hide_tip9();
         }
-        if self.field_keys12(&input) {
+        if self.field_keys12(&input, m) {
             return true;
         }
         if self.close_box_input(&input)
@@ -921,7 +921,7 @@ impl EditorWindow {
             }
             if !used && self.design.tool.is_some() && self.r.showing_doc() && !self.organize_on() {
                 used = self.fields12_input(&input)
-                    || self.fields11_input(&input)
+                    || self.fields11_input(&input, m)
                     || self.design_input(&input);
             }
             if !used && self.tools.tool.is_some() && self.r.showing_doc() && !self.organize_on() {

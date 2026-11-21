@@ -5,7 +5,7 @@ use bo_gpu_win::{Device, FontSpec, Frame, PageBitmap, TextRendering, WindowSurfa
 use bo_render::{PageList, PathSeg, Rgba};
 use bo_ui::{
     Font, GridBand, GridMove, GridRing, GridStore, Input, NcHit, PaintHash, Painter, Request,
-    SheetView, SheetWindow, TextMeasure, TextStyle,
+    SheetJob, SheetView, SheetWindow, TextMeasure, TextStyle,
 };
 use std::io::Write;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -77,7 +77,13 @@ pub fn run() -> Result<(), String> {
     }
     let mut file = None;
     let mut open_ms = 0.0;
-    let name = if let Some(path) = std::env::args_os().nth(1) {
+    // `--template <id>`: a new workbook from BlueOffice's template (File › New).
+    let args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
+    let template = match args.first().and_then(|a| a.to_str()) {
+        Some("--template") => args.get(1).and_then(|a| a.to_str()).map(str::to_owned),
+        _ => None,
+    };
+    let name = if let Some(path) = args.first().filter(|_| template.is_none()) {
         let path = std::path::PathBuf::from(path);
         let bytes = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
         let name = path
@@ -102,6 +108,37 @@ pub fn run() -> Result<(), String> {
     if file.is_none() {
         view.apply_new_workbook_prefs(&name);
     }
+    if let Some(id) = template.as_deref() {
+        view.load_template(id);
+    }
+    // File screen: the app's own recent list, the file, the printers.
+    if let Some(f) = file.as_ref() {
+        remember_recent(f);
+    }
+    view.set_recent(load_recent());
+    view.set_file_info(
+        file.as_ref().map(|p| p.display().to_string()),
+        file.as_ref()
+            .and_then(|p| std::fs::metadata(p).ok())
+            .map(|m| m.len()),
+    );
+    // Menus with access keys underline them when Windows always shows them.
+    bo_ui::set_keyboard_cues(win32::keyboard_cues());
+    let (printers, default) = print::printers();
+    let chosen = default
+        .and_then(|d| printers.iter().position(|p| *p == d))
+        .unwrap_or(0);
+    // The default printer's paper for sheets without a paper size (File › Print), as the
+    // reference takes it from the printer driver. The sides box stays hidden: the reference
+    // does not show it for this machine's printer although its driver reports DC_DUPLEX
+    // (manual two-sided printing stays in the driver's Printer Properties).
+    if let Some((paper, _duplex)) = printers.get(chosen).and_then(|n| print::defaults(n)) {
+        if paper > 0 {
+            view.view_mut().engine_mut().set_default_paper(Some(paper));
+        }
+        view.set_print_duplex(false);
+    }
+    view.set_printers(printers, chosen, Vec::new());
     // Insert Hyperlink browses the workbook's folder.
     if let Some(dir) = file.as_ref().and_then(|p| p.parent()) {
         view.set_folder(dir);
@@ -147,6 +184,7 @@ pub fn run() -> Result<(), String> {
             ring: std::env::var("BLUEOFFICE_SHEET_RING").as_deref() != Ok("0"),
             layer: std::env::var("BLUEOFFICE_SHEET_LAYER").as_deref() != Ok("0"),
             started: Some((started, open_ms)),
+            hwnd: 0,
         }),
     )
 }
@@ -397,6 +435,79 @@ fn spec<'a>(f: &Font<'a>) -> FontSpec<'a> {
     }
 }
 
+// GDI printing (Win32 calls confined to this child module, shared with BlueReader).
+#[path = "reader_print.rs"]
+#[allow(unsafe_code, dead_code)]
+mod print;
+
+/// BlueSheet's own recent workbooks (`path<TAB>when` lines, newest first).
+fn recent_file() -> Option<std::path::PathBuf> {
+    std::env::var_os("LOCALAPPDATA").map(|d| {
+        std::path::PathBuf::from(d)
+            .join("BlueOffice")
+            .join("sheet-recent.txt")
+    })
+}
+
+fn load_recent() -> Vec<(String, String)> {
+    recent_file()
+        .and_then(|f| std::fs::read_to_string(f).ok())
+        .map(|t| {
+            t.lines()
+                .filter_map(|l| l.split_once('\t'))
+                .map(|(p, w)| (p.to_owned(), w.to_owned()))
+                .take(25)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Put `path` at the top of the recent list with the local date and time.
+fn remember_recent(path: &std::path::Path) {
+    let Some(f) = recent_file() else { return };
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs() as i64)
+        + i64::from(win32::utc_offset_minutes()) * 60;
+    let (days, rem) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
+    // Civil date from days since 1970-01-01 (H. Hinnant's days-from-civil inverse).
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    let when = format!(
+        "{month}/{day}/{year} {}:{:02}",
+        rem / 3600,
+        (rem % 3600) / 60
+    );
+    let full = path
+        .canonicalize()
+        .unwrap_or_else(|_| path.to_path_buf())
+        .display()
+        .to_string();
+    let full = full.strip_prefix(r"\\?\").unwrap_or(&full).to_owned();
+    let mut list = load_recent();
+    list.retain(|(p, _)| !p.eq_ignore_ascii_case(&full));
+    list.insert(0, (full, when));
+    list.truncate(25);
+    let text = list.iter().fold(String::new(), |mut t, (p, w)| {
+        t.push_str(p);
+        t.push('\t');
+        t.push_str(w);
+        t.push('\n');
+        t
+    });
+    if let Some(dir) = f.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let _ = std::fs::write(f, text);
+}
+
 // Each bool is an independent switch (BLUEOFFICE_SHEET_* measurements) or the dirty flag.
 #[allow(clippy::struct_excessive_bools)]
 struct Shell {
@@ -426,6 +537,16 @@ struct Shell {
     started: Option<(Instant, f64)>,
     /// Scrolling turns the grid image as a ring instead of copying it (BLUEOFFICE_SHEET_RING=0).
     ring: bool,
+    /// The window (printer properties dialogs are owned by it).
+    hwnd: isize,
+}
+
+/// Copies and paper handling of a print job from the File screen.
+struct PrintJob {
+    copies: u32,
+    collated: bool,
+    duplex: u8,
+    landscape: bool,
 }
 
 struct PendingInput {
@@ -513,6 +634,178 @@ impl Shell {
         }
     }
 
+    /// A job of the File screen.
+    fn job(&mut self, j: SheetJob) -> bool {
+        match j {
+            SheetJob::OpenPath(p) => {
+                spawn_self(Some(std::path::Path::new(&p)));
+                false
+            }
+            SheetJob::BrowseOpen => {
+                Self::browse_open();
+                false
+            }
+            SheetJob::New(t) => {
+                if let Ok(exe) = std::env::current_exe() {
+                    let mut cmd = std::process::Command::new(exe);
+                    if let Some(id) = t {
+                        cmd.arg("--template").arg(id);
+                    }
+                    let _ = cmd.spawn();
+                }
+                false
+            }
+            SheetJob::CopyPath => {
+                if let Some(p) = &self.file {
+                    win32::set_clipboard(&p.display().to_string(), "", "");
+                }
+                false
+            }
+            SheetJob::OpenLocation => {
+                if let Some(p) = &self.file {
+                    let _ = std::process::Command::new("explorer.exe")
+                        .arg(format!("/select,{}", p.display()))
+                        .spawn();
+                }
+                false
+            }
+            SheetJob::ExportPdf => self.save_as_type("pdf"),
+            SheetJob::SaveAsType(t) => self.save_as_type(&t),
+            SheetJob::PrinterProperties(name) => {
+                let _ = print::properties(self.hwnd, &name, None);
+                false
+            }
+            SheetJob::Print {
+                printer,
+                copies,
+                collated,
+                duplex,
+                landscape,
+                pages,
+            } => {
+                let range = self.view.job_range();
+                let job = PrintJob {
+                    copies,
+                    collated,
+                    duplex,
+                    landscape,
+                };
+                if let Err(e) = self.print_pages(&printer, range, &pages, &job) {
+                    eprintln!("print: {e}");
+                }
+                false
+            }
+        }
+    }
+
+    /// Print `pages` of the File screen's job through GDI (BLUEOFFICE_PRINT_TO=<file> writes
+    /// the job to that file, for print-to-file printers in tests).
+    fn print_pages(
+        &mut self,
+        printer: &str,
+        range: u8,
+        pages: &[usize],
+        job: &PrintJob,
+    ) -> Result<usize, String> {
+        let lists = self.view.job_pages(range);
+        let wanted: Vec<usize> = pages.iter().copied().filter(|&i| i < lists.len()).collect();
+        let sizes: Vec<(f32, f32)> = lists.iter().map(|p| (p.width, p.height)).collect();
+        let size_of = |i: usize| sizes.get(i).copied().unwrap_or((595.0, 842.0));
+        let plan_opts = bo_ui::PlanOptions {
+            scaling: bo_ui::PrintScaling::Shrink,
+            auto_rotate: false,
+            auto_center: true,
+            layout: bo_ui::PrintLayout::Size,
+            copies: job.copies.clamp(1, 999),
+            collate: job.collated,
+        };
+        let plan = |area: (f32, f32)| bo_ui::print_plan(&wanted, &size_of, None, area, &plan_opts);
+        let gpu = self.gpu.as_ref().ok_or("no device")?;
+        let fonts = self.view.view().engine().fonts();
+        let mut render = |i: usize, scale: f32| -> Option<print::PrintPage> {
+            let img = gpu
+                .device
+                .render_page(lists.get(i)?, fonts, scale, &|_| None)
+                .ok()?;
+            Some(print::PrintPage {
+                width: img.width,
+                height: img.height,
+                pixels: img.pixels,
+            })
+        };
+        let options = print::Options {
+            grayscale: false,
+            duplex: job.duplex,
+            output: std::env::var("BLUEOFFICE_PRINT_TO").ok(),
+            landscape: job.landscape,
+            max_dpi: 300.0,
+            devmode: None,
+            paper: wanted.first().map(|&i| size_of(i)),
+        };
+        let title = self
+            .file
+            .as_ref()
+            .and_then(|p| p.file_name())
+            .map_or_else(|| "Book1".to_owned(), |n| n.to_string_lossy().into_owned());
+        print::print(printer, &title, &plan, &size_of, &options, &mut render)
+    }
+
+    /// Save a copy as `ext` (File › Save As / Export › Change File Type, Create PDF).
+    fn save_as_type(&mut self, ext: &str) -> bool {
+        let stem = self
+            .file
+            .as_ref()
+            .and_then(|p| p.file_stem())
+            .map_or_else(|| "Book1".to_owned(), |n| n.to_string_lossy().into_owned());
+        let pattern = format!("*.{ext}");
+        let label = format!("{} (*.{ext})", ext.to_uppercase());
+        let Some(path) = win32::file_dialog(true, &[(&label, &pattern)], &format!("{stem}.{ext}"))
+        else {
+            return false;
+        };
+        let sheet = self.view.view().sheet();
+        let engine = self.view.view_mut().engine_mut();
+        let bytes = if ext == "pdf" {
+            engine.export_pdf()
+        } else {
+            engine.save(ext, sheet)
+        };
+        match bytes
+            .map_err(|e| e.to_string())
+            .and_then(|b| std::fs::write(&path, b).map_err(|e| e.to_string()))
+        {
+            Ok(()) => {
+                if ext == "xlsx" {
+                    self.file = Some(path.clone());
+                    remember_recent(&path);
+                    let shown = path
+                        .file_name()
+                        .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+                    self.view.set_name(&shown);
+                    self.view.view_mut().mark_saved();
+                }
+                true
+            }
+            Err(e) => {
+                eprintln!("save {}: {e}", path.display());
+                false
+            }
+        }
+    }
+
+    fn browse_open() {
+        let filters = [
+            (
+                "Workbooks (*.xlsx;*.xlsm;*.xls;*.xlsb;*.ods;*.csv)",
+                "*.xlsx;*.xlsm;*.xls;*.xlsb;*.ods;*.csv",
+            ),
+            ("All files", "*.*"),
+        ];
+        if let Some(path) = win32::file_dialog(false, &filters, "") {
+            spawn_self(Some(&path));
+        }
+    }
+
     fn save_as(&mut self) -> bool {
         let name = self.file.as_ref().and_then(|p| p.file_name()).map_or_else(
             || "Book1.xlsx".to_owned(),
@@ -535,6 +828,9 @@ impl Shell {
 
     fn handle_requests(&mut self) -> bool {
         let mut redraw = false;
+        for j in self.view.take_jobs() {
+            redraw |= self.job(j);
+        }
         for r in self.view.take_requests() {
             match r {
                 Request::Save => redraw |= self.save(),
@@ -669,6 +965,7 @@ impl Shell {
 impl Handler for Shell {
     fn created(&mut self, hwnd: isize, width: u32, height: u32, scale: f32) -> Result<(), String> {
         refresh_text_scale();
+        self.hwnd = hwnd;
         let device = Device::new()?;
         if let Some(f) = self.perf.as_mut() {
             let _ = writeln!(f, r#"{{"input":"driver","name":"{:?}"}}"#, device.driver());

@@ -337,3 +337,69 @@ ký hiệu đầu dòng phông Symbol / Wingdings / Courier New được thay b�
 gen-09); lề ô trên/dưới (`tblCellMar` top/bottom) chưa có trong mô hình; độ rộng glyph của bản đối chiếu làm tròn
 theo lưới 600 dpi (Times 13 pt "n" 6,48 so với 6,50 pt) — chưa mô phỏng; gen-07 tách hàng bảng cuối trang khác một
 hàng.
+
+## Dàn trang vòng 2 — BlueDoc so với trình soạn thảo đối chiếu (2026-11-22)
+
+Cùng 56 tệp và cách chấm của vòng 1 (PDF xuất bằng COM trong instance riêng trên bản sao scratch, không in;
+BlueDoc `bo-cli convert`; raster 96 dpi + `bo-pdfread`). Mỗi quy tắc được đo trước bằng tài liệu hiệu chuẩn riêng
+xuất từ bản đối chiếu (`cal-20-labels`: phông nhãn danh sách; `cal-21-inline`: run phông khác trong dòng;
+`cal-22-cellmar`: lề ô trên / dưới).
+
+| | Số trang khớp | Đầu dòng khớp (TB tệp) | Đầu dòng khớp (theo dòng) | Điểm ảnh lệch TB |
+|---|---|---|---|---|
+| Trước (cuối vòng 1) | 56 / 56 | 96,1 % | 96,9 % | 0,0150 |
+| Sau | 56 / 56 | 96,9 % | 98,4 % | 0,0122 |
+
+| Tệp | Đầu dòng trước → sau | Điểm ảnh lệch trước → sau |
+|---|---|---|
+| gen-06-columns (3 cột không đều) | 84,9 → 100 % | 0,0508 → 0,0152 |
+| gen-07-table-split | 90,2 → 92,4 % (mọi dòng cùng trang, lệch ≤ 0,1 pt; phần còn lại là bộ chấm tách cột số) | 0,0689 → 0,0500 |
+| gen-09-lists | 92,3 % (bản đối chiếu xuất ký hiệu Symbol thành ô vuông) | 0,0263 → 0,0107 |
+| gen-13-mixed-fonts | 76,2 → 98,8 % | 0,0884 → 0,0337 |
+| images-04-wrap-square-sides | 91,7 → 100 % | 0,0109 → 0,0062 |
+| notes-03 / gen-08 | 100 % | 0,0263 → 0,0109 / 0,0262 → 0,0175 |
+
+Sửa (test trong `crates/bo-layout/tests/word_fidelity.rs`, `crates/bo-text/tests/fonts.rs`,
+`crates/bo-docx/tests/page_layout.rs`):
+1. **Caladea metric-compatible**: Caladea 1.001 (google/fonts) đóng gói trước đây là thiết kế khác, độ rộng lệch
+   Cambria tới 19 % ("1" 0,362 so với 0,554 em; "w" 0,720 so với 0,774). Thay bằng Caladea 1.002 của ChromeOS
+   `crosextrafonts-20130214` (Apache-2.0, `assets/fonts/LICENSE-Caladea.txt`): lệch Cambria ≤ 0,0005 em, chiều cao
+   dòng của Cambria (win 0,950 / 0,222). Cùng tên tệp, cùng thứ tự FaceId. Carlito vốn khớp Calibri tuyệt đối
+   (0 / 162 glyph lệch) — gen-13 76 % là do Caladea.
+2. **Đỉnh dòng theo từng run**: max(ascent + external leading) của **một** run (trước: max ascent cộng max leading
+   riêng, một run Times 11 pt trong dòng Calibri thêm 0,47 pt). Đo: Times / Arial 11 pt trong dòng Calibri 11 pt
+   không đổi dòng; Times 20 pt nâng đỉnh 8,16 pt (= 20 × (0,891 + 0,0425) − Calibri 10,47).
+3. **Nhãn danh sách** (§17.9.6 lvlText): phông nhãn nâng đỉnh dòng nhưng descent của nó không hạ đáy dòng (nhãn
+   Courier New 20 pt nâng 6,27 pt, đáy giữ nguyên; cùng run đó trong dòng thì đáy hạ 3,0 pt). Symbol / Wingdings /
+   Courier New khi không cài (bo-cli, web) giữ chiều cao dòng của chính phông đó (Symbol 1,0054 / 0,2197 em; Wingdings
+   0,8989 / 0,2109; Courier New 0,8325 / 0,3003 — đo: Symbol nâng dòng Calibri 11 pt 0,59 pt, Courier New hạ 0,35 pt).
+   gen-09: mọi đường cơ sở lệch ≤ 0,2 pt (trước tích luỹ tới +3,1 pt).
+4. **Chữ Việt Caladea thiếu** (88 chữ ả ạ ắ … ơ ư): phông dự phòng vẽ glyph nhưng bề rộng theo Cambria — bằng chữ gốc;
+   ơ / ư / Ơ / Ư cộng phần móc 0,068 / 0,071 / 0,072 / 0,106 em (nghiêng 0,075 / 0,081 / 0,085 / 0,116 em). Dòng Cambria
+   nghiêng tiếng Việt trước trôi 2–5 pt, nay ±0,3 pt suốt dòng (`FontManager::stand_in_advance`).
+5. **Tách hàng bảng cuối trang giữ widow / orphan** của đoạn trong ô (§17.3.1.44): dòng đầu đoạn không đứng một mình
+   trước chỗ ngắt (cả hàng sang trang), dòng cuối không đứng một mình sau chỗ ngắt. Phần hàng trên trang trước kết thúc
+   ngay dưới dòng cuối (viền dưới 761,3 pt như đối chiếu 761,4 pt; trước: tại đáy trang 769,9 pt).
+6. **Cột không đều trước ngắt section liên tục**: không dời được dòng sang cột rộng khác — section được dàn lại với đáy
+   cột tìm bằng chia đôi (thấp nhất vẫn vừa trang); đoạn chảy sang cột có độ rộng khác được ngắt dòng lại theo cột đó;
+   đoạn rỗng mang dấu ngắt section không hạ đáy cột; section sau bắt đầu dưới cột thấp nhất + space after (612,62 pt,
+   đối chiếu 612,70 pt).
+7. **`tblCellMar` top / bottom** (§17.4.42) có trong mô hình (`TableProps::cell_margin_vertical`), đọc / ghi
+   round-trip, cộng vào viền hàng (đo: lề 7,2 / 3,6 pt làm hàng Table Grid cao hơn dòng 0,48 + 10,8 pt; không viền
+   10,8 pt).
+8. **Bao một phía** (§20.4.3.7 `left` / `right`): không đặt chữ ở phía bị cấm của ảnh kể cả khi dòng đã bị ảnh khác cắt.
+
+Ảnh (đối chiếu trái, BlueDoc trước / sau; bên BlueDoc: đỏ = mực của bản đối chiếu bị thiếu, xanh = mực chỉ BlueDoc có):
+`scratchpad/show/docfid-06-baseline-worst6.png`, `docfid-07-caladea-gen13-before-after.png`,
+`docfid-08-bullet-lines-gen09-before-after.png`, `docfid-09-unequal-columns-gen06-before-after.png`,
+`docfid-10-table-row-widow-gen07-before-after.png`, `docfid-11-gen06-after-columns-paragraph.png`,
+`docfid-11b-gen07-split-row-border.png`, `docfid-12-caladea-vn-widths-gen13-before-after.png`,
+`docfid-13-one-sided-wrap-images04-before-after.png`, `docfid-14-worst6-after.png`.
+
+Còn lệch (vòng sau): độ rộng làm tròn lưới 600 dpi của bản đối chiếu (mục 4 của brief) chưa mô phỏng — các dòng
+Times / Arial / Calibri giờ lệch ≤ 0,3 pt suốt dòng, chưa thấy ngắt dòng nào do làm tròn; cỡ chữ chỉ số trên / dưới
+của bản đối chiếu là 0,65 × cỡ làm tròn tới nửa point (8 → 5, 11 → 7, 12 → 8 pt), BlueDoc chưa làm tròn;
+layout-01 trang 2: bản đối chiếu cho phần giãn của dòng bội số (dưới chữ) vượt lề dưới, cột trái giữ thêm 2 dòng — thử
+áp dụng ở đáy trang thì layout-01 96,0 → 96,5 % nhưng gen-11 (chú thích) 100 → 98,4 %, nên chưa nhận (cần đo riêng
+khi trang có chú thích); gen-14 drop cap,
+sections-04, images-03 là giới hạn của bộ chấm (chữ hoa thả và chân trang tách đoạn, ảnh không chữ).

@@ -59,6 +59,18 @@ pub struct FaceInfo {
 /// lines are 1.1724 em high with the baseline 0.9502 em below the line top.
 const STAND_IN_LINES: &[(&str, f32, f32)] = &[("Caladea", 0.9502, 0.2222)];
 
+/// Requested families that are often drawn with an unrelated face (symbol fonts and
+/// Courier New have no bundled substitute): (lower-case family, ascent, descent) in em,
+/// the text line those fonts give in the reference word processor (measured black-box,
+/// docs/ui/REPORT.md "Dàn trang vòng 2": with 11 pt Calibri, a Symbol run raises the
+/// line top by 0.59 pt, a Courier New run lowers its bottom by 0.35 pt, Wingdings
+/// changes nothing; a 20 pt Courier New run has its top 16.7 pt above the baseline).
+const SUBSTITUTED_LINES: &[(&str, f32, f32)] = &[
+    ("symbol", 1.0054, 0.2197),
+    ("wingdings", 0.8989, 0.2109),
+    ("courier new", 0.8325, 0.3003),
+];
+
 impl FaceInfo {
     /// Line extents a desktop word processor lays text lines out with, in font units:
     /// (ascent, descent, external leading). These are GDI's `TEXTMETRIC` values —
@@ -100,6 +112,20 @@ struct Face {
     data: Arc<Vec<u8>>,
     index: u32,
     info: FaceInfo,
+    /// Printable ASCII characters the face has a glyph for (bit per code point): ASCII text
+    /// it covers is itemized without parsing the face again.
+    ascii: [u64; 2],
+}
+
+/// Bits of the printable ASCII characters `face` maps to a glyph.
+fn ascii_coverage(face: &ttf_parser::Face<'_>) -> [u64; 2] {
+    let mut bits = [0_u64; 2];
+    for b in 0x20_u8..0x7f {
+        if face.glyph_index(char::from(b)).is_some() {
+            bits[usize::from(b >> 6)] |= 1 << (b & 63);
+        }
+    }
+    bits
 }
 
 /// Shape cache key: face, kerning, OpenType features (tag, value), text.
@@ -239,10 +265,12 @@ impl FontManager {
                     ids.push(id);
                 }
             }
+            let ascii = ascii_coverage(&face);
             self.faces.push(Face {
                 data: data.clone(),
                 index,
                 info,
+                ascii,
             });
             ids.push(id);
         }
@@ -344,6 +372,59 @@ impl FontManager {
         &self.faces[id.0 as usize].info
     }
 
+    /// Advance in em that a letter missing from the stand-in face `primary` has in the
+    /// family it stands in for, when a fallback face draws it: Caladea (for Cambria)
+    /// lacks most Vietnamese letters, which Cambria sets as wide as their base letter,
+    /// the horned ơ / ư families (U+031B) wider by the horn (measured black-box from the
+    /// reference word processor's Cambria: o / u / O / U + 0.068 / 0.071 / 0.072 / 0.106 em,
+    /// italic + 0.075 / 0.081 / 0.085 / 0.116 em). `None` when `primary` is not such a
+    /// stand-in or lacks the base letter.
+    #[must_use]
+    pub fn stand_in_advance(&self, primary: FaceId, c: char) -> Option<f32> {
+        let info = self.info(primary);
+        if info.family != "Caladea" {
+            return None;
+        }
+        let mut parts = std::iter::once(c).nfd();
+        let base = parts.next()?;
+        let horn = parts.any(|m| m == '\u{031B}');
+        let face = self.face(primary)?;
+        let gid = face.glyph_index(base)?;
+        let adv = f32::from(face.glyph_hor_advance(gid)?) / f32::from(info.units_per_em.max(1));
+        let extra = match (horn, base, info.italic) {
+            (false, ..) => 0.0,
+            (true, 'o', false) => 0.068,
+            (true, 'o', true) => 0.075,
+            (true, 'u', false) => 0.071,
+            (true, 'u', true) => 0.081,
+            (true, 'O', false) => 0.072,
+            (true, 'O', true) => 0.085,
+            (true, _, false) => 0.106,
+            (true, _, true) => 0.116,
+        };
+        Some(adv + extra)
+    }
+
+    /// Text line extents (ascent, descent, external leading) in em for a run that asked
+    /// for `family` and is drawn with `face` ([`FaceInfo::line_metrics`]); when `face`
+    /// is an unrelated substitute of a symbol font or Courier New, the extents of the
+    /// requested font as the reference word processor lays it out.
+    #[must_use]
+    pub fn line_extent(&self, family: &str, face: FaceId) -> (f32, f32, f32) {
+        let info = self.info(face);
+        if !info.family.eq_ignore_ascii_case(family) {
+            if let Some(&(_, a, d)) = SUBSTITUTED_LINES
+                .iter()
+                .find(|(f, ..)| f.eq_ignore_ascii_case(family))
+            {
+                return (a, d, 0.0);
+            }
+        }
+        let em = f32::from(info.units_per_em.max(1));
+        let (a, d, g) = info.line_metrics();
+        (a / em, d / em, g / em)
+    }
+
     /// Raw font file bytes and collection index (for PDF embedding).
     pub fn data(&self, id: FaceId) -> (&[u8], u32) {
         let f = &self.faces[id.0 as usize];
@@ -441,6 +522,22 @@ impl FontManager {
     /// Split `text` into runs of faces: `primary` where it has glyphs, otherwise a
     /// face of the same style that does. Returns byte ranges.
     pub fn itemize(&self, primary: FaceId, text: &str) -> Vec<(std::ops::Range<usize>, FaceId)> {
+        // ASCII text the primary face covers (control characters stay with it too): one
+        // run, as the per-character loop below would give, without parsing the face.
+        if text.is_ascii() {
+            if let Some(f) = self.faces.get(primary.0 as usize) {
+                let covered = text.bytes().all(|b| {
+                    b < 0x20 || b == 0x7f || f.ascii[usize::from(b >> 6)] >> (b & 63) & 1 == 1
+                });
+                if covered {
+                    return if text.is_empty() {
+                        Vec::new()
+                    } else {
+                        vec![(0..text.len(), primary)]
+                    };
+                }
+            }
+        }
         let mut out: Vec<(std::ops::Range<usize>, FaceId)> = Vec::new();
         let style = {
             let i = self.info(primary);

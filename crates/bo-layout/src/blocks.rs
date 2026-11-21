@@ -71,6 +71,9 @@ pub(crate) struct Band {
     pub items: Vec<PageItem>,
     pub notes: Vec<NoteKey>,
     pub brk: Brk,
+    /// A text line of a paragraph with widow control (§17.3.1.44 widowControl): a
+    /// table row split keeps at least two of its lines on each side.
+    pub widow_control: bool,
 }
 
 impl Band {
@@ -82,6 +85,7 @@ impl Band {
             items: Vec::new(),
             notes: Vec::new(),
             brk: Brk::None,
+            widow_control: false,
         }
     }
 
@@ -309,6 +313,7 @@ fn rel_line_band(rl: &RelLine, source: LineSource) -> Band {
         } else {
             Brk::None
         },
+        widow_control: false,
     }
 }
 
@@ -571,8 +576,9 @@ pub(crate) fn stack_blocks(
                 y += before;
                 let y0 = y;
                 let first_idx = st.bands.len();
-                for band in pb.lines {
+                for mut band in pb.lines {
                     let h = band.h;
+                    band.widow_control = pb.widow_control && !band.lines.is_empty();
                     st.bands.push((y, band));
                     y += h;
                 }
@@ -1130,6 +1136,10 @@ pub(crate) fn layout_table(
     };
     let tb = table_borders(ctx.doc, t);
     let table_ppr = table_style_ppr(ctx.doc, t);
+    let (cell_top, cell_bottom) = t
+        .props
+        .cell_margin_vertical
+        .map_or((0.0, 0.0), |(a, b)| (a.to_pt(), b.to_pt()));
     let (ml, mr) = t
         .props
         .cell_margin
@@ -1305,8 +1315,10 @@ pub(crate) fn layout_table(
             // Table Grid row 0.5 pt (sz 4) taller than its line (measured black-box,
             // docs/ui/REPORT.md Fidelity round 1; §17.4.38 tcBorders, §17.4.39 tblBorders).
             let bw = |b: &Option<Border>| b.as_ref().map_or(0.0, |b| b.size as f32 / 8.0);
-            let mt = bw(&edges[0]);
-            let mb = if last_row { bw(&edges[2]) } else { 0.0 };
+            // §17.4.42 tblCellMar top / bottom add to the borders (measured black-box:
+            // 7.2 / 3.6 pt margins make a Table Grid row 0.48 + 10.8 pt taller than its line).
+            let mt = bw(&edges[0]) + cell_top;
+            let mb = if last_row { bw(&edges[2]) } else { 0.0 } + cell_bottom;
             let needed = content_h + mt + mb;
             if rows_spanned > 1 {
                 tall.push((ri, rows_spanned, needed));
@@ -1570,6 +1582,51 @@ pub(crate) fn row_notes(row: &RowBox) -> Vec<NoteKey> {
         .collect()
 }
 
+/// Bands of a cell with their tops.
+type Bands = Vec<(f32, Band)>;
+
+/// Widow / orphan control of the paragraph a row split cuts through (ECMA-376 Part 1,
+/// §17.3.1.44 widowControl), as the body flow does: one line left after the break
+/// takes another with it, and a paragraph's first line alone before the break moves
+/// on. `a` / `b` are a cell's bands before / after the break, in content order.
+fn keep_widow_lines(mut a: Bands, mut b: Bands) -> (Bands, Bands) {
+    let para = |band: &Band| {
+        band.widow_control
+            .then(|| band.lines.first().map(|l| l.source))
+            .flatten()
+    };
+    let Some(src) = b.first().and_then(|(_, band)| para(band)) else {
+        return (a, b);
+    };
+    let before = a
+        .iter()
+        .rev()
+        .take_while(|(_, band)| para(band) == Some(src))
+        .count();
+    if before == 0 {
+        return (a, b);
+    }
+    let after = b
+        .iter()
+        .take_while(|(_, band)| para(band) == Some(src))
+        .count();
+    let mut take = before;
+    if after == 1 && take >= 2 {
+        take -= 1; // widow: never leave the last line alone
+    }
+    let starts_here = a[a.len() - before]
+        .1
+        .lines
+        .first()
+        .is_some_and(|l| l.start == 0);
+    if take == 1 && starts_here {
+        take = 0; // orphan: never leave the first line alone
+    }
+    let moved = a.split_off(a.len() - (before - take));
+    b.splice(0..0, moved);
+    (a, b)
+}
+
 /// Split a row so that the first part is `avail` tall (ECMA-376 Part 1, §17.4.6 cantSplit
 /// unset: rows may break across pages). Returns `None` when nothing fits or nothing remains.
 pub(crate) fn split_row(row: &RowBox, avail: f32) -> Option<(RowBox, RowBox)> {
@@ -1586,6 +1643,13 @@ pub(crate) fn split_row(row: &RowBox, avail: f32) -> Option<(RowBox, RowBox)> {
             .iter()
             .cloned()
             .partition(|(top, band)| top + band.h <= limit + 0.01);
+        let had_text = a.iter().any(|(_, band)| !band.lines.is_empty());
+        let (a, b) = keep_widow_lines(a, b);
+        if had_text && a.iter().all(|(_, band)| band.lines.is_empty()) {
+            // Widow control left this cell nothing before the break: as measured in the
+            // reference word processor, the whole row moves on rather than splitting.
+            return None;
+        }
         let base = b.iter().map(|(t, _)| *t).fold(f32::INFINITY, f32::min);
         let b: Vec<(f32, Band)> = b.into_iter().map(|(t, band)| (t - base, band)).collect();
         let bh = b.iter().map(|(t, band)| t + band.h).fold(0.0f32, f32::max);
@@ -1604,7 +1668,14 @@ pub(crate) fn split_row(row: &RowBox, avail: f32) -> Option<(RowBox, RowBox)> {
     if !any_first || !any_rest {
         return None;
     }
-    first.h = avail;
+    // The part before the break ends below its last line (its bottom border drawn
+    // there, as in the reference word processor), not at the page bottom.
+    first.h = first
+        .cells
+        .iter()
+        .map(|c| c.content_h + c.margins[2] + c.margins[3])
+        .fold(0.0f32, f32::max)
+        .min(avail);
     rest.h = rest_h.max(1.0);
     Some((first, rest))
 }

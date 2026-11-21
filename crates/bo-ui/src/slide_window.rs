@@ -256,6 +256,8 @@ pub struct SlideWindow {
     show_sub: Option<(usize, Menu)>,
     /// Right-click menu › Help is shown over the show.
     show_help: bool,
+    /// Ctrl+T while presenting: out of full screen until the next key or click.
+    show_windowed: bool,
     /// Help's page and hovered part.
     help_tab: usize,
     help_hover: Option<usize>,
@@ -684,6 +686,7 @@ impl SlideWindow {
             menu: None,
             show_sub: None,
             show_help: false,
+            show_windowed: false,
             help_tab: 0,
             help_hover: None,
             menu_kind: MenuKind::Font,

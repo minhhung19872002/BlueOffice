@@ -82,7 +82,7 @@ pub trait Handler {
     /// Draw and present one frame (waits for the swap chain, so it paces to the display).
     fn frame(&mut self);
     /// Pointer shape over the client area: `0` cell cross, `1` column resize, `2` row resize,
-    /// `3` arrow; `None` keeps the window class cursor.
+    /// `3` arrow, `4` text, `5` hand, `6` move, `7` none; `None` keeps the window class cursor.
     fn cursor(&self) -> Option<u8> {
         None
     }
@@ -382,6 +382,8 @@ fn key(vk: u16, m: Mods) -> Option<Key> {
         // VK_F1..VK_F12
         _ if (0x70..=0x7B).contains(&vk) => Key::F((vk - 0x70 + 1) as u8),
         // Ctrl+letter shortcuts; plain letters arrive as text (WM_CHAR).
+        // Ctrl+Break (VK_CANCEL): cancel, as Esc.
+        _ if m.ctrl && vk == 0x03 => Key::Escape,
         _ if m.ctrl && (0x41..=0x5A).contains(&vk) => {
             Key::Letter(char::from(vk as u8).to_ascii_lowercase())
         }
@@ -481,6 +483,19 @@ fn window_request(hwnd: HWND, r: &Request) {
             }
             Request::FullScreen(on) => full_screen(hwnd, *on),
             _ => {}
+        }
+    }
+}
+
+/// Show or hide the mouse pointer now (the next WM_SETCURSOR keeps it so).
+#[allow(dead_code)] // BlueSlide only (other bins include this file too)
+pub fn set_cursor_hidden(hidden: bool) {
+    // SAFETY: plain cursor calls on this thread's window.
+    unsafe {
+        if hidden {
+            SetCursor(None);
+        } else if let Ok(c) = LoadCursorW(None, IDC_ARROW) {
+            SetCursor(Some(c));
         }
     }
 }
@@ -840,6 +855,14 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                 // SAFETY: default processing of this window's own message.
                 return unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) };
             };
+            if shape == 7 {
+                // No pointer (BlueSlide's show: Ctrl+H, or Ctrl+U after a pause).
+                // SAFETY: hiding this window's own cursor.
+                unsafe {
+                    SetCursor(None);
+                }
+                return LRESULT(1);
+            }
             let id = match shape {
                 1 => IDC_SIZEWE,
                 2 => IDC_SIZENS,

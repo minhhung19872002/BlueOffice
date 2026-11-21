@@ -65,6 +65,11 @@ pub struct ShowTools {
     pub seen: Option<usize>,
     /// Right-click menu › Pause: the show clock when automatic advance was paused.
     pub paused_at: Option<f64>,
+    /// The arrow pointer: 0 shown, 1 hidden (Ctrl+H), 2 hidden after 3 s without moving
+    /// (Ctrl+U); Ctrl+A shows it again.
+    pub arrow_mode: u8,
+    /// Show clock of the last pointer move.
+    pub last_move: f64,
 }
 
 /// Pen ink (reference default: red) and highlighter (yellow, translucent).
@@ -98,6 +103,9 @@ impl SlideView {
 
     /// Keys and pointer input of the show tools; `None` lets the show handle `input`.
     pub(super) fn show_tools_input(&mut self, input: &Input) -> Option<bool> {
+        if matches!(input, Input::Move { .. } | Input::Drag { .. }) {
+            self.show_tools.last_move = self.clock;
+        }
         // A blanked screen: any key or click brings the slide back (and does nothing else).
         if self.show_tools.screen.is_some() {
             return match input {
@@ -164,9 +172,17 @@ impl SlideView {
                     'e' => Pointer::Eraser,
                     'a' => Pointer::Arrow,
                     's' => return Some(self.open_show_overview()),
+                    'h' | 'u' => {
+                        self.show_tools.arrow_mode = if *c == 'h' { 1 } else { 2 };
+                        self.show_tools.last_move = self.clock;
+                        return Some(true);
+                    }
                     _ => return None,
                 };
                 self.show_tools.digits.clear();
+                if tool == Pointer::Arrow {
+                    self.show_tools.arrow_mode = 0;
+                }
                 self.set_show_pointer(tool);
                 Some(true)
             }
@@ -351,6 +367,20 @@ impl SlideView {
             self.presenter(),
             self.show_tools.paused_at.is_some(),
         )
+    }
+
+    /// The show clock (ms) last given by the host.
+    pub fn clock_ms(&self) -> f64 {
+        self.clock
+    }
+
+    /// Whether the host should hide the mouse pointer now (Ctrl+H, or Ctrl+U after 3 s
+    /// without moving), with the arrow tool of a running show.
+    pub fn show_cursor_hidden(&self) -> bool {
+        let t = &self.show_tools;
+        self.show.is_some()
+            && t.pointer == Pointer::Arrow
+            && (t.arrow_mode == 1 || (t.arrow_mode == 2 && self.clock - t.last_move >= 3000.0))
     }
 
     /// Whether the shown slide advances by itself (right-click menu › Pause is available).

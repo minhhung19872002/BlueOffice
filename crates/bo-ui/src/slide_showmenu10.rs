@@ -123,6 +123,23 @@ impl SlideWindow {
         if self.show_help {
             return Some(self.help_input(input));
         }
+        // Ctrl+T: leave full screen so the taskbar shows; the next key or click returns.
+        if self.show_windowed
+            && matches!(input, Input::Key(..) | Input::Text(_) | Input::Press { .. })
+        {
+            self.show_windowed = false;
+            self.requests.push(crate::Request::FullScreen(true));
+            if matches!(input, Input::Press { .. }) {
+                return Some(true);
+            }
+        }
+        if let Input::Key(Key::Letter('t'), m) = input {
+            if m.ctrl && self.menu.is_none() {
+                self.show_windowed = true;
+                self.requests.push(crate::Request::FullScreen(false));
+                return Some(true);
+            }
+        }
         if self.menu.is_none() && matches!(input, Input::Key(Key::F(1), _)) {
             return Some(self.open_show_help());
         }

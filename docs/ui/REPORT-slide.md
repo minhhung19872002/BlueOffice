@@ -659,8 +659,10 @@ chiếu chạy bằng `SlideShowSettings.Run`, nhấp phải và phím G gửi b
 - Phím "+" của tham chiếu (đo bằng phím + bàn số): phóng theo bậc 2^(1/3) quanh tâm trang (tiêu đề cao 104 →
   132 → 168 → 212 px), "−" lùi một bậc; BlueSlide làm đúng như vậy, ảnh phóng vẽ lại sắc nét ở tỉ lệ phóng.
 - Hộp Slide Show Help: 850 × 680 px như tham chiếu, 5 thẻ, bảng hai cột với lời mô tả riêng; phím mới S (tạm
-  dừng / tiếp tục tự chuyển), H (trang kế kể cả trang ẩn), Ctrl+S (mọi trang chiếu). Chưa có: Ctrl+T, Ctrl+H/U
-  (host chưa điều khiển con trỏ), Ctrl+Break.
+  dừng / tiếp tục tự chuyển), H (trang kế kể cả trang ẩn), Ctrl+S (mọi trang chiếu), Ctrl+H (ẩn
+  con trỏ), Ctrl+U (ẩn sau 3 giây không di chuột), Ctrl+A (hiện lại), Ctrl+T (ra khỏi toàn màn hình để thấy thanh
+  tác vụ; phím / nhấp kế tiếp trở lại), Ctrl+Break (như Esc). Host: `cursor()` trả 7 = không con trỏ, và
+  `win32::set_cursor_hidden` khi trạng thái đổi mà chuột đứng yên.
 - Mô-đun mới: `slide_show_all10.rs` (lưới trang chiếu), `slide_bgstyles10.rs` (Background Styles);
   `slide_showmenu10.rs` viết lại (menu tầng); `popup.rs` thêm `row_rect` / `hovered` (thêm, không đổi hành vi).
 - Kiểm thử: `slide_round21_tests.rs` (hàng menu, menu con bằng chuột và phím, lưới: ảnh, phím, nhấp, Esc,

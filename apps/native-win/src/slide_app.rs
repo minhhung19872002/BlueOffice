@@ -152,6 +152,7 @@ pub fn run() -> Result<(), String> {
             anim_frame: None,
             startup: Some((started, open_ms)),
             hwnd: 0,
+            cursor_hidden: false,
         }),
     )
 }
@@ -359,6 +360,8 @@ struct Shell {
     epoch: Instant,
     /// This window.
     hwnd: isize,
+    /// The mouse pointer is hidden by the show.
+    cursor_hidden: bool,
     /// Process start and the engine's open time, logged with the first frame.
     startup: Option<(Instant, f64)>,
     /// Previous animation frame (frame pacing in the performance log).
@@ -783,6 +786,12 @@ impl Handler for Shell {
         let m = Measure(self.gpu.as_ref().map(|g| &g.device));
         let mut redraw = self.view.handle(input, &m);
         redraw |= self.handle_requests();
+        // The show's pointer hiding (Ctrl+H / Ctrl+U), also without a mouse move.
+        let hidden = self.view.view().show_cursor_hidden();
+        if hidden != self.cursor_hidden {
+            self.cursor_hidden = hidden;
+            win32::set_cursor_hidden(hidden);
+        }
         if !redraw {
             return;
         }
@@ -847,6 +856,11 @@ impl Handler for Shell {
 
     fn nc_hit(&self, x: f32, y: f32) -> NcHit {
         self.view.nc_hit(x, y)
+    }
+
+    fn cursor(&self) -> Option<u8> {
+        // 7: no pointer (the show hides it); otherwise the window class arrow.
+        self.view.view().show_cursor_hidden().then_some(7)
     }
 
     fn window_requests(&mut self) -> Vec<Request> {

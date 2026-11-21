@@ -504,3 +504,39 @@ fn show_help_dialog_tabs_and_ok() {
     );
     assert!(w.view.show_overview().is_some());
 }
+
+#[test]
+fn show_pointer_hiding_and_taskbar() {
+    let mut w = window();
+    assert!(w.view.start_show(0));
+    let ctrl = |c| {
+        Input::Key(
+            Key::Letter(c),
+            Mods {
+                ctrl: true,
+                ..Mods::default()
+            },
+        )
+    };
+    w.view.set_clock(1000.0);
+    assert!(!w.view.show_cursor_hidden());
+    w.handle(ctrl('h'), &Fixed);
+    assert!(w.view.show_cursor_hidden(), "Ctrl+H hides the pointer");
+    w.handle(ctrl('a'), &Fixed);
+    assert!(!w.view.show_cursor_hidden(), "Ctrl+A shows it");
+    // Ctrl+U: hidden only after 3 s without a move.
+    w.handle(ctrl('u'), &Fixed);
+    assert!(!w.view.show_cursor_hidden());
+    let now = w.view.clock_ms();
+    w.view.set_clock(now + 3500.0);
+    assert!(w.view.show_cursor_hidden());
+    w.handle(Input::Move { x: 10.0, y: 10.0 }, &Fixed);
+    assert!(!w.view.show_cursor_hidden());
+    // Ctrl+T leaves full screen; the next key returns without acting.
+    let _ = w.take_requests();
+    w.handle(ctrl('t'), &Fixed);
+    assert!(w.take_requests().contains(&Request::FullScreen(false)));
+    w.handle(Input::Key(Key::Home, Mods::default()), &Fixed);
+    assert!(w.take_requests().contains(&Request::FullScreen(true)));
+    assert!(w.view.showing());
+}

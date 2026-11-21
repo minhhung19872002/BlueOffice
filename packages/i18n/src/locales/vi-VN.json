@@ -14968,7 +14968,8 @@
       "bold": "Đậm",
       "italic": "Nghiêng",
       "underline": "Gạch chân",
-      "cancel": "Hủy"
+      "cancel": "Hủy",
+      "footer": "Hoàn tác {{n}} thao tác"
     }
   },
   "sheetPvt": {

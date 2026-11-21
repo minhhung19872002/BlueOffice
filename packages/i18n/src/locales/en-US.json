@@ -14968,7 +14968,8 @@
       "bold": "Bold",
       "italic": "Italic",
       "underline": "Underline",
-      "cancel": "Cancel"
+      "cancel": "Cancel",
+      "footer": "Undo {{n}} Actions"
     }
   },
   "sheetPvt": {

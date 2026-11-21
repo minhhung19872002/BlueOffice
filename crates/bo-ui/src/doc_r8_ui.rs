@@ -48,7 +48,10 @@ impl DocWindow {
             .iter()
             .find(|(tag, _)| tag.eq_ignore_ascii_case(&lang))
             .map_or(lang.clone(), |(_, name)| (*name).to_owned());
-        self.r8.autocorrect = Some(AutoCorrectDialog::open(&self.strings, &opts, &language));
+        let mut d = AutoCorrectDialog::open(&self.strings, &opts, &language);
+        // Check boxes in BlueDoc's own accent, as its other dialogs.
+        d.set_accent(self.theme.accent_strong, self.theme.accent);
+        self.r8.autocorrect = Some(d);
         self.relayout_pending = true;
         true
     }
@@ -317,7 +320,9 @@ impl DocWindow {
             dim: false,
         });
         self.menu = Some(
-            Menu::open(items, anchor, self.size, self.scale).with_decor(vec![None; n + 1], vec![n]),
+            Menu::open(items, anchor, self.size, self.scale)
+                .with_decor(vec![None; n + 1], vec![n])
+                .with_range_footer(self.strings.get("docR8.undo.footer").to_owned()),
         );
         true
     }

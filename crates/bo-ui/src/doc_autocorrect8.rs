@@ -140,6 +140,8 @@ pub(crate) struct AutoCorrectDialog {
     pointer: (f32, f32),
     /// The Exceptions dialog over this one.
     exceptions: Option<ExceptionsDialog>,
+    /// Check box colours given by the window.
+    accent: Option<(Rgba, Rgba)>,
     strings_title: String,
     /// First Letter, INitial CAps, their labels, Add, Delete, OK, Cancel.
     strings_ex: [String; 8],
@@ -221,8 +223,25 @@ impl ExceptionsDialog {
 
     fn sync(&mut self) {
         for (i, id) in ["list0", "list1"].into_iter().enumerate() {
-            let sel = (!self.lists[i].is_empty()).then_some(0);
-            self.form.set_items(id, self.lists[i].clone(), sel);
+            // Nothing chosen, as the reference opens.
+            self.form.set_items(id, self.lists[i].clone(), None);
+        }
+        self.sync_buttons();
+    }
+
+    /// Add needs a new word in the box, Delete a chosen row (greyed otherwise, as on the
+    /// reference).
+    fn sync_buttons(&mut self) {
+        let ids = [
+            ("e0", "list0", "add0", "del0"),
+            ("e1", "list1", "add1", "del1"),
+        ];
+        for (i, (edit, list, add, del)) in ids.into_iter().enumerate() {
+            let w = self.form.text(edit).trim().to_owned();
+            let new = !w.is_empty() && !self.lists[i].contains(&w);
+            let chosen = self.form.sel(list).is_some();
+            self.form.enable(add, new);
+            self.form.enable(del, chosen);
         }
     }
 
@@ -285,6 +304,11 @@ impl ExceptionsDialog {
                     let w = w.clone();
                     self.form.set_text(if i == 0 { "e0" } else { "e1" }, &w);
                 }
+                self.sync_buttons();
+                ExOut::Stay(true)
+            }
+            Event::Changed(_) => {
+                self.sync_buttons();
                 ExOut::Stay(true)
             }
             _ => ExOut::Stay(true),
@@ -486,6 +510,7 @@ impl AutoCorrectDialog {
             top: 0,
             pointer: (0.0, 0.0),
             exceptions: None,
+            accent: None,
             strings_title: tr("docR8.ex.title", "AutoCorrect Exceptions"),
             strings_ex: [
                 tr("docR8.ex.first", "First Letter"),
@@ -524,6 +549,12 @@ impl AutoCorrectDialog {
         ] {
             self.form.set_on(id, on);
         }
+    }
+
+    /// Check boxes in BlueDoc's accent (the window's theme), as its other dialogs.
+    pub(crate) fn set_accent(&mut self, fill: Rgba, edge: Rgba) {
+        self.accent = Some((fill, edge));
+        self.form.set_accent(fill, edge);
     }
 
     /// The options as the dialog shows them.
@@ -639,12 +670,16 @@ impl AutoCorrectDialog {
             Event::Cancel | Event::Clicked("cancel") => AcOut::Close,
             Event::Ok | Event::Clicked("ok") => AcOut::Apply(Box::new(self.collect())),
             Event::Clicked("exceptions") => {
-                self.exceptions = Some(ExceptionsDialog::open(
+                let mut x = ExceptionsDialog::open(
                     &self.strings_title,
                     &self.strings_ex,
                     &self.opts.exceptions,
                     &self.opts.caps_exceptions,
-                ));
+                );
+                if let Some((fill, edge)) = self.accent {
+                    x.form.set_accent(fill, edge);
+                }
+                self.exceptions = Some(x);
                 AcOut::Redraw
             }
             // Typing in Replace finds the first entry from there, as on the reference.
@@ -899,7 +934,12 @@ mod tests {
         let mut d = dialog();
         d.event(&Event::Clicked("exceptions"));
         let x = d.exceptions.as_mut().expect("exceptions open");
-        x.form.set_text("e0", "approx.");
+        assert_eq!(x.form.sel("list0"), None);
+        assert!(!x.form.get("add0").is_some_and(|c| c.enabled));
+        assert!(!x.form.get("del0").is_some_and(|c| c.enabled));
+        x.form.set_text("e0", "blt.");
+        x.event(&Event::Changed("e0"));
+        assert!(x.form.get("add0").is_some_and(|c| c.enabled));
         x.event(&Event::Clicked("add0"));
         x.form.set_text("e1", "PDFs");
         x.event(&Event::Clicked("add1"));
@@ -911,7 +951,7 @@ mod tests {
         let AcOut::Apply(o) = d.event(&Event::Ok) else {
             panic!("ok applies");
         };
-        assert!(o.exceptions.iter().any(|w| w == "approx."));
+        assert!(o.exceptions.iter().any(|w| w == "blt."));
         assert!(o.caps_exceptions.iter().any(|w| w == "PDFs"));
     }
 

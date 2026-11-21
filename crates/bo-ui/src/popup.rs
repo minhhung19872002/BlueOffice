@@ -104,6 +104,10 @@ pub struct Menu {
     access: Vec<Option<(char, f32, f32)>>,
     /// Draw the access keys' underlines.
     cues: bool,
+    /// Range list ([`Menu::with_range_footer`]): rows grey until the pointer is over one,
+    /// then that row and every row above it highlighted, and the last row (the footer) reads
+    /// this text with `{{n}}` = the number of rows chosen.
+    range_footer: Option<String>,
 }
 
 /// Windows' "Underline access keys" setting (`SPI_GETKEYBOARDCUES`), given by the host.
@@ -209,6 +213,7 @@ impl Menu {
             soft_shadow: false,
             access: Vec::new(),
             cues: false,
+            range_footer: None,
         };
         // Show the current value in the middle of the list.
         if let Some(i) = current {
@@ -229,6 +234,15 @@ impl Menu {
     pub fn with_decor(mut self, icons: Vec<Option<&'static str>>, separators: Vec<usize>) -> Self {
         self.icons = icons;
         self.separators = separators;
+        self
+    }
+
+    /// A range list (the quick access Undo list): rows grey until hovered, the hovered row
+    /// and those above it highlighted, the last row showing `footer` (`{{n}}`: rows chosen)
+    /// instead of its label while a row is hovered.
+    #[must_use]
+    pub fn with_range_footer(mut self, footer: String) -> Self {
+        self.range_footer = Some(footer);
         self
     }
 
@@ -476,7 +490,11 @@ impl Menu {
         for i in first..last.min(self.items.len()) {
             let item = &self.items[i];
             let y = self.y + self.pad() + self.row_top(i) - self.scroll;
-            if self.hover == Some(i) {
+            let last = self.items.len().saturating_sub(1);
+            let in_range = self.range_footer.is_some()
+                && i < last
+                && self.hover.is_some_and(|h| h < last && i <= h);
+            if self.hover == Some(i) || in_range {
                 p.fill_rect(
                     self.x + self.pad(),
                     y,
@@ -567,7 +585,24 @@ impl Menu {
                     );
                 }
             }
-            let color = if item.dim { t.text_muted } else { t.text };
+            let color = if item.dim {
+                t.text_muted
+            } else if self.range_footer.is_some() && i < last && !in_range {
+                // Range list rows are grey until chosen (measured 128 on the reference).
+                Rgba(0x80, 0x80, 0x80, 255)
+            } else {
+                t.text
+            };
+            let footer_text = self
+                .range_footer
+                .as_ref()
+                .filter(|_| i == last)
+                .and_then(|f| {
+                    self.hover
+                        .filter(|&h| h < last)
+                        .map(|h| f.replace("{{n}}", &(h + 1).to_string()))
+                });
+            let label = footer_text.as_deref().unwrap_or(&item.label);
             let tx = self.x
                 + if self.icons.is_empty() {
                     (look.text_x.0 * s).round()
@@ -575,7 +610,7 @@ impl Menu {
                     (look.text_x.1 * s).round()
                 };
             let ty = y + (self.item_h - line) / 2.0;
-            p.text(&item.label, tx, ty, style, color);
+            p.text(label, tx, ty, style, color);
             if let Some(Some((_, ux, uw))) = self.access.get(i).filter(|_| self.cues) {
                 // The access key's underline just under the baseline.
                 let uy = (ty + style.size * 1.12).round();

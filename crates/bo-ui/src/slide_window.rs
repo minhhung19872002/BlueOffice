@@ -256,6 +256,9 @@ pub struct SlideWindow {
     show_sub: Option<(usize, Menu)>,
     /// Right-click menu › Help is shown over the show.
     show_help: bool,
+    /// Help's page and hovered part.
+    help_tab: usize,
+    help_hover: Option<usize>,
     /// What the open menu chooses.
     menu_kind: MenuKind,
     rest: u32,
@@ -440,6 +443,9 @@ mod file10_win;
 
 #[path = "slide_bgstyles10.rs"]
 mod bgstyles;
+
+#[path = "slide_showhelp10.rs"]
+mod showhelp;
 
 #[path = "slide_showmenu10.rs"]
 mod showmenu10;
@@ -678,6 +684,8 @@ impl SlideWindow {
             menu: None,
             show_sub: None,
             show_help: false,
+            help_tab: 0,
+            help_hover: None,
             menu_kind: MenuKind::Font,
             rest: 0,
             tooltip: None,

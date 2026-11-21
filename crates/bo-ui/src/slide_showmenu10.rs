@@ -60,34 +60,6 @@ const POINTER: [(&str, &str, &str, bool); 6] = [
     ("arrow", "slideR10.show.arrow", "Arrow", true),
 ];
 
-/// Right-click menu › Help: (keys, label key, fallback).
-const HELP: [(&str, &str, &str); 12] = [
-    (
-        "N, Space, \u{2192}, \u{2193}, Enter",
-        "slideR10.help.next",
-        "Next animation or slide",
-    ),
-    (
-        "P, Backspace, \u{2190}, \u{2191}",
-        "slideR10.help.prev",
-        "Previous animation or slide",
-    ),
-    ("number + Enter", "slideR10.help.goto", "Go to that slide"),
-    (
-        "Home / End",
-        "slideR10.help.firstLast",
-        "First / last slide",
-    ),
-    ("B or .", "slideR10.help.black", "Black screen"),
-    ("W or ,", "slideR10.help.white", "White screen"),
-    ("G or -", "slideR10.help.all", "See all slides"),
-    ("Ctrl+P / Ctrl+I", "slideR10.help.pen", "Pen / highlighter"),
-    ("Ctrl+L", "slideR10.help.laser", "Laser pointer"),
-    ("Ctrl+E, E", "slideR10.help.erase", "Eraser / erase all ink"),
-    ("Ctrl+A", "slideR10.help.arrow", "Arrow"),
-    ("Esc", "slideR10.help.end", "End the show"),
-];
-
 /// Access key of each entry (the reference's underlined letters in English).
 const ACCESS: [(&str, char); 20] = [
     ("next", 'N'),
@@ -149,14 +121,7 @@ impl SlideWindow {
         text: &dyn crate::TextMeasure,
     ) -> Option<bool> {
         if self.show_help {
-            if matches!(
-                input,
-                Input::Key(..) | Input::Text(_) | Input::Press { .. } | Input::Context { .. }
-            ) {
-                self.show_help = false;
-                return Some(true);
-            }
-            return Some(false);
+            return Some(self.help_input(input));
         }
         if self.menu.is_none() && matches!(input, Input::Key(Key::F(1), _)) {
             return Some(self.open_show_help());
@@ -463,48 +428,9 @@ impl SlideWindow {
     /// Right-click menu › Help: the show's keys (own list), until any key or click.
     pub(super) fn open_show_help(&mut self) -> bool {
         self.show_help = true;
+        self.help_tab = 0;
+        self.help_hover = None;
         true
-    }
-
-    fn paint_show_help(&self, p: &mut dyn Painter) {
-        let s = self.scale;
-        let rows: Vec<(String, String)> = HELP
-            .iter()
-            .map(|(keys, k, f)| ((*keys).to_owned(), self.t(k, f)))
-            .collect();
-        let title = self.t("slideR10.help.title", "Slide Show Help");
-        let line = (26.0 * s).round();
-        let (w, h) = (
-            (560.0 * s).round(),
-            (70.0 * s).round() + line * rows.len() as f32,
-        );
-        let (x, y) = (
-            ((self.size.0 - w) / 2.0).round(),
-            ((self.size.1 - h) / 2.0).round(),
-        );
-        p.fill_rect(x - 1.0, y - 1.0, w + 2.0, h + 2.0, Rgba(120, 120, 120, 255));
-        p.fill_rect(x, y, w, h, Rgba(255, 255, 255, 255));
-        let big = crate::TextStyle {
-            size: (16.0 * s).round(),
-            bold: true,
-        };
-        let body = crate::TextStyle {
-            size: (13.0 * s).round(),
-            bold: false,
-        };
-        let ink = Rgba(38, 38, 38, 255);
-        p.text(
-            &title,
-            x + (20.0 * s).round(),
-            y + (16.0 * s).round(),
-            big,
-            ink,
-        );
-        for (i, (keys, what)) in rows.iter().enumerate() {
-            let ry = y + (56.0 * s).round() + line * i as f32;
-            p.text(keys, x + (20.0 * s).round(), ry, body, ink);
-            p.text(what, x + (230.0 * s).round(), ry, body, ink);
-        }
     }
 
     /// Paint the show menu, its submenu arrows and the open submenu.

@@ -410,6 +410,15 @@ fn magnify_slide_zooms_pans_and_goes_back() {
     assert!(w.view.show_magnify().is_none() && w.menu.is_none());
     // "+" zooms into the middle; Esc goes back.
     w.handle(Input::Text("+".into()), &Fixed);
+    let m = w.view.show_magnify().expect("zoomed");
+    assert_eq!(m.level, 1);
+    assert!(
+        (m.factor() - 1.26).abs() < 0.01,
+        "a 2^(1/3) step as measured"
+    );
+    w.handle(Input::Text("+".into()), &Fixed);
+    w.handle(Input::Text("-".into()), &Fixed);
+    assert_eq!(w.view.show_magnify().map(|m| m.level), Some(1));
     assert_eq!(
         w.view.show_magnify().and_then(|m| m.center),
         Some((0.5, 0.5))
@@ -444,5 +453,54 @@ fn show_menu_access_keys() {
     w.handle(Input::Key(Key::Escape, Mods::default()), &Fixed);
     w.handle(Input::Context { x: 400.0, y: 300.0 }, &Fixed);
     w.handle(Input::Text("a".into()), &Fixed);
+    assert!(w.view.show_overview().is_some());
+}
+
+#[test]
+fn show_help_dialog_tabs_and_ok() {
+    let mut w = window();
+    assert!(w.view.start_show(0));
+    w.handle(Input::Key(Key::F(1), Mods::default()), &Fixed);
+    assert!(w.show_help);
+    let tabs = w.help_tabs();
+    assert_eq!(tabs.len(), 5);
+    let r = tabs[3];
+    w.handle(
+        Input::Press {
+            x: r[0] + 4.0,
+            y: r[1] + 4.0,
+            count: 1,
+            shift: false,
+        },
+        &Fixed,
+    );
+    assert_eq!(w.help_tab, 3);
+    // Keys do not reach the show while Help is open.
+    let shown = w.view.show_slide();
+    w.handle(Input::Key(Key::Right, Mods::default()), &Fixed);
+    assert_eq!(w.view.show_slide(), shown);
+    assert_eq!(w.help_tab, 4);
+    let ok = w.help_ok();
+    w.handle(
+        Input::Press {
+            x: ok[0] + 4.0,
+            y: ok[1] + 4.0,
+            count: 1,
+            shift: false,
+        },
+        &Fixed,
+    );
+    assert!(!w.show_help && w.view.showing());
+    // Ctrl+S: all slides.
+    w.handle(
+        Input::Key(
+            Key::Letter('s'),
+            Mods {
+                ctrl: true,
+                ..Mods::default()
+            },
+        ),
+        &Fixed,
+    );
     assert!(w.view.show_overview().is_some());
 }

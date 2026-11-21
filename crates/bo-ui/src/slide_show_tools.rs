@@ -128,9 +128,18 @@ impl SlideView {
                 if matches!(t, "g" | "G" | "-") {
                     return Some(self.open_show_overview());
                 }
+                if matches!(t, "s" | "S") {
+                    let paused = self.show_tools.paused_at.is_some();
+                    return Some(self.show_command(if paused { "resume" } else { "pause" }));
+                }
+                if matches!(t, "h" | "H") {
+                    // The next slide in deck order, hidden or not.
+                    let i = self.show_slide()?;
+                    return Some(i + 1 < self.ids.len() && self.show_jump(i + 1));
+                }
                 // "+" zooms into the middle of the slide (reference).
                 if matches!(t, "+" | "=") {
-                    return Some(self.magnify_center());
+                    return Some(self.magnify_step(1));
                 }
                 if matches!(t, "e" | "E") {
                     let i = self.show_slide()?;
@@ -154,6 +163,7 @@ impl SlideView {
                     'l' => Pointer::Laser,
                     'e' => Pointer::Eraser,
                     'a' => Pointer::Arrow,
+                    's' => return Some(self.open_show_overview()),
                     _ => return None,
                 };
                 self.show_tools.digits.clear();

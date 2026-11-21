@@ -399,5 +399,7 @@ Sửa (test trong `crates/bo-layout/tests/word_fidelity.rs`, `crates/bo-text/tes
 Còn lệch (vòng sau): độ rộng làm tròn lưới 600 dpi của bản đối chiếu (mục 4 của brief) chưa mô phỏng — các dòng
 Times / Arial / Calibri giờ lệch ≤ 0,3 pt suốt dòng, chưa thấy ngắt dòng nào do làm tròn; cỡ chữ chỉ số trên / dưới
 của bản đối chiếu là 0,65 × cỡ làm tròn tới nửa point (8 → 5, 11 → 7, 12 → 8 pt), BlueDoc chưa làm tròn;
-layout-01 trang 2: cột trái của bản đối chiếu dài hơn một đoạn (đáy vùng chữ khác ~1 dòng); gen-14 drop cap,
+layout-01 trang 2: bản đối chiếu cho phần giãn của dòng bội số (dưới chữ) vượt lề dưới, cột trái giữ thêm 2 dòng — thử
+áp dụng ở đáy trang thì layout-01 96,0 → 96,5 % nhưng gen-11 (chú thích) 100 → 98,4 %, nên chưa nhận (cần đo riêng
+khi trang có chú thích); gen-14 drop cap,
 sections-04, images-03 là giới hạn của bộ chấm (chữ hoa thả và chân trang tách đoạn, ảnh không chữ).

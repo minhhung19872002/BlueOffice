@@ -1089,3 +1089,39 @@ fn a_merged_cell_centres_its_content_over_all_its_rows() {
         "{mid} vs {top}..{bottom}"
     );
 }
+
+/// The footnote separator is laid out as a paragraph of the Normal style — its space
+/// before and its font's single line — so a document whose paragraphs have space before
+/// keeps fewer body lines above its footnotes (measured black-box, office-10: Times New
+/// Roman 14 pt with 6 pt before reserves 22.1 pt, not a fixed 12 pt).
+#[test]
+fn the_footnote_separator_takes_the_normal_paragraph_spacing() {
+    let body_lines = |before: i32| {
+        let mut blocks = Vec::new();
+        let mut r = Run::text("reference", RunProps::default());
+        r.content.push(RunContent::FootnoteRef(1));
+        blocks.push(Block::Paragraph(Paragraph::new(
+            ParaProps {
+                space_before: Some(Twips(0)),
+                space_after: Some(Twips(0)),
+                line_spacing: Some(SINGLE),
+                ..ParaProps::default()
+            },
+            vec![r],
+        )));
+        for i in 0..60 {
+            blocks.push(para(&format!("body {i}"), 0, 0, SINGLE));
+        }
+        let mut d = doc(blocks);
+        d.default_para.space_before = Some(Twips(before));
+        d.footnotes.insert(1, vec![para("The note.", 0, 0, SINGLE)]);
+        let l = run(&d);
+        l.pages[0]
+            .lines
+            .iter()
+            .filter(|x| matches!(x.source, LineSource::Body(_)))
+            .count()
+    };
+    let plain = body_lines(0);
+    assert!(body_lines(480) < plain, "{plain}");
+}

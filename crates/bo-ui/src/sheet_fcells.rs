@@ -1261,6 +1261,11 @@ impl SheetWindow {
     }
 
     /// The format code the Number page describes.
+    /// The number format code chosen on the Number page (Value Field Settings).
+    pub(super) fn fc_number_code(&self) -> String {
+        self.fc_code()
+    }
+
     fn fc_code(&self) -> String {
         let Some(f) = self.form.as_ref() else {
             return String::new();
@@ -1289,10 +1294,13 @@ impl SheetWindow {
             }
             Event::Cancel => {
                 self.form = None;
+                self.vfs_number_format_done(false);
             }
             Event::Ok => {
-                self.fc_apply();
-                self.form = None;
+                if !self.vfs_number_format_done(true) {
+                    self.fc_apply();
+                    self.form = None;
+                }
             }
             Event::Changed("cat") => self.fc_refresh(false),
             Event::Changed("dec" | "sep" | "sym") => self.fc_negatives(),

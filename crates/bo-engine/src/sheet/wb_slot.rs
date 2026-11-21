@@ -50,6 +50,67 @@ impl WbSlot {
     }
 }
 
+impl WbSlot {
+    /// The legacy array formulas of sheet `sheet` (index built on first use).
+    pub(crate) fn arrays_of(&self, sheet: usize) -> SheetArrays {
+        let mut guard = self
+            .arrays
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let index = guard.get_or_insert_with(|| self.wb.sheets.iter().map(scan).collect());
+        index.get(sheet).cloned().unwrap_or_default()
+    }
+
+    /// The index, taken out before an edit of known cells (see [`WbSlot::restore_index`]).
+    pub(crate) fn take_index(&mut self) -> Option<Vec<SheetArrays>> {
+        self.arrays
+            .get_mut()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take()
+    }
+
+    /// After an edit that changed only cells `cells` of sheet `sheet` (values and
+    /// formulas typed or pasted, with recalculated results elsewhere): puts back the index
+    /// taken before, updated for those cells, instead of scanning every cell again on the
+    /// next look-up (a million-cell sheet cost ~15 ms per Enter, round 59).
+    pub(crate) fn restore_index(
+        &mut self,
+        index: Option<Vec<SheetArrays>>,
+        sheet: usize,
+        cells: &[(u32, u32)],
+    ) {
+        let Some(mut index) = index else {
+            return;
+        };
+        if index.len() != self.wb.sheets.len() {
+            return;
+        }
+        let (Some(list), Some(ws)) = (index.get_mut(sheet), self.wb.sheets.get(sheet)) else {
+            return;
+        };
+        if cells.len() > 64 {
+            let set: std::collections::HashSet<(u32, u32)> = cells.iter().copied().collect();
+            list.retain(|(k, _)| !set.contains(k));
+        } else {
+            list.retain(|(k, _)| !cells.contains(k));
+        }
+        for &k in cells {
+            let Some(f) = ws.cells.get(&k).and_then(|c| c.formula.as_ref()) else {
+                continue;
+            };
+            if let (false, FormulaKind::Array { range }) = (f.dynamic, &f.kind) {
+                if let Some(r) = CellRange::parse(range) {
+                    list.push((k, r));
+                }
+            }
+        }
+        *self
+            .arrays
+            .get_mut()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(index);
+    }
+}
+
 /// Every legacy (non-dynamic) array formula of `ws`.
 pub(crate) fn scan(ws: &Worksheet) -> SheetArrays {
     ws.cells

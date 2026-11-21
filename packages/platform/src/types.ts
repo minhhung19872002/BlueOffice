@@ -391,7 +391,22 @@ export type TableEdit =
   | { kind: 'insertCell'; right: boolean }
   | { kind: 'insertColumn'; right: boolean }
   | { kind: 'shading'; hex: string | null }
-  | { kind: 'borders'; preset: 'all' | 'none' | 'outside' | 'inside' }
+  | {
+      kind: 'borders';
+      preset:
+        | 'all'
+        | 'none'
+        | 'outside'
+        | 'inside'
+        | 'top'
+        | 'bottom'
+        | 'left'
+        | 'right'
+        | 'insideH'
+        | 'insideV';
+      /** §17.18.2 ST_Border style, width in eighths of a point, colour RRGGBB (½ pt single by default). */
+      pen?: { style: string; size: number; color?: string | null };
+    }
   | { kind: 'properties'; widthPct?: number | null; width?: number | null; align?: Alignment }
   | { kind: 'headerRow'; on: boolean }
   /** Heights are measured by the engine when omitted. */

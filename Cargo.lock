@@ -834,6 +834,7 @@ dependencies = [
  "base64 0.22.1",
  "bo-engine",
  "bo-gpu-win",
+ "bo-opc",
  "bo-pdfread",
  "bo-raster",
  "bo-render",
@@ -889,6 +890,7 @@ name = "bo-pdfread"
 version = "0.1.0"
 dependencies = [
  "bo-engine",
+ "bo-raster",
  "bo-render",
  "bo-text",
  "hayro-ccitt",
@@ -1060,6 +1062,7 @@ dependencies = [
  "bo-edit",
  "bo-engine",
  "bo-formula",
+ "bo-layout",
  "bo-model",
  "bo-opc",
  "bo-pdf",

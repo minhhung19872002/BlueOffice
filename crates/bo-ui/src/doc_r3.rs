@@ -149,7 +149,7 @@ impl DocWindow {
             0.0
         };
         // Reveal Formatting / Style Inspector (round 5) sits left of them.
-        own + self.r5_pane_w()
+        own + self.r5_pane_w() + self.r7_pane_w()
     }
 
     /// The paste mode of the next paste: chosen in Paste Options / Paste Special, else the
@@ -362,6 +362,7 @@ impl DocWindow {
 
     pub(super) fn form_out(&mut self, out: FormOut) -> bool {
         match out {
+            FormOut::Inspect(cats, remove) => self.r7_inspect(&cats, remove.as_deref()),
             FormOut::None => false,
             FormOut::Redraw => true,
             FormOut::Close => {

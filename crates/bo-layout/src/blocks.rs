@@ -12,8 +12,8 @@ use crate::style::{para_props, ListCounters};
 use crate::types::{Layer, Line, LineRotation, LineSource, NoteKey, PageItem};
 use crate::{LayoutError, RevisionView};
 use bo_model::{
-    Block, Border, Borders, CellPlace, CellVAlign, Color, Document, HeightRule, Image, Paragraph,
-    RunContent, Table, TableGeometry, TableView, TableWidth, Twips, VMerge,
+    Block, Border, Borders, CellPlace, CellVAlign, Color, Document, HeightRule, Image, ParaProps,
+    Paragraph, RunContent, Table, TableGeometry, TableView, TableWidth, Twips, VMerge,
 };
 use bo_text::FontManager;
 use std::collections::HashMap;
@@ -64,6 +64,9 @@ pub(crate) enum Brk {
 #[derive(Debug, Clone)]
 pub(crate) struct Band {
     pub h: f32,
+    /// Height that must stay clear of top-and-bottom wrapped objects (§20.4.2.19
+    /// wrapTopAndBottom): `h` but for lines whose extra line spacing may overlap them.
+    pub text_h: f32,
     pub lines: Vec<Line>,
     pub items: Vec<PageItem>,
     pub notes: Vec<NoteKey>,
@@ -74,6 +77,7 @@ impl Band {
     pub fn empty(h: f32) -> Band {
         Band {
             h,
+            text_h: h,
             lines: Vec::new(),
             items: Vec::new(),
             notes: Vec::new(),
@@ -294,6 +298,7 @@ fn rel_line_band(rl: &RelLine, source: LineSource) -> Band {
     lines.extend(boxed);
     Band {
         h: rl.height,
+        text_h: rl.text_h,
         lines,
         items,
         notes: rl.notes.clone(),
@@ -551,15 +556,17 @@ pub(crate) fn stack_blocks(
                 let pb = build_para(ctx, p, width, body, mark)?;
                 let mut before = pb.space_before;
                 if let Some((ps, pc, pa)) = &prev {
+                    let mut after = *pa;
                     // §17.3.1.9 contextualSpacing: ignore spacing between paragraphs of the same style.
                     if *ps == pb.style {
                         if pb.contextual {
                             before = 0.0;
                         }
                         if *pc {
-                            y -= pa;
+                            after = 0.0;
                         }
                     }
+                    before = crate::flow::collapse_spacing(&mut y, *pa, after, before);
                 }
                 y += before;
                 let y0 = y;
@@ -650,6 +657,48 @@ pub(crate) struct TableBox {
     pub float: Option<bo_model::TableFloat>,
 }
 
+/// Paragraph properties of the table's style chain (ECMA-376 Part 1, §17.7.6 table
+/// styles: a table style's `w:pPr` applies to the paragraphs of its cells), `None` when
+/// it sets none.
+fn table_style_ppr(doc: &Document, t: &Table) -> Option<ParaProps> {
+    let id = t.props.style.as_ref()?;
+    let mut p = ParaProps::default();
+    for s in doc.styles.chain(id) {
+        p = s.ppr.inherit(&p);
+    }
+    (p != ParaProps::default()).then_some(p)
+}
+
+/// The paragraphs of a cell with the table style's paragraph properties `tp` under
+/// their own (§17.7.2 style hierarchy: document defaults, then table style, then
+/// paragraph style, then direct formatting). Values the paragraph style sets win over
+/// the table style; nested tables apply their own style.
+fn with_table_ppr(doc: &Document, blocks: &[Block], tp: &ParaProps) -> Vec<Block> {
+    blocks
+        .iter()
+        .map(|b| match b {
+            Block::Paragraph(p) => {
+                let style_id = p.props.style.clone().or_else(|| {
+                    doc.styles
+                        .default_of(bo_model::StyleKind::Paragraph)
+                        .map(|s| s.id.clone())
+                });
+                let style = style_id
+                    .as_deref()
+                    .map(|id| doc.styles.resolve_paragraph(id).0)
+                    .unwrap_or_default();
+                let mut props = p.props.inherit(&style.inherit(tp));
+                props.style.clone_from(&p.props.style);
+                props.num = p.props.num;
+                let mut q = p.clone();
+                q.props = props;
+                Block::Paragraph(q)
+            }
+            other => other.clone(),
+        })
+        .collect()
+}
+
 fn table_borders(doc: &Document, t: &Table) -> Borders {
     if let Some(b) = &t.props.borders {
         return b.clone();
@@ -718,6 +767,101 @@ fn grid_widths(t: &Table, geo: &TableGeometry, avail: f32) -> Vec<f32> {
     grid
 }
 
+/// AutoFit to contents (ECMA-376 Part 1, §17.4.53 tblLayout `autofit`, §17.4.72 tcW
+/// `auto`): columns whose cells give no preferred width are sized by their content as
+/// the reference word processor does — each takes its widest unwrapped line when all
+/// fit beside the other columns, else its longest word plus a share of the room left in
+/// proportion to how much more its lines want (cell margins included). Columns with a
+/// preferred width keep their grid width.
+fn autofit_columns(
+    ctx: &mut Ctx<'_>,
+    t: &Table,
+    geo: &TableGeometry,
+    grid: &mut [f32],
+    avail: f32,
+    body: bool,
+) -> Result<(), LayoutError> {
+    if t.props.fixed_layout
+        || matches!(t.props.width, Some(TableWidth::Pct(_)))
+        || matches!(t.props.width, Some(TableWidth::Dxa(w)) if w.0 > 0)
+    {
+        return Ok(());
+    }
+    let n = grid.len();
+    let (ml, mr) = t
+        .props
+        .cell_margin
+        .map_or((DEFAULT_CELL_MARGIN, DEFAULT_CELL_MARGIN), |(l, r)| {
+            (l.to_pt(), r.to_pt())
+        });
+    // A column is sized by content when every single-column cell in it has no width.
+    let mut auto = vec![None::<bool>; n];
+    for (ri, places) in geo.rows.iter().enumerate() {
+        for (k, pl) in places.iter().enumerate() {
+            if pl.span != 1 || pl.hidden || pl.start >= n {
+                continue;
+            }
+            let Some(cell) = t.rows.get(ri).and_then(|r| r.cells.get(k)) else {
+                continue;
+            };
+            let free = match cell.props.width {
+                None | Some(TableWidth::Auto) => true,
+                Some(TableWidth::Dxa(w)) => w.0 <= 0,
+                Some(TableWidth::Pct(p)) => p == 0,
+            };
+            let a = &mut auto[pl.start];
+            *a = Some(a.unwrap_or(true) && free);
+        }
+    }
+    if !auto.contains(&Some(true)) {
+        return Ok(());
+    }
+    let table_ppr = table_style_ppr(ctx.doc, t);
+    let mut min = vec![0.0f32; n];
+    let mut max = vec![0.0f32; n];
+    for (ri, places) in geo.rows.iter().enumerate() {
+        for (k, pl) in places.iter().enumerate() {
+            if pl.span != 1 || pl.hidden || pl.start >= n || auto[pl.start] != Some(true) {
+                continue;
+            }
+            let Some(cell) = t.rows.get(ri).and_then(|r| r.cells.get(k)) else {
+                continue;
+            };
+            let styled;
+            let blocks: &[Block] = match &table_ppr {
+                Some(tp) => {
+                    styled = with_table_ppr(ctx.doc, &cell.blocks, tp);
+                    &styled
+                }
+                None => &cell.blocks,
+            };
+            let st = measure_stack(ctx, blocks, 20_000.0, body)?;
+            let (lo, hi) = (longest_word(&st.bands), widest_line(&st.bands));
+            min[pl.start] = min[pl.start].max(lo + ml + mr);
+            max[pl.start] = max[pl.start].max(hi + ml + mr);
+        }
+    }
+    let fixed: f32 = (0..n)
+        .filter(|&c| auto[c] != Some(true))
+        .map(|c| grid[c])
+        .sum();
+    let room = (avail - fixed).max(0.0);
+    let cols: Vec<usize> = (0..n).filter(|&c| auto[c] == Some(true)).collect();
+    let sum_max: f32 = cols.iter().map(|&c| max[c]).sum();
+    let sum_min: f32 = cols.iter().map(|&c| min[c]).sum();
+    for &c in &cols {
+        grid[c] = if sum_max <= room {
+            max[c]
+        } else if sum_min >= room || sum_max - sum_min < 0.01 {
+            min[c]
+        } else {
+            min[c] + (max[c] - min[c]) * (room - sum_min) / (sum_max - sum_min)
+        }
+        .max(ml + mr + 1.0);
+    }
+    Ok(())
+}
+
 /// Right edge of the widest line in `bands` (points from the box's left edge).
 fn widest_line(bands: &[(f32, Band)]) -> f32 {
     bands
@@ -726,6 +870,62 @@ fn widest_line(bands: &[(f32, Band)]) -> f32 {
         .flat_map(|l| &l.fragments)
         .map(|f| f.x + f.width)
         .fold(0.0f32, f32::max)
+}
+
+/// Width of the widest word (run of glyphs between spaces) in `bands`: the narrowest a
+/// column can be without breaking a word.
+fn longest_word(bands: &[(f32, Band)]) -> f32 {
+    let mut best = 0.0f32;
+    for f in bands
+        .iter()
+        .flat_map(|(_, b)| &b.lines)
+        .flat_map(|l| &l.fragments)
+    {
+        let mut start: Option<f32> = None;
+        for g in f.glyphs.iter() {
+            let space = f
+                .text
+                .get(g.cluster as usize..)
+                .and_then(|t| t.chars().next())
+                .is_some_and(char::is_whitespace);
+            if space {
+                if let Some(s) = start.take() {
+                    best = best.max(g.x - s);
+                }
+            } else if start.is_none() {
+                start = Some(g.x);
+            }
+        }
+        if let Some(s) = start {
+            best = best.max(f.width - s);
+        }
+    }
+    best
+}
+
+/// Stack `blocks` at `width` without side effects on `ctx` (ids, list counters).
+fn measure_stack(
+    ctx: &mut Ctx<'_>,
+    blocks: &[Block],
+    width: f32,
+    body: bool,
+) -> Result<Stack, LayoutError> {
+    let saved = (
+        ctx.next_id,
+        ctx.lists.clone(),
+        ctx.other_lists.clone(),
+        ctx.endnote_order.len(),
+        ctx.note,
+        ctx.textbox,
+    );
+    let st = stack_blocks(ctx, blocks, width, body, None);
+    ctx.next_id = saved.0;
+    ctx.lists = saved.1;
+    ctx.other_lists = saved.2;
+    ctx.endnote_order.truncate(saved.3);
+    ctx.note = saved.4;
+    ctx.textbox = saved.5;
+    st
 }
 
 /// Stack `blocks` at `width` without side effects on `ctx` (ids, list counters):
@@ -917,7 +1117,8 @@ pub(crate) fn layout_table(
         RevisionView::Final => TableView::Final,
         RevisionView::Original => TableView::Original,
     });
-    let grid = grid_widths(t, &geo, avail);
+    let mut grid = grid_widths(t, &geo, avail);
+    autofit_columns(ctx, t, &geo, &mut grid, avail, body)?;
     let ncols = grid.len();
     let total: f32 = grid.iter().sum();
     let indent = t.props.indent.map_or(0.0, Twips::to_pt);
@@ -928,6 +1129,7 @@ pub(crate) fn layout_table(
         _ => indent,
     };
     let tb = table_borders(ctx.doc, t);
+    let table_ppr = table_style_ppr(ctx.doc, t);
     let (ml, mr) = t
         .props
         .cell_margin
@@ -981,14 +1183,22 @@ pub(crate) fn layout_table(
                 _ => 0,
             };
             let mut vlen = 0.0f32;
+            let styled;
+            let cell_blocks: &[Block] = match &table_ppr {
+                Some(tp) => {
+                    styled = with_table_ppr(ctx.doc, &cell.blocks, tp);
+                    &styled
+                }
+                None => &cell.blocks,
+            };
             let mut stack = if continued {
                 Stack::default()
             } else if rot != 0 {
                 vlen = match row.props.height {
                     Some((v, _)) if v.to_pt() > 1.0 => v.to_pt(),
-                    _ => natural_length(ctx, &cell.blocks, body)?,
+                    _ => natural_length(ctx, cell_blocks, body)?,
                 };
-                stack_blocks(ctx, &cell.blocks, vlen.max(1.0), body, None)?
+                stack_blocks(ctx, cell_blocks, vlen.max(1.0), body, None)?
             } else {
                 // Hidden cells are laid out too (at an ordinary width): their
                 // paragraphs keep their ids.
@@ -997,7 +1207,7 @@ pub(crate) fn layout_table(
                 } else {
                     w
                 };
-                stack_blocks(ctx, &cell.blocks, (lw - ml - mr).max(1.0), body, None)?
+                stack_blocks(ctx, cell_blocks, (lw - ml - mr).max(1.0), body, None)?
             };
             if pl.hidden {
                 stack = Stack::default();
@@ -1090,7 +1300,14 @@ pub(crate) fn layout_table(
             } else {
                 span_rows(ri, g)
             };
-            let needed = content_h;
+            // The row's content starts below its top border and the table's bottom
+            // border closes the last row: the reference word processor makes a single-line
+            // Table Grid row 0.5 pt (sz 4) taller than its line (measured black-box,
+            // docs/ui/REPORT.md Fidelity round 1; §17.4.38 tcBorders, §17.4.39 tblBorders).
+            let bw = |b: &Option<Border>| b.as_ref().map_or(0.0, |b| b.size as f32 / 8.0);
+            let mt = bw(&edges[0]);
+            let mb = if last_row { bw(&edges[2]) } else { 0.0 };
+            let needed = content_h + mt + mb;
             if rows_spanned > 1 {
                 tall.push((ri, rows_spanned, needed));
             } else if !continued {
@@ -1109,7 +1326,7 @@ pub(crate) fn layout_table(
                 w,
                 content,
                 content_h,
-                margins: [ml, mr, 0.0, 0.0],
+                margins: [ml, mr, mt, mb],
                 shading: if pl.hidden { None } else { cell.props.shading },
                 edges: if pl.hidden {
                     [None, None, None, None]

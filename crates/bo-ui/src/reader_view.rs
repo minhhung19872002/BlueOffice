@@ -427,7 +427,14 @@ impl ReaderView {
             Fit::None => self.zoom,
         };
         if z.is_finite() && z > 0.0 {
-            self.zoom = z.clamp(MIN_ZOOM, MAX_ZOOM);
+            let z = z.clamp(MIN_ZOOM, MAX_ZOOM);
+            // Round 14: a fitted zoom that changes (window resized, first layout) rebuilds the
+            // lists like `set_zoom`: NoZoom notes and hairlines depend on the zoom (a note
+            // sized at the first, smaller window's zoom was drawn 1.4 × too large).
+            if (z - self.zoom).abs() > self.zoom * 1e-3 {
+                self.cache_reset_lines();
+            }
+            self.zoom = z;
         }
     }
 
@@ -1097,6 +1104,28 @@ impl ReaderView {
         more
     }
 
+    /// Pages held as display lists (round 14 tests: a new fitted zoom rebuilds them).
+    pub fn cached_lists(&self) -> usize {
+        self.cache.len()
+    }
+
+    /// Every image key this view has in the store (pages, thumbnails, previews), so a closed
+    /// tab frees them (BlueReader round 14).
+    pub fn stored_keys(&self) -> Vec<usize> {
+        let mut v: Vec<usize> = self.drawn.keys().copied().collect();
+        if self.preview_drawn.is_some() {
+            v.push(PREVIEW_KEY);
+        }
+        v.extend(
+            self.previews_drawn
+                .iter()
+                .enumerate()
+                .filter(|(_, d)| d.is_some())
+                .map(|(k, _)| PREVIEW_KEY + 1 + k),
+        );
+        v
+    }
+
     /// Ask for the print preview's page images this frame: `(page, scale)` drawn under keys
     /// [`PREVIEW_KEY`] + 1 + their position.
     pub fn want_previews(&mut self, wanted: &[(usize, f32)]) {
@@ -1462,13 +1491,6 @@ impl ReaderView {
             let top = rect.map(|r| (r[1] - self.frame[3] / self.px_per_pt() / 3.0).max(0.0));
             self.go_to(h.page, top);
         }
-    }
-
-    /// Keys of the page images this view has in the store (BlueEditor round 12: a closed
-    /// tab gives them back).
-    #[must_use]
-    pub fn drawn_keys(&self) -> Vec<usize> {
-        self.drawn.keys().copied().collect()
     }
 
     /// Clear search hits.

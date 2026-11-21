@@ -28,6 +28,20 @@ struct Prev {
     after: f32,
 }
 
+/// Spacing between two paragraphs (ECMA-376 Part 1, §17.3.1.33 spacing `w:before` /
+/// `w:after`). The reference word processor keeps the larger of the previous paragraph's
+/// space after and the next one's space before rather than their sum (measured black-box
+/// with 12/6, 6/12 and 12/12 pt: 12 pt each time, docs/ui/REPORT.md Fidelity round 1).
+/// `y` already holds `added_after` (the previous paragraph's own space after); it is taken
+/// back, and the space still to add above the next paragraph is returned.
+pub(crate) fn collapse_spacing(y: &mut f32, added_after: f32, after: f32, before: f32) -> f32 {
+    *y -= added_after;
+    after.max(before)
+}
+
+/// (header height, footer height) of a section's default, first and even variants.
+pub(crate) type HfHeights = [(f32, f32); 3];
+
 /// Pagination state between two top-level blocks, without the pages themselves.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Snap {
@@ -122,8 +136,15 @@ pub(crate) struct Flow {
     prev: Option<Prev>,
     /// Page index at which each section started on a fresh page.
     pub section_start: Vec<Option<usize>>,
-    /// (header height, footer height) per section, used to push the body.
-    pub hf_heights: Vec<(f32, f32)>,
+    /// (header height, footer height) per section and variant, used to push the body.
+    pub hf_heights: Vec<HfHeights>,
+    /// §17.10.1 evenAndOddHeaders: even pages show the even header/footer.
+    pub even_odd: bool,
+    /// §17.10.6 titlePg of the current section.
+    title_page: bool,
+    /// A column break (§17.3.3.1 `w:br w:type="column"`) placed the current columns'
+    /// content: they keep their layout (no balancing).
+    col_break: bool,
     /// Body id of the first paragraph of the block being placed (lines carry relative ids).
     id_base: u32,
     /// Notes in the order their stacks were computed (`foot_cache` keys).
@@ -197,8 +218,7 @@ fn body_area(setup: &PageSetup, hf: (f32, f32)) -> (f32, f32) {
 }
 
 /// Column boxes (§17.6.4 cols): equal widths separated by `space`, or the widths
-/// and spaces of each §17.6.3 col (`w:equalWidth` false), scaled down to the text
-/// width when they add up to more.
+/// and spaces of each §17.6.3 col (`w:equalWidth` false), as given.
 pub(crate) fn columns(setup: &PageSetup, sec: &Section) -> Vec<(f32, f32)> {
     let left = setup.margin_left.to_pt();
     let width =
@@ -206,30 +226,15 @@ pub(crate) fn columns(setup: &PageSetup, sec: &Section) -> Vec<(f32, f32)> {
     let c = &sec.columns;
     if c.unequal() {
         let defs = &c.cols[..c.len()];
-        let n = defs.len();
-        let total: f32 = defs
-            .iter()
-            .enumerate()
-            .map(|(i, d)| {
-                d.width.to_pt().max(0.0)
-                    + if i + 1 < n {
-                        d.space.to_pt().max(0.0)
-                    } else {
-                        0.0
-                    }
-            })
-            .sum();
-        let k = if total > width + 0.5 {
-            width / total
-        } else {
-            1.0
-        };
+        // Widths wider than the text area are kept as given: the reference word
+        // processor lets the last column run into the right margin (measured black-box,
+        // gen-06: 2000 / 3000 / 3646 twips + 2 × 360 on a 9026-twip line).
         let mut x = left;
-        let mut out = Vec::with_capacity(n);
+        let mut out = Vec::with_capacity(defs.len());
         for d in defs {
-            let w = (d.width.to_pt() * k).max(18.0);
+            let w = d.width.to_pt().max(18.0);
             out.push((x, w));
-            x += w + d.space.to_pt().max(0.0) * k;
+            x += w + d.space.to_pt().max(0.0);
         }
         return out;
     }
@@ -535,7 +540,7 @@ enum Built {
 }
 
 impl Flow {
-    pub fn new(hf_heights: Vec<(f32, f32)>, sections: usize) -> Flow {
+    pub fn new(hf_heights: Vec<HfHeights>, sections: usize) -> Flow {
         Flow {
             pages: Vec::new(),
             setup: PageSetup::default(),
@@ -560,6 +565,9 @@ impl Flow {
             prev: None,
             section_start: vec![None; sections],
             hf_heights,
+            even_odd: false,
+            title_page: false,
+            col_break: false,
             id_base: 0,
             foot_order: Vec::new(),
             built: Vec::new(),
@@ -720,6 +728,7 @@ impl Flow {
         }
         self.col_has_content = false;
         self.page_has_content = false;
+        self.col_break = false;
         self.notes_on_page.clear();
         self.foot_h = 0.0;
         self.foot_slack = 0.0;
@@ -759,6 +768,159 @@ impl Flow {
         self.close_columns();
         self.place_page_notes();
         self.turn_page();
+    }
+
+    /// Balance the columns of a section ended by a continuous section break on this page
+    /// (ECMA-376 Part 1, §17.18.77 `continuous`): the reference word processor evens out
+    /// the columns' heights there instead of filling the first column (measured
+    /// black-box, docs/ui/REPORT.md Fidelity round 1). The section's lines on this page
+    /// are poured again, in order, into columns of the smallest height that holds them;
+    /// shading and borders move with their lines. Pages with tables or floating objects
+    /// in the columns keep their layout.
+    fn balance_columns(&mut self) {
+        let n = self.cols.len();
+        if n < 2 || self.vertical.is_some() || std::mem::take(&mut self.col_break) {
+            return;
+        }
+        let top = self.cols_top;
+        let cols = self.cols.clone();
+        let Some(page) = self.pages.last_mut() else {
+            return;
+        };
+        let col_of = |x: f32| cols.iter().rposition(|&(cx, _)| x >= cx - 1.0).unwrap_or(0);
+        // Lines of this section's columns: (line index, column).
+        let mut mine: Vec<(usize, usize)> = Vec::new();
+        for (i, l) in page.lines.iter().enumerate() {
+            if l.top < top - EPS || l.rotation.is_some() {
+                continue;
+            }
+            if l.source == LineSource::RowEnd {
+                return;
+            }
+            let x = l
+                .fragments
+                .iter()
+                .map(|f| f.x)
+                .fold(f32::MAX, f32::min)
+                .min(l.carets.first().map_or(f32::MAX, |c| c.1));
+            let c = if x < f32::MAX {
+                col_of(x)
+            } else {
+                mine.last().map_or(0, |m| m.1)
+            };
+            mine.push((i, c));
+        }
+        let in_region = |y: f32| y >= top - EPS;
+        if page.items.iter().any(|it| {
+            matches!(it, PageItem::Image { y, .. } | PageItem::Shape { y, .. } if in_region(*y))
+        }) {
+            return;
+        }
+        if mine.len() < 2 {
+            return;
+        }
+        mine.sort_by(|a, b| {
+            a.1.cmp(&b.1)
+                .then(page.lines[a.0].top.total_cmp(&page.lines[b.0].top))
+        });
+        // Units: (line, space above it within its column, height).
+        let mut units: Vec<(usize, usize, f32, f32)> = Vec::new();
+        let mut prev: Option<(usize, f32)> = None;
+        for &(i, c) in &mine {
+            let l = &page.lines[i];
+            let gap = match prev {
+                Some((pc, bottom)) if pc == c => (l.top - bottom).max(0.0),
+                _ => 0.0,
+            };
+            units.push((i, c, gap, l.height));
+            prev = Some((c, l.top + l.height));
+        }
+        let lead = mine
+            .first()
+            .map_or(0.0, |m| (page.lines[m.0].top - top).max(0.0));
+        let fill = |limit: f32| -> Option<Vec<(usize, f32)>> {
+            let mut out = Vec::with_capacity(units.len());
+            let (mut col, mut y) = (0usize, lead);
+            for (k, &(_, _, gap, h)) in units.iter().enumerate() {
+                let start = if k == 0 {
+                    lead
+                } else if y <= EPS {
+                    0.0
+                } else {
+                    y + gap
+                };
+                if start + h > limit + EPS && y > EPS {
+                    col += 1;
+                    if col >= n {
+                        return None;
+                    }
+                    y = 0.0;
+                    out.push((col, 0.0));
+                    y += h;
+                    continue;
+                }
+                out.push((col, start));
+                y = start + h;
+            }
+            Some(out)
+        };
+        let total: f32 = lead + units.iter().map(|u| u.2 + u.3).sum::<f32>();
+        let tallest = units.iter().map(|u| u.3).fold(0.0f32, f32::max);
+        let mut limit = (total / n as f32).max(tallest);
+        let high = self.cols_low - top;
+        let plan = loop {
+            if limit > high + EPS {
+                return;
+            }
+            if let Some(p) = fill(limit) {
+                break p;
+            }
+            limit += 0.5;
+        };
+        // Move the lines, and the shading / border items beside them.
+        let mut moves: Vec<(f32, f32, f32, f32, usize, f32, f32)> = Vec::new();
+        for (&(i, c, _, _), &(nc, ny)) in units.iter().zip(&plan) {
+            let l = &mut page.lines[i];
+            let dx = cols[nc].0 - cols[c].0;
+            let dy = top + ny - l.top;
+            moves.push((
+                l.top,
+                l.top + l.height,
+                cols[c].0,
+                cols[c].0 + cols[c].1,
+                c,
+                dx,
+                dy,
+            ));
+            if dx.abs() > EPS || dy.abs() > EPS {
+                l.translate(dx, dy);
+            }
+        }
+        for it in &mut page.items {
+            let (x, y) = match it {
+                PageItem::Rect { x, y, .. } => (*x, *y),
+                PageItem::Rule { x1, y1, .. } => (*x1, *y1),
+                _ => continue,
+            };
+            if !in_region(y) {
+                continue;
+            }
+            if let Some(m) = moves
+                .iter()
+                .find(|m| y >= m.0 - EPS && y < m.1 - EPS && x >= m.2 - 1.0 && x <= m.3 + 1.0)
+            {
+                it.translate(m.5, m.6);
+            }
+        }
+        let low = plan
+            .iter()
+            .zip(&units)
+            .map(|(&(_, ny), u)| top + ny + u.3)
+            .fold(top, f32::max);
+        self.cols_low = low;
+        // The last paragraph's space after stays below it (taken back when the next
+        // paragraph collapses its spacing).
+        self.y = low + self.prev.as_ref().map_or(0.0, |p| p.after);
     }
 
     /// Separator lines between the current columns (ECMA-376 Part 1, §17.6.4
@@ -898,6 +1060,7 @@ impl Flow {
         self.finish_page();
         self.number += 1;
         self.push_page();
+        self.page_area();
     }
 
     fn next_column(&mut self) {
@@ -978,7 +1141,7 @@ impl Flow {
                 self.foot_h += NOTE_SEPARATOR;
             }
             self.foot_h += h;
-            self.foot_slack = h - self.remaining(*key, 0).1;
+            self.foot_slack = self.later_slack(h, self.remaining(*key, 0).1);
             self.notes_on_page.push(*key);
         }
         Ok(())
@@ -1135,7 +1298,10 @@ impl Flow {
         }
         match band.brk {
             Brk::Page => self.new_page(),
-            Brk::Column => self.next_column(),
+            Brk::Column => {
+                self.col_break = true;
+                self.next_column();
+            }
             Brk::None => {}
         }
         Ok(())
@@ -1149,6 +1315,9 @@ impl Flow {
         let mut seen: Vec<NoteKey> = self.notes_on_page.clone();
         seen.extend(self.carry.iter().map(|c| c.0));
         for (i, l) in lines.iter().enumerate() {
+            // The line holding a note's reference may leave the note's rest to the next
+            // page; the lines after it only when the note could not fit on one page.
+            let mut here = slack;
             for key in &l.notes {
                 if !key.0 && !seen.contains(key) {
                     if foot <= 0.0 {
@@ -1156,12 +1325,14 @@ impl Flow {
                     }
                     let h = self.note_stack(ctx, *key)?;
                     foot += h;
-                    slack = h - self.remaining(*key, 0).1;
+                    let first = self.remaining(*key, 0).1;
+                    here = h - first;
+                    slack = self.later_slack(h, first);
                     seen.push(*key);
                 }
             }
-            let ly = self.skip_excl(y, l.h);
-            if ly + l.h > self.bottom - foot + slack + EPS {
+            let ly = self.skip_excl(y, l.text_h);
+            if ly + l.h > self.bottom - foot + here + EPS {
                 return Ok(i);
             }
             y = ly + l.h;
@@ -1170,6 +1341,20 @@ impl Flow {
             }
         }
         Ok(lines.len())
+    }
+
+    /// Part of a footnote `h` tall (first band `first`) that body lines placed after its
+    /// reference may push to the next page. The reference word processor keeps a note
+    /// that fits on a page whole with its reference and moves the following body lines
+    /// to the next page instead (measured black-box, notes-05: 24-paragraph note); only
+    /// a note too tall for that continues on the next page (§17.11.1
+    /// continuationSeparator).
+    fn later_slack(&self, h: f32, first: f32) -> f32 {
+        if h + NOTE_SEPARATOR + 2.0 * first < self.full_height() {
+            0.0
+        } else {
+            h - first
+        }
     }
 
     fn full_height(&self) -> f32 {
@@ -1190,16 +1375,29 @@ impl Flow {
         }
         let mut before = pb.space_before;
         if let Some(p) = &self.prev {
+            let mut after = p.after;
             if p.style == pb.style {
+                // §17.3.1.9 contextualSpacing: no spacing between paragraphs of the same style.
                 if pb.contextual {
                     before = 0.0;
                 }
                 if p.contextual {
-                    self.y -= p.after;
+                    after = 0.0;
                 }
             }
+            if self.col_has_content {
+                before = collapse_spacing(&mut self.y, p.after, after, before);
+            }
         }
-        if self.col_has_content {
+        // Space before is dropped at the top of a page or column, except at the start of a
+        // section's first page (the document start, a new-page section break): measured
+        // black-box in the reference word processor (docs/ui/REPORT.md, Fidelity round 1) —
+        // natural, hard and §17.3.1.23 pageBreakBefore page breaks all drop it.
+        let section_top = !self.page_has_content
+            && self.col == 0
+            && self.section_start.get(self.section).copied().flatten()
+                == self.pages.len().checked_sub(1);
+        if self.col_has_content || section_top {
             self.y += before;
         }
         let total = pb.height();
@@ -1323,7 +1521,7 @@ impl Flow {
             let col_x = self.col_x();
             let mut y0 = None;
             for line in &pb.lines[i..i + take] {
-                let y = self.skip_excl(self.y, line.h);
+                let y = self.skip_excl(self.y, line.text_h);
                 y0.get_or_insert(y);
                 self.put(ctx, line, y)?;
                 if pb.numbered {
@@ -1340,7 +1538,10 @@ impl Flow {
             let last = &pb.lines[i - 1];
             match last.brk {
                 Brk::Page => self.new_page(),
-                Brk::Column => self.next_column(),
+                Brk::Column => {
+                    self.col_break = true;
+                    self.next_column();
+                }
                 Brk::None if i < n => self.next_column(),
                 Brk::None => {}
             }
@@ -1576,11 +1777,12 @@ impl Flow {
         if !first && !continuous {
             self.finish_page();
         } else if continuous {
+            self.balance_columns();
             // The new columns start below the lowest text of the previous ones.
             self.close_columns();
             self.y = self.cols_top;
         }
-        let hf = self.hf_heights.get(si).copied().unwrap_or((0.0, 0.0));
+        let hf = self.hf_heights.get(si).map_or((0.0, 0.0), |h| h[0]);
         let (top, bottom) = body_area(&sec.page, hf);
         if rot == 0 {
             self.vertical = None;
@@ -1632,8 +1834,37 @@ impl Flow {
                 self.number += 1;
             }
         }
+        self.title_page = sec.title_page;
         self.push_page();
         self.section_start[si] = Some(self.pages.len() - 1);
+        self.page_area();
+    }
+
+    /// Body area of the fresh current page from the header and footer it shows (default,
+    /// first or even variant, §17.10.5 headerReference): a taller first-page header
+    /// pushes only the first page's body down, as in the reference word processor.
+    fn page_area(&mut self) {
+        if self.vertical.is_some() || self.page_has_content {
+            return;
+        }
+        let Some(hf) = self.hf_heights.get(self.section) else {
+            return;
+        };
+        let pi = self.pages.len().checked_sub(1);
+        let v = if self.title_page && self.section_start.get(self.section).copied().flatten() == pi
+        {
+            1
+        } else if self.even_odd && self.number.is_multiple_of(2) {
+            2
+        } else {
+            0
+        };
+        let (top, bottom) = body_area(&self.setup, hf[v]);
+        self.top = top;
+        self.bottom = bottom;
+        self.y = top;
+        self.cols_top = top;
+        self.cols_low = top;
     }
 
     /// Paginate all sections, or continue from block `from = (section, block)` after

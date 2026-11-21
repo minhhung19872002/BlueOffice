@@ -209,6 +209,24 @@ fn windows_metrics_and_typo_flag() {
     assert!(fm.info(cam).use_typo_metrics);
 }
 
+/// Line extents of the reference word processor (GDI `TEXTMETRIC`): Windows ascent and
+/// descent, plus the part of `hhea.lineGap` they do not cover.
+#[test]
+fn line_metrics_follow_the_windows_text_metrics() {
+    let mut fm = manager();
+    // Tinos (Times New Roman): win 1825 / 443 = hhea 1825 / −443, lineGap 87 kept.
+    let t = fm.resolve("Times New Roman", false, false).unwrap();
+    assert_eq!(fm.info(t).line_metrics(), (1825.0, 443.0, 87.0));
+    // Carlito (Calibri): win 1950 / 550, no external leading.
+    let c = fm.resolve("Calibri", false, false).unwrap();
+    assert_eq!(fm.info(c).line_metrics(), (1950.0, 550.0, 0.0));
+    // Caladea stands in for Cambria: Cambria's single lines (1.1724 em).
+    let cam = fm.resolve("Cambria", false, false).unwrap();
+    let (a, d, g) = fm.info(cam).line_metrics();
+    let em = f32::from(fm.info(cam).units_per_em);
+    assert!(((a + d + g) / em - 1.1724).abs() < 1e-3);
+}
+
 /// Hostile files (one text box of megabytes without a break opportunity): the run is
 /// cut and measured in many different pieces, each shaped once. The shaping cache must
 /// neither keep the long texts nor grow past its byte budget.

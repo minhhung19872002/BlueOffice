@@ -2,7 +2,7 @@
 source: crates/bo-engine/tests/doc_charts.rs
 expression: summary(&page.commands)
 ---
-text 13.0pt 85.1,323.4 "Nguồn: số liệu minh hoạ."
+text 13.0pt 85.1,324.0 "Nguồn: số liệu minh hoạ."
 clip 85.1,56.7 425.2x255.1
   transform [1.000 0.000 0.000 1.000 85.1 56.7]
     transform [1.000 0.000 0.000 1.000 0.0 0.0]

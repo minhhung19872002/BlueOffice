@@ -12,6 +12,7 @@
 //! everything that was not touched.
 
 pub mod a11y;
+pub mod a11y_check;
 pub mod action;
 pub mod album;
 pub mod anim_build;

@@ -10,7 +10,8 @@ pub struct UndoLabel {
     /// Variant name of the command that made the step (`InsertText`, `FormatText`, …), or
     /// `AutoCorrect` for a correction made as you type.
     pub kind: String,
-    /// The text typed in the step (`InsertText`), else empty.
+    /// The text typed in the step (`InsertText`), the formatting's variant name
+    /// (`FormatText`: `Bold`, `Size`, …), else empty.
     pub text: String,
 }
 
@@ -27,9 +28,9 @@ pub(crate) struct Before {
     version: u64,
 }
 
-/// The command's variant name without formatting its fields (the writer stops at the first
+/// The value's variant name without formatting its fields (the writer stops at the first
 /// character that is not part of an identifier).
-fn variant_name(cmd: &Command) -> String {
+fn variant_name(cmd: &dyn std::fmt::Debug) -> String {
     struct Ident(String);
     impl std::fmt::Write for Ident {
         fn write_str(&mut self, s: &str) -> std::fmt::Result {
@@ -166,6 +167,8 @@ impl Engine {
     pub(crate) fn undo_label_of(cmd: &Command) -> (String, Option<String>) {
         match cmd {
             Command::InsertText { text } => ("InsertText".into(), Some(text.clone())),
+            // The reference names a step by the formatting ("Bold").
+            Command::FormatText { format } => ("FormatText".into(), Some(variant_name(format))),
             other => (variant_name(other), None),
         }
     }
@@ -214,8 +217,10 @@ mod tests {
             format: bo_edit::CharFormat::Bold,
         })
         .expect("bold");
-        let kinds: Vec<String> = e.undo_list().into_iter().map(|l| l.kind).collect();
+        let list = e.undo_list();
+        let kinds: Vec<&str> = list.iter().map(|l| l.kind.as_str()).collect();
         assert_eq!(kinds, ["FormatText", "InsertText"]);
+        assert_eq!(list[0].text, "Bold");
         e.command(Command::Undo).expect("undo");
         assert_eq!(e.undo_list().len(), 1);
         e.command(Command::Redo).expect("redo");

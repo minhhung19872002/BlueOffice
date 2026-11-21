@@ -14773,7 +14773,12 @@
       "case": "Change Case",
       "move": "Move Paragraphs",
       "edit": "Edit",
-      "list": "Undo list"
+      "list": "Undo list",
+      "typingPlain": "Typing",
+      "bold": "Bold",
+      "italic": "Italic",
+      "underline": "Underline",
+      "cancel": "Cancel"
     }
   }
 }

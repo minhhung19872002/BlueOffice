@@ -14773,7 +14773,12 @@
       "case": "Đổi chữ hoa/thường",
       "move": "Di chuyển đoạn",
       "edit": "Chỉnh sửa",
-      "list": "Danh sách hoàn tác"
+      "list": "Danh sách hoàn tác",
+      "typingPlain": "Gõ",
+      "bold": "Đậm",
+      "italic": "Nghiêng",
+      "underline": "Gạch chân",
+      "cancel": "Hủy"
     }
   }
 }

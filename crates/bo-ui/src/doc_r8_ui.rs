@@ -140,7 +140,12 @@ impl DocWindow {
             .take(UNDO_ROWS)
             .map(|l| {
                 let key = match l.kind.as_str() {
-                    "InsertText" | "SplitParagraph" | "InsertPageBreak" => {
+                    // Enter and breaks: "Typing" alone, as on the reference.
+                    "SplitParagraph" | "InsertPageBreak" => "docR8.undo.typingPlain",
+                    "FormatText" if l.text == "Bold" => "docR8.undo.bold",
+                    "FormatText" if l.text == "Italic" => "docR8.undo.italic",
+                    "FormatText" if l.text == "Underline" => "docR8.undo.underline",
+                    "InsertText" => {
                         let text: String = l
                             .text
                             .chars()
@@ -179,7 +184,8 @@ impl DocWindow {
         if labels.is_empty() {
             return false;
         }
-        let items = labels
+        let n = labels.len();
+        let mut items: Vec<MenuItem> = labels
             .into_iter()
             .enumerate()
             .map(|(i, label)| MenuItem {
@@ -189,7 +195,16 @@ impl DocWindow {
                 dim: false,
             })
             .collect();
-        self.menu = Some(Menu::open(items, anchor, self.size, self.scale));
+        // The reference ends the list with Cancel under a line.
+        items.push(MenuItem {
+            label: self.strings.get("docR8.undo.cancel").to_owned(),
+            choice: Choice::Command(format!("{UNDO_STEPS}0")),
+            checked: false,
+            dim: false,
+        });
+        self.menu = Some(
+            Menu::open(items, anchor, self.size, self.scale).with_decor(vec![None; n + 1], vec![n]),
+        );
         true
     }
 }

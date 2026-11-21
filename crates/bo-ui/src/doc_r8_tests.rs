@@ -530,7 +530,7 @@ fn undo_list_names_the_steps_and_undoes_several() {
         },
     );
     let labels = w.r8_undo_labels();
-    assert_eq!(labels[0], "Font Formatting");
+    assert_eq!(labels[0], "Bold");
     // "abc " was capitalised at the space (its own step), then "def" typed.
     assert_eq!(labels[1], "Typing \"def\"", "{labels:?}");
     assert_eq!(labels[2], "AutoCorrect", "{labels:?}");

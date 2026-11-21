@@ -197,17 +197,11 @@ impl ReaderWindow {
         self.doc_rect[2] += margin;
     }
 
-    /// Round 16 enable rules: the Home tab's Clipboard menu is dim until text or a comment is
-    /// selected, as on the reference.
+    /// Round 16 enable rules: the Home tab's Clipboard menu dims while a commenting tool is
+    /// picked (measured on the reference: on with Hand and nothing selected, dim with Note).
     pub(crate) fn sixteen_enabled(&self, id: &str) -> Option<bool> {
         match id {
-            "menu.clipboard" => Some(
-                self.extra.selected.is_some()
-                    || self
-                        .view()
-                        .and_then(crate::reader_view::ReaderView::selection)
-                        .is_some(),
-            ),
+            "menu.clipboard" => Some(matches!(self.tool, Tool::Hand | Tool::Select)),
             _ => None,
         }
     }
@@ -316,7 +310,7 @@ impl ReaderWindow {
         }
         let slider = [
             x0 + px(130.4),
-            y0 + px(396.8) - px(8.0),
+            y0 + px(395.2) - px(8.0),
             px(124.8),
             px(16.0),
         ];
@@ -473,8 +467,7 @@ impl ReaderWindow {
                 let i = map.get(k).copied().unwrap_or(usize::MAX);
                 let b = rects
                     .get(i)
-                    .and_then(|r| t.view.doc_rect_to_window(page, *r))
-                    .map(|r| [r[0], r[1], r[2] - r[0], r[3] - r[1]]);
+                    .and_then(|r| t.view.doc_rect_to_window(page, *r));
                 out.boxes.push(b);
                 out.chars.push((i != usize::MAX).then_some((page, i)));
             }
@@ -718,8 +711,8 @@ impl ReaderWindow {
             );
         }
         // Opacity.
-        let oy = y0 + px(396.8);
-        let ty = (oy - lline / 2.0).round();
+        let oy = y0 + px(395.2);
+        let ty = (oy - lline / 2.0).round() - px(1.6);
         p.text(
             &self.t("pdfReader16.opacity"),
             x0 + px(37.6),
@@ -752,13 +745,13 @@ impl ReaderWindow {
         // Arrange: nothing selected, so its tools are dim.
         section(p, "pdfReader16.arrange", 436.8);
         let rows: [(&str, f32, &[f32]); 3] = [
-            ("pdfReader16.pageCenter", 460.8, &[48.0, 118.4, 190.4]),
+            ("pdfReader16.pageCenter", 459.2, &[48.0, 118.4, 190.4]),
             (
                 "pdfReader16.alignment",
-                534.4,
+                533.6,
                 &[48.0, 94.4, 144.0, 193.6, 244.0, 294.4],
             ),
-            ("pdfReader16.distribute", 600.0, &[48.0, 116.8]),
+            ("pdfReader16.distribute", 599.2, &[48.0, 116.8]),
         ];
         for (n, (key, ty, xs)) in rows.iter().enumerate() {
             p.text(
@@ -768,7 +761,7 @@ impl ReaderWindow {
                 lst,
                 LABEL,
             );
-            let iy = y0 + px(*ty + [35.2, 26.4, 28.0][n.min(2)]);
+            let iy = y0 + px(*ty + [36.8, 27.2, 28.8][n.min(2)]);
             for (j, ix) in xs.iter().enumerate() {
                 arrange_glyph(p, n, j, x0 + px(*ix), iy, px(16.0), one);
             }

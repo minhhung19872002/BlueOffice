@@ -946,3 +946,48 @@ chữ chọn (0, 120, 212); gõ số thay toàn bộ, Enter đi tới trang, Esc
 Còn lại: Shift+Space (đến dưới dạng văn bản, không biết Shift; hiện cuộn xuống), Ctrl+Shift+N; chuột (nhấp đúp / ba
 lần, Shift+nhấp, nút giữa, menu chuột phải) — nhấp gửi bằng thông điệp tới `FoxitDocWnd` không chọn chữ ở công cụ Hand,
 cần cách đo khác; nhóm isolated có blend; UIA sâu (focus, mẫu Text).
+
+## Vòng 16 (2026-11-22)
+
+Đo trên bản đối chiếu bằng thông điệp gửi vào bản sao thử (không thao tác thật). **Chuột nay đo được**: nhấp gửi vào
+`FoxitDocWnd` có tác dụng khi trạng thái nút được đặt vào bảng phím của luồng (`AttachThreadInput` + `SetKeyboardState`
+với `VK_LBUTTON` / `VK_MBUTTON`) và có chuỗi `WM_NCHITTEST` → `WM_SETCURSOR` → `WM_MOUSEMOVE` trước khi bấm
+(`scratchpad/r16/mouse2.ps1`). Mô-đun: `reader_r16_win.rs` (+ `reader_r16_tests.rs`), `bo-pdfread/src/note16.rs`, host
+`reader_autoscroll.rs`, `reader_uia_text.rs`; thêm chung chỉ cộng thêm (`win32.rs` Shift+Space, `PdfWindow` mặc định,
+`AccessRole::Edit`, `page.rs` nhóm isolated).
+
+| Hạng mục | Bản đối chiếu | Trước | Nay |
+| --- | --- | --- | --- |
+| Shift+Space | lên một bước Page Up | xuống (Shift mất khi Space đến bằng `WM_CHAR`) | lên (host báo Shift+Space ở `WM_KEYDOWN`, chữ cách theo sau cuộn lên) |
+| Ctrl+Shift+N | công cụ Note + ngăn Format bên phải (476 px ở 125 %), fit width 89,31 % | không có | = (89,41 %) |
+| Nhấp đúp / ba lần | từ / cả dòng | từ / từ | từ / dòng |
+| Shift+nhấp sau một từ | chưa đo chắc (ảnh chụp lệch chỗ cuộn) | mở rộng vùng chọn | giữ (quy ước mở rộng của hướng dẫn công khai) |
+| Nút giữa | cuộn tự động: dấu neo tròn ~27 px, đứng yên trong 28 px, rồi ~16,5 px/giây cho mỗi px xa hơn (30 px: 2 px/s; 100 px: ~1 200 px/s; 200 px: ~2 800 px/s); nhấp bất kỳ kết thúc | không có | = (dấu neo của ta, màu nhấn; Esc cũng kết thúc) |
+| Home › Clipboard | sáng với Hand (kể cả khi chưa chọn gì), mờ khi đang dùng công cụ Note | luôn sáng | mờ khi công cụ chú thích đang chọn |
+| UIA | không có mẫu Text nào (`IsTextPatternAvailable` = 0 phần tử), focus là pane `FoxitDocWnd` | Document không có Text, không có focus | Document có mẫu Text, focus + sự kiện |
+
+**Ngăn Format của Note** (`reader-101`, `reader-104`): hàng thẻ 45 px (240, 241, 245), thẻ "Format" trắng; dải thu gọn
+17 px (230, 233, 240) có ▸; nền (251, 251, 253); mục Preview (ô 307 × 92 px, viền 199/204/217, vòng 219/221/228, nền 238,
+biểu tượng ghi chú theo màu / độ mờ đang chọn), Note Style (15 biểu tượng 6 mỗi hàng, cách 62 × 46 px: Comment, Cross,
+Help, Insert, Check, RightArrow, NewParagraph, Star, Circle, Key, RightPointer, UpArrow, Note, Paragraph, UpLeftArrow —
+hình của ta), ô màu hiện tại (biểu tượng ghi chú 23 px), vòng màu, 10 ô màu 24 px cách 60 px (255,237,0 · 141,240,253 ·
+165,251,112 · 236,94,193 · 255,0,0 · 51,158,0 · 45,99,245 · 0,0,0 · 136,136,136 · 255,255,254), Opacity 0–100 (thanh
+trượt), Arrange (Page Center / Alignment / Distribute mờ vì chưa chọn chú thích). Thanh cuộn tài liệu sát ngăn (không lề
+8 px). Ghi chú mới lấy biểu tượng (`/Name`), màu (`/C`) và độ mờ (`/CA`, appearance có ExtGState); ghi chú sẵn có với các
+tên đó (kể cả CrossHairs) được vẽ đúng hình khi không có appearance.
+
+**Nhóm isolated có blend** (`reader-103`, ISO 32000-1 §11.4.5): Direct2D vẽ nội dung nhóm vào bitmap trong suốt riêng (cỡ
+trang, theo dải) trước, các đối tượng blend bên trong đọc nền là chính bitmap đó, rồi ghép Normal lên trang. Tệp thử 6 chế
+độ × isolated / không: lệch trung bình 1,67, 0,54 % điểm ảnh lệch > 48 (cạnh chữ). Test `isolated_blend.rs` so với ảnh
+tính theo công thức của đặc tả (2 tỉ lệ, vẽ theo dải trùng vẽ cả trang).
+
+**UIA** (`reader_uia.rs`, `reader_uia_text.rs`): ô tìm thanh tiêu đề, ô Find của hộp Search, ô trang khi sửa là phần tử
+Edit; `HasKeyboardFocus`, `GetFocus` của gốc và sự kiện đổi focus; Document có mẫu Text: chữ các trang đang hiện, đơn vị
+ký tự / từ / dòng / trang / tài liệu, `GetBoundingRectangles` (gộp theo dòng, toạ độ màn hình), `GetSelection` theo vùng
+chọn, `FindText`, `Select` (chọn trên trang), sự kiện đổi vùng chọn. Kiểm bằng UIA client .NET (`uiarect.ps1`): đọc
+"Chapter 1|alpha beta…", từ "Cha" 82 × 45 px, tìm "kappa" → hộp 67 × 24, `Select` → vùng chọn của trang.
+
+Ảnh: `reader-101`…`reader-105`. Test: `reader_r16_tests.rs` (5), `note16` (1), `isolated_blend.rs` (2).
+
+Còn lại: biểu tượng Note Style của bản đối chiếu có thêm chữ "NP"; Shift+nhấp và kéo chọn với Hand trên bản đối chiếu chưa
+đo chắc (kéo gửi bằng thông điệp làm cuộn trang); Arrange khi có chú thích được chọn; UIA cho menu / hộp thoại tự vẽ.

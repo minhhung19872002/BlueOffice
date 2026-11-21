@@ -68,8 +68,10 @@ fn shift_space_pages_up_and_space_down() {
 fn ctrl_shift_n_picks_the_note_tool_with_its_format_pane() {
     let mut w = window();
     let width = w.view().expect("view").frame()[2];
+    assert!(w.enabled("menu.clipboard"), "on with Hand");
     key(&mut w, Key::Letter('n'), true, true);
     assert_eq!(w.tool, Tool::Note);
+    assert!(!w.enabled("menu.clipboard"), "dim with Note");
     let pane = w.right_pane_rect();
     // 476 px at 125 %; the document narrows by as much.
     assert!((pane[2] - 476.0).abs() < 1.0, "{pane:?}");
@@ -184,6 +186,10 @@ fn page_text_and_focus_for_assistive_technology() {
     let doc = w.doc_rect;
     let b = t.boxes.iter().flatten().next().expect("box");
     assert!(b[0] >= doc[0] && b[1] >= doc[1], "{b:?} {doc:?}");
+    assert!(
+        b[2] > 0.0 && b[3] > 0.0 && b[2] < 40.0,
+        "a character's width and height: {b:?}"
+    );
     // A selection shows as offsets of the same text.
     w.tabs[0]
         .view

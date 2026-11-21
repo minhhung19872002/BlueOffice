@@ -219,14 +219,11 @@ fn slide_size_asks_maximize_or_ensure_fit() {
 fn format_background_gradient_and_pattern() {
     let mut w = window();
     w.bg_pane.shown = true;
-    w.bg_pane.kind = 1;
     w.handle(Input::Tick, &Fixed);
     w.relayout(&Fixed);
-    let h = crate::slide_bgpane::BgHit::Gradient {
-        colors: vec!["FFFFFF".into(), "4472C4".into()],
-        angle: 0,
-    };
-    assert!(w.run_bg_fill(&h, false));
+    w.bg_pane.kind = 1;
+    w.bg_pane.grad.angle = 0.0;
+    assert!(w.run_bg_current(false));
     let slide = w.view.current();
     let p = w.view.engine().presentation().expect("deck");
     assert!(matches!(

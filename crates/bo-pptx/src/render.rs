@@ -807,15 +807,25 @@ fn draw_image(
         Some(resolve(c, &colors).to_hex())
     });
     let image = fx.without_alpha().derived_id(&part);
-    out.push(Command::Image {
-        x: x as f32,
-        y: y as f32,
-        w: w as f32,
-        h: h as f32,
-        image,
-        crop,
-        rotation: 0.0,
-    });
+    let px = images.get(&part).and_then(|d| image_pixels(d));
+    if let (Some(tile), Some((iw, ih))) = (b.tile.as_ref(), px) {
+        tile_image(tile, (iw, ih), (x, y, w, h), &image, out);
+    } else {
+        // §20.1.8.30 fillRect: the stretched picture inset by fractions of the box.
+        let [l, t, r, bb] = b
+            .fill_rect
+            .as_deref()
+            .map_or([0.0; 4], |r| r.map(|v| f64::from(v) / 100_000.0));
+        out.push(Command::Image {
+            x: (x + w * l) as f32,
+            y: (y + h * t) as f32,
+            w: (w * (1.0 - l - r)).max(0.0) as f32,
+            h: (h * (1.0 - t - bb)).max(0.0) as f32,
+            image,
+            crop,
+            rotation: 0.0,
+        });
+    }
     if push {
         out.push(Command::PopTransform);
     }
@@ -824,6 +834,91 @@ fn draw_image(
     }
 }
 
+/// Pixel size of a PNG or JPEG picture.
+fn image_pixels(data: &[u8]) -> Option<(f64, f64)> {
+    if data.starts_with(b"\x89PNG") && data.len() >= 24 {
+        let be = |i: usize| u32::from_be_bytes([data[i], data[i + 1], data[i + 2], data[i + 3]]);
+        return Some((f64::from(be(16)), f64::from(be(20))));
+    }
+    bo_render::image::jpeg_info(data).map(|(w, h, _)| (f64::from(w), f64::from(h)))
+}
+
+/// §20.1.8.58 tile: the picture at its own size (96 dpi) scaled by `sx` / `sy`, placed by
+/// `algn` plus the `tx` / `ty` offsets and repeated over the box, mirrored every other
+/// tile by `flip`. The caller clips to the filled shape.
+fn tile_image(
+    tile: &bo_model::slide::XmlElement,
+    (iw, ih): (f64, f64),
+    (x, y, w, h): (f64, f64, f64, f64),
+    image: &str,
+    out: &mut Vec<Command>,
+) {
+    let num = |k: &str, d: f64| {
+        tile.attr(k)
+            .and_then(|v| v.parse::<f64>().ok())
+            .unwrap_or(d)
+    };
+    let tw = iw * 0.75 * num("sx", 100_000.0) / 100_000.0;
+    let th = ih * 0.75 * num("sy", 100_000.0) / 100_000.0;
+    if tw < 0.5 || th < 0.5 || !tw.is_finite() || !th.is_finite() {
+        return;
+    }
+    let algn = tile.attr("algn").unwrap_or("tl");
+    let fx = match algn {
+        "t" | "ctr" | "b" => (w - tw) / 2.0,
+        "tr" | "r" | "br" => w - tw,
+        _ => 0.0,
+    };
+    let fy = match algn {
+        "l" | "ctr" | "r" => (h - th) / 2.0,
+        "bl" | "b" | "br" => h - th,
+        _ => 0.0,
+    };
+    let ox = x + fx + num("tx", 0.0) / 12_700.0;
+    let oy = y + fy + num("ty", 0.0) / 12_700.0;
+    let flip = tile.attr("flip").unwrap_or("none");
+    let (c0, c1) = (
+        ((x - ox) / tw).floor() as i64,
+        ((x + w - ox) / tw).ceil() as i64,
+    );
+    let (r0, r1) = (
+        ((y - oy) / th).floor() as i64,
+        ((y + h - oy) / th).ceil() as i64,
+    );
+    // Very small tiles: at most 64 k pictures.
+    if (c1 - c0).saturating_mul(r1 - r0) > 65_536 {
+        return;
+    }
+    for r in r0..r1 {
+        for c in c0..c1 {
+            let tx = ox + c as f64 * tw;
+            let ty = oy + r as f64 * th;
+            let mx = flip.contains('x') && c.rem_euclid(2) == 1;
+            let my = flip.contains('y') && r.rem_euclid(2) == 1;
+            if mx || my {
+                let (a, d) = (if mx { -1.0 } else { 1.0 }, if my { -1.0 } else { 1.0 });
+                let e = if mx { 2.0 * tx + tw } else { 0.0 };
+                let f = if my { 2.0 * ty + th } else { 0.0 };
+                out.push(Command::PushTransform {
+                    m: [a, 0.0, 0.0, d, e as f32, f as f32],
+                });
+            }
+            out.push(Command::Image {
+                x: tx as f32,
+                y: ty as f32,
+                // A hair wider than the step: no hairline seams from edge sampling.
+                w: (tw + 0.4) as f32,
+                h: (th + 0.4) as f32,
+                image: image.to_owned(),
+                crop: None,
+                rotation: 0.0,
+            });
+            if mx || my {
+                out.push(Command::PopTransform);
+            }
+        }
+    }
+}
 /// Theme style matrix lookups (§20.1.4.2 style references).
 fn style_fill(cx: &Ctx<'_>, st: Option<&ShapeStyle>) -> (Option<Fill>, Option<bo_drawingml::Rgba>) {
     let Some(st) = st else {

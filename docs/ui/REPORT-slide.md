@@ -671,3 +671,51 @@ chiếu chạy bằng `SlideShowSettings.Run`, nhấp phải và phím G gửi b
   Options; Background Styles chưa đánh dấu kiểu đang dùng; cột Info chưa cuộn (liên kết được giữ trong cửa sổ);
   biểu tượng Colors / Background / Slide Size vẫn dùng chung của BlueDoc (nhỏ hơn tham chiếu); các mục còn lại
   của vòng 20 (Picture or texture fill, Header & Footer › Notes and Handouts, Options, hộp Chart / SmartArt).
+
+## Vòng 22 — ngăn Format Background đầy đủ, Ink Color / Arrow Options / Custom Show trong trình chiếu, tốc độ (`slide-86…`, 1500 × 1102, 125 %)
+
+Vòng cuối của BlueSlide (chủ dự án: sau vòng này chỉ còn BlueDoc). Tham chiếu điều khiển bằng COM
+(`ExecuteMso SlideBackgroundFormatDialog`) và UI Automation (chọn nút radio, mở thư viện bằng
+ExpandCollapse, cuộn ngăn bằng ScrollPattern) trên bản sao `bgref.pptx`; của ta bằng `PostMessage`.
+
+| Đo (thiết bị, 125 %) | Tham chiếu | BlueSlide (trước → nay) |
+|---|---|---|
+| Rộng ngăn | 357 (kể cả vạch chia 191) | 342 → 357 |
+| Tiêu đề | Segoe UI Light, cắt "Format Backgro..." trước chữ V tuỳ chọn | 18 → 20 px logic, cắt "..." theo chỗ trống |
+| Nút thẻ Fill | 46 × 46 tại (17, 61), nền 198 viền 128, mũi nhọn ở vạch 198 bên dưới | như vậy; thùng sơn tự vẽ |
+| Nút radio | Ø 18; chọn: vòng (169,43,26) dày ≈ 4,5, lõi trắng; hàng cách 36, tâm đầu ở 191 dưới mép ngăn | như vậy |
+| Hàng điều khiển | nhãn x 59 (thụt 71), hộp số 115 × 36, nút thả 61 × 39, Type 162 × 31, Alignment 137, Mirror 117; mép phải 316 | đo trùng (khoảng cách hàng lấy từ UIA) |
+| Nút đáy | Apply to All 114 × 35 tại (15, đáy − 56), Reset Background 162 × 35 tại 143; vùng cuộn đến đáy − 65, thanh cuộn 21 | như vậy |
+| Chữ trong ngăn | lớn hơn chữ ribbon ≈ 12 % | 12 → 13,4 px logic |
+
+- **Solid fill**: nút Color mở bảng màu chủ đề (10 cột, 5 sắc độ) và màu chuẩn; Transparency (ghi thành
+  chuyển màu hai điểm cùng màu có `alpha`, đọc lại thành màu đặc).
+- **Gradient fill**: Preset gradients 6 màu nhấn × 5 kiểu (điểm dừng do ta chọn), Type Linear / Radial /
+  Rectangular / Path, Direction (8 hướng hoặc 5 tâm), Angle, thanh **Gradient stops** (nhấp chọn và kéo, nhấp
+  vào thanh để thêm điểm có màu pha, nút thêm / xoá, 2–10 điểm), Color, Position, Transparency, Brightness
+  (gõ số hoặc mũi tên). Lệnh engine mới `setBackgroundGradient` (§20.1.8.33, §20.1.8.36, alpha §20.1.2.3.1,
+  path + fillToRect §20.1.8.46 / §20.1.8.31).
+- **Picture or texture fill**: Insert… (hộp chọn tệp của host; ảnh chọn được thành nền, kéo giãn), thư viện
+  **25 chất liệu tự sinh** (`slide_textures22.rs`: nhiễu giá trị tuần hoàn nên lát liền mối; không lấy tệp
+  chất liệu nào của sản phẩm khác), Transparency, Tile picture as texture với Offset X / Y, Scale X / Y,
+  Alignment, Mirror type; bỏ lát thì bốn lề (%). Lệnh mới `setBackgroundPicture` (§20.1.8.14 blipFill,
+  §20.1.8.58 tile, §20.1.8.30 fillRect, §20.1.8.4 alphaModFix); `data` bỏ trống giữ ảnh hiện tại; quan hệ /
+  phần ảnh cũ bị xoá khi không còn dùng; Apply to All dùng chung một phần ảnh. `bo-pptx` vẽ ảnh lát (96 dpi ×
+  tỉ lệ, căn, lật xen kẽ, chồng 0,4 pt chống vạch mối) và ảnh kéo giãn có fillRect; `bo-model` thêm
+  `BlipFill::fill_rect` (trước đây giá trị fillRect bị mất khi lưu).
+- **Pattern fill**: 48 mẫu §20.1.10.51 (lưới 8 × 6, ô 8 × 8 bit tự định nghĩa), Foreground / Background.
+- Ngăn đọc lại nền riêng của trang khi đổi trang; Reset Background mờ khi trang không có nền riêng; cuộn bằng
+  con lăn và thanh cuộn.
+- **Trình chiếu › Pointer Options**: **Ink Color ›** (12 màu, ô màu, dấu chọn; chọn màu thì bật bút; nét đã
+  vẽ giữ màu) và **Arrow Options ›** Automatic / Visible / Hidden. **Custom Show ›** liệt kê và chạy các buổi
+  trình chiếu tuỳ chỉnh (mờ khi không có). Menu tầng hai mở khi trỏ, → / Enter; đóng bằng ← / Esc.
+- **Help › Media / Touch**: chỉ ghi điều trình chiếu làm được (chạm, nhấn giữ = menu, cuộn hai ngón).
+- Tốc độ (release, `deck300.pptx`, 5 tiến trình rustc khác đang chạy): mở 277 ms, khung đầu 910 ms; gõ chữ
+  tiêu đề trung vị 7,2 / p95 13,8 ms (xử lý 2,0 / 2,5 ms); cuộn hình thu nhỏ 3,5 / 4,1 ms mỗi nấc; phím trình
+  chiếu trung vị 1,7 ms.
+- Kiểm thử: `slide_bgpane.rs`, `slide_textures22.rs`, `slide_round22_tests.rs`,
+  `bo-engine/tests/slide_background22.rs`.
+- Còn lại (BlueSlide dừng sau vòng này): thẻ Effects / Picture của ngăn khi tô bằng ảnh; Clipboard làm nguồn
+  ảnh; thư viện Insert › Chart / SmartArt lớn; Header & Footer › Notes and Handouts; File › Options; ảnh tham
+  chiếu của menu tầng hai (phím gửi bằng `PostMessage` không tới vòng lặp menu Win32 của tham chiếu); chữ
+  trong hộp số sát mép trái hơn tham chiếu (hộp số dùng chung).

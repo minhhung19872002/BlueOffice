@@ -1314,6 +1314,7 @@ impl SlideWindow {
                 }
                 "formatBg" => {
                     self.bg_pane.shown = true;
+                    self.bg_pane.synced = None;
                     self.comments.shown = false;
                     self.anim_pane.shown = false;
                     self.relayout_pending = true;
@@ -2108,85 +2109,119 @@ impl SlideWindow {
 
     /// Input for the Format Background pane.
     pub(super) fn bg_input(&mut self, input: &Input) -> Option<bool> {
-        use crate::slide_bgpane::BgHit;
-        use bo_engine::slide_edit::master::MasterCommand;
-        let Input::Press { x, y, .. } = *input else {
-            return None;
-        };
-        if !self.bg_pane.contains(x, y) {
+        if !self.bg_pane.shown {
             return None;
         }
-        self.area_press = false;
-        Some(match self.bg_pane.press(x, y) {
+        let synced = self.bg_sync();
+        let hit = match input {
+            Input::Press { x, y, .. } => {
+                let (x, y) = (*x, *y);
+                if !self.bg_pane.contains(x, y) && !self.bg_pane.popup_open() {
+                    if self.bg_pane.editing() {
+                        // A press elsewhere commits a typed value, then goes on.
+                        let h = self.bg_pane.key(crate::Key::Enter);
+                        self.run_bg_hit(h);
+                    }
+                    return None;
+                }
+                self.area_press = false;
+                self.bg_pane.press(x, y)
+            }
+            Input::Move { x, y } => {
+                let changed = self.bg_pane.hover(*x, *y);
+                if self.bg_pane.contains(*x, *y) {
+                    return Some(changed || synced);
+                }
+                return self.bg_pane.popup_open().then_some(changed);
+            }
+            Input::Drag { x, y } => return self.bg_pane.drag(*x, *y),
+            Input::Release { .. } => Some(self.bg_pane.release()?),
+            Input::Wheel(dy) if self.bg_pane.pointer_inside() => {
+                return Some(self.bg_pane.wheel(*dy));
+            }
+            Input::Text(s) if self.bg_pane.editing() => return Some(self.bg_pane.text(s)),
+            Input::Key(k, m) if self.bg_pane.editing() && !m.ctrl => self.bg_pane.key(*k),
+            _ => return None,
+        };
+        Some(self.run_bg_hit(hit) || synced)
+    }
+
+    /// Read the pane's settings from the current slide when it changed.
+    fn bg_sync(&mut self) -> bool {
+        let slide = self.view.current();
+        if self.bg_pane.synced == Some(slide) {
+            return false;
+        }
+        let fill = self
+            .view
+            .engine()
+            .presentation()
+            .and_then(|p| p.slides.get(slide))
+            .and_then(|s| match &s.data.background {
+                Some(bo_model::slide::Background::Props { fill, .. }) => Some(fill.clone()),
+                _ => None,
+            });
+        self.bg_pane.sync(slide, fill.as_ref());
+        true
+    }
+
+    /// Do what a Format Background press asked.
+    fn run_bg_hit(&mut self, hit: Option<crate::slide_bgpane::BgHit>) -> bool {
+        use crate::slide_bgpane::BgHit;
+        use bo_engine::slide_edit::master::MasterCommand;
+        match hit {
+            None => false,
             Some(BgHit::Close) => {
                 self.bg_pane.shown = false;
                 self.relayout_pending = true;
                 true
             }
             Some(BgHit::Color(c)) => {
-                self.bg_pane.current = Some(c.clone());
-                self.bg_pane.last = None;
-                self.view.run_master(MasterCommand::SetBackground {
-                    color: Some(c),
-                    all: false,
-                })
+                self.bg_pane.current = Some(c);
+                self.run_bg_current(false)
             }
             Some(BgHit::HideGraphics) => self.toggle_bg_graphics(),
-            Some(BgHit::ApplyAll) => match self.bg_pane.last.clone() {
-                Some(h) => self.run_bg_fill(&h, true),
-                None => self.view.run_master(MasterCommand::SetBackground {
-                    color: self.bg_pane.current.clone(),
-                    all: true,
-                }),
-            },
+            Some(BgHit::ApplyAll) => {
+                if self.bg_pane.kind == 0 && self.bg_pane.current.is_none() {
+                    self.view.run_master(MasterCommand::SetBackground {
+                        color: None,
+                        all: true,
+                    })
+                } else {
+                    self.run_bg_current(true)
+                }
+            }
             Some(BgHit::Reset) => {
                 self.bg_pane.current = None;
-                self.bg_pane.last = None;
-                self.view.run_master(MasterCommand::SetBackground {
+                let done = self.view.run_master(MasterCommand::SetBackground {
                     color: None,
                     all: false,
-                })
+                });
+                self.bg_pane.synced = None;
+                self.bg_sync();
+                done
             }
-            Some(BgHit::Kind(k)) => {
-                self.bg_pane.kind = k;
-                self.relayout_pending = true;
+            Some(BgHit::Apply) => self.run_bg_current(false),
+            Some(BgHit::PickPicture) => {
+                self.bg_pane.awaiting_file = true;
+                self.file_request = Some(InsertFile::Picture);
                 true
             }
-            Some(h @ (BgHit::Gradient { .. } | BgHit::Pattern { .. })) => {
-                self.bg_pane.last = Some(h.clone());
-                // The direction tiles follow the chosen preset's colours.
-                self.relayout_pending = true;
-                self.run_bg_fill(&h, false)
-            }
-            None => false,
-        })
+            Some(BgHit::Redraw) => true,
+        }
     }
 
-    /// Give the slide (or every slide) a gradient or pattern background.
-    pub(super) fn run_bg_fill(&mut self, h: &crate::slide_bgpane::BgHit, all: bool) -> bool {
-        use bo_engine::slide_edit::master::MasterCommand;
-        let cmd = match h {
-            crate::slide_bgpane::BgHit::Gradient { colors, angle } => {
-                MasterCommand::SetBackgroundFill {
-                    kind: "gradient".into(),
-                    colors: colors.clone(),
-                    angle: Some(f64::from(*angle)),
-                    preset: None,
-                    all,
-                }
-            }
-            crate::slide_bgpane::BgHit::Pattern { preset, fg, bg } => {
-                MasterCommand::SetBackgroundFill {
-                    kind: "pattern".into(),
-                    colors: vec![fg.clone(), bg.clone()],
-                    angle: None,
-                    preset: Some(preset.clone()),
-                    all,
-                }
-            }
-            _ => return false,
+    /// Give the slide (or every slide) the pane's current fill.
+    pub(super) fn run_bg_current(&mut self, all: bool) -> bool {
+        let Some(cmd) = self.bg_pane.take_command(all) else {
+            return true;
         };
-        self.view.run_master(cmd)
+        if self.view.run_master(cmd) && self.bg_pane.kind == 2 {
+            self.bg_pane.pic.has_picture = true;
+        }
+        // The pane keeps its own settings (Brightness is not read back from the slide).
+        self.bg_pane.synced = Some(self.view.current());
+        true
     }
 
     /// Paint the Format Background pane.
@@ -2199,19 +2234,7 @@ impl SlideWindow {
                 v.to_owned()
             }
         };
-        let labels = [
-            self.label("formatBackground"),
-            self.label("fill"),
-            self.label("solidFill"),
-            self.label("hideGraphics"),
-            self.label("applyAll"),
-            self.strings
-                .get("slideEditor.design.resetBackground")
-                .to_owned(),
-            t("slideR10.bg.gradient", "Gradient fill"),
-            t("slideR10.bg.pattern", "Pattern fill"),
-        ];
-        self.bg_pane.paint(p, &labels, self.theme.text);
+        self.bg_pane.paint(p, &t, self.theme.text);
     }
 
     /// File the host should pick for an Insert command (taken once).
@@ -2226,6 +2249,10 @@ impl SlideWindow {
 
     /// Insert a picked file; `album`: on a new slide after the current one (Photo Album).
     pub fn insert_file_as(&mut self, bytes: Vec<u8>, name: &str, album: bool) -> bool {
+        if std::mem::take(&mut self.bg_pane.awaiting_file) {
+            self.bg_pane.set_picture(&bytes);
+            return self.run_bg_current(false);
+        }
         if album {
             self.view.new_slide(None);
         }

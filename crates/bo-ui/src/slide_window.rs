@@ -254,6 +254,7 @@ pub struct SlideWindow {
     menu: Option<Menu>,
     /// The slide show menu's open submenu (Screen › / Pointer Options ›) and its main row.
     show_sub: Option<(usize, Menu)>,
+    show_sub2: Option<(usize, Menu)>,
     /// Right-click menu › Help is shown over the show.
     show_help: bool,
     /// Ctrl+T while presenting: out of full screen until the next key or click.
@@ -687,6 +688,7 @@ impl SlideWindow {
             scale: 1.0,
             menu: None,
             show_sub: None,
+            show_sub2: None,
             show_help: false,
             show_windowed: false,
             help_tab: 0,
@@ -842,7 +844,14 @@ impl SlideWindow {
             || self.side.shown())
             && self.view.mode() != ViewMode::Reading
         {
-            if self.side.kind == selpane::SideKind::Spelling {
+            if self.bg_pane.shown
+                && !self.side.shown()
+                && !self.comments.shown
+                && !self.anim_pane.shown
+            {
+                // The reference's Format Background pane: 357 device px at 125 % (round 22).
+                crate::slide_bgpane::BgPane::width(self.scale)
+            } else if self.side.kind == selpane::SideKind::Spelling {
                 // The reference's Spelling pane is wider: 437 device px at 125 %.
                 (349.6 * self.scale).round()
             } else if self.anim_pane.shown && !self.side.shown() {
@@ -3222,6 +3231,10 @@ mod round20_tests;
 #[cfg(test)]
 #[path = "slide_round21_tests.rs"]
 mod round21_tests;
+
+#[cfg(test)]
+#[path = "slide_round22_tests.rs"]
+mod round22_tests;
 
 #[cfg(test)]
 #[path = "slide_round7_tests.rs"]

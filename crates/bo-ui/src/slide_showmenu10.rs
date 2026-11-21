@@ -41,7 +41,7 @@ const SCREEN: [(&str, &str, &str, bool); 2] = [
     ("black", "slideR10.show.black", "Black Screen", false),
     ("white", "slideR10.show.white", "White Screen", false),
 ];
-const POINTER: [(&str, &str, &str, bool); 6] = [
+const POINTER: [(&str, &str, &str, bool); 7] = [
     ("laser", "slideR10.show.laser", "Laser Pointer", false),
     ("pen", "slideR10.show.pen", "Pen", false),
     (
@@ -50,18 +50,57 @@ const POINTER: [(&str, &str, &str, bool); 6] = [
         "Highlighter",
         false,
     ),
+    ("sub2:ink", "slideR22.show.ink", "Ink Color", false),
     ("eraser", "slideR10.show.eraser", "Eraser", false),
     (
         "eraseAll",
         "slideR10.show.eraseAll",
         "Erase All Ink on Slide",
+        false,
+    ),
+    (
+        "sub2:arrowopt",
+        "slideR22.show.arrowOptions",
+        "Arrow Options",
         true,
     ),
-    ("arrow", "slideR10.show.arrow", "Arrow", true),
+];
+
+/// Pointer Options › Arrow Options (round 22).
+const ARROW_OPTIONS: [(&str, &str, &str, bool); 3] = [
+    ("arrowAuto", "slideR22.show.arrowAuto", "Automatic", false),
+    (
+        "arrowVisible",
+        "slideR22.show.arrowVisible",
+        "Visible",
+        false,
+    ),
+    ("arrowHidden", "slideR22.show.arrowHidden", "Hidden", false),
+];
+
+/// Pointer Options › Ink Color (round 22): (RRGGBB, label key, fallback).
+pub(super) const INKS: [(u32, &str, &str); 12] = [
+    (0xFF_0000, "slideR22.ink.red", "Red"),
+    (0xC0_0000, "slideR22.ink.darkRed", "Dark Red"),
+    (0xFF_C000, "slideR22.ink.orange", "Orange"),
+    (0xFF_FF00, "slideR22.ink.yellow", "Yellow"),
+    (0x92_D050, "slideR22.ink.lightGreen", "Light Green"),
+    (0x00_B050, "slideR22.ink.green", "Green"),
+    (0x00_B0F0, "slideR22.ink.lightBlue", "Light Blue"),
+    (0x00_70C0, "slideR22.ink.blue", "Blue"),
+    (0x00_2060, "slideR22.ink.darkBlue", "Dark Blue"),
+    (0x70_30A0, "slideR22.ink.purple", "Purple"),
+    (0x00_0000, "slideR22.ink.black", "Black"),
+    (0xFF_FFFF, "slideR22.ink.white", "White"),
 ];
 
 /// Access key of each entry (the reference's underlined letters in English).
-const ACCESS: [(&str, char); 20] = [
+const ACCESS: [(&str, char); 25] = [
+    ("ink", 'I'),
+    ("arrowopt", 'O'),
+    ("arrowAuto", 'A'),
+    ("arrowVisible", 'V'),
+    ("arrowHidden", 'H'),
     ("next", 'N'),
     ("prev", 'P'),
     ("last", 'V'),
@@ -85,7 +124,7 @@ const ACCESS: [(&str, char); 20] = [
 ];
 
 fn access_letter(id: &str) -> Option<char> {
-    let id = id.trim_start_matches("sub:");
+    let id = id.trim_start_matches("sub2:").trim_start_matches("sub:");
     ACCESS.iter().find(|(k, _)| *k == id).map(|(_, c)| *c)
 }
 
@@ -159,8 +198,8 @@ impl SlideWindow {
     }
 
     fn show_menu_event(&mut self, input: &Input, text: &dyn crate::TextMeasure) -> bool {
-        // The open submenu takes the pointer over it and the keys.
-        if let Some((_, sub)) = self.show_sub.as_mut() {
+        // The second-level submenu (Ink Color, Arrow Options) first.
+        if let Some((_, sub)) = self.show_sub2.as_mut() {
             match *input {
                 Input::Move { x, y } | Input::Drag { x, y } if sub.contains(x, y) => {
                     return sub.hover(x, y);
@@ -175,6 +214,62 @@ impl SlideWindow {
                         return self.choose(c);
                     }
                     return true;
+                }
+                Input::Key(Key::Up, _) => {
+                    sub.step(-1);
+                    return true;
+                }
+                Input::Key(Key::Down, _) => {
+                    sub.step(1);
+                    return true;
+                }
+                Input::Key(Key::Enter | Key::Right, _) => {
+                    if let Some(c) = sub.current() {
+                        self.close_show_menu();
+                        return self.choose(c);
+                    }
+                    return false;
+                }
+                Input::Key(Key::Left | Key::Escape, _) => {
+                    self.show_sub2 = None;
+                    return true;
+                }
+                Input::Text(ref t) => {
+                    let c = t.chars().next().and_then(|ch| sub.access_choice(ch));
+                    if let Some(c) = c {
+                        self.close_show_menu();
+                        return self.choose(c);
+                    }
+                    return false;
+                }
+                _ => {}
+            }
+        }
+        // The open submenu takes the pointer over it and the keys.
+        if let Some((_, sub)) = self.show_sub.as_mut() {
+            let sub2_row = |c: &Option<Choice>| matches!(c, Some(Choice::Command(s)) if s.starts_with("shwsub2:"));
+            match *input {
+                Input::Move { x, y } | Input::Drag { x, y } if sub.contains(x, y) => {
+                    let changed = sub.hover(x, y);
+                    return self.sync_show_sub2(text) || changed;
+                }
+                Input::Press { x, y, .. } if sub.contains(x, y) => {
+                    sub.press(x, y);
+                    return true;
+                }
+                Input::Release { x, y } if sub.contains(x, y) => {
+                    let c = sub.release(x, y);
+                    if sub2_row(&c) {
+                        return self.sync_show_sub2(text);
+                    }
+                    if let Some(c) = c {
+                        self.close_show_menu();
+                        return self.choose(c);
+                    }
+                    return true;
+                }
+                Input::Key(Key::Enter | Key::Right, _) if sub2_row(&sub.current()) => {
+                    return self.sync_show_sub2(text);
                 }
                 Input::Key(Key::Up, _) => {
                     sub.step(-1);
@@ -280,6 +375,79 @@ impl SlideWindow {
     fn close_show_menu(&mut self) {
         self.menu = None;
         self.show_sub = None;
+        self.show_sub2 = None;
+    }
+
+    /// Open the second-level submenu of the highlighted submenu row (Ink Color, Arrow
+    /// Options), or close it when the row has none.
+    fn sync_show_sub2(&mut self, text: &dyn crate::TextMeasure) -> bool {
+        let Some((_, sub)) = self.show_sub.as_ref() else {
+            return false;
+        };
+        let Some(row) = sub.hovered() else {
+            return false;
+        };
+        if self.show_sub2.as_ref().is_some_and(|(r, _)| *r == row) {
+            return false;
+        }
+        let id = match &sub.items()[row].choice {
+            Choice::Command(c) => c.strip_prefix("shwsub2:").map(str::to_owned),
+            _ => None,
+        };
+        let had = self.show_sub2.take().is_some();
+        let Some(id) = id else {
+            return had;
+        };
+        let rect = sub.row_rect(row);
+        let tools = self.view.show_tools();
+        let items: Vec<MenuItem> = if id == "ink" {
+            let ink = tools.ink.unwrap_or(Rgba(0xff, 0, 0, 255));
+            INKS.iter()
+                .map(|(v, k, f)| MenuItem {
+                    label: self.t(k, f),
+                    choice: Choice::Command(format!("shw:ink:{v:06X}")),
+                    checked: crate::slide_pickers::rgb(*v) == ink,
+                    dim: false,
+                })
+                .collect()
+        } else {
+            let arrow = tools.pointer == Pointer::Arrow;
+            let mode = tools.arrow_mode;
+            ARROW_OPTIONS
+                .iter()
+                .map(|(c, k, f, _)| MenuItem {
+                    label: access(&self.t(k, f), c),
+                    choice: Choice::Command(format!("shw:{c}")),
+                    checked: arrow
+                        && mode
+                            == match *c {
+                                "arrowAuto" => 2,
+                                "arrowVisible" => 0,
+                                _ => 1,
+                            },
+                    dim: false,
+                })
+                .collect()
+        };
+        let icons = vec![None; items.len()];
+        let pad = (4.0 * self.scale).round();
+        let anchor = [rect[0] + rect[2] - pad, rect[1] - pad, 1.0, 0.0];
+        let mut menu = self.show_menu_box(items, anchor, icons, Vec::new(), text);
+        if !menu.contains(anchor[0] + 2.0, rect[1] + rect[3] / 2.0) {
+            let w = menu.row_rect(0)[2];
+            let left = (rect[0] - w + pad).max(0.0);
+            let items = menu.items().to_vec();
+            let icons = vec![None; items.len()];
+            menu = self.show_menu_box(
+                items,
+                [left, rect[1] - pad, 1.0, 0.0],
+                icons,
+                Vec::new(),
+                text,
+            );
+        }
+        self.show_sub2 = Some((row, menu));
+        true
     }
 
     /// Open the submenu of the highlighted main row (or close it when the row has none).
@@ -315,27 +483,53 @@ impl SlideWindow {
         };
         let shown = self.view.show_slide();
         let has_ink = shown.is_some_and(|i| tools.strokes.get(&i).is_some_and(|s| !s.is_empty()));
+        self.show_sub2 = None;
         let entries: &[(&str, &str, &str, bool)] = match id.as_str() {
             "screen" => &SCREEN,
             "pointer" => &POINTER,
+            "custom" => &[],
             _ => return had,
         };
         let mut separators = Vec::new();
-        let items: Vec<MenuItem> = entries
+        let mut items: Vec<MenuItem> = entries
             .iter()
             .enumerate()
             .map(|(i, (c, k, f, sep))| {
                 if *sep {
                     separators.push(i);
                 }
+                let cmd = match c.strip_prefix("sub2:") {
+                    Some(s) => format!("shwsub2:{s}"),
+                    None => format!("shw:{c}"),
+                };
                 MenuItem {
                     label: access(&self.t(k, f), c),
-                    choice: Choice::Command(format!("shw:{c}")),
+                    choice: Choice::Command(cmd),
                     checked: on(c),
                     dim: *c == "eraseAll" && !has_ink,
                 }
             })
             .collect();
+        if id == "custom" {
+            // Custom Show ›: the deck's custom shows; choosing one plays it.
+            items = self
+                .view
+                .engine()
+                .presentation()
+                .map(bo_engine::slide_edit::present::custom_shows)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|s| MenuItem {
+                    label: s.name.replace('&', "&&"),
+                    choice: Choice::Command(format!("cshow:{}", s.id)),
+                    checked: false,
+                    dim: false,
+                })
+                .collect();
+            if items.is_empty() {
+                return had;
+            }
+        }
         let icons = vec![None; items.len()];
         // Beside the row, its top level with the row (the list opens downwards).
         let pad = (4.0 * self.scale).round();
@@ -366,47 +560,49 @@ impl SlideWindow {
         let (at_start, presenter_ok, presenter_on, paused) = self.view.show_menu_state();
         let can_pause = self.view.show_can_pause();
         let mut separators = Vec::new();
-        let items: Vec<MenuItem> = MAIN
-            .iter()
-            .enumerate()
-            .map(|(i, (id, k, f, sep))| {
-                if *sep {
-                    separators.push(i);
-                }
-                let (label, cmd) = match *id {
-                    "presenter" if presenter_on => (
-                        self.t("slideR10.show.hidePresenter", "Hide Presenter View"),
-                        "shw:presenter".to_owned(),
-                    ),
-                    "pause" if paused => (
-                        self.t("slideR10.show.resume", "Resume"),
-                        "shw:resume".to_owned(),
-                    ),
-                    _ => (
-                        access(&self.t(k, f), id),
-                        match id.strip_prefix("sub:") {
-                            Some(s) => format!("shwsub:{s}"),
-                            None => format!("shw:{id}"),
-                        },
-                    ),
-                };
-                let dim = match *id {
-                    "prev" => at_start,
-                    "last" => !has_last,
-                    // No custom shows to pick from.
-                    "sub:custom" => true,
-                    "presenter" => !presenter_ok,
-                    "pause" => !paused && !can_pause,
-                    _ => false,
-                };
-                MenuItem {
-                    label,
-                    choice: Choice::Command(cmd),
-                    checked: false,
-                    dim,
-                }
-            })
-            .collect();
+        let items: Vec<MenuItem> =
+            MAIN.iter()
+                .enumerate()
+                .map(|(i, (id, k, f, sep))| {
+                    if *sep {
+                        separators.push(i);
+                    }
+                    let (label, cmd) = match *id {
+                        "presenter" if presenter_on => (
+                            self.t("slideR10.show.hidePresenter", "Hide Presenter View"),
+                            "shw:presenter".to_owned(),
+                        ),
+                        "pause" if paused => (
+                            self.t("slideR10.show.resume", "Resume"),
+                            "shw:resume".to_owned(),
+                        ),
+                        _ => (
+                            access(&self.t(k, f), id),
+                            match id.strip_prefix("sub:") {
+                                Some(s) => format!("shwsub:{s}"),
+                                None => format!("shw:{id}"),
+                            },
+                        ),
+                    };
+                    let dim = match *id {
+                        "prev" => at_start,
+                        "last" => !has_last,
+                        // No custom shows to pick from.
+                        "sub:custom" => self.view.engine().presentation().is_none_or(|p| {
+                            bo_engine::slide_edit::present::custom_shows(p).is_empty()
+                        }),
+                        "presenter" => !presenter_ok,
+                        "pause" => !paused && !can_pause,
+                        _ => false,
+                    };
+                    MenuItem {
+                        label,
+                        choice: Choice::Command(cmd),
+                        checked: false,
+                        dim,
+                    }
+                })
+                .collect();
         let icons = vec![None; items.len()];
         self.menu_kind = MenuKind::Duration;
         self.show_sub = None;
@@ -479,6 +675,48 @@ impl SlideWindow {
         }
         if let Some((_, sub)) = &self.show_sub {
             sub.paint(p, &self.theme, &self.icons);
+            for (i, item) in sub.items().iter().enumerate() {
+                let Choice::Command(c) = &item.choice else {
+                    continue;
+                };
+                if !c.starts_with("shwsub2:") {
+                    continue;
+                }
+                let [x, y, w, h] = sub.row_rect(i);
+                let (cx, cy) = ((x + w - 16.0 * s).round(), (y + h / 2.0).round());
+                let a = (4.4 * s).round();
+                let tri = vec![
+                    PathSeg::M(cx - a / 2.0, cy - a),
+                    PathSeg::L(cx + a / 2.0, cy),
+                    PathSeg::L(cx - a / 2.0, cy + a),
+                    PathSeg::Z,
+                ];
+                p.path(&tri, Some(ARROW), None);
+            }
+        }
+        if let Some((row, sub)) = &self.show_sub2 {
+            sub.paint(p, &self.theme, &self.icons);
+            let ink = self
+                .show_sub
+                .as_ref()
+                .and_then(|(_, m)| m.items().get(*row))
+                .is_some_and(|it| it.choice == Choice::Command("shwsub2:ink".into()));
+            if ink {
+                // A swatch of each ink left of its name (where icons go).
+                for (i, (v, _, _)) in INKS.iter().enumerate().take(sub.items().len()) {
+                    let [x, y, _, h] = sub.row_rect(i);
+                    let k = (14.0 * s).round();
+                    let (sx, sy) = ((x + 12.0 * s).round(), (y + (h - k) / 2.0).round());
+                    p.fill_rect(
+                        sx - 1.0,
+                        sy - 1.0,
+                        k + 2.0,
+                        k + 2.0,
+                        Rgba(0x80, 0x80, 0x80, 255),
+                    );
+                    p.fill_rect(sx, sy, k, k, crate::slide_pickers::rgb(*v));
+                }
+            }
         }
     }
 }

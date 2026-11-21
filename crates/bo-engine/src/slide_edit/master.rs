@@ -570,6 +570,56 @@ pub enum MasterCommand {
         #[serde(default)]
         all: bool,
     },
+    /// Gradient background with explicit stops (Format Background › Gradient fill, round 22):
+    /// §20.1.8.33 gradFill with §20.1.8.36 gs stops at `pos` %, each `color` with
+    /// `transparency` % (§20.1.2.3.1 alpha); linear (§20.1.8.41 lin, `angle` degrees) or,
+    /// with `path` `circle` / `rect` / `shape`, a path gradient (§20.1.8.46) whose
+    /// `focus` is the fill-to rectangle l, t, r, b in % (§20.1.8.31 fillToRect).
+    /// `all`: every slide (normal view).
+    SetBackgroundGradient {
+        /// Stops (2 to 10).
+        stops: Vec<BackgroundStop>,
+        /// Path kind; `None`: linear.
+        #[serde(default)]
+        path: Option<String>,
+        /// Linear angle in degrees (default 90: top to bottom).
+        #[serde(default)]
+        angle: Option<f64>,
+        /// Fill-to rectangle of a path gradient, % from each edge.
+        #[serde(default)]
+        focus: Option<[f64; 4]>,
+        /// `rotWithShape`.
+        #[serde(default)]
+        rotate: Option<bool>,
+        /// Apply to every slide.
+        #[serde(default)]
+        all: bool,
+    },
+    /// Picture or texture background (Format Background, round 22): §20.1.8.14 blipFill
+    /// of base64 `data` (PNG / JPEG / other raster; `None` keeps the slide's current
+    /// background picture and changes only the options), tiled (§20.1.8.58 tile) or
+    /// stretched into the slide inset by `offsets` l, t, r, b % (§20.1.8.30 fillRect),
+    /// `transparency` % (§20.1.8.4 alphaModFix). `all`: every slide (normal view only).
+    SetBackgroundPicture {
+        /// Base64 picture bytes.
+        #[serde(default)]
+        data: Option<String>,
+        /// Tile the picture.
+        #[serde(default)]
+        tile: Option<BackgroundTile>,
+        /// Stretch offsets l, t, r, b in %.
+        #[serde(default)]
+        offsets: Option<[f64; 4]>,
+        /// Transparency %.
+        #[serde(default)]
+        transparency: f64,
+        /// `rotWithShape`.
+        #[serde(default)]
+        rotate: Option<bool>,
+        /// Apply to every slide.
+        #[serde(default)]
+        all: bool,
+    },
     /// Change a text style of the current master.
     MasterTextStyle {
         /// Which style.
@@ -645,6 +695,53 @@ pub enum MasterCommand {
     },
 }
 
+/// A gradient stop of [`MasterCommand::SetBackgroundGradient`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BackgroundStop {
+    /// Position, % along the gradient.
+    pub pos: f64,
+    /// `RRGGBB`.
+    pub color: String,
+    /// Transparency %.
+    #[serde(default)]
+    pub transparency: f64,
+}
+
+/// Tiling of [`MasterCommand::SetBackgroundPicture`] (§20.1.8.58 tile).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BackgroundTile {
+    /// Horizontal offset, pt.
+    #[serde(default)]
+    pub tx: f64,
+    /// Vertical offset, pt.
+    #[serde(default)]
+    pub ty: f64,
+    /// Horizontal scale, %.
+    #[serde(default = "hundred")]
+    pub sx: f64,
+    /// Vertical scale, %.
+    #[serde(default = "hundred")]
+    pub sy: f64,
+    /// Alignment (§20.1.10.53 ST_RectAlignment: `tl`, `t`, `tr`, `l`, `ctr`, `r`, `bl`,
+    /// `b`, `br`).
+    #[serde(default = "top_left")]
+    pub algn: String,
+    /// Mirror (§20.1.10.88 ST_TileFlipMode: `none`, `x`, `y`, `xy`).
+    #[serde(default = "no_flip")]
+    pub flip: String,
+}
+
+fn hundred() -> f64 {
+    100.0
+}
+
+fn top_left() -> String {
+    "tl".into()
+}
+
+fn no_flip() -> String {
+    "none".into()
+}
 /// Command names of [`MasterCommand`] (routing in the JSON bridge).
 pub const COMMANDS: &[&str] = &[
     "masterView",
@@ -658,6 +755,8 @@ pub const COMMANDS: &[&str] = &[
     "hideBackgroundGraphics",
     "setBackground",
     "setBackgroundFill",
+    "setBackgroundGradient",
+    "setBackgroundPicture",
     "masterTextStyle",
     "addMaster",
     "applyTheme",
@@ -947,6 +1046,34 @@ fn run(tx: &mut Tx<'_>, sel: &mut SlideSel, ctx: &Ctx, cmd: MasterCommand) -> R<
         } => {
             let fill = background_fill(&kind, &colors, angle, preset)?;
             put_background(tx, sel, ctx, Some(fill), all)
+        }
+        MasterCommand::SetBackgroundGradient {
+            stops,
+            path,
+            angle,
+            focus,
+            rotate,
+            all,
+        } => {
+            let fill = gradient_fill(&stops, path.as_deref(), angle, focus, rotate)?;
+            put_background(tx, sel, ctx, Some(fill), all)
+        }
+        MasterCommand::SetBackgroundPicture {
+            data,
+            tile,
+            offsets,
+            transparency,
+            rotate,
+            all,
+        } => {
+            need_normal(ctx)?;
+            let opts = PictureOpts {
+                tile,
+                offsets,
+                transparency,
+                rotate,
+            };
+            picture_background(tx, sel, data.as_deref(), &opts, all)
         }
         MasterCommand::MasterTextStyle {
             style,
@@ -1497,6 +1624,214 @@ fn background_fill(
     }
 }
 
+/// A gradient with explicit stops (§20.1.8.33 gradFill).
+fn gradient_fill(
+    stops: &[BackgroundStop],
+    path: Option<&str>,
+    angle: Option<f64>,
+    focus: Option<[f64; 4]>,
+    rotate: Option<bool>,
+) -> R<Fill> {
+    if stops.len() < 2 || stops.len() > 10 {
+        return refuse("badStops");
+    }
+    let mut out = Vec::with_capacity(stops.len());
+    for s in stops {
+        let mut color =
+            Color::srgb(super::text::parse_hex(&s.color).ok_or(EditError::Refused("badColor"))?);
+        let t = s.transparency.clamp(0.0, 100.0);
+        if t > 0.0 {
+            // §20.1.2.3.1 alpha: opacity in 1/1000 %.
+            color.mods.push(bo_model::slide::ColorMod {
+                name: "alpha".into(),
+                val: Some(((100.0 - t) * 1000.0).round() as i32),
+            });
+        }
+        out.push(GradientStop {
+            // §20.1.8.36 gs@pos: 1/1000 %.
+            pos: (s.pos.clamp(0.0, 100.0) * 1000.0).round() as i32,
+            color,
+        });
+    }
+    out.sort_by_key(|g| g.pos);
+    let shade = match path {
+        None | Some("linear") => GradientShade::Linear {
+            // 60 000ths of a degree (§20.1.10.3 ST_Angle).
+            ang: (angle.unwrap_or(90.0).rem_euclid(360.0) * 60_000.0).round() as i32,
+            scaled: Some(false),
+        },
+        Some(p @ ("circle" | "rect" | "shape")) => GradientShade::Path {
+            path: p.into(),
+            fill_to: Some(
+                focus
+                    .unwrap_or([50.0, 50.0, 50.0, 50.0])
+                    .map(|v| (v.clamp(-100.0, 100.0) * 1000.0).round() as i32),
+            ),
+        },
+        Some(_) => return refuse("badPath"),
+    };
+    Ok(Fill::Gradient(GradientFill {
+        stops: out,
+        shade: Some(shade),
+        rot_with_shape: Some(rotate.unwrap_or(true)),
+        ..GradientFill::default()
+    }))
+}
+
+/// Options of a picture background.
+struct PictureOpts {
+    tile: Option<BackgroundTile>,
+    offsets: Option<[f64; 4]>,
+    transparency: f64,
+    rotate: Option<bool>,
+}
+
+/// The relationship a slide's own picture background uses.
+fn background_rid(slide: &Slide) -> Option<String> {
+    match &slide.data.background {
+        Some(Background::Props {
+            fill: Fill::Picture(b),
+            ..
+        }) => b.embed.clone(),
+        _ => None,
+    }
+}
+
+/// Picture or texture background (§20.1.8.14 blipFill in §19.3.1.2 bgPr).
+fn picture_background(
+    tx: &mut Tx<'_>,
+    sel: &SlideSel,
+    data: Option<&str>,
+    opts: &PictureOpts,
+    all: bool,
+) -> R<()> {
+    use super::picture::{add_part, add_rel, rel_part};
+    let cur = sel.slide;
+    let part = match data {
+        Some(d) => {
+            let bytes =
+                crate::picture_tools::decode_data(d).ok_or(EditError::Refused("badImage"))?;
+            let (img, ext, mime) =
+                crate::picture_tools::drawable(bytes).ok_or(EditError::Refused("badImage"))?;
+            add_part(tx, img, ext, mime)?
+        }
+        None => tx
+            .pres
+            .slides
+            .get(cur)
+            .and_then(background_rid)
+            .and_then(|rid| rel_part(tx.pres, cur, &rid))
+            .ok_or(EditError::Refused("noPicture"))?,
+    };
+    let mut blip = bo_model::slide::BlipFill {
+        rot_with_shape: Some(opts.rotate.unwrap_or(true)),
+        ..bo_model::slide::BlipFill::default()
+    };
+    let t = opts.transparency.clamp(0.0, 100.0);
+    if t > 0.0 {
+        // §20.1.8.4 alphaModFix@amt: opacity in 1/1000 %.
+        let mut e = bo_model::slide::XmlElement::new("a:alphaModFix");
+        e.attrs.push((
+            "amt".into(),
+            (((100.0 - t) * 1000.0).round() as i64).to_string(),
+        ));
+        blip.blip_children.push(e);
+    }
+    if let Some(tl) = &opts.tile {
+        {
+            // §20.1.8.58 tile: offsets in EMU, scales in 1/1000 %.
+            let emu = |v: f64| ((v * EMU_PT).round() as i64).to_string();
+            let pct = |v: f64| ((v.clamp(1.0, 10_000.0) * 1000.0).round() as i64).to_string();
+            let algn = tl.algn.as_str();
+            if !matches!(
+                algn,
+                "tl" | "t" | "tr" | "l" | "ctr" | "r" | "bl" | "b" | "br"
+            ) {
+                return refuse("badAlign");
+            }
+            let flip = tl.flip.as_str();
+            if !matches!(flip, "none" | "x" | "y" | "xy") {
+                return refuse("badFlip");
+            }
+            let mut e = bo_model::slide::XmlElement::new("a:tile");
+            e.attrs = vec![
+                ("tx".into(), emu(tl.tx)),
+                ("ty".into(), emu(tl.ty)),
+                ("sx".into(), pct(tl.sx)),
+                ("sy".into(), pct(tl.sy)),
+                ("flip".into(), flip.into()),
+                ("algn".into(), algn.into()),
+            ];
+            blip.tile = Some(e);
+        }
+    } else {
+        blip.stretch = true;
+        blip.fill_rect = opts
+            .offsets
+            .map(|o| o.map(|v| (v.clamp(-1000.0, 99.0) * 1000.0).round() as i32))
+            .filter(|o| o.iter().any(|v| *v != 0))
+            .map(Box::new);
+    }
+    let indices: Vec<usize> = if all {
+        (0..tx.pres.slides.len()).collect()
+    } else {
+        vec![cur]
+    };
+    for i in indices {
+        let Some(old_rid) = tx.pres.slides.get(i).map(background_rid) else {
+            return refuse("noSlide");
+        };
+        // Keep the relationship when it already points at the part.
+        let rid = match old_rid
+            .as_ref()
+            .filter(|r| rel_part(tx.pres, i, r).as_deref() == Some(part.as_str()))
+        {
+            Some(r) => r.clone(),
+            None => add_rel(tx, i, &part)?,
+        };
+        let mut b = blip.clone();
+        b.embed = Some(rid.clone());
+        let Some(old) = tx.pres.slides.get(i).cloned() else {
+            return refuse("noSlide");
+        };
+        let mut s = old.clone();
+        s.data.background = Some(Background::Props {
+            fill: Fill::Picture(b),
+            shade_to_title: None,
+            extra: Vec::new(),
+        });
+        if s != old {
+            tx.op(SlideOp::Slides {
+                index: i,
+                remove: vec![old],
+                insert: vec![s],
+            })?;
+        }
+        if let Some(o) = old_rid.filter(|o| *o != rid) {
+            drop_rel_if_unused(tx, i, &o)?;
+        }
+    }
+    Ok(())
+}
+
+/// Remove relationship `rid` of slide `i` (and its part) when nothing on the slide
+/// refers to it any more.
+fn drop_rel_if_unused(tx: &mut Tx<'_>, i: usize, rid: &str) -> R<()> {
+    let Some(s) = tx.pres.slides.get(i) else {
+        return Ok(());
+    };
+    // Any reference (shapes, background, kept XML) names the id as a string.
+    if format!("{:?}", s.data).contains(&format!("\"{rid}\"")) {
+        return Ok(());
+    }
+    let part = super::picture::rel_part(tx.pres, i, rid);
+    let rid = rid.to_owned();
+    tx.fields(i, |f| f.rels.retain(|r| r.id != rid))?;
+    if let Some(p) = part {
+        super::picture::drop_if_unused(tx, &p)?;
+    }
+    Ok(())
+}
 /// Give the current slide (or every slide) the background `fill` (`None` inherits again).
 fn put_background(
     tx: &mut Tx<'_>,

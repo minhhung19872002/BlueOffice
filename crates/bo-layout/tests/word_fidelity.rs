@@ -7,13 +7,13 @@
 
 use bo_layout::{
     layout_document, layout_document_with, LayoutCache, LayoutDocument, LayoutOptions, Line,
-    LineSource, MarkFilter,
+    LineSource, MarkFilter, PageItem,
 };
 use bo_model::{
-    AbstractNum, Alignment, Anchor, Block, Border, Borders, Cell, CellProps, Columns, Document,
-    Emu, HalfPoints, Image, Level, LineSpacing, Num, NumFormat, NumRef, Numbering, PageSetup,
-    ParaProps, Paragraph, Run, RunContent, RunProps, Section, SectionBreak, Style, StyleKind,
-    TabAlign, TabLeader, TabStop, Table, Twips, Wrap,
+    AbstractNum, Alignment, Anchor, Block, Border, Borders, Cell, CellProps, ColumnDef, Columns,
+    Document, Emu, HalfPoints, Image, Level, LineSpacing, Num, NumFormat, NumRef, Numbering,
+    PageSetup, ParaProps, Paragraph, Run, RunContent, RunProps, Section, SectionBreak, Style,
+    StyleKind, TabAlign, TabLeader, TabStop, Table, Twips, Wrap,
 };
 use bo_text::FontManager;
 
@@ -664,4 +664,139 @@ fn a_row_split_keeps_widow_control() {
     assert_eq!(page_of(48), 0);
     assert_eq!(page_of(49), 1, "the row's number cell");
     assert_eq!(page_of(50), 1, "the row's text cell");
+}
+
+/// Unequal columns before a continuous break (§17.6.3 col `w:w`): balanced by laying the
+/// text out again (lines cannot move between columns of other widths), and a paragraph
+/// continuing in a wider column takes that column's width (gen-06 of the fidelity
+/// corpus, measured black-box).
+#[test]
+fn unequal_columns_balance_and_rewrap() {
+    let text = "Layout engines must agree on where every line breaks, because a single word \
+                moved to the next line can push a heading onto another page.";
+    let mut blocks: Vec<Block> = (0..6).map(|_| para(text, 0, 240, SINGLE)).collect();
+    // The empty paragraph that carries the section break takes no part in the balance.
+    blocks.push(para("", 0, 240, SINGLE));
+    let mut d = doc(blocks);
+    let col = |w: i32, s: i32| ColumnDef {
+        width: Twips(w),
+        space: Twips(s),
+    };
+    d.sections[0].columns = Columns {
+        count: 3,
+        space: Twips(360),
+        separator: false,
+        cols: vec![col(2000, 360), col(3000, 360), col(3646, 0)],
+    };
+    let mut after = Section {
+        page: a4(),
+        ..Section::new(vec![para("after", 0, 0, SINGLE)])
+    };
+    after.break_type = SectionBreak::Continuous;
+    d.sections.push(after);
+    let l = run(&d);
+    // Column left edges and widths (points).
+    let cols = [(72.0, 100.0), (190.0, 150.0), (358.0, 182.3)];
+    let mut bottoms = [0.0f32; 3];
+    let mut widest = [0.0f32; 3];
+    for i in 0..6 {
+        for line in lines(&l, i) {
+            let x0 = line.fragments.iter().map(|f| f.x).fold(f32::MAX, f32::min);
+            let x1 = line
+                .fragments
+                .iter()
+                .map(|f| f.x + f.width)
+                .fold(0.0f32, f32::max);
+            let c = cols.iter().rposition(|c| x0 >= c.0 - 1.0).unwrap();
+            // A fragment's width includes the line's trailing space (3 pt).
+            assert!(
+                x1 <= cols[c].0 + cols[c].1 + 3.5,
+                "line {i} beyond column {c}"
+            );
+            widest[c] = widest[c].max(x1 - cols[c].0);
+            bottoms[c] = bottoms[c].max(line.top + line.height);
+        }
+    }
+    // Lines in the wider columns use their width (not the first column's 100 pt).
+    assert!(widest[1] > 110.0 && widest[2] > 160.0, "{widest:?}");
+    // Balanced: the three columns end within two lines of each other.
+    let line = 2355.0 * 12.0 / 2048.0;
+    let (lo, hi) = (
+        bottoms.iter().copied().fold(f32::MAX, f32::min),
+        bottoms.iter().copied().fold(0.0f32, f32::max),
+    );
+    assert!(hi - lo <= 2.0 * line + 0.1, "{bottoms:?}");
+    // The next section starts below the tallest column and the last paragraph's 12 pt
+    // space after.
+    let next = lines(&l, 7)[0].top;
+    assert!(near(next, hi + 12.0), "{next} vs {hi}");
+}
+
+fn grid_borders() -> Borders {
+    let b = Some(Border::single(4));
+    Borders {
+        top: b.clone(),
+        left: b.clone(),
+        bottom: b.clone(),
+        right: b.clone(),
+        inside_h: b.clone(),
+        inside_v: b,
+    }
+}
+
+/// §17.4.42 tblCellMar top / bottom: added to the row's borders (measured black-box:
+/// 7.2 pt / 3.6 pt margins make every Table Grid row 0.5 + 10.8 pt taller than its line).
+#[test]
+fn cell_margins_top_and_bottom_add_to_the_row() {
+    let mut t = Table::simple(3, 1, Twips(4000));
+    t.props.borders = Some(grid_borders());
+    t.props.cell_margin_vertical = Some((Twips(144), Twips(72)));
+    for (i, row) in t.rows.iter_mut().enumerate() {
+        row.cells[0].blocks = vec![para(&format!("row {i}"), 0, 0, SINGLE)];
+    }
+    let l = run(&doc(vec![Block::Table(t), para("after", 0, 0, SINGLE)]));
+    let line = 2355.0 * 12.0 / 2048.0;
+    let (r0, r1) = (lines(&l, 0)[0], lines(&l, 1)[0]);
+    assert!(near(r0.top, 72.0 + 0.5 + 7.2), "{}", r0.top);
+    assert!(
+        near(r1.top - r0.top, line + 0.5 + 7.2 + 3.6),
+        "{}",
+        r1.top - r0.top
+    );
+    let after = lines(&l, 3)[0].top - lines(&l, 2)[0].top;
+    assert!(near(after, line + 3.6 + 0.5), "{after}");
+}
+
+/// A row split at the page end draws its bottom border right below its last line on
+/// that page (gen-07 of the fidelity corpus), not at the page bottom.
+#[test]
+fn a_split_row_ends_below_its_last_line() {
+    let long = "Layout engines must agree on where every line breaks, because a single word \
+                moved to the next line can push a heading onto another page. "
+        .repeat(6);
+    let mut t = Table::simple(1, 1, Twips(4000));
+    t.props.borders = Some(grid_borders());
+    t.rows[0].cells[0].blocks = vec![para(&long, 0, 0, SINGLE)];
+    let mut blocks: Vec<Block> = (0..45)
+        .map(|i| para(&format!("filler {i}"), 0, 0, SINGLE))
+        .collect();
+    blocks.push(Block::Table(t));
+    let l = run(&doc(blocks));
+    let page = &l.pages[0];
+    let last = page
+        .lines
+        .iter()
+        .filter(|x| x.source == LineSource::Body(45))
+        .map(|x| x.top + x.height)
+        .fold(0.0f32, f32::max);
+    assert!(last > 0.0, "the row starts on page 1");
+    let lowest_rule = page
+        .items
+        .iter()
+        .filter_map(|it| match it {
+            PageItem::Rule { y1, y2, .. } => Some(y1.max(*y2)),
+            _ => None,
+        })
+        .fold(0.0f32, f32::max);
+    assert!((lowest_rule - last).abs() < 1.0, "{lowest_rule} vs {last}");
 }

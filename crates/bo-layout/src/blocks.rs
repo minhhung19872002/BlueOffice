@@ -1136,6 +1136,10 @@ pub(crate) fn layout_table(
     };
     let tb = table_borders(ctx.doc, t);
     let table_ppr = table_style_ppr(ctx.doc, t);
+    let (cell_top, cell_bottom) = t
+        .props
+        .cell_margin_vertical
+        .map_or((0.0, 0.0), |(a, b)| (a.to_pt(), b.to_pt()));
     let (ml, mr) = t
         .props
         .cell_margin
@@ -1311,8 +1315,10 @@ pub(crate) fn layout_table(
             // Table Grid row 0.5 pt (sz 4) taller than its line (measured black-box,
             // docs/ui/REPORT.md Fidelity round 1; §17.4.38 tcBorders, §17.4.39 tblBorders).
             let bw = |b: &Option<Border>| b.as_ref().map_or(0.0, |b| b.size as f32 / 8.0);
-            let mt = bw(&edges[0]);
-            let mb = if last_row { bw(&edges[2]) } else { 0.0 };
+            // §17.4.42 tblCellMar top / bottom add to the borders (measured black-box:
+            // 7.2 / 3.6 pt margins make a Table Grid row 0.48 + 10.8 pt taller than its line).
+            let mt = bw(&edges[0]) + cell_top;
+            let mb = if last_row { bw(&edges[2]) } else { 0.0 } + cell_bottom;
             let needed = content_h + mt + mb;
             if rows_spanned > 1 {
                 tall.push((ri, rows_spanned, needed));
@@ -1576,14 +1582,14 @@ pub(crate) fn row_notes(row: &RowBox) -> Vec<NoteKey> {
         .collect()
 }
 
+/// Bands of a cell with their tops.
+type Bands = Vec<(f32, Band)>;
+
 /// Widow / orphan control of the paragraph a row split cuts through (ECMA-376 Part 1,
 /// §17.3.1.44 widowControl), as the body flow does: one line left after the break
 /// takes another with it, and a paragraph's first line alone before the break moves
 /// on. `a` / `b` are a cell's bands before / after the break, in content order.
-fn keep_widow_lines(
-    mut a: Vec<(f32, Band)>,
-    mut b: Vec<(f32, Band)>,
-) -> (Vec<(f32, Band)>, Vec<(f32, Band)>) {
+fn keep_widow_lines(mut a: Bands, mut b: Bands) -> (Bands, Bands) {
     let para = |band: &Band| {
         band.widow_control
             .then(|| band.lines.first().map(|l| l.source))
@@ -1662,7 +1668,14 @@ pub(crate) fn split_row(row: &RowBox, avail: f32) -> Option<(RowBox, RowBox)> {
     if !any_first || !any_rest {
         return None;
     }
-    first.h = avail;
+    // The part before the break ends below its last line (its bottom border drawn
+    // there, as in the reference word processor), not at the page bottom.
+    first.h = first
+        .cells
+        .iter()
+        .map(|c| c.content_h + c.margins[2] + c.margins[3])
+        .fold(0.0f32, f32::max)
+        .min(avail);
     rest.h = rest_h.max(1.0);
     Some((first, rest))
 }

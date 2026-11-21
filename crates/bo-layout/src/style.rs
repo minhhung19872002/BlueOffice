@@ -119,6 +119,12 @@ pub struct RunStyle {
     pub combine_brackets: Option<(char, char)>,
     /// Glyph effects for the renderer.
     pub fx: Option<std::sync::Arc<crate::charfx::TextFx>>,
+    /// Text line extents of the run's font in em: ascent, descent, external leading
+    /// ([`bo_text::FontManager::line_extent`]).
+    pub line: (f32, f32, f32),
+    /// A list label (§17.9.6 lvlText): as measured in the reference word processor, its
+    /// font can raise the line top but its descent does not lower the line bottom.
+    pub label: bool,
 }
 
 /// Effective paragraph properties of `p`.
@@ -241,6 +247,8 @@ pub fn run_style(doc: &Document, fonts: &mut FontManager, rp: &RunProps) -> Opti
             .as_ref()
             .and_then(bo_model::run_fx::EastAsianLayout::brackets),
         fx: crate::charfx::TextFx::of(rp).map(std::sync::Arc::new),
+        line: fonts.line_extent(&fam[0], face),
+        label: false,
     })
 }
 

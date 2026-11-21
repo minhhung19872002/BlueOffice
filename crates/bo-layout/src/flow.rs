@@ -28,6 +28,46 @@ struct Prev {
     after: f32,
 }
 
+/// Lay paragraph `p` out again for a column of width `w` continuing it after its
+/// first `placed` lines (ECMA-376 Part 1, §17.6.3 `col/@w`: unequal columns): the
+/// placed `parts` (top, bottom, width) keep their widths, the rest takes `w`. `None`
+/// when the placed lines would not come out the same.
+fn rewrap_across_columns(
+    ctx: &mut Ctx<'_>,
+    p: &Paragraph,
+    pb: &ParaBlock,
+    parts: &[(f32, f32, f32)],
+    from: f32,
+    w: f32,
+    placed: usize,
+) -> Result<Option<ParaBlock>, LayoutError> {
+    let wide = parts.iter().map(|q| q.2).fold(w, f32::max);
+    let zone = |top: f32, bottom: f32, width: f32| WrapZone {
+        top,
+        bottom,
+        left: width,
+        right: wide + 1.0,
+        side: WrapText::Left,
+        outline: None,
+    };
+    let mut zones: Vec<WrapZone> = parts
+        .iter()
+        .filter(|q| q.2 < wide - 0.01)
+        .map(|q| zone(q.0, q.1 - 0.01, q.2))
+        .collect();
+    if w < wide - 0.01 {
+        zones.push(zone(from, f32::MAX / 4.0, w));
+    }
+    let again = rewrap_para(ctx, p, pb, wide, &zones)?;
+    let end = |b: &ParaBlock| {
+        b.lines
+            .get(placed.wrapping_sub(1))
+            .and_then(|l| l.lines.first())
+            .map(|l| l.end)
+    };
+    Ok((again.lines.len() > placed && end(&again) == end(pb)).then_some(again))
+}
+
 /// Spacing between two paragraphs (ECMA-376 Part 1, §17.3.1.33 spacing `w:before` /
 /// `w:after`). The reference word processor keeps the larger of the previous paragraph's
 /// space after and the next one's space before rather than their sum (measured black-box
@@ -923,6 +963,132 @@ impl Flow {
         self.y = low + self.prev.as_ref().map_or(0.0, |p| p.after);
     }
 
+    /// Balance columns of unequal widths (ECMA-376 Part 1, §17.6.3 `col/@w`) before a
+    /// continuous section break: lines cannot move between columns of other widths, so
+    /// the section — when it began on this page and holds only paragraphs — is laid out
+    /// again with the columns' bottom raised to the lowest height that still holds it
+    /// on this page (the reference word processor's balanced columns, measured
+    /// black-box, docs/ui/REPORT.md "Dàn trang vòng 2").
+    fn balance_unequal_columns(
+        &mut self,
+        ctx: &mut Ctx<'_>,
+        si: usize,
+        start: &Checkpoint,
+    ) -> Result<(), LayoutError> {
+        let doc = ctx.doc;
+        let (Some(sec), Some(next)) = (doc.sections.get(si), doc.sections.get(si + 1)) else {
+            return Ok(());
+        };
+        let continuous = matches!(
+            next.break_type,
+            SectionBreak::Continuous | SectionBreak::NextColumn
+        ) && next.page.width == sec.page.width
+            && next.page.height == sec.page.height
+            && next.text_direction == sec.text_direction;
+        let n = self.cols.len();
+        let unequal = self.cols.iter().any(|c| (c.1 - self.cols[0].1).abs() > EPS);
+        if !continuous
+            || !unequal
+            || n < 2
+            || self.vertical.is_some()
+            || self.col_break
+            || self.drop.is_some()
+            || self.pages.len() != start.page + 1
+            || self.notes_on_page != start.snap.notes_on_page
+            || !sec.blocks.iter().all(|b| matches!(b, Block::Paragraph(_)))
+        {
+            return Ok(());
+        }
+        // A document's first section starts before its first page exists.
+        let top = start.snap.cols_top.max(self.top);
+        let tallest = self.pages.last().map_or(0.0, |p| {
+            p.lines[start.lines.min(p.lines.len())..]
+                .iter()
+                .fold(0.0f32, |m, l| m.max(l.height))
+        });
+        let full = self.bottom;
+        let used = self.cols_low - top;
+        // The lowest column bottom that keeps the section on this page (bisection to
+        // half a point; the columns' widths make the line count depend on it).
+        let (mut lo, mut hi) = (tallest, used);
+        while hi - lo > 0.5 {
+            let mid = f32::midpoint(lo, hi);
+            self.rewind(ctx, start);
+            self.bottom = top + mid;
+            self.place_section_paragraphs(ctx, si)?;
+            if self.pages.len() == start.page + 1 {
+                hi = mid;
+            } else {
+                lo = mid;
+            }
+        }
+        self.rewind(ctx, start);
+        self.bottom = if hi < used - EPS { top + hi } else { full };
+        let mark = self.place_section_paragraphs(ctx, si)?;
+        self.bottom = full;
+        // The empty paragraph carrying the section break does not lower the columns
+        // (measured black-box: the next section follows the lowest text line).
+        if let (Some(m), Some(page)) = (mark, self.pages.last()) {
+            if self.pages.len() == start.page + 1 {
+                self.cols_low = page.lines[start.lines.min(m)..m]
+                    .iter()
+                    .filter(|l| l.top >= top - EPS)
+                    .map(|l| l.top + l.height)
+                    .fold(top, f32::max);
+            }
+        }
+        // As after moving lines ([`Flow::balance_columns`]): the next section starts
+        // below the lowest column, the last paragraph's space after kept below it.
+        self.y = self.cols_low + self.prev.as_ref().map_or(0.0, |p| p.after);
+        // Balanced already: the section break leaves the columns as they are.
+        self.col_break = true;
+        // The trial layouts recorded no reusable checkpoints in this section.
+        if let Some(v) = self.cps.get_mut(si) {
+            for c in v.iter_mut() {
+                *c = None;
+            }
+        }
+        Ok(())
+    }
+
+    /// Back to `start` on its page (pages and content placed since are dropped).
+    fn rewind(&mut self, ctx: &mut Ctx<'_>, start: &Checkpoint) {
+        self.pages.truncate(start.page + 1);
+        if let Some(page) = self.pages.last_mut() {
+            page.lines.truncate(start.lines);
+            page.items.truncate(start.items);
+        }
+        self.foot_order.truncate(start.snap.foot_keys);
+        self.restore(ctx, start);
+    }
+
+    /// Place the paragraphs of section `si` from its start (see
+    /// [`Flow::balance_unequal_columns`]). Returns the page's line count before the
+    /// section's last paragraph when that paragraph is empty (it only carries the
+    /// section break).
+    fn place_section_paragraphs(
+        &mut self,
+        ctx: &mut Ctx<'_>,
+        si: usize,
+    ) -> Result<Option<usize>, LayoutError> {
+        let doc = ctx.doc;
+        let Some(sec) = doc.sections.get(si) else {
+            return Ok(None);
+        };
+        let mut mark = None;
+        for (k, b) in sec.blocks.iter().enumerate() {
+            let (built, base) = self.build(ctx, si, k, b)?;
+            self.id_base = base;
+            if let (Built::Para(pb), Block::Paragraph(p)) = (&built, b) {
+                if k + 1 == sec.blocks.len() && p.plain_text().is_empty() {
+                    mark = self.pages.last().map(|pg| pg.lines.len());
+                }
+                self.place_para(ctx, pb, 0.0, Some(p))?;
+            }
+        }
+        Ok(mark)
+    }
+
     /// Separator lines between the current columns (ECMA-376 Part 1, §17.6.4
     /// `w:sep`), as tall as the longest column on this page.
     fn close_columns(&mut self) {
@@ -1494,10 +1660,34 @@ impl Flow {
             _ => pb,
         };
 
-        let n = pb.lines.len();
+        let first = pb;
+        // Laid out again when it continues in a column of another width.
+        let mut owned: Option<ParaBlock> = None;
+        // Placed parts of the paragraph: (top, bottom, width) from its first line's top.
+        let mut parts: Vec<(f32, f32, f32)> = Vec::new();
+        let mut part_w = self.col_w();
+        let mut n = pb.lines.len();
         let mut i = 0;
         let mut segments: Vec<(usize, f32, f32, f32)> = Vec::new(); // (page, col x, y0, y1)
         while i < n {
+            if (self.col_w() - part_w).abs() > 0.01 && self.sides.is_empty() {
+                if let Some(p) = src {
+                    let cur = owned.as_ref().unwrap_or(first);
+                    let from: f32 = cur.lines[..i].iter().map(|b| b.h).sum();
+                    if i > 0 {
+                        let start = parts.last().map_or(0.0, |q| q.1);
+                        parts.push((start, from, part_w));
+                    }
+                    part_w = self.col_w();
+                    if let Some(again) =
+                        rewrap_across_columns(ctx, p, cur, &parts, from, part_w, i)?
+                    {
+                        n = again.lines.len();
+                        owned = Some(again);
+                    }
+                }
+            }
+            let pb = owned.as_ref().unwrap_or(first);
             let fit = self.fit_count(ctx, &pb.lines[i..])?;
             let remaining = n - i;
             let mut take = fit.min(remaining);
@@ -1546,6 +1736,7 @@ impl Flow {
                 Brk::None => {}
             }
         }
+        let pb = first;
         if let Some(d) = &pb.deco {
             for (pi, cx, y0, y1) in segments {
                 let mut items = Vec::new();
@@ -1886,10 +2077,12 @@ impl Flow {
         let (s0, k0) = from.unwrap_or((0, 0));
         for (si, sec) in doc.sections.iter().enumerate().skip(s0) {
             let mut k = 0;
+            let mut section_start = None;
             if from.is_some() && si == s0 {
                 k = k0;
             } else {
                 self.start_section(si, sec, si == 0);
+                section_start = Some(self.checkpoint(ctx));
             }
             self.beneath = doc.footnote_props(si).pos == Some(NotePos::BeneathText);
             let mut next: Option<(Built, u32)> = None;
@@ -1932,6 +2125,9 @@ impl Flow {
                     Built::Skip => {}
                 }
                 k += 1;
+            }
+            if let Some(start) = &section_start {
+                self.balance_unequal_columns(ctx, si, start)?;
             }
             // §17.11.22 pos sectEnd: the section's endnotes at its end.
             if doc.endnote_props(si).pos == Some(NotePos::SectEnd) {

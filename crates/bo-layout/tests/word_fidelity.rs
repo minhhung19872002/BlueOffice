@@ -7,12 +7,13 @@
 
 use bo_layout::{
     layout_document, layout_document_with, LayoutCache, LayoutDocument, LayoutOptions, Line,
-    LineSource, MarkFilter,
+    LineSource, MarkFilter, PageItem,
 };
 use bo_model::{
-    Alignment, Anchor, Block, Border, Borders, Cell, CellProps, Columns, Document, Emu, HalfPoints,
-    Image, LineSpacing, PageSetup, ParaProps, Paragraph, Run, RunContent, RunProps, Section,
-    SectionBreak, Style, StyleKind, TabAlign, TabLeader, TabStop, Table, Twips, Wrap,
+    AbstractNum, Alignment, Anchor, Block, Border, Borders, Cell, CellProps, ColumnDef, Columns,
+    Document, Emu, HalfPoints, Image, Level, LineSpacing, Num, NumFormat, NumRef, Numbering,
+    PageSetup, ParaProps, Paragraph, Run, RunContent, RunProps, Section, SectionBreak, Style,
+    StyleKind, TabAlign, TabLeader, TabStop, Table, Twips, Wrap,
 };
 use bo_text::FontManager;
 
@@ -535,4 +536,328 @@ fn a_long_footnote_stays_whole_with_its_reference() {
     assert!(p0.contains("reference"), "{p0}");
     assert!(p0.contains("note paragraph 32"), "{p0}");
     assert!(!p0.contains("after 0"), "{p0}");
+}
+
+// ---------------------------------------------------------------- round 2
+
+/// Calibri 11 pt paragraph made of `runs` (font, text), single lines, no spacing.
+fn calibri_para(runs: &[(&str, &str)]) -> Block {
+    Block::Paragraph(Paragraph::new(
+        ParaProps {
+            space_before: Some(Twips(0)),
+            space_after: Some(Twips(0)),
+            line_spacing: Some(SINGLE),
+            ..ParaProps::default()
+        },
+        runs.iter()
+            .map(|(f, t)| {
+                Run::text(
+                    *t,
+                    RunProps {
+                        font: Some((*f).into()),
+                        size: Some(HalfPoints(22)),
+                        ..Default::default()
+                    },
+                )
+            })
+            .collect(),
+    ))
+}
+
+/// Calibri 11 pt single line: usWinAscent 1950 + usWinDescent 550 (2048 em), no leading.
+const CALIBRI_ASCENT: f32 = 1950.0 * 11.0 / 2048.0;
+const CALIBRI_LINE: f32 = 2500.0 * 11.0 / 2048.0;
+
+/// The line top is the highest ascent + external leading of one run (measured black-box,
+/// docs/ui/REPORT.md "Dàn trang vòng 2"): an 11 pt Times run (ascent + leading below
+/// Calibri's ascent) leaves a Calibri line as it is; a Symbol run raises its top by
+/// 0.59 pt; a Courier New run lowers its bottom by 0.35 pt — also where neither font is
+/// installed and an unrelated face draws them.
+#[test]
+fn a_line_is_as_high_as_its_tallest_run() {
+    let d = doc(vec![
+        calibri_para(&[("Calibri", "plain "), ("Times New Roman", "times")]),
+        calibri_para(&[("Calibri", "plain "), ("Symbol", "x")]),
+        calibri_para(&[("Calibri", "plain "), ("Courier New", "x")]),
+    ]);
+    let l = run(&d);
+    let times = lines(&l, 0)[0];
+    assert!(near(times.height, CALIBRI_LINE), "{}", times.height);
+    assert!(near(times.baseline - times.top, CALIBRI_ASCENT));
+    let symbol = lines(&l, 1)[0];
+    assert!(
+        (symbol.baseline - symbol.top - 1.0054 * 11.0).abs() < 0.02,
+        "{}",
+        symbol.baseline - symbol.top
+    );
+    let courier = lines(&l, 2)[0];
+    let below = courier.height - (courier.baseline - courier.top);
+    assert!((below - 0.3003 * 11.0).abs() < 0.02, "{below}");
+}
+
+/// A list label's font raises the line top (a 20 pt Courier New "o" bullet) but its
+/// descent does not lower the line bottom (measured black-box).
+#[test]
+fn a_list_label_raises_the_line_but_does_not_deepen_it() {
+    let mut item = calibri_para(&[("Calibri", "item")]);
+    if let Block::Paragraph(p) = &mut item {
+        p.props.num = Some(NumRef { num_id: 1, ilvl: 0 });
+    }
+    let mut d = doc(vec![item]);
+    d.numbering = Numbering {
+        abstracts: vec![AbstractNum {
+            id: 0,
+            levels: vec![Level {
+                ilvl: 0,
+                start: 1,
+                format: NumFormat::Bullet,
+                text: "o".into(),
+                align: Alignment::Left,
+                ppr: ParaProps::default(),
+                rpr: RunProps {
+                    font: Some("Courier New".into()),
+                    size: Some(HalfPoints(40)),
+                    ..Default::default()
+                },
+                restart: None,
+                suffix: "tab".into(),
+                pstyle: None,
+                is_lgl: false,
+            }],
+        }],
+        nums: vec![Num {
+            id: 1,
+            abstract_id: 0,
+            start_overrides: Vec::new(),
+        }],
+    };
+    let l = run(&d);
+    let line = lines(&l, 0)[0];
+    let above = line.baseline - line.top;
+    assert!((above - 0.8325 * 20.0).abs() < 0.02, "{above}");
+    let below = line.height - above;
+    assert!(near(below, CALIBRI_LINE - CALIBRI_ASCENT), "{below}");
+}
+
+/// Widow control in table cells (§17.3.1.44): a row split at the page end does not
+/// leave a paragraph's first line alone before the break — the row moves to the next
+/// page whole (gen-07 of the fidelity corpus, measured black-box).
+#[test]
+fn a_row_split_keeps_widow_control() {
+    let long = "Layout engines must agree on where every line breaks, because a single word \
+                moved to the next line can push a heading onto another page. "
+        .repeat(4);
+    let filler = (0..49).map(|i| para(&format!("filler {i}"), 0, 0, SINGLE));
+    let mut t = Table::simple(1, 2, Twips(4000));
+    t.rows[0].cells[0].blocks = vec![para("10", 0, 0, SINGLE)];
+    t.rows[0].cells[1].blocks = vec![para(&long, 0, 0, SINGLE)];
+    let mut blocks: Vec<Block> = filler.collect();
+    blocks.push(Block::Table(t));
+    let l = run(&doc(blocks));
+    let page_of = |para: u32| {
+        l.pages
+            .iter()
+            .position(|p| p.lines.iter().any(|x| x.source == LineSource::Body(para)))
+            .unwrap()
+    };
+    // 49 lines of 13.8 pt leave room for one line of the row on page 1: it moves.
+    assert_eq!(page_of(48), 0);
+    assert_eq!(page_of(49), 1, "the row's number cell");
+    assert_eq!(page_of(50), 1, "the row's text cell");
+}
+
+/// Unequal columns before a continuous break (§17.6.3 col `w:w`): balanced by laying the
+/// text out again (lines cannot move between columns of other widths), and a paragraph
+/// continuing in a wider column takes that column's width (gen-06 of the fidelity
+/// corpus, measured black-box).
+#[test]
+fn unequal_columns_balance_and_rewrap() {
+    let text = "Layout engines must agree on where every line breaks, because a single word \
+                moved to the next line can push a heading onto another page.";
+    let mut blocks: Vec<Block> = (0..6).map(|_| para(text, 0, 240, SINGLE)).collect();
+    // The empty paragraph that carries the section break takes no part in the balance.
+    blocks.push(para("", 0, 240, SINGLE));
+    let mut d = doc(blocks);
+    let col = |w: i32, s: i32| ColumnDef {
+        width: Twips(w),
+        space: Twips(s),
+    };
+    d.sections[0].columns = Columns {
+        count: 3,
+        space: Twips(360),
+        separator: false,
+        cols: vec![col(2000, 360), col(3000, 360), col(3646, 0)],
+    };
+    let mut after = Section {
+        page: a4(),
+        ..Section::new(vec![para("after", 0, 0, SINGLE)])
+    };
+    after.break_type = SectionBreak::Continuous;
+    d.sections.push(after);
+    let l = run(&d);
+    // Column left edges and widths (points).
+    let cols = [(72.0, 100.0), (190.0, 150.0), (358.0, 182.3)];
+    let mut bottoms = [0.0f32; 3];
+    let mut widest = [0.0f32; 3];
+    for i in 0..6 {
+        for line in lines(&l, i) {
+            let x0 = line.fragments.iter().map(|f| f.x).fold(f32::MAX, f32::min);
+            let x1 = line
+                .fragments
+                .iter()
+                .map(|f| f.x + f.width)
+                .fold(0.0f32, f32::max);
+            let c = cols.iter().rposition(|c| x0 >= c.0 - 1.0).unwrap();
+            // A fragment's width includes the line's trailing space (3 pt).
+            assert!(
+                x1 <= cols[c].0 + cols[c].1 + 3.5,
+                "line {i} beyond column {c}"
+            );
+            widest[c] = widest[c].max(x1 - cols[c].0);
+            bottoms[c] = bottoms[c].max(line.top + line.height);
+        }
+    }
+    // Lines in the wider columns use their width (not the first column's 100 pt).
+    assert!(widest[1] > 110.0 && widest[2] > 160.0, "{widest:?}");
+    // Balanced: the three columns end within two lines of each other.
+    let line = 2355.0 * 12.0 / 2048.0;
+    let (lo, hi) = (
+        bottoms.iter().copied().fold(f32::MAX, f32::min),
+        bottoms.iter().copied().fold(0.0f32, f32::max),
+    );
+    assert!(hi - lo <= 2.0 * line + 0.1, "{bottoms:?}");
+    // The next section starts below the tallest column and the last paragraph's 12 pt
+    // space after.
+    let next = lines(&l, 7)[0].top;
+    assert!(near(next, hi + 12.0), "{next} vs {hi}");
+}
+
+fn grid_borders() -> Borders {
+    let b = Some(Border::single(4));
+    Borders {
+        top: b.clone(),
+        left: b.clone(),
+        bottom: b.clone(),
+        right: b.clone(),
+        inside_h: b.clone(),
+        inside_v: b,
+    }
+}
+
+/// §17.4.42 tblCellMar top / bottom: added to the row's borders (measured black-box:
+/// 7.2 pt / 3.6 pt margins make every Table Grid row 0.5 + 10.8 pt taller than its line).
+#[test]
+fn cell_margins_top_and_bottom_add_to_the_row() {
+    let mut t = Table::simple(3, 1, Twips(4000));
+    t.props.borders = Some(grid_borders());
+    t.props.cell_margin_vertical = Some((Twips(144), Twips(72)));
+    for (i, row) in t.rows.iter_mut().enumerate() {
+        row.cells[0].blocks = vec![para(&format!("row {i}"), 0, 0, SINGLE)];
+    }
+    let l = run(&doc(vec![Block::Table(t), para("after", 0, 0, SINGLE)]));
+    let line = 2355.0 * 12.0 / 2048.0;
+    let (r0, r1) = (lines(&l, 0)[0], lines(&l, 1)[0]);
+    assert!(near(r0.top, 72.0 + 0.5 + 7.2), "{}", r0.top);
+    assert!(
+        near(r1.top - r0.top, line + 0.5 + 7.2 + 3.6),
+        "{}",
+        r1.top - r0.top
+    );
+    let after = lines(&l, 3)[0].top - lines(&l, 2)[0].top;
+    assert!(near(after, line + 3.6 + 0.5), "{after}");
+}
+
+/// A row split at the page end draws its bottom border right below its last line on
+/// that page (gen-07 of the fidelity corpus), not at the page bottom.
+#[test]
+fn a_split_row_ends_below_its_last_line() {
+    let long = "Layout engines must agree on where every line breaks, because a single word \
+                moved to the next line can push a heading onto another page. "
+        .repeat(6);
+    let mut t = Table::simple(1, 1, Twips(4000));
+    t.props.borders = Some(grid_borders());
+    t.rows[0].cells[0].blocks = vec![para(&long, 0, 0, SINGLE)];
+    let mut blocks: Vec<Block> = (0..45)
+        .map(|i| para(&format!("filler {i}"), 0, 0, SINGLE))
+        .collect();
+    blocks.push(Block::Table(t));
+    let l = run(&doc(blocks));
+    let page = &l.pages[0];
+    let last = page
+        .lines
+        .iter()
+        .filter(|x| x.source == LineSource::Body(45))
+        .map(|x| x.top + x.height)
+        .fold(0.0f32, f32::max);
+    assert!(last > 0.0, "the row starts on page 1");
+    let lowest_rule = page
+        .items
+        .iter()
+        .filter_map(|it| match it {
+            PageItem::Rule { y1, y2, .. } => Some(y1.max(*y2)),
+            _ => None,
+        })
+        .fold(0.0f32, f32::max);
+    assert!((lowest_rule - last).abs() < 1.0, "{lowest_rule} vs {last}");
+}
+
+/// §20.4.3.7 ST_WrapText `left`: no text right of the picture, also where another
+/// picture already cuts the line (images-04 of the fidelity corpus, measured black-box).
+#[test]
+fn a_left_wrapped_picture_keeps_its_right_side_empty() {
+    let pic = |x_pt: i64, h_pt: i64, side: bo_model::WrapText| {
+        RunContent::Image(Box::new(Image {
+            media: "/word/media/image1.png".into(),
+            width: Emu(914_400),
+            height: Emu(h_pt * 12_700),
+            anchor: Some(Anchor {
+                h_relative: "column".into(),
+                v_relative: "paragraph".into(),
+                x: Emu(x_pt * 12_700),
+                y: Emu(0),
+                wrap: Wrap::Square,
+                wrap_text: side,
+                ..Default::default()
+            }),
+            crop: None,
+            rotation: 0,
+            description: String::new(),
+            shape: None,
+            format: None,
+            src: None,
+            ole: None,
+        }))
+    };
+    let para_with = |content: RunContent, text: &str| {
+        let mut run = Run::text(text, RunProps::default());
+        run.content.insert(0, content);
+        Block::Paragraph(Paragraph::new(
+            ParaProps {
+                space_before: Some(Twips(0)),
+                space_after: Some(Twips(0)),
+                line_spacing: Some(SINGLE),
+                ..ParaProps::default()
+            },
+            vec![run],
+        ))
+    };
+    let d = doc(vec![
+        para_with(pic(0, 72, bo_model::WrapText::BothSides), "Short."),
+        para_with(
+            pic(144, 54, bo_model::WrapText::Left),
+            &"words beside the pictures ".repeat(20),
+        ),
+    ]);
+    let l = run(&d);
+    // Lines beside the second picture (54 pt from its paragraph's top) start left of it.
+    let first = lines(&l, 1)[0].top;
+    for line in lines(&l, 1).iter().filter(|x| x.top < first + 54.0 - 1.0) {
+        for f in &line.fragments {
+            assert!(
+                f.x < 72.0 + 144.0,
+                "text right of a left-wrapped picture at {}",
+                f.x
+            );
+        }
+    }
 }

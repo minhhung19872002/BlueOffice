@@ -204,9 +204,38 @@ fn windows_metrics_and_typo_flag() {
         (i.win_ascent, i.win_descent, i.use_typo_metrics),
         (1950, 550, false)
     );
-    // Caladea asks for its typographic metrics (fsSelection bit 7).
+    // Caladea 1.002 (metric-compatible with Cambria): Cambria's Windows extents
+    // 0.950 / 0.222 em, no USE_TYPO_METRICS.
     let cam = fm.resolve("Cambria", false, false).unwrap();
-    assert!(fm.info(cam).use_typo_metrics);
+    let i = fm.info(cam);
+    assert_eq!(
+        (i.win_ascent, i.win_descent, i.use_typo_metrics),
+        (950, 222, false)
+    );
+    // STIX Two Math asks for its typographic metrics (fsSelection bit 7).
+    let math = fm.resolve("Cambria Math", false, false).unwrap();
+    assert!(fm.info(math).use_typo_metrics);
+}
+
+/// Caladea stands in for Cambria with Cambria's advance widths (the metric-compatible
+/// release; the earlier bundled design was up to 19 % narrower or wider per glyph).
+#[test]
+fn caladea_has_the_advance_widths_of_cambria() {
+    let mut fm = manager();
+    let cam = fm.resolve("Cambria", false, false).unwrap();
+    let upem = f32::from(fm.info(cam).units_per_em);
+    let mut em = |s: &str| -> f32 {
+        fm.shape_kern(cam, s, false)
+            .iter()
+            .map(|g| g.x_advance as f32)
+            .sum::<f32>()
+            / upem
+    };
+    // Cambria's advances: "1" 0.5537 em, "w" 0.7744 em,
+    // "o" 0.5308 em.
+    assert!((em("1") - 0.5537).abs() < 0.002, "{}", em("1"));
+    assert!((em("w") - 0.7744).abs() < 0.002, "{}", em("w"));
+    assert!((em("o") - 0.5308).abs() < 0.002, "{}", em("o"));
 }
 
 /// Line extents of the reference word processor (GDI `TEXTMETRIC`): Windows ascent and
@@ -248,4 +277,24 @@ fn shape_cache_is_bounded_in_bytes() {
     }
     assert!(most <= 64 << 20, "{most} bytes cached");
     assert!(fm.cached_shapes() < 300);
+}
+
+/// Vietnamese letters Caladea lacks keep Cambria's advance when a fallback face draws
+/// them: the base letter's, plus the horn for ơ / ư.
+#[test]
+fn letters_missing_from_caladea_keep_cambria_advances() {
+    let mut fm = manager();
+    let cam = fm.resolve("Cambria", false, false).unwrap();
+    assert!(!fm.has_glyph(cam, 'ệ'), "Caladea lacks ệ");
+    let e = fm.stand_in_advance(cam, 'ệ').unwrap();
+    let base = fm.stand_in_advance(cam, 'e').unwrap();
+    assert!(
+        (e - base).abs() < 1e-4 && (base - 0.488).abs() < 0.002,
+        "{e} {base}"
+    );
+    let horn = fm.stand_in_advance(cam, 'ợ').unwrap();
+    assert!((horn - (0.5308 + 0.068)).abs() < 0.002, "{horn}");
+    // Not a stand-in: no override.
+    let times = fm.resolve("Times New Roman", false, false).unwrap();
+    assert!(fm.stand_in_advance(times, 'ệ').is_none());
 }

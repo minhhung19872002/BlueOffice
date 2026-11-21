@@ -303,6 +303,9 @@ pub(crate) struct FindDialog {
     pub(crate) match_case: bool,
     pub(crate) whole_word: bool,
     pub(crate) wildcards: bool,
+    /// Sounds like, word forms, match prefix, match suffix, ignore punctuation, ignore white
+    /// space (round 10; check boxes 3–8).
+    pub(crate) extra: [bool; 6],
     find: Edit,
     with: Edit,
     page: Edit,
@@ -361,6 +364,7 @@ impl FindDialog {
             match_case: false,
             whole_word: false,
             wildcards: false,
+            extra: [false; 6],
             find: Edit::new(find),
             with: Edit::default(),
             page: Edit::default(),
@@ -395,10 +399,42 @@ impl FindDialog {
     /// Search options for the engine's `find` / `replace` commands.
     pub(crate) fn options(&self) -> serde_json::Value {
         serde_json::json!({
-            "matchCase": self.match_case,
-            "wholeWord": self.whole_word && !self.wildcards,
-            "wildcards": self.wildcards,
+            "matchCase": self.match_case && self.check_on(0),
+            "wholeWord": self.whole_word && self.check_on(1),
+            "wildcards": self.wildcards && self.check_on(2),
+            "soundsLike": self.extra[0] && self.check_on(3),
+            "wordForms": self.extra[1] && self.check_on(4),
+            "matchPrefix": self.extra[2] && self.check_on(5),
+            "matchSuffix": self.extra[3] && self.check_on(6),
+            "ignorePunctuation": self.extra[4] && self.check_on(7),
+            "ignoreSpace": self.extra[5] && self.check_on(8),
         })
+    }
+
+    /// Whether search option check box `i` (0 match case … 8 ignore white space) can be
+    /// used with the others ticked: wildcards leave only Match case; Sounds like and Find all
+    /// word forms exclude each other and the word / case options.
+    fn check_on(&self, i: usize) -> bool {
+        let sounds = self.extra[0];
+        let forms = self.extra[1];
+        match i {
+            0 | 2 => !sounds && !forms,
+            1 | 5 | 6 | 7 | 8 => !self.wildcards && !sounds && !forms,
+            3 => !self.wildcards && !forms,
+            4 => !self.wildcards && !sounds,
+            _ => false,
+        }
+    }
+
+    /// Tick or clear search option check box `i`.
+    fn toggle_check(&mut self, i: usize) {
+        match i {
+            0 => self.match_case = !self.match_case,
+            1 => self.whole_word = !self.whole_word,
+            2 => self.wildcards = !self.wildcards,
+            3..=8 => self.extra[i - 3] = !self.extra[i - 3],
+            _ => {}
+        }
     }
 
     /// The searches typed, most recent first (kept by the window between openings).
@@ -633,11 +669,7 @@ impl FindDialog {
         }
         let mut out = Vec::new();
         for i in 0..5 {
-            let enabled = match i {
-                0 | 2 => true,
-                1 => !self.wildcards,
-                _ => false,
-            };
+            let enabled = self.check_on(i);
             out.push((
                 L_CHECKS + i,
                 self.r(19.0, 282.0 + i as f32 * 22.0, 300.0, 18.0),
@@ -648,7 +680,7 @@ impl FindDialog {
             out.push((
                 L_CHECKS + k,
                 self.r(452.0, 282.0 + row * 22.0, 180.0, 18.0),
-                false,
+                self.check_on(k),
             ));
         }
         out
@@ -659,6 +691,7 @@ impl FindDialog {
             0 => self.match_case,
             1 => self.whole_word && !self.wildcards,
             2 => self.wildcards,
+            i @ 3..=8 => self.extra[i - 3],
             _ => false,
         }
     }
@@ -906,12 +939,7 @@ impl FindDialog {
             }
             Some(Hit::Button(b)) => self.button(b),
             Some(Hit::Check(l)) => {
-                match l - L_CHECKS {
-                    0 => self.match_case = !self.match_case,
-                    1 => self.whole_word = !self.whole_word,
-                    2 => self.wildcards = !self.wildcards,
-                    _ => {}
-                }
+                self.toggle_check(l - L_CHECKS);
                 FindAction::Redraw
             }
             Some(Hit::GoWhat(i)) => {
@@ -1045,12 +1073,7 @@ impl FindDialog {
             .into_iter()
             .find(|(l, _, on)| *on && has(*l, self))
         {
-            match l - L_CHECKS {
-                0 => self.match_case = !self.match_case,
-                1 => self.whole_word = !self.whole_word,
-                2 => self.wildcards = !self.wildcards,
-                _ => {}
-            }
+            self.toggle_check(l - L_CHECKS);
             return FindAction::Redraw;
         }
         FindAction::None

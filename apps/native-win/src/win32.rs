@@ -91,7 +91,36 @@ pub trait Handler {
     fn close_requested(&mut self) -> bool {
         true
     }
+    /// Text may be dropped on the window from other applications (OLE drag and drop).
+    fn accepts_drops(&self) -> bool {
+        false
+    }
+    /// Something with text is dragged over client point (`x`, `y`): whether it can drop there
+    /// (the application shows where).
+    fn drag_over(&mut self, _x: f32, _y: f32) -> bool {
+        false
+    }
+    /// The drag left the window or was cancelled.
+    fn drag_leave(&mut self) {}
+    /// Text dropped at (`x`, `y`), copied (else moved); true when it was taken.
+    fn drop_data(&mut self, _x: f32, _y: f32, _copy: bool, _data: ole_drag::DropData) -> bool {
+        false
+    }
+    /// A drag the application started ([`Request::DragText`]) ended with OLE effect `effect`
+    /// (2: moved to another place, which may be another application).
+    fn drag_done(&mut self, _effect: u32) {}
+    /// The swap chain's frame-latency waitable object (raw handle): the loop waits on it and
+    /// the message queue together before [`Handler::frame`], so input arriving meanwhile goes
+    /// into that frame instead of waiting behind it.
+    fn frame_waitable(&self) -> Option<isize> {
+        None
+    }
+    /// The wait on [`Handler::frame_waitable`] succeeded: the next frame need not wait again.
+    fn frame_waited(&mut self) {}
 }
+
+#[path = "ole_drag.rs"]
+pub mod ole_drag;
 
 thread_local! {
     static HANDLER: RefCell<Option<Box<dyn Handler>>> = RefCell::new(None);
@@ -532,6 +561,14 @@ fn window_request(hwnd: HWND, r: &Request) {
                 let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
             }
             Request::FullScreen(on) => full_screen(hwnd, *on),
+            Request::DragText {
+                text,
+                html,
+                internal,
+            } => {
+                let effect = ole_drag::drag(text, html, internal);
+                with_handler(|h| h.drag_done(effect));
+            }
             _ => {}
         }
     }
@@ -1174,11 +1211,19 @@ pub fn run(title: &str, handler: Box<dyn Handler>) -> Result<(), String> {
             return Err(e);
         }
         with_handler(|hd| hd.paint());
+        ole_drag::register_if_wanted(hwnd);
         let _ = SetTimer(Some(hwnd), BLINK_TIMER, GetCaretBlinkTimeOr530(), None);
         let _ = SetTimer(Some(hwnd), TICK_TIMER, 100, None);
-        // Handle every queued message first, then draw one frame: a burst of input (an input
-        // method replacing a letter, key repeat) shows only its final state, once per refresh.
-        let mut msg = MSG::default();
+        message_loop()
+    }
+}
+
+/// Handle every queued message first, then draw one frame: a burst of input (an input method
+/// replacing a letter, key repeat) shows only its final state, once per refresh.
+fn message_loop() -> Result<(), String> {
+    let mut msg = MSG::default();
+    // SAFETY: plain message calls on this thread's queue.
+    unsafe {
         loop {
             while PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool() {
                 if msg.message == WM_QUIT {
@@ -1188,7 +1233,10 @@ pub fn run(title: &str, handler: Box<dyn Handler>) -> Result<(), String> {
                 DispatchMessageW(&msg);
             }
             if with_handler(|h| h.wants_frame()).unwrap_or(false) {
-                with_handler(|h| h.frame());
+                // A message first: handle it (and whatever follows) before drawing.
+                if wait_for_frame() {
+                    with_handler(|h| h.frame());
+                }
                 continue;
             }
             // Idle: sleep until the next message.
@@ -1199,6 +1247,33 @@ pub fn run(title: &str, handler: Box<dyn Handler>) -> Result<(), String> {
             DispatchMessageW(&msg);
         }
     }
+}
+
+/// Wait for the swap chain to take a frame or for a message, whichever comes first; false
+/// when a message came first (handle it, then wait again).
+fn wait_for_frame() -> bool {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        MsgWaitForMultipleObjectsEx, MWMO_INPUTAVAILABLE, QS_ALLINPUT,
+    };
+    let Some(Some(handle)) = with_handler(|h| h.frame_waitable()) else {
+        return true;
+    };
+    // SAFETY: the handle is the live swap chain's waitable object, only waited on.
+    let r = unsafe {
+        MsgWaitForMultipleObjectsEx(
+            Some(&[HANDLE(handle as *mut core::ffi::c_void)]),
+            100,
+            QS_ALLINPUT,
+            MWMO_INPUTAVAILABLE,
+        )
+    };
+    if r.0 == 1 {
+        return false;
+    }
+    if r.0 == 0 {
+        with_handler(|h| h.frame_waited());
+    }
+    true
 }
 
 #[allow(non_snake_case)]

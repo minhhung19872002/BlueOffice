@@ -200,9 +200,7 @@ impl Engine {
         };
         let layout = self.layout.document();
         let lines = self.block_lines(layout, b.anchor);
-        let Some((i, _, line)) = nav::line_of(&lines, b.focus) else {
-            return None;
-        };
+        let (i, _, line) = nav::line_of(&lines, b.focus)?;
         let in_cell = self.block_cell(b.anchor.para).is_some();
         let mut leave = false;
         let step = |p: Pos, fwd: bool| -> Pos {
@@ -227,8 +225,8 @@ impl Engine {
             Motion::Up | Motion::Down | Motion::ParaUp | Motion::ParaDown => {
                 let up = matches!(motion, Motion::Up | Motion::ParaUp);
                 let j = if up { i.checked_sub(1) } else { Some(i + 1) };
-                match j.and_then(|j| lines.get(j)) {
-                    Some(&(_, l)) => match nav::body_id(l) {
+                if let Some(&(_, l)) = j.and_then(|j| lines.get(j)) {
+                    match nav::body_id(l) {
                         Some(id) => {
                             // The first stop at or right of the column, as the reference.
                             let off = l
@@ -239,11 +237,10 @@ impl Engine {
                             (Pos::new(id, off), b.fx)
                         }
                         None => (b.focus, b.fx),
-                    },
-                    None => {
-                        leave = in_cell;
-                        (b.focus, b.fx)
                     }
+                } else {
+                    leave = in_cell;
+                    (b.focus, b.fx)
                 }
             }
             Motion::LineStart => {

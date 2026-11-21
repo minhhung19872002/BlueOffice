@@ -127,6 +127,7 @@ pub(crate) fn fix_after_paste(s: &mut Session, start: Pos, select: bool) -> bo_e
 }
 
 /// An editing error as an engine error.
+#[allow(clippy::needless_pass_by_value)] // used as map_err(bad).
 pub(crate) fn bad(e: bo_edit::EditError) -> crate::EngineError {
     crate::EngineError::BadCommand(e.to_string())
 }

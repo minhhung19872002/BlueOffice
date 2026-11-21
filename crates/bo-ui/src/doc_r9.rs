@@ -28,11 +28,11 @@ pub(super) struct R9 {
 /// A press inside the selection, maybe dragged.
 pub(super) struct Dnd {
     /// Where the press was (window pixels) and its click data, replayed when it is a click.
-    press: (f32, f32),
+    pub(super) press: (f32, f32),
     /// The pointer moved far enough to drag the text.
-    moving: bool,
+    pub(super) moving: bool,
     /// Where the text would be dropped.
-    target: Option<Pos>,
+    pub(super) target: Option<Pos>,
 }
 
 /// Pointer travel (device pixels at 100 %) before a press inside the selection drags it.
@@ -178,9 +178,14 @@ impl DocWindow {
         let target = self.r8_page_point(x, y).and_then(|(page, px, py)| {
             bo_engine::nav::hit_test(self.view.engine().layout()?, page, px, py)
         });
+        let started = !dnd.moving;
         if let Some(d) = self.r9.dnd.as_mut() {
             d.moving = true;
             d.target = target;
+        }
+        if started {
+            // A host with OLE drag and drop takes the drag over from here (round 10).
+            self.r10_drag_started();
         }
         Some(true)
     }
@@ -253,6 +258,12 @@ impl DocWindow {
             self.r9.block_keys = false;
             return Some(self.view.run_command(Command::BlockClear));
         }
+        // Shift+arrows extend a block made by Alt+drag (round 10).
+        if block && !self.r9.block_keys && m.shift && !m.alt {
+            if let Some(motion) = motion_of(k, m.ctrl) {
+                return Some(self.view.run_command(Command::BlockMove { motion }));
+            }
+        }
         if self.r9.block_keys {
             if let Some(motion) = motion_of(k, m.ctrl) {
                 return Some(self.view.run_command(Command::BlockMove { motion }));
@@ -264,7 +275,13 @@ impl DocWindow {
 
     /// The dotted drop caret of a drag-and-drop.
     pub(super) fn r9_paint(&self, p: &mut dyn Painter) {
-        let Some(to) = self.r9.dnd.as_ref().and_then(|d| d.target) else {
+        let Some(to) = self
+            .r9
+            .dnd
+            .as_ref()
+            .and_then(|d| d.target)
+            .or(self.r10.drop_to)
+        else {
             return;
         };
         let Some(c) = self

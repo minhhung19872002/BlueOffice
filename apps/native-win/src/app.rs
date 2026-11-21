@@ -497,6 +497,9 @@ impl Shell {
                 }
                 Request::SaveAsType(ext) => redraw |= self.save_as_type(&ext),
                 Request::OpenLocation(p) => host6::open_location(&p),
+                Request::OpenUrl(u) => {
+                    let _ = win32::shell_open(std::path::Path::new(&u), "open");
+                }
                 Request::PrinterProperties(name) => {
                     // The driver's own settings dialog; nothing is printed.
                     let _ = host6::print::properties(self.hwnd, &name, None);
@@ -735,6 +738,7 @@ impl Handler for Shell {
                 bitmaps: HashMap::new(),
             },
         });
+        self.view.set_ole_drag(true);
         let m = Measure(self.gpu.as_ref().map(|g| &g.device));
         self.view.handle(Input::Scale(scale), &m);
         self.view.handle(
@@ -872,6 +876,54 @@ impl Handler for Shell {
 
     fn wants_frame(&self) -> bool {
         self.dirty || self.view.animating()
+    }
+
+    fn cursor(&self) -> Option<u8> {
+        Some(self.view.cursor())
+    }
+
+    fn frame_waitable(&self) -> Option<isize> {
+        self.gpu.as_ref().map(|g| g.surface.waitable())
+    }
+
+    fn frame_waited(&mut self) {
+        if let Some(g) = self.gpu.as_mut() {
+            g.surface.frame_waited();
+        }
+    }
+
+    fn accepts_drops(&self) -> bool {
+        true
+    }
+
+    fn drag_over(&mut self, x: f32, y: f32) -> bool {
+        let ok = self.view.drag_over(x, y);
+        self.dirty = true;
+        ok
+    }
+
+    fn drag_leave(&mut self) {
+        self.view.drag_leave();
+        self.dirty = true;
+    }
+
+    fn drop_data(&mut self, x: f32, y: f32, copy: bool, data: win32::ole_drag::DropData) -> bool {
+        let ok = self
+            .view
+            .drop_data(x, y, copy, data.internal, data.html, data.text);
+        self.handle_requests();
+        let m = Measure(self.gpu.as_ref().map(|g| &g.device));
+        self.view.refresh(&m);
+        self.dirty = true;
+        ok
+    }
+
+    fn drag_done(&mut self, effect: u32) {
+        self.view.drag_done(effect);
+        self.handle_requests();
+        let m = Measure(self.gpu.as_ref().map(|g| &g.device));
+        self.view.refresh(&m);
+        self.dirty = true;
     }
 
     fn frame(&mut self) {

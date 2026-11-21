@@ -1241,3 +1241,43 @@ thanh trạng thái. Sổ `f100k`, `big-1m` (Sheet1) nay cũng "Good to go" như
   chung, hàng xen màu) chưa làm; Field Settings của trường hàng / cột mờ; menu mục chưa có biểu tượng; bố cục ngăn cạnh nhau / chỉ trường / chỉ vùng chưa làm; nút trường ▾ trên báo cáo chưa
   mở menu sắp xếp / lọc của trường.
 - Function Arguments, Accessibility, Find and Replace, Format Cells: như sau vòng 11.
+
+## Vòng 13 — File screen, thẻ PivotTable Analyze / Design
+
+Tiếp tục sau khi tạm dừng (2026-11-17): gộp `work/desktop-performance` (khoảng 40 commit; xung đột `lib.rs` và hai tệp
+ngôn ngữ — gộp sâu, cùng bộ khoá), bản release build được lại (lỗi 101 lần trước không lặp lại).
+
+### Vòng 63 — File screen so với đối chứng
+
+Chụp đối chứng bằng `ExecuteMso("PrintPreviewAndPrint")` trên bản sao `data.xlsx` rồi nhấp gửi vào thanh trái
+(New, Info, Save As, Export, Print); BlueSheet mở cùng trang bằng `BLUEOFFICE_SHEET_ACTIONS=file.page.<trang>`
+(`sheet-82` Print, `sheet-83` Export). Sửa theo so sánh:
+
+- Print: khổ giấy của trang tính không đặt khổ lấy theo máy in mặc định (driver: `dmPaperSize`, ở đây A4 như đối
+  chứng; trước là Letter theo vùng Windows); ô "Print One Sided" chỉ hiện khi driver in được hai mặt (`DM_DUPLEX`,
+  máy in ở đây không có — đối chứng cũng không hiện); thêm liên kết "Find more print settings" trên "Page Setup";
+  viền trang xem trước đen 2 px (đo: 2 px ở 125 %).
+- Tiêu đề trang (Print, Export, Info…): Segoe UI Light 48 px logic (chữ hoa cao 42 px như đối chứng), lùi trái 8 px.
+- Export: tiêu đề bên phải "Create a PDF/XPS Document".
+- Info: đường dẫn là thư mục (không kèm tên tệp, như đối chứng) và chạy tới mép cửa sổ; ngày Modified / Created theo
+  giờ địa phương dạng `11/16/2026 12:54 PM` (trước là UTC dạng ISO).
+- Mục đang chọn ở thanh trái: đối chứng tô khối đậm; khung viền mảnh chỉ là trạng thái di chuột trên mục đang chọn
+  (do nhấp gửi để chuột nằm trên mục) — BlueSheet giữ khối tô.
+
+### Vòng 64 — thẻ PivotTable Analyze / Design
+
+Đo trên đối chứng (PivotTable tạo bằng COM trên bản sao `piv.xlsx`, nhấp gửi vào tên thẻ): khi ô hiện hoạt nằm trong
+PivotTable, hai thẻ ngữ cảnh "PivotTable Analyze" và "Design" hiện sau các thẻ cố định (thay Table Design).
+
+- Analyze ở 1500 px: PivotTable ▾ (nhóm thu gọn), Active Field (nhãn, ô tên trường của ô hiện hoạt 150 px, Field
+  Settings — mở Value Field Settings với ô giá trị), Show Details, Group ▾, Filter (Insert Slicer, Insert Timeline,
+  Filter Connections), Data (Refresh ▾: Refresh / Refresh All; Change Data Source ▾ — hộp Table/Range,
+  `pivotChangeSource`), Actions ▾ (Clear All, Select Entire PivotTable, Move PivotTable… — `pivotMove`),
+  Calculations ▾, Tools (PivotChart của chính báo cáo, Recommended PivotTables), Show ▾ (Field List bật/tắt ngăn).
+- Design: Subtotals / Grand Totals / Report Layout / Blank Rows là menu hàng cao có hình báo cáo trước nhãn như đối
+  chứng (hàng 57 px, hình 32 px); PivotTable Style Options là bốn hộp kiểm (Row Headers, Column Headers, Banded Rows,
+  Banded Columns); PivotTable Styles là bảy ô kiểu vẽ tại chỗ bằng bảng màu riêng của BlueSheet (86 px một ô) và nút
+  More (danh sách mọi kiểu).
+- Mỗi thay đổi là một `pivotUpdate` giữ nguyên các vùng (tên giá trị mặc định không bị biến thành tên riêng, bộ lọc
+  giữ mục đã chọn), cột vừa khít trong cùng một bước hoàn tác. Test `design_tab_sets_layout_totals_and_style_options_in_one_undo_step_each`,
+  `pivot_tabs_show_in_a_pivot_table_and_hide_outside`, `analyze_tab_moves_and_selects_the_report`.

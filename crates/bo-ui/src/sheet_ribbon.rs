@@ -720,6 +720,7 @@ pub(crate) fn trailing(id: &str) -> bool {
             | "sheet.chartMap"
             | "sheet.pivotChart"
             | "sheet.tblSlicer"
+            | "sheet.pvtShowDetails"
             | "sheet.sortDialog"
             | "sheet.filter"
             | "sheet.watchWindow"

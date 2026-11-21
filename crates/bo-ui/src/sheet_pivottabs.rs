@@ -650,6 +650,26 @@ impl SheetWindow {
                 }
             }
         }
+        // The "Row Labels" / "Column Labels" headers and the row label column of a compact
+        // report stand for their first field (the reference names it).
+        let first = |k: &str| {
+            info.get(k)
+                .and_then(Value::as_array)
+                .and_then(|a| a.first())
+                .and_then(Value::as_u64)
+        };
+        let row_label = self.t("sheetInsert.rowLabels", "Row Labels");
+        let col_label = self.t("sheetInsert.colLabels", "Column Labels");
+        if text == row_label {
+            if let Some(f) = first("rows") {
+                return Some((f as u32, name(f), false));
+            }
+        }
+        if text == col_label {
+            if let Some(f) = first("cols") {
+                return Some((f as u32, name(f), false));
+            }
+        }
         let values = info.get("values").and_then(Value::as_array)?;
         let area = info.get("dataArea");
         let n = |k: &str| {
@@ -931,6 +951,9 @@ impl SheetWindow {
         id: &str,
         text: &dyn crate::TextMeasure,
     ) -> Option<bool> {
+        if let Some(done) = self.open_design_menu(id) {
+            return Some(done);
+        }
         if let Some(m) = MENUS.iter().find(|m| **m == id) {
             return Some(self.open_sheet_menu(m));
         }
@@ -1250,3 +1273,131 @@ impl SheetWindow {
         }
     }
 }
+
+/// Design tab menus drawn as the reference's: tall rows with a report picture before each
+/// label (measured at 125 %: rows 57 px, pictures 32 px 12 px from the edge, labels 62 px in).
+const DESIGN_MENUS: [&str; 4] = [
+    "sheet.pvtSubtotals",
+    "sheet.pvtGrandTotals",
+    "sheet.pvtReportLayout",
+    "sheet.pvtBlankRows",
+];
+
+fn design_look() -> crate::popup::MenuLook {
+    crate::popup::MenuLook {
+        item_h: 45.6,
+        text: 13.0,
+        text_x: (49.6, 49.6),
+        icon_x: 9.6,
+        icon: 25.6,
+        pad: 2.0,
+        min_w: 240.0,
+        ..crate::popup::MenuLook::default()
+    }
+}
+
+/// Own report pictures of the Design menus: a page of grey text lines with the rows the
+/// choice is about in blue (totals, labels, blank lines).
+#[allow(clippy::many_single_char_names)]
+fn design_icon(p: &mut dyn Painter, name: &str, x: f32, y: f32, size: f32, enabled: bool) {
+    let k = size / 32.0;
+    let edge = Rgba(0x9a, 0x9a, 0x9a, 255);
+    let grey = if enabled {
+        Rgba(0x8c, 0x8c, 0x8c, 255)
+    } else {
+        Rgba(0xc8, 0xc8, 0xc8, 255)
+    };
+    let blue = Rgba(0x2e, 0x75, 0xb6, 255);
+    let (w, h) = ((24.0 * k).round(), (30.0 * k).round());
+    let x0 = (x + (size - w) / 2.0).round();
+    let y0 = y.round();
+    p.fill_rect(x0, y0, w, h, edge);
+    p.fill_rect(
+        x0 + 1.0,
+        y0 + 1.0,
+        w - 2.0,
+        h - 2.0,
+        Rgba(255, 255, 255, 255),
+    );
+    let rows = 8;
+    let step = ((h - 4.0) / rows as f32).floor().max(2.0);
+    for i in 0..rows {
+        let ry = y0 + 3.0 + i as f32 * step;
+        // Which rows stand out, and how far in the label starts.
+        let (hi, indent) = match name {
+            "pvt.subBottom" => (i == 3 || i == 7, 0.0),
+            "pvt.subTop" => (i == 0 || i == 4, 0.0),
+            "pvt.grandOn" | "pvt.grandCols" => (i == 7, 0.0),
+            "pvt.layoutCompact" => (false, if i % 4 == 0 { 0.0 } else { 3.0 }),
+            "pvt.layoutOutline" => (i % 4 == 0, if i % 4 == 0 { 0.0 } else { 7.0 }),
+            "pvt.layoutTabular" => (false, 7.0 * f32::from(u8::from(i % 4 != 0))),
+            "pvt.repeatLabels" => (true, 0.0),
+            _ => (false, 0.0),
+        };
+        if name == "pvt.blankInsert" && i % 3 == 2 {
+            continue;
+        }
+        let lx = x0 + 3.0 + indent * k;
+        let lw = (w - 6.0 - indent * k).max(2.0);
+        p.fill_rect(lx, ry, lw, 1.0, if hi { blue } else { grey });
+        if matches!(name, "pvt.grandRows" | "pvt.grandOn") {
+            // The grand total column at the right.
+            p.fill_rect(x0 + w - 5.0 * k, ry, 2.0 * k, 1.0, blue);
+        }
+    }
+}
+
+impl SheetWindow {
+    /// Open a Design tab menu with its pictures; `None` for other ids.
+    pub(super) fn open_design_menu(&mut self, id: &str) -> Option<bool> {
+        if !DESIGN_MENUS.contains(&id) {
+            return None;
+        }
+        let anchor = self.ribbon.rect_of(RibbonHit::Command(
+            DESIGN_MENUS.iter().find(|m| **m == id).copied()?,
+        ))?;
+        let entries = pivot_menu(id);
+        let icons: Vec<Option<&'static str>> = entries
+            .iter()
+            .map(|(c, _)| ICON_NAMES.iter().find(|n| **n == c.as_str()).copied())
+            .collect();
+        let separators = if id == "sheet.pvtReportLayout" {
+            vec![3]
+        } else {
+            Vec::new()
+        };
+        let items = entries
+            .into_iter()
+            .map(|(choice, label)| crate::popup::MenuItem {
+                label: self.strings.get(&label).to_owned(),
+                checked: false,
+                dim: Self::pivot_menu_dim(&choice),
+                choice: crate::popup::Choice::Command(choice),
+            })
+            .collect();
+        self.menu = Some(
+            crate::popup::Menu::open_with(items, anchor, self.size, self.scale, design_look())
+                .with_decor(icons, separators)
+                .with_icon_fn(design_icon),
+        );
+        Some(true)
+    }
+}
+
+/// Choice ids that have a picture (static names for the menu's icon column).
+const ICON_NAMES: [&str; 14] = [
+    "pvt.subNone",
+    "pvt.subBottom",
+    "pvt.subTop",
+    "pvt.grandOff",
+    "pvt.grandOn",
+    "pvt.grandRows",
+    "pvt.grandCols",
+    "pvt.layoutCompact",
+    "pvt.layoutOutline",
+    "pvt.layoutTabular",
+    "pvt.repeatLabels",
+    "pvt.noRepeatLabels",
+    "pvt.blankInsert",
+    "pvt.blankRemove",
+];

@@ -740,13 +740,15 @@ impl SheetBackstage {
     pub(crate) fn preview_area(&self) -> [f32; 4] {
         let cx = self.content_x();
         let x = cx + self.px(372.0);
-        let y = self.top + self.px(80.0);
+        // Measured on the reference at 125 %: an A4 page 616 × 871 px, its top 168 px and its
+        // bottom 63 px from the window's edges (with the margin below).
+        let y = self.top + self.px(91.2);
         let (w, h) = self.size;
         [
             x,
             y,
             (w - x - self.px(24.0)).max(10.0),
-            (h - y - self.px(48.0)).max(10.0),
+            (h - y - self.px(42.4)).max(10.0),
         ]
     }
 
@@ -762,7 +764,7 @@ impl SheetBackstage {
         let i = self.preview.min(n - 1);
         let (pw, ph) = self.facts.page_sizes[i];
         let [x, y, w, h] = self.preview_area();
-        let pad = self.px(32.0);
+        let pad = self.px(8.0);
         let k = ((w - 2.0 * pad) / pw.max(1.0)).min((h - 2.0 * pad) / ph.max(1.0)) * self.zoom;
         let (dw, dh) = ((pw * k).round(), (ph * k).round());
         // Larger than the area: from its top-left corner (clipped by the painter).
@@ -1016,7 +1018,7 @@ impl SheetBackstage {
         p.text_font(
             &title,
             cx - self.px(8.0),
-            self.top + self.px(8.0),
+            self.top + self.px(10.4),
             &light,
             INK,
         );

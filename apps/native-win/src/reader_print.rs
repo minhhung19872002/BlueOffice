@@ -190,7 +190,7 @@ pub fn paper(printer: &str, devmode: Option<&[u64]>) -> Option<bo_ui::Paper> {
 }
 
 /// The driver's default paper (`DMPAPER_*` code, 0 when none is named) of `printer` and
-/// whether it can print on both sides (`DM_DUPLEX` among the fields it sets).
+/// whether it can print on both sides (`DC_DUPLEX`).
 #[allow(dead_code)] // BlueSheet's File › Print.
 pub fn defaults(printer: &str) -> Option<(u32, bool)> {
     let buf = driver_devmode(&wide(printer), None, None)?;
@@ -203,7 +203,17 @@ pub fn defaults(printer: &str) -> Option<(u32, bool)> {
         } else {
             0
         };
-        Some((paper, (fields & DM_DUPLEX).0 != 0))
+        // Both sides: what the driver reports as a capability (DC_DUPLEX), not only that its
+        // device mode has the field.
+        let name = wide(printer);
+        let duplex = windows::Win32::Storage::Xps::DeviceCapabilitiesW(
+            PCWSTR(name.as_ptr()),
+            PCWSTR::null(),
+            windows::Win32::Storage::Xps::DC_DUPLEX,
+            None,
+            None,
+        ) == 1;
+        Some((paper, duplex))
     }
 }
 

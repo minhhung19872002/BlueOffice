@@ -402,7 +402,9 @@
       "pvtStyle3": "Style 4",
       "pvtStyle4": "Style 5",
       "pvtStyle5": "Style 6",
-      "pvtStyle6": "Style 7"
+      "pvtStyle6": "Style 7",
+      "pvtExpand": "Expand Field",
+      "pvtCollapse": "Collapse Field"
     },
     "addins": {
       "manage": "Manage add-ins"
@@ -14200,7 +14202,9 @@
     "waiting1": "1 document waiting",
     "waitingN": "{n} documents waiting",
     "createPdfHead": "Create a PDF/XPS Document",
-    "morePrint": "Find more print settings"
+    "morePrint": "Find more print settings",
+    "lastModified": "Last Modified",
+    "lastModifiedBy": "Last Modified By"
   },
   "docR6": {
     "bs": {
@@ -14945,6 +14949,7 @@
     "moveTitle": "Move PivotTable",
     "moveLabel": "Choose where you want the PivotTable to be placed",
     "sourceTitle": "Change PivotTable Data Source",
-    "sourceLabel": "Table/Range:"
+    "sourceLabel": "Table/Range:",
+    "subFiltered": "Include Filtered Items in Totals"
   }
 }

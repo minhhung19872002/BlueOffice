@@ -402,7 +402,9 @@
       "pvtStyle3": "Kiểu 4",
       "pvtStyle4": "Kiểu 5",
       "pvtStyle5": "Kiểu 6",
-      "pvtStyle6": "Kiểu 7"
+      "pvtStyle6": "Kiểu 7",
+      "pvtExpand": "Mở rộng trường",
+      "pvtCollapse": "Thu gọn trường"
     },
     "addins": {
       "manage": "Quản lý add-in"
@@ -14200,7 +14202,9 @@
     "waiting1": "1 tài liệu đang chờ",
     "waitingN": "{n} tài liệu đang chờ",
     "createPdfHead": "Tạo tài liệu PDF/XPS",
-    "morePrint": "Tìm thêm thiết đặt in"
+    "morePrint": "Tìm thêm thiết đặt in",
+    "lastModified": "Sửa đổi lần cuối",
+    "lastModifiedBy": "Người sửa đổi lần cuối"
   },
   "docR6": {
     "bs": {
@@ -14945,6 +14949,7 @@
     "moveTitle": "Di chuyển PivotTable",
     "moveLabel": "Chọn nơi đặt PivotTable",
     "sourceTitle": "Đổi nguồn dữ liệu PivotTable",
-    "sourceLabel": "Bảng/Vùng:"
+    "sourceLabel": "Bảng/Vùng:",
+    "subFiltered": "Tính cả mục đã lọc vào tổng"
   }
 }

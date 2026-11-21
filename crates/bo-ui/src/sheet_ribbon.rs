@@ -707,7 +707,11 @@ pub(crate) fn number_box_width(wide: bool) -> f32 {
 pub(crate) fn late(id: &str) -> bool {
     matches!(
         id,
-        "sheet.filterClear" | "sheet.filterReapply" | "sheet.filterAdvanced"
+        "sheet.filterClear"
+            | "sheet.filterReapply"
+            | "sheet.filterAdvanced"
+            | "sheet.pvtExpand"
+            | "sheet.pvtCollapse"
     )
 }
 

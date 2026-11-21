@@ -305,6 +305,9 @@ const WHITE: Rgba = Rgba(255, 255, 255, 255);
 const HOVER: Rgba = Rgba(218, 218, 218, 255);
 /// The chosen item on the content area (Export list, places).
 const CHOSEN: Rgba = Rgba(198, 198, 198, 255);
+/// Author initials badge (Info › Related People).
+const BADGE: Rgba = Rgba(214, 214, 214, 255);
+const BADGE_INK: Rgba = Rgba(110, 110, 110, 255);
 
 impl SheetBackstage {
     pub(crate) fn new(page: BsPage, facts: BookFacts) -> Self {
@@ -1932,7 +1935,7 @@ impl SheetBackstage {
         let never = tr(s, "sheetBs.never", "Never");
         for (k, v) in [
             (
-                tr(s, "backstage.props.modified", "Last Modified"),
+                tr(s, "sheetBs.lastModified", "Last Modified"),
                 f.last_modified.clone(),
             ),
             (
@@ -1949,26 +1952,66 @@ impl SheetBackstage {
         head(p, &tr(s, "sheetBs.relatedPeople", "Related People"), y);
         y += self.px(31.0);
         let not_saved = tr(s, "sheetBs.notSavedYet", "Not saved yet");
-        for (k, v, ph) in [
-            (
-                tr(s, "backstage.props.author", "Author"),
-                f.author.clone(),
-                tr(s, "sheetBs.addAuthor", "Add an author"),
-            ),
-            (
-                tr(s, "backstage.props.lastModifiedBy", "Last Modified By"),
-                f.last_modified_by.clone(),
-                not_saved,
-            ),
-        ] {
-            p.text(&k, x, y, body, INK);
-            if v.is_empty() {
-                p.text(&ph, vx, y, body, PLACEHOLDER);
-            } else {
-                p.text(&v, vx, y, body, INK);
-            }
-            y += self.px(29.0);
+        // Author: each author with an initials badge (grey disc and a hollow presence ring,
+        // as the reference), then "Add an author"; then Last Modified By.
+        p.text(&tr(s, "backstage.props.author", "Author"), x, y, body, INK);
+        let authors: Vec<&str> = f
+            .author
+            .split(';')
+            .map(str::trim)
+            .filter(|a| !a.is_empty())
+            .collect();
+        for a in &authors {
+            let d = self.px(43.0);
+            let (cx, cy) = (vx + d / 2.0, y + self.px(9.0));
+            p.path(&circle(cx, cy, d / 2.0), Some(BADGE), None);
+            let ini = initials(a);
+            let isz = self.px(15.0);
+            p.text(
+                &ini,
+                (cx - ini.chars().count() as f32 * isz * 0.32).round(),
+                (cy - isz * 0.68).round(),
+                TextStyle {
+                    size: isz,
+                    bold: false,
+                },
+                BADGE_INK,
+            );
+            let (rx, ry, rr) = (cx + d * 0.36, cy + d * 0.36, self.px(6.0));
+            p.path(&circle(rx, ry, rr), Some(CONTENT_BG), None);
+            p.path(
+                &circle(rx, ry, rr - self.px(1.0)),
+                None,
+                Some((Rgba(140, 168, 186, 255), self.px(1.2))),
+            );
+            p.text(a, vx + d + self.px(5.0), y, body, INK);
+            y += self.px(53.0);
         }
+        p.text(
+            &tr(s, "sheetBs.addAuthor", "Add an author"),
+            vx,
+            y - if authors.is_empty() {
+                0.0
+            } else {
+                self.px(12.0)
+            },
+            body,
+            PLACEHOLDER,
+        );
+        y += self.px(29.0);
+        p.text(
+            &tr(s, "sheetBs.lastModifiedBy", "Last Modified By"),
+            x,
+            y,
+            body,
+            INK,
+        );
+        if f.last_modified_by.is_empty() {
+            p.text(&not_saved, vx, y, body, PLACEHOLDER);
+        } else {
+            p.text(&f.last_modified_by, vx, y, body, INK);
+        }
+        y += self.px(29.0);
         if f.path.is_some() {
             y += self.px(16.0);
             head(p, &tr(s, "sheetBs.relatedDocs", "Related Documents"), y);
@@ -2776,6 +2819,15 @@ pub(crate) fn parse_ranges(text: &str, n: usize) -> Vec<usize> {
 }
 
 // ---------------------------------------------------------------- own icons
+
+/// Up to two initials of a name ("BlueOffice corpus" → "BC").
+fn initials(name: &str) -> String {
+    name.split_whitespace()
+        .filter_map(|w| w.chars().next())
+        .take(2)
+        .flat_map(char::to_uppercase)
+        .collect()
+}
 
 fn circle(cx: f32, cy: f32, r: f32) -> Vec<PathSeg> {
     let c = r * 0.552_284_8;

@@ -35,11 +35,11 @@ pub(crate) const STYLE_TILES: [&str; 7] = [
     "sheet.pvtStyle6",
 ];
 
-/// Styles of the inline tiles (BlueSheet palettes: neutral, blue (the default), amber,
-/// green, violet, teal, brick of the light family).
+/// Styles of the inline tiles: the light family around the default (Light16, third as the
+/// reference's gallery shows it), drawn with BlueSheet's own palettes.
 const TILE_STYLES: [&str; 7] = [
-    "PivotStyleLight1",
-    "PivotStyleLight9",
+    "PivotStyleLight14",
+    "PivotStyleLight15",
     "PivotStyleLight16",
     "PivotStyleLight17",
     "PivotStyleLight18",
@@ -73,7 +73,7 @@ pub(super) const MENUS: [&str; 12] = [
 
 /// The PivotTable Analyze and Design tabs.
 pub(crate) fn pivot_tabs() -> Vec<Tab> {
-    use Item::{Labeled as S, Large as L};
+    use Item::{Button as B, Labeled as S, Large as L};
     vec![
         Tab {
             label: "sheetPvt.tabAnalyze",
@@ -88,9 +88,11 @@ pub(crate) fn pivot_tabs() -> Vec<Tab> {
                 Group {
                     label: "sheetPvt.groupActiveField",
                     large: vec![L("sheet.pvtShowDetails")],
+                    // The expand / collapse field buttons stand in a column after Show
+                    // Details (late rows).
                     rows: vec![
-                        vec![S("sheet.pvtActiveLabel")],
-                        vec![S("sheet.pvtActiveField")],
+                        vec![S("sheet.pvtActiveLabel"), B("sheet.pvtExpand")],
+                        vec![S("sheet.pvtActiveField"), B("sheet.pvtCollapse")],
                         vec![S("sheet.pvtFieldSettings")],
                     ],
                 },
@@ -234,6 +236,7 @@ pub(crate) fn pivot_menu(id: &str) -> Vec<(String, String)> {
             e("pvt.subNone", "sheetPvt.subNone"),
             e("pvt.subBottom", "sheetPvt.subBottom"),
             e("pvt.subTop", "sheetPvt.subTop"),
+            e("pvt.subFiltered", "sheetPvt.subFiltered"),
         ],
         "sheet.pvtGrandTotals" => vec![
             e("pvt.grandOff", "sheetPvt.grandOff"),
@@ -284,6 +287,14 @@ pub(super) fn add_icons(icons: &mut Icons) {
             ("M3 4h12v16h-12ZM3 9h12M3 14h12", None),
             ("M17 8v8M14 13l3 3l3-3", None),
         ],
+    );
+    icons.add_solid(
+        "sheet.pvtExpand",
+        &[("M10 6h11M10 12h11M10 18h11", None), ("M2 9h6M5 6v6", None)],
+    );
+    icons.add_solid(
+        "sheet.pvtCollapse",
+        &[("M10 6h11M10 12h11M10 18h11", None), ("M2 15h6", None)],
     );
     icons.add_solid(
         "sheet.pvtGroup",
@@ -754,6 +765,7 @@ impl SheetWindow {
         matches!(
             choice,
             "pvt.options"
+                | "pvt.subFiltered"
                 | "pvt.groupSelection"
                 | "pvt.ungroup"
                 | "pvt.groupField"
@@ -772,10 +784,24 @@ impl SheetWindow {
             self.ribbon
                 .set_contextual(if want { pivot_tabs() } else { Vec::new() }, false);
         }
+        let mut dim: Vec<&'static str> = Vec::new();
         if want {
-            let caption = self.pivot_active_field().map(|f| f.1).unwrap_or_default();
-            self.pivot_field_caption = caption;
+            let field = self.pivot_active_field();
+            self.pivot_field_caption = field.as_ref().map(|f| f.1.clone()).unwrap_or_default();
+            // As the reference on a report over a range: drilling, expanding and filter
+            // connections need hierarchies / slicers; Field Settings here edits value fields.
+            dim = vec![
+                "sheet.pvtShowDetails",
+                "sheet.pvtExpand",
+                "sheet.pvtCollapse",
+                "sheet.pvtTimeline",
+                "sheet.pvtFilterConn",
+            ];
+            if !field.is_some_and(|f| f.2) {
+                dim.push("sheet.pvtFieldSettings");
+            }
         }
+        self.ribbon.set_extra_dim(dim);
         want
     }
 
@@ -858,12 +884,29 @@ impl SheetWindow {
                 .and_then(|p| p.style.as_ref().map(|s| s.name.clone()))
                 .unwrap_or_else(|| bo_sheet::pivot::style::DEFAULT_STYLE.to_owned())
         };
+        // The gallery: a white box with a 1 px grey frame holding the tiles and the More
+        // column (measured on the reference).
+        let first = self.ribbon.rect_of(RibbonHit::Command(STYLE_TILES[0]));
+        let more = self
+            .ribbon
+            .rect_of(RibbonHit::Command("sheet.pvtStylesMore"));
+        if let (Some(a), Some(b)) = (first, more) {
+            p.fill_rect(a[0], a[1], b[0] + b[2] - a[0], a[3], self.theme.ribbon);
+            let (gy, gh) = (a[1] + self.px(2.0), self.px(72.0).min(a[3] - self.px(4.0)));
+            let gw = b[0] + b[2] - a[0];
+            p.fill_rect(a[0], gy, gw, gh, Rgba(0xc6, 0xc6, 0xc6, 255));
+            p.fill_rect(
+                a[0] + 1.0,
+                gy + 1.0,
+                gw - 2.0,
+                gh - 2.0,
+                Rgba(255, 255, 255, 255),
+            );
+        }
         for (id, name) in STYLE_TILES.iter().zip(TILE_STYLES) {
             let Some([x, y, w, h]) = self.ribbon.rect_of(RibbonHit::Command(id)) else {
                 continue;
             };
-            // Clear the button's own place (label) first.
-            p.fill_rect(x, y, w, h, self.theme.ribbon);
             let (tx, ty, tw, th) = (
                 x + self.px(3.0),
                 y + self.px(8.0),
@@ -925,8 +968,9 @@ impl SheetWindow {
             .rect_of(RibbonHit::Command("sheet.pvtStylesMore"))
         {
             let edge = Rgba(0xc6, 0xc6, 0xc6, 255);
-            p.fill_rect(x, y, w, h, self.theme.ribbon);
-            p.fill_rect(x, y + self.px(4.0), 1.0, h - self.px(8.0), edge);
+            let (gy, gh) = (y + self.px(2.0), self.px(72.0).min(h - self.px(4.0)));
+            p.fill_rect(x, gy, 1.0, gh, edge);
+            let h = gh + 2.0 * (gy - y);
             let cx = (x + w / 2.0).round();
             let cy = (y + h / 2.0).round();
             let ink = Rgba(0x44, 0x44, 0x44, 255);
@@ -1339,7 +1383,8 @@ fn design_icon(p: &mut dyn Painter, name: &str, x: f32, y: f32, size: f32, enabl
         }
         let lx = x0 + 3.0 + indent * k;
         let lw = (w - 6.0 - indent * k).max(2.0);
-        p.fill_rect(lx, ry, lw, 1.0, if hi { blue } else { grey });
+        let th = if hi { (2.0 * k).round().max(2.0) } else { 1.0 };
+        p.fill_rect(lx, ry, lw, th, if hi { blue } else { grey });
         if matches!(name, "pvt.grandRows" | "pvt.grandOn") {
             // The grand total column at the right.
             p.fill_rect(x0 + w - 5.0 * k, ry, 2.0 * k, 1.0, blue);
@@ -1361,7 +1406,7 @@ impl SheetWindow {
             .iter()
             .map(|(c, _)| ICON_NAMES.iter().find(|n| **n == c.as_str()).copied())
             .collect();
-        let separators = if id == "sheet.pvtReportLayout" {
+        let separators = if id == "sheet.pvtReportLayout" || id == "sheet.pvtSubtotals" {
             vec![3]
         } else {
             Vec::new()
@@ -1385,7 +1430,8 @@ impl SheetWindow {
 }
 
 /// Choice ids that have a picture (static names for the menu's icon column).
-const ICON_NAMES: [&str; 14] = [
+const ICON_NAMES: [&str; 15] = [
+    "pvt.subFiltered",
     "pvt.subNone",
     "pvt.subBottom",
     "pvt.subTop",

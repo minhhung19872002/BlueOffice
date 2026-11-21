@@ -252,6 +252,8 @@ pub struct SlideWindow {
     size: (f32, f32),
     scale: f32,
     menu: Option<Menu>,
+    /// The slide show menu's open submenu (Screen › / Pointer Options ›) and its main row.
+    show_sub: Option<(usize, Menu)>,
     /// What the open menu chooses.
     menu_kind: MenuKind,
     rest: u32,
@@ -677,6 +679,7 @@ impl SlideWindow {
             size: (800.0, 600.0),
             scale: 1.0,
             menu: None,
+            show_sub: None,
             menu_kind: MenuKind::Font,
             rest: 0,
             tooltip: None,
@@ -2630,9 +2633,7 @@ impl SlideWindow {
     pub fn paint(&self, p: &mut dyn Painter) {
         if self.view.showing() {
             self.view.paint(p, self.text_size);
-            if let Some(menu) = &self.menu {
-                menu.paint(p, &self.theme, &self.icons);
-            }
+            self.paint_show_menu(p);
             return;
         }
         p.clear(self.theme.bg);
@@ -3220,6 +3221,10 @@ mod round19_tests;
 #[cfg(test)]
 #[path = "slide_round20_tests.rs"]
 mod round20_tests;
+
+#[cfg(test)]
+#[path = "slide_round21_tests.rs"]
+mod round21_tests;
 
 #[cfg(test)]
 #[path = "slide_round7_tests.rs"]

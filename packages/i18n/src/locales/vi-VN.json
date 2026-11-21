@@ -14766,7 +14766,17 @@
       "highlighter": "Bút đánh dấu",
       "eraser": "Tẩy",
       "eraseAll": "Xóa mọi nét mực trên trang chiếu",
-      "end": "Kết thúc trình chiếu"
+      "end": "Kết thúc trình chiếu",
+      "all": "Xem tất cả trang chiếu",
+      "zoom": "Phóng to",
+      "custom": "Trình chiếu tùy chỉnh",
+      "presenter": "Hiện dạng xem người trình bày",
+      "hidePresenter": "Ẩn dạng xem người trình bày",
+      "screen": "Màn hình",
+      "pointer": "Tùy chọn con trỏ",
+      "pause": "Tạm dừng",
+      "resume": "Tiếp tục",
+      "arrow": "Mũi tên"
     },
     "bs": {
       "home": "Trang chủ",

@@ -63,6 +63,8 @@ pub struct ShowTools {
     pub last_viewed: Option<usize>,
     /// The slide shown now (for [`ShowTools::last_viewed`]).
     pub seen: Option<usize>,
+    /// Right-click menu › Pause: the show clock when automatic advance was paused.
+    pub paused_at: Option<f64>,
 }
 
 /// Pen ink (reference default: red) and highlighter (yellow, translucent).
@@ -122,6 +124,9 @@ impl SlideView {
                 if screen.is_some() {
                     self.show_tools.screen = screen;
                     return Some(true);
+                }
+                if matches!(t, "g" | "G" | "-") {
+                    return Some(self.open_show_overview());
                 }
                 if matches!(t, "e" | "E") {
                     let i = self.show_slide()?;
@@ -237,7 +242,7 @@ impl SlideView {
 
     /// A command of the slide show's right-click menu (as the reference's): `next`, `prev`,
     /// `last` (last viewed), `goto:N`, `black`, `white`, `laser`, `pen`, `highlighter`,
-    /// `eraser`, `arrow`, `eraseAll`, `end`.
+    /// `eraser`, `arrow`, `eraseAll`, `all` (See All Slides), `end`.
     pub fn show_command(&mut self, id: &str) -> bool {
         if self.show.is_none() {
             return false;
@@ -288,8 +293,61 @@ impl SlideView {
                 None => false,
             },
             "end" => self.end_show(),
+            "all" => self.open_show_overview(),
+            "presenter" => match self.presenting.as_mut() {
+                Some(p) => {
+                    p.plan.presenter = !p.plan.presenter;
+                    true
+                }
+                None => false,
+            },
+            "pause" => {
+                if !self.show_can_pause() {
+                    return false;
+                }
+                self.show_tools.paused_at = Some(self.clock);
+                true
+            }
+            "resume" => {
+                let Some(at) = self.show_tools.paused_at.take() else {
+                    return false;
+                };
+                // The slide's timing goes on from where it stopped.
+                let now = self.clock;
+                if let Some(s) = self.show.as_mut() {
+                    s.arrived += now - at;
+                }
+                true
+            }
             _ => false,
         }
+    }
+
+    /// What the right-click menu greys or names: (at the first step of the show, Presenter
+    /// View can be switched, Presenter View is on, paused).
+    pub fn show_menu_state(&self) -> (bool, bool, bool, bool) {
+        let at_start = self
+            .show
+            .as_ref()
+            .is_some_and(|s| s.step == 0 && !s.ended && self.prev_in_show(s.index).is_none());
+        (
+            at_start,
+            self.presenting.is_some(),
+            self.presenter(),
+            self.show_tools.paused_at.is_some(),
+        )
+    }
+
+    /// Whether the shown slide advances by itself (right-click menu › Pause is available).
+    pub fn show_can_pause(&self) -> bool {
+        self.show.as_ref().is_some_and(|s| {
+            !s.ended
+                && s.info
+                    .as_ref()
+                    .and_then(|i| i.transition.as_ref())
+                    .and_then(|t| t.advance_after_ms)
+                    .is_some()
+        }) && self.timings_on()
     }
 
     /// Slide `index` is shown: the one before is remembered for "Last Viewed".

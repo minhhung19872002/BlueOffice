@@ -267,6 +267,21 @@ impl Menu {
         self.scroll = self.scroll.clamp(0.0, max).round();
     }
 
+    /// Rectangle of row `i` in window pixels (cascading submenus open beside it).
+    pub fn row_rect(&self, i: usize) -> [f32; 4] {
+        [
+            self.x,
+            self.y + self.pad() + self.row_top(i) - self.scroll,
+            self.w,
+            self.item_h,
+        ]
+    }
+
+    /// The highlighted row.
+    pub fn hovered(&self) -> Option<usize> {
+        self.hover
+    }
+
     /// Whether a window position is over the menu.
     pub fn contains(&self, x: f32, y: f32) -> bool {
         x >= self.x && x < self.x + self.w && y >= self.y && y < self.y + self.h

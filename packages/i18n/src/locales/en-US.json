@@ -14766,7 +14766,17 @@
       "highlighter": "Highlighter",
       "eraser": "Eraser",
       "eraseAll": "Erase All Ink on Slide",
-      "end": "End Show"
+      "end": "End Show",
+      "all": "See All Slides",
+      "zoom": "Zoom In",
+      "custom": "Custom Show",
+      "presenter": "Show Presenter View",
+      "hidePresenter": "Hide Presenter View",
+      "screen": "Screen",
+      "pointer": "Pointer Options",
+      "pause": "Pause",
+      "resume": "Resume",
+      "arrow": "Arrow"
     },
     "bs": {
       "home": "Home",

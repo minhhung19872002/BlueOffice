@@ -385,6 +385,75 @@ pub struct BgPane {
     pointer: (f32, f32),
     hover: Option<Ctl>,
     scroll_drag: Option<(f32, f32)>,
+    /// Access-key underlines by label key: x offset and width in the label (measured).
+    marks: Vec<(&'static str, f32, f32)>,
+    /// The title as it fits before the options chevron (measured; "..." when cut).
+    title: Option<String>,
+    /// Measured text widths of Apply to All and Reset Background.
+    button_text: [f32; 2],
+}
+
+/// Access keys of the pane's labels (the reference's underlined letters in English).
+const ACCESS: [(&str, char); 26] = [
+    ("slideNative.solidFill", 'S'),
+    ("slideR10.bg.gradient", 'G'),
+    ("slideR22.bg.picture", 'P'),
+    ("slideR10.bg.pattern", 'a'),
+    ("slideR22.bg.hide", 'H'),
+    ("slideR22.bg.presets", 'r'),
+    ("slideR22.bg.type", 'y'),
+    ("slideR22.bg.direction", 'D'),
+    ("slideR22.bg.angle", 'e'),
+    ("slideR22.bg.color", 'C'),
+    ("slideR22.bg.position", 'o'),
+    ("slideR22.bg.transparency", 'T'),
+    ("slideR22.bg.brightness", 'i'),
+    ("slideR22.bg.rotate", 'w'),
+    ("slideR22.bg.texture", 'u'),
+    ("slideR22.bg.tile", 'i'),
+    ("slideR22.bg.offsetX", 'O'),
+    ("slideR22.bg.offsetY", 'e'),
+    ("slideR22.bg.scaleX", 'X'),
+    ("slideR22.bg.scaleY", 'Y'),
+    ("slideR22.bg.alignment", 'g'),
+    ("slideR22.bg.mirror", 'M'),
+    ("slideR22.bg.fore", 'F'),
+    ("slideR22.bg.back", 'B'),
+    ("slideNative.applyAll", 'A'),
+    ("slideR22.bg.reset", 'B'),
+];
+
+/// Fallback text of an access-key label key.
+fn fallback(key: &str) -> &'static str {
+    match key {
+        "slideNative.solidFill" => "Solid fill",
+        "slideR10.bg.gradient" => "Gradient fill",
+        "slideR22.bg.picture" => "Picture or texture fill",
+        "slideR10.bg.pattern" => "Pattern fill",
+        "slideR22.bg.hide" => "Hide background graphics",
+        "slideR22.bg.presets" => "Preset gradients",
+        "slideR22.bg.type" => "Type",
+        "slideR22.bg.direction" => "Direction",
+        "slideR22.bg.angle" => "Angle",
+        "slideR22.bg.color" => "Color",
+        "slideR22.bg.position" => "Position",
+        "slideR22.bg.transparency" => "Transparency",
+        "slideR22.bg.brightness" => "Brightness",
+        "slideR22.bg.rotate" => "Rotate with shape",
+        "slideR22.bg.texture" => "Texture",
+        "slideR22.bg.tile" => "Tile picture as texture",
+        "slideR22.bg.offsetX" => "Offset X",
+        "slideR22.bg.offsetY" => "Offset Y",
+        "slideR22.bg.scaleX" => "Scale X",
+        "slideR22.bg.scaleY" => "Scale Y",
+        "slideR22.bg.alignment" => "Alignment",
+        "slideR22.bg.mirror" => "Mirror type",
+        "slideR22.bg.fore" => "Foreground",
+        "slideR22.bg.back" => "Background",
+        "slideNative.applyAll" => "Apply to All",
+        "slideR22.bg.reset" => "Reset Background",
+        _ => "",
+    }
 }
 
 impl BgPane {
@@ -409,8 +478,24 @@ impl BgPane {
         let d = |v: f32| (v * scale / 1.25).round();
         self.close = [x + d(318.0), y + d(14.0), d(22.0), d(26.0)];
         self.tab = [x + d(17.0), y + d(61.0), d(46.0), d(46.0)];
-        self.apply = [x + d(15.0), y + h - d(56.0), d(114.0), d(35.0)];
-        self.reset = [x + d(143.0), y + h - d(56.0), d(162.0), d(35.0)];
+        // Buttons as wide as their text plus the reference's padding (Apply to All 114 px,
+        // Reset Background 162 px at 125 %), 14 px apart.
+        let bw = |i: usize, d0: f32| {
+            let t = self.button_text[i];
+            if t > 0.0 {
+                (t + d(22.0)).round().max(d(70.0))
+            } else {
+                d(d0)
+            }
+        };
+        let aw = bw(0, 114.0);
+        self.apply = [x + d(15.0), y + h - d(56.0), aw, d(35.0)];
+        self.reset = [
+            x + d(15.0) + aw + d(14.0),
+            y + h - d(56.0),
+            bw(1, 162.0),
+            d(35.0),
+        ];
         self.view = [
             x + 1.0,
             y + d(132.0),
@@ -681,7 +766,85 @@ impl BgPane {
         v
     }
 
-    /// Whether a window position is over the pane or its open drop-down.
+    /// Interface text style of the pane (12.4 px logical: the reference's pane text).
+    fn style(&self) -> TextStyle {
+        TextStyle {
+            size: (12.4 * self.scale).round(),
+            bold: false,
+        }
+    }
+
+    /// Title style (20 px logical).
+    fn title_style(&self) -> TextStyle {
+        TextStyle {
+            size: (20.0 * self.scale).round(),
+            bold: false,
+        }
+    }
+
+    /// Measure the access-key underlines, the title cut and the bottom buttons' text with
+    /// the host's text measure (`t(key, fallback)` gives the strings); lays out again.
+    pub fn measure(&mut self, text: &dyn crate::TextMeasure, t: &dyn Fn(&str, &str) -> String) {
+        let style = self.style();
+        self.marks.clear();
+        for (key, c) in ACCESS {
+            let label = t(key, fallback(key));
+            let at = label.find(c).or_else(|| {
+                label
+                    .char_indices()
+                    .find(|(_, ch)| ch.eq_ignore_ascii_case(&c))
+                    .map(|(i, _)| i)
+            });
+            let Some(i) = at else { continue };
+            let ch_len = label[i..].chars().next().map_or(1, char::len_utf8);
+            let x0 = text.measure(&label[..i], style).0;
+            let x1 = text.measure(&label[..i + ch_len], style).0;
+            self.marks.push((key, x0, (x1 - x0).max(1.0)));
+        }
+        let head = t("slideNative.formatBackground", "Format Background");
+        let ts = self.title_style();
+        let room = self.d(250.0);
+        self.title = Some(if text.measure(&head, ts).0 > room {
+            let mut cut = head.clone();
+            while !cut.is_empty() && text.measure(&format!("{}...", cut.trim_end()), ts).0 > room {
+                cut.pop();
+            }
+            format!("{}...", cut.trim_end())
+        } else {
+            head
+        });
+        self.button_text = [
+            text.measure(&t("slideNative.applyAll", "Apply to All"), style)
+                .0,
+            text.measure(&t("slideR22.bg.reset", "Reset Background"), style)
+                .0,
+        ];
+        self.relayout();
+    }
+
+    /// Draw a label at `x` with its access-key underline when Windows shows access keys.
+    #[allow(clippy::too_many_arguments)]
+    fn label(
+        &self,
+        p: &mut dyn Painter,
+        text: &str,
+        key: &str,
+        x: f32,
+        top: f32,
+        style: TextStyle,
+        ink: Rgba,
+    ) {
+        p.text(text, x, top, style, ink);
+        if !crate::popup::keyboard_cues() {
+            return;
+        }
+        if let Some((_, mx, mw)) = self.marks.iter().find(|(k, _, _)| *k == key) {
+            let uy = (top + style.size * 1.12).round();
+            p.fill_rect((x + mx).round(), uy, mw.round().max(1.0), 1.0, ink);
+        }
+    }
+
+    /// Whether a window position is over the pane or its open drop-down.    /// Whether a window position is over the pane or its open drop-down.
     pub fn contains(&self, x: f32, y: f32) -> bool {
         self.shown
             && (inside(self.frame, x, y)
@@ -1616,29 +1779,18 @@ impl BgPane {
         let [x, y, w, h] = self.frame;
         p.fill_rect(x, y, w, h, PANE_BG);
         p.fill_rect(x, y, 1.0, h, DIVIDER);
-        // Measured on the reference: pane text 12 % larger than the ribbon's, the title
-        // 20 px and cut with "..." before the options chevron.
-        let title = TextStyle {
-            size: (20.0 * self.scale).round(),
-            bold: false,
-        };
-        let style = TextStyle {
-            size: (13.4 * self.scale).round(),
-            bold: false,
-        };
+        // Measured on the reference: the title 20 px, cut with "..." before the options
+        // chevron ([`BgPane::measure`]).
+        let title = self.title_style();
+        let style = self.style();
         let bold = TextStyle {
             bold: true,
             ..style
         };
-        let mut head = t("slideNative.formatBackground", "Format Background");
-        let room = d(250.0);
-        let width = |s: &str| crate::slide_pickers::estimate(s, title) * 0.8;
-        if width(&head) > room {
-            while !head.is_empty() && width(&format!("{head}...")) > room {
-                head.pop();
-            }
-            head = format!("{}...", head.trim_end());
-        }
+        let head = self
+            .title
+            .clone()
+            .unwrap_or_else(|| t("slideNative.formatBackground", "Format Background"));
         p.text(&head, x + d(16.0), y + d(10.0), title, ink);
         // Close cross.
         let [cx, cy, cw, ch] = self.close;
@@ -1696,16 +1848,17 @@ impl BgPane {
             ink,
         );
         let kinds = [
-            t("slideNative.solidFill", "Solid fill"),
-            t("slideR10.bg.gradient", "Gradient fill"),
-            t("slideR22.bg.picture", "Picture or texture fill"),
-            t("slideR10.bg.pattern", "Pattern fill"),
+            "slideNative.solidFill",
+            "slideR10.bg.gradient",
+            "slideR22.bg.picture",
+            "slideR10.bg.pattern",
         ];
-        for (i, label) in kinds.iter().enumerate() {
+        for (i, key) in kinds.iter().enumerate() {
             let r = self.radios[i];
             let cyy = r[1] + r[3] / 2.0;
             paint_radio(p, x + d(56.0), cyy, d(9.0), usize::from(self.kind) == i);
-            p.text(label, x + d(72.0), text_y(cyy, style), style, ink);
+            let label = t(key, fallback(key));
+            self.label(p, &label, key, x + d(72.0), text_y(cyy, style), style, ink);
         }
         let hb = d(18.0);
         let hcy = self.hide[1] + self.hide[3] / 2.0;
@@ -1716,8 +1869,10 @@ impl BgPane {
             true,
             ink,
         );
-        p.text(
+        self.label(
+            p,
             &t("slideR22.bg.hide", "Hide background graphics"),
+            "slideR22.bg.hide",
             x + d(72.0),
             text_y(hcy, style),
             style,
@@ -1727,7 +1882,7 @@ impl BgPane {
         for pl in &self.placed {
             if let Some((k, f, lx)) = pl.label {
                 if !matches!(pl.ctl, Ctl::TileCheck | Ctl::Rotate) {
-                    p.text(&t(k, f), lx, text_y(pl.cy, style), style, ink);
+                    self.label(p, &t(k, f), k, lx, text_y(pl.cy, style), style, ink);
                 }
             }
             self.paint_control(p, pl, t, style, ink);
@@ -1738,14 +1893,14 @@ impl BgPane {
         }
         // Bottom buttons.
         let reset_on = self.current.is_some() || self.kind != 0;
-        for (r, label, on) in [
-            (self.apply, t("slideNative.applyAll", "Apply to All"), true),
-            (
-                self.reset,
-                t("slideR22.bg.reset", "Reset Background"),
-                reset_on,
-            ),
-        ] {
+        for (i, (r, key, on)) in [
+            (self.apply, "slideNative.applyAll", true),
+            (self.reset, "slideR22.bg.reset", reset_on),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let label = t(key, fallback(key));
             p.fill_rect(r[0], r[1], r[2], r[3], if on { BUTTON_EDGE } else { RULE });
             p.fill_rect(
                 r[0] + 1.0,
@@ -1754,9 +1909,15 @@ impl BgPane {
                 r[3] - 2.0,
                 Rgba(0xfd, 0xfd, 0xfd, 255),
             );
-            let tw = crate::slide_pickers::estimate(&label, style) * 0.8;
-            p.text(
+            let tw = if self.button_text[i] > 0.0 {
+                self.button_text[i]
+            } else {
+                crate::slide_pickers::estimate(&label, style) * 0.9
+            };
+            self.label(
+                p,
                 &label,
+                key,
                 (r[0] + (r[2] - tw) / 2.0).round(),
                 text_y(r[1] + r[3] / 2.0, style),
                 style,
@@ -1810,27 +1971,29 @@ impl BgPane {
                     } else {
                         v / 100.0
                     };
-                    let sx = r[0]
-                        - d(if id == "bright" || id == "stopT" {
-                            20.0
-                        } else {
-                            32.0
-                        });
-                    let sw = d(if id == "bright" || id == "stopT" {
-                        16.0
-                    } else {
-                        28.0
-                    });
                     let cy = (pl.cy).round();
-                    p.fill_rect(sx, cy, sw, 1.0, Rgba(0x60, 0x60, 0x60, 255));
-                    let kx = (sx + (sw - d(4.0)) * f.clamp(0.0, 1.0)).round();
-                    p.fill_rect(
-                        kx,
-                        cy - d(9.0),
-                        d(4.0),
-                        d(18.0),
-                        Rgba(0x40, 0x40, 0x40, 255),
-                    );
+                    if id == "bright" || id == "stopT" {
+                        // The reference's stop sliders show only a 2 px bar left of the box,
+                        // with a gap after the label.
+                        p.fill_rect(
+                            r[0] - d(16.0),
+                            cy - d(8.0),
+                            d(2.5).max(2.0),
+                            d(16.0),
+                            Rgba(0x40, 0x40, 0x40, 255),
+                        );
+                    } else {
+                        let (sx, sw) = (r[0] - d(32.0), d(28.0));
+                        p.fill_rect(sx, cy, sw, 1.0, Rgba(0x60, 0x60, 0x60, 255));
+                        let kx = (sx + (sw - d(4.0)) * f.clamp(0.0, 1.0)).round();
+                        p.fill_rect(
+                            kx,
+                            cy - d(9.0),
+                            d(4.0),
+                            d(18.0),
+                            Rgba(0x40, 0x40, 0x40, 255),
+                        );
+                    }
                 }
             }
             Ctl::Drop(kind) => {
@@ -2025,7 +2188,7 @@ impl BgPane {
                     r[3] - 2.0,
                     Rgba(0xfd, 0xfd, 0xfd, 255),
                 );
-                let tw = crate::slide_pickers::estimate(&label, style) * 0.8;
+                let tw = crate::slide_pickers::estimate(&label, style) * 0.9;
                 p.text(
                     &label,
                     (r[0] + (r[2] - tw) / 2.0).round(),
@@ -2059,8 +2222,10 @@ impl BgPane {
                     paint_check(p, box_r, false, enabled, ink);
                 }
                 if let Some((k, f, lx)) = pl.label {
-                    p.text(
+                    self.label(
+                        p,
                         &t(k, f),
+                        k,
                         lx,
                         text_y(pl.cy, style),
                         style,
@@ -2995,6 +3160,42 @@ mod tests {
         assert_eq!(p.synced, Some(3));
         p.sync(4, None);
         assert_eq!((p.kind, p.current.as_deref()), (0, None));
+    }
+
+    struct Mono;
+    impl crate::TextMeasure for Mono {
+        fn measure(&self, text: &str, style: TextStyle) -> (f32, f32) {
+            (text.chars().count() as f32 * style.size * 0.5, style.size)
+        }
+    }
+
+    #[test]
+    fn measured_title_buttons_and_access_keys() {
+        let mut p = pane(1);
+        let t = |k: &str, f: &str| {
+            if k == "slideNative.formatBackground" {
+                "Format the Background of Slides".to_owned()
+            } else {
+                f.to_owned()
+            }
+        };
+        p.measure(&Mono, &t);
+        // 31 characters at 25 px × 0.5 overflow 250 px: cut with "...", fitting.
+        let title = p.title.clone().expect("title");
+        assert!(title.ends_with("...") && title.chars().count() as f32 * 12.5 <= 250.0);
+        // Buttons follow their text: 12 + 22 px padding, 14 px apart.
+        let s = (12.4f32 * 1.25).round();
+        let tw = 12.0 * s * 0.5;
+        assert_eq!(p.apply[2], tw + 22.0);
+        assert_eq!(p.reset[0], p.apply[0] + p.apply[2] + 14.0);
+        // "Gradient fill": G underlined at 0; "Transparency": T.
+        let g = p
+            .marks
+            .iter()
+            .find(|m| m.0 == "slideR10.bg.gradient")
+            .expect("mark");
+        assert_eq!((g.1, g.2), (0.0, s * 0.5));
+        assert!(p.marks.iter().any(|m| m.0 == "slideR22.bg.reset"));
     }
 
     #[test]

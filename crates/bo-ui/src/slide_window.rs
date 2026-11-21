@@ -881,6 +881,18 @@ impl SlideWindow {
         let colors = self.theme_colors();
         self.bg_pane
             .layout([self.size.0 - pane, top, pane, area_h], self.scale, &colors);
+        if self.bg_pane.shown {
+            let strings = &self.strings;
+            let t = |k: &str, f: &str| {
+                let v = strings.get(k);
+                if v == k {
+                    f.to_owned()
+                } else {
+                    v.to_owned()
+                }
+            };
+            self.bg_pane.measure(text, &t);
+        }
         self.view.set_window(self.size.0, self.size.1);
         if let Some(b) = self.backstage.as_mut() {
             b.layout(self.title.height(), self.size, self.scale);

@@ -3,8 +3,21 @@
 //! object for the paragraph. The prefix's drawing is kept, so each keystroke interprets only
 //! the paragraph again instead of the whole page (same display list: the prefix leaves the
 //! graphics state as it found it, which is checked).
+//!
+//! Round 12 (BlueEditor, resumed): the paragraph is written one balanced chunk per line;
+//! the drawing of each line chunk is kept too, so a key on a 500-line paragraph interprets
+//! only the lines whose bytes changed.
 use crate::interp::{Out, M};
 use crate::RenderOptions;
+use std::collections::HashMap;
+use std::ops::Range;
+
+/// A kept line chunk's drawing: display commands and characters.
+#[derive(Clone)]
+pub(crate) struct ChunkDrawing {
+    pub commands: Vec<bo_render::Command>,
+    pub chars: Vec<crate::TextChar>,
+}
 
 /// The prefix of the block edit in progress and its drawing.
 #[derive(Default)]
@@ -13,6 +26,10 @@ pub(crate) struct TypingCache {
     prefix: Option<Vec<u8>>,
     /// Drawing of the prefix with the options, page matrix and hidden-layer count it used.
     pub drawn: Option<(RenderOptions, M, usize, Out)>,
+    /// The paragraph after the prefix: its length and its line chunks (byte ranges).
+    tail: Option<(usize, Vec<Range<usize>>)>,
+    /// Drawings of line chunks by their bytes (made with the settings of `drawn`).
+    pub chunks: HashMap<Vec<u8>, ChunkDrawing>,
 }
 
 impl TypingCache {
@@ -24,6 +41,20 @@ impl TypingCache {
         self.page = page;
         self.prefix = Some(prefix.to_vec());
         self.drawn = None;
+        self.chunks.clear();
+    }
+
+    /// The paragraph written after the prefix: `len` bytes in line chunks `ranges`.
+    pub(crate) fn note_tail(&mut self, len: usize, ranges: Vec<Range<usize>>) {
+        self.tail = Some((len, ranges));
+    }
+
+    /// Line chunks of `rest` (the content after the prefix) when it is the paragraph last
+    /// written.
+    pub(crate) fn tail_chunks(&self, rest: &[u8]) -> Option<&[Range<usize>]> {
+        // The page's content streams follow it (each ends with a line feed).
+        let (len, ranges) = self.tail.as_ref()?;
+        (*len <= rest.len() && ranges.iter().all(|r| r.end <= *len)).then_some(ranges.as_slice())
     }
 
     /// The block edit ended.

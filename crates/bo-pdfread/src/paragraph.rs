@@ -1058,6 +1058,10 @@ impl PdfDocument {
             .resize(e.text.len(), e.style_of.last().copied().unwrap_or(0));
         self.measure(e)?;
         let n = e.text.len();
+        // Advances looked up once (a 500-line paragraph has ~20 000 characters per key).
+        let advs: Vec<f32> = (0..n)
+            .map(|i| metric(e, i).map_or(0.0, |m| m.adv))
+            .collect();
         // Lines: (start, end, hard end) by greedy word wrap.
         let mut lines: Vec<(usize, usize, bool)> = Vec::new();
         let mut start = 0;
@@ -1074,15 +1078,13 @@ impl PdfDocument {
                 i += 1;
                 continue;
             }
-            let adv = metric(e, i).map_or(0.0, |m| m.adv);
+            let adv = advs[i];
             if c != ' ' && x + adv > e.width && i > start {
                 let end = brk.filter(|&b| b > start).unwrap_or(i);
                 lines.push((start, end, false));
                 start = end;
                 brk = None;
-                x = (start..i)
-                    .map(|j| metric(e, j).map_or(0.0, |m| m.adv))
-                    .sum();
+                x = (start..i).map(|j| advs[j]).sum();
                 continue;
             }
             x += adv;
@@ -1103,9 +1105,7 @@ impl PdfDocument {
                 .rev()
                 .find(|&j| !matches!(e.text[j], ' ' | '\n'))
                 .map_or(a, |j| j + 1);
-            let w: f32 = (a..shown_end)
-                .map(|j| metric(e, j).map_or(0.0, |m| m.adv))
-                .sum();
+            let w: f32 = (a..shown_end).map(|j| advs[j]).sum();
             let spaces = (a..shown_end).filter(|&j| e.text[j] == ' ').count();
             let room = if e.width.is_finite() {
                 e.width - 0.5 - ind - w
@@ -1123,7 +1123,7 @@ impl PdfDocument {
                 xs[j] = x;
                 line_of[j] = k;
                 if e.text[j] != '\n' {
-                    x += metric(e, j).map_or(0.0, |m| m.adv);
+                    x += advs[j];
                     if e.text[j] == ' ' && j < shown_end {
                         x += extra;
                     }
@@ -1172,7 +1172,13 @@ impl PdfDocument {
         let inv_ctm = invert(e.ctm).ok_or("singular matrix")?;
         let base = self.page_base(e.page)?;
         let ctm_u = mul(e.ctm, invert(base).ok_or("page matrix")?);
-        let mut tail = format!("\nq {} cm BT ", mat_str(ctm_u)).into_bytes();
+        let open = format!("q {} cm BT ", mat_str(ctm_u)).into_bytes();
+        let mut tail = b"\n".to_vec();
+        // Each line is its own balanced chunk (`q … BT … ET Q`, full style), so the page
+        // drawing keeps the lines a key did not change (`typing_fast` chunks).
+        let mut starts = vec![tail.len()];
+        tail.extend_from_slice(&open);
+        let mut chunk_line: Option<usize> = None;
         let mut cur: Option<usize> = None;
         // Underline and strikethrough rules: style, start and end x, line.
         let mut rules: Vec<(usize, f32, f32, usize)> = Vec::new();
@@ -1193,6 +1199,13 @@ impl PdfDocument {
             {
                 end += 1;
             }
+            if chunk_line.is_some_and(|l| l != line_of[j]) {
+                tail.extend_from_slice(b"ET Q\n");
+                starts.push(tail.len());
+                tail.extend_from_slice(&open);
+                cur = None;
+            }
+            chunk_line = Some(line_of[j]);
             if cur != Some(k) {
                 tail.extend(style_ops(&e.styles[k]));
                 cur = Some(k);
@@ -1213,7 +1226,7 @@ impl PdfDocument {
             }
             tail.extend_from_slice(b"> Tj ");
             if e.styles[k].underline || e.styles[k].strike {
-                let x1 = xs[end - 1] + metric(e, end - 1).map_or(0.0, |m| m.adv);
+                let x1 = xs[end - 1] + advs[end - 1];
                 rules.push((k, xs[j], x1, line_of[j]));
             }
             j = end;
@@ -1267,6 +1280,11 @@ impl PdfDocument {
             }
         }
         tail.extend_from_slice(b"Q\n");
+        let chunks: Vec<std::ops::Range<usize>> = starts
+            .iter()
+            .zip(starts.iter().skip(1).chain(std::iter::once(&tail.len())))
+            .map(|(&a, &b)| a..b)
+            .collect();
         crate::paragraph_push::update(e);
         let sid = match e.sid {
             Some(s) => s,
@@ -1281,6 +1299,7 @@ impl PdfDocument {
         content.extend_from_slice(&tail);
         self.set_stream_raw(sid, content);
         self.typing.note(e.page, &e.prefix);
+        self.typing.note_tail(tail.len(), chunks);
         e.dirty = true;
         Ok(())
     }

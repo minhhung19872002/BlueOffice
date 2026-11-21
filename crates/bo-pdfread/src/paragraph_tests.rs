@@ -233,6 +233,33 @@ fn sample_paragraphs_are_found() {
     doc.end_block_edit(&e);
 }
 
+/// Round 12: the paragraph's lines are kept chunk by chunk; a key interprets only the lines
+/// whose bytes changed and the drawing equals a full interpretation.
+#[test]
+fn typing_keeps_unchanged_lines() {
+    let mut doc = open(para_pdf());
+    let b = blocks(&mut doc);
+    let para = b.iter().find(|x| x.lines == 3).expect("paragraph");
+    let mut e = doc.begin_block_edit(0, para).expect("starts");
+    for (k, c) in "xyz".chars().enumerate() {
+        e.text.insert(3 + k, c);
+        e.style_of.insert(3 + k, e.style_of[3]);
+        doc.block_edit_update(&mut e).expect("updates");
+        let fast = doc.render(0, RenderOptions::default()).expect("renders");
+        assert_eq!(
+            doc.typing.chunks.len(),
+            e.lines,
+            "one kept drawing per line"
+        );
+        let kept = std::mem::take(&mut doc.typing);
+        let full = doc.render(0, RenderOptions::default()).expect("renders");
+        doc.typing = kept;
+        assert_eq!(fast.list.commands, full.list.commands);
+        assert_eq!(fast.chars, full.chars);
+    }
+    doc.end_block_edit(&e);
+}
+
 /// While a paragraph is typed, the page drawing reuses the kept drawing of the rest of the
 /// page: the result is the same display list and text layer as a full interpretation.
 #[test]
@@ -302,4 +329,43 @@ fn typing_cost() {
         "update p50 {:.2} p95 {:.2} · render p50 {:.2} p95 {:.2} ms",
         up[20], up[38], re[20], re[38]
     );
+}
+
+/// Cost per key of a block edit and of the page drawing on a real PDF (`BO_TYPING_PDF`, the
+/// largest paragraph of page 1): `cargo test --release -p bo-pdfread typing_cost_pdf -- --ignored
+/// --nocapture`.
+#[test]
+#[ignore = "timing"]
+fn typing_cost_pdf() {
+    let Ok(path) = std::env::var("BO_TYPING_PDF") else {
+        return;
+    };
+    let mut doc = open(std::fs::read(path).expect("pdf"));
+    let b = blocks(&mut doc);
+    let para = b.iter().max_by_key(|x| x.lines).expect("paragraph");
+    let mut e = doc.begin_block_edit(0, para).expect("starts");
+    let opts = RenderOptions::default();
+    doc.render(0, opts).expect("renders");
+    let (mut up, mut re) = (Vec::new(), Vec::new());
+    for (k, c) in "nhanh hon nua di, go thu them mot doan".chars().enumerate() {
+        e.text.insert(40 + k, c);
+        e.style_of.insert(40 + k, e.style_of[40]);
+        let t = std::time::Instant::now();
+        doc.block_edit_update(&mut e).expect("updates");
+        up.push(t.elapsed().as_secs_f64() * 1e3);
+        let t = std::time::Instant::now();
+        doc.render(0, opts).expect("renders");
+        re.push(t.elapsed().as_secs_f64() * 1e3);
+    }
+    let q = |v: &mut Vec<f64>| {
+        v.sort_by(f64::total_cmp);
+        (v[v.len() / 2], v[v.len() * 95 / 100])
+    };
+    eprintln!(
+        "lines {} update {:?} render {:?} (p50, p95 ms)",
+        e.lines,
+        q(&mut up),
+        q(&mut re)
+    );
+    doc.end_block_edit(&e);
 }

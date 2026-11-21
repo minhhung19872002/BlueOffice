@@ -686,10 +686,10 @@ giữ lại). Ảnh so sánh `editor-106` … `editor-115` (bản đối chiếu
 Order / Duplicate… / Use Current Properties as New Defaults). Chữ nay đúng cỡ (đo: “Use Current Properties as New
 Defaults” 271 px, bản đối chiếu 272 px; trước 256 px), menu rộng 359 px (đối chiếu 357), dòng 28 px. Phím tắt chữ như
 bản đối chiếu (Proper_t_ies, Cu_t_, _C_opy, _P_aste, _D_elete, A_l_ign, Ce_n_ter, Distri_b_ute, Si_z_e, Create _M_ultiple,
-Set Tab _O_rder, Duplicat_e_, _U_se): gõ chữ khi menu mở chạy dòng đó; Shift+F10 mở menu ở trường đang chọn. Gạch chân
-chữ tắt (khi mở bằng bàn phím) chờ phần hỗ trợ chung của menu bật lên đang làm ở BlueSheet — vị trí từng gạch đã tính
-sẵn. Set Tab Order xám khi chỉ chọn một trường như bản đối chiếu (bật từ hai trường; bản đối chiếu không nhận Shift+bấm
-gửi bằng thông điệp nên chưa xem được trạng thái hai trường).
+Set Tab _O_rder, Duplicat_e_, _U_se) qua phần phím tắt chung của menu bật lên (BlueSheet): gõ chữ khi menu mở chạy dòng
+đó; Shift+F10 mở menu ở trường đang chọn và gạch chân chữ tắt (hoặc luôn gạch khi Windows bật “Underline access
+keys”). Set Tab Order xám khi chỉ chọn một trường như bản đối chiếu (bật từ hai trường; bản đối chiếu không nhận
+Shift+bấm gửi bằng thông điệp nên chưa xem được trạng thái hai trường).
 
 **Hộp thoại**: chữ tiêu đề lớn hơn chữ thân ~6 % như bản đối chiếu (“Create Multiple Copies of Fields” 222 / 209 px).
 Create Multiple Copies 545 × 585 px khớp (`editor-107`); Split › Output Options 553 × 458 px, khung “Output Folder” dời
@@ -702,18 +702,27 @@ dùng để vẽ (cùng bộ chọn với trình vẽ trang, `PdfDocument::subst
 Liberation Sans đóng gói) và “Actual Font Type:TrueType”. Security: ổ khoá cao 32 px như bản đối chiếu (hình của ta),
 tam giác thả xuống 9 × 5 px; mũi tên combo 11 × 6 px xám. Ngày không đọc được hiện “—” (bản đối chiếu in số vô nghĩa).
 
-**Comment**: Measure ▾ dùng kiểu menu của editor (dòng 29 px) với biểu tượng riêng cho Distance / Perimeter / Area
-(`editor-113`); bảng Stamp (mẫu tem của ta) thu nhỏ chữ tiêu đề dài cho vừa khung (`editor-115`).
+**Comment**: Measure ▾ dùng kiểu menu của editor (dòng 29 px) với biểu tượng riêng cho Distance / Perimeter / Area,
+nét xám trung tính như các menu khác, màu nhấn chỉ ở gạch chéo của Area (`editor-113`); bảng Stamp (mẫu tem của ta) thu nhỏ chữ tiêu đề dài cho vừa khung (`editor-115`).
 
 **Khác**: chú thích nút ribbon không còn hiện đè lên hộp thoại của editor.
+
+**Gõ trên trang 1 000 đoạn** (Edit Text, cùng một khung cả cột như bản đối chiếu — đã chụp kiểm, bản đối chiếu cũng
+gộp 500 đoạn thành một khung): mỗi phím chỉ vẽ lại dải các dòng có ký tự đổi chỗ (so phần đầu / phần cuối chung của
+hai bố cục) thay cho cả khung; đoạn được ghi thành từng dòng một khối `q … BT … ET Q` và bản vẽ của từng dòng không đổi
+được giữ lại (`typing_fast`), chuỗi hex ghi không qua `format!` từng byte, độ rộng ký tự tra một lần. Đo CPU (bản
+release, `typing_cost_split`, kho ghi lại không vẽ): xử lý phím p50 / p95 10,7 / 15,3 → 9,8 / 12,7 ms; dựng danh sách
+vẽ 20,8 / 28,2 → 20,7 / 25,1 ms — chưa đạt mục tiêu < 16 ms: phần lớn thời gian nằm ở chép lại bản vẽ của phần trang
+còn lại (≈ 1 000 dòng, mỗi phím hai lần: lấy bản giữ lại và cắt ảnh trang cao 10 200 pt) chứ không ở đoạn đang gõ.
 
 | Đo (bản release) | Kết quả |
 | --- | --- |
 | Bộ nhớ riêng: trang Start / mở 10 tab sổ 300 trang / sau khi đóng hết | 51,8 / 172,4 / 55,7 MB |
-| Gõ trong Edit Text, trang 1 000 đoạn, tổng mỗi phím p50 / p95 | 42,9 / 54,6 ms (xử lý 13,9 / 18,8; dựng ảnh 27,0 / 35,0) |
+| Gõ trong Edit Text, trang 1 000 đoạn, tổng mỗi phím p50 / p95 (bản trước sửa) | 42,9 / 54,6 ms (xử lý 13,9 / 18,8; dựng ảnh 27,0 / 35,0) |
+| Cùng phép đo, CPU không vẽ GPU: xử lý / dựng danh sách vẽ p50 / p95 | 10,7 / 15,3 → 9,8 / 12,7 ms; 20,8 / 28,2 → 20,7 / 25,1 ms |
 
-Còn lại: gạch chân chữ tắt của menu trường (nối vào hỗ trợ chung của menu); gõ trên trang 1 000 đoạn chậm vì 500 đoạn
-cùng cột gộp thành một khung sửa (mỗi phím dàn lại và vẽ lại cả khung) — cần dàn lại / vẽ lại theo đoạn; ngăn Format
+Còn lại: gõ trên trang rất dài (1 000 đoạn) vẫn ~ 30 ms CPU mỗi phím — bỏ việc chép lại bản vẽ phần trang còn lại
+(giữ danh sách vẽ theo đoạn có `Arc`, cắt ảnh trang theo dải mà không chép lệnh) để xuống < 16 ms; ngăn Format
 (Arrange) khi chọn trường; cột ba nút nhỏ cuối tab Comment (danh sách bình luận, tuỳ chọn hiển thị ▾, giữ công cụ) của
 bản đối chiếu — ta còn nút lớn Comment List; Organize của bản đối chiếu giữ trang tài liệu (ảnh thu nhỏ ở ngăn Pages),
 ta hiện lưới trang; kéo thả sắp trang, Insert từ tệp có hộp vị trí, Page Labels; các mục còn lại của vòng 11.

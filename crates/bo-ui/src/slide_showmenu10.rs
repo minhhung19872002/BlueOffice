@@ -11,12 +11,12 @@ use crate::{Input, Key, Painter};
 use bo_render::{PathSeg, Rgba};
 
 /// Main entries: (command, label key, fallback, a separator before it).
-const MAIN: [(&str, &str, &str, bool); 11] = [
+const MAIN: [(&str, &str, &str, bool); 12] = [
     ("next", "slideR10.show.next", "Next", false),
     ("prev", "slideR10.show.prev", "Previous", false),
     ("last", "slideR10.show.last", "Last Viewed", false),
     ("all", "slideR10.show.all", "See All Slides", true),
-    ("zoom", "slideR10.show.zoom", "Zoom In", false),
+    ("magnify", "slideR10.show.magnify", "Magnify Slide", false),
     ("sub:custom", "slideR10.show.custom", "Custom Show", true),
     (
         "presenter",
@@ -31,6 +31,7 @@ const MAIN: [(&str, &str, &str, bool); 11] = [
         "Pointer Options",
         false,
     ),
+    ("help", "slideR10.show.help", "Help", true),
     ("pause", "slideR10.show.pause", "Pause", true),
     ("end", "slideR10.show.end", "End Show", true),
 ];
@@ -59,13 +60,58 @@ const POINTER: [(&str, &str, &str, bool); 6] = [
     ("arrow", "slideR10.show.arrow", "Arrow", true),
 ];
 
+/// Right-click menu › Help: (keys, label key, fallback).
+const HELP: [(&str, &str, &str); 12] = [
+    (
+        "N, Space, \u{2192}, \u{2193}, Enter",
+        "slideR10.help.next",
+        "Next animation or slide",
+    ),
+    (
+        "P, Backspace, \u{2190}, \u{2191}",
+        "slideR10.help.prev",
+        "Previous animation or slide",
+    ),
+    ("number + Enter", "slideR10.help.goto", "Go to that slide"),
+    (
+        "Home / End",
+        "slideR10.help.firstLast",
+        "First / last slide",
+    ),
+    ("B or .", "slideR10.help.black", "Black screen"),
+    ("W or ,", "slideR10.help.white", "White screen"),
+    ("G or -", "slideR10.help.all", "See all slides"),
+    ("Ctrl+P / Ctrl+I", "slideR10.help.pen", "Pen / highlighter"),
+    ("Ctrl+L", "slideR10.help.laser", "Laser pointer"),
+    ("Ctrl+E, E", "slideR10.help.erase", "Eraser / erase all ink"),
+    ("Ctrl+A", "slideR10.help.arrow", "Arrow"),
+    ("Esc", "slideR10.help.end", "End the show"),
+];
+
 /// The submenu arrow's colour (dimmed rows: lighter).
 const ARROW: Rgba = Rgba(0x26, 0x26, 0x26, 255);
 const ARROW_DIM: Rgba = Rgba(0xa0, 0xa0, 0xa0, 255);
 
 impl SlideWindow {
-    /// Input while the show runs: the open menu first, a right click opens it.
+    /// Input while the show runs: the help list, the open menu, then a right click opens it
+    /// (or leaves Magnify Slide).
     pub(super) fn show_menu_input(&mut self, input: &Input) -> Option<bool> {
+        if self.show_help {
+            if matches!(
+                input,
+                Input::Key(..) | Input::Text(_) | Input::Press { .. } | Input::Context { .. }
+            ) {
+                self.show_help = false;
+                return Some(true);
+            }
+            return Some(false);
+        }
+        if self.menu.is_none()
+            && matches!(input, Input::Context { .. })
+            && self.view.cancel_magnify()
+        {
+            return Some(true);
+        }
         if self.menu.is_some() {
             return Some(self.show_menu_event(input));
         }
@@ -287,8 +333,8 @@ impl SlideWindow {
                 let dim = match *id {
                     "prev" => at_start,
                     "last" => !has_last,
-                    // No custom shows to pick from, no magnifier yet.
-                    "sub:custom" | "zoom" => true,
+                    // No custom shows to pick from.
+                    "sub:custom" => true,
                     "presenter" => !presenter_ok,
                     "pause" => !paused && !can_pause,
                     _ => false,
@@ -334,8 +380,58 @@ impl SlideWindow {
             .with_keys(Vec::new(), 0.0, 0.0, 2.4, self.size)
     }
 
+    /// Right-click menu › Help: the show's keys (own list), until any key or click.
+    pub(super) fn open_show_help(&mut self) -> bool {
+        self.show_help = true;
+        true
+    }
+
+    fn paint_show_help(&self, p: &mut dyn Painter) {
+        let s = self.scale;
+        let rows: Vec<(String, String)> = HELP
+            .iter()
+            .map(|(keys, k, f)| ((*keys).to_owned(), self.t(k, f)))
+            .collect();
+        let title = self.t("slideR10.help.title", "Slide Show Help");
+        let line = (26.0 * s).round();
+        let (w, h) = (
+            (560.0 * s).round(),
+            (70.0 * s).round() + line * rows.len() as f32,
+        );
+        let (x, y) = (
+            ((self.size.0 - w) / 2.0).round(),
+            ((self.size.1 - h) / 2.0).round(),
+        );
+        p.fill_rect(x - 1.0, y - 1.0, w + 2.0, h + 2.0, Rgba(120, 120, 120, 255));
+        p.fill_rect(x, y, w, h, Rgba(255, 255, 255, 255));
+        let big = crate::TextStyle {
+            size: (16.0 * s).round(),
+            bold: true,
+        };
+        let body = crate::TextStyle {
+            size: (13.0 * s).round(),
+            bold: false,
+        };
+        let ink = Rgba(38, 38, 38, 255);
+        p.text(
+            &title,
+            x + (20.0 * s).round(),
+            y + (16.0 * s).round(),
+            big,
+            ink,
+        );
+        for (i, (keys, what)) in rows.iter().enumerate() {
+            let ry = y + (56.0 * s).round() + line * i as f32;
+            p.text(keys, x + (20.0 * s).round(), ry, body, ink);
+            p.text(what, x + (230.0 * s).round(), ry, body, ink);
+        }
+    }
+
     /// Paint the show menu, its submenu arrows and the open submenu.
     pub(super) fn paint_show_menu(&self, p: &mut dyn Painter) {
+        if self.show_help {
+            self.paint_show_help(p);
+        }
         let Some(menu) = &self.menu else { return };
         menu.paint(p, &self.theme, &self.icons);
         let s = self.scale;

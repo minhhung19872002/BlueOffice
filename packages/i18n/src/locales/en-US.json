@@ -14776,7 +14776,9 @@
       "pointer": "Pointer Options",
       "pause": "Pause",
       "resume": "Resume",
-      "arrow": "Arrow"
+      "arrow": "Arrow",
+      "magnify": "Magnify Slide",
+      "help": "Help"
     },
     "bs": {
       "home": "Home",
@@ -14911,6 +14913,21 @@
       "svg": "Scalable Vector Graphics (*.svg)",
       "gif": "Animated GIF Format (*.gif)"
     },
-    "bgReset": "Reset Slide Background"
+    "bgReset": "Reset Slide Background",
+    "help": {
+      "title": "Slide Show Help",
+      "next": "Next animation or slide",
+      "prev": "Previous animation or slide",
+      "goto": "Go to that slide",
+      "firstLast": "First / last slide",
+      "black": "Black screen",
+      "white": "White screen",
+      "all": "See all slides",
+      "pen": "Pen / highlighter",
+      "laser": "Laser pointer",
+      "erase": "Eraser / erase all ink",
+      "arrow": "Arrow",
+      "end": "End the show"
+    }
   }
 }

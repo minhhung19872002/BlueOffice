@@ -856,8 +856,49 @@ pub(crate) fn install_icons(icons: &mut Icons) {
         ],
     );
     icons.alias("design.more", "transition.more");
-    icons.alias("design.slideSize", "layout.size");
-    icons.alias("design.background", "format.fillColor");
+    // Colors, Background Styles and Slide Size: own drawings filling the large icon box
+    // like the reference's 32 px icons (BlueDoc's shared ones stay as they are).
+    icons.add_solid(
+        "design.colors",
+        &[
+            ("M1 1h10.5v10.5h-10.5Z", Some(Rgba(0x2b, 0x79, 0xd0, 255))),
+            (
+                "M12.5 1h10.5v10.5h-10.5Z",
+                Some(Rgba(0xd9, 0xd9, 0xd9, 255)),
+            ),
+            (
+                "M1 12.5h10.5v10.5h-10.5Z",
+                Some(Rgba(0x3a, 0x9a, 0x5a, 255)),
+            ),
+            (
+                "M12.5 12.5h10.5v10.5h-10.5Z",
+                Some(Rgba(0xe8, 0x8a, 0x2e, 255)),
+            ),
+        ],
+    );
+    icons.add_solid(
+        "design.background",
+        &[
+            ("M1 4h17v17h-17Z", Some(Rgba(0xde, 0xea, 0xf6, 255))),
+            ("M1 4h17v17h-17Z", None),
+            ("M8 1l8 8l-6 6l-8-8Z", Some(Rgba(0xff, 0xff, 0xff, 255))),
+            ("M8 1l8 8l-6 6l-8-8Z", None),
+            (
+                "M18 11c1.6 2.6 3 4.4 3 6a3 3 0 0 1-6 0c0-1.6 1.4-3.4 3-6Z",
+                Some(Rgba(0xd2, 0x4a, 0x3c, 255)),
+            ),
+        ],
+    );
+    icons.add_solid(
+        "design.slideSize",
+        &[
+            ("M1 3h22v18h-22Z", Some(Rgba(0xff, 0xff, 0xff, 255))),
+            ("M1 3h22v18h-22Z", None),
+            ("M7 15.5l9-7", None),
+            ("M5 18l1-5l4 3Z", Some(Rgba(0x2b, 0x79, 0xd0, 255))),
+            ("M19 6l-1 5l-4-3Z", Some(Rgba(0x2b, 0x79, 0xd0, 255))),
+        ],
+    );
     icons.alias("review.comments", "review.pane");
     // Comment commands: a speech bubble with a red cross / blue arrows (own drawings).
     let bubble = "M3 4h18v12h-10l-5 4v-4h-3Z";

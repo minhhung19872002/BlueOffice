@@ -254,6 +254,8 @@ pub struct SlideWindow {
     menu: Option<Menu>,
     /// The slide show menu's open submenu (Screen › / Pointer Options ›) and its main row.
     show_sub: Option<(usize, Menu)>,
+    /// Right-click menu › Help is shown over the show.
+    show_help: bool,
     /// What the open menu chooses.
     menu_kind: MenuKind,
     rest: u32,
@@ -675,6 +677,7 @@ impl SlideWindow {
             scale: 1.0,
             menu: None,
             show_sub: None,
+            show_help: false,
             menu_kind: MenuKind::Font,
             rest: 0,
             tooltip: None,
@@ -2184,6 +2187,7 @@ impl SlideWindow {
             "sect" => self.choose_section(v),
             "cshow" | "rec" => return self.choose_show(kind, v),
             "fbs" => self.choose_file10(v),
+            "shw" if v == "help" => self.open_show_help(),
             "shw" => self.view.show_command(v),
             "zoom" | "pm" => return self.choose_view(kind, v),
             _ => return self.choose_insert(kind, v),

@@ -103,18 +103,19 @@ fn show_menu_has_the_reference_rows_and_cascades() {
             "Previous",
             "Last Viewed",
             "See All Slides",
-            "Zoom In",
+            "Magnify Slide",
             "Custom Show",
             "Show Presenter View",
             "Screen",
             "Pointer Options",
+            "Help",
             "Pause",
             "End Show"
         ]
     );
     let menu = w.menu.as_ref().expect("menu");
     // At the first slide Previous is grey; nothing to pause.
-    assert!(menu.items()[1].dim && menu.items()[9].dim);
+    assert!(menu.items()[1].dim && menu.items()[10].dim && !menu.items()[4].dim);
     assert!(!menu.items()[0].dim);
     // Pointing at Pointer Options opens its submenu beside the row.
     let row = menu.row_rect(8);
@@ -340,4 +341,76 @@ fn see_all_slides_zoom_bar_changes_the_image_size() {
     assert!(w.view.overview_rect(0)[2] > before);
     assert!(w.view.step_overview_zoom(-1) && w.view.step_overview_zoom(-1));
     assert!(w.view.overview_rect(0)[2] < before);
+}
+
+#[test]
+fn magnify_slide_zooms_pans_and_goes_back() {
+    let mut w = window();
+    assert!(w.view.start_show(0));
+    assert!(w.choose(Choice::Command("shw:magnify".into())));
+    let r = w.view.show_slide_rect();
+    w.handle(
+        Input::Move {
+            x: r[0] + 10.0,
+            y: r[1] + 10.0,
+        },
+        &Fixed,
+    );
+    w.handle(
+        Input::Press {
+            x: r[0] + 10.0,
+            y: r[1] + 10.0,
+            count: 1,
+            shift: false,
+        },
+        &Fixed,
+    );
+    let m = w.view.show_magnify().expect("magnifying");
+    assert_eq!(m.center, Some((0.25, 0.25)), "clamped to the slide");
+    // The twice-as-large image is drawn.
+    let mut store = Store::default();
+    w.prepare(&mut store).unwrap();
+    assert!(store
+        .drawn
+        .iter()
+        .any(|d| d.0 >> 40 == 22 && (d.1 - 2.0 * r[2]).abs() <= 2.0));
+    // Dragging left pans right; the slide does not change on a click.
+    let shown = w.view.show_slide();
+    w.handle(
+        Input::Press {
+            x: r[0] + 10.0,
+            y: r[1] + 10.0,
+            count: 1,
+            shift: false,
+        },
+        &Fixed,
+    );
+    w.handle(
+        Input::Drag {
+            x: r[0] - 90.0,
+            y: r[1] + 10.0,
+        },
+        &Fixed,
+    );
+    w.handle(
+        Input::Release {
+            x: r[0] - 90.0,
+            y: r[1] + 10.0,
+        },
+        &Fixed,
+    );
+    assert!(w
+        .view
+        .show_magnify()
+        .and_then(|m| m.center)
+        .is_some_and(|c| c.0 > 0.25));
+    assert_eq!(w.view.show_slide(), shown);
+    // A right click goes back to the whole slide (no menu).
+    w.handle(Input::Context { x: 400.0, y: 300.0 }, &Fixed);
+    assert!(w.view.show_magnify().is_none() && w.menu.is_none());
+    // Help shows the keys until a key is pressed.
+    assert!(w.choose(Choice::Command("shw:help".into())));
+    assert!(w.show_help);
+    w.handle(Input::Key(Key::Escape, Mods::default()), &Fixed);
+    assert!(!w.show_help && w.view.showing());
 }

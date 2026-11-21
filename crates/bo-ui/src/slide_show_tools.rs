@@ -294,6 +294,7 @@ impl SlideView {
             },
             "end" => self.end_show(),
             "all" => self.open_show_overview(),
+            "magnify" => self.start_magnify(),
             "presenter" => match self.presenting.as_mut() {
                 Some(p) => {
                     p.plan.presenter = !p.plan.presenter;

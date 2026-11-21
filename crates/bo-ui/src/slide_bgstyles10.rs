@@ -129,15 +129,16 @@ impl SlideWindow {
                 (rect, st, if dark { WHITE } else { ink })
             })
             .collect();
-        let ry = y + px(5.6) + 3.0 * px(74.4) + px(2.0);
+        // Rows 36 px from 282 px down (reference).
+        let ry = y + px(225.6);
         let (current, own) = self.bg_current(colors);
         self.menu = None;
         self.bgs = Some(BgStyles {
             rect: [x, y, w, h],
             tiles,
             rows: [
-                [x + 1.0, ry, w - 2.0, px(30.4)],
-                [x + 1.0, ry + px(30.4), w - 2.0, px(30.4)],
+                [x + 1.0, ry, w - 2.0, px(28.8)],
+                [x + 1.0, ry + px(28.8), w - 2.0, px(28.8)],
             ],
             hover: None,
             font,

@@ -688,8 +688,9 @@ fn a_correction_leaves_the_autocorrect_options_mark_and_its_menu_changes_back() 
     w.menu = None;
     assert_eq!(w.r8_action("edit.undoSteps:1"), Some(true));
     assert_eq!(para_text(&w, 0), "X teh ");
-    // A key press takes the mark away.
-    for c in "teh ".chars() {
+    // Changed back: "teh" is learnt (Other Corrections, round 9) and stays; another
+    // correction shows the mark again, and a key press takes it away.
+    for c in "teh adn ".chars() {
         w.handle(Input::Text(c.to_string()), &Fixed);
     }
     assert!(w.r8.ac_mark.is_some());

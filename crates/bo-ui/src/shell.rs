@@ -38,6 +38,8 @@ mod r6;
 mod r7;
 #[path = "doc_r8.rs"]
 mod r8;
+#[path = "doc_r9.rs"]
+mod r9;
 pub(crate) use r6::{
     install_icons as install_round6_icons, install_strings as install_round6_strings,
 };
@@ -245,6 +247,7 @@ pub struct DocWindow {
     r6: r6::R6,
     r7: r7::R7,
     r8: r8::R8,
+    r9: r9::R9,
 }
 
 /// Font sizes offered by the size box (points).
@@ -438,6 +441,7 @@ impl DocWindow {
             r6: r6::R6::default(),
             r7: r7::R7::default(),
             r8: r8::R8::default(),
+            r9: r9::R9::default(),
         }
     }
 
@@ -3198,6 +3202,9 @@ impl DocWindow {
                 let top = self.view_top();
                 let bottom = self.size.1 - self.status_h();
                 if y < top || y > bottom {
+                    if self.r9_dragging() {
+                        return self.r9_drag(x, y).unwrap_or(true);
+                    }
                     self.view.handle(Input::Drag { x, y });
                     return true;
                 }
@@ -3206,6 +3213,9 @@ impl DocWindow {
         if let Input::Drag { x, y } = input {
             if self.doc_press {
                 self.last_drag = Some((x, y));
+                if let Some(r) = self.r9_drag(x, y) {
+                    return r;
+                }
             }
         }
         if let Input::Zoom(steps) = input {
@@ -3332,6 +3342,9 @@ impl DocWindow {
                     }
                 }
                 if let Input::Press { shift, .. } = input {
+                    if let Some(r) = self.r9_press(x, y, count, shift) {
+                        return r || cleared;
+                    }
                     if let Some(r) = self.r8_press(x, y, count, shift) {
                         return r || cleared;
                     }
@@ -3340,6 +3353,7 @@ impl DocWindow {
             }
             Input::Drag { .. } if !self.doc_press => false,
             Input::Release { x, y } => {
+                let dropped = self.doc_press && self.r9_release();
                 // The format painter applies to the selection just made in the document.
                 if self.doc_press && self.painter {
                     self.painter = false;
@@ -3381,7 +3395,7 @@ impl DocWindow {
                 if self.ribbon.needs_layout() {
                     self.relayout(text);
                 }
-                quick || ran || changed || fired.is_some()
+                dropped || quick || ran || changed || fired.is_some()
             }
             Input::Wheel(_)
             | Input::Text(_)
@@ -3574,6 +3588,7 @@ impl DocWindow {
         self.view.paint(p);
         self.r4_paint_grid(p);
         self.r8_paint_gridlines(p);
+        self.r9_paint(p);
         self.paint_read_arrows(p);
         self.paint_story_frame(p);
         // Title bar and ribbon: one cached layer, redrawn only when what it shows changes

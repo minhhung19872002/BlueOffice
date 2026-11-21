@@ -157,12 +157,17 @@ pub fn mouse_mods() -> Mods {
     Mods {
         shift,
         ctrl,
-        alt: false,
+        // No MK_ flag for Alt: the thread's key state (Alt+drag = block selection in BlueDoc).
+        alt: mods().alt,
     }
 }
 
 fn note_mouse_keys(wparam: WPARAM) {
     MOUSE_KEYS.with(|k| k.set((wparam.0 & 0x0004 != 0, wparam.0 & 0x0008 != 0)));
+    // Alt used with the mouse is not an Alt press alone: its release shows no key tips.
+    if mods().alt {
+        ALT_ALONE.with(|a| a.set(false));
+    }
 }
 
 fn scale(hwnd: HWND) -> f32 {

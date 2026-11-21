@@ -362,6 +362,14 @@ impl Engine {
                 out.push(m);
             }
         }
+        // Headers and footers (round 9).
+        if let Some(sec) = doc.sections.get(page.section) {
+            out.extend(crate::hf_marks::hf_marks(
+                page,
+                sec.page.margin_top.to_pt(),
+                sec.page.margin_bottom.to_pt(),
+            ));
+        }
         let kinds = self.formatting_mark_kinds();
         out.retain(|m| kinds.shows(m.kind));
         out

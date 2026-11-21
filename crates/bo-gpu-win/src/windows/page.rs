@@ -65,8 +65,10 @@ const GRAY_PARAMS: (f32, f32, f32) = (1.5, 1.0, 0.0);
 /// below [`SANS_SMALL_PX`]): with the serif setting their horizontal strokes came out
 /// softer than the reference capture at 100 % (hard edges 0.21 vs 0.26); this pair gives
 /// 0.25. Larger sizes already matched it with the serif setting (docs/ui/REPORT.md
-/// rounds 23–24).
-const SANS_GRAY_PARAMS: (f32, f32) = (1.8, 3.0);
+/// rounds 23–24). BlueDoc round 9: contrast 3.0 made Calibri 11 pt body text 21 % darker
+/// than the reference capture (ink 6330 vs 5249 on the same paragraph at 125 %); 1.0 gives
+/// 5527 with the same edges.
+const SANS_GRAY_PARAMS: (f32, f32) = (1.8, 1.0);
 /// Em size in device pixels below which sans-serif text uses [`SANS_GRAY_PARAMS`].
 const SANS_SMALL_PX: f32 = 20.0;
 

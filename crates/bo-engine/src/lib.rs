@@ -15,6 +15,8 @@ use serde::Serialize;
 use std::cell::OnceCell;
 use std::collections::BTreeMap;
 
+mod ac_learn;
+mod block_sel;
 pub mod blocks;
 #[cfg(feature = "bundled-fonts")]
 mod bundled;
@@ -39,6 +41,7 @@ pub mod forms;
 pub mod gallery;
 pub mod gridlines;
 mod guid;
+mod hf_marks;
 pub mod inspect;
 mod legacy_slides;
 pub mod markup;
@@ -74,6 +77,7 @@ pub mod speech;
 pub mod spell;
 pub mod story;
 pub mod templates;
+mod text_drag;
 pub mod textbox;
 pub mod theme_file;
 pub mod translate;
@@ -393,6 +397,10 @@ pub struct Engine {
     undo_labels: undo_labels::UndoLabels,
     /// Typing joins one undo step across words ([`Engine::set_typing_runs`]).
     typing_runs: bool,
+    /// Block (column) selection of the main text (BlueDoc round 9).
+    block: Option<block_sel::BlockSel>,
+    /// The last correction made as you type (AutoCorrect learns when it is undone).
+    ac_last: Option<ac_learn::LastCorrection>,
 }
 
 impl Engine {

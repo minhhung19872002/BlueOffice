@@ -74,7 +74,7 @@ pub fn with_story<R>(story: Story, f: impl FnOnce() -> R) -> R {
     r
 }
 
-fn body_id(l: &Line) -> Option<usize> {
+pub(crate) fn body_id(l: &Line) -> Option<usize> {
     match (l.source, STORY.with(std::cell::Cell::get)) {
         (LineSource::Body(id), Story::Body) => Some(id as usize),
         (LineSource::Note { endnote, id, para }, Story::Note { endnote: e, id: i })
@@ -133,7 +133,10 @@ fn right_x(line: &Line) -> f32 {
 }
 
 /// The line showing `pos` (a position at a soft line end belongs to the next line).
-fn line_of<'l>(lines: &[(usize, &'l Line)], pos: Pos) -> Option<(usize, usize, &'l Line)> {
+pub(crate) fn line_of<'l>(
+    lines: &[(usize, &'l Line)],
+    pos: Pos,
+) -> Option<(usize, usize, &'l Line)> {
     let mut best: Option<(usize, usize, &Line)> = None;
     for (i, &(pi, l)) in lines.iter().enumerate() {
         if body_id(l) != Some(pos.para) {
@@ -275,7 +278,7 @@ pub fn selection_rects(layout: &LayoutDocument, sel: Selection) -> Vec<SelRect> 
 }
 
 /// Nearest caret stop to `x` in a line.
-fn offset_at(l: &Line, x: f32) -> usize {
+pub(crate) fn offset_at(l: &Line, x: f32) -> usize {
     let mut best = (l.start, f32::INFINITY);
     for (o, cx) in l.carets.iter() {
         let d = (cx - x).abs();

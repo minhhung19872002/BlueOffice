@@ -4843,6 +4843,12 @@ impl Session {
     /// "set indents with Tab and Backspace" behaviour of word processors); otherwise it types
     /// a tab character (Shift+Tab then does nothing).
     pub fn tab_key(&mut self, back: bool) -> Result<Selection> {
+        self.tab_key_with(back, true)
+    }
+
+    /// [`Session::tab_key`]; `indent` false: a Tab at a paragraph's start is a tab character
+    /// (AutoFormat As You Type "Set left- and first-indent with tabs and backspaces" off).
+    pub fn tab_key_with(&mut self, back: bool, indent: bool) -> Result<Selection> {
         let (a, b) = self.selection.ordered();
         let props = self.para_props(a.para);
         let in_list = props.num.is_some_and(|n| n.num_id != 0);
@@ -4855,7 +4861,7 @@ impl Session {
         }
         let at_start = self.selection.is_collapsed() && a.offset == 0;
         let has_text = self.para_text(a.para).is_some_and(|t| !t.is_empty());
-        if at_start && has_text && !in_list {
+        if at_start && has_text && !in_list && indent {
             // ECMA-376 Part 1, §17.3.1.12 ind: firstLine / left, in twentieths of a point.
             let first = props.indent_first_line.map_or(0, |t| t.0);
             let left = props.indent_left.map_or(0, |t| t.0);

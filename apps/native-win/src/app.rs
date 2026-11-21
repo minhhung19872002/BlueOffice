@@ -792,6 +792,10 @@ impl Handler for Shell {
         if matches!(input, Input::Press { .. }) {
             self.view.set_pointer_mods(win32::mouse_mods());
         }
+        // Ctrl at the drop copies dragged text instead of moving it.
+        if matches!(input, Input::Release { .. }) {
+            self.view.set_release_mods(win32::mouse_mods());
+        }
         let m = Measure(self.gpu.as_ref().map(|g| &g.device));
         let mut redraw = self.view.handle(input, &m);
         redraw |= self.handle_requests();

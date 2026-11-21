@@ -11,6 +11,7 @@
 #![forbid(unsafe_code)]
 
 pub mod aff;
+mod extra_words;
 pub mod grammar;
 pub mod lang;
 pub mod vi;
@@ -520,6 +521,15 @@ impl Speller {
     #[must_use]
     pub fn check_in(&self, w: &str, lang: Option<&str>) -> Option<bool> {
         if self.checkers.is_empty() || self.exempt(w) {
+            return Some(true);
+        }
+        // BlueOffice's own extra English words (key names, file types) when English is checked.
+        let english = lang.is_none_or(|l| primary_language(l) == "en")
+            && self
+                .checkers
+                .iter()
+                .any(|(t, _)| t.as_deref().is_none_or(|t| t == "en"));
+        if english && extra_words::accepted(w) {
             return Some(true);
         }
         // Checkers accept words with digits; asked to check them, they are wrong unless the user

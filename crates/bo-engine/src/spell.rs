@@ -352,9 +352,11 @@ impl SpellState {
             };
             let a = Analysis {
                 misspelt,
+                // Extra spaces between words are not flagged: the reference's default
+                // grammar settings leave "North  0101" alone (BlueDoc round 9 capture).
                 issues: grammar::check(text)
                     .into_iter()
-                    .filter(|i| !skipped(&i.range))
+                    .filter(|i| !skipped(&i.range) && i.rule != grammar::Rule::ExtraSpace)
                     .collect(),
                 styles: grammar::tone_styles(text)
                     .into_iter()
@@ -734,6 +736,26 @@ mod tests {
         assert!(e.spell_at(0, 1.0, 1.0).is_none());
     }
 
+    // source: COM SpellingErrors of the reference word processor on this probe text (BlueDoc
+    // round 9): it flagged exactly PgUp PgDn Fn Cmd ok Xyzzq Blorft Qwz Zzxb abcxyz BlueDoc Ctrls.
+    #[test]
+    fn probe_words_flagged_as_on_the_reference() {
+        let e = engine("x");
+        let probe = "Press Ctrl and Alt and Shift with Esc Del Tab Enter PgUp PgDn Ins Fn Cmd Win \
+                     key PDF USB HTML URL CPU GPU RAM SSD LED NASA DOCX XLSX iPhone eBay \
+                     JavaScript Wi-Fi OK ok Xyzzq Blorft QWZX Qwz Zzxb abcxyz BlueDoc Bluestar \
+                     ctrl alt esc xlsx pdf Ctrls";
+        let flagged: Vec<&str> = probe
+            .split(' ')
+            .filter(|w| !e.spell.speller.check(w))
+            .collect();
+        let reference = [
+            "PgUp", "PgDn", "Fn", "Cmd", "ok", "Xyzzq", "Blorft", "Qwz", "Zzxb", "abcxyz",
+            "BlueDoc", "Ctrls",
+        ];
+        assert_eq!(flagged, reference);
+    }
+
     #[test]
     fn commands_ignore_add_and_switch_off() {
         let mut e = engine("Một tư sai: documnet và BlueOffise.");
@@ -761,15 +783,16 @@ mod tests {
         let mut e = engine("Xin chào  bạn. hoà bình và hoà hợp, nhưng hòa thuận.");
         let marks = e.spelling_marks(None);
         let grammar: Vec<_> = marks.iter().filter(|m| m.grammar).collect();
-        // Extra space, small letter after a full stop, "hòa" in the older style.
-        assert_eq!(grammar.len(), 3, "{marks:?}");
-        assert_eq!(marks.len(), 3, "no misspelt word: {marks:?}");
-        let m = grammar[1];
+        // Small letter after a full stop, "hòa" in the older style; the extra space is not
+        // flagged, as on the reference with its default settings (round 9).
+        assert_eq!(grammar.len(), 2, "{marks:?}");
+        assert_eq!(marks.len(), 2, "no misspelt word: {marks:?}");
+        let m = grammar[0];
         let info = e.spell_at(0, m.x + m.w / 2.0, m.y - 4.0).unwrap();
         assert_eq!(info.rule, Some("capitalize"));
         assert_eq!(info.word, "hoà");
         assert_eq!(info.suggestions, ["Hoà"]);
-        let m = grammar[2];
+        let m = grammar[1];
         let info = e.spell_at(0, m.x + m.w / 2.0, m.y - 4.0).unwrap();
         assert_eq!(info.rule, Some("toneStyle"));
         assert_eq!(info.suggestions, ["hoà"]);
@@ -779,7 +802,7 @@ mod tests {
                 text: "hòa".into(),
             })
             .unwrap();
-        assert_eq!(r.spelling.as_ref().map(Vec::len), Some(2));
+        assert_eq!(r.spelling.as_ref().map(Vec::len), Some(1));
         let r = e
             .command_json(r#"{"cmd":"grammarIgnore","rule":"extraSpace","text":"  ","now":1}"#)
             .unwrap();

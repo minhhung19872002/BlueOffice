@@ -14910,7 +14910,6 @@
       "mergedCells": "Merged cells"
     }
   },
-<<<<<<< HEAD
   "docR8": {
     "ac": {
       "title": "AutoCorrect",
@@ -14971,7 +14970,7 @@
       "underline": "Underline",
       "cancel": "Cancel"
     }
-=======
+  },
   "sheetPvt": {
     "tabAnalyze": "PivotTable Analyze",
     "tabDesign": "Design",
@@ -15019,6 +15018,5 @@
     "sourceTitle": "Change PivotTable Data Source",
     "sourceLabel": "Table/Range:",
     "subFiltered": "&Include Filtered Items in Totals"
->>>>>>> work/desktop-performance
   }
 }

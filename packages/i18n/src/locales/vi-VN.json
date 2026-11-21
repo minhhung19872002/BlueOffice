@@ -14910,7 +14910,6 @@
       "mergedCells": "Ô đã gộp"
     }
   },
-<<<<<<< HEAD
   "docR8": {
     "ac": {
       "title": "Tự động sửa",
@@ -14971,7 +14970,7 @@
       "underline": "Gạch chân",
       "cancel": "Hủy"
     }
-=======
+  },
   "sheetPvt": {
     "tabAnalyze": "Phân tích PivotTable",
     "tabDesign": "Thiết kế",
@@ -15019,6 +15018,5 @@
     "sourceTitle": "Đổi nguồn dữ liệu PivotTable",
     "sourceLabel": "Bảng/Vùng:",
     "subFiltered": "Tính cả mục đã lọc vào tổng"
->>>>>>> work/desktop-performance
   }
 }

@@ -511,13 +511,21 @@ fn paint_stamp_cell(
     }
     let ink = if solid { Rgba(255, 255, 255, 255) } else { col };
     let upper = title.to_uppercase();
-    let size = if dynamic {
+    let mut size = if dynamic {
         (13.0 * s).round()
     } else {
         (16.0 * s).round()
     };
+    // Long titles ("NOT APPROVED", "DEPARTMENTAL") shrink to stay inside the frame with 6 px
+    // on each side (the estimate runs 10-18 % wide on capitals: APPROVED 87 px drawn,
+    // 96 px estimated).
+    let room = c[2] - (12.0 * s).round();
+    let est = |size: f32| crate::editor_form8::text_w(&upper, size * 1.1) * 0.88;
+    while est(size) > room && size > 8.0 {
+        size -= 1.0;
+    }
     let st = TextStyle { size, bold: false };
-    let tw = crate::editor_form8::text_w(&upper, size * 1.1);
+    let tw = est(size);
     let ty = if dynamic {
         c[1] + (3.0 * s).round()
     } else {

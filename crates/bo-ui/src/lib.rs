@@ -72,6 +72,7 @@ mod editor_format_tests;
 mod editor_frames11;
 mod editor_icons;
 mod editor_join8;
+mod editor_measure12;
 mod editor_more;
 mod editor_more2;
 #[cfg(test)]

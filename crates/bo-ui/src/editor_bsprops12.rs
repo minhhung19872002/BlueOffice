@@ -287,7 +287,8 @@ impl EditorWindow {
                 let r = [q(691.0), qy(165.0), q(408.0), q(59.0)];
                 p.fill_rect(r[0], r[1], r[2], r[3], Rgba(0xDC, 0xDC, 0xDC, 255));
                 p.fill_rect(r[0] + 1.0, r[1] + 1.0, r[2] - 2.0, r[3] - 2.0, WHITE);
-                let is = q(30.0);
+                // The lock glyph 32 px tall as the reference's (its shape spans 18 of 24 units).
+                let is = q(42.0);
                 let ink2 = Ink {
                     ink: Rgba(0x33, 0x33, 0x33, 255),
                     accent,
@@ -295,7 +296,7 @@ impl EditorWindow {
                 reader_icons::draw(
                     p,
                     if enc { "secure" } else { "unsecure" },
-                    q(698.0),
+                    q(687.0),
                     r[1] + (r[3] - is) / 2.0,
                     is,
                     ink2,
@@ -306,7 +307,7 @@ impl EditorWindow {
                     self.t("pdfEditor12.noProtection")
                 };
                 p.text(&what, q(739.0), mid(row, 195.0), row, DARK);
-                arrow_down(p, r[0] + r[2] - q(14.0), qy(195.0), sc, DARK);
+                arrow_down(p, r[0] + r[2] - q(6.0), qy(195.0), sc, DARK);
                 hits.push((r, "bsp12.secMenu".into()));
                 // Change Settings: available when the document has a password.
                 let b = [q(691.0), qy(242.0), q(141.0), q(32.0)];
@@ -378,65 +379,101 @@ impl EditorWindow {
                 }
             }
             3 => {
-                let fonts = self.view().map(|v| v.doc().font_list()).unwrap_or_default();
+                let mut fonts = self.view().map(|v| v.doc().font_list()).unwrap_or_default();
+                // The reference lists the fonts by name (subset tag ignored).
+                fonts.sort_by(|a, b| base_font(&a.name).cmp(base_font(&b.name)));
                 let mut yc = 155.0;
-                let line = Rgba(0xA0, 0xA0, 0xA0, 255);
+                // A classic tree as the reference's (measured at 125 %): 11 px expander box with
+                // a #919191 frame and a light gradient, navy 7 px minus, black dotted lines.
+                let frame = Rgba(0x91, 0x91, 0x91, 255);
+                let navy = Rgba(75, 99, 167, 255);
+                let dot = Rgba(0, 0, 0, 255);
+                let vdots = |p: &mut dyn Painter, x: f32, y0: f32, y1: f32| {
+                    let mut y = y0;
+                    while y < y1 {
+                        p.fill_rect(x, y, 1.0, 1.0, dot);
+                        y += 2.0;
+                    }
+                };
+                let hdots = |p: &mut dyn Painter, x0: f32, x1: f32, y: f32| {
+                    let mut x = x0;
+                    while x <= x1 {
+                        p.fill_rect(x, y, 1.0, 1.0, dot);
+                        x += 2.0;
+                    }
+                };
+                let n_fonts = fonts.len();
                 for (k, f) in fonts.iter().enumerate() {
                     let open = !self.bsp12.collapsed.contains(&k);
-                    // The expander box with − / +.
-                    let bx = [q(674.0), qy(yc - 5.0), q(10.0), q(10.0)];
-                    p.fill_rect(bx[0], bx[1], bx[2], bx[3], line);
+                    let bx = [q(674.0), qy(yc - 4.0), q(11.0), q(11.0)];
+                    let box_y = bx[1];
+                    p.fill_rect(bx[0] + 1.0, bx[1], bx[2] - 2.0, bx[3], frame);
+                    p.fill_rect(bx[0], bx[1] + 1.0, bx[2], bx[3] - 2.0, frame);
                     p.fill_rect(bx[0] + 1.0, bx[1] + 1.0, bx[2] - 2.0, bx[3] - 2.0, WHITE);
-                    let cy = (bx[1] + bx[3] / 2.0).floor();
-                    p.fill_rect(bx[0] + 2.0, cy, bx[2] - 4.0, 1.0, DARK);
+                    let half = (bx[3] / 2.0).floor();
+                    p.fill_rect(
+                        bx[0] + 1.0,
+                        bx[1] + half + 1.0,
+                        bx[2] - 2.0,
+                        bx[3] - half - 2.0,
+                        Rgba(0xE3, 0xE3, 0xE3, 255),
+                    );
+                    let cy = bx[1] + half;
+                    p.fill_rect(bx[0] + 2.0, cy, bx[2] - 4.0, 1.0, navy);
+                    let cx = bx[0] + half;
                     if !open {
-                        let cx = (bx[0] + bx[2] / 2.0).floor();
-                        p.fill_rect(cx, bx[1] + 2.0, 1.0, bx[3] - 4.0, DARK);
+                        p.fill_rect(cx, bx[1] + 2.0, 1.0, bx[3] - 4.0, navy);
                     }
+                    hdots(p, bx[0] + bx[2] + 1.0, q(688.0), cy);
                     hits.push((
                         [bx[0] - 2.0, bx[1] - 2.0, q(260.0), bx[3] + 4.0],
                         format!("bsp12.font{k}"),
                     ));
-                    let name = f.name.split_once('+').map_or(f.name.as_str(), |s| s.1);
-                    p.text(name, q(688.0), mid(small, yc), small, TEXT);
+                    p.text(base_font(&f.name), q(691.0), mid(small, yc), small, TEXT);
                     yc += 22.0;
-                    if !open {
-                        continue;
-                    }
-                    let kids = [
-                        format!("{}{}", self.t("pdfEditor12.fType"), f.kind),
-                        format!("{}{}", self.t("pdfEditor12.fEncoding"), f.encoding),
-                        format!(
-                            "{}{}",
-                            self.t("pdfEditor12.fEmbedded"),
-                            if f.embedded {
-                                if f.name.contains('+') {
+                    if open {
+                        let mut kids = vec![
+                            format!("{}{}", self.t("pdfEditor12.fType"), f.kind),
+                            format!(
+                                "{}{}",
+                                self.t("pdfEditor12.fEncoding"),
+                                encoding_name(&f.encoding)
+                            ),
+                        ];
+                        // A font the file does not embed: the face we draw it with, as the
+                        // reference names its substitute ("Actual Font:Arial").
+                        let actual = (!f.embedded)
+                            .then(|| self.view().and_then(|v| v.doc().substitute_font(&f.name)))
+                            .flatten();
+                        if let Some(actual) = actual {
+                            kids.push(format!("{}{actual}", self.t("pdfEditor12.fActual")));
+                            kids.push(format!("{}TrueType", self.t("pdfEditor12.fActualType")));
+                        } else {
+                            kids.push(format!(
+                                "{}{}",
+                                self.t("pdfEditor12.fEmbedded"),
+                                if f.embedded && f.name.contains('+') {
                                     self.t("pdfEditor12.embeddedSubset")
-                                } else {
+                                } else if f.embedded {
                                     self.t("pdfEditor12.yes")
+                                } else {
+                                    self.t("pdfEditor12.no")
                                 }
-                            } else {
-                                self.t("pdfEditor12.no")
-                            }
-                        ),
-                    ];
-                    let top_line = qy(yc - 22.0 + 6.0);
-                    for (j, kid) in kids.iter().enumerate() {
-                        let ky = qy(yc);
-                        // Dotted tree lines.
-                        let lx = q(679.0);
-                        let mut y = if j == 0 { top_line } else { qy(yc - 22.0) };
-                        while y < ky {
-                            p.fill_rect(lx, y, 1.0, 1.0, line);
-                            y += 2.0;
+                            ));
                         }
-                        let mut x = lx;
-                        while x < q(695.0) {
-                            p.fill_rect(x, ky, 1.0, 1.0, line);
-                            x += 2.0;
+                        let lx = q(698.0);
+                        let top = qy(yc - 22.0 + 8.0);
+                        for kid in &kids {
+                            let ky = qy(yc);
+                            vdots(p, lx, top, ky);
+                            hdots(p, lx, q(706.0), ky);
+                            p.text(kid, q(710.0), mid(small, yc), small, TEXT);
+                            yc += 22.0;
                         }
-                        p.text(kid, q(698.0), mid(small, yc), small, TEXT);
-                        yc += 22.0;
+                    }
+                    // The root line runs down to the next font's box.
+                    if k + 1 < n_fonts {
+                        vdots(p, cx, box_y + bx[3] + 1.0, qy(yc - 4.0));
                     }
                 }
                 if fonts.is_empty() {
@@ -547,20 +584,34 @@ impl EditorWindow {
                     TEXT,
                 );
                 let mut yc = 218.0;
-                for (label, value, cmd) in rows {
+                for (i, (label, value, cmd)) in rows.into_iter().enumerate() {
                     p.text(&label, x0, mid(row, yc), row, TEXT);
                     let (text, col) = match value {
                         Ok(v) => (v, TEXT),
                         Err(placeholder) => (placeholder, PLACEHOLDER),
                     };
-                    p.text(&text, xv, mid(row, yc), row, col);
+                    // Values sit 3 px above their labels, as the reference's; a long file
+                    // path keeps its end in a 413 px box (clipped on the left).
+                    let vy = mid(row, yc - 3.0);
+                    // The dialog-font estimate runs ~10 % wide on paths (measured: 306 px drawn
+                    // for 341 px estimated).
+                    let tw = crate::editor_form8::text_w(&text, row.size * 1.1) * 0.9;
+                    let bw = q(413.0);
+                    if i == 0 && tw > bw {
+                        p.push_clip(xv, qy(yc - 16.0), bw, q(32.0));
+                        p.text(&text, xv + bw - tw, vy, row, col);
+                        p.pop_clip();
+                    } else {
+                        p.text(&text, xv, vy, row, col);
+                    }
                     if let Some(cmd) = cmd {
                         hits.push(([xv - q(4.0), qy(yc - 15.0), q(420.0), q(30.0)], cmd));
                     }
                     yc += 35.0;
                 }
                 // Custom properties, dates and "Show More Information".
-                yc += 24.0;
+                // "Custom" 74 px below the last row (measured at 125 %).
+                yc += 39.0;
                 let custom = self.t("pdfEditor12.custom");
                 p.text(&custom, x0, mid(row, yc), row, accent);
                 hits.push((
@@ -575,7 +626,7 @@ impl EditorWindow {
                 for (k, v) in customs {
                     yc += 31.0;
                     p.text(&k, x0, mid(row, yc), row, TEXT);
-                    p.text(&v, xv, mid(row, yc), row, TEXT);
+                    p.text(&v, xv, mid(row, yc - 3.0), row, TEXT);
                 }
                 yc += 35.0;
                 let info = self.view().map(|v| v.doc().doc_info()).unwrap_or_default();
@@ -597,13 +648,13 @@ impl EditorWindow {
                     } else {
                         date_text(&v)
                     };
-                    p.text(&v, xv, mid(row, yc), row, TEXT);
+                    p.text(&v, xv, mid(row, yc - 3.0), row, TEXT);
                     yc += 31.0;
                 }
                 if self.bsp12.more {
                     for (k, v) in self.more_rows12() {
                         p.text(&k, x0, mid(row, yc), row, TEXT);
-                        p.text(&v, xv, mid(row, yc), row, TEXT);
+                        p.text(&v, xv, mid(row, yc - 3.0), row, TEXT);
                         yc += 31.0;
                     }
                 }
@@ -630,7 +681,7 @@ impl EditorWindow {
                 row,
                 DARK,
             );
-            chevron_down(p, r[0] + r[2] - q(14.0), r[1] + r[3] / 2.0, sc, DARK);
+            chevron_down(p, r[0] + r[2] - q(12.4), r[1] + r[3] / 2.0, sc, DARK);
             hits.push((r, format!("bsp12.combo.{id}")));
             if self.bsp12.open.is_some_and(|o| o.0 == id) {
                 list = Some((id, items, k, r));
@@ -1072,10 +1123,10 @@ pub(crate) enum Value12 {
     PrintPages,
 }
 
-/// A small solid triangle pointing down, centred at (`cx`, `cy`).
+/// A small solid triangle pointing down, centred at (`cx`, `cy`) (9 × 5 px at 125 %).
 fn arrow_down(p: &mut dyn Painter, cx: f32, cy: f32, sc: f32, c: Rgba) {
-    let w = (4.0 * sc).round();
-    let h = (2.4 * sc).round();
+    let w = (7.2 * sc).round();
+    let h = (4.0 * sc).round();
     p.path(
         &[
             PathSeg::M(cx - w / 2.0, cy - h / 2.0),
@@ -1088,10 +1139,28 @@ fn arrow_down(p: &mut dyn Painter, cx: f32, cy: f32, sc: f32, c: Rgba) {
     );
 }
 
-/// A thin chevron pointing down, centred at (`cx`, `cy`).
-fn chevron_down(p: &mut dyn Painter, cx: f32, cy: f32, sc: f32, c: Rgba) {
-    let w = (4.4 * sc).round();
-    let h = (2.4 * sc).round();
+/// A font name without its subset tag ("ABCDEF+Name" → "Name").
+fn base_font(name: &str) -> &str {
+    name.split_once('+').map_or(name, |s| s.1)
+}
+
+/// Short encoding names as the reference shows them ("WinAnsiEncoding" → "Ansi").
+fn encoding_name(e: &str) -> &str {
+    match e {
+        "WinAnsiEncoding" => "Ansi",
+        "MacRomanEncoding" => "Roman",
+        "StandardEncoding" => "Standard",
+        "MacExpertEncoding" => "Expert",
+        "PDFDocEncoding" => "PDFDoc",
+        other => other,
+    }
+}
+
+/// A thin chevron pointing down, centred at (`cx`, `cy`) (11 × 6 px at 125 %, 1.5 px grey
+/// stroke, as the reference's combo boxes).
+fn chevron_down(p: &mut dyn Painter, cx: f32, cy: f32, sc: f32, _c: Rgba) {
+    let w = (8.8 * sc).round();
+    let h = (4.4 * sc).round();
     p.path(
         &[
             PathSeg::M(cx - w / 2.0, cy - h / 2.0),
@@ -1099,7 +1168,7 @@ fn chevron_down(p: &mut dyn Painter, cx: f32, cy: f32, sc: f32, c: Rgba) {
             PathSeg::L(cx + w / 2.0, cy - h / 2.0),
         ],
         None,
-        Some((c, 1.0)),
+        Some((Rgba(0x80, 0x80, 0x80, 255), (1.2 * sc).max(1.0))),
     );
 }
 

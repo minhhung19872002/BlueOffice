@@ -19,7 +19,7 @@ use bo_render::Rgba;
 /// 11 px cap height, 2 px above the first row, white with a #E0E0E0 frame).
 pub(crate) const FIELD_MENU12: MenuLook = MenuLook {
     item_h: 22.4,
-    text: 11.0,
+    text: 12.0,
     text_x: (28.8, 28.8),
     icon_x: 4.0,
     icon: 14.4,
@@ -36,8 +36,9 @@ const HOVER12: Rgba = Rgba(0xD9, 0xD9, 0xD9, 255);
 /// Space a rule takes between two groups of rows (8 px at 125 %).
 const SEP_GAP12: f32 = 6.4;
 
-/// Space right of the longest label (50 px at 125 %: room for the sub-menu mark).
-const RIGHT12: f32 = 40.0;
+/// Space right of the longest label (50 px at 125 % with the label estimate: room for the
+/// sub-menu mark).
+const RIGHT12: f32 = 28.0;
 
 /// Dialogs of round 12.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -69,6 +70,11 @@ pub(crate) struct Fields12 {
     pub shift: (f32, f32),
     /// Split Document › Output Options (kept for the session).
     pub out: SplitOut,
+    /// Access keys of the next menu12 (one per row) and whether to underline them (opened
+    /// from the keyboard).
+    pub mn_next: Option<(Vec<char>, bool)>,
+    /// Access keys of the open field menu: (lower-case letter, command, dimmed).
+    pub mnem: Vec<(char, String, bool)>,
 }
 
 /// Split Document › Output Options: where the parts go and how they are named (the
@@ -130,6 +136,11 @@ impl SplitOut {
     }
 }
 
+/// Access keys of the field menu's rows, as the reference underlines them.
+const FIELD_KEYS12: [char; 13] = [
+    't', 't', 'C', 'P', 'D', 'l', 'n', 'b', 'z', 'M', 'O', 'e', 'U',
+];
+
 /// One menu row: command, label key, dimmed, opens a sub-menu.
 type Row12 = (&'static str, &'static str, bool, bool);
 
@@ -177,6 +188,36 @@ impl EditorWindow {
             .map(|i| text_w(&i.label, size) * 0.93)
             .fold(0.0_f32, f32::max);
         let keys = vec![(String::new(), 0.0); items.len()];
+        // Access keys (the reference's Proper_t_ies, Cu_t_, _C_opy …): the first matching
+        // letter of each label; underlined only when the menu came from the keyboard.
+        let (letters, show) = self.f12.mn_next.take().unwrap_or_default();
+        self.f12.mnem.clear();
+        let mut lines = Vec::new();
+        for (i, item) in items.iter().enumerate() {
+            let hit = letters.get(i).and_then(|&c| {
+                item.label
+                    .char_indices()
+                    .find(|&(_, l)| l == c)
+                    .or_else(|| {
+                        item.label
+                            .char_indices()
+                            .find(|&(_, l)| l.to_lowercase().eq(c.to_lowercase()))
+                    })
+            });
+            let line = hit.map(|(at, l)| {
+                if let Choice::Command(cmd) = &item.choice {
+                    self.f12.mnem.push((
+                        l.to_lowercase().next().unwrap_or(l),
+                        cmd.clone(),
+                        item.dim,
+                    ));
+                }
+                let x = text_w(&item.label[..at], size) * 0.93;
+                let w = text_w(&l.to_string(), size) * 0.93;
+                (x, w)
+            });
+            lines.push(if show { line } else { None });
+        }
         let gap = (2.0 * s).round();
         let view = self.window_size();
         let menu = crate::popup::Menu::open_with(
@@ -189,7 +230,8 @@ impl EditorWindow {
         .with_soft_shadow()
         .with_decor(Vec::new(), seps)
         .with_keys(keys, widest, RIGHT12, SEP_GAP12, view)
-        .with_arrows(arrows, HOVER12);
+        .with_arrows(arrows, HOVER12)
+        .with_underlines(lines);
         self.r.set_menu9(menu, "field");
     }
 
@@ -197,6 +239,13 @@ impl EditorWindow {
     /// one field: Align, Distribute and Size need several, Duplicate another page, Paste a
     /// copied field).
     pub(crate) fn field_menu12(&mut self, x: f32, y: f32) {
+        self.field_menu12_from(x, y, false);
+    }
+
+    /// [`Self::field_menu12`]; `keyboard`: opened with Shift+F10 / the menu key, so the access
+    /// keys are underlined as the reference shows them.
+    pub(crate) fn field_menu12_from(&mut self, x: f32, y: f32, keyboard: bool) {
+        self.f12.mn_next = Some((FIELD_KEYS12.to_vec(), keyboard));
         self.f11.menu_at = [x, y];
         let n = self.f11.selected.len();
         let pages = self.view().map_or(0, crate::ReaderView::page_count);
@@ -221,7 +270,8 @@ impl EditorWindow {
             ),
             ("fd11.menu.size", "pdfEditor12.size", n < 2, true),
             ("fd12.copies", "pdfEditor12.copies", n == 0, false),
-            ("fd11.tabManual", "pdfEditor12.setTabOrder", n == 0, false),
+            // Greyed for one field, as the reference (ordering needs several).
+            ("fd11.tabManual", "pdfEditor12.setTabOrder", n < 2, false),
             (
                 "fd12.duplicate",
                 "pdfEditor12.duplicate",
@@ -243,6 +293,54 @@ impl EditorWindow {
             false,
         )];
         self.menu12(&rows, Vec::new(), [x, y]);
+    }
+
+    /// Keyboard of the field menu, before any other input: a letter runs the row with that
+    /// access key while the menu is open; Shift+F10 opens the menu (keys underlined) at the
+    /// first selected field. True when used.
+    pub(crate) fn field_keys12(&mut self, input: &Input) -> bool {
+        if self.r.open_menu_id() == Some("field") {
+            let c = match input {
+                Input::Text(t) if t.chars().count() == 1 => t.chars().next(),
+                Input::Key(Key::Letter(c), m) if !m.ctrl && !m.alt => Some(*c),
+                _ => None,
+            };
+            let Some(c) = c.and_then(|c| c.to_lowercase().next()) else {
+                return false;
+            };
+            let hit = self
+                .f12
+                .mnem
+                .iter()
+                .find(|(k, _, dim)| *k == c && !dim)
+                .map(|m| m.1.clone());
+            if let Some(cmd) = hit {
+                self.r.close_menu();
+                self.run_field_command12(&cmd);
+            }
+            // Letters without a row are swallowed, as a menu does.
+            return true;
+        }
+        if let Input::Key(Key::F(10), m) = input {
+            if m.shift && self.design.tool.is_some() && !self.r.modal_open() {
+                let at = self.f11.selected.first().cloned().and_then(|f| {
+                    self.view()
+                        .and_then(|v| v.doc_rect_to_window(f.page, f.rect))
+                });
+                if let Some(r) = at {
+                    self.field_menu12_from(r[0] + r[2] / 2.0, r[1] + r[3] / 2.0, true);
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Run a row of the field menu chosen by its access key.
+    fn run_field_command12(&mut self, cmd: &str) {
+        if !self.fields12_command(cmd) {
+            self.fields11_command(cmd);
+        }
     }
 
     /// Field-mode input of round 12 (before round 11's): Ctrl+X / C / V and the context menu
@@ -530,7 +628,7 @@ impl EditorWindow {
         let t = |k: &str| self.t(k);
         let o = self.f12.out.clone();
         let c = vec![
-            group(t("pdfEditor12.outputFolder"), [17.0, 46.0, 520.0, 115.0]),
+            group(t("pdfEditor12.outputFolder"), [17.0, 55.0, 520.0, 106.0]),
             radio("folder", 0, 28.0, 94.0, t("pdfEditor12.sameAsSource")),
             radio("folder", 1, 28.0, 132.0, t("pdfEditor12.inFolder")),
             crate::editor_form8::edit("dir", [97.0, 118.0, 328.0, 28.0], On::If("folder", 1)),

@@ -103,6 +103,9 @@ pub struct Menu {
     arrows: Vec<bool>,
     /// Band under the highlighted row in place of the theme's hover colour.
     hover_fill: Option<Rgba>,
+    /// Access-key underlines per row: (x from the label's start, width) in device pixels
+    /// (BlueEditor round 12, shown when the menu was opened from the keyboard).
+    underlines: Vec<Option<(f32, f32)>>,
 }
 
 /// Draws icon `name` into a `size`-pixel square at (`x`, `y`), greyed when `dim`.
@@ -177,6 +180,7 @@ impl Menu {
             soft_shadow: false,
             arrows: Vec::new(),
             hover_fill: None,
+            underlines: Vec::new(),
         };
         // Show the current value in the middle of the list.
         if let Some(i) = current {
@@ -219,6 +223,13 @@ impl Menu {
     pub fn with_arrows(mut self, arrows: Vec<bool>, hover: Rgba) -> Self {
         self.arrows = arrows;
         self.hover_fill = Some(hover);
+        self
+    }
+
+    /// Underline each row's access key at (x from the label's start, width) device pixels.
+    #[must_use]
+    pub fn with_underlines(mut self, underlines: Vec<Option<(f32, f32)>>) -> Self {
+        self.underlines = underlines;
         self
     }
 
@@ -519,18 +530,29 @@ impl Menu {
                 }
             }
             let color = if item.dim { t.text_muted } else { t.text };
+            let text_x = self.x
+                + if self.icons.is_empty() {
+                    (look.text_x.0 * s).round()
+                } else {
+                    (look.text_x.1 * s).round()
+                };
             p.text(
                 &item.label,
-                self.x
-                    + if self.icons.is_empty() {
-                        (look.text_x.0 * s).round()
-                    } else {
-                        (look.text_x.1 * s).round()
-                    },
+                text_x,
                 y + (self.item_h - line) / 2.0,
                 style,
                 color,
             );
+            if let Some(Some((ux, uw))) = self.underlines.get(i) {
+                // One pixel 4.8 px (at 100 %) below the row's middle, under the glyph.
+                p.fill_rect(
+                    (text_x + ux).round(),
+                    (y + self.item_h / 2.0 + 4.8 * s).round(),
+                    uw.round().max(1.0),
+                    1.0,
+                    color,
+                );
+            }
         }
         p.pop_clip();
     }

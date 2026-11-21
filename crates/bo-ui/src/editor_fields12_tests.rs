@@ -255,3 +255,25 @@ fn closing_a_tab_releases_its_page_images() {
     w.prepare(&mut store);
     assert!(store.keys.is_empty(), "{:?}", store.keys.keys());
 }
+
+/// Access keys: Shift+F10 opens the menu with the letters underlined (a 1 px rule under the
+/// glyph); a letter runs its row (C = Copy) and closes the menu; a right click shows no rules.
+#[test]
+fn field_menu_access_keys() {
+    let mut w = form_window(1);
+    select_name(&mut w);
+    let mods = crate::Mods {
+        shift: true,
+        ..crate::Mods::default()
+    };
+    w.handle(Input::Key(crate::Key::F(10), mods), &Fixed);
+    assert_eq!(w.r.open_menu_id(), Some("field"));
+    let keys: Vec<char> = w.f12.mnem.iter().map(|m| m.0).collect();
+    assert_eq!(keys.len(), 13, "{keys:?}");
+    assert_eq!(keys[2], 'c');
+    w.handle(Input::Text("c".into()), &Fixed);
+    assert_eq!(w.r.open_menu_id(), None);
+    assert_eq!(w.f12.clip.len(), 1);
+    // Set Tab Order is greyed for one field, as the reference.
+    assert!(w.f12.mnem.iter().any(|m| m.1 == "fd11.tabManual" && m.2));
+}

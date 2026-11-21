@@ -796,6 +796,11 @@ impl ReaderWindow {
         self.menu = None;
     }
 
+    /// Id of the open drop-down menu (BlueEditor round 12: access keys of its field menu).
+    pub(crate) fn open_menu_id(&self) -> Option<&'static str> {
+        self.menu.as_ref().map(|m| m.1)
+    }
+
     /// A menu or dialog of this window is open.
     pub(crate) fn modal_open(&self) -> bool {
         self.menu.is_some() || self.dialog.is_some()

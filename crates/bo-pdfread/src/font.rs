@@ -115,7 +115,7 @@ pub(crate) fn base_name(name: &str) -> &str {
 }
 
 /// Family candidates and style of a PostScript-like font name.
-fn substitute_names(name: &str, serif: bool, fixed: bool) -> (Vec<String>, bool, bool) {
+pub(crate) fn substitute_names(name: &str, serif: bool, fixed: bool) -> (Vec<String>, bool, bool) {
     let lower = name.to_ascii_lowercase();
     let bold = lower.contains("bold")
         || lower.contains("black")

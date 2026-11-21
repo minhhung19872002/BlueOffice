@@ -46,6 +46,7 @@ mod fields12;
 mod filters;
 mod font;
 mod font_subset;
+mod fontsub12;
 mod forms;
 mod forms11;
 mod function;

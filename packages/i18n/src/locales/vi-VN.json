@@ -14780,6 +14780,8 @@
     "duplicateTo": "Nhân bản sang các trang",
     "dynamicStamps": "Dấu động",
     "embeddedSubset": "Một phần",
+    "fActual": "Phông thực tế: ",
+    "fActualType": "Kiểu phông thực tế: ",
     "fEmbedded": "Nhúng: ",
     "fEncoding": "Bảng mã: ",
     "fType": "Kiểu: ",

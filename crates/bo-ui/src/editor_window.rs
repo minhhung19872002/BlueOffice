@@ -264,7 +264,7 @@ fn ribbon(tab: usize) -> Vec<(&'static str, Kind)> {
                 Big("searchHighlight", "pdfComment.searchHighlight", false),
             ),
             ("sep6", Sep),
-            ("menu.measure", Big("measure", "pdfDraw.measure", true)),
+            ("cm.measure", Big("measure", "pdfDraw.measure", true)),
             (
                 "cm.calculator",
                 Big("calculator", "pdfEditor.calculator", false),
@@ -852,6 +852,14 @@ impl EditorWindow {
         if self.dialog.is_some() || self.dialog2.is_some() {
             return self.dialog_input(&input, m);
         }
+        // A press, or an open dialog of the editor, hides the ribbon tooltip (the reference
+        // never shows one over its dialogs).
+        if !self.form8.is_empty() || matches!(input, Input::Press { .. }) {
+            self.r.hide_tip9();
+        }
+        if self.field_keys12(&input) {
+            return true;
+        }
         if self.close_box_input(&input)
             || self.trans_input(&input)
             || self.form8_input(&input)
@@ -1104,6 +1112,7 @@ impl EditorWindow {
             return;
         }
         if self.stamps12_command(cmd)
+            || self.measure12_command(cmd)
             || self.prot10_command(cmd)
             || self.share11_command(cmd)
             || self.edit10_command(cmd)

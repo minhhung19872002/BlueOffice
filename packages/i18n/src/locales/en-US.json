@@ -15174,7 +15174,9 @@
       "tabTouch": "Touch",
       "headTouch": "Touch screens",
       "noTouch": "Tap to go on; touch gestures are not supported yet.",
-      "title": "Slide Show Help"
+      "title": "Slide Show Help",
+      "hideArrow": "Hide the pointer now / after a pause",
+      "taskbar": "Show the taskbar (any key returns)"
     }
   }
 }

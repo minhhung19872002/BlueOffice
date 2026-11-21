@@ -261,6 +261,8 @@ pub struct SlideWindow {
     /// Help's page and hovered part.
     help_tab: usize,
     help_hover: Option<usize>,
+    /// Help's tab labels and their measured widths.
+    help_tab_w: Vec<(String, f32)>,
     /// What the open menu chooses.
     menu_kind: MenuKind,
     rest: u32,
@@ -689,6 +691,7 @@ impl SlideWindow {
             show_windowed: false,
             help_tab: 0,
             help_hover: None,
+            help_tab_w: Vec::new(),
             menu_kind: MenuKind::Font,
             rest: 0,
             tooltip: None,
@@ -947,6 +950,7 @@ impl SlideWindow {
             | self.sync_context()
             | self.after_rehearsal();
         self.measure_bg_styles(text);
+        self.measure_help(text);
         // The File screen measures its texts again (Print settings cut to their boxes).
         if redraw && self.f10.bs.is_some() {
             self.file10_relayout(text);

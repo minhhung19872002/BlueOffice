@@ -61,9 +61,19 @@ const PAGES: [(&str, &str, &str, &str, &[Row]); 5] = [
                 "slideR10.help.hidden",
                 "Next slide, even when it is hidden",
             ),
+            (
+                "Ctrl+H / Ctrl+U",
+                "slideR10.help.hideArrow",
+                "Hide the pointer now / after a pause",
+            ),
+            (
+                "Ctrl+T",
+                "slideR10.help.taskbar",
+                "Show the taskbar (any key returns)",
+            ),
             ("Right-click", "slideR10.help.menu", "Slide show menu"),
             ("F1", "slideR10.help.f1", "This help"),
-            ("Esc", "slideR10.help.end", "End the show"),
+            ("Esc, Ctrl+Break", "slideR10.help.end", "End the show"),
         ],
     ),
     (
@@ -159,7 +169,16 @@ impl SlideWindow {
             .iter()
             .map(|(k, f, ..)| {
                 let label = self.t(k, f);
-                let w = self.help_px(label.chars().count() as f32 * 6.4 + 12.0);
+                // Measured label width (an estimate until the first measure).
+                let measured = self
+                    .help_tab_w
+                    .iter()
+                    .find(|(l, _)| *l == label)
+                    .map(|(_, w)| *w);
+                let w = measured.map_or_else(
+                    || self.help_px(label.chars().count() as f32 * 6.4 + 12.0),
+                    |w| (w + self.help_px(12.0)).round(),
+                );
                 let r = [tx, y + self.help_px(CAPTION_H + 6.0), w, self.help_px(20.0)];
                 tx += w;
                 r
@@ -196,6 +215,25 @@ impl SlideWindow {
             .into_iter()
             .position(inside)
             .map(HelpHit::Tab)
+    }
+
+    /// Measure the tab labels (after Help opened or the language changed).
+    pub(super) fn measure_help(&mut self, text: &dyn crate::TextMeasure) {
+        if !self.show_help || !self.help_tab_w.is_empty() {
+            return;
+        }
+        let style = TextStyle {
+            size: self.help_px(12.0),
+            bold: false,
+        };
+        self.help_tab_w = PAGES
+            .iter()
+            .map(|(k, f, ..)| {
+                let label = self.t(k, f);
+                let w = text.measure(&label, style).0;
+                (label, w)
+            })
+            .collect();
     }
 
     /// Input while Help is open (it is modal over the show).

@@ -15174,7 +15174,9 @@
       "tabTouch": "Cảm ứng",
       "headTouch": "Màn hình cảm ứng",
       "noTouch": "Chạm để tiếp tục; chưa hỗ trợ cử chỉ cảm ứng.",
-      "title": "Trợ giúp Trình chiếu"
+      "title": "Trợ giúp Trình chiếu",
+      "hideArrow": "Ẩn con trỏ ngay / sau khi dừng",
+      "taskbar": "Hiện thanh tác vụ (phím bất kỳ để trở lại)"
     }
   }
 }

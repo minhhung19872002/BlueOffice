@@ -165,6 +165,9 @@ pub(crate) struct Flow {
     foot_slack: f32,
     /// Space after of the last paragraph before the current page (see [`Flow::new_page`]).
     page_after: f32,
+    /// Lines of empty section-mark paragraphs (page, line index): no room, so the
+    /// balancing of the next section's columns leaves them out.
+    mark_lines: Vec<(usize, usize)>,
     /// Height of the footnote separator paragraph (§17.11.23) and where its rule is drawn
     /// below its top ([`note_separator`]).
     pub(crate) sep_h: f32,
@@ -605,6 +608,7 @@ impl Flow {
             foot_h: 0.0,
             foot_slack: 0.0,
             page_after: 0.0,
+            mark_lines: Vec::new(),
             sep_h: NOTE_SEPARATOR,
             sep_rule: NOTE_SEPARATOR / 2.0,
             carry: Vec::new(),
@@ -838,6 +842,8 @@ impl Flow {
         }
         let top = self.cols_top;
         let cols = self.cols.clone();
+        let page_idx = self.pages.len().saturating_sub(1);
+        let marks = &self.mark_lines;
         let Some(page) = self.pages.last_mut() else {
             return;
         };
@@ -845,7 +851,7 @@ impl Flow {
         // Lines of this section's columns: (line index, column).
         let mut mine: Vec<(usize, usize)> = Vec::new();
         for (i, l) in page.lines.iter().enumerate() {
-            if l.top < top - EPS || l.rotation.is_some() {
+            if l.top < top - EPS || l.rotation.is_some() || marks.contains(&(page_idx, i)) {
                 continue;
             }
             if l.source == LineSource::RowEnd {
@@ -892,8 +898,14 @@ impl Flow {
         let lead = mine
             .first()
             .map_or(0.0, |m| (page.lines[m.0].top - top).max(0.0));
+        // Lines of one paragraph: widow / orphan control (§17.3.1.44) keeps a paragraph's
+        // first or last line with its neighbour across the column break (measured
+        // black-box, docs/ui/REPORT.md "Dàn trang vòng 3", office-16).
+        let same_prev: Vec<bool> = (0..units.len())
+            .map(|k| k > 0 && page.lines[units[k].0].source == page.lines[units[k - 1].0].source)
+            .collect();
         let fill = |limit: f32| -> Option<Vec<(usize, f32)>> {
-            let mut out = Vec::with_capacity(units.len());
+            let mut out: Vec<(usize, f32)> = Vec::with_capacity(units.len());
             let (mut col, mut y) = (0usize, lead);
             for (k, &(_, _, gap, h)) in units.iter().enumerate() {
                 let start = if k == 0 {
@@ -908,8 +920,19 @@ impl Flow {
                     if col >= n {
                         return None;
                     }
+                    let last_of_para = k + 1 == units.len() || !same_prev[k + 1];
+                    let first_before = k >= 1 && !same_prev[k - 1];
+                    let carry = same_prev[k]
+                        && (first_before || last_of_para)
+                        && out.last().is_some_and(|&(c, s)| c + 1 == col && s > EPS);
                     y = 0.0;
-                    out.push((col, 0.0));
+                    if carry {
+                        // The line before goes along to the new column.
+                        out.pop();
+                        out.push((col, 0.0));
+                        y = units[k - 1].3 + gap;
+                    }
+                    out.push((col, y));
                     y += h;
                     continue;
                 }
@@ -1072,6 +1095,8 @@ impl Flow {
             page.lines.truncate(start.lines);
             page.items.truncate(start.items);
         }
+        self.mark_lines
+            .retain(|&(pg, i)| pg < start.page || (pg == start.page && i < start.lines));
         self.foot_order.truncate(start.snap.foot_keys);
         self.restore(ctx, start);
     }
@@ -1126,7 +1151,16 @@ impl Flow {
         }
         let prev = self.prev.clone();
         let y = self.y;
+        let from = (
+            self.pages.len(),
+            self.pages.last().map_or(0, |p| p.lines.len()),
+        );
         self.place_para(ctx, &mark, 0.0, src)?;
+        if self.pages.len() == from.0 {
+            let to = self.pages.last().map_or(0, |p| p.lines.len());
+            let pg = from.0.saturating_sub(1);
+            self.mark_lines.extend((from.1..to).map(|i| (pg, i)));
+        }
         // The spacing between the paragraphs around the mark collapses as if it were not there.
         self.y = self.y.max(y);
         self.prev = prev;

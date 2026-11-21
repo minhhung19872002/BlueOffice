@@ -1201,3 +1201,73 @@ fn a_new_page_section_keeps_its_space_before_less_the_last_space_after() {
     assert!(near(start(240, 240), 0.0), "{}", start(240, 240));
     assert!(near(start(360, 240), 0.0), "{}", start(360, 240));
 }
+
+/// A paragraph of `n` lines (explicit line breaks, §17.3.3.1 br).
+fn lines_para(name: &str, n: usize) -> Block {
+    let mut r = Run::text(format!("{name} 0"), RunProps::default());
+    for i in 1..n {
+        r.content.push(RunContent::LineBreak);
+        r.content.push(RunContent::Text(format!("{name} {i}")));
+    }
+    Block::Paragraph(Paragraph::new(
+        ParaProps {
+            space_before: Some(Twips(0)),
+            space_after: Some(Twips(0)),
+            line_spacing: Some(SINGLE),
+            ..ParaProps::default()
+        },
+        vec![r],
+    ))
+}
+
+/// Balanced columns before a continuous break keep widow / orphan control: a paragraph's
+/// first line does not stay alone at the foot of the first column (office-16).
+#[test]
+fn balanced_columns_keep_a_paragraphs_first_two_lines_together() {
+    let mut d = doc(vec![lines_para("A", 4), lines_para("B", 5)]);
+    d.sections[0].columns = Columns {
+        count: 2,
+        space: Twips(720),
+        ..Columns::default()
+    };
+    let mut after = Section {
+        page: a4(),
+        ..Section::new(vec![para("after", 0, 0, SINGLE)])
+    };
+    after.break_type = SectionBreak::Continuous;
+    d.sections.push(after);
+    let l = run(&d);
+    let b = lines(&l, 1);
+    assert!(
+        b[0].fragments[0].x > 200.0,
+        "B's first line left alone in column 1"
+    );
+}
+
+/// The empty paragraph ending a one-column section before a continuous two-column one
+/// takes no room, also when the columns are balanced (office-16).
+#[test]
+fn a_section_mark_takes_no_room_before_balanced_columns() {
+    let line = 2355.0 * 12.0 / 2048.0;
+    let mut d = doc(vec![para("intro", 0, 0, SINGLE), para("", 0, 0, SINGLE)]);
+    let mut cols = Section {
+        page: a4(),
+        ..Section::new(vec![lines_para("A", 4), lines_para("B", 4)])
+    };
+    cols.break_type = SectionBreak::Continuous;
+    cols.columns = Columns {
+        count: 2,
+        space: Twips(720),
+        ..Columns::default()
+    };
+    d.sections.push(cols);
+    let mut end = Section {
+        page: a4(),
+        ..Section::new(vec![para("end", 0, 0, SINGLE)])
+    };
+    end.break_type = SectionBreak::Continuous;
+    d.sections.push(end);
+    let l = run(&d);
+    let a = lines(&l, 2)[0].top;
+    assert!(near(a, 72.0 + line), "{a}");
+}

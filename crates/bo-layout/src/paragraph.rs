@@ -1001,10 +1001,15 @@ fn layout_uncached(
         ));
         run_style_idx.push(styles.len() - 1);
     }
-    let mark_style = match styles.last() {
-        Some(s) => s.clone(),
-        None => run_style(doc, fonts, &base_run).ok_or(LayoutError::NoFonts)?,
+    // The paragraph mark (§17.3.1.29 pPr/rPr over the paragraph style), not the last run,
+    // gives a line without text its extents: measured (cal-40) an empty run of 10 pt in a
+    // 13 pt paragraph keeps the 13 pt line, a 20 pt mark makes it 23 pt, a 8 pt mark 9.2 pt
+    // whatever the empty run's size; a mark never changes a line that has text.
+    let mark_rp = match &props.mark_run {
+        Some(m) => run_props(doc, &base_run, m),
+        None => base_run.clone(),
     };
+    let mark_style = run_style(doc, fonts, &mark_rp).ok_or(LayoutError::NoFonts)?;
     if styles.is_empty() {
         styles.push(mark_style.clone());
     }

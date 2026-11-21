@@ -1271,3 +1271,57 @@ fn a_section_mark_takes_no_room_before_balanced_columns() {
     let a = lines(&l, 2)[0].top;
     assert!(near(a, 72.0 + line), "{a}");
 }
+
+/// A run of the mark tests: text and size in half-points.
+type MarkRun<'a> = (&'a str, u32);
+
+/// A paragraph of runs `(text, half-points)` with an optional paragraph mark size
+/// (§17.3.1.29 `w:pPr/w:rPr/w:sz`).
+fn mark_para(runs: &[(&str, u32)], mark: Option<u32>) -> Block {
+    Block::Paragraph(Paragraph::new(
+        ParaProps {
+            space_before: Some(Twips(0)),
+            space_after: Some(Twips(0)),
+            line_spacing: Some(SINGLE),
+            mark_run: mark.map(|hp| {
+                Box::new(RunProps {
+                    size: Some(HalfPoints(hp)),
+                    ..RunProps::default()
+                })
+            }),
+            ..ParaProps::default()
+        },
+        runs.iter()
+            .map(|(t, hp)| {
+                Run::text(
+                    *t,
+                    RunProps {
+                        size: Some(HalfPoints(*hp)),
+                        ..RunProps::default()
+                    },
+                )
+            })
+            .collect(),
+    ))
+}
+
+#[test]
+fn a_line_without_text_takes_the_paragraph_marks_size() {
+    // cal-40 (Times New Roman 13 pt paragraphs): an empty 10 pt run keeps the paragraph's
+    // line (Gantt cells of office-39), a 20 pt mark gives 23 pt, an 8 pt mark 9.2 pt
+    // whatever the empty run's size; a 28 pt mark does not change a line with 10 pt text.
+    let tnr = |pt: f32| pt * 2355.0 / 2048.0;
+    let cases: [(&[MarkRun], Option<u32>, f32); 5] = [
+        (&[("", 20)], None, tnr(12.0)),
+        (&[], Some(40), tnr(20.0)),
+        (&[("", 56)], Some(16), tnr(8.0)),
+        (&[("Xx text ten", 20)], Some(56), tnr(10.0)),
+        (&[("Xx text twenty", 40)], Some(16), tnr(20.0)),
+    ];
+    for (k, (runs, mark, want)) in cases.iter().enumerate() {
+        let d = doc(vec![mark_para(runs, *mark)]);
+        let l = run(&d);
+        let h = lines(&l, 0)[0].height;
+        assert!((h - want).abs() < 0.05, "case {k}: {h} != {want}");
+    }
+}

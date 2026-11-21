@@ -1180,3 +1180,24 @@ fn a_page_break_paragraph_leaves_its_space_after_behind() {
     assert_eq!(l.page_text(1).trim(), "next page");
     assert!(near(next.top, 72.0), "{}", next.top);
 }
+
+/// The space before of a new-page section's first paragraph is kept, less the previous
+/// section's last space after (measured black-box, cal-36: after 6 / before 12 pt leaves
+/// 6 pt, after 12 / before 12 pt none, after 0 / before 12 pt all of it).
+#[test]
+fn a_new_page_section_keeps_its_space_before_less_the_last_space_after() {
+    let start = |after: i32, before: i32| {
+        let mut d = doc(vec![para("first", 0, after, SINGLE)]);
+        let next = Section {
+            page: a4(),
+            ..Section::new(vec![para("second", before, 0, SINGLE)])
+        };
+        d.sections.push(next);
+        let l = run(&d);
+        lines(&l, 1)[0].top - 72.0
+    };
+    assert!(near(start(0, 240), 12.0), "{}", start(0, 240));
+    assert!(near(start(120, 240), 6.0), "{}", start(120, 240));
+    assert!(near(start(240, 240), 0.0), "{}", start(240, 240));
+    assert!(near(start(360, 240), 0.0), "{}", start(360, 240));
+}

@@ -98,6 +98,7 @@ pub(crate) struct Snap {
     notes_on_page: Vec<NoteKey>,
     foot_h: f32,
     foot_slack: f32,
+    page_after: f32,
     carry: Vec<(NoteKey, usize)>,
     text_bottom: Option<f32>,
     excl: Vec<(f32, f32)>,
@@ -162,6 +163,8 @@ pub(crate) struct Flow {
     /// Part of the footnote area that may continue on the next page: the last note
     /// beyond its first line (a note starts on the page of its reference).
     foot_slack: f32,
+    /// Space after of the last paragraph before the current page (see [`Flow::new_page`]).
+    page_after: f32,
     /// Height of the footnote separator paragraph (§17.11.23) and where its rule is drawn
     /// below its top ([`note_separator`]).
     pub(crate) sep_h: f32,
@@ -601,6 +604,7 @@ impl Flow {
             notes_on_page: Vec::new(),
             foot_h: 0.0,
             foot_slack: 0.0,
+            page_after: 0.0,
             sep_h: NOTE_SEPARATOR,
             sep_rule: NOTE_SEPARATOR / 2.0,
             carry: Vec::new(),
@@ -655,6 +659,7 @@ impl Flow {
                 notes_on_page: self.notes_on_page.clone(),
                 foot_h: self.foot_h,
                 foot_slack: self.foot_slack,
+                page_after: self.page_after,
                 carry: self.carry.clone(),
                 text_bottom: self.text_bottom,
                 excl: self.excl.clone(),
@@ -690,6 +695,7 @@ impl Flow {
         self.notes_on_page.clone_from(&s.notes_on_page);
         self.foot_h = s.foot_h;
         self.foot_slack = s.foot_slack;
+        self.page_after = s.page_after;
         self.carry.clone_from(&s.carry);
         self.text_bottom = s.text_bottom;
         self.excl.clone_from(&s.excl);
@@ -792,6 +798,7 @@ impl Flow {
         }
         self.excl.clear();
         self.sides.clear();
+        self.page_after = self.prev.as_ref().map_or(0.0, |p| p.after);
         self.prev = None;
     }
 
@@ -1606,8 +1613,13 @@ impl Flow {
             && self.col == 0
             && self.section_start.get(self.section).copied().flatten()
                 == self.pages.len().checked_sub(1);
-        if self.col_has_content || section_top {
+        if self.col_has_content {
             self.y += before;
+        } else if section_top {
+            // The previous section's last space after, spent on its page, still counts
+            // against this space before (cal-36: after 6 / before 12 pt leaves 6 pt; after
+            // 12 / before 12 leaves none).
+            self.y += (before - self.page_after).max(0.0);
         }
         let total = pb.height();
         let full = self.full_height();

@@ -91,10 +91,12 @@ pub enum Fit {
 }
 
 /// Zoom steps of the zoom-in / zoom-out commands and Ctrl + wheel (fractions of 100 %): the
-/// reference reader's preset list (measured, round 5).
-pub const ZOOM_STEPS: [f32; 18] = [
-    0.01, 0.0833, 0.125, 0.25, 0.3333, 0.5, 0.6667, 0.75, 1.0, 1.25, 1.5, 2.0, 4.0, 6.0, 8.0, 16.0,
-    32.0, 64.0,
+/// reference reader's preset list (measured, round 5; 300 % and 1200 % measured in round 15).
+/// The current page's fit page / fit width / fit visible zooms are steps too
+/// ([`ReaderView::step_zoom`]).
+pub const ZOOM_STEPS: [f32; 20] = [
+    0.01, 0.0833, 0.125, 0.25, 0.3333, 0.5, 0.6667, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0, 4.0, 6.0, 8.0,
+    12.0, 16.0, 32.0, 64.0,
 ];
 const MIN_ZOOM: f32 = 0.01;
 const MAX_ZOOM: f32 = 64.0;
@@ -393,9 +395,10 @@ impl ReaderView {
             .unwrap_or_else(|| vec![i])
     }
 
-    fn fit_zoom(&mut self) {
-        if self.fit == Fit::None || self.sizes.is_empty() {
-            return;
+    /// The zoom fit `fit` would give in the current frame (`None` for [`Fit::None`]).
+    fn fit_value(&self, fit: Fit) -> Option<f32> {
+        if fit == Fit::None || self.sizes.is_empty() {
+            return None;
         }
         let m = self.margin();
         let [_, _, fw, fh] = self.frame;
@@ -404,7 +407,7 @@ impl ReaderView {
         let row_pt = |r: &[usize]| r.iter().map(|&i| self.page_size(i).0).sum::<f32>();
         // Fit width fits the widest row of the document (a landscape page among portrait
         // ones sets the zoom, like the reference reader); fit page fits the current row.
-        let (w, gaps) = if self.fit == Fit::Width {
+        let (w, gaps) = if fit == Fit::Width {
             self.rows()
                 .iter()
                 .map(|r| (row_pt(r), r.len().saturating_sub(1)))
@@ -421,13 +424,12 @@ impl ReaderView {
         let mm = self.gap * self.dpi;
         let zw = (fw - 2.0 * mm - gaps as f32 * m) / (w * per_pt);
         let zh = (fh - 2.0 * m - 2.0) / (h * per_pt);
-        let z = match self.fit {
-            Fit::Width => zw,
-            Fit::Page => zw.min(zh),
-            Fit::None => self.zoom,
-        };
-        if z.is_finite() && z > 0.0 {
-            let z = z.clamp(MIN_ZOOM, MAX_ZOOM);
+        let z = if fit == Fit::Width { zw } else { zw.min(zh) };
+        (z.is_finite() && z > 0.0).then(|| z.clamp(MIN_ZOOM, MAX_ZOOM))
+    }
+
+    fn fit_zoom(&mut self) {
+        if let Some(z) = self.fit_value(self.fit) {
             // Round 14: a fitted zoom that changes (window resized, first layout) rebuilds the
             // lists like `set_zoom`: NoZoom notes and hairlines depend on the zoom (a note
             // sized at the first, smaller window's zoom was drawn 1.4 × too large).
@@ -435,6 +437,51 @@ impl ReaderView {
                 self.cache_reset_lines();
             }
             self.zoom = z;
+        }
+    }
+
+    /// Left and right edges and top (page points) of what page `i` paints (glyph ink, paths)
+    /// when the page is read.
+    fn ink_span(&self, i: usize) -> Option<(f32, f32, f32)> {
+        let r = self.cache.get(&i)?;
+        let b = crate::reader_ink15::content_box(&r.list, self.doc.fonts())?;
+        Some((b[0], b[2], b[1]))
+    }
+
+    /// The zoom of the reference's Fit Visible (Ctrl+3): fit width × page width / ink width
+    /// of the current page (`reader_ink15`; 437.8 pt of a 612 pt page gives 188.77 % where
+    /// fit width gives 135.10 %); `None` until the page is read or when it paints nothing.
+    fn visible_value(&self) -> Option<f32> {
+        if !self.rotation.is_multiple_of(180) {
+            return None;
+        }
+        let i = self.current_page();
+        let (a, b, _) = self.ink_span(i)?;
+        let (pw, _) = self.page_size(i);
+        let zw = self.fit_value(Fit::Width)?;
+        let z = zw * pw / (b - a).max(1.0);
+        Some(z.clamp(MIN_ZOOM, MAX_ZOOM))
+    }
+
+    /// Fit Visible: zoom to the width of the current page's content and scroll its left edge
+    /// to the view's margin (falls back to fit width for a page without text).
+    pub fn fit_visible(&mut self) {
+        let i = self.current_page();
+        self.ensure(i);
+        let (Some(z), Some((a, _, top))) = (self.visible_value(), self.ink_span(i)) else {
+            self.set_fit(Fit::Width);
+            return;
+        };
+        // The span first: a new zoom drops the page's lists (and its text).
+        self.set_zoom(z);
+        if let Some(r) = self.rects.get(i).copied() {
+            let mm = self.gap * self.dpi;
+            let s = self.px_per_pt();
+            self.scroll.0 = r[0] + a * s - mm;
+            // The reference also scrolls near the content's top (measured on the 12-page test
+            // document: view top at 52.8 pt for ink from 65.2 pt).
+            self.scroll.1 = r[1] + (top - 12.4).max(0.0) * s;
+            self.clamp_scroll();
         }
     }
 
@@ -587,10 +634,23 @@ impl ReaderView {
     /// Next zoom step in or out.
     pub fn step_zoom(&mut self, dir: i32) {
         let z = self.zoom;
+        // Round 15: the reference also stops at the current fit page / width / visible zooms
+        // (60.38 → 66.67 … 125 → 135.10 → 150 → 188.77 → 200 on a letter page).
+        let mut steps = ZOOM_STEPS.to_vec();
+        steps.extend(
+            [
+                self.fit_value(Fit::Page),
+                self.fit_value(Fit::Width),
+                self.visible_value(),
+            ]
+            .into_iter()
+            .flatten(),
+        );
+        steps.sort_by(f32::total_cmp);
         let next = if dir > 0 {
-            ZOOM_STEPS.iter().copied().find(|s| *s > z * 1.001)
+            steps.iter().copied().find(|s| *s > z * 1.001)
         } else {
-            ZOOM_STEPS.iter().rev().copied().find(|s| *s < z * 0.999)
+            steps.iter().rev().copied().find(|s| *s < z * 0.999)
         };
         if let Some(n) = next {
             self.set_zoom(n);

@@ -18,7 +18,7 @@ Bảng dưới liệt kê dependency **trực tiếp**. Danh sách đầy đủ 
 | Tinos (Regular/Bold/Italic/BoldItalic) | google/fonts `ofl/tinos` | Apache-2.0 / OFL-1.1 | Thay thế metric-compatible cho Times New Roman |
 | Liberation Sans 2.1.5 | liberationfonts | OFL-1.1 (`OFL-Liberation.txt`) | Thay thế metric-compatible cho Arial |
 | Carlito | google/fonts `ofl/carlito` | OFL-1.1 (`OFL-Carlito.txt`) | Thay thế metric-compatible cho Calibri |
-| Caladea (Regular/Bold/Italic/BoldItalic) | google/fonts `ofl/caladea` (Copyright 2012 The Caladea Project Authors) | OFL-1.1 (`OFL-Caladea.txt`) | Thay thế metric-compatible cho Cambria |
+| Caladea 1.002 (Regular/Bold/Italic/BoldItalic) | ChromeOS `crosextrafonts-20130214` (Copyright 2012 Huerta Tipografia) — bản metric-compatible; bản google/fonts 1.001 trước đây khác độ rộng Cambria tới 19 % | Apache-2.0 (`LICENSE-Caladea.txt`) | Thay thế metric-compatible cho Cambria |
 | STIX Two Math 2.13 | stipub/stixfonts `fonts/static_ttf` (Copyright 2001-2021 The STIX Fonts Project Authors; STIX Fonts™ là nhãn hiệu của IEEE; tên font dành riêng "TM Math" của MicroPress) | OFL-1.1 (`OFL-STIXTwo.txt`) | Font toán có bảng OpenType MATH cho phương trình (thay cho Cambria Math), dùng nguyên bản, không sửa |
 | Be Vietnam Pro (Regular/Medium/SemiBold/Bold) | google/fonts `ofl/bevietnampro` (Copyright 2021 The Be Vietnam Pro Project Authors) | OFL-1.1 (`packages/ui/fonts/OFL-BeVietnamPro.txt`) | Font giao diện (không dùng cho nội dung tài liệu) |
 

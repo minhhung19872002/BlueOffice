@@ -3664,11 +3664,25 @@ fn tblpr_children(t: &TableProps) -> Vec<(String, String)> {
         x.push_str("/>");
         v.push(("tblpPr".into(), x));
     }
-    if let Some((l, r)) = t.cell_margin {
-        v.push((
-            "tblCellMar".into(),
-            format!("<w:tblCellMar><w:left w:w=\"{}\" w:type=\"dxa\"/><w:right w:w=\"{}\" w:type=\"dxa\"/></w:tblCellMar>", l.0, r.0),
-        ));
+    if t.cell_margin.is_some() || t.cell_margin_vertical.is_some() {
+        let (l, r) = t
+            .cell_margin
+            .unwrap_or((bo_model::Twips(108), bo_model::Twips(108)));
+        // §17.4.42 tblCellMar: top, start/left, bottom, end/right in schema order.
+        let mut x = String::from("<w:tblCellMar>");
+        if let Some((top, _)) = t.cell_margin_vertical {
+            let _ = write!(x, "<w:top w:w=\"{}\" w:type=\"dxa\"/>", top.0);
+        }
+        let _ = write!(x, "<w:left w:w=\"{}\" w:type=\"dxa\"/>", l.0);
+        if let Some((_, bottom)) = t.cell_margin_vertical {
+            let _ = write!(x, "<w:bottom w:w=\"{}\" w:type=\"dxa\"/>", bottom.0);
+        }
+        let _ = write!(
+            x,
+            "<w:right w:w=\"{}\" w:type=\"dxa\"/></w:tblCellMar>",
+            r.0
+        );
+        v.push(("tblCellMar".into(), x));
     }
     v.extend(raw_items(&t.unknown));
     v

@@ -2514,15 +2514,23 @@ fn read_tblpr(r: &mut XmlReader<'_>) -> Result<TableProps> {
             }
             b"tblCellMar" if s => {
                 let (mut l, mut rr) = (Twips(108), Twips(108));
+                let (mut top, mut bottom) = (None, None);
                 children(r, |_, e, s, _| {
                     match name(e).as_slice() {
                         b"left" | b"start" => l = twips(e, b"w").unwrap_or(l),
                         b"right" | b"end" => rr = twips(e, b"w").unwrap_or(rr),
+                        b"top" => top = twips(e, b"w"),
+                        b"bottom" => bottom = twips(e, b"w"),
                         _ => {}
                     }
                     Ok(!s)
                 })?;
                 t.cell_margin = Some((l, rr));
+                // §17.4.42: top / bottom margins (0 when absent).
+                if top.is_some() || bottom.is_some() {
+                    t.cell_margin_vertical =
+                        Some((top.unwrap_or(Twips(0)), bottom.unwrap_or(Twips(0))));
+                }
             }
             _ => t.unknown.push(capture(r, s, before)?),
         }

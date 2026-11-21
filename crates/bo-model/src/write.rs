@@ -2383,6 +2383,9 @@ pub struct TableProps {
     pub fixed_layout: bool,
     /// Default cell margins left/right (`tblCellMar`).
     pub cell_margin: Option<(Twips, Twips)>,
+    /// Default cell margins top/bottom (§17.4.42 `tblCellMar` `w:top` / `w:bottom`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cell_margin_vertical: Option<(Twips, Twips)>,
     /// Floating table position (§17.4.58 tblpPr); `None` = the table is inline.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub float: Option<TableFloat>,

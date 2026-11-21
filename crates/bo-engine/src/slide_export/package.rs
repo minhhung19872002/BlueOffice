@@ -17,7 +17,8 @@ use bo_text::FaceId;
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write as _;
 
-/// Bundled OFL families (lower case) and their licence file.
+/// Bundled families that may be redistributed (OFL-1.1, Caladea Apache-2.0; lower case)
+/// and their licence file.
 const OFL_FONTS: &[(&str, &str, &str)] = &[
     (
         "liberation sans",
@@ -31,8 +32,8 @@ const OFL_FONTS: &[(&str, &str, &str)] = &[
     ),
     (
         "caladea",
-        "OFL-Caladea.txt",
-        include_str!("../../../../assets/fonts/OFL-Caladea.txt"),
+        "LICENSE-Caladea.txt",
+        include_str!("../../../../assets/fonts/LICENSE-Caladea.txt"),
     ),
     (
         "stix two math",

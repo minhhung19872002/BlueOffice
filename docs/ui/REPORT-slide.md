@@ -649,11 +649,23 @@ chiếu chạy bằng `SlideShowSettings.Run`, nhấp phải và phím G gửi b
 | Trình chiếu: nhấp phải | Next, Previous, Last Viewed \| See All Slides, Magnify Slide \| Custom Show ›, Show Presenter View \| Screen ›, Pointer Options › \| Help \| Pause \| End Show; hàng 36, rộng 246, góc menu ở con trỏ | như vậy (trừ Help; Zoom In và Custom Show mờ); menu con Screen / Pointer Options mở khi trỏ hoặc →; Pause / Resume giữ chuyển tự động; Show / Hide Presenter View |
 | See All Slides | nền (26,26,26), ảnh 320 px cách 42, từ 42 / 104; khung 3 px + khe 1 px; số xám (168); nút quay lại tròn 44 px; thanh thu phóng góc phải dưới | đo trùng từng điểm ảnh; khung và số của trang hiện tại dùng màu nhấn pha sáng cùng độ sáng với khung tham chiếu (227,148,178); thu phóng 0,5–2× |
 
+- Sau góp ý của điều phối: thư viện Background Styles đánh dấu ô đang dùng (nền riêng của trang, nếu không
+  thì của trang cái), Reset mờ khi trang không có nền riêng, gạch chân phím tắt (theo cờ keyboard cues dùng
+  chung), biểu tượng hàng tự vẽ có màu, góc kéo; nhãn nút lớn và dấu V thấp hơn 3 px, nhãn nhóm 4 px (đo theo
+  mép trên thân ribbon của tham chiếu; tuỳ chọn riêng BlueSlide); biểu tượng Colors / Background / Slide Size
+  riêng lấp đầy ô 32 px.
+- Menu trình chiếu: Magnify Slide (thấu kính bằng nửa trang, phần ngoài tối đi; nhấp = phóng 2×, kéo để dời,
+  Esc / nhấp phải trở về) và Help (F1); phím tắt của menu qua `Menu::with_access_keys` dùng chung.
+- Phím "+" của tham chiếu (đo bằng phím + bàn số): phóng theo bậc 2^(1/3) quanh tâm trang (tiêu đề cao 104 →
+  132 → 168 → 212 px), "−" lùi một bậc; BlueSlide làm đúng như vậy, ảnh phóng vẽ lại sắc nét ở tỉ lệ phóng.
+- Hộp Slide Show Help: 850 × 680 px như tham chiếu, 5 thẻ, bảng hai cột với lời mô tả riêng; phím mới S (tạm
+  dừng / tiếp tục tự chuyển), H (trang kế kể cả trang ẩn), Ctrl+S (mọi trang chiếu). Chưa có: Ctrl+T, Ctrl+H/U
+  (host chưa điều khiển con trỏ), Ctrl+Break.
 - Mô-đun mới: `slide_show_all10.rs` (lưới trang chiếu), `slide_bgstyles10.rs` (Background Styles);
   `slide_showmenu10.rs` viết lại (menu tầng); `popup.rs` thêm `row_rect` / `hovered` (thêm, không đổi hành vi).
 - Kiểm thử: `slide_round21_tests.rs` (hàng menu, menu con bằng chuột và phím, lưới: ảnh, phím, nhấp, Esc,
   thu phóng; ngày địa phương; Printer Properties; Background Styles đổi nền).
-- Còn lại: Magnify Slide (Zoom In) và Help của menu trình chiếu; Ink Color / Arrow Options trong Pointer
+- Còn lại: Ink Color / Arrow Options trong Pointer
   Options; Background Styles chưa đánh dấu kiểu đang dùng; cột Info chưa cuộn (liên kết được giữ trong cửa sổ);
   biểu tượng Colors / Background / Slide Size vẫn dùng chung của BlueDoc (nhỏ hơn tham chiếu); các mục còn lại
   của vòng 20 (Picture or texture fill, Header & Footer › Notes and Handouts, Options, hộp Chart / SmartArt).

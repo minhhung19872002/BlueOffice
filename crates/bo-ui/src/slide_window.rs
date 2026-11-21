@@ -653,6 +653,10 @@ impl SlideWindow {
                 .with_row_widths(row_widths)
                 .with_two_line_labels()
                 .with_mark_on_own_line()
+                // Measured 2026-11-22 at 125 %: the reference's large labels, chevrons and
+                // group labels sit 3-4 px lower in the ribbon body than BlueDoc's.
+                .with_large_label_drop(2.4)
+                .with_label_drop(3.2)
                 .with_large_dim()
                 .with_late_rows(paragraph::late_row)
                 // Reference at 125 %: font box 213 px, size box 67.
@@ -928,6 +932,7 @@ impl SlideWindow {
             | self.paste_format_painter(released)
             | self.sync_context()
             | self.after_rehearsal();
+        self.measure_bg_styles(text);
         // The File screen measures its texts again (Print settings cut to their boxes).
         if redraw && self.f10.bs.is_some() {
             self.file10_relayout(text);

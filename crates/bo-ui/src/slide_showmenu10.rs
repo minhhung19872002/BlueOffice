@@ -322,7 +322,7 @@ impl SlideWindow {
     ) -> Menu {
         let look = MenuLook {
             item_h: 28.8,
-            text: 14.6,
+            text: 13.8,
             text_x: (37.6, 37.6),
             pad: 3.2,
             min_w: 196.8,

@@ -208,6 +208,8 @@ pub struct Ribbon {
     row_w: fn(&str) -> Option<f32>,
     /// One-word menu labels put their drop-down mark on a second line (BlueSlide).
     mark_line: bool,
+    /// Large button labels this much (logical px) lower than BlueDoc's (per app, measured).
+    large_drop: f32,
     /// Large buttons are dimmed by the enabled rule too (BlueSlide; BlueDoc's stay lit).
     large_dim: bool,
     /// Font and size box widths (logical px) instead of BlueDoc's.
@@ -766,6 +768,7 @@ impl Ribbon {
             large_lines: std::cell::RefCell::new(std::collections::HashMap::new()),
             row_w: |_| None,
             mark_line: false,
+            large_drop: 0.0,
             large_dim: false,
             box_w: None,
             large_metrics: (52.0, 14.0),
@@ -934,6 +937,12 @@ impl Ribbon {
     /// Put the drop-down mark of one-word menu labels on its own line, under the label.
     pub(crate) fn with_mark_on_own_line(mut self) -> Self {
         self.mark_line = true;
+        self
+    }
+
+    /// Move large button labels down by `drop` logical px (BlueSlide, measured).
+    pub(crate) fn with_large_label_drop(mut self, drop: f32) -> Self {
+        self.large_drop = drop;
         self
     }
 
@@ -2096,7 +2105,8 @@ impl Ribbon {
                         // Two lines 19.2 pt apart, each centred (measured on the reference).
                         for (i, (line, lw)) in lines.iter().enumerate() {
                             let lx = (r.x + (r.w - lw) / 2.0).round();
-                            let ly = r.y + self.px(40.0) + i as f32 * self.px(19.2);
+                            let ly =
+                                r.y + self.px(40.0 + self.large_drop) + i as f32 * self.px(19.2);
                             // BlueSlide: the drop-down mark is a thin chevron (reference).
                             if let Some(text) =
                                 line.strip_suffix('\u{25BE}').filter(|_| self.mark_line)
@@ -2123,7 +2133,7 @@ impl Ribbon {
                         p.text(
                             &label,
                             (r.x + (r.w - w) / 2.0).round(),
-                            r.y + self.px(40.0),
+                            r.y + self.px(40.0 + self.large_drop),
                             style,
                             ink,
                         );

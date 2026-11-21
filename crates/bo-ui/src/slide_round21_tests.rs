@@ -304,6 +304,22 @@ fn background_styles_gallery_applies_to_every_slide() {
         g.rect
     );
     assert!(matches!(g.tiles[11].1, bgstyles::BgStyle::Gradient(..)));
+    // No background of its own: Reset is grey and does nothing; a tile is current.
+    assert!(!g.own && g.current.is_some());
+    let reset = g.rows[1];
+    w.handle(
+        Input::Release {
+            x: reset[0] + 20.0,
+            y: reset[1] + 5.0,
+        },
+        &Fixed,
+    );
+    assert!(w.bgs.is_some());
+    assert!(
+        w.bgs.as_ref().is_some_and(|g| g.marks.is_some()),
+        "mnemonics measured"
+    );
+    let g = w.bgs.as_ref().expect("gallery");
     let modified = w.view.modified();
     let r = g.tiles[11].0;
     let (cx, cy) = (r[0] + 4.0, r[1] + 4.0);

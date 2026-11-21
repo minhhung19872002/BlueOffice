@@ -629,3 +629,31 @@ không mở trang Home / Open / Save As của tham chiếu (danh sách tệp g�
   Handouts; Options của màn hình File chưa có trang; Chart / SmartArt vẫn là menu (chưa có hộp chọn lớn);
   WordArt / Equation chưa so; thư viện chuyển trang chưa có nhóm Dynamic Content (engine chưa phát Pan, Ferris
   Wheel…); menu chuột phải thiếu See All Slides / Zoom / Custom Show / Pause.
+
+## Vòng 21 — chạy và chụp vòng 20, sửa File / Design, menu trình chiếu, See All Slides, Background Styles (`slide-66…76`, 1500 × 1102 và 1920 × 1080, 125 %)
+
+Gộp `work/desktop-performance` (≈ 40 commit; hai tệp ngôn ngữ gộp sâu, cùng bộ khoá), clippy + kiểm thử
+`bo-ui` / `bo-native-win` xanh, rồi chạy bản release và chụp các phần của vòng 20 (`slide-66…70`: Info, Print,
+Export, New, tab Design). Tham chiếu điều khiển bằng COM / UI Automation trên bản sao; trình chiếu của tham
+chiếu chạy bằng `SlideShowSettings.Run`, nhấp phải và phím G gửi bằng `PostMessage`; không bấm Print.
+
+| Đo (thiết bị) | Tham chiếu | BlueSlide (trước → nay) |
+|---|---|---|
+| Cột điều hướng File | rộng 214 | 223 → 214 |
+| Tiêu đề trang File | Segoe UI Light, chiều cao chữ hoa 43, đỉnh chữ 36 dưới thanh tiêu đề | 36 → 43; cùng vị trí |
+| Info › ngày | giờ địa phương, ngày ngắn "11/7/2026 7:00 AM" | ISO UTC "2026-11-07 00:00:00" → như tham chiếu (múi giờ máy) |
+| Info › người | Author: huy hiệu chữ đầu (đĩa xám 54 px) + tên, "Add an author"; Last Modified By; "Never" xám; 19.5KB; Show All Properties | như vậy |
+| Print | hộp máy in 352, cài đặt đầu 510, Printer Properties, dấu (i), chữ dài kết thúc "…", xem trước lớn có thanh cuộn trang, thanh thu phóng 49 % + nút vừa | như vậy (49 % cùng giá trị: phần trăm của khổ A4); Grayscale mặc định khi trình điều khiển máy in mặc định đơn sắc (`dmColor`) |
+| Design | biểu tượng lớn 32 px lấp đầy ô; dấu thả xuống là chữ V mảnh | Layout (trước: thước kẻ) và Fonts ("Aa" đậm) vẽ lại, Variants / Effects lớn hơn; dấu ▾ → chữ V (chỉ BlueSlide, cờ `mark_line`) |
+| Background Styles | thư viện 505 × 370: 4 × 3 ô 113 × 86 (Light 1, Light 2, Dark 2, Dark 1 × đặc / chuyển nhẹ / chuyển đậm), "Aa" phông tiêu đề, Format Background…, Reset Slide Background | trước: danh sách mã màu → thư viện như vậy; áp dụng cho mọi trang chiếu |
+| Trình chiếu: nhấp phải | Next, Previous, Last Viewed \| See All Slides, Magnify Slide \| Custom Show ›, Show Presenter View \| Screen ›, Pointer Options › \| Help \| Pause \| End Show; hàng 36, rộng 246, góc menu ở con trỏ | như vậy (trừ Help; Zoom In và Custom Show mờ); menu con Screen / Pointer Options mở khi trỏ hoặc →; Pause / Resume giữ chuyển tự động; Show / Hide Presenter View |
+| See All Slides | nền (26,26,26), ảnh 320 px cách 42, từ 42 / 104; khung 3 px + khe 1 px; số xám (168); nút quay lại tròn 44 px; thanh thu phóng góc phải dưới | đo trùng từng điểm ảnh; khung và số của trang hiện tại dùng màu nhấn pha sáng cùng độ sáng với khung tham chiếu (227,148,178); thu phóng 0,5–2× |
+
+- Mô-đun mới: `slide_show_all10.rs` (lưới trang chiếu), `slide_bgstyles10.rs` (Background Styles);
+  `slide_showmenu10.rs` viết lại (menu tầng); `popup.rs` thêm `row_rect` / `hovered` (thêm, không đổi hành vi).
+- Kiểm thử: `slide_round21_tests.rs` (hàng menu, menu con bằng chuột và phím, lưới: ảnh, phím, nhấp, Esc,
+  thu phóng; ngày địa phương; Printer Properties; Background Styles đổi nền).
+- Còn lại: Magnify Slide (Zoom In) và Help của menu trình chiếu; Ink Color / Arrow Options trong Pointer
+  Options; Background Styles chưa đánh dấu kiểu đang dùng; cột Info chưa cuộn (liên kết được giữ trong cửa sổ);
+  biểu tượng Colors / Background / Slide Size vẫn dùng chung của BlueDoc (nhỏ hơn tham chiếu); các mục còn lại
+  của vòng 20 (Picture or texture fill, Header & Footer › Notes and Handouts, Options, hộp Chart / SmartArt).

@@ -77,6 +77,29 @@ pub struct AutoCorrectOptions {
     pub spelling_suggestions: bool,
     /// Show the AutoCorrect Options mark under a corrected word (view only).
     pub show_buttons: bool,
+    /// `*Bold*` and `_italic_` with real formatting (off by default, as on the reference).
+    pub bold_italic: bool,
+    /// Automatic bulleted lists ("- ", "* " at a paragraph start; with [`Self::auto_lists`]).
+    pub bulleted_lists: bool,
+    /// Automatic numbered lists ("1. ", "a) " at a paragraph start; with [`Self::auto_lists`]).
+    pub numbered_lists: bool,
+    /// A line of three or more `-` `_` `=` `*` `~` `#` ended by Enter becomes a border (the
+    /// host applies it).
+    pub borders: bool,
+    /// "+---+---+" ended by Enter becomes a table (the host applies it).
+    pub tables: bool,
+    /// Tab / Shift+Tab at the start of a paragraph set its first-line and left indents.
+    pub tab_indent: bool,
+    /// Words the replacement list and the spelling suggestions leave alone (Other
+    /// Corrections of the Exceptions dialog).
+    pub other_exceptions: Vec<String>,
+    /// A sentence capital undone right away adds the abbreviation before it to
+    /// [`Self::exceptions`] (First Letter: "Automatically add words to list").
+    pub auto_add_first: bool,
+    /// Two initial capitals undone right away add the word to [`Self::caps_exceptions`].
+    pub auto_add_caps: bool,
+    /// Other corrections undone right away add the word to [`Self::other_exceptions`].
+    pub auto_add_other: bool,
 }
 
 impl Default for AutoCorrectOptions {
@@ -103,11 +126,29 @@ impl Default for AutoCorrectOptions {
             caps_lock: true,
             spelling_suggestions: true,
             show_buttons: true,
+            bold_italic: false,
+            bulleted_lists: true,
+            numbered_lists: true,
+            borders: true,
+            tables: true,
+            tab_indent: true,
+            other_exceptions: Vec::new(),
+            auto_add_first: true,
+            auto_add_caps: true,
+            auto_add_other: true,
         }
     }
 }
 
 impl AutoCorrectOptions {
+    /// `word` is on the Other Corrections list (any case).
+    #[must_use]
+    pub fn is_other_exception(&self, word: &str) -> bool {
+        self.other_exceptions
+            .iter()
+            .any(|x| x.eq_ignore_ascii_case(word) || x == word)
+    }
+
     /// Options that only replace `from` with `to` as a word is ended (the spelling
     /// checker's single suggestion, [`AutoCorrectOptions::spelling_suggestions`]).
     #[must_use]
@@ -131,6 +172,16 @@ impl AutoCorrectOptions {
             caps_lock: false,
             spelling_suggestions: false,
             show_buttons: false,
+            bold_italic: false,
+            bulleted_lists: false,
+            numbered_lists: false,
+            borders: false,
+            tables: false,
+            tab_indent: true,
+            other_exceptions: Vec::new(),
+            auto_add_first: false,
+            auto_add_caps: false,
+            auto_add_other: false,
         }
     }
 
@@ -276,6 +327,8 @@ pub enum Rule {
     CapsLock,
     /// The spelling checker's only suggestion for a misspelt word.
     Spelling,
+    /// `*bold*` / `_italic_` with real formatting.
+    Emphasis,
 }
 
 /// One text change: bytes `start..end` of the index text become `text`.
@@ -319,6 +372,8 @@ pub struct Correction {
     pub list: Option<(AutoList, usize)>,
     /// Make `start..end` a hyperlink to the target.
     pub link: Option<(usize, usize, String)>,
+    /// Make `start..end` (offsets after the edits) bold (`true`) or italic.
+    pub emphasis: Option<(usize, usize, bool)>,
 }
 
 impl Correction {
@@ -333,6 +388,7 @@ impl Correction {
             }],
             list: None,
             link: None,
+            emphasis: None,
         }
     }
 }
@@ -475,7 +531,9 @@ pub fn correct(
         return opts.smart_quotes.then(|| smart_quote(before, typed));
     }
     if typed != ENTER && opts.replace_text {
-        if let Some((start, e)) = find_entry(text, caret, &opts.entries, true) {
+        if let Some((start, e)) = find_entry(text, caret, &opts.entries, true)
+            .filter(|(start, _)| !opts.is_other_exception(&text[*start..caret]))
+        {
             let to = if has_upper(&e.from) {
                 e.to.clone()
             } else {
@@ -497,13 +555,24 @@ pub fn correct(
     if token.is_empty() {
         return None;
     }
+    if let Some(c) = emphasis(before, typed, opts) {
+        return Some(c);
+    }
     if (typed == ' ' || typed == '\t') && opts.auto_lists && !ctx.list && ts == 0 {
-        if let Some(kind) = list_marker(token) {
+        let wanted = |k: &AutoList| {
+            if matches!(k, AutoList::Bullet) {
+                opts.bulleted_lists
+            } else {
+                opts.numbered_lists
+            }
+        };
+        if let Some(kind) = list_marker(token).filter(wanted) {
             return Some(Correction {
                 rule: Rule::List,
                 edits: Vec::new(),
                 list: Some((kind, caret)),
                 link: None,
+                emphasis: None,
             });
         }
     }
@@ -529,6 +598,7 @@ pub fn correct(
                 edits: Vec::new(),
                 list: None,
                 link: Some((ws, we, target)),
+                emphasis: None,
             });
         }
     }
@@ -553,7 +623,9 @@ fn word_rules(
     let mut es = ws;
     let mut word = before[ws..we].to_owned();
     if opts.replace_text {
-        if let Some((start, e)) = find_entry(text, we, &opts.entries, false) {
+        if let Some((start, e)) = find_entry(text, we, &opts.entries, false)
+            .filter(|(start, _)| !opts.is_other_exception(&text[*start..we]))
+        {
             es = start;
             word = if has_upper(&e.from) {
                 e.to.clone()
@@ -644,6 +716,7 @@ fn word_rules(
         edits,
         list: None,
         link: None,
+        emphasis: None,
     })
 }
 
@@ -830,6 +903,56 @@ fn ordinal_suffix(w: &str) -> Option<usize> {
     (w[split..] == *want).then_some(split)
 }
 
+/// `*bold*` / `_italic_` ended by a space or punctuation: the markers go, the text between
+/// them gets the formatting (ECMA-376 Part 1, §17.3.2.1 b, §17.3.2.16 i). The opening marker
+/// starts the paragraph or follows a blank; neither marker touches a blank inside.
+fn emphasis(before: &str, typed: char, opts: &AutoCorrectOptions) -> Option<Correction> {
+    if !opts.bold_italic || typed == ENTER || !is_delimiter(typed) {
+        return None;
+    }
+    let m = before
+        .chars()
+        .next_back()
+        .filter(|c| *c == '*' || *c == '_')?;
+    let close = before.len() - m.len_utf8();
+    let inner_end = before[..close].chars().next_back()?;
+    if inner_end.is_whitespace() || inner_end == m {
+        return None;
+    }
+    let open = before[..close].rfind(m)?;
+    let inner = &before[open + 1..close];
+    if inner.is_empty() || inner.starts_with(char::is_whitespace) {
+        return None;
+    }
+    if before[..open]
+        .chars()
+        .next_back()
+        .is_some_and(|c| !c.is_whitespace() && !is_opener(c))
+    {
+        return None;
+    }
+    Some(Correction {
+        rule: Rule::Emphasis,
+        edits: vec![
+            TextEdit {
+                start: open,
+                end: open + 1,
+                text: String::new(),
+                superscript: false,
+            },
+            TextEdit {
+                start: close,
+                end: close + m.len_utf8(),
+                text: String::new(),
+                superscript: false,
+            },
+        ],
+        list: None,
+        link: None,
+        emphasis: Some((open, close - 1, m == '*')),
+    })
+}
+
 /// List kind for a marker typed at a paragraph start.
 fn list_marker(token: &str) -> Option<AutoList> {
     match token {
@@ -954,6 +1077,17 @@ fn apply(tx: &mut Tx<'_>, at: Pos, c: &Correction) -> Result<usize> {
         let b = para::split_at(&mut atoms, *e);
         for (r, _) in &mut atoms[a..b] {
             link_props(r, target);
+        }
+    }
+    if let Some((s, e, bold)) = c.emphasis {
+        let a = para::split_at(&mut atoms, s);
+        let b = para::split_at(&mut atoms, e);
+        for (r, _) in &mut atoms[a..b] {
+            if bold {
+                r.bold = Some(true);
+            } else {
+                r.italic = Some(true);
+            }
         }
     }
     if let Some((kind, end)) = c.list {

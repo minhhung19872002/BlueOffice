@@ -30,6 +30,16 @@ pub(super) struct R8 {
     pub(super) ac_mark: Option<Pos>,
 }
 
+/// Columns of a "+---+---+" line typed for a table (at least one `-` between the `+`).
+fn table_columns(text: &str) -> Option<usize> {
+    let inner = text.strip_prefix('+')?.strip_suffix('+')?;
+    let parts: Vec<&str> = inner.split('+').collect();
+    parts
+        .iter()
+        .all(|p| !p.is_empty() && p.chars().all(|c| c == '-'))
+        .then_some(parts.len())
+}
+
 /// Line break inside a paragraph (Shift+Enter; the engine's §17.3.3.1 br for U+2028).
 const LINE_BREAK: &str = "\u{2028}";
 /// Non-breaking hyphen (Ctrl+Shift+-; §17.3.3.18 noBreakHyphen).
@@ -55,6 +65,9 @@ impl DocWindow {
         match input {
             Input::Key(k, m) => {
                 self.r8.ac_mark = None;
+                if let Some(r) = self.r9_key(k, m) {
+                    return r;
+                }
                 if let Some(r) = self.r8_key(k, m) {
                     return r;
                 }
@@ -127,7 +140,7 @@ impl DocWindow {
         self.r8_format(Command::FormatParagraph { format: f })
     }
 
-    fn r8_select(&mut self, a: Pos, b: Pos) -> bool {
+    pub(super) fn r8_select(&mut self, a: Pos, b: Pos) -> bool {
         self.view.run_command(Command::SetSelection {
             selection: Selection {
                 anchor: a,
@@ -279,11 +292,22 @@ impl DocWindow {
                     .run_command(Command::FormatParagraph { format: cmd }),
             );
         }
-        let lists_on = self
-            .view
-            .engine()
-            .autocorrect_options()
-            .is_some_and(|o| o.enabled && o.auto_lists);
+        let opts = self.view.engine().autocorrect_options();
+        let lists_on = opts.is_some_and(|o| o.enabled && o.borders);
+        let tables_on = opts.is_some_and(|o| o.enabled && o.tables);
+        // "+---+---+" + Enter: a table with one column per segment (AutoFormat As You Type
+        // › Tables, round 9).
+        if tables_on && at.offset == text.len() && f.table.is_none() {
+            if let Some(cols) = table_columns(&text) {
+                let para = at.para;
+                self.r8_select(Pos::new(para, 0), Pos::new(para, text.len()));
+                self.view.run_command(Command::DeleteBackward);
+                return Some(
+                    self.view
+                        .run_command(Command::InsertTable { rows: 1, cols }),
+                );
+            }
+        }
         let rule = text.len() >= 3
             && at.offset == text.len()
             && text

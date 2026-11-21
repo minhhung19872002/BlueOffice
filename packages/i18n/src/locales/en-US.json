@@ -15251,5 +15251,24 @@
       "hideArrow": "Hide the pointer now / after a pause",
       "taskbar": "Show the taskbar (any key returns)"
     }
+  },
+  "docR9": {
+    "ac": {
+      "boldItalic": "*Bold* and _italic_ with real formatting",
+      "bulleted": "Automatic bulleted lists",
+      "numbered": "Automatic numbered lists",
+      "borders": "Border lines",
+      "tables": "Tables",
+      "headings": "Built-in Heading styles",
+      "listBegin": "Format beginning of list item like the one before it",
+      "tabIndent": "Set left- and first-indent with tabs and backspaces",
+      "defineStyles": "Define styles based on your formatting",
+      "automatically": "Automatically as you type"
+    },
+    "ex": {
+      "other": "Other Corrections",
+      "otherL": "Don't correct:",
+      "autoAdd": "Automatically add words to list"
+    }
   }
 }

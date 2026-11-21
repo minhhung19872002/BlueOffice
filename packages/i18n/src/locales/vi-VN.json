@@ -15251,5 +15251,24 @@
       "hideArrow": "Ẩn con trỏ ngay / sau khi dừng",
       "taskbar": "Hiện thanh tác vụ (phím bất kỳ để trở lại)"
     }
+  },
+  "docR9": {
+    "ac": {
+      "boldItalic": "*Đậm* và _nghiêng_ thành định dạng thật",
+      "bulleted": "Danh sách dấu đầu dòng tự động",
+      "numbered": "Danh sách đánh số tự động",
+      "borders": "Đường viền",
+      "tables": "Bảng",
+      "headings": "Kiểu đề mục có sẵn",
+      "listBegin": "Định dạng đầu mục danh sách giống mục trước",
+      "tabIndent": "Đặt thụt lề trái và dòng đầu bằng Tab và Backspace",
+      "defineStyles": "Tạo kiểu dựa trên định dạng của bạn",
+      "automatically": "Tự động khi gõ"
+    },
+    "ex": {
+      "other": "Sửa khác",
+      "otherL": "Không sửa:",
+      "autoAdd": "Tự động thêm từ vào danh sách"
+    }
   }
 }

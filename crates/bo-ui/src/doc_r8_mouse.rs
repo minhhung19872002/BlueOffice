@@ -82,7 +82,7 @@ impl DocWindow {
 
     /// The paragraph at `p` up to the next paragraph's start (its mark selected), or to its
     /// end in the last paragraph.
-    fn r8_paragraph_with_mark(&self, p: Pos) -> Option<(Pos, Pos)> {
+    pub(in crate::shell) fn r8_paragraph_with_mark(&self, p: Pos) -> Option<(Pos, Pos)> {
         let s = self.view.engine().session()?;
         let len = s.para_text(p.para).map_or(0, |t| t.len());
         let end = if p.para + 1 < s.paragraph_count() {
@@ -94,7 +94,7 @@ impl DocWindow {
     }
 
     /// Page index and point (points from the page's top-left corner) under a window pixel.
-    fn r8_page_point(&self, x: f32, y: f32) -> Option<(usize, f32, f32)> {
+    pub(in crate::shell) fn r8_page_point(&self, x: f32, y: f32) -> Option<(usize, f32, f32)> {
         let s = self.view.scale();
         let slot = self
             .view
@@ -109,7 +109,7 @@ impl DocWindow {
 
     /// The point is in the selection bar: left of the page's text column (the left margin)
     /// and left of the line's text.
-    fn r8_in_selection_bar(&self, page: usize, px: f32, py: f32) -> bool {
+    pub(in crate::shell) fn r8_in_selection_bar(&self, page: usize, px: f32, py: f32) -> bool {
         let margin = self.view.format().section.margin_left as f32 / 20.0;
         let left = self
             .r8_line_left(page, py)
@@ -143,7 +143,7 @@ impl DocWindow {
 
     /// The line under `py` as a selection range: its text with the trailing spaces, up to the
     /// next paragraph's start on the paragraph's last line (its mark selected too).
-    fn r8_line_at(&self, page: usize, py: f32) -> Option<(Pos, Pos)> {
+    pub(in crate::shell) fn r8_line_at(&self, page: usize, py: f32) -> Option<(Pos, Pos)> {
         let line = self.r8_nearest_line(page, py)?;
         let LineSource::Body(id) = line.source else {
             return None;

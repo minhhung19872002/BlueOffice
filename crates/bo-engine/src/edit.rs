@@ -1224,6 +1224,35 @@ pub enum Command {
         /// Result per line id.
         lines: Vec<crate::sigline::LineStatus>,
     },
+    /// Block (column) selection with the mouse (Alt+drag): start a block at a point, or move
+    /// its moving corner there (`extend`).
+    BlockSelect {
+        /// 0-based page index.
+        page: usize,
+        /// Horizontal position in points from the page's left edge.
+        x: f32,
+        /// Vertical position in points from the page's top edge.
+        y: f32,
+        /// Move the moving corner of the current block (a drag).
+        #[serde(default)]
+        extend: bool,
+    },
+    /// Block selection from the keyboard (Ctrl+Shift+F8, then arrows): move the block's
+    /// moving corner, starting a block at the caret first.
+    BlockMove {
+        /// How the corner moves.
+        motion: Motion,
+    },
+    /// End the block selection (Esc).
+    BlockClear,
+    /// Drag-and-drop of the selected main text: move it to `to`, or copy it there (Ctrl held).
+    MoveText {
+        /// Drop position.
+        to: Pos,
+        /// Copy instead of moving.
+        #[serde(default)]
+        copy: bool,
+    },
 }
 
 fn yes() -> bool {
@@ -1564,9 +1593,11 @@ impl crate::Engine {
             s.set_typing_runs(self.typing_runs);
         }
         let labels = self.undo_labels_before();
+        let learn = self.ac_learn_before(&cmd);
         let (kind, typed) = Self::undo_label_of(&cmd);
-        let mut r = self.command_inner(cmd, now)?;
+        let mut r = self.block_wrap(cmd, now)?;
         self.undo_labels_after(labels, &kind, typed, &r);
+        self.ac_learn_after(learn, &r);
         if self.math.is_some() {
             self.math_decorate(&mut r);
         }
@@ -1580,7 +1611,11 @@ impl crate::Engine {
         Ok(r)
     }
 
-    fn command_inner(&mut self, cmd: Command, now: Option<i64>) -> crate::Result<EditResult> {
+    pub(crate) fn command_inner(
+        &mut self,
+        cmd: Command,
+        now: Option<i64>,
+    ) -> crate::Result<EditResult> {
         // Export to another format: nothing changes (also while filling in forms).
         if let Command::ExportFile { format } = &cmd {
             use base64::Engine as _;
@@ -1878,6 +1913,10 @@ impl crate::Engine {
                 match cmd {
                     // Handled outside the session (view options, merge state).
                     Command::State
+                    | Command::BlockSelect { .. }
+                    | Command::BlockMove { .. }
+                    | Command::BlockClear
+                    | Command::MoveText { .. }
                     | Command::ExportFile { .. }
                     | Command::AutoCorrect { .. }
                     | Command::Review
@@ -1968,7 +2007,10 @@ impl crate::Engine {
                     | Command::SetDropCap { .. } => {}
                     Command::Tab { back } => {
                         if s.next_cell(back)?.is_none() {
-                            s.tab_key(back)?;
+                            // AutoFormat As You Type: "Set left- and first-indent with tabs
+                            // and backspaces".
+                            let indent = autocorrect.is_none_or(|o| o.tab_indent);
+                            s.tab_key_with(back, indent)?;
                         }
                     }
                     Command::TableEdit { edit } => {
@@ -2200,7 +2242,7 @@ impl crate::Engine {
                                     .and_then(|t| t.get(..at.offset).map(str::to_owned))
                                     .unwrap_or_default();
                                 let fix = bo_edit::AutoCorrectOptions::word_before(&head, c)
-                                    .filter(|w| !speller.check(w))
+                                    .filter(|w| !speller.check(w) && !o.is_other_exception(w))
                                     .and_then(|w| {
                                         let sug = speller.suggest(w);
                                         (sug.len() == 1).then(|| (w.to_owned(), sug[0].clone()))

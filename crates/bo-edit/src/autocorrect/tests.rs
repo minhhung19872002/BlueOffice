@@ -421,3 +421,55 @@ fn day_names_caps_lock_and_spelling_helpers() {
         "x wrong |"
     );
 }
+
+fn styled_text(s: &Session, pick: impl Fn(&RunProps) -> bool) -> String {
+    let Block::Paragraph(p) = &s.doc().sections[0].blocks[0] else {
+        return String::new();
+    };
+    p.runs
+        .iter()
+        .filter(|r| pick(&r.props))
+        .flat_map(|r| r.content.iter())
+        .filter_map(|c| match c {
+            RunContent::Text(t) => Some(t.as_str()),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn bold_and_italic_markers_become_formatting_when_on() {
+    let off = AutoCorrectOptions::default();
+    assert!(!off.bold_italic);
+    let mut s = Session::new(doc(""));
+    type_str(&mut s, &off, "a *b* ");
+    assert_eq!(text0(&s), "A *b* ");
+    let o = AutoCorrectOptions {
+        bold_italic: true,
+        ..AutoCorrectOptions::default()
+    };
+    let mut s = Session::new(doc(""));
+    type_str(&mut s, &o, "x *two words*, _it_ ");
+    assert_eq!(text0(&s), "X two words, it ");
+    assert_eq!(styled_text(&s, |p| p.bold == Some(true)), "two words");
+    assert_eq!(styled_text(&s, |p| p.italic == Some(true)), "it");
+    // A marker inside a word, or before a blank, is left alone.
+    assert_eq!(run_ctx("x a*b* |", ' ', Context::default(), &o), "x a*b* |");
+    assert_eq!(run_ctx("x *b * |", ' ', Context::default(), &o), "x *b * |");
+}
+
+#[test]
+fn bulleted_and_numbered_lists_switch_separately_and_other_exceptions_hold() {
+    let o = AutoCorrectOptions {
+        numbered_lists: false,
+        ..AutoCorrectOptions::default()
+    };
+    assert_eq!(run_ctx("1. |", ' ', Context::default(), &o), "1. |");
+    assert_eq!(run_ctx("- |", ' ', Context::default(), &o), "[list]|");
+    let o = AutoCorrectOptions {
+        other_exceptions: vec!["teh".into()],
+        ..AutoCorrectOptions::default()
+    };
+    assert_eq!(run_ctx("a teh |", ' ', Context::default(), &o), "a teh |");
+    assert_eq!(run("a teh |", ' '), "a the |");
+}

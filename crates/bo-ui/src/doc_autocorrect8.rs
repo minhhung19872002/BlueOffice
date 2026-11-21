@@ -38,8 +38,8 @@ const FRAME: Rgba = Rgba(0x82, 0x87, 0x90, 255);
 /// Tab-row offset of this form against the reference capture.
 const DY: f32 = 38.0;
 
-/// Check boxes of the pages and the option each one sets.
-const CHECKS: [(&str, usize, f32, &str, &str); 11] = [
+/// Check boxes of the AutoCorrect page and the option each one sets.
+const CHECKS: [(&str, usize, f32, &str, &str); 4] = [
     (
         "caps2",
         0,
@@ -68,54 +68,124 @@ const CHECKS: [(&str, usize, f32, &str, &str); 11] = [
         "docR8.ac.replace",
         "Replace text as you type",
     ),
+];
+
+/// The AutoFormat As You Type page as on the reference (round 9): three groups, two columns
+/// (left at 33, right at 319 reference pixels), rows 25 px apart; the options BlueDoc does not
+/// have yet greyed: (id, x, y, key, label, available).
+const FORMAT_CHECKS: [(&str, f32, f32, &str, &str, bool); 15] = [
     (
         "quotes",
-        1,
+        33.0,
         89.0,
         "docR8.ac.quotes",
         "\"Straight quotes\" with \u{201c}smart quotes\u{201d}",
+        true,
     ),
     (
         "ordinals",
-        1,
-        114.0,
+        319.0,
+        89.0,
         "docR8.ac.ordinals",
         "Ordinals (1st) with superscript",
+        true,
     ),
     (
         "fractions",
-        1,
-        139.0,
+        33.0,
+        114.0,
         "docR8.ac.fractions",
         "Fractions (1/2) with fraction character (\u{bd})",
+        true,
     ),
     (
         "dashes",
-        1,
-        164.0,
+        319.0,
+        114.0,
         "docR8.ac.dashes",
         "Hyphens (--) with dash (\u{2014})",
+        true,
+    ),
+    (
+        "boldItalic",
+        33.0,
+        139.0,
+        "docR9.ac.boldItalic",
+        "*Bold* and _italic_ with real formatting",
+        true,
     ),
     (
         "links",
-        1,
-        189.0,
+        33.0,
+        164.0,
         "docR8.ac.links",
         "Internet and network paths with hyperlinks",
+        true,
     ),
     (
-        "lists",
-        1,
+        "bulleted",
+        33.0,
+        214.0,
+        "docR9.ac.bulleted",
+        "Automatic bulleted lists",
+        true,
+    ),
+    (
+        "numbered",
+        319.0,
+        214.0,
+        "docR9.ac.numbered",
+        "Automatic numbered lists",
+        true,
+    ),
+    (
+        "borders",
+        33.0,
+        239.0,
+        "docR9.ac.borders",
+        "Border lines",
+        true,
+    ),
+    ("tables", 319.0, 239.0, "docR9.ac.tables", "Tables", true),
+    (
+        "headings",
+        33.0,
         264.0,
-        "docR8.ac.lists",
-        "Automatic bulleted and numbered lists",
+        "docR9.ac.headings",
+        "Built-in Heading styles",
+        false,
+    ),
+    (
+        "listBegin",
+        33.0,
+        314.0,
+        "docR9.ac.listBegin",
+        "Format beginning of list item like the one before it",
+        false,
+    ),
+    (
+        "tabIndent",
+        33.0,
+        339.0,
+        "docR9.ac.tabIndent",
+        "Set left- and first-indent with tabs and backspaces",
+        true,
+    ),
+    (
+        "defineStyles",
+        33.0,
+        364.0,
+        "docR9.ac.defineStyles",
+        "Define styles based on your formatting",
+        false,
     ),
     (
         "enabled",
-        1,
-        339.0,
+        33.0,
+        414.0,
         "docR8.ac.enabled",
         "Correct and format as you type",
+        true,
     ),
 ];
 
@@ -144,7 +214,7 @@ pub(crate) struct AutoCorrectDialog {
     accent: Option<(Rgba, Rgba)>,
     strings_title: String,
     /// First Letter, INitial CAps, their labels, Add, Delete, OK, Cancel.
-    strings_ex: [String; 8],
+    strings_ex: [String; 11],
 }
 
 /// AutoCorrect Exceptions (505 x 371 at 125 % on the reference, `doc8/ref-exdlg.png`): First
@@ -152,29 +222,50 @@ pub(crate) struct AutoCorrectDialog {
 /// two capitals), each a box, a list, Add and Delete.
 pub(crate) struct ExceptionsDialog {
     form: Form,
-    lists: [Vec<String>; 2],
+    lists: [Vec<String>; 3],
     pointer: (f32, f32),
 }
+
+/// The lists and "Automatically add words to list" boxes the Exceptions dialog hands back.
+type ExLists = ([Vec<String>; 3], [bool; 3]);
 
 /// What the Exceptions dialog's owner does.
 enum ExOut {
     Stay(bool),
     Close,
-    Apply([Vec<String>; 2]),
+    Apply(Box<ExLists>),
 }
 
 impl ExceptionsDialog {
-    fn open(title: &str, s: &[String; 8], first: &[String], caps: &[String]) -> Self {
-        let mut f = Form::new(title, (505.0, 371.0), vec![s[0].clone(), s[1].clone()]);
+    fn open(title: &str, s: &[String; 11], lists: [&[String]; 3], auto: [bool; 3]) -> Self {
+        let mut f = Form::new(
+            title,
+            (505.0, 371.0),
+            vec![s[0].clone(), s[1].clone(), s[8].clone()],
+        );
         for (page, label, edit, list, add, del) in [
             (0, "l0", "e0", "list0", "add0", "del0"),
             (1, "l1", "e1", "list1", "add1", "del1"),
+            (2, "l2", "e2", "list2", "add2", "del2"),
         ] {
+            f.add(
+                ["auto0", "auto1", "auto2"][page],
+                Some(page),
+                [33.0, 280.0, 320.0, 22.0],
+                Kind::Check {
+                    label: s[10].clone(),
+                    on: auto[page],
+                },
+            );
             f.add(
                 label,
                 Some(page),
                 [33.0, 86.0, 300.0, 20.0],
-                Kind::Label(s[2 + page].clone()),
+                Kind::Label(if page == 2 {
+                    s[9].clone()
+                } else {
+                    s[2 + page].clone()
+                }),
             );
             f.add(
                 edit,
@@ -211,7 +302,7 @@ impl ExceptionsDialog {
         f.set_page(0);
         let mut d = Self {
             form: f,
-            lists: [first.to_vec(), caps.to_vec()],
+            lists: [lists[0].to_vec(), lists[1].to_vec(), lists[2].to_vec()],
             pointer: (0.0, 0.0),
         };
         for l in &mut d.lists {
@@ -222,7 +313,7 @@ impl ExceptionsDialog {
     }
 
     fn sync(&mut self) {
-        for (i, id) in ["list0", "list1"].into_iter().enumerate() {
+        for (i, id) in ["list0", "list1", "list2"].into_iter().enumerate() {
             // Nothing chosen, as the reference opens.
             self.form.set_items(id, self.lists[i].clone(), None);
         }
@@ -235,6 +326,7 @@ impl ExceptionsDialog {
         let ids = [
             ("e0", "list0", "add0", "del0"),
             ("e1", "list1", "add1", "del1"),
+            ("e2", "list2", "add2", "del2"),
         ];
         for (i, (edit, list, add, del)) in ids.into_iter().enumerate() {
             let w = self.form.text(edit).trim().to_owned();
@@ -269,13 +361,26 @@ impl ExceptionsDialog {
     }
 
     fn event(&mut self, ev: &Event) -> ExOut {
-        let page = |id: &str| usize::from(id.ends_with('1'));
+        let page = |id: &str| match id.chars().next_back() {
+            Some('1') => 1,
+            Some('2') => 2,
+            _ => 0,
+        };
+        let edit_of = |i: usize| ["e0", "e1", "e2"][i];
+        let list_of = |i: usize| ["list0", "list1", "list2"][i];
         match ev {
             Event::Cancel | Event::Clicked("cancel") => ExOut::Close,
-            Event::Ok | Event::Clicked("ok") => ExOut::Apply(self.lists.clone()),
-            Event::Clicked(id @ ("add0" | "add1")) => {
+            Event::Ok | Event::Clicked("ok") => ExOut::Apply(Box::new((
+                self.lists.clone(),
+                [
+                    self.form.on("auto0"),
+                    self.form.on("auto1"),
+                    self.form.on("auto2"),
+                ],
+            ))),
+            Event::Clicked(id @ ("add0" | "add1" | "add2")) => {
                 let i = page(id);
-                let edit = if i == 0 { "e0" } else { "e1" };
+                let edit = edit_of(i);
                 let w = self.form.text(edit).trim().to_owned();
                 if !w.is_empty() && !self.lists[i].contains(&w) {
                     self.lists[i].push(w);
@@ -285,9 +390,9 @@ impl ExceptionsDialog {
                 self.sync();
                 ExOut::Stay(true)
             }
-            Event::Clicked(id @ ("del0" | "del1")) => {
+            Event::Clicked(id @ ("del0" | "del1" | "del2")) => {
                 let i = page(id);
-                let list = if i == 0 { "list0" } else { "list1" };
+                let list = list_of(i);
                 if let Some(k) = self.form.sel(list) {
                     if k < self.lists[i].len() {
                         self.lists[i].remove(k);
@@ -297,12 +402,12 @@ impl ExceptionsDialog {
                 ExOut::Stay(true)
             }
             // Choosing a row puts it in the box, as on the reference.
-            Event::Changed(id @ ("list0" | "list1")) => {
+            Event::Changed(id @ ("list0" | "list1" | "list2")) => {
                 let i = page(id);
-                let list = if i == 0 { "list0" } else { "list1" };
+                let list = list_of(i);
                 if let Some(w) = self.form.sel(list).and_then(|k| self.lists[i].get(k)) {
                     let w = w.clone();
-                    self.form.set_text(if i == 0 { "e0" } else { "e1" }, &w);
+                    self.form.set_text(edit_of(i), &w);
                 }
                 self.sync_buttons();
                 ExOut::Stay(true)
@@ -398,15 +503,33 @@ impl AutoCorrectDialog {
         f.add(
             "gApply",
             Some(1),
-            [18.0, 237.0 + DY, 580.0, 24.0],
+            [18.0, 187.0 + DY, 580.0, 24.0],
             Kind::Group(tr("docR8.ac.applyAsYouType", "Apply as you type")),
+        );
+        f.add(
+            "gAuto",
+            Some(1),
+            [18.0, 287.0 + DY, 580.0, 24.0],
+            Kind::Group(tr("docR9.ac.automatically", "Automatically as you type")),
         );
         f.add(
             "gAlways",
             Some(1),
-            [18.0, 312.0 + DY, 580.0, 24.0],
+            [18.0, 387.0 + DY, 580.0, 24.0],
             Kind::Group(tr("docR8.ac.always", "Always")),
         );
+        for (id, x, y, key, fb, available) in FORMAT_CHECKS {
+            f.add(
+                id,
+                Some(1),
+                [x, y + DY - 11.0, 270.0, 22.0],
+                Kind::Check {
+                    label: tr(key, fb),
+                    on: false,
+                },
+            );
+            f.enable(id, available);
+        }
         f.add(
             "fromL",
             Some(0),
@@ -521,6 +644,9 @@ impl AutoCorrectDialog {
                 tr("docR8.ac.delete", "Delete"),
                 tr("common.ok", "OK"),
                 tr("common.cancel", "Cancel"),
+                tr("docR9.ex.other", "Other Corrections"),
+                tr("docR9.ex.otherL", "Don't correct:"),
+                tr("docR9.ex.autoAdd", "Automatically add words to list"),
             ],
         };
         d.load();
@@ -540,7 +666,14 @@ impl AutoCorrectDialog {
             ("fractions", o.fractions),
             ("dashes", o.dashes),
             ("links", o.auto_links),
-            ("lists", o.auto_lists),
+            ("boldItalic", o.bold_italic),
+            ("bulleted", o.auto_lists && o.bulleted_lists),
+            ("numbered", o.auto_lists && o.numbered_lists),
+            ("borders", o.borders),
+            ("tables", o.tables),
+            ("tabIndent", o.tab_indent),
+            // On by default on the reference; BlueDoc does not do it yet (greyed).
+            ("listBegin", true),
             ("enabled", o.enabled),
             ("showButtons", o.show_buttons),
             ("days", o.capitalize_days),
@@ -570,7 +703,13 @@ impl AutoCorrectDialog {
             dashes: f.on("dashes"),
             ordinals: f.on("ordinals"),
             fractions: f.on("fractions"),
-            auto_lists: f.on("lists"),
+            auto_lists: f.on("bulleted") || f.on("numbered"),
+            bulleted_lists: f.on("bulleted"),
+            numbered_lists: f.on("numbered"),
+            bold_italic: f.on("boldItalic"),
+            borders: f.on("borders"),
+            tables: f.on("tables"),
+            tab_indent: f.on("tabIndent"),
             auto_links: f.on("links"),
             show_buttons: f.on("showButtons"),
             capitalize_days: f.on("days"),
@@ -619,9 +758,14 @@ impl AutoCorrectDialog {
                     self.exceptions = None;
                     AcOut::Redraw
                 }
-                ExOut::Apply([first, caps]) => {
+                ExOut::Apply(b) => {
+                    let ([first, caps, other], auto) = *b;
                     self.opts.exceptions = first;
                     self.opts.caps_exceptions = caps;
+                    self.opts.other_exceptions = other;
+                    self.opts.auto_add_first = auto[0];
+                    self.opts.auto_add_caps = auto[1];
+                    self.opts.auto_add_other = auto[2];
                     self.exceptions = None;
                     AcOut::Redraw
                 }
@@ -670,11 +814,12 @@ impl AutoCorrectDialog {
             Event::Cancel | Event::Clicked("cancel") => AcOut::Close,
             Event::Ok | Event::Clicked("ok") => AcOut::Apply(Box::new(self.collect())),
             Event::Clicked("exceptions") => {
+                let o = &self.opts;
                 let mut x = ExceptionsDialog::open(
                     &self.strings_title,
                     &self.strings_ex,
-                    &self.opts.exceptions,
-                    &self.opts.caps_exceptions,
+                    [&o.exceptions, &o.caps_exceptions, &o.other_exceptions],
+                    [o.auto_add_first, o.auto_add_caps, o.auto_add_other],
                 );
                 if let Some((fill, edge)) = self.accent {
                     x.form.set_accent(fill, edge);
@@ -953,6 +1098,63 @@ mod tests {
         };
         assert!(o.exceptions.iter().any(|w| w == "blt."));
         assert!(o.caps_exceptions.iter().any(|w| w == "PDFs"));
+    }
+
+    #[test]
+    fn autoformat_page_has_the_reference_options_with_its_defaults() {
+        let mut d = dialog();
+        // On by default on the reference (read over COM): all but bold/italic, headings and
+        // define styles.
+        for id in [
+            "quotes",
+            "ordinals",
+            "fractions",
+            "dashes",
+            "links",
+            "bulleted",
+            "numbered",
+            "borders",
+            "tables",
+            "listBegin",
+            "tabIndent",
+        ] {
+            assert!(d.form.on(id), "{id}");
+        }
+        for id in ["boldItalic", "headings", "defineStyles"] {
+            assert!(!d.form.on(id), "{id}");
+        }
+        for id in ["headings", "listBegin", "defineStyles"] {
+            assert!(!d.form.get(id).is_some_and(|c| c.enabled), "{id} greyed");
+        }
+        d.form.set_on("boldItalic", true);
+        d.form.set_on("numbered", false);
+        d.form.set_on("tables", false);
+        d.form.set_on("tabIndent", false);
+        let AcOut::Apply(o) = d.event(&Event::Ok) else {
+            panic!("ok applies");
+        };
+        assert!(o.bold_italic && o.auto_lists && o.bulleted_lists && !o.numbered_lists);
+        assert!(!o.tables && o.borders && !o.tab_indent);
+    }
+
+    #[test]
+    fn exceptions_have_other_corrections_and_auto_add_boxes() {
+        let mut d = dialog();
+        d.event(&Event::Clicked("exceptions"));
+        let x = d.exceptions.as_mut().expect("exceptions open");
+        assert_eq!(x.form.tabs.len(), 3);
+        for id in ["auto0", "auto1", "auto2"] {
+            assert!(x.form.on(id), "{id}");
+        }
+        x.form.set_text("e2", "teh");
+        x.event(&Event::Clicked("add2"));
+        x.form.set_on("auto1", false);
+        let r = x.event(&Event::Ok);
+        let ExOut::Apply(b) = r else {
+            panic!("ok applies");
+        };
+        assert_eq!(b.0[2], vec!["teh".to_owned()]);
+        assert_eq!(b.1, [true, false, true]);
     }
 
     #[test]

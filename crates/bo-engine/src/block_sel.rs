@@ -151,7 +151,15 @@ impl Engine {
                 let j = if up { i.checked_sub(1) } else { Some(i + 1) };
                 match j.and_then(|j| lines.get(j)) {
                     Some(&(_, l)) => match nav::body_id(l) {
-                        Some(id) => (Pos::new(id, nav::offset_at(l, b.fx)), b.fx),
+                        Some(id) => {
+                            // The first stop at or right of the column, as the reference.
+                            let off = l
+                                .carets
+                                .iter()
+                                .find(|c| c.1 >= b.fx - 0.5)
+                                .map_or_else(|| nav::offset_at(l, b.fx), |c| c.0 as usize);
+                            (Pos::new(id, off), b.fx)
+                        }
                         None => (b.focus, b.fx),
                     },
                     None => (b.focus, b.fx),
@@ -242,7 +250,7 @@ impl Engine {
             let mut to: Option<(usize, f32)> = None;
             for w in stops.windows(2) {
                 let ((o0, a), (o1, c)) = (w[0], w[1]);
-                let mid = (a + c) / 2.0;
+                let mid = a.midpoint(c);
                 if (o1 as usize) > len || o1 <= o0 {
                     continue;
                 }

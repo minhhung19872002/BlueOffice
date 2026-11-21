@@ -95,15 +95,13 @@ impl Engine {
                     o.exceptions.push(abbr.to_owned());
                 }
             }
-            Rule::TwoCaps if o.auto_add_caps => {
-                if !o.caps_exceptions.iter().any(|x| x == word) {
-                    o.caps_exceptions.push(word.to_owned());
-                }
+            Rule::TwoCaps if o.auto_add_caps && !o.caps_exceptions.iter().any(|x| x == word) => {
+                o.caps_exceptions.push(word.to_owned());
             }
-            Rule::Replace | Rule::Spelling | Rule::CapsLock if o.auto_add_other => {
-                if !o.is_other_exception(word) {
-                    o.other_exceptions.push(word.to_owned());
-                }
+            Rule::Replace | Rule::Spelling | Rule::CapsLock
+                if o.auto_add_other && !o.is_other_exception(word) =>
+            {
+                o.other_exceptions.push(word.to_owned());
             }
             _ => {}
         }

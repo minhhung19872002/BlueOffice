@@ -17,6 +17,41 @@ pub(crate) struct Marks {
 
 const INK: Rgba = Rgba(0, 0, 0, 255);
 
+/// The paragraph mark as shapes in the text colour (round 9): a font glyph went through the
+/// interface text path (ClearType), whose colour fringes showed red / blue edges next to the
+/// grey document text. Measured on the reference at 11 pt, 125 %: 13 px tall from the
+/// baseline up, a 5 px bowl, two 1 px stems 3 px apart, a bar across the top.
+fn pilcrow(p: &mut dyn Painter, x: f32, base: f32, size: f32, ink: Rgba) {
+    let h = (size * 0.70).round().max(5.0);
+    let k = (size * 0.065).round().max(1.0);
+    let bowl = (size * 0.28).round().max(2.0);
+    let gap = (size * 0.13).round().max(1.0);
+    let top = base - h;
+    let s1 = x + bowl;
+    let s2 = s1 + k + gap;
+    let hb = (h * 0.55).round();
+    // Bowl: a half disc left of the first stem.
+    p.path(
+        &[
+            PathSeg::M(s1, top),
+            PathSeg::C(
+                x - bowl * 0.35,
+                top,
+                x - bowl * 0.35,
+                top + hb,
+                s1,
+                top + hb,
+            ),
+            PathSeg::Z,
+        ],
+        Some(ink),
+        None,
+    );
+    p.fill_rect(s1, top, s2 + k - s1, k, ink);
+    p.fill_rect(s1, top, k, h, ink);
+    p.fill_rect(s2, top, k, h, ink);
+}
+
 impl DocView {
     /// Read the marks of `pages` again (those redrawn, or all when the kinds changed).
     pub(crate) fn refresh_marks(&mut self, pages: &[usize], wanted: &[usize]) {
@@ -94,7 +129,7 @@ impl DocView {
                         Some((INK, (size * 0.06).max(1.0))),
                     );
                 }
-                FormatMarkKind::Paragraph => p.text_font("¶", x.round(), top, &font, INK),
+                FormatMarkKind::Paragraph => pilcrow(p, x.round(), base.round(), size, INK),
                 FormatMarkKind::CellEnd | FormatMarkKind::RowEnd => {
                     p.text_font("¤", x.round(), top, &font, INK);
                 }

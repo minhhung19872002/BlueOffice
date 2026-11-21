@@ -792,6 +792,12 @@ export type EditCommand =
   | { cmd: 'click'; page: number; x: number; y: number; extend?: boolean; count?: number }
   | { cmd: 'dragTo'; page: number; x: number; y: number }
   | { cmd: 'selectSentence'; page: number; x: number; y: number }
+  /** Block (column) selection: Alt+drag (`extend` while dragging), Ctrl+Shift+F8 + arrows. */
+  | { cmd: 'blockSelect'; page: number; x: number; y: number; extend?: boolean }
+  | { cmd: 'blockMove'; motion: Motion }
+  | { cmd: 'blockClear' }
+  /** Drag-and-drop of the selected text (Ctrl held: copy). */
+  | { cmd: 'moveText'; to: Pos; copy?: boolean }
   | { cmd: 'deleteWordBackward' }
   | { cmd: 'deleteWordForward' }
   | { cmd: 'setLink'; target: string; display?: string }

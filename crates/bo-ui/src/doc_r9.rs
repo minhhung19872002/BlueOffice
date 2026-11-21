@@ -5,7 +5,7 @@
 //! of the selection (Ctrl copies) with the dotted drop caret. A child module of the shell.
 use super::DocWindow;
 use crate::{Input, Key, Mods, Painter, Rgba};
-use bo_edit::{Pos, Selection};
+use bo_edit::Pos;
 use bo_engine::edit::Command;
 use bo_engine::nav::Motion;
 
@@ -291,7 +291,7 @@ impl DocWindow {
 
     /// The selection as it is (tests).
     #[cfg(test)]
-    pub(super) fn r9_selection(&self) -> Option<Selection> {
+    pub(super) fn r9_selection(&self) -> Option<bo_edit::Selection> {
         self.view
             .engine()
             .session()

@@ -5,6 +5,72 @@ use bo_edit::{Pos, Selection};
 use bo_engine::edit::Command;
 use bo_engine::Engine;
 
+struct NullStore;
+
+impl crate::PageStore for NullStore {
+    fn update(
+        &mut self,
+        _: usize,
+        _: &bo_render::PageList,
+        _: &Engine,
+        _: f32,
+        _: Option<[u32; 4]>,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+    fn remove(&mut self, _: usize) {}
+}
+
+/// Records the text and filled shapes painted.
+#[derive(Default)]
+struct Rec {
+    texts: Vec<String>,
+    shapes: usize,
+}
+
+impl crate::Painter for Rec {
+    fn clear(&mut self, _: bo_render::Rgba) {}
+    fn fill_rect(&mut self, _: f32, _: f32, _: f32, _: f32, _: bo_render::Rgba) {
+        self.shapes += 1;
+    }
+    fn page(&mut self, _: usize, _: i32, _: i32) {}
+    fn text(&mut self, text: &str, _: f32, _: f32, _: TextStyle, _: bo_render::Rgba) {
+        self.texts.push(text.to_owned());
+    }
+    fn path(
+        &mut self,
+        _: &[bo_render::PathSeg],
+        _: Option<bo_render::Rgba>,
+        _: Option<(bo_render::Rgba, f32)>,
+    ) {
+        self.shapes += 1;
+    }
+    fn push_clip(&mut self, _: f32, _: f32, _: f32, _: f32) {}
+    fn pop_clip(&mut self) {}
+}
+
+#[test]
+fn paragraph_marks_are_shapes_not_interface_text() {
+    // Interface text is ClearType: a ¶ drawn as text had colour fringes beside the grey
+    // document text (round 9). The mark is drawn with shapes in the text colour.
+    let mut w = window();
+    w.view.run_command(Command::ShowFormattingMarks {
+        on: true,
+        kinds: None,
+    });
+    w.handle(Input::Tick, &Fixed);
+    let mut store = NullStore;
+    let _ = w.view.prepare(&mut store);
+    let mut rec = Rec::default();
+    w.view.paint(&mut rec);
+    assert!(rec.shapes > 0);
+    assert!(
+        !rec.texts.iter().any(|t| t.contains('\u{b6}')),
+        "{:?}",
+        rec.texts
+    );
+}
+
 struct Fixed;
 impl TextMeasure for Fixed {
     fn measure(&self, text: &str, style: TextStyle) -> (f32, f32) {

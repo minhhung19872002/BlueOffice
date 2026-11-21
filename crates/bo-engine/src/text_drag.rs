@@ -111,7 +111,7 @@ mod tests {
     fn text(e: &Engine) -> Vec<String> {
         let s = e.session.as_ref().expect("session");
         (0..s.paragraph_count())
-            .map(|i| s.para_text(i).unwrap_or_default().to_owned())
+            .map(|i| s.para_text(i).unwrap_or_default())
             .collect()
     }
 

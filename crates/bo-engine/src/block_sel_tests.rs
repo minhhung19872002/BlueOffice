@@ -36,7 +36,6 @@ fn para(e: &Engine, i: usize) -> String {
         .as_ref()
         .and_then(|s| s.para_text(i))
         .unwrap_or_default()
-        .to_owned()
 }
 
 #[test]

@@ -125,6 +125,11 @@ pub struct RunStyle {
     /// A list label (§17.9.6 lvlText): as measured in the reference word processor, its
     /// font can raise the line top but its descent does not lower the line bottom.
     pub label: bool,
+    /// Super/subscript (§17.3.2.42 vertAlign): (base size, its baseline shift). Its line
+    /// extents are those of the base size, unshifted — the reference word processor does
+    /// not make the line taller for it (measured black-box, docs/ui/REPORT.md "Dàn trang
+    /// vòng 3", cal-30).
+    pub script: Option<(f32, f32)>,
 }
 
 /// Effective paragraph properties of `p`.
@@ -177,6 +182,12 @@ pub fn run_props(doc: &Document, base: &RunProps, direct: &RunProps) -> RunProps
     direct.inherit(&r)
 }
 
+/// Size of a superscript / subscript run of base size `size` (points): 0.65 × the size
+/// rounded to the nearest half point, at least half a point.
+fn script_size(size: f32) -> f32 {
+    ((size * 0.65 * 2.0).round() / 2.0).max(0.5)
+}
+
 /// Turn effective run properties into a layout style.
 pub fn run_style(doc: &Document, fonts: &mut FontManager, rp: &RunProps) -> Option<RunStyle> {
     let (bold, italic) = (rp.bold.unwrap_or(false), rp.italic.unwrap_or(false));
@@ -196,15 +207,22 @@ pub fn run_style(doc: &Document, fonts: &mut FontManager, rp: &RunProps) -> Opti
     };
     let mut size = rp.size.map_or(DEFAULT_SIZE_PT, bo_model::HalfPoints::to_pt);
     let mut shift = 0.0;
+    let mut script = None;
     match rp.vert_align {
-        // Super/subscript at ~2/3 size (common word-processor rendering).
+        // §17.3.2.42 vertAlign: the reference word processor draws super/subscripts at
+        // 0.65 × the size rounded to the nearest half point (8 → 5, 11 → 7, 12 → 8,
+        // 13 → 8.5, 14 → 9 pt), a superscript raised 0.34 em and a subscript lowered
+        // 0.085 em of the base size (measured black-box, docs/ui/REPORT.md "Dàn trang
+        // vòng 3", cal-30: Times New Roman / Calibri / Arial 8–24 pt).
         Some(VertAlign::Superscript) => {
-            shift = -size * 0.33;
-            size *= 0.65;
+            shift = -size * 0.34;
+            script = Some((size, shift));
+            size = script_size(size);
         }
         Some(VertAlign::Subscript) => {
-            shift = size * 0.14;
-            size *= 0.65;
+            shift = size * 0.085;
+            script = Some((size, shift));
+            size = script_size(size);
         }
         _ => {}
     }
@@ -249,6 +267,7 @@ pub fn run_style(doc: &Document, fonts: &mut FontManager, rp: &RunProps) -> Opti
         fx: crate::charfx::TextFx::of(rp).map(std::sync::Arc::new),
         line: fonts.line_extent(&fam[0], face),
         label: false,
+        script,
     })
 }
 

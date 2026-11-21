@@ -1089,6 +1089,36 @@ impl Flow {
         Ok(mark)
     }
 
+    /// Place the empty paragraph that only carries a section break before a continuous
+    /// section (ECMA-376 Part 1, §17.6.17 sectPr in pPr, §17.6.22 type continuous): the
+    /// reference word processor gives it no height and no spacing — the next section's
+    /// first line follows the previous text line with the spacing between those two
+    /// paragraphs (measured black-box, docs/ui/REPORT.md "Dàn trang vòng 3", cal-32:
+    /// one → one, one → two and two → one columns, with and without space after).
+    fn place_section_mark(
+        &mut self,
+        ctx: &mut Ctx<'_>,
+        pb: &ParaBlock,
+        src: Option<&Paragraph>,
+    ) -> Result<(), LayoutError> {
+        let mut mark = pb.clone();
+        mark.space_before = 0.0;
+        mark.space_after = 0.0;
+        mark.page_break_before = false;
+        mark.deco = None;
+        for l in &mut mark.lines {
+            l.h = 0.0;
+            l.text_h = 0.0;
+        }
+        let prev = self.prev.clone();
+        let y = self.y;
+        self.place_para(ctx, &mark, 0.0, src)?;
+        // The spacing between the paragraphs around the mark collapses as if it were not there.
+        self.y = self.y.max(y);
+        self.prev = prev;
+        Ok(())
+    }
+
     /// Separator lines between the current columns (ECMA-376 Part 1, §17.6.4
     /// `w:sep`), as tall as the longest column on this page.
     fn close_columns(&mut self) {
@@ -1498,7 +1528,12 @@ impl Flow {
                 }
             }
             let ly = self.skip_excl(y, l.text_h);
-            if ly + l.h > self.bottom - foot + here + EPS {
+            // The extra space a multiple of single spacing adds below the text may pass the
+            // bottom margin (only the text must fit), but not into a footnote area on the
+            // page: measured black-box, docs/ui/REPORT.md "Dàn trang vòng 3" (cal-31:
+            // Calibri 11 pt at 1.15 / 1.5 lines, with and without footnotes).
+            let need = if foot > 0.0 { l.h } else { l.text_h };
+            if ly + need > self.bottom - foot + here + EPS {
                 return Ok(i);
             }
             y = ly + l.h;
@@ -2119,7 +2154,15 @@ impl Flow {
                             Block::Paragraph(p) => Some(p),
                             _ => None,
                         };
-                        self.place_para(ctx, pb, keep_with, src)?;
+                        let continuous_next = doc
+                            .sections
+                            .get(si + 1)
+                            .is_some_and(|n| matches!(n.break_type, SectionBreak::Continuous));
+                        if k + 1 == sec.blocks.len() && continuous_next && is_mark_only(pb, src) {
+                            self.place_section_mark(ctx, pb, src)?;
+                        } else {
+                            self.place_para(ctx, pb, keep_with, src)?;
+                        }
                     }
                     Built::Table(tb) => self.place_table(ctx, tb)?,
                     Built::Skip => {}
@@ -2292,4 +2335,16 @@ pub(crate) fn hf_blocks(
         }
     }
     None
+}
+
+/// An empty paragraph (no text, objects or floats) that only carries its section's break.
+fn is_mark_only(pb: &ParaBlock, src: Option<&Paragraph>) -> bool {
+    src.is_some_and(|p| p.plain_text().is_empty())
+        && pb.floats.is_empty()
+        && pb.deco.is_none()
+        && pb.lines.len() == 1
+        && pb
+            .lines
+            .iter()
+            .all(|l| l.items.is_empty() && l.brk == Brk::None)
 }

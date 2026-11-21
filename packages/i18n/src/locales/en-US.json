@@ -8136,6 +8136,12 @@
     "cut": "Cut",
     "paste": "Paste"
   },
+  "pdfReader15": {
+    "find": "Search",
+    "findHint": "Find",
+    "previous": "Previous",
+    "next": "Next"
+  },
   "pdfReader": {
     "tabs": {
       "file": "File",

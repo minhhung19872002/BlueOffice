@@ -114,6 +114,7 @@ mod pdf_window;
 mod popup;
 mod reader_icons;
 mod reader_impose;
+mod reader_ink15;
 mod reader_print;
 #[cfg(test)]
 mod reader_tests;

@@ -6,12 +6,15 @@
 //! number in the accent colour, and a round back button (44 px, grey ring and arrow) at the
 //! top left. Arrows move the choice, Enter or a click shows that slide, Esc / G / the back
 //! button go back to the slide shown before.
-use super::{SlideView, ACCENT, R, THUMB_KEY};
+use super::{SlideView, R, THUMB_KEY};
 use crate::{Input, Key, PageStore, Painter, TextStyle};
 use bo_render::{PathSeg, Rgba};
 
 /// Ground of the grid.
 const GROUND: Rgba = Rgba(26, 26, 26, 255);
+/// The current slide's frame and number: our accent lightened to the reference frame's
+/// luminance (reference 237, 149, 131 is its own accent lightened; ours 53 % toward white).
+const FRAME: Rgba = Rgba(227, 148, 178, 255);
 /// Numbers, back button.
 const GREY: Rgba = Rgba(168, 168, 168, 255);
 
@@ -22,7 +25,12 @@ pub struct Overview {
     pub sel: usize,
     /// Scrolled rows (device px).
     pub scroll: f32,
+    /// Image size against the default (zoom bar at the lower right: 0.5 to 2).
+    pub zoom: f32,
 }
+
+/// Zoom steps of the grid's zoom bar.
+const ZOOMS: [f32; 7] = [0.5, 0.65, 0.8, 1.0, 1.25, 1.6, 2.0];
 
 impl SlideView {
     /// Whether the slide grid is open.
@@ -39,7 +47,11 @@ impl SlideView {
             .show_slide()
             .unwrap_or(0)
             .min(self.ids.len().saturating_sub(1));
-        self.show_all = Some(Overview { sel, scroll: 0.0 });
+        self.show_all = Some(Overview {
+            sel,
+            scroll: 0.0,
+            zoom: 1.0,
+        });
         self.show_tools.screen = None;
         self.keep_overview_sel_visible();
         true
@@ -50,7 +62,8 @@ impl SlideView {
         let [_, _, w, h] = self.show_area();
         // Sizes relative to the screen as the reference's at 1920 × 1080.
         let k = (w / 1920.0).min(h / 1080.0).max(0.1);
-        let tw = (320.0 * k).round().max(8.0);
+        let zoom = self.show_all.map_or(1.0, |o| o.zoom);
+        let tw = (320.0 * k * zoom).round().max(8.0);
         let th = (tw * self.slide_size.1 / self.slide_size.0.max(1.0)).round();
         let gap = (42.0 * k).round();
         let left = gap;
@@ -142,6 +155,10 @@ impl SlideView {
             Input::Text(ref t) if matches!(t.as_str(), "g" | "G" | "-") => {
                 self.close_show_overview()
             }
+            Input::Press { x, y, .. } if self.overview_zoom_hit(x, y).is_some() => {
+                let step = self.overview_zoom_hit(x, y).unwrap_or(0);
+                self.step_overview_zoom(step)
+            }
             Input::Press { x, y, .. } => {
                 let b = self.overview_back();
                 if x >= b[0] && x < b[0] + b[2] && y >= b[1] && y < b[1] + b[3] {
@@ -165,6 +182,57 @@ impl SlideView {
             }
             _ => false,
         })
+    }
+
+    /// The zoom bar at the lower right (reference, 1920 x 1080: minus at 1682, track
+    /// 1702-1858, plus at 1878, 19 px above the bottom): (minus, track, plus) rectangles.
+    fn overview_zoom_bar(&self) -> [R; 3] {
+        let [ax, ay, w, h] = self.show_area();
+        let k = (w / 1920.0).min(h / 1080.0).max(0.1);
+        let cy = ay + h - (19.0 * k).round();
+        let b = (18.0 * k).round();
+        let right = ax + w - (42.0 * k).round();
+        [
+            [right - (205.0 * k).round() - b / 2.0, cy - b / 2.0, b, b],
+            [
+                right - (185.0 * k).round(),
+                cy - b / 2.0,
+                (156.0 * k).round(),
+                b,
+            ],
+            [right - b / 2.0, cy - b / 2.0, b, b],
+        ]
+    }
+
+    /// -1 / +1 for a press on minus / plus.
+    fn overview_zoom_hit(&self, x: f32, y: f32) -> Option<i32> {
+        let [m, _, pl] = self.overview_zoom_bar();
+        let inside = |r: R| x >= r[0] && x < r[0] + r[2] && y >= r[1] && y < r[1] + r[3];
+        if inside(m) {
+            Some(-1)
+        } else if inside(pl) {
+            Some(1)
+        } else {
+            None
+        }
+    }
+
+    /// One zoom step smaller (-1) or larger (+1).
+    pub fn step_overview_zoom(&mut self, step: i32) -> bool {
+        let Some(o) = self.show_all else {
+            return false;
+        };
+        let i = ZOOMS
+            .iter()
+            .position(|z| (*z - o.zoom).abs() < 0.01)
+            .unwrap_or(3) as i32;
+        let j = (i + step).clamp(0, ZOOMS.len() as i32 - 1) as usize;
+        if let Some(o) = self.show_all.as_mut() {
+            o.zoom = ZOOMS[j];
+            o.scroll = 0.0;
+        }
+        self.keep_overview_sel_visible();
+        i as usize != j
     }
 
     /// Back to the show where it was.
@@ -219,7 +287,7 @@ impl SlideView {
             let selected = i == o.sel;
             if selected {
                 let off = one + frame;
-                p.fill_rect(x - off, y - off, tw + 2.0 * off, th + 2.0 * off, ACCENT);
+                p.fill_rect(x - off, y - off, tw + 2.0 * off, th + 2.0 * off, FRAME);
                 p.fill_rect(x - one, y - one, tw + 2.0 * one, th + 2.0 * one, GROUND);
             }
             let key = THUMB_KEY + self.ids[i];
@@ -229,8 +297,8 @@ impl SlideView {
                 p.fill_rect(x, y, tw, th, Rgba(255, 255, 255, 255));
             }
             let n = (i + 1).to_string();
-            let color = if selected { ACCENT } else { GREY };
-            p.text(&n, x, (y + th + 9.0 * k).round(), style, color);
+            let color = if selected { FRAME } else { GREY };
+            p.text(&n, x, (y + th + 3.0 * k).round(), style, color);
         }
         p.pop_clip();
         // Back button: a grey ring with an arrow pointing left.
@@ -258,5 +326,27 @@ impl SlideView {
             PathSeg::L(cx - a + a * 0.75, cy + a * 0.75),
         ];
         p.path(&arrow, None, Some((GREY, (2.2 * k).max(1.0))));
+        // Zoom bar: minus, track with the middle mark and the thumb, plus.
+        let [m, t, pl] = self.overview_zoom_bar();
+        let cy = (m[1] + m[3] / 2.0).round();
+        let arm = (6.0 * k).round();
+        let stroke = (1.6 * k).round().max(1.0);
+        p.fill_rect(m[0] + m[2] / 2.0 - arm / 2.0, cy, arm, stroke, GREY);
+        p.fill_rect(t[0], cy, t[2], stroke, GREY);
+        let i = ZOOMS
+            .iter()
+            .position(|z| (*z - o.zoom).abs() < 0.01)
+            .unwrap_or(3);
+        let tx = (t[0] + t[2] * i as f32 / (ZOOMS.len() - 1) as f32).round();
+        p.fill_rect(
+            tx - (2.0 * k).round(),
+            cy - (6.0 * k).round(),
+            (4.0 * k).round().max(2.0),
+            (12.0 * k).round(),
+            GREY,
+        );
+        let pc = pl[0] + pl[2] / 2.0;
+        p.fill_rect(pc - arm, cy, 2.0 * arm, stroke, GREY);
+        p.fill_rect(pc - stroke / 2.0, cy - arm, stroke, 2.0 * arm, GREY);
     }
 }

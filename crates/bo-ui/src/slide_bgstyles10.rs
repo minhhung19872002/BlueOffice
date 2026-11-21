@@ -114,9 +114,8 @@ impl SlideWindow {
                     px(90.4),
                     px(68.8),
                 ];
-                let base = match st {
-                    BgStyle::Solid(c) | BgStyle::Gradient(c, _) => c,
-                };
+                // The column's theme colour decides the text (dark columns: white).
+                let base = colors[i % 4];
                 let dark = u32::from(base.0) + u32::from(base.1) + u32::from(base.2) < 3 * 140;
                 (rect, st, if dark { WHITE } else { ink })
             })

@@ -5,7 +5,7 @@
 //! All Ink on Slide and Arrow. A submenu opens when its row is pointed at (or → / Enter),
 //! beside the row, and closes with ← / Esc or when another row is pointed at.
 use super::{MenuKind, SlideWindow};
-use crate::popup::{Choice, Menu, MenuItem};
+use crate::popup::{Choice, Menu, MenuItem, MenuLook};
 use crate::slide_view::show_tools::Pointer;
 use crate::{Input, Key, Painter};
 use bo_render::{PathSeg, Rgba};
@@ -60,7 +60,7 @@ const POINTER: [(&str, &str, &str, bool); 6] = [
 ];
 
 /// The submenu arrow's colour (dimmed rows: lighter).
-const ARROW: Rgba = Rgba(0x40, 0x40, 0x40, 255);
+const ARROW: Rgba = Rgba(0x26, 0x26, 0x26, 255);
 const ARROW_DIM: Rgba = Rgba(0xa0, 0xa0, 0xa0, 255);
 
 impl SlideWindow {
@@ -234,8 +234,7 @@ impl SlideWindow {
         // Beside the row, its top level with the row (the list opens downwards).
         let pad = (4.0 * self.scale).round();
         let anchor = [rect[0] + rect[2] - pad, rect[1] - pad, 1.0, 0.0];
-        let mut sub =
-            Menu::open(items, anchor, self.size, self.scale).with_decor(icons, separators);
+        let mut sub = self.show_menu_box(items, anchor, icons, separators);
         if !sub.contains(anchor[0] + 2.0, rect[1] + rect[3] / 2.0) {
             // No room on the right: open on the left of the menu.
             let w = sub.row_rect(0)[2];
@@ -248,13 +247,7 @@ impl SlideWindow {
                 .filter(|(_, e)| e.3)
                 .map(|(i, _)| i)
                 .collect();
-            sub = Menu::open(
-                items,
-                [left, rect[1] - pad, 1.0, 0.0],
-                self.size,
-                self.scale,
-            )
-            .with_decor(icons, seps);
+            sub = self.show_menu_box(items, [left, rect[1] - pad, 1.0, 0.0], icons, seps);
         }
         self.show_sub = Some((row, sub));
         true
@@ -311,11 +304,34 @@ impl SlideWindow {
         let icons = vec![None; items.len()];
         self.menu_kind = MenuKind::Duration;
         self.show_sub = None;
-        self.menu = Some(
-            Menu::open(items, [x, y, 1.0, 1.0], self.size, self.scale)
-                .with_decor(icons, separators),
-        );
+        // The menu's top left corner at the pointer (reference).
+        let gap = (2.0 * self.scale).round();
+        let menu = self.show_menu_box(items, [x, y - gap - 1.0, 1.0, 1.0], icons, separators);
+        self.menu = Some(menu);
         true
+    }
+
+    /// A menu of the show with the reference's metrics at 125 %: rows 36 px, text 47 px in,
+    /// 246 px wide at least, 3 px more around separators.
+    fn show_menu_box(
+        &self,
+        items: Vec<MenuItem>,
+        anchor: [f32; 4],
+        icons: Vec<Option<&'static str>>,
+        separators: Vec<usize>,
+    ) -> Menu {
+        let look = MenuLook {
+            item_h: 28.8,
+            text: 14.6,
+            text_x: (37.6, 37.6),
+            pad: 3.2,
+            min_w: 196.8,
+            char_w: 7.0,
+            ..MenuLook::default()
+        };
+        Menu::open_with(items, anchor, self.size, self.scale, look)
+            .with_decor(icons, separators)
+            .with_keys(Vec::new(), 0.0, 0.0, 2.4, self.size)
     }
 
     /// Paint the show menu, its submenu arrows and the open submenu.
@@ -332,8 +348,8 @@ impl SlideWindow {
             }
             // A small solid triangle pointing right, 14 px in from the menu's edge.
             let [x, y, w, h] = menu.row_rect(i);
-            let (cx, cy) = ((x + w - 14.0 * s).round(), (y + h / 2.0).round());
-            let a = (3.5 * s).round();
+            let (cx, cy) = ((x + w - 16.0 * s).round(), (y + h / 2.0).round());
+            let a = (4.4 * s).round();
             let tri = vec![
                 PathSeg::M(cx - a / 2.0, cy - a),
                 PathSeg::L(cx + a / 2.0, cy),

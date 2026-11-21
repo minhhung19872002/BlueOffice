@@ -313,3 +313,15 @@ fn background_styles_gallery_applies_to_every_slide() {
     assert!(w.bgs.is_none());
     assert!(w.view.modified() && !modified);
 }
+
+#[test]
+fn see_all_slides_zoom_bar_changes_the_image_size() {
+    let mut w = window();
+    assert!(w.view.start_show(0));
+    assert!(w.view.open_show_overview());
+    let before = w.view.overview_rect(0)[2];
+    assert!(w.view.step_overview_zoom(1));
+    assert!(w.view.overview_rect(0)[2] > before);
+    assert!(w.view.step_overview_zoom(-1) && w.view.step_overview_zoom(-1));
+    assert!(w.view.overview_rect(0)[2] < before);
+}

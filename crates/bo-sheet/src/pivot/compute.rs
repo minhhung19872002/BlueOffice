@@ -581,6 +581,15 @@ impl<'a> Engine<'a> {
     /// Header caption of field `f`: its name; over the data model, the column of
     /// `Table[Column]`.
     fn field_caption(&self, f: u32) -> String {
+        // Field Settings › Custom Name (§18.10.1.69 pivotField/@name).
+        if let Some(n) = self
+            .spec
+            .fields
+            .get(f as usize)
+            .and_then(|o| o.name.as_ref())
+        {
+            return n.clone();
+        }
         let n = &self.cache.fields[f as usize].name;
         if self.model.is_some() {
             if let Some((_, c)) = n.split_once('[') {

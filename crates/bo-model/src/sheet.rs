@@ -2946,6 +2946,15 @@ pub struct PivotFieldOptions {
     pub sort_by: Option<u32>,
     /// Hidden items (`item/@h`), by value.
     pub hidden: Vec<CellValue>,
+    /// `name`: the field's caption in the report (Field Settings › Custom Name); `None` =
+    /// the source column's name.
+    pub name: Option<String>,
+    /// `includeNewItemsInFilter`: items added on refresh pass a manual filter.
+    pub include_new_items: bool,
+    /// `showAll`: list items that have no data.
+    pub show_all: bool,
+    /// `insertPageBreak`: a page break after each item when printed.
+    pub page_break: bool,
 }
 
 impl Default for PivotFieldOptions {
@@ -2958,6 +2967,10 @@ impl Default for PivotFieldOptions {
             sort: PivotSort::Manual,
             sort_by: None,
             hidden: Vec::new(),
+            name: None,
+            include_new_items: false,
+            show_all: false,
+            page_break: false,
         }
     }
 }
@@ -3393,8 +3406,94 @@ pub struct PivotTable {
     pub col_items: Vec<PivotAxisItem>,
     /// `conditionalFormats` (§18.10.1.16): scope of the sheet's pivot rules.
     pub conditional_formats: Vec<PivotConditionalFormat>,
+    /// Report options (PivotTable Options dialog).
+    pub options: PivotOptions,
     /// Regenerate the part on write.
     pub dirty: bool,
+}
+
+/// Report options of a pivot table (§18.10.1.73 `pivotTableDefinition` attributes; the
+/// alternative text is `x14:pivotTableDefinition/@altText`, [MS-XLSX] 2.6.1).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+#[allow(clippy::struct_excessive_bools)]
+pub struct PivotOptions {
+    /// `mergeItem`: merge and centre cells with labels.
+    pub merge_item: bool,
+    /// `indent`: characters of indent per level in compact form (default 1).
+    pub indent: u32,
+    /// `pageOverThenDown`: report filter fields go across, then down.
+    pub page_over_then_down: bool,
+    /// `pageWrap`: report filter fields per column / row (0 = no wrap).
+    pub page_wrap: u32,
+    /// `showError` / `errorCaption`: text shown for error values.
+    pub show_error: bool,
+    /// See [`PivotOptions::show_error`].
+    pub error_caption: String,
+    /// `showMissing` / `missingCaption` (default shown, empty): text of empty value cells.
+    pub show_missing: bool,
+    /// See [`PivotOptions::show_missing`].
+    pub missing_caption: String,
+    /// `useAutoFormatting`: fit the column widths on update.
+    pub autofit: bool,
+    /// `preserveFormatting` (default true).
+    pub preserve_formatting: bool,
+    /// `subtotalHiddenItems`: totals include filtered page items.
+    pub subtotal_hidden_items: bool,
+    /// `multipleFieldFilters`: several filters per field.
+    pub multiple_field_filters: bool,
+    /// `customListSort` (default true): custom lists order items when sorting.
+    pub custom_list_sort: bool,
+    /// `showDrill` (default true): expand / collapse buttons.
+    pub show_drill: bool,
+    /// `showDataTips` (default true): contextual tooltips.
+    pub show_data_tips: bool,
+    /// `showHeaders` (default true): field captions and filter drop-downs.
+    pub show_headers: bool,
+    /// `gridDropZones`: classic layout (fields dragged in the grid).
+    pub grid_drop_zones: bool,
+    /// `fieldListSortAscending`: the field list is sorted A to Z.
+    pub field_list_sort_ascending: bool,
+    /// `printDrill`: print expand / collapse buttons.
+    pub print_drill: bool,
+    /// `itemPrintTitles` (on for new reports): repeat row labels on each printed page.
+    pub item_print_titles: bool,
+    /// `fieldPrintTitles`: set print titles.
+    pub field_print_titles: bool,
+    /// `x14:pivotTableDefinition/@altText`.
+    pub alt_text: String,
+    /// `x14:pivotTableDefinition/@altTextSummary`.
+    pub alt_text_summary: String,
+}
+
+impl Default for PivotOptions {
+    fn default() -> Self {
+        PivotOptions {
+            merge_item: false,
+            indent: 1,
+            page_over_then_down: false,
+            page_wrap: 0,
+            show_error: false,
+            error_caption: String::new(),
+            show_missing: true,
+            missing_caption: String::new(),
+            autofit: true,
+            preserve_formatting: true,
+            subtotal_hidden_items: false,
+            multiple_field_filters: false,
+            custom_list_sort: true,
+            show_drill: true,
+            show_data_tips: true,
+            show_headers: true,
+            grid_drop_zones: false,
+            field_list_sort_ascending: false,
+            print_drill: false,
+            item_print_titles: true,
+            field_print_titles: false,
+            alt_text: String::new(),
+            alt_text_summary: String::new(),
+        }
+    }
 }
 
 impl Default for PivotTable {
@@ -3422,6 +3521,7 @@ impl Default for PivotTable {
             row_items: Vec::new(),
             col_items: Vec::new(),
             conditional_formats: Vec::new(),
+            options: PivotOptions::default(),
             dirty: false,
         }
     }

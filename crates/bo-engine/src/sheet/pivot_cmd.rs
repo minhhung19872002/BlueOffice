@@ -77,6 +77,18 @@ pub struct PivotFieldSpec {
     /// Hidden items by index into the field's items.
     #[serde(default)]
     pub hidden: Vec<usize>,
+    /// Custom caption of the field (`None` = the source name).
+    #[serde(default)]
+    pub name: Option<String>,
+    /// Include new items in a manual filter.
+    #[serde(default)]
+    pub include_new_items: bool,
+    /// Show items with no data.
+    #[serde(default)]
+    pub show_all: bool,
+    /// Page break after each item.
+    #[serde(default)]
+    pub page_break: bool,
 }
 
 /// `pivotTableStyleInfo` from the UI.
@@ -108,6 +120,10 @@ pub struct PivotSettings {
     pub style: Option<PivotStyleSpec>,
     /// Several value fields listed down the rows (`dataOnRows`).
     pub data_on_rows: Option<bool>,
+    /// New name of the pivot table (PivotTable Options).
+    pub name: Option<String>,
+    /// Report options (PivotTable Options).
+    pub options: Option<Box<bo_model::sheet::PivotOptions>>,
 }
 
 /// Items of a field as the report shows them (group captions when grouped).
@@ -205,6 +221,10 @@ pub(super) fn updated_spec(
                     .iter()
                     .filter_map(|x| items.get(*x).cloned())
                     .collect(),
+                name: o.name.filter(|n| !n.is_empty()),
+                include_new_items: o.include_new_items,
+                show_all: o.show_all,
+                page_break: o.page_break,
             };
         }
     }
@@ -242,7 +262,10 @@ fn group_json(cache: &PivotCache, field: usize) -> Value {
         return json!({ "by": "discrete" });
     };
     if !r.dates {
-        return json!({ "by": "numbers", "start": r.start, "end": r.end, "interval": r.interval });
+        return json!({
+            "by": "numbers", "start": r.start, "end": r.end, "interval": r.interval,
+            "autoStart": r.auto_start, "autoEnd": r.auto_end,
+        });
     }
     let mut parts = vec![r.group_by];
     parts.extend(cache.fields.iter().filter_map(|o| {
@@ -258,8 +281,14 @@ fn group_json(cache: &PivotCache, field: usize) -> Value {
         "quarters": has(PivotGroupBy::Quarters),
         "months": has(PivotGroupBy::Months),
         "days": has(PivotGroupBy::Days),
+        "hours": has(PivotGroupBy::Hours),
+        "minutes": has(PivotGroupBy::Minutes),
+        "seconds": has(PivotGroupBy::Seconds),
+        "daysInterval": if r.group_by == PivotGroupBy::Days { r.interval } else { 1.0 },
         "start": r.start,
         "end": r.end,
+        "autoStart": r.auto_start,
+        "autoEnd": r.auto_end,
     })
 }
 
@@ -369,6 +398,10 @@ pub(super) fn pivot_json(wb: &Workbook, index: usize, p: &PivotTable, locale: &L
                 "sort": o.sort,
                 "sortBy": o.sort_by,
                 "hidden": o.hidden.iter().filter_map(|v| item_index(f, v)).collect::<Vec<_>>(),
+                "name": o.name,
+                "includeNewItems": o.include_new_items,
+                "showAll": o.show_all,
+                "pageBreak": o.page_break,
             })
         })
         .collect();
@@ -428,6 +461,7 @@ pub(super) fn pivot_json(wb: &Workbook, index: usize, p: &PivotTable, locale: &L
             "name": ci.name,
             "formula": ci.formula,
         })).collect::<Vec<_>>()).unwrap_or_default(),
+        "options": p.options,
         "rowGrandTotals": p.row_grand_totals,
         "colGrandTotals": p.col_grand_totals,
         "fieldOptions": options,

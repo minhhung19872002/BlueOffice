@@ -277,6 +277,8 @@ pub(crate) struct SheetBackstage {
     pub(crate) to_focus: bool,
     /// Measured widths of the Info page's buttons and of the Save label.
     button_w: [f32; 3],
+    /// Print setting texts cut to their boxes: (label, line 2) → fitted.
+    fitted: Vec<((String, String), (String, String))>,
     /// Print preview zoom (1 = the whole page fitted).
     pub(crate) zoom: f32,
     /// Show Margins: the page's margin guides on the preview.
@@ -327,6 +329,7 @@ impl SheetBackstage {
             pages_focus: false,
             to_focus: false,
             button_w: [0.0; 3],
+            fitted: Vec::new(),
             zoom: 1.0,
             show_margins: false,
             all_props: false,
@@ -353,6 +356,7 @@ impl SheetBackstage {
         self.button_w[2] = m
             .measure(&tr(strings, "backstage.nav.save", "Save"), style)
             .0;
+        self.fit_print_boxes(m, strings);
         self.hits = self.regions();
     }
 
@@ -361,6 +365,116 @@ impl SheetBackstage {
             Some(w) if *w > 0.0 => *w,
             _ => s.chars().count() as f32 * 7.5 * self.scale,
         }
+    }
+
+    /// The Print page's setting boxes (label, second line, icon) and whether the chosen
+    /// printer has trouble (error, offline or jobs waiting).
+    #[allow(clippy::too_many_lines)]
+    fn print_boxes(&self, s: &Strings) -> ([(String, String, u8); 8], bool) {
+        let printer = self
+            .print
+            .printers
+            .get(self.print.printer)
+            .cloned()
+            .unwrap_or_else(|| tr(s, "sheetBs.noPrinter", "No printer installed"));
+        // The spooler's state of the chosen printer, worded as the reference words it.
+        let (error, offline, jobs) = self
+            .print
+            .states
+            .get(self.print.printer)
+            .copied()
+            .unwrap_or((false, false, 0));
+        let waiting = match jobs {
+            0 => String::new(),
+            1 => tr(s, "sheetBs.waiting1", "1 document waiting"),
+            n => tr(s, "sheetBs.waitingN", "{n} documents waiting").replace("{n}", &n.to_string()),
+        };
+        let trouble = error || offline || jobs > 0;
+        let ready = if offline {
+            tr(s, "sheetBs.offline", "Offline")
+        } else if (error || jobs > 0) && !waiting.is_empty() {
+            format!("{}: {waiting}", tr(s, "sheetBs.error", "Error"))
+        } else if error {
+            tr(s, "sheetBs.error", "Error")
+        } else {
+            tr(s, "sheetBs.ready", "Ready")
+        };
+        let (range, range_sub) = range_labels(s, self.print.range);
+        let (sides, sides_sub) = match self.print.sides {
+            1 => (
+                tr(s, "sheetBs.bothLong", "Print on Both Sides"),
+                tr(s, "sheetBs.bothLongSub", "Flip pages on long edge"),
+            ),
+            2 => (
+                tr(s, "sheetBs.bothShort", "Print on Both Sides"),
+                tr(s, "sheetBs.bothShortSub", "Flip pages on short edge"),
+            ),
+            _ => (
+                tr(s, "sheetBs.oneSided", "Print One Sided"),
+                tr(
+                    s,
+                    "sheetBs.oneSidedSub",
+                    "Only print on one side of the page",
+                ),
+            ),
+        };
+        let (collate, collate_sub) = if self.print.collated {
+            (
+                tr(s, "sheetBs.collated", "Collated"),
+                "1,2,3    1,2,3    1,2,3".to_owned(),
+            )
+        } else {
+            (
+                tr(s, "sheetBs.uncollated", "Uncollated"),
+                "1,1,1    2,2,2    3,3,3".to_owned(),
+            )
+        };
+        let orient = if self.facts.landscape {
+            tr(s, "sheetBs.landscape", "Landscape Orientation")
+        } else {
+            tr(s, "sheetBs.portrait", "Portrait Orientation")
+        };
+        let (pname, pw, ph) = &self.facts.paper;
+        let paper_sub = format!("{pw:.2}\" x {ph:.2}\"");
+        let (per, per_sub) = scaling_labels(s, self.print.scaling);
+        let boxes: [(String, String, u8); 8] = [
+            (printer, ready, 0),
+            (range, range_sub, 1),
+            (sides, sides_sub, 2),
+            (collate, collate_sub, 3),
+            (orient, String::new(), 4),
+            (pname.clone(), paper_sub, 5),
+            (self.facts.margins.clone(), String::new(), 6),
+            (per, per_sub, 7),
+        ];
+        (boxes, trouble)
+    }
+
+    /// Fit the setting boxes' texts to their width with "…" (as the reference cuts long
+    /// printer and paper names); kept until the next measure.
+    fn fit_print_boxes(&mut self, m: &dyn TextMeasure, strings: &Strings) {
+        let (boxes, _) = self.print_boxes(strings);
+        let style = self.body();
+        let room = self.px(293.0 - 56.0 - 26.0);
+        let fit = |t: &str| -> String {
+            if m.measure(t, style).0 <= room {
+                return t.to_owned();
+            }
+            let chars: Vec<char> = t.chars().collect();
+            let mut n = chars.len();
+            while n > 0 {
+                let cut: String = chars[..n].iter().collect::<String>().trim_end().to_owned() + "…";
+                if m.measure(&cut, style).0 <= room {
+                    return cut;
+                }
+                n -= 1;
+            }
+            "…".to_owned()
+        };
+        self.fitted = boxes
+            .iter()
+            .map(|(l, sub, _)| ((l.clone(), sub.clone()), (fit(l), fit(sub))))
+            .collect();
     }
 
     /// Text styles (logical sizes measured on the reference at 125 %).
@@ -2126,82 +2240,14 @@ impl SheetBackstage {
             &tr(s, "sheetBs.settings", "Settings"),
             tops[1] - self.px(36.0),
         );
-        let printer = self
-            .print
-            .printers
-            .get(self.print.printer)
-            .cloned()
-            .unwrap_or_else(|| tr(s, "sheetBs.noPrinter", "No printer installed"));
-        // The spooler's state of the chosen printer, worded as the reference words it.
-        let (error, offline, jobs) = self
-            .print
-            .states
-            .get(self.print.printer)
-            .copied()
-            .unwrap_or((false, false, 0));
-        let waiting = match jobs {
-            0 => String::new(),
-            1 => tr(s, "sheetBs.waiting1", "1 document waiting"),
-            n => tr(s, "sheetBs.waitingN", "{n} documents waiting").replace("{n}", &n.to_string()),
-        };
-        let trouble = error || offline || jobs > 0;
-        let ready = if offline {
-            tr(s, "sheetBs.offline", "Offline")
-        } else if (error || jobs > 0) && !waiting.is_empty() {
-            format!("{}: {waiting}", tr(s, "sheetBs.error", "Error"))
-        } else if error {
-            tr(s, "sheetBs.error", "Error")
-        } else {
-            tr(s, "sheetBs.ready", "Ready")
-        };
-        let (range, range_sub) = range_labels(s, self.print.range);
-        let (sides, sides_sub) = match self.print.sides {
-            1 => (
-                tr(s, "sheetBs.bothLong", "Print on Both Sides"),
-                tr(s, "sheetBs.bothLongSub", "Flip pages on long edge"),
-            ),
-            2 => (
-                tr(s, "sheetBs.bothShort", "Print on Both Sides"),
-                tr(s, "sheetBs.bothShortSub", "Flip pages on short edge"),
-            ),
-            _ => (
-                tr(s, "sheetBs.oneSided", "Print One Sided"),
-                tr(
-                    s,
-                    "sheetBs.oneSidedSub",
-                    "Only print on one side of the page",
-                ),
-            ),
-        };
-        let (collate, collate_sub) = if self.print.collated {
-            (
-                tr(s, "sheetBs.collated", "Collated"),
-                "1,2,3    1,2,3    1,2,3".to_owned(),
-            )
-        } else {
-            (
-                tr(s, "sheetBs.uncollated", "Uncollated"),
-                "1,1,1    2,2,2    3,3,3".to_owned(),
-            )
-        };
-        let orient = if self.facts.landscape {
-            tr(s, "sheetBs.landscape", "Landscape Orientation")
-        } else {
-            tr(s, "sheetBs.portrait", "Portrait Orientation")
-        };
-        let (pname, pw, ph) = &self.facts.paper;
-        let paper_sub = format!("{pw:.2}\" x {ph:.2}\"");
-        let (per, per_sub) = scaling_labels(s, self.print.scaling);
-        let boxes: [(String, String, u8); 8] = [
-            (printer, ready, 0),
-            (range, range_sub, 1),
-            (sides, sides_sub, 2),
-            (collate, collate_sub, 3),
-            (orient, String::new(), 4),
-            (pname.clone(), paper_sub, 5),
-            (self.facts.margins.clone(), String::new(), 6),
-            (per, per_sub, 7),
-        ];
+        let (boxes, trouble) = self.print_boxes(s);
+        // Texts cut with "…" at measure time.
+        let boxes = boxes.map(|(l, sub, i)| {
+            match self.fitted.iter().find(|(k, _)| k.0 == l && k.1 == sub) {
+                Some((_, (fl, fs))) => (fl.clone(), fs.clone(), i),
+                None => (l, sub, i),
+            }
+        });
         let shown = self.shown_settings();
         for ((label, sub, icon), ry) in boxes.iter().filter(|b| shown.contains(&b.2)).zip(&tops) {
             let r = [cx + self.px(4.0), *ry, self.px(293.0), self.px(51.0)];

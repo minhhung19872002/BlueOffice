@@ -426,10 +426,10 @@ fn rgb(hex: &str) -> Rgba {
 }
 
 /// The pivot table of the active cell as the engine lists it.
-struct PivotRef {
-    sheet: usize,
-    index: usize,
-    info: Value,
+pub(super) struct PivotRef {
+    pub sheet: usize,
+    pub index: usize,
+    pub info: Value,
 }
 
 impl SheetWindow {
@@ -449,7 +449,7 @@ impl SheetWindow {
             })
     }
 
-    fn pivot_ref(&mut self) -> Option<PivotRef> {
+    pub(super) fn pivot_ref(&mut self) -> Option<PivotRef> {
         let sheet = self.view.sheet();
         let (r, c) = self.view.active();
         let index = {
@@ -761,18 +761,8 @@ impl SheetWindow {
 
     /// Menu entries the report cannot use yet (shown dimmed, as the reference dims what
     /// does not apply).
-    pub(super) fn pivot_menu_dim(choice: &str) -> bool {
-        matches!(
-            choice,
-            "pvt.options"
-                | "pvt.subFiltered"
-                | "pvt.groupSelection"
-                | "pvt.ungroup"
-                | "pvt.groupField"
-                | "pvt.calcItem"
-                | "pvt.buttons"
-                | "pvt.headers"
-        )
+    pub(super) fn pivot_menu_dim(&self, choice: &str) -> bool {
+        self.pvt_menu_dim.contains(&choice)
     }
 
     /// Show the PivotTable tabs while the active cell is in a pivot table (no table or chart
@@ -790,16 +780,18 @@ impl SheetWindow {
             self.pivot_field_caption = field.as_ref().map(|f| f.1.clone()).unwrap_or_default();
             // As the reference on a report over a range: drilling, expanding and filter
             // connections need hierarchies / slicers; Field Settings here edits value fields.
+            // Insert Timeline stays enabled (the reference enables it in any report over a
+            // range and lists the date fields, or says there are none).
             dim = vec![
                 "sheet.pvtShowDetails",
                 "sheet.pvtExpand",
                 "sheet.pvtCollapse",
-                "sheet.pvtTimeline",
                 "sheet.pvtFilterConn",
             ];
-            if !field.is_some_and(|f| f.2) {
+            if field.is_none() {
                 dim.push("sheet.pvtFieldSettings");
             }
+            self.pvt_menu_dim = self.pivot_dlg_dims();
         }
         self.ribbon.set_extra_dim(dim);
         want
@@ -1000,6 +992,9 @@ impl SheetWindow {
         if let Some(done) = self.open_design_menu(id, text) {
             return Some(done);
         }
+        if let Some(done) = self.pivot_dlg_action(id) {
+            return Some(done);
+        }
         if let Some(m) = MENUS.iter().find(|m| **m == id) {
             return Some(self.open_sheet_menu(m));
         }
@@ -1113,13 +1108,6 @@ impl SheetWindow {
                     self.sync_pivot_pane();
                 }
                 self.pane_changed = true;
-                true
-            }
-            "pvt.calcField" => {
-                self.status = self.t(
-                    "sheetPvt.calcLater",
-                    "Calculated fields are edited from the PivotTable Fields list.",
-                );
                 true
             }
             "sheet.pvtFieldSettings" => match self.pivot_active_field() {
@@ -1422,7 +1410,7 @@ impl SheetWindow {
             .map(|(choice, label)| crate::popup::MenuItem {
                 label: self.strings.get(&label).to_owned(),
                 checked: false,
-                dim: Self::pivot_menu_dim(&choice),
+                dim: self.pivot_menu_dim(&choice),
                 choice: crate::popup::Choice::Command(choice),
             })
             .collect();

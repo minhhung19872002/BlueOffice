@@ -45,6 +45,54 @@ const AREAS: [[f32; 4]; 4] = [
     [222.0, 617.0, 200.0, 78.0],
 ];
 
+/// Pane layouts of the gear menu, in its order: stacked (default), side by side, fields
+/// section only, areas section only 2 by 2, areas section only 1 by 4.
+pub(super) const PANE_LAYOUTS: [&str; 5] =
+    ["stacked", "sideBySide", "fieldsOnly", "areas22", "areas14"];
+
+/// The field list box of pane layout `layout` (`None`: hidden).
+fn pane_list(layout: u8) -> Option<[f32; 4]> {
+    match layout {
+        1 => Some([15.0, 176.0, 200.0, 519.0]),
+        2 => Some([15.0, 176.0, 406.0, 519.0]),
+        3 | 4 => None,
+        _ => Some(LIST),
+    }
+}
+
+/// The four area boxes of pane layout `layout` (`None`: hidden).
+fn pane_areas(layout: u8) -> Option<[[f32; 4]; 4]> {
+    let col = |x: f32, y0: f32, w: f32, h: f32, pitch: f32| {
+        let mut a = [[0.0; 4]; 4];
+        for (i, r) in a.iter_mut().enumerate() {
+            *r = [x, y0 + i as f32 * pitch, w, h];
+        }
+        a
+    };
+    match layout {
+        1 => Some(col(226.0, 212.0, 196.0, 92.0, 128.0)),
+        2 => None,
+        3 => Some([
+            [18.0, 156.0, 194.0, 230.0],
+            [222.0, 156.0, 200.0, 230.0],
+            [18.0, 465.0, 194.0, 230.0],
+            [222.0, 465.0, 200.0, 230.0],
+        ]),
+        4 => Some(col(18.0, 156.0, 404.0, 102.0, 141.0)),
+        _ => Some(AREAS),
+    }
+}
+
+/// Top of "Drag fields between areas below:" (`None`: not shown).
+fn pane_drag_y(layout: u8) -> Option<f32> {
+    match layout {
+        0 => Some(405.0),
+        1 => Some(140.0),
+        3 | 4 => Some(70.0),
+        _ => None,
+    }
+}
+
 /// The pivot table the pane edits and its layout.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(super) struct PivotPane {
@@ -65,6 +113,8 @@ pub(super) struct PivotPane {
     pub vfs: Option<u32>,
     /// Field list sorted A to Z (gear menu) instead of in data source order.
     pub sort_az: bool,
+    /// Pane layout (index into [`PANE_LAYOUTS`]).
+    pub layout: u8,
 }
 
 impl PivotPane {
@@ -277,7 +327,13 @@ impl SheetWindow {
             items,
             opts,
             vfs,
-            sort_az: self.pivot.as_ref().is_some_and(|p| p.sort_az),
+            // PivotTable Options › Field List (`fieldListSortAscending`).
+            sort_az: info
+                .get("options")
+                .and_then(|o| o.get("fieldListSortAscending"))
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            layout: self.pivot.as_ref().map_or(self.pivot_layout, |p| p.layout),
         };
         if was.is_none() {
             self.pane_changed = true;
@@ -333,6 +389,8 @@ impl SheetWindow {
             .workbook()
             .and_then(|wb| wb.sheets.get(sheet))
             .and_then(|ws| ws.pivots.get(index))
+            // PivotTable Options › Autofit column widths on update (`useAutoFormatting`).
+            .filter(|p| p.options.autofit)
             .map(|p| (p.location.first.col, p.location.last.col));
         let Some((c0, c1)) = cols else {
             return;
@@ -398,20 +456,23 @@ impl SheetWindow {
         let Some(p) = self.pivot.clone() else {
             return false;
         };
-        if (LIST[0]..LIST[0] + LIST[2]).contains(&lx) && (LIST[1]..LIST[1] + LIST[3]).contains(&ly)
-        {
-            let i = ((ly - LIST[1] - 4.0) / ROW_H).floor().max(0.0) as usize;
-            if let Some(&f) = p.order().get(i) {
-                self.pivot_toggle(f as u32);
+        if let Some(list) = pane_list(p.layout) {
+            if (list[0]..list[0] + list[2]).contains(&lx)
+                && (list[1]..list[1] + list[3]).contains(&ly)
+            {
+                let i = ((ly - list[1] - 4.0) / ROW_H).floor().max(0.0) as usize;
+                if let Some(&f) = p.order().get(i) {
+                    self.pivot_toggle(f as u32);
+                }
+                return true;
             }
-            return true;
         }
         if (GEAR[0]..GEAR[0] + GEAR[2]).contains(&lx) && (GEAR[1]..GEAR[1] + GEAR[3]).contains(&ly)
         {
             self.pivot_gear_menu();
             return true;
         }
-        for (a, r) in AREAS.iter().enumerate() {
+        for (a, r) in pane_areas(p.layout).unwrap_or_default().iter().enumerate() {
             if (r[0]..r[0] + r[2]).contains(&lx) && (r[1]..r[1] + r[3]).contains(&ly) {
                 let list = Self::area_fields(&p, a);
                 let i = ((ly - r[1] - ITEM_Y) / ITEM_PITCH).floor().max(0.0) as usize;
@@ -484,88 +545,110 @@ impl SheetWindow {
             Some((INK, k.max(1.0))),
         );
         let ui = style(20.0, false);
-        let (cx, cy) = at(15.0, 70.0);
-        p.text(
-            &self.t("sheetPivot.choose", "Choose fields to add to report:"),
-            cx,
-            cy,
-            ui,
-            INK,
-        );
+        let list = pane_list(pane.layout);
+        if list.is_some() {
+            let (cx, cy) = at(15.0, 70.0);
+            p.text(
+                &self.t("sheetPivot.choose", "Choose fields to add to report:"),
+                cx,
+                cy,
+                ui,
+                INK,
+            );
+        }
         // Search box (own magnifier mark).
         let (sx, sy) = at(15.0, 118.0);
-        let (sw, sh) = ((406.0 * k).round(), (36.0 * k).round());
-        p.fill_rect(sx, sy, sw, sh, BOX_EDGE);
-        p.fill_rect(sx + 1.0, sy + 1.0, sw - 2.0, sh - 2.0, WHITE);
-        p.text(
-            &self.t("sheetPivot.search", "Search"),
-            sx + 7.0 * k,
-            sy + 6.0 * k,
-            ui,
-            Rgba(0x60, 0x60, 0x60, 255),
-        );
-        let (mx, my) = (sx + sw - 22.0 * k, sy + 14.0 * k);
-        let rr = 7.0 * k;
-        let kk = rr * 0.552_284_8;
-        p.path(
-            &[
-                PathSeg::M(mx + rr, my),
-                PathSeg::C(mx + rr, my + kk, mx + kk, my + rr, mx, my + rr),
-                PathSeg::C(mx - kk, my + rr, mx - rr, my + kk, mx - rr, my),
-                PathSeg::C(mx - rr, my - kk, mx - kk, my - rr, mx, my - rr),
-                PathSeg::C(mx + kk, my - rr, mx + rr, my - kk, mx + rr, my),
-                PathSeg::Z,
-                PathSeg::M(mx - rr * 0.7, my + rr * 0.7),
-                PathSeg::L(mx - rr * 1.8, my + rr * 1.8),
-            ],
-            None,
-            Some((INK, k.max(1.0))),
-        );
+        if let Some(list) = list {
+            let (sw, sh) = ((406.0 * k).round(), (36.0 * k).round());
+            p.fill_rect(sx, sy, sw, sh, BOX_EDGE);
+            p.fill_rect(sx + 1.0, sy + 1.0, sw - 2.0, sh - 2.0, WHITE);
+            p.text(
+                &self.t("sheetPivot.search", "Search"),
+                sx + 7.0 * k,
+                sy + 6.0 * k,
+                ui,
+                Rgba(0x60, 0x60, 0x60, 255),
+            );
+            let (mx, my) = (sx + sw - 22.0 * k, sy + 14.0 * k);
+            let rr = 7.0 * k;
+            let kk = rr * 0.552_284_8;
+            p.path(
+                &[
+                    PathSeg::M(mx + rr, my),
+                    PathSeg::C(mx + rr, my + kk, mx + kk, my + rr, mx, my + rr),
+                    PathSeg::C(mx - kk, my + rr, mx - rr, my + kk, mx - rr, my),
+                    PathSeg::C(mx - rr, my - kk, mx - kk, my - rr, mx, my - rr),
+                    PathSeg::C(mx + kk, my - rr, mx + rr, my - kk, mx + rr, my),
+                    PathSeg::Z,
+                    PathSeg::M(mx - rr * 0.7, my + rr * 0.7),
+                    PathSeg::L(mx - rr * 1.8, my + rr * 1.8),
+                ],
+                None,
+                Some((INK, k.max(1.0))),
+            );
+            // Field list.
+            let (lx, ly) = at(list[0], list[1]);
+            let (lw, lh) = ((list[2] * k).round(), (list[3] * k).round());
+            p.fill_rect(lx, ly, lw, lh, BOX_EDGE);
+            p.fill_rect(lx + 1.0, ly + 1.0, lw - 2.0, lh - 2.0, WHITE);
+            for (row, i) in pane.order().into_iter().enumerate() {
+                let name = &pane.fields[i].0;
+                let y = list[1] + 4.0 + row as f32 * ROW_H;
+                if y + ROW_H > list[1] + list[3] {
+                    break;
+                }
+                let (bx, by) = at(list[0] + 4.0, y + 6.0);
+                let b = (16.0 * k).round();
+                let on = pane.used(i as u32);
+                p.fill_rect(bx, by, b, b, Rgba(0x33, 0x33, 0x33, 255));
+                p.fill_rect(bx + 1.0, by + 1.0, b - 2.0, b - 2.0, WHITE);
+                if on {
+                    p.path(
+                        &[
+                            PathSeg::M(bx + 3.0 * k, by + 8.0 * k),
+                            PathSeg::L(bx + 6.5 * k, by + 11.5 * k),
+                            PathSeg::L(bx + 13.0 * k, by + 4.5 * k),
+                        ],
+                        None,
+                        Some((INK, (1.6 * k).max(1.0))),
+                    );
+                }
+                let (nx, ny) = at(list[0] + 28.0, y + 3.0);
+                p.text(name, nx, ny, style(20.0, on), INK);
+            }
+        }
         // Tools (gear) button with its drop-down arrow, right of "Choose fields…".
         Self::paint_gear(p, at(GEAR[0], GEAR[1]), k);
-        // Field list.
-        let (lx, ly) = at(LIST[0], LIST[1]);
-        let (lw, lh) = ((LIST[2] * k).round(), (LIST[3] * k).round());
-        p.fill_rect(lx, ly, lw, lh, BOX_EDGE);
-        p.fill_rect(lx + 1.0, ly + 1.0, lw - 2.0, lh - 2.0, WHITE);
-        for (row, i) in pane.order().into_iter().enumerate() {
-            let name = &pane.fields[i].0;
-            let y = LIST[1] + 4.0 + row as f32 * ROW_H;
-            let (bx, by) = at(LIST[0] + 4.0, y + 6.0);
-            let b = (16.0 * k).round();
-            let on = pane.used(i as u32);
-            p.fill_rect(bx, by, b, b, Rgba(0x33, 0x33, 0x33, 255));
-            p.fill_rect(bx + 1.0, by + 1.0, b - 2.0, b - 2.0, WHITE);
-            if on {
-                p.path(
-                    &[
-                        PathSeg::M(bx + 3.0 * k, by + 8.0 * k),
-                        PathSeg::L(bx + 6.5 * k, by + 11.5 * k),
-                        PathSeg::L(bx + 13.0 * k, by + 4.5 * k),
-                    ],
-                    None,
-                    Some((INK, (1.6 * k).max(1.0))),
-                );
+        if let Some(y) = pane_drag_y(pane.layout) {
+            let x = if pane.layout == 1 { 226.0 } else { 19.0 };
+            let (dx, dy) = at(x, y);
+            let text = self.t("sheetPivot.drag", "Drag fields between areas below:");
+            if pane.layout == 1 {
+                // Beside the list the sentence wraps as the reference's narrow column.
+                let mid = text
+                    .char_indices()
+                    .filter(|(_, c)| *c == ' ')
+                    .map(|(i, _)| i)
+                    .min_by_key(|i| i.abs_diff(text.len() / 2))
+                    .unwrap_or(text.len());
+                let (a, b) = text.split_at(mid);
+                p.text(a, dx, dy, ui, INK);
+                p.text(b.trim_start(), dx, dy + (26.0 * k).round(), ui, INK);
+            } else {
+                p.text(&text, dx, dy, ui, INK);
             }
-            let (nx, ny) = at(LIST[0] + 28.0, y + 3.0);
-            p.text(name, nx, ny, style(20.0, on), INK);
         }
-        let (dx, dy) = at(19.0, 405.0);
-        p.text(
-            &self.t("sheetPivot.drag", "Drag fields between areas below:"),
-            dx,
-            dy,
-            ui,
-            INK,
-        );
         let captions = [
             ("sheetPivot.filters", "Filters"),
             ("sheetPivot.columns", "Columns"),
             ("sheetPivot.rows", "Rows"),
             ("sheetPivot.values", "Values"),
         ];
+        let areas = pane_areas(pane.layout);
         for (a, (key, d)) in captions.iter().enumerate() {
-            let b = AREAS[a];
+            let Some(b) = areas.map(|x| x[a]) else {
+                break;
+            };
             let (hx, hy) = at(b[0] + 30.0, b[1] - 36.0);
             p.text(&self.t(key, d), hx, hy, ui, INK);
             Self::paint_area_mark(p, a, at(b[0] + 6.0, b[1] - 27.0), k);
@@ -1043,8 +1126,9 @@ const BASE_NEXT: u32 = 1_048_829;
 
 impl SheetWindow {
     /// Area (0 Filters, 1 Columns, 2 Rows, 3 Values) and item slot under a pane point.
-    fn pivot_area_at(lx: f32, ly: f32) -> Option<(usize, usize)> {
-        AREAS.iter().enumerate().find_map(|(a, r)| {
+    fn pivot_area_at(&self, lx: f32, ly: f32) -> Option<(usize, usize)> {
+        let layout = self.pivot.as_ref().map_or(0, |p| p.layout);
+        pane_areas(layout)?.iter().enumerate().find_map(|(a, r)| {
             ((r[0]..r[0] + r[2]).contains(&lx) && (r[1] - 40.0..r[1] + r[3]).contains(&ly)).then(
                 || {
                     (
@@ -1067,12 +1151,14 @@ impl SheetWindow {
             self.pivot_open_item_menu(from, f);
             return true;
         }
-        if (LIST[0]..LIST[0] + LIST[2]).contains(&lx) && (LIST[1]..LIST[1] + LIST[3]).contains(&ly)
+        let layout = self.pivot.as_ref().map_or(0, |p| p.layout);
+        if pane_list(layout)
+            .is_some_and(|l| (l[0]..l[0] + l[2]).contains(&lx) && (l[1]..l[1] + l[3]).contains(&ly))
         {
             self.pivot_item_command("remove", from, f);
             return true;
         }
-        let Some((to, at)) = Self::pivot_area_at(lx, ly) else {
+        let Some((to, at)) = self.pivot_area_at(lx, ly) else {
             return true;
         };
         self.pivot_move(f, from, to, Some(at));
@@ -1088,7 +1174,8 @@ impl SheetWindow {
             .iter()
             .position(|x| *x == f)
             .unwrap_or(0);
-        let r = AREAS[area.min(3)];
+        let layout = self.pivot.as_ref().map_or(0, |p| p.layout);
+        let r = pane_areas(layout).unwrap_or(AREAS)[area.min(3)];
         let rect = [
             r[0] + ITEM_X,
             r[1] + ITEM_Y + n as f32 * ITEM_PITCH,
@@ -1668,41 +1755,42 @@ impl SheetWindow {
     /// shown dimmed) and the order of the field list.
     pub(super) fn pivot_gear_menu(&mut self) {
         let az = self.pivot.as_ref().is_some_and(|p| p.sort_az);
+        let layout = self.pivot.as_ref().map_or(0, |p| p.layout);
         let entries: [(&str, &str, &str, bool, bool); 7] = [
             (
                 "stacked",
                 "sheetPivot.layoutStacked",
                 "Fields Section and Areas Section Stacked",
-                true,
+                layout == 0,
                 false,
             ),
             (
                 "sideBySide",
                 "sheetPivot.layoutSide",
                 "Fields Section and Areas Section Side-By-Side",
+                layout == 1,
                 false,
-                true,
             ),
             (
                 "fieldsOnly",
                 "sheetPivot.layoutFields",
                 "Fields Section Only",
+                layout == 2,
                 false,
-                true,
             ),
             (
                 "areas22",
                 "sheetPivot.layoutAreas22",
                 "Areas Section Only (2 by 2)",
+                layout == 3,
                 false,
-                true,
             ),
             (
                 "areas14",
                 "sheetPivot.layoutAreas14",
                 "Areas Section Only (1 by 4)",
+                layout == 4,
                 false,
-                true,
             ),
             ("az", "sheetPivot.sortAz", "Sort A to Z", az, false),
             (
@@ -1748,10 +1836,28 @@ impl SheetWindow {
         let Some(p) = self.pivot.as_mut() else {
             return false;
         };
-        match op {
-            "az" => p.sort_az = true,
-            "source" => p.sort_az = false,
+        if let Some(i) = PANE_LAYOUTS.iter().position(|l| *l == op) {
+            p.layout = i as u8;
+            self.pivot_layout = i as u8;
+            self.pane_changed = true;
+            return true;
+        }
+        let az = match op {
+            "az" => true,
+            "source" => false,
             _ => return false,
+        };
+        p.sort_az = az;
+        // Kept in the report (§18.10.1.73 `fieldListSortAscending`), as the reference does.
+        let o = self
+            .pivot_ref()
+            .and_then(|r| r.info.get("options").cloned())
+            .map(|mut o| {
+                o["fieldListSortAscending"] = json!(az);
+                o
+            });
+        if let Some(o) = o {
+            self.pivot_update_settings(&json!({ "options": o }));
         }
         true
     }

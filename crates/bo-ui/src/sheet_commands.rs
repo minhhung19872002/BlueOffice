@@ -107,7 +107,7 @@ impl SheetWindow {
                     label
                 },
                 checked: current.as_deref() == Some(choice.as_str()) || ticked.contains(&choice),
-                dim: Self::pivot_menu_dim(&choice),
+                dim: self.pivot_menu_dim(&choice),
                 choice: Choice::Command(choice),
             })
             .collect();

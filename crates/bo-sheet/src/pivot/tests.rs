@@ -1332,10 +1332,11 @@ fn pivot_style_formats_headers_and_totals() {
     assert!(bold(&wb, "A4"), "Bắc Total");
     assert!(bold(&wb, "C10"), "grand total");
     assert!(!bold(&wb, "C2"));
-    // A medium style fills the header with the accent and white text.
+    // A medium style fills the header with its colour and white text; Medium15 bands
+    // rows with two tints (as measured on the reference).
     let mut spec = PivotSpec::of(&wb.sheets[1].pivots[0]);
     spec.style = Some(PivotStyleInfo {
-        name: "PivotStyleMedium9".into(),
+        name: "PivotStyleMedium15".into(),
         show_row_stripes: true,
         ..default_style()
     });

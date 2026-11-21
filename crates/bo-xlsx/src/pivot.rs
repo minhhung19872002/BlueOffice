@@ -11,8 +11,8 @@ use crate::chart::{parse_dom, Node};
 use bo_model::sheet::{
     CellError, CellRange, CellValue, PivotAxisItem, PivotCache, PivotCacheField,
     PivotConditionalFormat, PivotDataField, PivotFieldFilter, PivotFieldGroup, PivotFieldOptions,
-    PivotFilter, PivotFilterType, PivotFunction, PivotGroupBy, PivotLayout, PivotRangeGroup,
-    PivotShowAs, PivotSort, PivotStyleInfo, PivotTable,
+    PivotFilter, PivotFilterType, PivotFunction, PivotGroupBy, PivotLayout, PivotOptions,
+    PivotRangeGroup, PivotShowAs, PivotSort, PivotStyleInfo, PivotTable,
 };
 use bo_opc::{resolve_target, Package, TargetMode};
 
@@ -345,6 +345,46 @@ fn read_field_options(f: &Node, values: &[CellValue]) -> PivotFieldOptions {
         sort: PivotSort::parse(f.attr("sortType").unwrap_or("manual")),
         sort_by,
         hidden,
+        name: f.attr("name").map(str::to_owned),
+        include_new_items: flag(f, "includeNewItemsInFilter", false),
+        // Schema default true; the reference writes showAll="0" for its fields.
+        show_all: flag(f, "showAll", true),
+        page_break: flag(f, "insertPageBreak", false),
+    }
+}
+
+/// Report options (§18.10.1.73 attributes, `x14:pivotTableDefinition` alt text).
+fn read_options(dom: &Node) -> PivotOptions {
+    let x14 = ext_child(dom, "pivotTableDefinition");
+    let text = |n: Option<&Node>, a: &str| {
+        n.and_then(|n| n.attr(a))
+            .map(str::to_owned)
+            .unwrap_or_default()
+    };
+    PivotOptions {
+        merge_item: flag(dom, "mergeItem", false),
+        indent: num(dom, "indent").unwrap_or(1),
+        page_over_then_down: flag(dom, "pageOverThenDown", false),
+        page_wrap: num(dom, "pageWrap").unwrap_or(0),
+        show_error: flag(dom, "showError", false),
+        error_caption: text(Some(dom), "errorCaption"),
+        show_missing: flag(dom, "showMissing", true),
+        missing_caption: text(Some(dom), "missingCaption"),
+        autofit: flag(dom, "useAutoFormatting", false),
+        preserve_formatting: flag(dom, "preserveFormatting", true),
+        subtotal_hidden_items: flag(dom, "subtotalHiddenItems", false),
+        multiple_field_filters: flag(dom, "multipleFieldFilters", true),
+        custom_list_sort: flag(dom, "customListSort", true),
+        show_drill: flag(dom, "showDrill", true),
+        show_data_tips: flag(dom, "showDataTips", true),
+        show_headers: flag(dom, "showHeaders", true),
+        grid_drop_zones: flag(dom, "gridDropZones", false),
+        field_list_sort_ascending: flag(dom, "fieldListSortAscending", false),
+        print_drill: flag(dom, "printDrill", false),
+        item_print_titles: flag(dom, "itemPrintTitles", false),
+        field_print_titles: flag(dom, "fieldPrintTitles", false),
+        alt_text: text(x14, "altText"),
+        alt_text_summary: text(x14, "altTextSummary"),
     }
 }
 
@@ -407,6 +447,7 @@ pub(crate) fn read_pivot_table(
         col_grand_totals: flag(&dom, "colGrandTotals", true),
         row_items: read_axis_items(dom.child("rowItems")),
         col_items: read_axis_items(dom.child("colItems")),
+        options: read_options(&dom),
         ..PivotTable::default()
     };
     let axis = |name: &str| -> Vec<u32> {

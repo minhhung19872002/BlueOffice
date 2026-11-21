@@ -92,6 +92,17 @@ pub(super) enum FormKind {
     /// PivotTable Analyze: Move PivotTable, Change Data Source.
     PivotMove,
     PivotSource,
+    /// PivotTable Analyze › Group Field / Group Selection (round 14).
+    PivotGrouping,
+    /// PivotTable Analyze › Calculations › Calculated Field / Item.
+    PivotCalc,
+    /// Field Settings of a row / column field.
+    PivotFieldSettings,
+    /// PivotTable Analyze › PivotTable › Options.
+    PivotOptions,
+    /// A PivotTable field button › Label / Value Filters › … (Label Filter, Value Filter,
+    /// Top 10 Filter).
+    PivotFilter,
     /// Conditional formatting: a rule dialog (Greater Than…), New / Edit Formatting Rule, the
     /// rules manager.
     CfRule,

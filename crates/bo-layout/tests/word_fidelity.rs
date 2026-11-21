@@ -800,3 +800,64 @@ fn a_split_row_ends_below_its_last_line() {
         .fold(0.0f32, f32::max);
     assert!((lowest_rule - last).abs() < 1.0, "{lowest_rule} vs {last}");
 }
+
+/// §20.4.3.7 ST_WrapText `left`: no text right of the picture, also where another
+/// picture already cuts the line (images-04 of the fidelity corpus, measured black-box).
+#[test]
+fn a_left_wrapped_picture_keeps_its_right_side_empty() {
+    let pic = |x_pt: i64, h_pt: i64, side: bo_model::WrapText| {
+        RunContent::Image(Box::new(Image {
+            media: "/word/media/image1.png".into(),
+            width: Emu(914_400),
+            height: Emu(h_pt * 12_700),
+            anchor: Some(Anchor {
+                h_relative: "column".into(),
+                v_relative: "paragraph".into(),
+                x: Emu(x_pt * 12_700),
+                y: Emu(0),
+                wrap: Wrap::Square,
+                wrap_text: side,
+                ..Default::default()
+            }),
+            crop: None,
+            rotation: 0,
+            description: String::new(),
+            shape: None,
+            format: None,
+            src: None,
+            ole: None,
+        }))
+    };
+    let para_with = |content: RunContent, text: &str| {
+        let mut run = Run::text(text, RunProps::default());
+        run.content.insert(0, content);
+        Block::Paragraph(Paragraph::new(
+            ParaProps {
+                space_before: Some(Twips(0)),
+                space_after: Some(Twips(0)),
+                line_spacing: Some(SINGLE),
+                ..ParaProps::default()
+            },
+            vec![run],
+        ))
+    };
+    let d = doc(vec![
+        para_with(pic(0, 72, bo_model::WrapText::BothSides), "Short."),
+        para_with(
+            pic(144, 54, bo_model::WrapText::Left),
+            &"words beside the pictures ".repeat(20),
+        ),
+    ]);
+    let l = run(&d);
+    // Lines beside the second picture (54 pt from its paragraph's top) start left of it.
+    let first = lines(&l, 1)[0].top;
+    for line in lines(&l, 1).iter().filter(|x| x.top < first + 54.0 - 1.0) {
+        for f in &line.fragments {
+            assert!(
+                f.x < 72.0 + 144.0,
+                "text right of a left-wrapped picture at {}",
+                f.x
+            );
+        }
+    }
+}

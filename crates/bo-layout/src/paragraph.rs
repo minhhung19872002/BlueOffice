@@ -90,9 +90,20 @@ fn segments(zones: &[WrapZone], x0: f32, x1: f32, y: f32, h: f32) -> Vec<(f32, f
             None => (z.left, z.right),
         };
         let mut next = Vec::with_capacity(segs.len() + 1);
+        // §20.4.3.7 ST_WrapText: text on one side only also leaves the other side of
+        // the object empty where it is already cut by another object (measured
+        // black-box: no text right of a `left`-wrapped picture beside another one).
         for &(a, b) in &segs {
             if zr <= a || zl >= b {
-                next.push((a, b));
+                let right_of = zr <= a;
+                let keep = match z.side {
+                    WrapText::BothSides | WrapText::Largest => true,
+                    WrapText::Left => !right_of,
+                    WrapText::Right => right_of,
+                };
+                if keep {
+                    next.push((a, b));
+                }
                 continue;
             }
             let left = (a, zl.min(b));

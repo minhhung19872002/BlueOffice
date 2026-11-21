@@ -675,3 +675,45 @@ cục của ta); ô số của Position chưa kèm đơn vị (“1 in”); màu
 thông điệp gửi); ngăn Format cho hình đã vẽ (Edit Object) chưa có mục Shape; Assistant ▾ của tab View (trợ lý AI của
 bản đối chiếu) không làm; các mục còn lại của vòng 10 (JBIG2 có mất dữ liệu, JPEG2000, Optimize Scanned PDF, Multiple
 Files, Certificate Protect / Security Policies).
+
+## Vòng 12 (2026-11-17 → 2026-11-22, làm tiếp sau khi tạm dừng)
+
+Đã gộp `work/desktop-performance` (việc giải phóng ảnh trang khi đóng tab dùng bản của BlueReader vòng 14; test của ta
+giữ lại). Ảnh so sánh `editor-106` … `editor-115` (bản đối chiếu bên trái).
+
+**Menu chuột phải của trường** (`editor-106`): đủ các dòng, vạch ngăn và quy tắc bật / xám như bản đối chiếu
+(Properties… | Cut / Copy / Paste | Delete | Align / Center / Distribute / Size ▸ | Create Multiple Copies… / Set Tab
+Order / Duplicate… / Use Current Properties as New Defaults). Chữ nay đúng cỡ (đo: “Use Current Properties as New
+Defaults” 271 px, bản đối chiếu 272 px; trước 256 px), menu rộng 359 px (đối chiếu 357), dòng 28 px. Phím tắt chữ như
+bản đối chiếu (Proper_t_ies, Cu_t_, _C_opy, _P_aste, _D_elete, A_l_ign, Ce_n_ter, Distri_b_ute, Si_z_e, Create _M_ultiple,
+Set Tab _O_rder, Duplicat_e_, _U_se): gõ chữ khi menu mở chạy dòng đó; Shift+F10 mở menu ở trường đang chọn. Gạch chân
+chữ tắt (khi mở bằng bàn phím) chờ phần hỗ trợ chung của menu bật lên đang làm ở BlueSheet — vị trí từng gạch đã tính
+sẵn. Set Tab Order xám khi chỉ chọn một trường như bản đối chiếu (bật từ hai trường; bản đối chiếu không nhận Shift+bấm
+gửi bằng thông điệp nên chưa xem được trạng thái hai trường).
+
+**Hộp thoại**: chữ tiêu đề lớn hơn chữ thân ~6 % như bản đối chiếu (“Create Multiple Copies of Fields” 222 / 209 px).
+Create Multiple Copies 545 × 585 px khớp (`editor-107`); Split › Output Options 553 × 458 px, khung “Output Folder” dời
+xuống đúng chỗ (`editor-114`).
+
+**File › Properties** (`editor-108` … `editor-112`): đường dẫn dài bị cắt bên trái trong ô 413 px như bản đối chiếu; giá
+trị cao hơn nhãn 3 px; “Custom” cách dòng cuối 74 px. Fonts: cây kiểu cổ điển (ô 11 px viền #919191, dấu trừ xanh đậm,
+đường chấm đen), xếp theo tên, “Type:Type1”, “Encoding:Ansi”; font không nhúng có “Actual Font:” — mặt chữ mà chính ta
+dùng để vẽ (cùng bộ chọn với trình vẽ trang, `PdfDocument::substitute_font`: Helvetica → Arial nếu máy có, không thì
+Liberation Sans đóng gói) và “Actual Font Type:TrueType”. Security: ổ khoá cao 32 px như bản đối chiếu (hình của ta),
+tam giác thả xuống 9 × 5 px; mũi tên combo 11 × 6 px xám. Ngày không đọc được hiện “—” (bản đối chiếu in số vô nghĩa).
+
+**Comment**: Measure ▾ dùng kiểu menu của editor (dòng 29 px) với biểu tượng riêng cho Distance / Perimeter / Area
+(`editor-113`); bảng Stamp (mẫu tem của ta) thu nhỏ chữ tiêu đề dài cho vừa khung (`editor-115`).
+
+**Khác**: chú thích nút ribbon không còn hiện đè lên hộp thoại của editor.
+
+| Đo (bản release) | Kết quả |
+| --- | --- |
+| Bộ nhớ riêng: trang Start / mở 10 tab sổ 300 trang / sau khi đóng hết | 51,8 / 172,4 / 55,7 MB |
+| Gõ trong Edit Text, trang 1 000 đoạn, tổng mỗi phím p50 / p95 | 42,9 / 54,6 ms (xử lý 13,9 / 18,8; dựng ảnh 27,0 / 35,0) |
+
+Còn lại: gạch chân chữ tắt của menu trường (nối vào hỗ trợ chung của menu); gõ trên trang 1 000 đoạn chậm vì 500 đoạn
+cùng cột gộp thành một khung sửa (mỗi phím dàn lại và vẽ lại cả khung) — cần dàn lại / vẽ lại theo đoạn; ngăn Format
+(Arrange) khi chọn trường; cột ba nút nhỏ cuối tab Comment (danh sách bình luận, tuỳ chọn hiển thị ▾, giữ công cụ) của
+bản đối chiếu — ta còn nút lớn Comment List; Organize của bản đối chiếu giữ trang tài liệu (ảnh thu nhỏ ở ngăn Pages),
+ta hiện lưới trang; kéo thả sắp trang, Insert từ tệp có hộp vị trí, Page Labels; các mục còn lại của vòng 11.

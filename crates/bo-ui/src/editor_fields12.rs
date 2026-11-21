@@ -75,6 +75,8 @@ pub(crate) struct Fields12 {
     pub mn_next: Option<(Vec<char>, bool)>,
     /// Access keys of the open field menu: (lower-case letter, command, dimmed).
     pub mnem: Vec<(char, String, bool)>,
+    /// Where the open field menu underlines its access keys (keyboard-opened only).
+    pub underlines: Vec<Option<(f32, f32)>>,
 }
 
 /// Split Document › Output Options: where the parts go and how they are named (the
@@ -230,8 +232,10 @@ impl EditorWindow {
         .with_soft_shadow()
         .with_decor(Vec::new(), seps)
         .with_keys(keys, widest, RIGHT12, SEP_GAP12, view)
-        .with_arrows(arrows, HOVER12)
-        .with_underlines(lines);
+        .with_arrows(arrows, HOVER12);
+        // The underlines wait for the shared popup's access-key support (BlueSheet round):
+        // kept here, (x from the label start, width) per row.
+        self.f12.underlines = lines;
         self.r.set_menu9(menu, "field");
     }
 

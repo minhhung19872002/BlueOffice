@@ -517,10 +517,10 @@ fn paint_stamp_cell(
         (16.0 * s).round()
     };
     // Long titles ("NOT APPROVED", "DEPARTMENTAL") shrink to stay inside the frame with 6 px
-    // on each side (the estimate runs 10-18 % wide on capitals: APPROVED 87 px drawn,
+    // on each side (the estimate varies -5 to +18 % on capitals: APPROVED 87 px drawn,
     // 96 px estimated).
     let room = c[2] - (12.0 * s).round();
-    let est = |size: f32| crate::editor_form8::text_w(&upper, size * 1.1) * 0.88;
+    let est = |size: f32| crate::editor_form8::text_w(&upper, size * 1.1) * 0.95;
     while est(size) > room && size > 8.0 {
         size -= 1.0;
     }

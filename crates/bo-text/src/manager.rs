@@ -59,6 +59,18 @@ pub struct FaceInfo {
 /// lines are 1.1724 em high with the baseline 0.9502 em below the line top.
 const STAND_IN_LINES: &[(&str, f32, f32)] = &[("Caladea", 0.9502, 0.2222)];
 
+/// Requested families that are often drawn with an unrelated face (symbol fonts and
+/// Courier New have no bundled substitute): (lower-case family, ascent, descent) in em,
+/// the text line those fonts give in the reference word processor (measured black-box,
+/// docs/ui/REPORT.md "Dàn trang vòng 2": with 11 pt Calibri, a Symbol run raises the
+/// line top by 0.59 pt, a Courier New run lowers its bottom by 0.35 pt, Wingdings
+/// changes nothing; a 20 pt Courier New run has its top 16.7 pt above the baseline).
+const SUBSTITUTED_LINES: &[(&str, f32, f32)] = &[
+    ("symbol", 1.0054, 0.2197),
+    ("wingdings", 0.8989, 0.2109),
+    ("courier new", 0.8325, 0.3003),
+];
+
 impl FaceInfo {
     /// Line extents a desktop word processor lays text lines out with, in font units:
     /// (ascent, descent, external leading). These are GDI's `TEXTMETRIC` values —
@@ -342,6 +354,26 @@ impl FontManager {
     /// Face metadata.
     pub fn info(&self, id: FaceId) -> &FaceInfo {
         &self.faces[id.0 as usize].info
+    }
+
+    /// Text line extents (ascent, descent, external leading) in em for a run that asked
+    /// for `family` and is drawn with `face` ([`FaceInfo::line_metrics`]); when `face`
+    /// is an unrelated substitute of a symbol font or Courier New, the extents of the
+    /// requested font as the reference word processor lays it out.
+    #[must_use]
+    pub fn line_extent(&self, family: &str, face: FaceId) -> (f32, f32, f32) {
+        let info = self.info(face);
+        if !info.family.eq_ignore_ascii_case(family) {
+            if let Some(&(_, a, d)) = SUBSTITUTED_LINES
+                .iter()
+                .find(|(f, ..)| f.eq_ignore_ascii_case(family))
+            {
+                return (a, d, 0.0);
+            }
+        }
+        let em = f32::from(info.units_per_em.max(1));
+        let (a, d, g) = info.line_metrics();
+        (a / em, d / em, g / em)
     }
 
     /// Raw font file bytes and collection index (for PDF embedding).

@@ -124,23 +124,50 @@ fn segments(zones: &[WrapZone], x0: f32, x1: f32, y: f32, h: f32) -> Vec<(f32, f
     }
 }
 
+/// Text extents of a line's runs (ECMA-376 Part 1, §17.3.1.33), in points. Measured
+/// black-box in the reference word processor (docs/ui/REPORT.md "Dàn trang vòng 2"):
+/// the line top is the highest ascent + external leading of any run (an 11 pt Times
+/// run, whose ascent + leading is below Calibri's ascent, leaves a Calibri line as it
+/// is), and a list label's descent does not lower the line bottom.
+#[derive(Default, Clone, Copy)]
+struct Extents {
+    ascent: f32,
+    top: f32,
+    descent: f32,
+}
+
+impl Extents {
+    /// Add a run: its own font's extents, not those of a fallback face that only
+    /// supplies missing glyphs (Cambria lines keep Cambria's height where our
+    /// stand-in lacks Vietnamese glyphs).
+    fn add(&mut self, st: &RunStyle) {
+        let (a, d, g) = st.line;
+        let ascent = a * st.size - st.shift.min(0.0);
+        self.ascent = self.ascent.max(ascent);
+        self.top = self.top.max(ascent + g * st.size);
+        if !st.label {
+            self.descent = self.descent.max(d * st.size + st.shift.max(0.0));
+        }
+    }
+
+    /// External leading above the highest ascent.
+    fn gap(&self) -> f32 {
+        (self.top - self.ascent).max(0.0)
+    }
+}
+
+/// The line has no content of its own: only virtual pieces or a list label (the
+/// paragraph mark's font then gives the line its extents).
+fn needs_mark_extents(pieces: &[Piece], styles: &[RunStyle]) -> bool {
+    pieces.iter().all(|p| {
+        !matches!(p.kind, Kind::Text | Kind::Space | Kind::Object)
+            || (p.kind != Kind::Object && styles[p.style].label)
+    })
+}
+
 /// Height of a line made of `pieces` (same rules as the positioning pass, §17.3.1.33).
-fn row_height(
-    pieces: &[Piece],
-    styles: &[RunStyle],
-    fonts: &FontManager,
-    mark: &RunStyle,
-    spacing: LineSpacing,
-) -> f32 {
-    let (mut ascent, mut descent, mut gap) = (0.0f32, 0.0f32, 0.0f32);
-    let mut metric = |face: FaceId, size: f32, shift: f32| {
-        let info = fonts.info(face);
-        let scale = size / f32::from(info.units_per_em);
-        let (a, d, g) = info.line_metrics();
-        ascent = ascent.max(a * scale - shift.min(0.0));
-        descent = descent.max(d * scale + shift.max(0.0));
-        gap = gap.max(g * scale);
-    };
+fn row_height(pieces: &[Piece], styles: &[RunStyle], mark: &RunStyle, spacing: LineSpacing) -> f32 {
+    let mut ext = Extents::default();
     let mut obj = 0.0f32;
     let mut obj_depth = 0.0f32;
     for p in pieces {
@@ -148,19 +175,17 @@ fn row_height(
             obj = obj.max(p.obj_h);
             obj_depth = obj_depth.max(p.obj_d);
         } else {
-            let st = &styles[p.style];
-            // The run's own face: a fallback face that only supplies missing glyphs
-            // does not make the line taller (see the positioning pass).
-            metric(st.face, st.size, st.shift);
+            ext.add(&styles[p.style]);
         }
     }
-    if pieces
-        .iter()
-        .all(|p| !matches!(p.kind, Kind::Text | Kind::Space | Kind::Object))
-    {
-        metric(mark.face, mark.size, 0.0);
+    if needs_mark_extents(pieces, styles) {
+        ext.add(&RunStyle {
+            shift: 0.0,
+            label: false,
+            ..mark.clone()
+        });
     }
-    let natural = ascent.max(obj) + descent.max(obj_depth) + gap;
+    let natural = ext.ascent.max(obj) + ext.descent.max(obj_depth) + ext.gap();
     match spacing {
         LineSpacing::Auto(v) => natural * v as f32 / 240.0,
         LineSpacing::Exact(t) => t.to_pt(),
@@ -1156,7 +1181,9 @@ fn layout_uncached(
     // 2. Words at UAX #14 break opportunities, then pieces.
     let mut words: Vec<Word> = Vec::new();
     if let Some((label, lrp, suffix)) = &inp.label {
-        let lstyle = run_style(doc, fonts, &lrp.inherit(&base_run)).ok_or(LayoutError::NoFonts)?;
+        let mut lstyle =
+            run_style(doc, fonts, &lrp.inherit(&base_run)).ok_or(LayoutError::NoFonts)?;
+        lstyle.label = true;
         styles.push(lstyle);
         let si = styles.len() - 1;
         let mut pieces = Vec::new();
@@ -1318,9 +1345,8 @@ fn layout_uncached(
             }
             let is_first = lines.is_empty();
             if row.is_empty() {
-                let h = prev_h.unwrap_or_else(|| {
-                    row_height(&word.pieces, &styles, fonts, &mark_style, spacing)
-                });
+                let h = prev_h
+                    .unwrap_or_else(|| row_height(&word.pieces, &styles, &mark_style, spacing));
                 let x0 = indent_left + if is_first { first } else { 0.0 };
                 row = segments(inp.wrap, x0, x1, y, h);
                 cur_segs = vec![(0, row[0].0, row[0].1)];
@@ -1410,7 +1436,7 @@ fn layout_uncached(
                 brk.map(Some)
             };
             if let Some(brk) = end {
-                let h = row_height(&cur, &styles, fonts, &mark_style, spacing);
+                let h = row_height(&cur, &styles, &mark_style, spacing);
                 lines.push(std::mem::take(&mut cur));
                 line_breaks.push(brk);
                 segs.push(std::mem::take(&mut cur_segs));
@@ -1531,9 +1557,9 @@ fn layout_uncached(
                     .flatten()
             })
             .unwrap_or(align);
-        let mut ascent = 0.0f32;
-        let mut descent = 0.0f32;
-        let mut gap = 0.0f32;
+        let mut ext = Extents::default();
+        let mut obj_ascent = 0.0f32;
+        let mut obj_descent = 0.0f32;
         let mut frags: Vec<Draft> = Vec::new();
         let mut carets: Vec<(u32, f32)> = Vec::new();
         let mut objects = Vec::new();
@@ -1601,18 +1627,10 @@ fn layout_uncached(
                 let info = fonts.info(p.face);
                 let scale = st.size / f32::from(info.units_per_em);
                 if p.kind == Kind::Object && p.image.is_some() {
-                    ascent = ascent.max(p.obj_h);
-                    descent = descent.max(p.obj_d);
+                    obj_ascent = obj_ascent.max(p.obj_h);
+                    obj_descent = obj_descent.max(p.obj_d);
                 } else {
-                    // Line extents come from the run's font, not from a fallback face that
-                    // only supplies missing glyphs (measured black-box: Cambria lines keep
-                    // Cambria's height where our stand-in lacks Vietnamese glyphs).
-                    let line_info = fonts.info(st.face);
-                    let k = st.size / f32::from(line_info.units_per_em);
-                    let (a, d, g) = line_info.line_metrics();
-                    ascent = ascent.max(a * k - st.shift.min(0.0));
-                    descent = descent.max(d * k + st.shift.max(0.0));
-                    gap = gap.max(g * k);
+                    ext.add(st);
                 }
                 let x0 = offset + xs[i] + extra;
                 let x_next = offset + xs[i + 1] + extra;
@@ -1726,17 +1744,16 @@ fn layout_uncached(
             }
         }
         let pieces = &line_pieces;
-        if pieces
-            .iter()
-            .all(|p| !matches!(p.kind, Kind::Text | Kind::Space | Kind::Object))
-        {
-            let info = fonts.info(mark_style.face);
-            let scale = mark_style.size / f32::from(info.units_per_em);
-            let (a, d, g) = info.line_metrics();
-            ascent = ascent.max(a * scale);
-            descent = descent.max(d * scale);
-            gap = gap.max(g * scale);
+        if needs_mark_extents(pieces, &styles) {
+            ext.add(&RunStyle {
+                shift: 0.0,
+                label: false,
+                ..mark_style.clone()
+            });
         }
+        let gap = ext.gap();
+        let ascent = ext.ascent.max(obj_ascent);
+        let descent = ext.descent.max(obj_descent);
         let natural = ascent + descent + gap;
         // Line height (ECMA-376 Part 1, §17.3.1.33 spacing/@line, @lineRule) and where the
         // baseline sits in it, as the reference word processor places it (measured black-box,

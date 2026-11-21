@@ -8136,6 +8136,17 @@
     "cut": "Cut",
     "paste": "Paste"
   },
+  "pdfReader16": {
+    "format": "Format",
+    "preview": "Preview",
+    "noteStyle": "Note Style",
+    "opacity": "Opacity:",
+    "arrange": "Arrange",
+    "pageCenter": "Page Center",
+    "alignment": "Alignment",
+    "distribute": "Distribute",
+    "pageText": "Page text"
+  },
   "pdfReader15": {
     "find": "Search",
     "findHint": "Find",

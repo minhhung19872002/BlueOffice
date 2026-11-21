@@ -87,7 +87,12 @@ mod r14;
 // Keys, view history, Search box (BlueReader round 15).
 #[path = "reader_r15_win.rs"]
 mod r15;
+// Shift+Space, Ctrl+Shift+N and the note Format pane, triple click, auto-scroll, UIA text
+// (BlueReader round 16).
+#[path = "reader_r16_win.rs"]
+mod r16;
 pub use r12::{AccessItem, AccessRole};
+pub use r16::AccessText;
 
 /// Measured greys of the reference reader at 125 %.
 const CHROME: Rgba = Rgba(251, 251, 253, 255);
@@ -548,6 +553,7 @@ pub struct ReaderWindow {
     /// Keyboard access to the ribbon (key tips, focus ring).
     keys7: keys7::KeyLevel,
     r15: r15::R15,
+    r16: r16::R16,
     /// Layers / Attachments panels and the comment list of round 8.
     panels8: panels8::Panels8,
     /// Ribbon tooltips of round 9.
@@ -576,7 +582,6 @@ enum PanelRow {
 
 const COLOR_HIGHLIGHT: [u8; 3] = [255, 230, 0];
 const COLOR_MARK: [u8; 3] = [229, 57, 53];
-const COLOR_NOTE: [u8; 3] = [255, 214, 0];
 
 impl ReaderWindow {
     /// An empty window (start page) in `locale`.
@@ -644,6 +649,7 @@ impl ReaderWindow {
             prefs6: prefs6::Prefs6::default(),
             keys7: keys7::KeyLevel::Off,
             r15: r15::R15::default(),
+            r16: r16::R16::default(),
             panels8: panels8::Panels8::default(),
             nine: dark9::Nine::default(),
             search9: search9::Search9::default(),
@@ -1448,6 +1454,7 @@ impl ReaderWindow {
         ];
         self.mode_layout();
         self.layout15();
+        self.layout16();
         self.viewx_layout();
         let (rect, scale) = (self.doc_rect, self.scale);
         if let Some(t) = self.tabs.get_mut(self.active) {
@@ -1487,10 +1494,12 @@ impl ReaderWindow {
         let (before, nav) = (self.snap15(), Self::nav_input15(&input));
         let redraw = self.handle_input(input, m);
         self.after15(before, nav);
+        let redraw = self.after16() || redraw;
         // Reflowed text follows the page and the window width.
         self.reflow_layout(m);
         self.measure10(m);
         self.measure15(m);
+        self.measure16(m);
         redraw
     }
 
@@ -1543,6 +1552,9 @@ impl ReaderWindow {
 
     #[allow(clippy::too_many_lines)]
     fn route(&mut self, input: Input, m: &dyn TextMeasure) -> bool {
+        if let Some(redraw) = self.route16(&input, m) {
+            return redraw;
+        }
         if let Some(redraw) = self.route15(&input) {
             return redraw;
         }
@@ -2046,13 +2058,9 @@ impl ReaderWindow {
             Pending::Note { page, x, y } => {
                 let rect = [x, y, x + 20.0, y + 20.0];
                 let rect = self.view().map_or(rect, |v| v.unrotate_rect(page, rect));
-                self.add_annot(
-                    AnnotKind::Note,
-                    page,
-                    vec![rect],
-                    COLOR_NOTE,
-                    text.to_owned(),
-                );
+                let colour = self.note_colour16();
+                self.add_annot(AnnotKind::Note, page, vec![rect], colour, text.to_owned());
+                self.style_new_note16(page);
             }
             Pending::TextBox { page, rect } => {
                 let lines = text.lines().count().max(1) as f32;
@@ -3142,6 +3150,9 @@ impl ReaderWindow {
     fn enabled(&self, id: &str) -> bool {
         if let Some(&e) = self.enabled_override.get(id) {
             return e;
+        }
+        if let Some(e) = self.sixteen_enabled(id) {
+            return e && self.showing_doc();
         }
         if let Some(e) = self.eleven_enabled(id) {
             return e && self.showing_doc();

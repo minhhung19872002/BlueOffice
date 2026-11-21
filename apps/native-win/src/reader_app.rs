@@ -912,6 +912,7 @@ impl Handler for Shell {
         refresh_text_scale();
         self.hwnd = hwnd;
         uia::install(hwnd);
+        autoscroll::install(hwnd);
         mem_step("window");
         boot_step("window");
         let device = Device::new()?;
@@ -950,6 +951,15 @@ impl Handler for Shell {
         if matches!(input, Input::Tick) {
             if uia::active() {
                 uia::update(self.window.accessibility());
+            }
+            if let Some((page, a, b)) = uia::take_select() {
+                self.more |= self.window.select_text(page, a, b);
+            }
+            if let Some(at) = autoscroll::take_anchor() {
+                self.more |= self.window.set_autoscroll(at);
+            }
+            if let Some(step) = autoscroll::take_step() {
+                self.more |= self.window.autoscroll_step(step.0, step.1);
             }
             let keys = uia::take_invokes();
             if !keys.is_empty() {
@@ -1092,6 +1102,8 @@ impl Handler for Shell {
         }
         if uia::active() {
             uia::update(self.window.accessibility());
+            uia::update_text(self.window.access_text());
+            uia::set_focus(self.window.access_focus());
         }
         if let (Some(file), Some(p)) = (self.perf.as_mut(), self.pending_input.take()) {
             let total = p.first.elapsed();
@@ -1125,6 +1137,11 @@ mod speech;
 #[path = "reader_uia.rs"]
 #[allow(unsafe_code)]
 mod uia;
+
+// Middle-button auto-scroll (round 16; Win32 calls confined to this child module).
+#[path = "reader_autoscroll.rs"]
+#[allow(unsafe_code)]
+mod autoscroll;
 
 // GDI printing (Win32 calls confined to this child module, like win32.rs).
 #[path = "reader_print.rs"]

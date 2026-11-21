@@ -194,7 +194,24 @@ pub(crate) fn fallback_appearance(
                 rect[3] - rect[1] - 1.0
             ));
         }
-        AnnotKind::Note => s.push_str(&note_icon(rect, [r, g, b])),
+        AnnotKind::Note => {
+            // §12.5.6.4 /Name: the other icons are drawn as well (round 16).
+            let name = d
+                .get(b"Name")
+                .and_then(Object::as_name)
+                .map(|n| String::from_utf8_lossy(n).into_owned())
+                .unwrap_or_default();
+            if name != "Comment" && crate::note16::NOTE_ICONS_DRAWN.contains(&name.as_str()) {
+                s.push_str(&crate::note16::note_icon_content(
+                    &name,
+                    rect,
+                    [r, g, b],
+                    1.0,
+                ));
+            } else {
+                s.push_str(&note_icon(rect, [r, g, b]));
+            }
+        }
         _ => return None,
     }
     Some((s.into_bytes(), 1.0))

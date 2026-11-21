@@ -55,6 +55,7 @@ mod markup;
 mod media_edit;
 mod mesh;
 mod navdata;
+mod note16;
 mod objects;
 mod openaction;
 mod optimize;
@@ -90,6 +91,7 @@ pub use annot_edit::CommentThread;
 pub use annot_popup::PopupNote;
 pub use annot_rotate::rotated_shape;
 pub use arrange::{flip_about, rotation_about};
+pub use note16::{note_icon_content, NOTE_ICONS, NOTE_ICONS_DRAWN};
 
 pub use convert::{StyledBlock, StyledRun};
 pub use design::{NewField, NewFieldKind, PageMarks};

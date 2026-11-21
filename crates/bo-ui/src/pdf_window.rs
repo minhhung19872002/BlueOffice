@@ -105,6 +105,26 @@ pub trait PdfWindow {
     fn invoke(&mut self, _key: &str, _m: &dyn TextMeasure) -> bool {
         false
     }
+    /// Key of the element with keyboard focus (UI Automation focus events); none by default.
+    fn access_focus(&self) -> Option<String> {
+        None
+    }
+    /// Page text in view for the UI Automation Text pattern; none by default.
+    fn access_text(&mut self) -> Option<crate::AccessText> {
+        None
+    }
+    /// Middle-button auto-scroll anchor (none ends it); true when a new frame is needed.
+    fn set_autoscroll(&mut self, _at: Option<(f32, f32)>) -> bool {
+        false
+    }
+    /// Select characters `a..=b` of `page` (UI Automation Select on a text range).
+    fn select_text(&mut self, _page: usize, _a: usize, _b: usize) -> bool {
+        false
+    }
+    /// Auto-scroll by the pointer's distance `dy` from the anchor over `ms` milliseconds.
+    fn autoscroll_step(&mut self, _dy: f32, _ms: f32) -> bool {
+        false
+    }
 }
 
 impl PdfWindow for ReaderWindow {
@@ -201,10 +221,25 @@ impl PdfWindow for ReaderWindow {
         ReaderWindow::reading11(self)
     }
     fn accessibility(&self) -> Vec<crate::AccessItem> {
-        ReaderWindow::accessibility12(self)
+        ReaderWindow::accessibility16(self)
     }
     fn invoke(&mut self, key: &str, m: &dyn TextMeasure) -> bool {
         ReaderWindow::invoke12(self, key, m)
+    }
+    fn access_focus(&self) -> Option<String> {
+        ReaderWindow::access_focus16(self)
+    }
+    fn access_text(&mut self) -> Option<crate::AccessText> {
+        ReaderWindow::access_text16(self)
+    }
+    fn set_autoscroll(&mut self, at: Option<(f32, f32)>) -> bool {
+        ReaderWindow::set_autoscroll16(self, at)
+    }
+    fn select_text(&mut self, page: usize, a: usize, b: usize) -> bool {
+        ReaderWindow::select_text16(self, page, a, b)
+    }
+    fn autoscroll_step(&mut self, dy: f32, ms: f32) -> bool {
+        ReaderWindow::autoscroll_step16(self, dy, ms)
     }
 }
 

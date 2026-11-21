@@ -4,6 +4,10 @@
 //! UIA clients list them by name, box and enabled state; Invoke runs the command on the UI
 //! thread (queued, then a tick message wakes the window).
 //!
+//! Round 16: the element with keyboard focus (`HasKeyboardFocus`, the root's `GetFocus`, a
+//! focus-changed event when it moves), text fields as Edit elements, and the page view's Text
+//! pattern (`reader_uia_text.rs`).
+//!
 //! The window procedure is subclassed here (`WM_GETOBJECT`) so the shared `win32.rs` stays as
 //! it is. The snapshot and the invoke queue are process-wide (a mutex each), so providers work
 //! on whichever thread UI Automation calls them.
@@ -39,6 +43,12 @@ use windows::Win32::UI::Accessibility::{
     UIA_TabItemControlTypeId, UiaHostProviderFromHwnd, UiaRect, UiaReturnRawElementProvider,
     UIA_PATTERN_ID, UIA_PROPERTY_ID,
 };
+use windows::Win32::UI::Accessibility::{
+    ITextProvider, ITextProvider_Impl, ITextRangeProvider, SupportedTextSelection,
+    SupportedTextSelection_Single, UIA_AutomationFocusChangedEventId, UIA_EditControlTypeId,
+    UIA_TextPatternId, UIA_Text_TextSelectionChangedEventId, UiaClientsAreListening, UiaPoint,
+    UiaRaiseAutomationEvent,
+};
 use windows::Win32::UI::WindowsAndMessaging::{
     CallWindowProcW, PostMessageW, SetWindowLongPtrW, GWLP_WNDPROC, WM_GETOBJECT, WM_TIMER, WNDPROC,
 };
@@ -63,6 +73,69 @@ static ACTIVE: AtomicBool = AtomicBool::new(false);
 static ITEMS: Mutex<Vec<AccessItem>> = Mutex::new(Vec::new());
 /// Keys invoked by clients, run by the window on its next tick.
 static INVOKED: Mutex<Vec<String>> = Mutex::new(Vec::new());
+/// Key of the element with keyboard focus.
+static FOCUS: Mutex<Option<String>> = Mutex::new(None);
+
+// The page view's Text pattern.
+#[path = "reader_uia_text.rs"]
+mod text;
+pub use text::take_select;
+
+/// The element with keyboard focus now; raises the focus-changed event when it moved and a
+/// client listens.
+pub fn set_focus(key: Option<String>) {
+    let changed = FOCUS.lock().is_ok_and(|mut f| {
+        if *f == key {
+            false
+        } else {
+            f.clone_from(&key);
+            true
+        }
+    });
+    if changed && ACTIVE.load(Ordering::Relaxed) {
+        if let Some(k) = key {
+            log(&format!("focus {k}"));
+            raise(&k, UIA_AutomationFocusChangedEventId);
+        }
+    }
+}
+
+/// The page text in view; raises the text-selection event when the selection changed.
+pub fn update_text(t: Option<bo_ui::AccessText>) {
+    if text::update(t) && ACTIVE.load(Ordering::Relaxed) {
+        raise("doc", UIA_Text_TextSelectionChangedEventId);
+    }
+}
+
+fn raise(key: &str, id: windows::Win32::UI::Accessibility::UIA_EVENT_ID) {
+    // SAFETY: plain query; the provider is a live COM object.
+    unsafe {
+        if !UiaClientsAreListening().as_bool() {
+            return;
+        }
+        if let Ok(e) = element_simple(key) {
+            let _ = UiaRaiseAutomationEvent(&e, id);
+        }
+    }
+}
+
+/// The element `key` as a simple provider.
+fn element_simple(key: &str) -> Result<IRawElementProviderSimple> {
+    let (k, _) = item(key).ok_or_else(Error::empty)?;
+    element(k)?.cast()
+}
+
+/// Wake the window: a tick runs what clients queued.
+fn post_tick() {
+    // SAFETY: posting to this thread's window.
+    unsafe {
+        let _ = PostMessageW(Some(hwnd()), WM_TIMER, WPARAM(TICK_TIMER), LPARAM(0));
+    }
+}
+
+fn focus_key() -> Option<String> {
+    FOCUS.lock().ok().and_then(|f| f.clone())
+}
 
 /// Subclass `hwnd` to answer `WM_GETOBJECT` with the provider.
 pub fn install(hwnd: isize) {
@@ -258,14 +331,18 @@ impl IRawElementProviderFragmentRoot_Impl for Root_Impl {
         }
     }
     fn GetFocus(&self) -> Result<IRawElementProviderFragment> {
-        Err(Error::empty())
+        match focus_key().and_then(|k| item(&k)) {
+            Some((k, _)) => element(k),
+            None => Err(Error::empty()),
+        }
     }
 }
 
 #[implement(
     IRawElementProviderSimple,
     IRawElementProviderFragment,
-    IInvokeProvider
+    IInvokeProvider,
+    ITextProvider
 )]
 struct Element {
     key: String,
@@ -283,8 +360,13 @@ impl IRawElementProviderSimple_Impl for Element_Impl {
     }
     fn GetPatternProvider(&self, id: UIA_PATTERN_ID) -> Result<windows::core::IUnknown> {
         let (_, it) = self.current()?;
-        if id == UIA_InvokePatternId && it.role != AccessRole::Document {
+        if id == UIA_InvokePatternId && !matches!(it.role, AccessRole::Document | AccessRole::Edit)
+        {
             let me: IInvokeProvider = self.to_interface();
+            return me.cast();
+        }
+        if id == UIA_TextPatternId && it.role == AccessRole::Document {
+            let me: ITextProvider = self.to_interface();
             return me.cast();
         }
         Err(Error::empty())
@@ -295,6 +377,7 @@ impl IRawElementProviderSimple_Impl for Element_Impl {
             AccessRole::Button => UIA_ButtonControlTypeId,
             AccessRole::Tab => UIA_TabItemControlTypeId,
             AccessRole::Document => UIA_DocumentControlTypeId,
+            AccessRole::Edit => UIA_EditControlTypeId,
         };
         Ok(match id {
             i if i == UIA_ControlTypePropertyId => VARIANT::from(control.0),
@@ -302,9 +385,11 @@ impl IRawElementProviderSimple_Impl for Element_Impl {
             i if i == UIA_AutomationIdPropertyId => VARIANT::from(BSTR::from(it.key.as_str())),
             i if i == UIA_IsEnabledPropertyId => VARIANT::from(it.enabled),
             i if i == UIA_IsKeyboardFocusablePropertyId => {
-                VARIANT::from(it.role == AccessRole::Document)
+                VARIANT::from(matches!(it.role, AccessRole::Document | AccessRole::Edit))
             }
-            i if i == UIA_HasKeyboardFocusPropertyId => VARIANT::from(false),
+            i if i == UIA_HasKeyboardFocusPropertyId => {
+                VARIANT::from(focus_key().as_deref() == Some(it.key.as_str()))
+            }
             i if i == UIA_IsControlElementPropertyId || i == UIA_IsContentElementPropertyId => {
                 VARIANT::from(true)
             }
@@ -386,5 +471,29 @@ impl IInvokeProvider_Impl for Element_Impl {
             let _ = PostMessageW(Some(hwnd()), WM_TIMER, WPARAM(TICK_TIMER), LPARAM(0));
         }
         Ok(())
+    }
+}
+
+impl ITextProvider_Impl for Element_Impl {
+    fn GetSelection(&self) -> Result<*mut SAFEARRAY> {
+        text::selection()
+    }
+    fn GetVisibleRanges(&self) -> Result<*mut SAFEARRAY> {
+        text::visible()
+    }
+    fn RangeFromChild(
+        &self,
+        _child: windows::core::Ref<IRawElementProviderSimple>,
+    ) -> Result<ITextRangeProvider> {
+        Err(Error::empty())
+    }
+    fn RangeFromPoint(&self, point: &UiaPoint) -> Result<ITextRangeProvider> {
+        Ok(text::from_point(point))
+    }
+    fn DocumentRange(&self) -> Result<ITextRangeProvider> {
+        Ok(text::document())
+    }
+    fn SupportedTextSelection(&self) -> Result<SupportedTextSelection> {
+        Ok(SupportedTextSelection_Single)
     }
 }

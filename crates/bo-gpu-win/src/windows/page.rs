@@ -301,6 +301,9 @@ fn d2d_blend(mode: BlendMode) -> D2D1_BLEND_MODE {
     }
 }
 
+/// Isolated groups drawn into bitmaps of their own per page (each costs a page-sized bitmap).
+const MAX_ISOLATED: usize = 8;
+
 /// Resources prepared before drawing a page, keyed by command identity ([key]).
 struct Prep<'p> {
     runs: HashMap<usize, bo_dwrite::PreparedGlyphRun>,
@@ -311,6 +314,12 @@ struct Prep<'p> {
     jobs: Vec<GroupJob<'p>>,
     /// Recorded groups by their `PushGroup`.
     groups: HashMap<usize, GroupImages>,
+    /// Isolated groups with blend modes inside (ISO 32000-1 §11.4.5), in list order: each is
+    /// drawn into a transparent page-sized bitmap of its own first, so the blended objects
+    /// inside read the group's own backdrop (transparent, then what the group drew so far).
+    isolated_jobs: Vec<GroupJob<'p>>,
+    /// Those bitmaps by their `PushGroup`.
+    isolated: HashMap<usize, ID2D1Bitmap1>,
     /// Page size in points.
     page: (f32, f32),
     ppp: f32,
@@ -905,6 +914,8 @@ impl Device {
             image_bytes: 0,
             jobs: Vec::new(),
             groups: HashMap::new(),
+            isolated_jobs: Vec::new(),
+            isolated: HashMap::new(),
             page: (page.width, page.height),
             ppp: pixels_per_point,
             band: region.map(|_| {
@@ -997,6 +1008,31 @@ impl Device {
             if let Err(e) = recorded {
                 self.context.SetDpi(96.0, 96.0);
                 return Err(e);
+            }
+            // Isolated groups with blending inside, innermost first: each into a transparent
+            // page-sized bitmap with itself as the backdrop its blended objects read.
+            let isolated_jobs = std::mem::take(&mut prep.isolated_jobs);
+            for job in isolated_jobs.iter().rev() {
+                let drawn = self.draw_isolated(
+                    job,
+                    fonts,
+                    &prep,
+                    pixels_per_point,
+                    (width, height),
+                    [left, top, band_w, band_h],
+                    region.is_some(),
+                );
+                match drawn {
+                    Ok(bitmap) => {
+                        prep.isolated.insert(job.key, bitmap);
+                    }
+                    Err(e) => {
+                        self.context.SetTarget(None::<&ID2D1Image>);
+                        self.context.SetTransform(&IDENTITY);
+                        self.context.SetDpi(96.0, 96.0);
+                        return Err(e);
+                    }
+                }
             }
             self.context.SetTarget(&target);
             self.context.BeginDraw();
@@ -1140,6 +1176,26 @@ impl Device {
         prep: &mut Prep<'p>,
     ) -> Result<(), String> {
         for (index, command) in commands.iter().enumerate() {
+            if let Command::PushGroup {
+                isolated: true,
+                knockout: false,
+                ..
+            } = command
+            {
+                // At most a few page-sized bitmaps per page; beyond that the group draws in a
+                // plain layer as before.
+                if prep.isolated_jobs.len() < MAX_ISOLATED {
+                    let end = group_end(commands, index).ok_or("unbalanced group")?;
+                    prep.isolated_jobs.push(GroupJob {
+                        key: key(command),
+                        content: &commands[index + 1..end],
+                        mask: None,
+                        blend: None,
+                        transform: state.transform,
+                        alpha: state.alpha,
+                    });
+                }
+            }
             if let Command::PushGroup { blend, mask, .. } = command {
                 if blend.is_some() || mask.is_some() {
                     let end = group_end(commands, index).ok_or("unbalanced group")?;
@@ -1357,6 +1413,95 @@ impl Device {
                 .map_err(|e| e.to_string())?;
             effect.SetInput(0, &image, true);
             effect.GetOutput().map_err(|e| e.to_string())
+        }
+    }
+
+    /// Draw an isolated group's content into a transparent page-sized bitmap (premultiplied)
+    /// whose own pixels are the backdrop of the blend modes inside (ISO 32000-1 §11.4.5:
+    /// an isolated group composites its elements over a fully transparent initial backdrop).
+    #[allow(clippy::too_many_arguments)]
+    unsafe fn draw_isolated(
+        &self,
+        job: &GroupJob<'_>,
+        fonts: &FontManager,
+        prep: &Prep<'_>,
+        ppp: f32,
+        size: (u32, u32),
+        band: [u32; 4],
+        banded: bool,
+    ) -> Result<ID2D1Bitmap1, String> {
+        // SAFETY: the bitmap is the target only between BeginDraw and EndDraw here; the clip
+        // pushed is popped before EndDraw; the caller resets the target afterwards.
+        unsafe {
+            let dpi = 96.0 * ppp;
+            let props = D2D1_BITMAP_PROPERTIES1 {
+                pixelFormat: D2D1_PIXEL_FORMAT {
+                    format: DXGI_FORMAT_B8G8R8A8_UNORM,
+                    alphaMode: D2D1_ALPHA_MODE_PREMULTIPLIED,
+                },
+                dpiX: dpi,
+                dpiY: dpi,
+                bitmapOptions: D2D1_BITMAP_OPTIONS_TARGET,
+                ..Default::default()
+            };
+            let bitmap = self
+                .context
+                .CreateBitmap(
+                    D2D_SIZE_U {
+                        width: size.0,
+                        height: size.1,
+                    },
+                    None,
+                    0,
+                    &props,
+                )
+                .map_err(|e| e.to_string())?;
+            self.context.SetTarget(&bitmap);
+            self.context.BeginDraw();
+            self.context.SetTransform(&IDENTITY);
+            let [left, top, bw, bh] = band;
+            if banded {
+                self.context.PushAxisAlignedClip(
+                    &D2D_RECT_F {
+                        left: left as f32 / ppp,
+                        top: top as f32 / ppp,
+                        right: (left + bw) as f32 / ppp,
+                        bottom: (top + bh) as f32 / ppp,
+                    },
+                    D2D1_ANTIALIAS_MODE_ALIASED,
+                );
+            }
+            self.context.Clear(Some(&color(Rgba(0, 0, 0, 0), 1.0)));
+            let backdrop = Backdrop {
+                target: &bitmap,
+                scratch: std::cell::RefCell::new(None),
+                band,
+                size,
+            };
+            self.context.SetTransform(&job.transform);
+            let mut sans_on = None;
+            let drawn = self.draw_list(
+                job.content,
+                State {
+                    stack: Vec::new(),
+                    transform: job.transform,
+                    alpha: job.alpha,
+                },
+                fonts,
+                prep,
+                Some(&backdrop),
+                &mut sans_on,
+            );
+            if banded {
+                self.context.SetTransform(&IDENTITY);
+                self.context.PopAxisAlignedClip();
+            }
+            let ended = self.context.EndDraw(None, None);
+            self.context.SetTarget(None::<&ID2D1Image>);
+            self.context.SetTransform(&IDENTITY);
+            drawn?;
+            ended.map_err(|e| e.to_string())?;
+            Ok(bitmap)
         }
     }
 
@@ -1618,6 +1763,25 @@ impl Device {
                             knockout, isolated, ..
                         } => {
                             state.apply(command)?;
+                            if let (true, false, Some(bitmap)) =
+                                (*isolated, *knockout, prep.isolated.get(&key(command)))
+                            {
+                                // Drawn already with its own backdrop: composite it (Normal)
+                                // and continue at the matching `PopGroup`.
+                                let end =
+                                    group_end(commands, index - 1).ok_or("unbalanced group")?;
+                                self.context.SetTransform(&IDENTITY);
+                                self.context.DrawImage(
+                                    &bitmap.cast::<ID2D1Image>().map_err(|e| e.to_string())?,
+                                    None,
+                                    None,
+                                    D2D1_INTERPOLATION_MODE_NEAREST_NEIGHBOR,
+                                    D2D1_COMPOSITE_MODE_SOURCE_OVER,
+                                );
+                                self.context.SetTransform(&state.transform);
+                                index = end;
+                                continue;
+                            }
                             if *isolated && !*knockout {
                                 // ISO 32000-1 §11.4.5: a layer of its own, so the blended
                                 // objects inside do not read the page below (they compose

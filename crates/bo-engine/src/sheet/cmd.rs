@@ -1201,6 +1201,18 @@ pub enum SheetCommand {
         /// Date grouping: by days.
         #[serde(default)]
         days: bool,
+        /// Date grouping: by hours.
+        #[serde(default)]
+        hours: bool,
+        /// Date grouping: by minutes.
+        #[serde(default)]
+        minutes: bool,
+        /// Date grouping: by seconds.
+        #[serde(default)]
+        seconds: bool,
+        /// Date grouping: days per group when days are the only part.
+        #[serde(default)]
+        days_interval: Option<f64>,
         /// Numeric grouping: first value (`None` = the field minimum).
         #[serde(default)]
         start: Option<f64>,
@@ -5365,7 +5377,28 @@ impl SheetEngine {
                     .pivots
                     .get(index)
                     .ok_or_else(|| bad("no such pivot table"))?;
+                let new_name = settings.name.clone().filter(|n| !n.trim().is_empty());
+                let new_options = settings.options.clone();
                 self.pivot_light(sheet, None, |wb| {
+                    if let Some(n) = &new_name {
+                        let taken = wb.sheets.iter().enumerate().any(|(si, ws)| {
+                            ws.pivots.iter().enumerate().any(|(i, p)| {
+                                p.name.eq_ignore_ascii_case(n) && (si, i) != (sheet, index)
+                            })
+                        });
+                        if taken {
+                            return Err("A PivotTable with this name already exists.".into());
+                        }
+                    }
+                    {
+                        let pt = &mut wb.sheets[sheet].pivots[index];
+                        if let Some(n) = new_name {
+                            pt.name = n;
+                        }
+                        if let Some(o) = new_options {
+                            pt.options = *o;
+                        }
+                    }
                     let pt = wb.sheets[sheet].pivots[index].clone();
                     let spec = updated_spec(wb, &pt, (rows, cols, values, filters), settings);
                     bo_sheet::pivot::update_pivot(wb, sheet, index, &spec, &labels)?;
@@ -5381,14 +5414,33 @@ impl SheetEngine {
                 quarters,
                 months,
                 days,
+                hours,
+                minutes,
+                seconds,
+                days_interval,
                 start,
                 end,
                 interval,
                 labels,
             } => {
                 let labels = self.pivot_labels(labels);
-                let req =
-                    group_request(&by, [years, quarters, months, days], start, end, interval)?;
+                let timed = hours || minutes || seconds || days_interval.is_some();
+                let req = if by == "dates" && (timed || start.is_some() || end.is_some()) {
+                    bo_sheet::pivot::GroupRequest::DateParts(bo_sheet::pivot::DateGrouping {
+                        years,
+                        quarters,
+                        months,
+                        days,
+                        hours,
+                        minutes,
+                        seconds,
+                        start,
+                        end,
+                        days_interval: days_interval.unwrap_or(1.0),
+                    })
+                } else {
+                    group_request(&by, [years, quarters, months, days], start, end, interval)?
+                };
                 self.pivot_edit(sheet, |wb| {
                     bo_sheet::pivot::group_field(wb, sheet, index, field, &req, &labels)?;
                     Ok(json!({ "ok": true }))

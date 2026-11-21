@@ -43,6 +43,8 @@ const R_NS: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relati
 const X14_NS: &str = "http://schemas.microsoft.com/office/spreadsheetml/2009/9/main";
 /// `ext/@uri` of `x14:pivotField` and `x14:dataField` ([MS-XLSX] extLst extension URIs).
 const EXT_PIVOT_FIELD: &str = "{2946ED86-A175-432a-8AC1-64E0C546D7DE}";
+/// `ext/@uri` of `x14:pivotTableDefinition` ([MS-XLSX] extLst extension URIs).
+const EXT_PIVOT_TABLE: &str = "{962EF5D1-5CA2-4c93-8EF4-DBF5C05439D2}";
 const EXT_DATA_FIELD: &str = "{E15A36E0-9728-4e99-A89B-3F7291B0FE68}";
 /// `ext/@uri` of `x14:pivotCacheDefinition` ([MS-XLSX] extLst extension URIs).
 const EXT_CACHE_DEFINITION: &str = "{725AE2AE-9491-48be-B2B4-4EB974FC3084}";
@@ -579,11 +581,49 @@ pub fn pivot_table_xml(pt: &PivotTable, cache: &PivotCache) -> String {
     a(&mut out, "updatedVersion", version);
     a(&mut out, "minRefreshableVersion", "3");
     a(&mut out, "createdVersion", version);
-    a(&mut out, "useAutoFormatting", "1");
-    a(&mut out, "itemPrintTitles", "1");
+    let o = &pt.options;
+    if o.autofit {
+        a(&mut out, "useAutoFormatting", "1");
+    }
+    if o.item_print_titles {
+        a(&mut out, "itemPrintTitles", "1");
+    }
+    // §18.10.1.73 report options (written when not the schema default).
+    let flags = [
+        ("mergeItem", o.merge_item, false),
+        ("pageOverThenDown", o.page_over_then_down, false),
+        ("showError", o.show_error, false),
+        ("showMissing", o.show_missing, true),
+        ("preserveFormatting", o.preserve_formatting, true),
+        ("subtotalHiddenItems", o.subtotal_hidden_items, false),
+        ("multipleFieldFilters", o.multiple_field_filters, true),
+        ("customListSort", o.custom_list_sort, true),
+        ("showDrill", o.show_drill, true),
+        ("showDataTips", o.show_data_tips, true),
+        ("showHeaders", o.show_headers, true),
+        ("fieldListSortAscending", o.field_list_sort_ascending, false),
+        ("printDrill", o.print_drill, false),
+        ("fieldPrintTitles", o.field_print_titles, false),
+    ];
+    for (name, on, default) in flags {
+        if on != default {
+            a(&mut out, name, if on { "1" } else { "0" });
+        }
+    }
+    if o.show_error && !o.error_caption.is_empty() {
+        a(&mut out, "errorCaption", &o.error_caption);
+    }
+    if o.show_missing && !o.missing_caption.is_empty() {
+        a(&mut out, "missingCaption", &o.missing_caption);
+    }
+    if o.page_wrap > 0 {
+        a(&mut out, "pageWrap", &o.page_wrap.to_string());
+    }
     // Compact layout keeps the default indent of one character per level.
     if pt.layout != PivotLayout::Compact {
         a(&mut out, "indent", "0");
+    } else if o.indent != 1 {
+        a(&mut out, "indent", &o.indent.saturating_sub(1).to_string());
     }
     // §18.10.1.73 compact / compactData / outline / outlineData.
     match pt.layout {
@@ -602,6 +642,9 @@ pub fn pivot_table_xml(pt: &PivotTable, cache: &PivotCache) -> String {
             a(&mut out, "compactData", "0");
             a(&mut out, "gridDropZones", "1");
         }
+    }
+    if o.grid_drop_zones && pt.layout != PivotLayout::Tabular {
+        a(&mut out, "gridDropZones", "1");
     }
     out.push('>');
     // §18.10.1.49 location
@@ -630,6 +673,9 @@ pub fn pivot_table_xml(pt: &PivotTable, cache: &PivotCache) -> String {
             None
         };
         out.push_str("<pivotField");
+        if let Some(n) = &opts.name {
+            a(&mut out, "name", n);
+        }
         if let Some(ax) = axis {
             a(&mut out, "axis", ax);
         }
@@ -650,7 +696,15 @@ pub fn pivot_table_xml(pt: &PivotTable, cache: &PivotCache) -> String {
         if multi {
             a(&mut out, "multipleItemSelectionAllowed", "1");
         }
-        a(&mut out, "showAll", "0");
+        if !opts.show_all {
+            a(&mut out, "showAll", "0");
+        }
+        if opts.include_new_items {
+            a(&mut out, "includeNewItemsInFilter", "1");
+        }
+        if opts.page_break {
+            a(&mut out, "insertPageBreak", "1");
+        }
         if opts.blank_row {
             a(&mut out, "insertBlankRow", "1");
         }
@@ -845,6 +899,20 @@ pub fn pivot_table_xml(pt: &PivotTable, cache: &PivotCache) -> String {
             filter_xml(&mut out, f, i + 1);
         }
         out.push_str("</filters>");
+    }
+    if !o.alt_text.is_empty() || !o.alt_text_summary.is_empty() {
+        // [MS-XLSX] 2.6.1 x14:pivotTableDefinition alternative text.
+        let _ = write!(
+            out,
+            "<extLst><ext uri=\"{EXT_PIVOT_TABLE}\" xmlns:x14=\"{X14_NS}\"><x14:pivotTableDefinition"
+        );
+        if !o.alt_text.is_empty() {
+            a(&mut out, "altText", &o.alt_text);
+        }
+        if !o.alt_text_summary.is_empty() {
+            a(&mut out, "altTextSummary", &o.alt_text_summary);
+        }
+        out.push_str("/></ext></extLst>");
     }
     out.push_str("</pivotTableDefinition>");
     out

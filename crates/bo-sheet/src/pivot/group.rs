@@ -41,6 +41,13 @@ pub(crate) fn middle_count(r: &PivotRangeGroup, sys: DateSystem) -> usize {
         }
         PivotGroupBy::Quarters => 4,
         PivotGroupBy::Months => 12,
+        // Ranges of n days from the start (`groupInterval` > 1).
+        PivotGroupBy::Days if r.interval > 1.0 => {
+            (((r.end.floor() - r.start.floor()) / r.interval)
+                .floor()
+                .max(0.0) as usize)
+                + 1
+        }
         PivotGroupBy::Days => 366,
         PivotGroupBy::Hours => 24,
         PivotGroupBy::Minutes | PivotGroupBy::Seconds => 60,
@@ -69,6 +76,9 @@ fn middle_index(r: &PivotRangeGroup, v: f64, sys: DateSystem) -> Option<usize> {
         }
         PivotGroupBy::Quarters => ((serial_to_ymd(v, sys)?.1 - 1) / 3) as usize,
         PivotGroupBy::Months => (serial_to_ymd(v, sys)?.1 - 1) as usize,
+        PivotGroupBy::Days if r.interval > 1.0 => ((v.floor() - r.start.floor()) / r.interval)
+            .floor()
+            .max(0.0) as usize,
         PivotGroupBy::Days => {
             let (_, m, d) = serial_to_ymd(v, sys)?;
             leap_day_index(m, d)
@@ -168,6 +178,18 @@ pub(crate) fn range_items(
         PivotGroupBy::Months => {
             for m in 0..12 {
                 out.push(text(month(m)));
+            }
+        }
+        PivotGroupBy::Days if r.interval > 1.0 => {
+            // "first day - last day" of each range, in the captions' date form.
+            for i in 0..middle_count(r, sys) {
+                let a = r.start.floor() + r.interval * i as f64;
+                let b = a + r.interval - 1.0;
+                out.push(text(format!(
+                    "{} - {}",
+                    date_text(a, sys),
+                    date_text(b, sys)
+                )));
             }
         }
         PivotGroupBy::Days => {
@@ -277,6 +299,25 @@ mod tests {
             bucket(&y, &CellValue::Date("2025-01-01T00:00:00".into()), 6, sys),
             3
         );
+    }
+
+    #[test]
+    fn ranges_of_days() {
+        let sys = DateSystem::Date1900;
+        let r = PivotRangeGroup {
+            group_by: PivotGroupBy::Days,
+            start: date(2025, 1, 1),
+            end: date(2025, 1, 20),
+            interval: 7.0,
+            dates: true,
+            ..PivotRangeGroup::default()
+        };
+        // 1–7, 8–14, 15–21 January.
+        let items = range_items(&r, true, false, &labels(), sys);
+        assert_eq!(items.len(), 5);
+        assert_eq!(items[1], CellValue::Text("01/01/2025 - 07/01/2025".into()));
+        let b = |d| bucket(&r, &CellValue::Number(date(2025, 1, d)), 5, sys);
+        assert_eq!((b(1), b(7), b(8), b(20)), (1, 1, 2, 3));
     }
 
     #[test]

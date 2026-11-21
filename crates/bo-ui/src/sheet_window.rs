@@ -67,6 +67,10 @@ mod pagelayout_impl;
 mod panes_impl;
 #[path = "sheet_paste.rs"]
 mod paste_impl;
+#[path = "sheet_pivotdlg.rs"]
+mod pivotdlg_impl;
+#[path = "sheet_pivotfilter.rs"]
+mod pivotfilter_impl;
 #[path = "sheet_pivotpane.rs"]
 mod pivotpane_impl;
 #[path = "sheet_pivottabs.rs"]
@@ -474,6 +478,14 @@ pub struct SheetWindow {
     pivot_drag: Option<(usize, u32, f32, f32)>,
     /// Value Field Settings while its Number Format (Format Cells) is open.
     vfs_stash: Option<form_impl::Form>,
+    /// The open PivotTable dialog of round 14 (Grouping, Calculated Field / Item, Field
+    /// Settings, PivotTable Options).
+    pvt_dlg: Option<pivotdlg_impl::PivotDlg>,
+    /// PivotTable tab menu entries that do not apply to the active cell.
+    pvt_menu_dim: Vec<&'static str>,
+    /// PivotTable Fields pane layout chosen in its gear menu (kept for the session, as the
+    /// reference keeps it per application).
+    pivot_layout: u8,
     /// A dialog collapsed while a range is picked on the sheet.
     pick_state: Option<rangepick_impl::PickState>,
     /// Format Cells state beyond its controls (border edges, orientation, fill).
@@ -506,6 +518,10 @@ pub struct SheetWindow {
     /// The table range `[r0, c0, r1, c1]` (header to last data row) whose filter the open
     /// drop-down edits; `None` for the sheet's AutoFilter.
     pub(super) filter_table: Option<[u32; 4]>,
+    /// The open drop-down is a PivotTable field button's: (sheet, pivot index, field).
+    pub(super) filter_pivot: Option<(usize, usize, u32)>,
+    /// The filter type a PivotTable filter dialog was opened for.
+    pivot_filter_op: String,
     /// Application preferences (File › Options), and their text when changed and not yet
     /// taken by the host.
     prefs: options_impl::SheetPrefs,
@@ -640,6 +656,9 @@ impl SheetWindow {
             pivot_closed: None,
             pivot_drag: None,
             vfs_stash: None,
+            pvt_dlg: None,
+            pvt_menu_dim: Vec::new(),
+            pivot_layout: 0,
             prot: protect_impl::ProtState::default(),
             spell: None,
             link_tip: String::new(),
@@ -671,6 +690,8 @@ impl SheetWindow {
             filter_col: 0,
             filter_status: false,
             filter_table: None,
+            filter_pivot: None,
+            pivot_filter_op: String::new(),
             prefs: options_impl::SheetPrefs::default(),
             prefs_out: None,
             options_page: 0,
@@ -1568,6 +1589,7 @@ impl SheetWindow {
                     true
                 }
                 None if id.starts_with("filterop.") => self.filter_choice(&id["filterop.".len()..]),
+                None if id.starts_with("pfop.") => self.pivot_filter_choice(&id["pfop.".len()..]),
                 None if id.starts_with("pivotitem.") || id.starts_with("pivotgear.") => {
                     self.run_command(&id, text)
                 }
@@ -2067,6 +2089,13 @@ impl SheetWindow {
                 self.ribbon.press(x, y)
             }
             Input::Press { x, y, .. } if self.totals_press(x, y) => true,
+            Input::Press { x, y, .. } if self.pivot_button_at(x, y).is_some() => {
+                if self.view.editing() {
+                    self.view.commit();
+                }
+                let (s, i, f) = self.pivot_button_at(x, y).unwrap_or_default();
+                self.open_pivot_filter(s, i, f)
+            }
             Input::Press { x, y, .. } if self.filter_button_at(x, y).is_some() => {
                 let (col, table) = self.filter_button_at(x, y).unwrap_or_default();
                 if self.view.editing() {
@@ -2401,6 +2430,8 @@ impl SheetWindow {
             self.paint_fnargs(f, id, r, p);
         } else if self.form_kind == form_impl::FormKind::FindReplace {
             self.paint_find(f, id, r, p);
+        } else if self.form_kind == form_impl::FormKind::PivotGrouping {
+            self.paint_pivot_dlg(f, id, r, p);
         }
     }
 

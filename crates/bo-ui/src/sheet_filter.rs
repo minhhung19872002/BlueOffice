@@ -71,14 +71,17 @@ pub(super) struct FilterDrop {
     /// First list row shown.
     pub top: usize,
     /// Hovered menu item (0–5) or list row.
-    hover: Option<Hot>,
+    pub(super) hover: Option<Hot>,
     /// Top-left corner (device pixels) and scale.
     pub origin: (f32, f32),
     pub k: f32,
+    /// A PivotTable field button's menu: More Sort Options… then Label / Value Filters
+    /// submenus (no colour items).
+    pub pivot: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Hot {
+pub(super) enum Hot {
     Item(usize),
     Row(usize),
     Ok,
@@ -315,7 +318,7 @@ impl FilterDrop {
                 style,
                 ink,
             );
-            if matches!(i, 2 | 4 | 5) {
+            if matches!(i, 2 | 4 | 5) && !(self.pivot && i == 2) {
                 // Submenu arrow.
                 let (ax, ay, a) = (x + w - self.d(14.0), iy + ih / 2.0, self.d(3.5));
                 p.path(
@@ -531,7 +534,7 @@ impl FilterDrop {
                     None,
                 );
             }
-            3 | 4 => {
+            3 | 4 if !(self.pivot && i == 4) => {
                 // Funnel (Clear Filter adds a red cross).
                 let (fx, fy) = (x + self.d(1.0), y + self.d(2.0));
                 p.path(
@@ -882,7 +885,9 @@ impl SheetWindow {
             hover: None,
             origin: (x.round(), y.round()),
             k,
+            pivot: false,
         });
+        self.filter_pivot = None;
         self.filter_labels = self.filter_labels_now();
         true
     }
@@ -1014,6 +1019,9 @@ impl SheetWindow {
     }
 
     fn filter_ok(&mut self) -> bool {
+        if self.filter_pivot.is_some() {
+            return self.pivot_filter_ok();
+        }
         let Some(f) = self.filter.take() else {
             return false;
         };
@@ -1022,6 +1030,9 @@ impl SheetWindow {
     }
 
     pub(super) fn filter_item(&mut self, i: usize) -> bool {
+        if self.filter_pivot.is_some() {
+            return self.pivot_filter_item(i);
+        }
         let Some(f) = self.filter.clone() else {
             return false;
         };
@@ -1312,6 +1323,7 @@ mod tests {
             hover: None,
             origin: (0.0, 0.0),
             k: 1.0,
+            pivot: false,
         }
     }
 

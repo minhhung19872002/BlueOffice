@@ -138,6 +138,12 @@ pub fn run() -> Result<(), String> {
         }
         view.set_print_duplex(false);
     }
+    // Every printer's own paper, for File › Print when another printer is chosen.
+    let papers = printers
+        .iter()
+        .map(|n| print::defaults(n).map_or(0, |d| d.0))
+        .collect();
+    view.set_printer_papers(papers);
     view.set_printers(printers, chosen, Vec::new());
     // Insert Hyperlink browses the workbook's folder.
     if let Some(dir) = file.as_ref().and_then(|p| p.parent()) {

@@ -819,18 +819,29 @@ impl Renderer<'_> {
         // Pivot tables in compact layout: field buttons on the "Row Labels" / "Column Labels"
         // headers (§18.10.1.73 `compact`, `location/@firstDataRow`, `@firstHeaderRow`).
         for pt in &self.ws.pivots {
-            if pt.layout != bo_model::sheet::PivotLayout::Compact {
+            if pt.layout != bo_model::sheet::PivotLayout::Compact || !pt.options.show_headers {
                 continue;
             }
             let at = pt.location.first;
+            // A funnel when the first row field has hidden items or a label / value filter.
+            let filtered = |f: Option<&u32>| {
+                f.is_some_and(|f| {
+                    !pt.field(*f).hidden.is_empty()
+                        || pt.field_filters.iter().any(|x| x.field == *f)
+                })
+            };
             if !pt.rows.is_empty() && pt.first_data_row > 0 {
-                buttons.push((at.row + pt.first_data_row - 1, at.col, false));
+                buttons.push((
+                    at.row + pt.first_data_row - 1,
+                    at.col,
+                    filtered(pt.rows.first()),
+                ));
             }
             if !pt.cols.is_empty() && pt.first_header_row > 0 {
                 buttons.push((
                     at.row + pt.first_header_row - 1,
                     at.col + pt.first_data_col,
-                    false,
+                    filtered(pt.cols.first()),
                 ));
             }
         }

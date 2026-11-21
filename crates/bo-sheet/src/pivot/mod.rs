@@ -14,6 +14,7 @@ pub(crate) mod compute;
 pub(crate) mod formula_info;
 mod group;
 pub mod style;
+mod style_table;
 
 pub use compute::{ColKind, Layout, RowKind};
 
@@ -65,6 +66,12 @@ pub struct PivotLabels {
     pub quarters_field: String,
     /// Name of the grouping field holding months.
     pub months_field: String,
+    /// Name of the grouping field holding days (finer parts selected too).
+    pub days_field: String,
+    /// Name of the grouping field holding hours.
+    pub hours_field: String,
+    /// Name of the grouping field holding minutes.
+    pub minutes_field: String,
     /// Caption of a manual group; `{n}` is replaced by its number.
     pub group: String,
     /// Today's serial in the workbook's date system, for relative date
@@ -99,6 +106,9 @@ impl Default for PivotLabels {
             years_field: "Years".into(),
             quarters_field: "Quarters".into(),
             months_field: "Months".into(),
+            days_field: "Days".into(),
+            hours_field: "Hours".into(),
+            minutes_field: "Minutes".into(),
             group: "Group{n}".into(),
             today: None,
             locale: None,
@@ -567,6 +577,62 @@ pub fn value_format(cache: &PivotCache, d: &PivotDataField) -> u32 {
 
 /// Write the report of pivot `index` of `sheet` into its cells (clearing the
 /// area it occupied before) and update its location.
+/// The report options that change cells (§18.10.1.73): captions of error and empty value
+/// cells, the "Row Labels" / "Column Labels" captions (`showHeaders`) and the compact
+/// indent per level (`indent`).
+pub(crate) fn apply_options(
+    lay: &mut compute::Layout,
+    o: &bo_model::sheet::PivotOptions,
+    labels: &PivotLabels,
+) {
+    let pr = lay.page_rows;
+    if !o.show_headers {
+        let head = pr..pr + lay.first_data_row;
+        lay.cells.retain(|(r, _, v)| {
+            !(head.contains(r)
+                && matches!(v, CellValue::Text(t) if *t == labels.row_labels || *t == labels.col_labels))
+        });
+    }
+    let value_cell = |lay: &compute::Layout, r: u32, c: u32| {
+        r >= pr
+            && lay.value_rows.iter().any(|(vr, _)| *vr + pr == r)
+            && lay.data_cols.iter().any(|(dc, _)| *dc == c)
+    };
+    if o.show_error {
+        let caption = o.error_caption.clone();
+        let cells = std::mem::take(&mut lay.cells);
+        lay.cells = cells
+            .into_iter()
+            .filter_map(|(r, c, v)| {
+                if matches!(v, CellValue::Error(_)) && value_cell(lay, r, c) {
+                    (!caption.is_empty()).then(|| (r, c, CellValue::Text(caption.clone())))
+                } else {
+                    Some((r, c, v))
+                }
+            })
+            .collect();
+    }
+    if o.show_missing && !o.missing_caption.is_empty() {
+        let have: std::collections::HashSet<(u32, u32)> =
+            lay.cells.iter().map(|(r, c, _)| (*r, *c)).collect();
+        let mut add = Vec::new();
+        for (vr, _) in &lay.value_rows {
+            for (dc, _) in &lay.data_cols {
+                if !have.contains(&(vr + pr, *dc)) {
+                    add.push((vr + pr, *dc, CellValue::Text(o.missing_caption.clone())));
+                }
+            }
+        }
+        lay.cells.extend(add);
+    }
+    if o.indent != 1 {
+        for e in &mut lay.indents {
+            e.2 *= o.indent;
+        }
+        lay.indents.retain(|e| e.2 > 0);
+    }
+}
+
 fn render(
     wb: &mut Workbook,
     sheet: usize,
@@ -590,7 +656,7 @@ fn render(
         .iter()
         .find(|c| c.cache_id == pt.cache_id)
         .ok_or("pivot cache missing")?;
-    let lay = match &model {
+    let mut lay = match &model {
         Some(m) => {
             let mut spec = PivotSpec::of(&pt);
             m.effective_spec(wb, &mut spec, labels);
@@ -599,6 +665,7 @@ fn render(
         }
         None => layout_in(cache, &PivotSpec::of_in(wb, &pt), labels, date_system(wb))?,
     };
+    apply_options(&mut lay, &pt.options, labels);
     let value_fmt: Vec<u32> = pt.values.iter().map(|d| value_format(cache, d)).collect();
     let label_fmt: Vec<u32> = cache
         .fields
@@ -1403,6 +1470,8 @@ pub enum GroupRequest {
         /// Group by day of the month.
         days: bool,
     },
+    /// Date and time parts with optional bounds (the Grouping dialog).
+    DateParts(DateGrouping),
     /// Numeric ranges; missing bounds follow the data.
     Numbers {
         /// Lower bound of the first range; `None` = minimum of the data.
@@ -1412,6 +1481,33 @@ pub enum GroupRequest {
         /// Width of each range (must be positive).
         interval: f64,
     },
+}
+
+/// Date / time grouping of the Grouping dialog (§18.10.1.77 `rangePr` with
+/// `groupBy` seconds … years, `startDate` / `endDate`, `groupInterval`).
+#[derive(Debug, Clone, PartialEq, Default)]
+#[allow(clippy::struct_excessive_bools)]
+pub struct DateGrouping {
+    /// Group by year.
+    pub years: bool,
+    /// Group by quarter.
+    pub quarters: bool,
+    /// Group by month.
+    pub months: bool,
+    /// Group by day (of the year, or ranges of `days_interval` days).
+    pub days: bool,
+    /// Group by hour.
+    pub hours: bool,
+    /// Group by minute.
+    pub minutes: bool,
+    /// Group by second.
+    pub seconds: bool,
+    /// First date (serial); `None` = the earliest value (`autoStart`).
+    pub start: Option<f64>,
+    /// Last date (serial); `None` = the latest value (`autoEnd`).
+    pub end: Option<f64>,
+    /// Days per group when days are the only part (`groupInterval`, ≥ 1).
+    pub days_interval: f64,
 }
 
 /// Remove cache fields `gone` of cache `cache_id`, re-pointing its pivot tables.
@@ -1556,17 +1652,31 @@ pub fn group_field(
                 ..PivotFieldGroup::default()
             });
         }
-        GroupRequest::Dates {
-            years,
-            quarters,
-            months,
-            days,
-        } => {
+        GroupRequest::Dates { .. } | GroupRequest::DateParts(_) => {
+            let g = match req {
+                GroupRequest::DateParts(g) => g.clone(),
+                GroupRequest::Dates {
+                    years,
+                    quarters,
+                    months,
+                    days,
+                } => DateGrouping {
+                    years: *years,
+                    quarters: *quarters,
+                    months: *months,
+                    days: *days,
+                    ..DateGrouping::default()
+                },
+                _ => DateGrouping::default(),
+            };
             let parts: Vec<PivotGroupBy> = [
-                (PivotGroupBy::Years, *years),
-                (PivotGroupBy::Quarters, *quarters),
-                (PivotGroupBy::Months, *months),
-                (PivotGroupBy::Days, *days),
+                (PivotGroupBy::Years, g.years),
+                (PivotGroupBy::Quarters, g.quarters),
+                (PivotGroupBy::Months, g.months),
+                (PivotGroupBy::Days, g.days),
+                (PivotGroupBy::Hours, g.hours),
+                (PivotGroupBy::Minutes, g.minutes),
+                (PivotGroupBy::Seconds, g.seconds),
             ]
             .into_iter()
             .filter(|(_, on)| *on)
@@ -1578,13 +1688,27 @@ pub fn group_field(
             let (lo, hi, _, blank) = group::value_bounds(values.iter(), sys)
                 .ok_or("the field has values that are not dates")?;
             let (lo, hi) = group::date_bounds(lo, hi);
+            let (lo, hi) = (g.start.unwrap_or(lo), g.end.unwrap_or(hi));
+            if hi < lo {
+                return Err("the end is before the start".into());
+            }
+            // Ranges of n days only when days are the only part (as the dialog allows).
+            let n_days = if parts == [PivotGroupBy::Days] {
+                g.days_interval.max(1.0).floor()
+            } else {
+                1.0
+            };
             let range = |by: PivotGroupBy| PivotRangeGroup {
                 group_by: by,
-                auto_start: true,
-                auto_end: true,
+                auto_start: g.start.is_none(),
+                auto_end: g.end.is_none(),
                 start: lo,
                 end: hi,
-                interval: 1.0,
+                interval: if by == PivotGroupBy::Days {
+                    n_days
+                } else {
+                    1.0
+                },
                 dates: true,
             };
             // Coarser parts: new grouping fields (§18.10.1.27 `base`), each the
@@ -1594,6 +1718,9 @@ pub fn group_field(
                 let name = match by {
                     PivotGroupBy::Years => &labels.years_field,
                     PivotGroupBy::Quarters => &labels.quarters_field,
+                    PivotGroupBy::Days => &labels.days_field,
+                    PivotGroupBy::Hours => &labels.hours_field,
+                    PivotGroupBy::Minutes => &labels.minutes_field,
                     _ => &labels.months_field,
                 };
                 let name = unique_name(cache, name);

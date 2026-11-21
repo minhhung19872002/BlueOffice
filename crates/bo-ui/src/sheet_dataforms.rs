@@ -1682,6 +1682,11 @@ impl SheetWindow {
             }
             FormKind::TableName | FormKind::TableResize => self.table_form_event(kind, ev),
             FormKind::PivotMove | FormKind::PivotSource => self.pivot_tab_form_event(kind, ev),
+            FormKind::PivotGrouping
+            | FormKind::PivotCalc
+            | FormKind::PivotFieldSettings
+            | FormKind::PivotOptions => self.pivot_dlg_event(kind, ev),
+            FormKind::PivotFilter => self.pivot_filter_form_event(ev),
             FormKind::CfRule | FormKind::CfNewRule | FormKind::CfManager => {
                 self.cf_form_event(kind, ev);
             }

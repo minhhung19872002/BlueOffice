@@ -63,6 +63,9 @@ pub(super) struct BsState {
     states: Vec<(bool, bool, u32)>,
     /// The chosen printer prints on both sides (host; `None`: not known, the box shows).
     duplex: Option<bool>,
+    /// Each printer's default paper from its driver (`DMPAPER_*` / ST_PaperSize code; 0 =
+    /// none named), given by the host.
+    papers: Vec<u32>,
     /// The open workbook's path and size, given by the host.
     path: Option<String>,
     bytes: Option<u64>,
@@ -201,6 +204,13 @@ impl SheetWindow {
         self.bs.printers = names;
         self.bs.default_printer = default;
         self.bs.states = states;
+    }
+
+    /// Host: each printer's default paper (same order as [`SheetWindow::set_printers`]):
+    /// choosing another printer on the Print page makes its paper the default of sheets
+    /// without a paper size, as the reference reloads the driver's paper.
+    pub fn set_printer_papers(&mut self, papers: Vec<u32>) {
+        self.bs.papers = papers;
     }
 
     /// Host: whether the chosen printer prints on both sides (the reference's Print page
@@ -725,7 +735,14 @@ impl SheetWindow {
                     return false;
                 };
                 match what.as_str() {
-                    "printer" => b.print.printer = n,
+                    "printer" => {
+                        b.print.printer = n;
+                        let paper = self.bs.papers.get(n).copied().filter(|p| *p > 0);
+                        if paper.is_some() {
+                            self.view.engine_mut().set_default_paper(paper);
+                            self.view.changed();
+                        }
+                    }
                     "range" => {
                         b.print.range = n.min(2) as u8;
                         b.preview = 0;

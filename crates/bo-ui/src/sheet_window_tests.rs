@@ -3656,3 +3656,9 @@ mod r11;
 
 #[path = "sheet_r12_tests.rs"]
 mod r12;
+
+#[path = "sheet_r13_tests.rs"]
+mod r13;
+
+#[path = "sheet_r13b_tests.rs"]
+mod r13b;

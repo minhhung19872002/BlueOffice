@@ -99,6 +99,42 @@ pub struct Menu {
     sep_gap: f32,
     /// A faint shadow on every side (BlueEditor round 9) in place of the default one.
     soft_shadow: bool,
+    /// Access keys ([`Menu::with_access_keys`]): per item the key (lower case) and its
+    /// underline (offset from the label's left edge, width; device pixels); empty: none.
+    access: Vec<Option<(char, f32, f32)>>,
+    /// Draw the access keys' underlines.
+    cues: bool,
+}
+
+/// Windows' "Underline access keys" setting (`SPI_GETKEYBOARDCUES`), given by the host.
+static KEYBOARD_CUES: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Host: whether Windows always underlines access keys (`SPI_GETKEYBOARDCUES`).
+pub fn set_keyboard_cues(on: bool) {
+    KEYBOARD_CUES.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// A label's access key marked with `&` (`"&Bottom"`; `"&&"` is a literal `&`): the label
+/// without the markers, the key's byte offset in it.
+pub fn split_access_key(label: &str) -> (String, Option<usize>) {
+    let mut out = String::with_capacity(label.len());
+    let mut key = None;
+    let mut chars = label.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '&' {
+            match chars.peek() {
+                Some('&') => {
+                    chars.next();
+                    out.push('&');
+                }
+                Some(_) if key.is_none() => key = Some(out.len()),
+                _ => {}
+            }
+            continue;
+        }
+        out.push(c);
+    }
+    (out, key)
 }
 
 /// Draws icon `name` into a `size`-pixel square at (`x`, `y`), greyed when `dim`.
@@ -171,6 +207,8 @@ impl Menu {
             key_right: 0.0,
             sep_gap: 0.0,
             soft_shadow: false,
+            access: Vec::new(),
+            cues: false,
         };
         // Show the current value in the middle of the list.
         if let Some(i) = current {
@@ -197,6 +235,48 @@ impl Menu {
     /// Whether any row has an icon.
     pub fn has_icons(&self) -> bool {
         self.icons.iter().any(Option::is_some)
+    }
+
+    /// Access keys (opt-in): labels mark their key with `&` (`"&Bottom of Group"`); the
+    /// markers are taken out, the letter chooses the item ([`Menu::access_choice`]) and is
+    /// underlined when the menu was opened from the keyboard or Windows always underlines
+    /// access keys ([`set_keyboard_cues`]). `text` measures the underline's place.
+    #[must_use]
+    pub fn with_access_keys(mut self, text: &dyn crate::TextMeasure, from_keyboard: bool) -> Self {
+        let style = TextStyle {
+            size: (self.look.text * self.scale).round(),
+            bold: false,
+        };
+        self.access = self
+            .items
+            .iter_mut()
+            .map(|item| {
+                let (label, at) = split_access_key(&item.label);
+                item.label = label;
+                let at = at?;
+                let c = item.label[at..].chars().next()?;
+                let x = text.measure(&item.label[..at], style).0;
+                let w = text.measure(&c.to_string(), style).0;
+                Some((c.to_lowercase().next().unwrap_or(c), x, w))
+            })
+            .collect();
+        self.cues = from_keyboard || KEYBOARD_CUES.load(std::sync::atomic::Ordering::Relaxed);
+        self
+    }
+
+    /// Whether the menu has access keys.
+    pub fn has_access_keys(&self) -> bool {
+        self.access.iter().any(Option::is_some)
+    }
+
+    /// The item whose access key is `c` (case-insensitive; dimmed items are skipped).
+    pub fn access_choice(&self, c: char) -> Option<Choice> {
+        let c = c.to_lowercase().next().unwrap_or(c);
+        self.access
+            .iter()
+            .zip(&self.items)
+            .find(|(a, item)| a.is_some_and(|a| a.0 == c) && !item.dim)
+            .map(|(_, item)| item.choice.clone())
     }
 
     /// A faint shadow spread on every side, as Windows 11 menus (BlueEditor round 9).
@@ -488,18 +568,19 @@ impl Menu {
                 }
             }
             let color = if item.dim { t.text_muted } else { t.text };
-            p.text(
-                &item.label,
-                self.x
-                    + if self.icons.is_empty() {
-                        (look.text_x.0 * s).round()
-                    } else {
-                        (look.text_x.1 * s).round()
-                    },
-                y + (self.item_h - line) / 2.0,
-                style,
-                color,
-            );
+            let tx = self.x
+                + if self.icons.is_empty() {
+                    (look.text_x.0 * s).round()
+                } else {
+                    (look.text_x.1 * s).round()
+                };
+            let ty = y + (self.item_h - line) / 2.0;
+            p.text(&item.label, tx, ty, style, color);
+            if let Some(Some((_, ux, uw))) = self.access.get(i).filter(|_| self.cues) {
+                // The access key's underline just under the baseline.
+                let uy = (ty + style.size * 1.12).round();
+                p.fill_rect((tx + ux).round(), uy, uw.round().max(1.0), 1.0, color);
+            }
         }
         p.pop_clip();
     }
@@ -545,6 +626,16 @@ pub fn paint_tooltip(
 mod tests {
     use super::*;
 
+    struct Fixed;
+    impl crate::TextMeasure for Fixed {
+        fn measure(&self, text: &str, style: TextStyle) -> (f32, f32) {
+            (
+                text.chars().count() as f32 * style.size * 0.5,
+                style.size * 1.33,
+            )
+        }
+    }
+
     fn items() -> Vec<MenuItem> {
         (0..3)
             .map(|i| MenuItem {
@@ -554,6 +645,49 @@ mod tests {
                 dim: false,
             })
             .collect()
+    }
+
+    #[test]
+    fn access_keys_strip_markers_choose_items_and_underline_on_cues() {
+        let (l, k) = super::split_access_key("Show all Subtotals at &Bottom of Group");
+        assert_eq!(
+            (l.as_str(), k),
+            ("Show all Subtotals at Bottom of Group", Some(22))
+        );
+        assert_eq!(
+            super::split_access_key("A && B"),
+            ("A & B".to_owned(), None)
+        );
+        let keyed = vec![
+            MenuItem {
+                label: "&Do Not Show".into(),
+                choice: Choice::Command("a".into()),
+                checked: false,
+                dim: false,
+            },
+            MenuItem {
+                label: "&Include".into(),
+                choice: Choice::Command("b".into()),
+                checked: false,
+                dim: true,
+            },
+        ];
+        let m = Menu::open(keyed.clone(), [0.0, 0.0, 10.0, 10.0], (800.0, 600.0), 1.0)
+            .with_access_keys(&Fixed, false);
+        assert!(m.has_access_keys());
+        assert_eq!(m.items()[0].label, "Do Not Show");
+        assert_eq!(m.access_choice('D'), Some(Choice::Command("a".into())));
+        assert_eq!(m.access_choice('i'), None, "dimmed items are not chosen");
+        assert!(
+            !m.cues,
+            "no underline unless opened from the keyboard or cues are on"
+        );
+        let k = Menu::open(keyed, [0.0, 0.0, 10.0, 10.0], (800.0, 600.0), 1.0)
+            .with_access_keys(&Fixed, true);
+        assert!(k.cues);
+        // Menus without access keys are unchanged.
+        let plain = Menu::open(items(), [0.0, 0.0, 10.0, 10.0], (800.0, 600.0), 1.0);
+        assert!(!plain.has_access_keys());
     }
 
     #[test]

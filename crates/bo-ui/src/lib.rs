@@ -151,7 +151,7 @@ pub use editor_window::{EditTool, EditorWindow};
 pub use icons::{parse_path, IconColors, Icons};
 pub use input::{Input, Key, Mods};
 pub use pdf_window::PdfWindow;
-pub use popup::{Choice, Menu, MenuItem, MenuLook};
+pub use popup::{set_keyboard_cues, split_access_key, Choice, Menu, MenuItem, MenuLook};
 pub use reader_impose::{
     plan as print_plan, BookletSides, Duplex, PageOrder, Placement, PlanOptions, PrintLayout, Sheet,
 };
@@ -165,7 +165,7 @@ pub use reader_window::{Panel, ReaderRequest, ReaderWindow, Tool};
 pub use ribbon::{Ribbon, RibbonHit};
 pub use ruler::Ruler;
 pub use sheet_view::{CellFormat, GridBand, GridMove, GridRing, GridStore, SheetView, Stats};
-pub use sheet_window::{PaintHash, SheetWindow};
+pub use sheet_window::{PaintHash, SheetJob, SheetWindow};
 pub use shell::{DocWindow, FileDetails, PrintJob, Request};
 pub use slide_view::{Focus, SlideView, ViewMode, SLIDE_CANVAS};
 pub use slide_window::{InsertFile, SlideWindow, WindowRequest};

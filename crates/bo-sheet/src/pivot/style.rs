@@ -2,20 +2,26 @@
 //! table style elements §18.8.40 `tableStyleElement`).
 //!
 //! The built-in style *names* of §18.8.40 (`PivotStyleLight1`–`28`,
-//! `PivotStyleMedium1`–`28`, `PivotStyleDark1`–`28`) are kept in the file;
-//! BlueSheet draws them with its own colour palette: the style family sets
-//! how strong the header / total fills are, the number picks one of seven
-//! BlueSheet accent colours. The formatting is written into the report cells
-//! (header row, subtotal and grand total lines, banded rows / columns).
+//! `PivotStyleMedium1`–`28`, `PivotStyleDark1`–`28`) are kept in the file. The
+//! built-in styles are defined on the workbook's theme colours (§18.8.40,
+//! §18.8.41): the number picks dark 1 or accent 1–6 in turn (1, 8, 15, 22 →
+//! dark 1; 2, 9, 16, 23 → accent 1; …), so a workbook with another theme
+//! restyles its reports, as the reference. The family sets how strong the header
+//! / total fills are (BlueSheet's own tints). The formatting is written into the
+//! report cells (header row, subtotal and grand total lines, banded rows /
+//! columns).
 
 use super::compute::{ColKind, Layout, RowKind};
 use crate::style::{apply_borders, apply_patch, BorderPreset, BorderSpec, StylePatch};
-use bo_model::sheet::{CellRange, CellRef, PivotStyleInfo, Workbook};
+use bo_model::sheet::{CellRange, CellRef, PivotStyleInfo, ThemeColors, Workbook};
 
-/// BlueSheet accent colours (`RRGGBB`): neutral, blue, amber, green, violet, teal, brick.
-const ACCENTS: [&str; 7] = [
-    "5B6472", "2F6FB3", "C9822B", "3F8F5A", "7457A8", "23878A", "B04A3C",
-];
+/// The theme colour of a style number (`RRGGBB`): dark 1, then accent 1–6 in turn
+/// (SpreadsheetML theme indexes: 1 = dk1, 4–9 = accent1–6).
+fn accent(number: usize, theme: Option<&ThemeColors>) -> String {
+    let i = number.saturating_sub(1) % 7;
+    let index = if i == 0 { 1 } else { 3 + i as u32 };
+    crate::color::hex(crate::color::theme_rgb(index, theme))
+}
 
 /// Default style of a new pivot table.
 pub const DEFAULT_STYLE: &str = "PivotStyleLight16";
@@ -74,9 +80,14 @@ fn shade(hex: &str, t: f64) -> String {
     format!("{:02X}{:02X}{:02X}", ch(16), ch(8), ch(0))
 }
 
-/// The palette of a pivot or table style name (`PivotStyleMedium2`, `TableStyleMedium2`);
-/// unknown names use the light family.
+/// The palette of a pivot or table style name (`PivotStyleMedium2`, `TableStyleMedium2`)
+/// with the default theme; unknown names use the light family.
 pub fn palette(name: &str) -> Palette {
+    palette_themed(name, None)
+}
+
+/// [`palette`] on the colours of `theme` (`None`: the default theme).
+pub fn palette_themed(name: &str, theme: Option<&ThemeColors>) -> Palette {
     let (family, number) = ["Light", "Medium", "Dark"]
         .iter()
         .find_map(|f| {
@@ -87,7 +98,8 @@ pub fn palette(name: &str) -> Palette {
             Some((*f, rest.parse::<usize>().ok()?))
         })
         .unwrap_or(("Light", 16));
-    let accent = ACCENTS[number.saturating_sub(1) % ACCENTS.len()];
+    let accent = accent(number, theme);
+    let accent = accent.as_str();
     match family {
         "Medium" => Palette {
             header_fill: Some(accent.to_owned()),
@@ -143,7 +155,7 @@ pub(crate) fn apply(
         }
         return;
     };
-    let p = palette(&info.name);
+    let p = palette_themed(&info.name, wb.theme.as_ref());
     let fill = |color: &Option<String>, font: &Option<String>, bold: bool| StylePatch {
         fill_color: color.clone(),
         font_color: font.clone(),
@@ -272,15 +284,36 @@ mod tests {
     #[test]
     fn palettes_follow_family_and_number() {
         let light = palette("PivotStyleLight16");
-        assert_eq!(light.header_border, ACCENTS[1]);
+        assert_eq!(light.header_border, accent(2, None), "Light16 is accent 1");
+        assert_eq!(accent(15, None), accent(1, None), "every 7th is dark 1");
         assert_eq!(light.header_font, None);
         let medium = palette("PivotStyleMedium9");
-        assert_eq!(medium.header_fill.as_deref(), Some(ACCENTS[1]));
+        assert_eq!(
+            medium.header_fill.as_deref(),
+            Some(accent(9, None).as_str())
+        );
         assert_eq!(medium.header_font.as_deref(), Some("FFFFFF"));
         let dark = palette("PivotStyleDark2");
         assert_eq!(dark.grand_font.as_deref(), Some("FFFFFF"));
         assert_eq!(palette("Custom"), light);
         assert_eq!(tint("000000", 0.5), "808080");
+        // Another theme restyles the built-in styles (accent 2 of the scheme).
+        let theme = ThemeColors {
+            colors: [
+                "000000", "FFFFFF", "1F497D", "EEECE1", "4F81BD", "C0504D", "9BBB59", "8064A2",
+                "4BACC6", "F79646", "0000FF", "800080",
+            ]
+            .map(str::to_owned)
+            .to_vec(),
+        };
+        assert_eq!(
+            palette_themed("PivotStyleLight17", Some(&theme)).header_border,
+            "C0504D"
+        );
+        assert_eq!(
+            palette_themed("PivotStyleLight14", Some(&theme)).header_border,
+            "F79646"
+        );
         assert_eq!(shade("FFFFFF", 0.5), "808080");
     }
 }

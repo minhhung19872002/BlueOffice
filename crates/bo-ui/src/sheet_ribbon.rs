@@ -509,6 +509,7 @@ pub(crate) fn menu(id: &str, functions: &[String]) -> Vec<Entry> {
             e("calc.auto", "sheetMenu.calcAuto"),
             e("calc.manual", "sheetMenu.calcManual"),
         ],
+        _ if id.starts_with("sheet.pvt") => crate::sheet_window::pivot_menu(id),
         _ if id.starts_with("sheet.chart") && !crate::sheet_window::chart_menu(id).is_empty() => {
             crate::sheet_window::chart_menu(id)
         }
@@ -706,7 +707,11 @@ pub(crate) fn number_box_width(wide: bool) -> f32 {
 pub(crate) fn late(id: &str) -> bool {
     matches!(
         id,
-        "sheet.filterClear" | "sheet.filterReapply" | "sheet.filterAdvanced"
+        "sheet.filterClear"
+            | "sheet.filterReapply"
+            | "sheet.filterAdvanced"
+            | "sheet.pvtExpand"
+            | "sheet.pvtCollapse"
     )
 }
 
@@ -719,6 +724,7 @@ pub(crate) fn trailing(id: &str) -> bool {
             | "sheet.chartMap"
             | "sheet.pivotChart"
             | "sheet.tblSlicer"
+            | "sheet.pvtShowDetails"
             | "sheet.sortDialog"
             | "sheet.filter"
             | "sheet.watchWindow"

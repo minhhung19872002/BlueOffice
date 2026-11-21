@@ -221,6 +221,22 @@ pub fn text_scale_factor() -> f32 {
     }
 }
 
+/// Whether Windows always underlines access keys (`SPI_GETKEYBOARDCUES`).
+#[allow(dead_code)] // BlueSheet only (each window is its own binary)
+pub fn keyboard_cues() -> bool {
+    let mut on = windows::core::BOOL(0);
+    // SAFETY: the out pointer refers to a live BOOL.
+    unsafe {
+        let _ = SystemParametersInfoW(
+            windows::Win32::UI::WindowsAndMessaging::SPI_GETKEYBOARDCUES,
+            0,
+            Some((&raw mut on).cast()),
+            SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
+        );
+    }
+    on.as_bool()
+}
+
 /// A value of the user's region settings (`HKCU\Control Panel\International`), such as
 /// `sShortDate` (`M/d/yyyy`) or `sDecimal`.
 #[allow(dead_code)] // BlueSheet only (each window is its own binary)

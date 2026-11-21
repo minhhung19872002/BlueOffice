@@ -128,6 +128,10 @@ impl SlideView {
                 if matches!(t, "g" | "G" | "-") {
                     return Some(self.open_show_overview());
                 }
+                // "+" zooms into the middle of the slide (reference).
+                if matches!(t, "+" | "=") {
+                    return Some(self.magnify_center());
+                }
                 if matches!(t, "e" | "E") {
                     let i = self.show_slide()?;
                     return Some(self.show_tools.strokes.remove(&i).is_some());

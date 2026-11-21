@@ -35,6 +35,18 @@ impl SlideView {
         true
     }
 
+    /// "+" while presenting: twice the size about the slide's centre.
+    pub fn magnify_center(&mut self) -> bool {
+        if self.show_slide().is_none() {
+            return false;
+        }
+        self.magnify = Some(Magnify {
+            center: Some((0.5, 0.5)),
+            ..Magnify::default()
+        });
+        true
+    }
+
     /// Back to the whole slide.
     pub fn cancel_magnify(&mut self) -> bool {
         self.magnify.take().is_some()
@@ -148,11 +160,17 @@ impl SlideView {
         p.fill_rect(r[0], ly + lh, r[2], r[1] + r[3] - ly - lh, dim);
         p.fill_rect(r[0], ly, lx - r[0], lh, dim);
         p.fill_rect(lx + lw, ly, r[0] + r[2] - lx - lw, lh, dim);
-        let one = (self.display_scale).round().max(1.0);
-        let white = Rgba(255, 255, 255, 255);
-        p.fill_rect(lx, ly, lw, one, white);
-        p.fill_rect(lx, ly + lh - one, lw, one, white);
-        p.fill_rect(lx, ly, one, lh, white);
-        p.fill_rect(lx + lw - one, ly, one, lh, white);
+        // The lens frame as one stroked path (separate thin rectangles can be merged into
+        // their bounding box by a backend).
+        let one = self.display_scale.round().max(1.0);
+        let h = one / 2.0;
+        let frame = [
+            bo_render::PathSeg::M(lx + h, ly + h),
+            bo_render::PathSeg::L(lx + lw - h, ly + h),
+            bo_render::PathSeg::L(lx + lw - h, ly + lh - h),
+            bo_render::PathSeg::L(lx + h, ly + lh - h),
+            bo_render::PathSeg::Z,
+        ];
+        p.path(&frame, None, Some((Rgba(255, 255, 255, 255), one)));
     }
 }

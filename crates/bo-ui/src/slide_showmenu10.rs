@@ -106,6 +106,9 @@ impl SlideWindow {
             }
             return Some(false);
         }
+        if self.menu.is_none() && matches!(input, Input::Key(Key::F(1), _)) {
+            return Some(self.open_show_help());
+        }
         if self.menu.is_none()
             && matches!(input, Input::Context { .. })
             && self.view.cancel_magnify()

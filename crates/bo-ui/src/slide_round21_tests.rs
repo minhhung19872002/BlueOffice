@@ -408,6 +408,18 @@ fn magnify_slide_zooms_pans_and_goes_back() {
     // A right click goes back to the whole slide (no menu).
     w.handle(Input::Context { x: 400.0, y: 300.0 }, &Fixed);
     assert!(w.view.show_magnify().is_none() && w.menu.is_none());
+    // "+" zooms into the middle; Esc goes back.
+    w.handle(Input::Text("+".into()), &Fixed);
+    assert_eq!(
+        w.view.show_magnify().and_then(|m| m.center),
+        Some((0.5, 0.5))
+    );
+    w.handle(Input::Key(Key::Escape, Mods::default()), &Fixed);
+    assert!(w.view.show_magnify().is_none() && w.view.showing());
+    // F1 shows Help too.
+    w.handle(Input::Key(Key::F(1), Mods::default()), &Fixed);
+    assert!(w.show_help);
+    w.handle(Input::Key(Key::Escape, Mods::default()), &Fixed);
     // Help shows the keys until a key is pressed.
     assert!(w.choose(Choice::Command("shw:help".into())));
     assert!(w.show_help);

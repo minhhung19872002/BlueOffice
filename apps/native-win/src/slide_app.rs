@@ -14,6 +14,14 @@ use std::io::Write;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Instant;
 
+// File screen requests (round 10 of the slide series).
+#[path = "slide_host10.rs"]
+mod host10;
+// GDI printing (Win32 calls confined to this child module, like win32.rs).
+#[path = "reader_print.rs"]
+#[allow(unsafe_code, dead_code)]
+mod print;
+
 /// Interface text size factor (the Windows text size setting), as `f32` bits.
 static TEXT_SCALE: AtomicU32 = AtomicU32::new(0x3f80_0000);
 
@@ -33,6 +41,7 @@ fn ui_size(size: f32) -> f32 {
 }
 
 /// Open the presentation named on the command line (or a new one) and run the window.
+#[allow(clippy::too_many_lines)] // startup steps in order
 pub fn run() -> Result<(), String> {
     let started = Instant::now();
     let mut engine = Engine::with_bundled_fonts();
@@ -53,7 +62,15 @@ pub fn run() -> Result<(), String> {
     }
     let mut file = None;
     let mut open_ms = 0.0;
-    let name = if let Some(path) = std::env::args_os().nth(1) {
+    // `--theme=<id>`: a new presentation with one of the own themes (File > New).
+    let arg = std::env::args_os().nth(1);
+    let theme = arg
+        .as_ref()
+        .and_then(|a| a.to_str())
+        .and_then(|a| a.strip_prefix("--theme="))
+        .map(str::to_owned);
+    let arg = if theme.is_some() { None } else { arg };
+    let name = if let Some(path) = arg {
         let path = std::path::PathBuf::from(path);
         let bytes = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
         let name = path.file_name().map_or_else(
@@ -73,11 +90,44 @@ pub fn run() -> Result<(), String> {
         engine
             .open(&bytes, "Presentation1.pptx")
             .map_err(|e| e.to_string())?;
+        if let Some(t) = theme {
+            let _ = engine.slide_master_command(
+                bo_engine::slide_edit::master::MasterCommand::ApplyTheme {
+                    builtin: Some(t),
+                    file: None,
+                    all: true,
+                },
+            );
+        }
         engine.mark_saved();
         "Presentation1.pptx".into()
     };
     let locale = std::env::var("BLUEOFFICE_LOCALE").unwrap_or_else(|_| "en-US".into());
-    let view = SlideWindow::new(SlideView::new(engine)?, &locale, &name);
+    let mut view = SlideWindow::new(SlideView::new(engine)?, &locale, &name);
+    let offset = win32::utc_offset_minutes();
+    SlideWindow::set_utc_offset_minutes(offset);
+    bo_ui::set_keyboard_cues(win32::keyboard_cues());
+    let recent = match &file {
+        Some(p) => host10::touch_recent(p, &host10::today(offset)),
+        None => host10::read_recent(),
+    };
+    view.set_recent(recent);
+    view.set_file_info(
+        file.as_ref().map(|p| p.to_string_lossy().into_owned()),
+        file.as_ref()
+            .and_then(|p| std::fs::metadata(p).ok())
+            .map(|m| m.len()),
+    );
+    let (printers, default) = print::printers();
+    let default = default
+        .and_then(|d| printers.iter().position(|p| *p == d))
+        .unwrap_or(0);
+    let gray = printers
+        .iter()
+        .map(|p| host10::printer_prints_gray(p))
+        .collect();
+    view.set_printers(printers, default);
+    view.set_printer_grayscale(gray);
     let perf = std::env::var_os("BLUEOFFICE_NATIVE_PERF").and_then(|p| {
         std::fs::OpenOptions::new()
             .create(true)
@@ -102,6 +152,7 @@ pub fn run() -> Result<(), String> {
             anim_frame: None,
             startup: Some((started, open_ms)),
             hwnd: 0,
+            cursor_hidden: false,
         }),
     )
 }
@@ -309,6 +360,8 @@ struct Shell {
     epoch: Instant,
     /// This window.
     hwnd: isize,
+    /// The mouse pointer is hidden by the show.
+    cursor_hidden: bool,
     /// Process start and the engine's open time, logged with the first frame.
     startup: Option<(Instant, f64)>,
     /// Previous animation frame (frame pacing in the performance log).
@@ -325,6 +378,12 @@ impl Shell {
         match written {
             Ok(()) => {
                 self.view.view_mut().mark_saved();
+                self.view.set_file_info(
+                    Some(path.to_string_lossy().into_owned()),
+                    std::fs::metadata(path).ok().map(|m| m.len()),
+                );
+                let today = host10::today(win32::utc_offset_minutes());
+                self.view.set_recent(host10::touch_recent(path, &today));
                 true
             }
             Err(e) => {
@@ -412,6 +471,9 @@ impl Shell {
         if let Some(w) = self.view.take_window_request() {
             redraw |= self.window_request(w);
         }
+        for r in self.view.take_file_requests() {
+            redraw |= self.file_request(r);
+        }
         for r in self.view.take_requests() {
             match r {
                 Request::Save => {
@@ -478,6 +540,128 @@ impl Shell {
             }
         }
         redraw
+    }
+
+    /// What the File screen asks for.
+    fn file_request(&mut self, r: bo_ui::SlideFileRequest) -> bool {
+        use bo_ui::SlideFileRequest as F;
+        let stem = self.file.as_ref().and_then(|p| p.file_stem()).map_or_else(
+            || "Presentation1".to_owned(),
+            |n| n.to_string_lossy().into_owned(),
+        );
+        let save = |bytes: Vec<u8>, filter: (&str, &str), name: &str| {
+            if let Some(path) = win32::file_dialog(true, &[filter], name) {
+                if let Err(e) = std::fs::write(&path, bytes) {
+                    eprintln!("export {}: {e}", path.display());
+                }
+            }
+        };
+        match r {
+            F::OpenPath(p) => spawn_self(Some(std::path::Path::new(&p))),
+            F::New(theme) => {
+                if let Ok(exe) = std::env::current_exe() {
+                    let mut cmd = std::process::Command::new(exe);
+                    if let Some(t) = theme {
+                        cmd.arg(format!("--theme={t}"));
+                    }
+                    let _ = cmd.spawn();
+                }
+            }
+            F::SaveAsType(_) | F::ExportVideo | F::ExportPackage => {
+                let ext = match r {
+                    F::SaveAsType(ext) => ext,
+                    F::ExportVideo => "gif".to_owned(),
+                    _ => "zip".to_owned(),
+                };
+                let current = self.view.view().current();
+                match host10::export_as(self.view.view_mut().engine_mut(), &ext, current) {
+                    Ok((bytes, filter)) => save(bytes, filter, &format!("{stem}.{ext}")),
+                    Err(e) => eprintln!("export: {e}"),
+                }
+            }
+            F::ExportHandouts(per) => {
+                match host10::handouts(self.view.view_mut().engine_mut(), per) {
+                    Ok(bytes) => save(bytes, ("PDF (*.pdf)", "*.pdf"), &format!("{stem}.pdf")),
+                    Err(e) => eprintln!("handouts: {e}"),
+                }
+            }
+            F::OpenLocation(p) => host10::open_location(&p),
+            F::PrinterProperties(name) => {
+                // The driver's own settings dialog; nothing is printed.
+                let _ = print::properties(self.hwnd, &name, None);
+            }
+            F::Print(job) => {
+                if let Err(e) = self.print_job(&job) {
+                    eprintln!("print: {e}");
+                }
+            }
+        }
+        false
+    }
+
+    /// Print `job` on its printer: each printed page rendered by the engine at the printer's
+    /// resolution, fitted to the printable area.
+    fn print_job(&mut self, job: &bo_ui::SlidePrintJob) -> Result<usize, String> {
+        let engine = self.view.view_mut().engine_mut();
+        let pages = host10::job_pages(engine, job)?;
+        let order = host10::sheet_order(pages.len(), job.copies, job.collated);
+        let sizes: Vec<(f32, f32)> = pages.iter().map(|p| (p.width, p.height)).collect();
+        let landscape = sizes.first().is_some_and(|(w, h)| w > h);
+        let plan = |area: (f32, f32)| -> Vec<bo_ui::Sheet> {
+            order
+                .iter()
+                .map(|&i| bo_ui::Sheet {
+                    items: vec![bo_ui::Placement {
+                        page: i,
+                        clip: None,
+                        dest: host10::fit(sizes[i], area),
+                        turn: false,
+                        border: false,
+                        tile: None,
+                        cut_marks: false,
+                    }],
+                })
+                .collect()
+        };
+        let size_of = |i: usize| sizes.get(i).copied().unwrap_or((612.0, 792.0));
+        let engine = self.view.view().engine();
+        let bw = job.color == 2;
+        let mut render = |i: usize, scale: f32| -> Option<print::PrintPage> {
+            let png = engine.page_list_png(pages.get(i)?, scale).ok()?;
+            let (width, height, mut pixels) = bo_raster::decode_premultiplied(&png)?;
+            if bw {
+                bo_ui::black_white(&mut pixels);
+            }
+            Some(print::PrintPage {
+                width,
+                height,
+                pixels,
+            })
+        };
+        let options = print::Options {
+            grayscale: job.color != 0,
+            duplex: job.sides,
+            output: None,
+            landscape,
+            max_dpi: 300.0,
+            devmode: None,
+            paper: None,
+        };
+        print::print(
+            &job.printer,
+            &self.view_name(),
+            &plan,
+            &size_of,
+            &options,
+            &mut render,
+        )
+    }
+
+    fn view_name(&self) -> String {
+        self.file.as_ref().and_then(|p| p.file_name()).map_or_else(
+            || "Presentation1".to_owned(),
+            |n| n.to_string_lossy().into_owned(),
+        )
     }
 
     /// View > Window: another window, arrange, cascade, switch among BlueSlide windows.
@@ -602,6 +786,12 @@ impl Handler for Shell {
         let m = Measure(self.gpu.as_ref().map(|g| &g.device));
         let mut redraw = self.view.handle(input, &m);
         redraw |= self.handle_requests();
+        // The show's pointer hiding (Ctrl+H / Ctrl+U), also without a mouse move.
+        let hidden = self.view.view().show_cursor_hidden();
+        if hidden != self.cursor_hidden {
+            self.cursor_hidden = hidden;
+            win32::set_cursor_hidden(hidden);
+        }
         if !redraw {
             return;
         }
@@ -666,6 +856,11 @@ impl Handler for Shell {
 
     fn nc_hit(&self, x: f32, y: f32) -> NcHit {
         self.view.nc_hit(x, y)
+    }
+
+    fn cursor(&self) -> Option<u8> {
+        // 7: no pointer (the show hides it); otherwise the window class arrow.
+        self.view.view().show_cursor_hidden().then_some(7)
     }
 
     fn window_requests(&mut self) -> Vec<Request> {

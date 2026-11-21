@@ -799,21 +799,36 @@ pub(crate) fn install_icons(icons: &mut Icons) {
             ("M12 12h8v8h-8Z", Some(Rgba(0xe8, 0x8a, 0x2e, 255))),
         ],
     );
-    icons.alias("design.fonts", "format.fontDialog");
+    // Fonts: a large dark "Aa" (own letter drawings; capital with its counter cut out,
+    // a single-storey lower case).
+    icons.add_solid(
+        "design.fonts",
+        &[
+            (
+                "M0.5 21.5L6 2.5H9L14.5 21.5H11.8L10.6 17.4H4.4L3.2 21.5Z M5.1 14.9L7.5 6.8L9.9 14.9Z",
+                Some(Rgba(0x40, 0x40, 0x40, 255)),
+            ),
+            (
+                "M14.4 17.2a4.4 4.4 0 1 0 8.8 0a4.4 4.4 0 1 0 -8.8 0Z M16.5 17.2a2.3 2.3 0 1 1 4.6 0a2.3 2.3 0 1 1 -4.6 0Z",
+                Some(Rgba(0x40, 0x40, 0x40, 255)),
+            ),
+            ("M21.4 12.3H23.5V21.5H21.4Z", Some(Rgba(0x40, 0x40, 0x40, 255))),
+        ],
+    );
     // Variants: a card with a brush; Effects: a bevelled tile (own drawings).
     icons.add_solid(
         "design.variants",
         &[
             (
-                "M4 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-14a2 2 0 0 1-2-2v-12a2 2 0 0 1 2-2Z",
+                "M3 2h16a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2h-16a2 2 0 0 1-2-2v-16a2 2 0 0 1 2-2Z",
                 Some(Rgba(255, 255, 255, 255)),
             ),
             (
-                "M4 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-14a2 2 0 0 1-2-2v-12a2 2 0 0 1 2-2Z",
+                "M3 2h16a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2h-16a2 2 0 0 1-2-2v-16a2 2 0 0 1 2-2Z",
                 None,
             ),
             (
-                "M12 16l9-9l1.5 1.5l-9 9Z",
+                "M11 18l11-11l1.8 1.8l-11 11Z",
                 Some(Rgba(0x5b, 0x8f, 0xd0, 255)),
             ),
         ],
@@ -822,17 +837,68 @@ pub(crate) fn install_icons(icons: &mut Icons) {
         "design.effects",
         &[
             (
-                "M5 6h12l3 3v10h-12l-3-3Z",
+                "M2 3h16l4 4v14h-16l-4-4Z",
                 Some(Rgba(0x80, 0x80, 0x80, 255)),
             ),
-            ("M5 6h12v10h-12Z", Some(Rgba(0xe6, 0xe6, 0xe6, 255))),
-            ("M5 6h12v10h-12Z", None),
+            ("M2 3h16v14h-16Z", Some(Rgba(0xe6, 0xe6, 0xe6, 255))),
+            ("M2 3h16v14h-16Z", None),
         ],
     );
-    icons.alias("design.layout", "layout.pageSetup");
+    // Layout: a slide with its title bar and two content placeholders (own drawing).
+    icons.add_solid(
+        "design.layout",
+        &[
+            ("M1 3h22v18h-22Z", Some(Rgba(0xff, 0xff, 0xff, 255))),
+            ("M1 3h22v18h-22Z", None),
+            ("M3.5 5.5h17v3.5h-17Z", Some(Rgba(0x5b, 0x8f, 0xd0, 255))),
+            ("M3.5 11h7.8v7.8h-7.8Z", Some(Rgba(0xc6, 0xc6, 0xc6, 255))),
+            ("M12.7 11h7.8v7.8h-7.8Z", Some(Rgba(0xc6, 0xc6, 0xc6, 255))),
+        ],
+    );
     icons.alias("design.more", "transition.more");
-    icons.alias("design.slideSize", "layout.size");
-    icons.alias("design.background", "format.fillColor");
+    // Colors, Background Styles and Slide Size: own drawings filling the large icon box
+    // like the reference's 32 px icons (BlueDoc's shared ones stay as they are).
+    icons.add_solid(
+        "design.colors",
+        &[
+            ("M1 1h10.5v10.5h-10.5Z", Some(Rgba(0x2b, 0x79, 0xd0, 255))),
+            (
+                "M12.5 1h10.5v10.5h-10.5Z",
+                Some(Rgba(0xd9, 0xd9, 0xd9, 255)),
+            ),
+            (
+                "M1 12.5h10.5v10.5h-10.5Z",
+                Some(Rgba(0x3a, 0x9a, 0x5a, 255)),
+            ),
+            (
+                "M12.5 12.5h10.5v10.5h-10.5Z",
+                Some(Rgba(0xe8, 0x8a, 0x2e, 255)),
+            ),
+        ],
+    );
+    icons.add_solid(
+        "design.background",
+        &[
+            ("M1 4h17v17h-17Z", Some(Rgba(0xde, 0xea, 0xf6, 255))),
+            ("M1 4h17v17h-17Z", None),
+            ("M8 1l8 8l-6 6l-8-8Z", Some(Rgba(0xff, 0xff, 0xff, 255))),
+            ("M8 1l8 8l-6 6l-8-8Z", None),
+            (
+                "M18 11c1.6 2.6 3 4.4 3 6a3 3 0 0 1-6 0c0-1.6 1.4-3.4 3-6Z",
+                Some(Rgba(0xd2, 0x4a, 0x3c, 255)),
+            ),
+        ],
+    );
+    icons.add_solid(
+        "design.slideSize",
+        &[
+            ("M1 3h22v18h-22Z", Some(Rgba(0xff, 0xff, 0xff, 255))),
+            ("M1 3h22v18h-22Z", None),
+            ("M7 15.5l9-7", None),
+            ("M5 18l1-5l4 3Z", Some(Rgba(0x2b, 0x79, 0xd0, 255))),
+            ("M19 6l-1 5l-4-3Z", Some(Rgba(0x2b, 0x79, 0xd0, 255))),
+        ],
+    );
     icons.alias("review.comments", "review.pane");
     // Comment commands: a speech bubble with a red cross / blue arrows (own drawings).
     let bubble = "M3 4h18v12h-10l-5 4v-4h-3Z";

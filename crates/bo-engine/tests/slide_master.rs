@@ -913,3 +913,58 @@ fn saving_in_the_master_view_clears_modified() {
     let r = run_json(&mut e, &json!({"cmd":"undo"}));
     assert_eq!(r["modified"], true);
 }
+
+#[test]
+fn gradient_and_pattern_backgrounds_round_trip() {
+    use bo_model::slide::GradientShade;
+    let mut e = open();
+    run_json(
+        &mut e,
+        &json!({"cmd":"setBackgroundFill","kind":"gradient","colors":["DEEAF6","4472C4"],"angle":45}),
+    );
+    run_json(&mut e, &json!({"cmd":"goTo","slide":1}));
+    run_json(
+        &mut e,
+        &json!({"cmd":"setBackgroundFill","kind":"pattern","preset":"ltDnDiag","colors":["4472C4","FFFFFF"]}),
+    );
+    assert!(error_of(
+        &mut e,
+        &json!({"cmd":"setBackgroundFill","kind":"gradient","colors":["FFFFFF"]})
+    )
+    .is_some());
+    let bytes = e.save_pptx().unwrap();
+    keep("background-fills.pptx", &bytes);
+    let mut again = Engine::with_bundled_fonts();
+    again.open(&bytes, "bg.pptx").unwrap();
+    let p = pres(&again);
+    match &p.slides[0].data.background {
+        Some(Background::Props {
+            fill: Fill::Gradient(g),
+            ..
+        }) => {
+            assert_eq!(g.stops.len(), 2);
+            assert_eq!(g.stops[1].pos, 100_000);
+            assert!(matches!(
+                g.shade,
+                Some(GradientShade::Linear { ang: 2_700_000, .. })
+            ));
+        }
+        other => panic!("{other:?}"),
+    }
+    match &p.slides[1].data.background {
+        Some(Background::Props {
+            fill: Fill::Pattern(pf),
+            ..
+        }) => assert_eq!(pf.preset.as_deref(), Some("ltDnDiag")),
+        other => panic!("{other:?}"),
+    }
+    // Every slide at once.
+    run_json(
+        &mut e,
+        &json!({"cmd":"setBackgroundFill","kind":"gradient","colors":["FFFFFF","000000","FF0000"],"all":true}),
+    );
+    assert!(pres(&e).slides.iter().all(|s| matches!(
+        &s.data.background,
+        Some(Background::Props { fill: Fill::Gradient(g), .. }) if g.stops.len() == 3
+    )));
+}

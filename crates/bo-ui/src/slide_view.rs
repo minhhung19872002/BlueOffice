@@ -302,6 +302,12 @@ mod thumb_sections;
 #[path = "slide_show_tools.rs"]
 pub mod show_tools;
 
+#[path = "slide_show_all10.rs"]
+pub mod show_all;
+
+#[path = "slide_magnify10.rs"]
+pub mod magnify;
+
 /// The editing area of one presentation.
 pub struct SlideView {
     /// Ids of the sections collapsed in the thumbnails pane.
@@ -340,6 +346,10 @@ pub struct SlideView {
     full_page: bool,
     /// Slide show keys and pointer tools (blank screens, pen, laser).
     show_tools: show_tools::ShowTools,
+    /// See All Slides while presenting (the slide grid).
+    show_all: Option<show_all::Overview>,
+    /// Magnify Slide while presenting.
+    magnify: Option<magnify::Magnify>,
     /// Shift / Ctrl held with the mouse button (host: the mouse message's key flags).
     pointer_mods: Mods,
     /// Shift + press on a selected shape: it leaves the selection on release unless the
@@ -446,6 +456,8 @@ impl SlideView {
             show_notes: true,
             full_page: false,
             show_tools: show_tools::ShowTools::default(),
+            show_all: None,
+            magnify: None,
             pointer_mods: Mods::default(),
             shift_toggle: None,
             pending_text: None,
@@ -2338,6 +2350,8 @@ impl SlideView {
         let ink = self.show_ink();
         self.pending_ink = (!ink.is_empty()).then_some(ink);
         self.reset_show_tools();
+        self.show_all = None;
+        self.magnify = None;
         self.reading = false;
         if !s.ended {
             self.go_to(s.index);
@@ -2352,6 +2366,7 @@ impl SlideView {
         let Some(index) = self.show.as_ref().map(|s| s.index) else {
             return;
         };
+        self.note_shown(index);
         let info = self
             .engine
             .slide_command(SlideCommand::Show { slide: index })
@@ -2373,6 +2388,10 @@ impl SlideView {
                 .is_some_and(|i| crate::slide_show::step_end(i, 0) > 0.0);
             s.fx_start = automatic.then_some(now);
             s.arrived = now;
+            // A paused show stays paused on the new slide, its clock from here.
+            if self.show_tools.paused_at.is_some() {
+                self.show_tools.paused_at = Some(now);
+            }
         }
     }
 
@@ -2447,7 +2466,8 @@ impl SlideView {
                 && after.is_some_and(|a| now - s.arrived >= f64::from(a))
         });
         let tick = self.timer_tick();
-        (due && self.timings_on() && self.show_step(true)) || tick
+        let held = self.show_all.is_some() || self.show_tools.paused_at.is_some();
+        (due && !held && self.timings_on() && self.show_step(true)) || tick
     }
 
     fn show_step(&mut self, forward: bool) -> bool {
@@ -2540,6 +2560,12 @@ impl SlideView {
 
     fn show_input(&mut self, input: &Input) -> bool {
         if !self.previewing() {
+            if let Some(r) = self.magnify_input(input) {
+                return r;
+            }
+            if let Some(r) = self.overview_input(input) {
+                return r;
+            }
             if let Some(r) = self.show_tools_input(input) {
                 return r;
             }
@@ -2683,6 +2709,9 @@ impl SlideView {
         for k in dead {
             self.forget(store, k);
         }
+        if self.show_all.is_some() {
+            return self.prepare_overview(store);
+        }
         if let Some(i) = self.show_slide() {
             let scale = self.show_scale();
             let key = SHOW_KEY + self.ids[i];
@@ -2708,6 +2737,7 @@ impl SlideView {
                 }
             }
             self.prepare_layers(store, i, scale)?;
+            self.prepare_magnify(store)?;
             self.evict(store, SHOW_KEY, SHOW_CACHE);
             return Ok(());
         }
@@ -3205,6 +3235,8 @@ impl SlideView {
         if self.show.is_some() && !self.previewing() {
             self.paint_show(p, text_size);
             self.paint_show_tools(p);
+            self.paint_magnify(p);
+            self.paint_overview(p, text_size);
             self.paint_rehearsal_bar(p, text_size);
             return;
         }

@@ -15,7 +15,7 @@ use crate::theme::Theme;
 use crate::titlebar::{NcHit, TitleBar};
 use crate::{Input, Key, Mods, PageStore, Painter, Request, TextMeasure, TextStyle};
 use bo_engine::slide_edit::clip_xfer::Copied;
-use bo_engine::slide_edit::master::{MasterCommand, SizeMode, COLOR_SETS, FONT_SETS};
+use bo_engine::slide_edit::master::{MasterCommand, COLOR_SETS, FONT_SETS};
 use bo_engine::slide_edit::show::{AnimSpec, TransitionSpec};
 use bo_engine::slide_edit::text::{Align, TextFormat};
 use bo_engine::slide_edit::SlideCommand;
@@ -252,6 +252,17 @@ pub struct SlideWindow {
     size: (f32, f32),
     scale: f32,
     menu: Option<Menu>,
+    /// The slide show menu's open submenu (Screen › / Pointer Options ›) and its main row.
+    show_sub: Option<(usize, Menu)>,
+    /// Right-click menu › Help is shown over the show.
+    show_help: bool,
+    /// Ctrl+T while presenting: out of full screen until the next key or click.
+    show_windowed: bool,
+    /// Help's page and hovered part.
+    help_tab: usize,
+    help_hover: Option<usize>,
+    /// Help's tab labels and their measured widths.
+    help_tab_w: Vec<(String, f32)>,
     /// What the open menu chooses.
     menu_kind: MenuKind,
     rest: u32,
@@ -316,6 +327,8 @@ pub struct SlideWindow {
     side: selpane::SidePane,
     /// Picture Format gallery of previews (Corrections, Color, Transparency).
     gallery: Option<pic::PicGallery>,
+    /// Design › Background Styles gallery.
+    bgs: Option<bgstyles::BgStyles>,
     /// Remove Background mode.
     bg_mode: Option<pic::BgMode>,
     /// Draw Borders pen of Table Design.
@@ -340,6 +353,8 @@ pub struct SlideWindow {
     spelling: spelling::SpellRun,
     /// Text the host should read aloud.
     speak: Option<String>,
+    /// File screen (round 10 of the slide series).
+    f10: file10_win::F10,
 }
 
 #[path = "slide_controls.rs"]
@@ -423,6 +438,22 @@ mod timing9;
 
 #[path = "slide_thesaurus.rs"]
 mod thesaurus;
+
+#[path = "slide_file10.rs"]
+mod file10;
+
+#[path = "slide_file10_win.rs"]
+mod file10_win;
+
+#[path = "slide_bgstyles10.rs"]
+mod bgstyles;
+
+#[path = "slide_showhelp10.rs"]
+mod showhelp;
+
+#[path = "slide_showmenu10.rs"]
+mod showmenu10;
+pub use file10_win::{FileRequest, SlidePrintJob};
 pub use ins::InsertFile;
 pub use views5::WindowRequest;
 
@@ -481,18 +512,15 @@ enum MenuKind {
     Font,
     Size,
     Layout,
-    /// Design: colour variants, font variants, slide size, background colour.
+    /// Design: colour variants, font variants, slide size.
     Colors,
     Fonts,
     SlideSize,
-    Background,
     /// Transitions: effect options (direction), duration.
     TransitionEffect,
     Duration,
     /// Animations: effect options (direction).
     AnimEffect,
-    /// Every transition / effect of the galleries.
-    TransitionMore,
     /// Design: theme effects; every theme (the gallery's "more" column).
     Effects,
     Themes,
@@ -505,19 +533,6 @@ const RIBBON_EXTRA: f32 = 0.8;
 
 /// Durations offered for a transition (ms).
 const DURATIONS: [u32; 8] = [250, 500, 750, 1000, 1500, 2000, 3000, 5000];
-
-/// Background colours offered by Format Background (`RRGGBB`; `None` resets).
-const BACKGROUNDS: [Option<&str>; 9] = [
-    None,
-    Some("FFFFFF"),
-    Some("F2F2F2"),
-    Some("D9D9D9"),
-    Some("000000"),
-    Some("DEEAF6"),
-    Some("E2F0D9"),
-    Some("FFF2CC"),
-    Some("FBE5D6"),
-];
 
 /// Ribbon state the enabling rule reads, carried in the format state's `style` (BlueSlide
 /// has no paragraph style gallery): `sel` with a selection, `anim` when it has an effect.
@@ -650,6 +665,10 @@ impl SlideWindow {
                 .with_row_widths(row_widths)
                 .with_two_line_labels()
                 .with_mark_on_own_line()
+                // Measured 2026-11-22 at 125 %: the reference's large labels, chevrons and
+                // group labels sit 3-4 px lower in the ribbon body than BlueDoc's.
+                .with_large_label_drop(2.4)
+                .with_label_drop(3.2)
                 .with_large_dim()
                 .with_late_rows(paragraph::late_row)
                 // Reference at 125 %: font box 213 px, size box 67.
@@ -667,6 +686,12 @@ impl SlideWindow {
             size: (800.0, 600.0),
             scale: 1.0,
             menu: None,
+            show_sub: None,
+            show_help: false,
+            show_windowed: false,
+            help_tab: 0,
+            help_hover: None,
+            help_tab_w: Vec::new(),
             menu_kind: MenuKind::Font,
             rest: 0,
             tooltip: None,
@@ -706,6 +731,7 @@ impl SlideWindow {
             status9: status9::Status9::default(),
             side: selpane::SidePane::default(),
             gallery: None,
+            bgs: None,
             bg_mode: None,
             pen: fmt::Pen::default(),
             page_master: None,
@@ -718,6 +744,7 @@ impl SlideWindow {
             ctx_at: [0.0; 4],
             spelling: spelling::SpellRun::default(),
             speak: None,
+            f10: file10_win::F10::default(),
         }
     }
 
@@ -769,7 +796,8 @@ impl SlideWindow {
     /// Update the images the next frame shows.
     pub fn prepare(&mut self, store: &mut dyn PageStore) -> Result<(), String> {
         self.view.prepare(store)?;
-        self.prepare_picture(store)
+        self.prepare_picture(store)?;
+        self.prepare_file10(store)
     }
 
     /// Draw one image ahead of need; `true` while more remains (call when idle).
@@ -848,6 +876,7 @@ impl SlideWindow {
         if let Some(b) = self.backstage.as_mut() {
             b.layout(self.title.height(), self.size, self.scale);
         }
+        self.file10_relayout(text);
         // Status bar, right to left: fit button, percentage, plus, slider, minus; the notes
         // toggle before them.
         let (w, h) = self.size;
@@ -920,6 +949,12 @@ impl SlideWindow {
             | self.paste_format_painter(released)
             | self.sync_context()
             | self.after_rehearsal();
+        self.measure_bg_styles(text);
+        self.measure_help(text);
+        // The File screen measures its texts again (Print settings cut to their boxes).
+        if redraw && self.f10.bs.is_some() {
+            self.file10_relayout(text);
+        }
         // A show with ink ended: ask whether to keep it (reference message box).
         if !self.view.showing() && self.view.has_pending_ink() && self.dialog.is_none() {
             self.open_dialog(ins::SlideDialog::KeepInk);
@@ -1261,10 +1296,17 @@ impl SlideWindow {
                     "design.more" => (MenuKind::Themes, "design.more"),
                     "design.fonts" => (MenuKind::Fonts, "design.fonts"),
                     "design.slideSize" => (MenuKind::SlideSize, "design.slideSize"),
-                    "design.background" => (MenuKind::Background, "design.background"),
+                    "design.background" => return self.open_bg_styles(),
                     "transition.effect" => (MenuKind::TransitionEffect, "transition.effect"),
                     "transition.duration" => (MenuKind::Duration, "transition.duration"),
-                    "transition.more" => (MenuKind::TransitionMore, "transition.more"),
+                    "transition.more" => {
+                        // The full gallery with every transition's card, as the reference.
+                        self.open_picker(
+                            crate::slide_pickers::PickKind::Transitions,
+                            "transition.more",
+                        );
+                        return true;
+                    }
                     // The full gallery: effects by class with their pictures (round 17).
                     "anim.more" | "anim.add" => {
                         let anchor = if id == "anim.add" {
@@ -1976,35 +2018,6 @@ impl SlideWindow {
                 dim: false,
             }))
             .collect(),
-            MenuKind::Background => BACKGROUNDS
-                .iter()
-                .map(|c| MenuItem {
-                    label: match c {
-                        Some(hex) => format!("#{hex}"),
-                        None => self
-                            .strings
-                            .get("slideEditor.design.resetBackground")
-                            .to_owned(),
-                    },
-                    choice: Choice::Command(format!("bg:{}", c.unwrap_or(""))),
-                    checked: false,
-                    dim: false,
-                })
-                .chain([
-                    MenuItem {
-                        label: self.t("slideNative.formatBackgroundMenu", "Format Background..."),
-                        choice: Choice::Command("ins:formatBg".into()),
-                        checked: false,
-                        dim: false,
-                    },
-                    MenuItem {
-                        label: self.t("slideNative.hideGraphics", "Hide Background Graphics"),
-                        choice: Choice::Command("ins:hideGraphics".into()),
-                        checked: self.bg_pane.hide_graphics,
-                        dim: false,
-                    },
-                ])
-                .collect(),
             MenuKind::TransitionEffect => {
                 let t = self.view.state().and_then(|s| s.transition.clone());
                 t.map(|t| {
@@ -2041,7 +2054,6 @@ impl SlideWindow {
                 })
                 .unwrap_or_default()
             }
-            MenuKind::TransitionMore => Vec::new(),
             MenuKind::Duration => {
                 let cur = self
                     .view
@@ -2061,20 +2073,6 @@ impl SlideWindow {
                     })
                     .collect()
             }
-        };
-        let on = self.toggled();
-        let gallery = |list: &mut dyn Iterator<Item = &'static str>| -> Vec<MenuItem> {
-            list.map(|id| MenuItem {
-                label: self.strings.get(&format!("commands.{id}")).to_owned(),
-                choice: Choice::Command(id.to_owned()),
-                checked: on.contains(&id),
-                dim: false,
-            })
-            .collect()
-        };
-        let items = match kind {
-            MenuKind::TransitionMore => gallery(&mut sr::TRANSITIONS.iter().map(|(c, _)| *c)),
-            _ => items,
         };
         if items.is_empty() {
             return;
@@ -2125,18 +2123,25 @@ impl SlideWindow {
             }),
             "size" => {
                 let (cx, kind) = if v == "43" {
-                    (9_144_000, Some("screen4x3".to_owned()))
+                    (9_144_000, 1)
                 } else {
-                    (12_192_000, None)
+                    (12_192_000, 0)
                 };
-                let changed = self.view.run_master(MasterCommand::SetSlideSize {
+                let now = self
+                    .view
+                    .state()
+                    .and_then(|s| s.design.as_ref())
+                    .map(|d| (d.cx, d.cy));
+                if now == Some((cx, 6_858_000)) {
+                    return Some(false);
+                }
+                // The reference asks Maximize / Ensure Fit before changing the size.
+                self.open_dialog(ins::SlideDialog::ScaleContent {
                     cx,
                     cy: 6_858_000,
                     kind,
-                    mode: SizeMode::Fit,
                 });
-                self.view.set_zoom(None);
-                changed
+                true
             }
             "bg" => self.view.run_master(MasterCommand::SetBackground {
                 color: (!v.is_empty()).then(|| v.to_owned()),
@@ -2196,6 +2201,9 @@ impl SlideWindow {
             "side" => self.choose_format(v),
             "sect" => self.choose_section(v),
             "cshow" | "rec" => return self.choose_show(kind, v),
+            "fbs" => self.choose_file10(v),
+            "shw" if v == "help" => self.open_show_help(),
+            "shw" => self.view.show_command(v),
             "zoom" | "pm" => return self.choose_view(kind, v),
             _ => return self.choose_insert(kind, v),
         })
@@ -2312,13 +2320,21 @@ impl SlideWindow {
                 }
                 Input::Tick => self.view.show_tick(),
                 Input::Blink => false,
-                other => self.view.handle(other),
+                other => {
+                    if let Some(r) = self.show_menu_input(&other, text) {
+                        return r;
+                    }
+                    self.view.handle(other)
+                }
             };
         }
         if self.form8.is_some() {
             if let Some(r) = self.form8_input(&input) {
                 return r;
             }
+        }
+        if let Some(r) = self.file10_input(&input) {
+            return r;
         }
         if let Input::Key(k, m) = input {
             if let Some(r) = self.outline_key(k, m) {
@@ -2356,6 +2372,11 @@ impl SlideWindow {
                 return r;
             }
         }
+        if self.bgs.is_some() {
+            if let Some(r) = self.bgs_input(&input) {
+                return r;
+            }
+        }
         if self.gallery.is_some() {
             if let Some(r) = self.gallery_input(&input) {
                 return r;
@@ -2388,6 +2409,21 @@ impl SlideWindow {
         }
         if let Input::Key(Key::Letter('s'), Mods { ctrl: true, .. }) = input {
             return self.action("file.save");
+        }
+        // Ctrl+P: the File screen's Print page, as on the reference.
+        if let Input::Key(
+            Key::Letter('p'),
+            Mods {
+                ctrl: true,
+                shift: false,
+                alt: false,
+                ..
+            },
+        ) = input
+        {
+            if self.view.text_edit().is_none() {
+                return self.open_file_screen(file10::BsPage::Print);
+            }
         }
         if let Some(r) = self.spelling_key(&input) {
             return r;
@@ -2557,12 +2593,7 @@ impl SlideWindow {
                 }
                 let (fired, changed) = self.ribbon.release(x, y);
                 redraw |= match fired {
-                    Some(RibbonHit::File) => {
-                        let mut b = Backstage::default();
-                        b.layout(self.title.height(), self.size, self.scale);
-                        self.backstage = Some(b);
-                        true
-                    }
+                    Some(RibbonHit::File) => self.open_file_screen(file10::BsPage::Info),
                     Some(RibbonHit::Command(id)) => self.action(id),
                     Some(RibbonHit::FontBox) => {
                         self.open_menu(MenuKind::Font, RibbonHit::FontBox);
@@ -2598,6 +2629,7 @@ impl SlideWindow {
     pub fn paint(&self, p: &mut dyn Painter) {
         if self.view.showing() {
             self.view.paint(p, self.text_size);
+            self.paint_show_menu(p);
             return;
         }
         p.clear(self.theme.bg);
@@ -2652,6 +2684,7 @@ impl SlideWindow {
         self.paint_status(p);
         self.paint_status9(p);
         self.paint_gallery(p);
+        self.paint_bg_styles(p);
         if let Some(menu) = &self.menu {
             menu.paint(p, &self.theme, &self.icons);
         } else if let Some((label, tw, anchor)) = &self.tooltip {
@@ -2668,6 +2701,7 @@ impl SlideWindow {
                 self.view.modified(),
             );
         }
+        self.paint_file10(p);
         if let Some((d, _)) = &self.dialog {
             d.paint(p, &self.theme, self.size, true);
         }
@@ -3180,6 +3214,14 @@ mod round17_tests;
 #[cfg(test)]
 #[path = "slide_round19_tests.rs"]
 mod round19_tests;
+
+#[cfg(test)]
+#[path = "slide_round20_tests.rs"]
+mod round20_tests;
+
+#[cfg(test)]
+#[path = "slide_round21_tests.rs"]
+mod round21_tests;
 
 #[cfg(test)]
 #[path = "slide_round7_tests.rs"]

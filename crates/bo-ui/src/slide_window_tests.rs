@@ -193,9 +193,9 @@ fn transitions_tab_sets_duration_and_applies_to_all() {
     click_command(&mut w, "transition.applyAll");
     w.view_mut().go_to(1);
     assert_eq!(kind(&w).as_deref(), Some("fade"));
-    // The gallery's other transitions are in its menu.
+    // The gallery's other transitions are in its full gallery (round 20).
     click_command(&mut w, "transition.more");
-    assert!(w.menu.is_some());
+    assert!(w.picker.is_some());
 }
 
 #[test]

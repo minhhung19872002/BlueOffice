@@ -599,6 +599,18 @@ impl Engine {
         )?)
     }
 
+    /// Any page (a slide, a notes page or a handout page from [`Engine::notes_pages`] /
+    /// [`Engine::handout_pages`]) as PNG at `scale` pixels per point, with this deck's fonts
+    /// and pictures: what native hosts print.
+    pub fn page_list_png(&self, page: &PageList, scale: f32) -> Result<Vec<u8>> {
+        Ok(bo_raster::render_page_png_with(
+            page,
+            &self.fonts,
+            scale,
+            &self.image_source(),
+        )?)
+    }
+
     /// One slide as a picture in `format`, `width` pixels wide.
     pub fn slide_image(
         &self,

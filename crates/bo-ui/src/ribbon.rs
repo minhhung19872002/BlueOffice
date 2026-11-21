@@ -208,6 +208,8 @@ pub struct Ribbon {
     row_w: fn(&str) -> Option<f32>,
     /// One-word menu labels put their drop-down mark on a second line (BlueSlide).
     mark_line: bool,
+    /// Large button labels this much (logical px) lower than BlueDoc's (per app, measured).
+    large_drop: f32,
     /// Large buttons are dimmed by the enabled rule too (BlueSlide; BlueDoc's stay lit).
     large_dim: bool,
     /// Font and size box widths (logical px) instead of BlueDoc's.
@@ -766,6 +768,7 @@ impl Ribbon {
             large_lines: std::cell::RefCell::new(std::collections::HashMap::new()),
             row_w: |_| None,
             mark_line: false,
+            large_drop: 0.0,
             large_dim: false,
             box_w: None,
             large_metrics: (52.0, 14.0),
@@ -934,6 +937,12 @@ impl Ribbon {
     /// Put the drop-down mark of one-word menu labels on its own line, under the label.
     pub(crate) fn with_mark_on_own_line(mut self) -> Self {
         self.mark_line = true;
+        self
+    }
+
+    /// Move large button labels down by `drop` logical px (BlueSlide, measured).
+    pub(crate) fn with_large_label_drop(mut self, drop: f32) -> Self {
+        self.large_drop = drop;
         self
     }
 
@@ -2095,19 +2104,36 @@ impl Ribbon {
                     if let Some(lines) = self.large_lines.borrow().get(id) {
                         // Two lines 19.2 pt apart, each centred (measured on the reference).
                         for (i, (line, lw)) in lines.iter().enumerate() {
-                            p.text(
-                                line,
-                                (r.x + (r.w - lw) / 2.0).round(),
-                                r.y + self.px(40.0) + i as f32 * self.px(19.2),
-                                style,
-                                ink,
-                            );
+                            let lx = (r.x + (r.w - lw) / 2.0).round();
+                            let ly =
+                                r.y + self.px(40.0 + self.large_drop) + i as f32 * self.px(19.2);
+                            // BlueSlide: the drop-down mark is a thin chevron (reference).
+                            if let Some(text) =
+                                line.strip_suffix('\u{25BE}').filter(|_| self.mark_line)
+                            {
+                                p.text(text, lx, ly, style, ink);
+                                let cw = self.px(7.2);
+                                let cx = (lx + lw - cw / 2.0).round();
+                                let cy = (ly + style.size * 0.72).round();
+                                let hh = self.px(2.6);
+                                p.path(
+                                    &[
+                                        bo_render::PathSeg::M(cx - cw / 2.0 + 0.5, cy - hh / 2.0),
+                                        bo_render::PathSeg::L(cx, cy + hh / 2.0),
+                                        bo_render::PathSeg::L(cx + cw / 2.0 - 0.5, cy - hh / 2.0),
+                                    ],
+                                    None,
+                                    Some((ink, self.px(1.0))),
+                                );
+                            } else {
+                                p.text(line, lx, ly, style, ink);
+                            }
                         }
                     } else {
                         p.text(
                             &label,
                             (r.x + (r.w - w) / 2.0).round(),
-                            r.y + self.px(40.0),
+                            r.y + self.px(40.0 + self.large_drop),
                             style,
                             ink,
                         );

@@ -114,6 +114,11 @@ pub fn set_keyboard_cues(on: bool) {
     KEYBOARD_CUES.store(on, std::sync::atomic::Ordering::Relaxed);
 }
 
+/// Whether access keys are underlined without the keyboard (for popups other than [`Menu`]).
+pub(crate) fn keyboard_cues() -> bool {
+    KEYBOARD_CUES.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// A label's access key marked with `&` (`"&Bottom"`; `"&&"` is a literal `&`): the label
 /// without the markers, the key's byte offset in it.
 pub fn split_access_key(label: &str) -> (String, Option<usize>) {
@@ -345,6 +350,21 @@ impl Menu {
     fn clamp(&mut self) {
         let max = (self.items.len() as f32 * self.item_h + 2.0 * self.pad() - self.h).max(0.0);
         self.scroll = self.scroll.clamp(0.0, max).round();
+    }
+
+    /// Rectangle of row `i` in window pixels (cascading submenus open beside it).
+    pub fn row_rect(&self, i: usize) -> [f32; 4] {
+        [
+            self.x,
+            self.y + self.pad() + self.row_top(i) - self.scroll,
+            self.w,
+            self.item_h,
+        ]
+    }
+
+    /// The highlighted row.
+    pub fn hovered(&self) -> Option<usize> {
+        self.hover
     }
 
     /// Whether a window position is over the menu.

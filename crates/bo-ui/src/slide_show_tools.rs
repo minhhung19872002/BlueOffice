@@ -31,6 +31,8 @@ pub enum Pointer {
     Highlighter,
     /// Laser pointer (Ctrl+L): a red dot follows the pointer.
     Laser,
+    /// Eraser (Ctrl+E): a click removes the drawing under the pointer.
+    Eraser,
 }
 
 /// A drawn stroke, in fractions of the slide.
@@ -57,6 +59,17 @@ pub struct ShowTools {
     pub drawing: Option<ShowStroke>,
     /// Laser position (window pixels).
     pub laser: Option<(f32, f32)>,
+    /// The slide shown before the current one (right-click menu › Last Viewed).
+    pub last_viewed: Option<usize>,
+    /// The slide shown now (for [`ShowTools::last_viewed`]).
+    pub seen: Option<usize>,
+    /// Right-click menu › Pause: the show clock when automatic advance was paused.
+    pub paused_at: Option<f64>,
+    /// The arrow pointer: 0 shown, 1 hidden (Ctrl+H), 2 hidden after 3 s without moving
+    /// (Ctrl+U); Ctrl+A shows it again.
+    pub arrow_mode: u8,
+    /// Show clock of the last pointer move.
+    pub last_move: f64,
 }
 
 /// Pen ink (reference default: red) and highlighter (yellow, translucent).
@@ -71,7 +84,7 @@ impl SlideView {
     }
 
     /// Where the show slide is drawn (window pixels).
-    pub(super) fn show_slide_rect(&self) -> R {
+    pub(crate) fn show_slide_rect(&self) -> R {
         let [ax, ay, ww, wh] = self.show_area();
         let scale = self.show_scale();
         let (w, h) = self.slide_px(scale);
@@ -90,6 +103,9 @@ impl SlideView {
 
     /// Keys and pointer input of the show tools; `None` lets the show handle `input`.
     pub(super) fn show_tools_input(&mut self, input: &Input) -> Option<bool> {
+        if matches!(input, Input::Move { .. } | Input::Drag { .. }) {
+            self.show_tools.last_move = self.clock;
+        }
         // A blanked screen: any key or click brings the slide back (and does nothing else).
         if self.show_tools.screen.is_some() {
             return match input {
@@ -117,6 +133,22 @@ impl SlideView {
                     self.show_tools.screen = screen;
                     return Some(true);
                 }
+                if matches!(t, "g" | "G" | "-") {
+                    return Some(self.open_show_overview());
+                }
+                if matches!(t, "s" | "S") {
+                    let paused = self.show_tools.paused_at.is_some();
+                    return Some(self.show_command(if paused { "resume" } else { "pause" }));
+                }
+                if matches!(t, "h" | "H") {
+                    // The next slide in deck order, hidden or not.
+                    let i = self.show_slide()?;
+                    return Some(i + 1 < self.ids.len() && self.show_jump(i + 1));
+                }
+                // "+" zooms into the middle of the slide (reference).
+                if matches!(t, "+" | "=") {
+                    return Some(self.magnify_step(1));
+                }
                 if matches!(t, "e" | "E") {
                     let i = self.show_slide()?;
                     return Some(self.show_tools.strokes.remove(&i).is_some());
@@ -137,10 +169,20 @@ impl SlideView {
                     'p' => Pointer::Pen,
                     'i' => Pointer::Highlighter,
                     'l' => Pointer::Laser,
+                    'e' => Pointer::Eraser,
                     'a' => Pointer::Arrow,
+                    's' => return Some(self.open_show_overview()),
+                    'h' | 'u' => {
+                        self.show_tools.arrow_mode = if *c == 'h' { 1 } else { 2 };
+                        self.show_tools.last_move = self.clock;
+                        return Some(true);
+                    }
                     _ => return None,
                 };
                 self.show_tools.digits.clear();
+                if tool == Pointer::Arrow {
+                    self.show_tools.arrow_mode = 0;
+                }
                 self.set_show_pointer(tool);
                 Some(true)
             }
@@ -163,6 +205,9 @@ impl SlideView {
                 Some(true)
             }
             &Input::Press { .. } if self.show_tools.pointer == Pointer::Laser => Some(false),
+            &Input::Press { x, y, .. } if self.show_tools.pointer == Pointer::Eraser => {
+                Some(self.erase_stroke_at(x, y))
+            }
             &Input::Drag { x, y } | &Input::Move { x, y } => {
                 if self.show_tools.pointer == Pointer::Laser {
                     self.show_tools.laser = Some((x, y));
@@ -184,6 +229,177 @@ impl SlideView {
                 Some(true)
             }
             _ => None,
+        }
+    }
+
+    /// Eraser: remove the drawing of the shown slide passing within 10 px of (`x`, `y`).
+    fn erase_stroke_at(&mut self, x: f32, y: f32) -> bool {
+        let Some(i) = self.show_slide() else {
+            return false;
+        };
+        let [rx, ry, rw, rh] = self.show_slide_rect();
+        let reach = 10.0 * self.display_scale.max(1.0);
+        let Some(list) = self.show_tools.strokes.get_mut(&i) else {
+            return false;
+        };
+        let at = |(fx, fy): (f32, f32)| (rx + fx * rw, ry + fy * rh);
+        // Distance from the pointer to the segment a–b.
+        let near = |a: (f32, f32), b: (f32, f32)| {
+            let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+            let len2 = dx * dx + dy * dy;
+            let t = if len2 > 0.0 {
+                (((x - a.0) * dx + (y - a.1) * dy) / len2).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            (a.0 + t * dx - x).hypot(a.1 + t * dy - y) <= reach
+        };
+        let hit = list.iter().rposition(|st| {
+            let pts: Vec<(f32, f32)> = st.pts.iter().copied().map(at).collect();
+            match pts.as_slice() {
+                [one] => near(*one, *one),
+                _ => pts.windows(2).any(|w| near(w[0], w[1])),
+            }
+        });
+        match hit {
+            Some(k) => {
+                list.remove(k);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// A command of the slide show's right-click menu (as the reference's): `next`, `prev`,
+    /// `last` (last viewed), `goto:N`, `black`, `white`, `laser`, `pen`, `highlighter`,
+    /// `eraser`, `arrow`, `eraseAll`, `all` (See All Slides), `end`.
+    pub fn show_command(&mut self, id: &str) -> bool {
+        if self.show.is_none() {
+            return false;
+        }
+        if let Some(n) = id
+            .strip_prefix("goto:")
+            .and_then(|n| n.parse::<usize>().ok())
+        {
+            return n < self.ids.len() && self.show_jump(n);
+        }
+        match id {
+            "next" => self.show_step(true),
+            "prev" => self.show_step(false),
+            "last" => match self.show_tools.last_viewed {
+                Some(n) if n < self.ids.len() => self.show_jump(n),
+                _ => false,
+            },
+            "black" => {
+                self.show_tools.screen = Some(Screen::Black);
+                true
+            }
+            "white" => {
+                self.show_tools.screen = Some(Screen::White);
+                true
+            }
+            "laser" => {
+                self.set_show_pointer(Pointer::Laser);
+                true
+            }
+            "pen" => {
+                self.set_show_pointer(Pointer::Pen);
+                true
+            }
+            "highlighter" => {
+                self.set_show_pointer(Pointer::Highlighter);
+                true
+            }
+            "eraser" => {
+                self.set_show_pointer(Pointer::Eraser);
+                true
+            }
+            "arrow" => {
+                self.set_show_pointer(Pointer::Arrow);
+                true
+            }
+            "eraseAll" => match self.show_slide() {
+                Some(i) => self.show_tools.strokes.remove(&i).is_some(),
+                None => false,
+            },
+            "end" => self.end_show(),
+            "all" => self.open_show_overview(),
+            "magnify" => self.start_magnify(),
+            "presenter" => match self.presenting.as_mut() {
+                Some(p) => {
+                    p.plan.presenter = !p.plan.presenter;
+                    true
+                }
+                None => false,
+            },
+            "pause" => {
+                if !self.show_can_pause() {
+                    return false;
+                }
+                self.show_tools.paused_at = Some(self.clock);
+                true
+            }
+            "resume" => {
+                let Some(at) = self.show_tools.paused_at.take() else {
+                    return false;
+                };
+                // The slide's timing goes on from where it stopped.
+                let now = self.clock;
+                if let Some(s) = self.show.as_mut() {
+                    s.arrived += now - at;
+                }
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// What the right-click menu greys or names: (at the first step of the show, Presenter
+    /// View can be switched, Presenter View is on, paused).
+    pub fn show_menu_state(&self) -> (bool, bool, bool, bool) {
+        let at_start = self
+            .show
+            .as_ref()
+            .is_some_and(|s| s.step == 0 && !s.ended && self.prev_in_show(s.index).is_none());
+        (
+            at_start,
+            self.presenting.is_some(),
+            self.presenter(),
+            self.show_tools.paused_at.is_some(),
+        )
+    }
+
+    /// The show clock (ms) last given by the host.
+    pub fn clock_ms(&self) -> f64 {
+        self.clock
+    }
+
+    /// Whether the host should hide the mouse pointer now (Ctrl+H, or Ctrl+U after 3 s
+    /// without moving), with the arrow tool of a running show.
+    pub fn show_cursor_hidden(&self) -> bool {
+        let t = &self.show_tools;
+        self.show.is_some()
+            && t.pointer == Pointer::Arrow
+            && (t.arrow_mode == 1 || (t.arrow_mode == 2 && self.clock - t.last_move >= 3000.0))
+    }
+
+    /// Whether the shown slide advances by itself (right-click menu › Pause is available).
+    pub fn show_can_pause(&self) -> bool {
+        self.show.as_ref().is_some_and(|s| {
+            !s.ended
+                && s.info
+                    .as_ref()
+                    .and_then(|i| i.transition.as_ref())
+                    .and_then(|t| t.advance_after_ms)
+                    .is_some()
+        }) && self.timings_on()
+    }
+
+    /// Slide `index` is shown: the one before is remembered for "Last Viewed".
+    pub(super) fn note_shown(&mut self, index: usize) {
+        if self.show_tools.seen != Some(index) {
+            self.show_tools.last_viewed = self.show_tools.seen;
+            self.show_tools.seen = Some(index);
         }
     }
 

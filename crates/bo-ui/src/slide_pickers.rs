@@ -25,7 +25,55 @@ pub enum PickKind {
     /// Animation effects by class (Entrance, Emphasis, Exit, Motion Paths): the
     /// Animations tab's gallery opened in full (round 17).
     Effects,
+    /// Every transition the engine plays, by section (Subtle, Exciting): the Transitions
+    /// tab's gallery opened in full (round 20).
+    Transitions,
 }
+
+/// The transition gallery by section (heading key, engine kinds), in the reference's
+/// grouping; kinds the engine does not play are left out.
+pub const TRANSITION_SECTIONS: [(&str, &[&str]); 2] = [
+    (
+        "slideR10.trans.subtle",
+        &[
+            "none",
+            "morph",
+            "fade",
+            "push",
+            "wipe",
+            "split",
+            "reveal",
+            "cut",
+            "randomBar",
+            "circle",
+            "pull",
+            "cover",
+            "flash",
+        ],
+    ),
+    (
+        "slideR10.trans.exciting",
+        &[
+            "dissolve",
+            "checker",
+            "blinds",
+            "wheel",
+            "vortex",
+            "switch",
+            "flip",
+            "comb",
+            "zoom",
+            "newsflash",
+            "diamond",
+            "plus",
+            "wedge",
+            "strips",
+        ],
+    ),
+];
+
+/// Columns of the transition gallery (reference at 125 %: tiles of 82 px).
+const TRANSITION_COLS: usize = 9;
 
 /// A gallery section: heading key, class and effects (engine id, name key).
 pub type EffectSection = (
@@ -837,10 +885,22 @@ impl Picker {
                         });
                     }
                 }
-                (
-                    2.0 * pad + TABLE_COLS as f32 * pitch,
-                    head + TABLE_ROWS as f32 * pitch + pad,
-                )
+                // Under the grid, as the reference: Insert Table…, Draw Table, a workbook.
+                let w = 2.0 * pad + TABLE_COLS as f32 * pitch;
+                let mut y = head + TABLE_ROWS as f32 * pitch + pad;
+                let row = px(26.0, scale);
+                for (i, value) in ["tbl:dialog", "tbl:draw", "ins:workbook"]
+                    .iter()
+                    .enumerate()
+                {
+                    cells.push(Cell {
+                        r: [1.0, y, w - 2.0, row],
+                        value: (*value).to_owned(),
+                        label: Some(label(2 + i)),
+                    });
+                    y += row;
+                }
+                (w, y + px(4.0, scale))
             }
             PickKind::Shapes | PickKind::Icons | PickKind::Symbols => {
                 let (cols, cell) = match kind {
@@ -945,6 +1005,29 @@ impl Picker {
                     y += rh;
                 }
                 (w, y + pad)
+            }
+            PickKind::Transitions => {
+                // Section headings, then labelled tiles (labels: the headings, then each
+                // transition's name in section order).
+                let (cw, ch) = (px(65.6, scale), px(66.0, scale));
+                let head_h = px(24.0, scale);
+                let mut y = 0.0;
+                let mut n = TRANSITION_SECTIONS.len();
+                for (si, (_, kinds)) in TRANSITION_SECTIONS.iter().enumerate() {
+                    heads.push((label(si), [0.0, y, 0.0, head_h]));
+                    y += head_h + px(2.0, scale);
+                    for (i, k) in kinds.iter().enumerate() {
+                        let (c, r) = (i % TRANSITION_COLS, i / TRANSITION_COLS);
+                        cells.push(Cell {
+                            r: [pad + c as f32 * cw, y + r as f32 * ch, cw, ch],
+                            value: format!("trn:{k}"),
+                            label: Some(label(n)),
+                        });
+                        n += 1;
+                    }
+                    y += kinds.len().div_ceil(TRANSITION_COLS) as f32 * ch + px(4.0, scale);
+                }
+                (2.0 * pad + TRANSITION_COLS as f32 * cw, y + pad)
             }
             PickKind::Fill | PickKind::Outline => {
                 // Theme colours: dark 1, light 1, six accents; tints / shades under them;
@@ -1083,7 +1166,9 @@ impl Picker {
 
     /// The highlighted table size (columns, rows).
     pub fn table_size(&self) -> Option<(usize, usize)> {
-        let i = self.hover.filter(|_| self.kind == PickKind::Table)?;
+        let i = self
+            .hover
+            .filter(|i| self.kind == PickKind::Table && *i < TABLE_COLS * TABLE_ROWS)?;
         Some((i % TABLE_COLS + 1, i / TABLE_COLS + 1))
     }
 
@@ -1141,6 +1226,23 @@ impl Picker {
             let hc = self.table_size();
             for (i, c) in self.cells.iter().enumerate() {
                 let [cx, cy, cw, ch] = self.abs(c.r);
+                if let Some(label) = &c.label {
+                    // Menu rows under the grid: a rule above the first, hover fill.
+                    if i == TABLE_COLS * TABLE_ROWS {
+                        p.fill_rect(cx, cy, cw, 1.0, Rgba(0xd6, 0xd6, 0xd6, 255));
+                    }
+                    if self.hover == Some(i) {
+                        p.fill_rect(cx, cy + 1.0, cw, ch - 1.0, Rgba(0xe6, 0xe6, 0xe6, 255));
+                    }
+                    p.text(
+                        label,
+                        cx + px(34.0, s),
+                        cy + (ch - line) / 2.0,
+                        style,
+                        t.text,
+                    );
+                    continue;
+                }
                 let on = hc.is_some_and(|(hc, hr)| i % TABLE_COLS < hc && i / TABLE_COLS < hr);
                 let (edge, fill) = if on {
                     (Rgba(0xd2, 0x47, 0x26, 255), Rgba(0xfc, 0xe4, 0xd6, 255))
@@ -1194,6 +1296,33 @@ impl Picker {
                         t.text
                     },
                 );
+                continue;
+            }
+            if let (Some(label), Some(kind)) = (&c.label, c.value.strip_prefix("trn:")) {
+                // The ribbon gallery's card (40 × 36 logical), the name under it.
+                let tw0 = (40.0 * s).round();
+                crate::slide_ribbon::paint_transition_tile(
+                    p,
+                    kind,
+                    (cx + (cw - tw0) / 2.0).round(),
+                    cy + px(4.0, s),
+                    s,
+                    true,
+                );
+                let small = TextStyle {
+                    size: px(12.0, s),
+                    bold: false,
+                };
+                let tw = text(label, small).min(cw - px(4.0, s));
+                p.push_clip(cx + 1.0, cy, cw - 2.0, ch);
+                p.text(
+                    label,
+                    (cx + (cw - tw) / 2.0).round(),
+                    cy + ch - small.size * 1.33 - px(4.0, s),
+                    small,
+                    t.text,
+                );
+                p.pop_clip();
                 continue;
             }
             if let (Some(label), Some(fx)) = (&c.label, c.value.strip_prefix("afx:")) {
@@ -1502,7 +1631,7 @@ mod tests {
             &[],
             &[],
         );
-        assert_eq!(p.cells.len(), TABLE_COLS * TABLE_ROWS);
+        // The grid, then Insert Table…, Draw Table and a workbook.`n        assert_eq!(p.cells.len(), TABLE_COLS * TABLE_ROWS + 3);
         // Third column, second row.
         let c = &p.cells[TABLE_COLS + 2];
         let [x, y, w, h] = p.abs(c.r);

@@ -2896,6 +2896,10 @@ fn draw_xy_plain(
                                 (true, false, false) => {
                                     (bx[0] + bx[2] + font * 1.2, bx[1] + bx[3] / 2.0)
                                 }
+                                // The automatic layout: the baseline 0.66 em over the bar.
+                                (false, false, false) if look.classic => {
+                                    (bx[0] + bx[2] / 2.0, bx[1] - font)
+                                }
                                 (false, false, false) => (bx[0] + bx[2] / 2.0, bx[1] - font * 0.8),
                             };
                             let ink = if centre || inside {
@@ -2903,7 +2907,7 @@ fn draw_xy_plain(
                             } else {
                                 TEXT
                             };
-                            Look::put_label(&text, x, y, font, ink, label, out);
+                            look.put_label(&text, x, y, font, ink, label, out);
                         }
                     }
                 }
@@ -3015,7 +3019,7 @@ fn draw_xy_plain(
                         {
                             // §21.2.2.48 dLblPos of a line: above by default.
                             let (dx, dy) = point_label_offset(d.pos.as_deref(), &text, font);
-                            Look::put_label(&text, x + dx, y + dy, font, TEXT, label, out);
+                            look.put_label(&text, x + dx, y + dy, font, TEXT, label, out);
                         }
                     }
                     if stacked {
@@ -3046,7 +3050,7 @@ fn draw_xy_plain(
                         let cat = s.cats.get(i).map_or("", String::as_str);
                         if let Some(text) = elements::label_text(d, &s.name, cat, y, None, locale) {
                             let (dx, dy) = point_label_offset(d.pos.as_deref(), &text, font);
-                            Look::put_label(&text, px + dx, py + dy, font, TEXT, label, out);
+                            look.put_label(&text, px + dx, py + dy, font, TEXT, label, out);
                         }
                     }
                 }
@@ -3764,11 +3768,19 @@ fn draw_pie(
             .is_some_and(|d| d.pos.as_deref() == Some("outEnd"))
     });
     let room = if outside { font * 3.2 } else { 0.0 };
+    let inside =
+        (0..s.vals.len()).any(|i| elements::labels_at(look.labels.as_ref(), s, i).is_some());
     let (rad, cy) = if look.classic && room == 0.0 {
         // The reference's automatic plot area of a pie (office-22: 123 pt between title and
-        // legend → radius 56.1 pt, the centre 56.1 pt under the top).
-        let rad = (((r - l) / 2.0).min(0.4555 * (b - t)) / (1.0 + ex)).max(1.0);
-        (rad, t + rad * (1.0 + ex))
+        // legend → radius 56.1 pt, the centre 56.1 pt under the top); labels in the slices
+        // take 0.84 em off the radius (47.7 pt), the centre stays.
+        let full = (((r - l) / 2.0).min(0.4555 * (b - t)) / (1.0 + ex)).max(1.0);
+        let rad = if inside {
+            (full - 0.84 * font).max(1.0)
+        } else {
+            full
+        };
+        (rad, t + full * (1.0 + ex))
     } else {
         let rad = ((((r - l).min(b - t) / 2.0 - 2.0 - room) / (1.0 + ex)).max(1.0)).max(1.0);
         (rad, f64::midpoint(t, b))
@@ -3838,17 +3850,19 @@ fn draw_pie(
                         dash: None,
                     });
                 }
-                Look::put_label(&text, lx, ly, font, TEXT, label, out);
+                look.put_label(&text, lx, ly, font, TEXT, label, out);
             } else {
                 // A doughnut's labels sit in the middle of its ring.
                 let lr = match (hole > 0.0, d.pos.as_deref()) {
                     (true, _) => f64::midpoint(rad, inner),
                     (false, Some("inEnd")) => rad * 0.8,
                     (false, Some("ctr")) => rad * 0.5,
+                    // bestFit of the automatic layout: about 0.7 of the radius (0.68–0.76).
+                    (false, _) if look.classic => rad * 0.7,
                     (false, _) => rad * 0.62,
                 };
                 let (lx, ly) = (cx + ox + lr * mid.sin(), cy + oy - lr * mid.cos());
-                Look::put_label(&text, lx, ly, font, Rgba(255, 255, 255, 255), label, out);
+                look.put_label(&text, lx, ly, font, Rgba(255, 255, 255, 255), label, out);
             }
         }
         a += sw;
@@ -4111,7 +4125,7 @@ fn draw_ex(
             } else {
                 (y - font * 0.8, TEXT)
             };
-            Look::put_label(&text, x + w / 2.0, cy, font, ink, label, out);
+            look.put_label(&text, x + w / 2.0, cy, font, ink, label, out);
         }
     };
     match p.kind {

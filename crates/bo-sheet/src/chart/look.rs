@@ -291,6 +291,7 @@ impl Look {
     /// Draws a data label centred on `(x, y)`.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn put_label(
+        &self,
         text: &str,
         x: f64,
         y: f64,
@@ -300,11 +301,18 @@ impl Look {
         out: &mut Vec<Command>,
     ) {
         let w = font * (text.chars().count() as f64 * 0.6 + 1.0);
+        // The automatic formatting's data labels: the chart's text size and colour, also inside
+        // bars and slices (chart-m variant of office-22: 10 pt black "55%" in a blue slice).
+        let (size, ink) = if self.classic {
+            (font, super::TEXT)
+        } else {
+            (font * 0.9, ink)
+        };
         label(
             text,
             [x - w / 2.0, y - font * 0.7, x + w / 2.0, y + font * 0.7],
             Align::Center,
-            font * 0.9,
+            size,
             ink,
             out,
         );

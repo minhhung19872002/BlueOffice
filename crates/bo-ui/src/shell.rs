@@ -473,7 +473,18 @@ impl DocWindow {
             .ribbon
             .rect_of(RibbonHit::Command("insert.table"))
             .unwrap_or([0.0, self.ribbon.bottom(), 1.0, 0.0]);
-        let commands = vec![self.t("commands.table.fromText", "Convert Text to Table")];
+        // The reference's rows under the grid (round 11); the spreadsheet row and Quick
+        // Tables are not available in BlueDoc yet.
+        let commands = vec![
+            (self.t("tprops11.insertTable", "Insert Table..."), true),
+            (self.t("tprops11.drawTable", "Draw Table"), true),
+            (
+                self.t("tprops11.convertText", "Convert Text to Table..."),
+                true,
+            ),
+            (self.t("tprops11.excel", "Spreadsheet"), false),
+            (self.t("tprops11.quickTables", "Quick Tables"), false),
+        ];
         self.menu = None;
         self.table_grid = Some(TableGrid::open(anchor, commands, self.scale));
         true
@@ -606,6 +617,8 @@ impl DocWindow {
                         self.activate_context = true;
                         self.view.run_command(Command::InsertTable { rows, cols })
                     }
+                    Some(GridPick::Command(0)) => self.r11_insert_table_dialog(),
+                    Some(GridPick::Command(1)) => self.action("table.drawTable"),
                     Some(GridPick::Command(_)) => {
                         let cmd = catalog::from_json(json!({
                             "cmd": "tableEdit",

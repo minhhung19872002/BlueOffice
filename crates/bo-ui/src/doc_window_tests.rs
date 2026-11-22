@@ -474,8 +474,8 @@ fn insert_table_grid_picks_the_size_by_pointing() {
         .ribbon
         .rect_of(RibbonHit::Command("insert.table"))
         .unwrap();
-    // Third column, second row of 19 px cells under a 28 px title (scale 1).
-    let (x, y) = (ax + 8.0 + 2.5 * 19.0, ay + ah + 32.0 + 1.5 * 19.0);
+    // Third column, second row of the 31.2 px grid at (5.6, 31.2) (scale 1; round 11).
+    let (x, y) = (ax + 5.6 + 2.5 * 31.2, ay + ah + 31.2 + 1.5 * 31.2);
     w.handle(Input::Move { x, y }, &Fixed);
     w.handle(
         Input::Press {

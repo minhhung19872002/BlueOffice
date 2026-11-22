@@ -368,3 +368,18 @@ fn table_properties_next_row_and_options() {
     let t = w.view.format().table.clone().expect("table");
     assert_eq!(t.cell_margin_v.0, 144);
 }
+
+// source: the reference's Insert › Table › Insert Table… (columns, rows, AutoFit behavior).
+#[test]
+fn insert_table_dialog_inserts_the_size_typed() {
+    let mut w = window();
+    assert!(w.r11_insert_table_dialog());
+    let f = w.r3.form.as_mut().expect("Insert Table");
+    assert_eq!(f.kind, DocFormKind::InsertTable);
+    f.set_num_for_test("cols", 4);
+    f.set_num_for_test("rows", 3);
+    let out = f.input(&Input::Key(Key::Enter, Mods::default()));
+    assert!(w.form_out(out));
+    let t = w.view.format().table.clone().expect("table");
+    assert_eq!((t.cols, t.rows), (4, 3));
+}

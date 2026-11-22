@@ -734,6 +734,107 @@ pub(super) fn open_options(s: &Strings, c: &FormContext) -> DocForm {
     f
 }
 
+/// Insert Table: Table size (columns, rows) and AutoFit behaviour.
+pub(super) fn open_insert(s: &Strings) -> DocForm {
+    let tr = |k: &str, f: &str| t(s, k, f);
+    let mut f = DocForm::new(
+        DocFormKind::InsertTable,
+        &tr("tprops11.insertTitle", "Insert Table"),
+        (340.0, 330.0),
+        vec![],
+    );
+    f.form.add(
+        "sizeG",
+        None,
+        [10.0, 46.0, 320.0, 18.0],
+        super::Kind::Group(tr("tprops11.tableSize", "Table size")),
+    );
+    f.label(
+        "colsL",
+        [24.0, 76.0, 170.0, 18.0],
+        &tr("tprops11.numCols", "Number of columns:"),
+    );
+    f.spin("cols", [214.0, 72.0, 100.0, 24.0], 5, 1, 63);
+    f.label(
+        "rowsL",
+        [24.0, 108.0, 170.0, 18.0],
+        &tr("tprops11.numRows", "Number of rows:"),
+    );
+    f.spin("rows", [214.0, 104.0, 100.0, 24.0], 2, 1, 32767);
+    f.form.add(
+        "fitG",
+        None,
+        [10.0, 142.0, 320.0, 18.0],
+        super::Kind::Group(tr("tprops11.autoFitG", "AutoFit behavior")),
+    );
+    f.radio(
+        "fixed",
+        "fit",
+        [24.0, 168.0, 200.0, 22.0],
+        &tr("tprops11.fixedWidth", "Fixed column width"),
+        true,
+    );
+    f.radio(
+        "contents",
+        "fit",
+        [24.0, 194.0, 220.0, 22.0],
+        &tr("tprops11.fitContents", "AutoFit to contents"),
+        false,
+    );
+    f.radio(
+        "window",
+        "fit",
+        [24.0, 220.0, 220.0, 22.0],
+        &tr("tprops11.fitWindow", "AutoFit to window"),
+        false,
+    );
+    f.check(
+        "remember",
+        [10.0, 252.0, 320.0, 22.0],
+        &tr("tprops11.remember", "Remember dimensions for new tables"),
+        false,
+    );
+    f.disable("remember");
+    f.button(
+        "ok",
+        [88.0, 290.0, 112.0, 28.0],
+        &tr("common.ok", "OK"),
+        true,
+    );
+    f.button(
+        "cancel",
+        [215.0, 290.0, 112.0, 28.0],
+        &tr("common.cancel", "Cancel"),
+        false,
+    );
+    f
+}
+
+impl DocForm {
+    /// Set number box `id` (tests).
+    #[cfg(test)]
+    pub(crate) fn set_num_for_test(&mut self, id: &str, v: i32) {
+        self.form.set_num(id, v);
+    }
+
+    /// Insert Table OK: the table, then its AutoFit.
+    pub(super) fn insert_table_ok(&mut self) -> FormOut {
+        let cols = self.form.num("cols").max(1);
+        let rows = self.form.num("rows").max(1);
+        let mut cmds = vec![json!({ "cmd": "insertTable", "rows": rows, "cols": cols })];
+        match self.chosen("fit") {
+            Some("contents") => cmds.push(
+                json!({ "cmd": "tableEdit", "edit": { "kind": "autoFit", "mode": "contents" } }),
+            ),
+            Some("window") => cmds.push(
+                json!({ "cmd": "tableEdit", "edit": { "kind": "autoFit", "mode": "window" } }),
+            ),
+            _ => {}
+        }
+        FormOut::Run(cmds, true)
+    }
+}
+
 /// Paint the dialog's pictures (own drawings): a page with a small table placed left, centre
 /// or right, text beside it for wrapping around, the cell contents at the top / centre /
 /// bottom. The chosen one is framed in the accent blue.

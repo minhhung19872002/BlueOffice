@@ -467,6 +467,21 @@ impl DocWindow {
         true
     }
 
+    /// Insert › Table › Insert Table…: columns, rows and AutoFit behaviour.
+    pub(super) fn r11_insert_table_dialog(&mut self) -> bool {
+        let c = FormContext {
+            inches: self.units.inches,
+            ..FormContext::default()
+        };
+        self.r3.form = Some(doc_forms::open(
+            doc_forms::DocFormKind::InsertTable,
+            &self.strings,
+            &c,
+        ));
+        self.relayout_pending = true;
+        true
+    }
+
     /// Show Heading Levels ▸: All, Level 1 … Level 9 (checked: the levels shown).
     fn r11_levels_menu(&mut self) -> bool {
         let max = self.nav.as_ref().map_or(9, |n| n.max_level);

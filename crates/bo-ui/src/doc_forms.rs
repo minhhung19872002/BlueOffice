@@ -105,6 +105,8 @@ pub(crate) enum DocFormKind {
     TableProps,
     /// Table Properties › Options… (default cell margins).
     TableOptions,
+    /// Insert › Table › Insert Table….
+    InsertTable,
 }
 
 /// What the owner does after an input.
@@ -1165,6 +1167,7 @@ impl DocForm {
             | DocFormKind::FindStyle => self.r11_ok(),
             DocFormKind::TableProps => self.tp_ok(),
             DocFormKind::TableOptions => self.options_ok(),
+            DocFormKind::InsertTable => self.insert_table_ok(),
             DocFormKind::Zoom => {
                 let pct = match self.chosen("zoom") {
                     Some("z200") => "200".to_owned(),
@@ -3114,6 +3117,7 @@ pub(crate) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
         | DocFormKind::FindStyle => findfmt11::open(kind, s, c),
         DocFormKind::TableProps => tprops11::open(s, c),
         DocFormKind::TableOptions => tprops11::open_options(s, c),
+        DocFormKind::InsertTable => tprops11::open_insert(s),
         DocFormKind::Zoom => {
             let mut f = DocForm::new(kind, &tr("docR4.zoomTitle", "Zoom"), (381.0, 258.0), vec![]);
             f.label(

@@ -1332,6 +1332,9 @@ function EditorInner({
   /** PDF of the printed pages (the web and draft views lay out other pages for the screen). */
   const printLayoutPdf = useCallback(
     async (choices?: PdfExport): Promise<Uint8Array> => {
+      // A print or PDF export refreshes SEQ, REF, PAGEREF, DATE … first (not tables of
+      // contents), as the reference word processor does.
+      await controller.current?.run({ cmd: 'updateFields', print: true });
       // PDF/A, tagged PDF and bookmarks (CORE-FMT-002) go through the export bridge.
       const pdf = () => {
         const e = platform.engine;
@@ -1667,8 +1670,10 @@ function EditorInner({
       shortcut: 'Ctrl+P',
       isEnabled: hasDoc,
       run: async (s) => {
-        if (platform.engine.printPdf && platform.engine.printPreview) setPrintOpen(true);
-        else await printNow(s);
+        if (platform.engine.printPdf && platform.engine.printPreview) {
+          await controller.current?.run({ cmd: 'updateFields', print: true });
+          setPrintOpen(true);
+        } else await printNow(s);
       },
     });
     r.register({ id: 'file.printNow', isEnabled: hasDoc, run: printNow });

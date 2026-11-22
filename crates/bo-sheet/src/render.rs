@@ -1021,14 +1021,23 @@ impl Renderer<'_> {
                 m: [1.0, 0.0, 0.0, 1.0, f(sx), f(sy)],
             });
             let mut cmds = Vec::new();
-            let name = self
-                .wb
-                .styles
-                .fonts
-                .first()
-                .and_then(|f| f.name.clone())
-                .unwrap_or_else(|| "Calibri".into());
-            let face = self.fonts.resolve(&name, false, false);
+            // §21.2.2.216 txPr: the chart's typeface (`a:latin`), else the workbook's font; a
+            // bold title (§21.2.2.210).
+            let name = chart.format.font_face.clone().unwrap_or_else(|| {
+                self.wb
+                    .styles
+                    .fonts
+                    .first()
+                    .and_then(|f| f.name.clone())
+                    .unwrap_or_else(|| "Calibri".into())
+            });
+            let regular = self.fonts.resolve(&name, false, false);
+            let bold = self.fonts.resolve(&name, true, false).or(regular);
+            let title = chart
+                .title
+                .clone()
+                .filter(|_| chart.format.title_bold)
+                .unwrap_or_default();
             let locale = self.opts.locale;
             {
                 let fonts = &mut *self.fonts;
@@ -1038,6 +1047,11 @@ impl Renderer<'_> {
                                  size: f64,
                                  color: Rgba,
                                  out: &mut Vec<Command>| {
+                    let face = if !title.is_empty() && text == title {
+                        bold
+                    } else {
+                        regular
+                    };
                     let Some(face) = face else { return };
                     let size32 = size as f32;
                     let width = f64::from(fonts.measure(face, text, size32));

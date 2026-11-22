@@ -29,11 +29,17 @@ pub(crate) struct Look {
     pub text: Option<Rgba>,
     /// Base font size in points.
     pub font: Option<f64>,
+    /// Title size in points (the title's own runs).
+    pub title_font: Option<f64>,
     pub val_grid: bool,
     pub cat_grid: bool,
     pub labels: Option<DataLabels>,
     /// §21.2.2.156 roundedCorners of the chart area.
     pub rounded: bool,
+    /// Axis line width in points (`None` = the renderer's).
+    pub axis_w: Option<f64>,
+    /// The reference's automatic formatting and margins ([`Look::use_classic`]).
+    pub classic: bool,
 }
 
 impl Look {
@@ -61,11 +67,35 @@ impl Look {
             axis: c(&f.axis_line),
             text: c(&f.text_color),
             font: f.font_size.map(|s| (f64::from(s) / 100.0).clamp(5.0, 28.0)),
+            title_font: f
+                .title_size
+                .map(|s| (f64::from(s) / 100.0).clamp(5.0, 48.0)),
             val_grid: !f.hide_val_grid,
             cat_grid: f.cat_grid,
             labels: f.data_labels.clone().filter(DataLabels::any),
             rounded: f.rounded,
+            axis_w: None,
+            classic: false,
         }
+    }
+
+    /// A chart part without formatting of its own (`ChartFormat::classic`) as the reference word
+    /// processor draws it (black-box, PDF export of office-22: text and lines `0 G`, gridlines and
+    /// axis lines `0.5 w`, chart border `0.537 G` 0.5 pt), with its margins
+    /// ([`super::classic_legend`], `draw_xy_plain`).
+    pub(crate) fn use_classic(&mut self, f: &ChartFormat) {
+        const BLACK: Rgba = Rgba(0, 0, 0, 255);
+        self.classic = true;
+        // Lines 2.25 pt (28 575 EMU, `2.25 w` in the reference's export).
+        if f.line_w.is_none() {
+            self.line_w = 2.25;
+        }
+        self.text.get_or_insert(BLACK);
+        self.grid.get_or_insert(BLACK);
+        self.grid_w.get_or_insert(0.5);
+        self.axis.get_or_insert(BLACK);
+        self.axis_w = Some(0.5);
+        self.chart_line.get_or_insert(Rgba(0x89, 0x89, 0x89, 255));
     }
 
     /// The chart area outline (`w × h` at the origin, inset by half the line): square corners, or
@@ -122,6 +152,9 @@ impl Look {
             } else if *c == AXIS {
                 if let Some(a) = self.axis {
                     *c = a;
+                }
+                if let Some(aw) = self.axis_w {
+                    *w = aw as f32;
                 }
             }
         };
@@ -258,6 +291,7 @@ impl Look {
     /// Draws a data label centred on `(x, y)`.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn put_label(
+        &self,
         text: &str,
         x: f64,
         y: f64,
@@ -267,11 +301,18 @@ impl Look {
         out: &mut Vec<Command>,
     ) {
         let w = font * (text.chars().count() as f64 * 0.6 + 1.0);
+        // The automatic formatting's data labels: the chart's text size and colour, also inside
+        // bars and slices (chart-m variant of office-22: 10 pt black "55%" in a blue slice).
+        let (size, ink) = if self.classic {
+            (font, super::TEXT)
+        } else {
+            (font * 0.9, ink)
+        };
         label(
             text,
             [x - w / 2.0, y - font * 0.7, x + w / 2.0, y + font * 0.7],
             Align::Center,
-            font * 0.9,
+            size,
             ink,
             out,
         );

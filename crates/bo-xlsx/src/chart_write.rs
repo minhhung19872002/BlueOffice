@@ -48,11 +48,18 @@ const CAT_AX2: u32 = 50_040;
 const VAL_AX2: u32 = 50_050;
 
 /// `<a:p>` rich text body of a title (§21.2.2.156 rich); a bold run (§21.1.2.3.9 rPr `b`).
-fn rich(out: &mut String, text: &str, bold: bool) {
-    let rpr = if bold {
-        "<a:rPr lang=\"en-US\" b=\"1\"/>"
-    } else {
-        ""
+/// The run's size: §21.1.2.3.9 `rPr@sz`, hundredths of a point.
+fn rich_sized(out: &mut String, text: &str, bold: bool, sz: Option<u32>) {
+    let rpr = match (bold, sz) {
+        (false, None) => String::new(),
+        (b, sz) => format!(
+            "<a:rPr lang=\"en-US\"{}{}/>",
+            sz.map_or_else(String::new, |s| format!(
+                " sz=\"{}\"",
+                s.clamp(100, 400_000)
+            )),
+            if b { " b=\"1\"" } else { "" }
+        ),
     };
     let _ = write!(
         out,
@@ -68,8 +75,13 @@ fn title(out: &mut String, text: &str, bold: bool) {
 
 /// §21.2.2.210 title with its overlay switch.
 fn title_with(out: &mut String, text: &str, bold: bool, overlay: bool) {
+    title_sized(out, text, bold, None, overlay);
+}
+
+/// [`title_with`] with the title's text size.
+fn title_sized(out: &mut String, text: &str, bold: bool, sz: Option<u32>, overlay: bool) {
     out.push_str("<c:title>");
-    rich(out, text, bold);
+    rich_sized(out, text, bold, sz);
     let _ = write!(out, "<c:overlay val=\"{}\"/></c:title>", u8::from(overlay));
 }
 
@@ -827,7 +839,13 @@ pub fn chart_space_xml_with(chart: &Chart, external: Option<&str>) -> String {
     out.push_str("<c:chart>");
     match chart.title.as_deref().filter(|t| !t.is_empty()) {
         Some(t) => {
-            title_with(&mut out, t, fmt.title_bold, chart.title_overlay);
+            title_sized(
+                &mut out,
+                t,
+                fmt.title_bold,
+                fmt.title_size,
+                chart.title_overlay,
+            );
             out.push_str("<c:autoTitleDeleted val=\"0\"/>");
         }
         None => out.push_str("<c:autoTitleDeleted val=\"1\"/>"),

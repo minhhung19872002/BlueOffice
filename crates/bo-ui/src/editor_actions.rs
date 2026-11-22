@@ -121,6 +121,13 @@ pub(crate) fn office_to_pdf(name: &str, bytes: &[u8]) -> Result<Vec<u8>, String>
     } else {
         let mut e = bo_engine::Engine::with_bundled_fonts();
         e.open(bytes, name).map_err(|e| e.to_string())?;
+        // Documents refresh SEQ, REF, PAGEREF … as the reference's PDF export does (no-op
+        // for decks).
+        let _ = e.command(bo_engine::Command::UpdateFields {
+            answers: std::collections::BTreeMap::new(),
+            selection: false,
+            print: true,
+        });
         e.export_pdf().map_err(|e| e.to_string())
     }
 }

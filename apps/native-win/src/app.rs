@@ -363,6 +363,10 @@ impl Shell {
         let Some(path) = win32::file_dialog(true, &[host6::filter_of(ext)], &name) else {
             return false;
         };
+        if ext == "pdf" {
+            // Fields refresh as on the reference's PDF export.
+            self.view.view_mut().update_print_fields();
+        }
         match host6::export_as(self.view.view_mut().engine_for_export(), ext) {
             Ok(bytes) => {
                 if let Err(e) = std::fs::write(&path, bytes) {
@@ -380,6 +384,8 @@ impl Shell {
             || "Document1".to_owned(),
             |n| n.to_string_lossy().into_owned(),
         );
+        // A print refreshes SEQ, REF, PAGEREF … first (not tables of contents).
+        self.view.view_mut().update_print_fields();
         let sizes = self.view.view().page_sizes_pt();
         if let Err(e) = host6::print_document(self.view.view().engine(), &sizes, job, &title, None)
         {
@@ -558,6 +564,8 @@ impl Shell {
                     );
                     if let Some(path) = win32::file_dialog(true, &[("PDF (*.pdf)", "*.pdf")], &name)
                     {
+                        // Fields refresh as on the reference's PDF export.
+                        self.view.view_mut().update_print_fields();
                         match self.view.view().export_pdf() {
                             Ok(bytes) => {
                                 if let Err(e) = std::fs::write(&path, bytes) {
@@ -570,6 +578,7 @@ impl Shell {
                 }
                 Request::Print => {
                     // Printed through the PDF application's print verb (opened when it has none).
+                    self.view.view_mut().update_print_fields();
                     if let Ok(bytes) = self.view.view().export_pdf() {
                         let path = std::env::temp_dir()
                             .join(format!("bluedoc-print-{}.pdf", std::process::id()));
@@ -657,7 +666,8 @@ fn print_tool(args: &[std::ffi::OsString], mut engine: Engine) -> Result<(), Str
         |n| n.to_string_lossy().into_owned(),
     );
     engine.open(&bytes, &name).map_err(|e| e.to_string())?;
-    let view = DocView::new(engine)?;
+    let mut view = DocView::new(engine)?;
+    view.update_print_fields();
     let sizes = view.page_sizes_pt();
     let mut job = bo_ui::PrintJob {
         printer,

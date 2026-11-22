@@ -384,6 +384,19 @@ impl DocView {
             .collect()
     }
 
+    /// Refresh the fields a print or a PDF export updates (SEQ, REF, PAGEREF, DATE …; not
+    /// tables of contents), as the reference word processor does before it prints or exports
+    /// (`updateFields` with `print: true`). Keeps the scroll position.
+    pub fn update_print_fields(&mut self) {
+        if let Ok(r) = self.engine.command(Command::UpdateFields {
+            answers: std::collections::BTreeMap::new(),
+            selection: false,
+            print: true,
+        }) {
+            self.apply(&r);
+        }
+    }
+
     /// The document as PDF bytes.
     pub fn export_pdf(&self) -> Result<Vec<u8>, String> {
         self.engine.export_pdf().map_err(|e| e.to_string())
@@ -1623,6 +1636,33 @@ mod tests {
             height: 900.0,
         });
         v
+    }
+
+    #[test]
+    fn print_fields_refresh_cross_references_but_keep_the_scroll() {
+        // office-28: a stale REF / PAGEREF cache "Bảng 3 (trang 5)" is "Bảng 1 (trang 1)"
+        // after a print or PDF export, as on the reference word processor.
+        let mut engine = Engine::with_bundled_fonts();
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../tests/corpus/doc/office-28-tham-chieu-cheo.docx"
+        );
+        engine
+            .open(&std::fs::read(path).unwrap(), "office-28.docx")
+            .unwrap();
+        let mut v = DocView::new(engine).unwrap();
+        v.handle(Input::Resize {
+            width: 1200.0,
+            height: 800.0,
+        });
+        let text = |v: &DocView| v.engine().document().unwrap().plain_text();
+        assert!(text(&v).contains("Bảng 3 (trang 5)"));
+        v.handle(Input::Wheel(120.0));
+        let scroll = v.scroll_info().0;
+        v.update_print_fields();
+        let after = text(&v);
+        assert!(after.contains("Bảng 1 (trang 1)"), "{after}");
+        assert!((v.scroll_info().0 - scroll).abs() < 1e-6);
     }
 
     #[test]

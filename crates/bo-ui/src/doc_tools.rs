@@ -447,7 +447,11 @@ pub(crate) fn enabled(id: &str, f: &FormatState) -> Option<bool> {
         | "design.styleSetMore"
         | "design.pageBorders"
         | "design.effects"
-        | "design.setDefault" => true,
+        | "design.setDefault"
+        | "references.markCitation"
+        | "references.insertToa"
+        | "references.updateToa"
+        | "references.updateIndex" => true,
         _ if id.starts_with("design.styleSet.") => true,
         _ if crate::doc_design::UNAVAILABLE.contains(&id) => false,
         _ if crate::doc_r3_menus::static_id(id).is_some() => true,

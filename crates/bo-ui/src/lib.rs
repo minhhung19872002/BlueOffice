@@ -32,6 +32,7 @@ mod doc_tiles;
 mod doc_tips;
 mod doc_tools;
 mod doc_view;
+mod doc_wm14;
 mod editor_actions;
 #[cfg(test)]
 mod editor_actions_tests;

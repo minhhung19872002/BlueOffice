@@ -16,6 +16,7 @@ impl Engine {
                 | Command::SetLineNumbering { .. }
                 | Command::SetSectionTextDirection { .. }
                 | Command::SetHyphenation { .. }
+                | Command::SetDefaultTabStop { .. }
                 | Command::SetDocDefaults { .. }
                 | Command::SetDropCap { .. }
         );
@@ -41,6 +42,7 @@ impl Engine {
                     *scope,
                 ),
                 Command::SetHyphenation { hyphenation } => s.set_hyphenation(*hyphenation),
+                Command::SetDefaultTabStop { twips } => s.set_default_tab_stop(*twips),
                 Command::SetDocDefaults { format } => s.set_doc_defaults(format),
                 Command::SetDropCap { drop_cap } => s.set_drop_cap(drop_cap.as_ref()),
                 _ => Ok(()),

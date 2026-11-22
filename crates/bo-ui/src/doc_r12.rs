@@ -33,24 +33,48 @@ fn borders_json(b: Option<&bo_model::Borders>) -> Value {
     })
 }
 
-/// Lighter (`tint` > 0) or darker (`tint` < 0) shade of `hex`.
+/// Lighter (`tint` > 0) or darker (`tint` < 0) shade of `hex`, on the HSL luminance as
+/// DrawingML's lumMod / lumOff (§20.1.2.3.20 / .21): lighter = L·(1 − t) + t, darker =
+/// L·(1 + t), hue and saturation kept (round 14: the palette rows match the reference's).
 fn shade(hex: &str, tint: f32) -> String {
     let v = u32::from_str_radix(hex, 16).unwrap_or(0);
-    let ch = |c: u32| {
-        let c = c as f32;
-        let out = if tint >= 0.0 {
-            c + (255.0 - c) * tint
-        } else {
-            c * (1.0 + tint)
-        };
-        out.round().clamp(0.0, 255.0) as u32
+    let [r, g, b] = [v >> 16 & 255, v >> 8 & 255, v & 255].map(|c| c as f32 / 255.0);
+    let (max, min) = (r.max(g).max(b), r.min(g).min(b));
+    let l = f32::midpoint(max, min);
+    let d = max - min;
+    let s = if d == 0.0 {
+        0.0
+    } else {
+        d / (1.0 - (2.0 * l - 1.0).abs())
     };
-    format!(
-        "{:02X}{:02X}{:02X}",
-        ch(v >> 16 & 255),
-        ch(v >> 8 & 255),
-        ch(v & 255)
-    )
+    let h = if d == 0.0 {
+        0.0
+    } else if (max - r).abs() < f32::EPSILON {
+        ((g - b) / d).rem_euclid(6.0)
+    } else if (max - g).abs() < f32::EPSILON {
+        (b - r) / d + 2.0
+    } else {
+        (r - g) / d + 4.0
+    };
+    let l = if tint >= 0.0 {
+        l * (1.0 - tint) + tint
+    } else {
+        l * (1.0 + tint)
+    }
+    .clamp(0.0, 1.0);
+    let c = (1.0 - (2.0 * l - 1.0).abs()) * s;
+    let x = c * (1.0 - (h.rem_euclid(2.0) - 1.0).abs());
+    let (r1, g1, b1) = match h as u32 {
+        0 => (c, x, 0.0),
+        1 => (x, c, 0.0),
+        2 => (0.0, c, x),
+        3 => (0.0, x, c),
+        4 => (x, 0.0, c),
+        _ => (c, 0.0, x),
+    };
+    let m = l - c / 2.0;
+    let ch = |v: f32| ((v + m) * 255.0).round().clamp(0.0, 255.0) as u32;
+    format!("{:02X}{:02X}{:02X}", ch(r1), ch(g1), ch(b1))
 }
 
 /// The colour drop-downs' palette: the document theme's ten colours (background, text,
@@ -66,14 +90,14 @@ pub(super) fn palette(theme: &[(String, bo_model::Color)]) -> Vec<String> {
     let base = [
         get("lt1", "FFFFFF"),
         get("dk1", "000000"),
-        get("lt2", "EEECE1"),
-        get("dk2", "1F3A5F"),
-        get("accent1", "2E75B6"),
-        get("accent2", "C55A11"),
-        get("accent3", "7F7F7F"),
-        get("accent4", "BF9000"),
-        get("accent5", "2F5597"),
-        get("accent6", "548235"),
+        get("lt2", "E7E6E6"),
+        get("dk2", "44546A"),
+        get("accent1", "4472C4"),
+        get("accent2", "ED7D31"),
+        get("accent3", "A5A5A5"),
+        get("accent4", "FFC000"),
+        get("accent5", "5B9BD5"),
+        get("accent6", "70AD47"),
     ];
     let mut out: Vec<String> = base.to_vec();
     for row in 0..5 {
@@ -378,12 +402,15 @@ impl DocWindow {
     pub(super) fn r12_form_extra(&mut self) -> Value {
         let page_tab = std::mem::take(&mut self.r12.page_tab);
         let f = self.view.format().clone();
-        let theme = self
-            .view
-            .engine()
-            .document()
-            .and_then(|d| d.design.theme_xml.clone())
-            .map(|x| bo_engine::theme_file::theme_colors(x.as_bytes()))
+        // The document's theme colours as read (round 14), else an authored theme's.
+        let doc = self.view.engine().document();
+        let theme = doc
+            .map(|d| d.design.theme_colors.clone())
+            .filter(|t| !t.is_empty())
+            .or_else(|| {
+                doc.and_then(|d| d.design.theme_xml.clone())
+                    .map(|x| bo_engine::theme_file::theme_colors(x.as_bytes()))
+            })
             .unwrap_or_default();
         let page = self
             .view

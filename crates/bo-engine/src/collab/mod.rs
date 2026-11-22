@@ -1698,6 +1698,12 @@ impl Engine {
                     new: st.pages,
                 });
             }
+            if st.tab_stop != doc.default_tab_stop {
+                ops.push(Op::DefaultTabStop {
+                    old: doc.default_tab_stop,
+                    new: st.tab_stop,
+                });
+            }
             if st.custom_xml != doc.custom_xml {
                 ops.push(Op::CustomXml {
                     old: doc.custom_xml.clone(),

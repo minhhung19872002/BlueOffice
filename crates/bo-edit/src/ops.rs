@@ -122,6 +122,13 @@ pub enum Op {
         /// New settings.
         new: bo_model::PagesSettings,
     },
+    /// Replace the default tab stop interval (§17.15.1.25 defaultTabStop; `None`: 720).
+    DefaultTabStop {
+        /// Previous interval.
+        old: Option<bo_model::Twips>,
+        /// New interval.
+        new: Option<bo_model::Twips>,
+    },
     /// Replace the custom XML parts (ECMA-376 Part 1, §15.2.4 / §15.2.5).
     CustomXml {
         /// Previous parts.
@@ -203,6 +210,10 @@ impl Op {
                 new: *old,
             },
             Op::Pages { old, new } => Op::Pages {
+                old: *new,
+                new: *old,
+            },
+            Op::DefaultTabStop { old, new } => Op::DefaultTabStop {
                 old: *new,
                 new: *old,
             },
@@ -354,6 +365,12 @@ impl Op {
                     return Err(EditError::Conflict);
                 }
                 doc.pages = *new;
+            }
+            Op::DefaultTabStop { old, new } => {
+                if doc.default_tab_stop != *old {
+                    return Err(EditError::Conflict);
+                }
+                doc.default_tab_stop = *new;
             }
             Op::Defaults { old, new } => {
                 if doc.default_run != old.0 || doc.default_para != old.1 {

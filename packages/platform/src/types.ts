@@ -1158,6 +1158,8 @@ export type EditCommand =
     }
   /** Hyphenation settings (§17.15.1.10 autoHyphenation, …). */
   | { cmd: 'setHyphenation'; hyphenation: HyphenationSettings }
+  /** Default tab stop interval in twips (§17.15.1.25 defaultTabStop; Tabs dialog). */
+  | { cmd: 'setDefaultTabStop'; twips: number }
   /** Drop cap of the caret's paragraph (§17.3.1.11 framePr); null removes it. */
   | { cmd: 'setDropCap'; dropCap: DropCapSpec | null }
   /** Signature lines (CORE-SIGLINE-001). */

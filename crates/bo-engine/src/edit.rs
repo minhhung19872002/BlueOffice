@@ -1199,6 +1199,11 @@ pub enum Command {
         /// The defaults to set.
         format: Box<bo_edit::find::FindFormat>,
     },
+    /// Default tab stop interval in twips (§17.15.1.25 defaultTabStop; Tabs dialog).
+    SetDefaultTabStop {
+        /// New interval (twips).
+        twips: i32,
+    },
     /// Hyphenation settings of the document (§17.15.1.10 autoHyphenation, …).
     SetHyphenation {
         /// New settings.
@@ -2022,6 +2027,7 @@ impl crate::Engine {
                     | Command::SetLineNumbering { .. }
                     | Command::SetSectionTextDirection { .. }
                     | Command::SetHyphenation { .. }
+                    | Command::SetDefaultTabStop { .. }
                     | Command::SetDocDefaults { .. }
                     | Command::SetDropCap { .. } => {}
                     Command::Tab { back } => {

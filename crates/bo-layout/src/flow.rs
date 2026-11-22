@@ -6,13 +6,14 @@ use crate::blocks::{
     stack_blocks, stack_note, Band, Brk, Ctx, ParaBlock, Stack, TableBox,
 };
 use crate::drawing::Float;
+use crate::page::page_frame;
 use crate::paragraph::{WrapZone, MIN_SEGMENT};
 use crate::style::ListCounters;
 use crate::types::{Layer, Line, LineRotation, LineSource, NoteKey, Page, PageItem};
 use crate::LayoutError;
 use bo_model::{
-    Block, Color, DropCap, Emu, FrameProps, LineNumberRestart, LineNumbering, NotePos, PageSetup,
-    Paragraph, Section, SectionBreak, Twips, Wrap, WrapText,
+    Block, Color, Document, DropCap, Emu, FrameProps, LineNumberRestart, LineNumbering, NotePos,
+    PageSetup, Paragraph, Section, SectionBreak, Twips, Wrap, WrapText,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -104,6 +105,8 @@ pub(crate) struct Snap {
     excl: Vec<(f32, f32)>,
     sides: Vec<SideZone>,
     float_tables: Vec<FloatTable>,
+    page_dx: f32,
+    v_align: bo_model::PageVAlign,
     prev: Option<Prev>,
     lists: ListCounters,
     other_lists: ListCounters,
@@ -186,6 +189,11 @@ pub(crate) struct Flow {
     sides: Vec<SideZone>,
     /// Floating tables placed on the current page (§17.4.56 tblOverlap).
     float_tables: Vec<FloatTable>,
+    /// How far even pages of the current section move right (mirror margins, book
+    /// fold: [`crate::page::page_frame`]).
+    page_dx: f32,
+    /// §17.6.23 vAlign of the current section.
+    v_align: bo_model::PageVAlign,
     pub foot_cache: HashMap<NoteKey, Stack>,
     prev: Option<Prev>,
     /// Page index at which each section started on a fresh page.
@@ -525,6 +533,53 @@ pub(crate) struct SideZone {
     pub outline: Option<Outline>,
 }
 
+/// Move the body of `page` down for §17.6.23 vAlign with `free` points left below it:
+/// half for `center`, all for `bottom`; `both` spreads it over the gaps between the
+/// paragraphs (lines and items below a paragraph's first line move with it).
+fn align_body(page: &mut Page, v: bo_model::PageVAlign, free: f32) {
+    use bo_model::PageVAlign;
+    let shift_of: Box<dyn Fn(f32) -> f32> = match v {
+        PageVAlign::Top => return,
+        PageVAlign::Center => Box::new(move |_| free / 2.0),
+        PageVAlign::Bottom => Box::new(move |_| free),
+        PageVAlign::Both => {
+            // Tops of the paragraphs, in page order.
+            let mut tops: Vec<(Option<LineSource>, f32)> = Vec::new();
+            for l in &page.lines {
+                let src = match l.source {
+                    LineSource::Body(_) => Some(l.source),
+                    _ => None,
+                };
+                if src.is_none() || tops.last().map(|t| t.0) != Some(src) {
+                    tops.push((src, l.top));
+                }
+            }
+            let mut starts: Vec<f32> = tops.iter().map(|t| t.1).collect();
+            starts.sort_by(f32::total_cmp);
+            starts.dedup_by(|a, b| (*a - *b).abs() < 0.01);
+            if starts.len() < 2 {
+                return;
+            }
+            let step = free / (starts.len() - 1) as f32;
+            Box::new(move |y| {
+                let k = starts.iter().rposition(|&t| t <= y + 0.01).unwrap_or(0);
+                step * k as f32
+            })
+        }
+    };
+    for l in &mut page.lines {
+        let dy = shift_of(l.top);
+        l.translate(0.0, dy);
+    }
+    for it in &mut page.items {
+        let y = match it {
+            PageItem::Rect { y, .. } | PageItem::Image { y, .. } | PageItem::Shape { y, .. } => *y,
+            PageItem::Rule { y1, y2, .. } => y1.min(*y2),
+        };
+        it.translate(0.0, shift_of(y));
+    }
+}
+
 /// A floating table on the page (points): its box and its distances from text
 /// (§17.4.58 tblpPr), and whether it forbids overlap (§17.4.56 tblOverlap `never`).
 #[derive(Debug, Clone, PartialEq)]
@@ -689,6 +744,8 @@ impl Flow {
             excl: Vec::new(),
             sides: Vec::new(),
             float_tables: Vec::new(),
+            page_dx: 0.0,
+            v_align: bo_model::PageVAlign::Top,
             foot_cache: HashMap::new(),
             prev: None,
             section_start: vec![None; sections],
@@ -742,6 +799,8 @@ impl Flow {
                 excl: self.excl.clone(),
                 sides: self.sides.clone(),
                 float_tables: self.float_tables.clone(),
+                page_dx: self.page_dx,
+                v_align: self.v_align,
                 prev: self.prev.clone(),
                 lists: ctx.lists.clone(),
                 other_lists: ctx.other_lists.clone(),
@@ -779,6 +838,8 @@ impl Flow {
         self.excl.clone_from(&s.excl);
         self.sides.clone_from(&s.sides);
         self.float_tables.clone_from(&s.float_tables);
+        self.page_dx = s.page_dx;
+        self.v_align = s.v_align;
         self.prev.clone_from(&s.prev);
         self.cols_top = s.cols_top;
         self.cols_low = s.cols_low;
@@ -901,7 +962,48 @@ impl Flow {
     fn finish_page(&mut self) {
         self.close_columns();
         self.place_page_notes();
+        self.align_page();
         self.turn_page();
+    }
+
+    /// Vertical alignment of the body on the page (ECMA-376 Part 1, §17.6.23 vAlign) and
+    /// the mirrored margins of even pages, applied once the page's body is complete
+    /// (before its header and footer are added), as the reference word processor does
+    /// (measured in its PDF export, docs/ui/REPORT.md "Dàn trang vòng 6"): `center` /
+    /// `bottom` move the whole body by half / all of the room left below its last line,
+    /// `both` spreads that room evenly between its paragraphs.
+    fn align_page(&mut self) {
+        if self.vertical.is_some() {
+            return;
+        }
+        let (top, bottom, v_align, dx) = (self.top, self.bottom, self.v_align, self.page_dx);
+        let Some(page) = self.pages.last_mut() else {
+            return;
+        };
+        if v_align != bo_model::PageVAlign::Top
+            && !page
+                .lines
+                .iter()
+                .any(|l| matches!(l.source, LineSource::Note { .. }))
+        {
+            let low = page
+                .lines
+                .iter()
+                .map(|l| l.top + l.height)
+                .fold(top, f32::max);
+            let free = bottom - low;
+            if free > 0.01 {
+                align_body(page, v_align, free);
+            }
+        }
+        if dx.abs() > 0.001 && page.number.is_multiple_of(2) {
+            for l in &mut page.lines {
+                l.translate(dx, 0.0);
+            }
+            for it in &mut page.items {
+                it.translate(dx, 0.0);
+            }
+        }
     }
 
     /// Balance the columns of a section ended by a continuous section break on this page
@@ -2148,7 +2250,7 @@ impl Flow {
     }
 
     /// Start section `si`.
-    fn start_section(&mut self, si: usize, sec: &Section, first: bool) {
+    fn start_section(&mut self, doc: &Document, si: usize, sec: &Section, first: bool) {
         let phys = self.vertical.map_or(self.setup, |v| v.0);
         let same_size = phys.width == sec.page.width && phys.height == sec.page.height;
         let rot = sec
@@ -2171,15 +2273,18 @@ impl Flow {
             self.y = self.cols_top;
         }
         let hf = self.hf_heights.get(si).map_or((0.0, 0.0), |h| h[0]);
-        let (top, bottom) = body_area(&sec.page, hf);
+        let (frame, dx) = page_frame(doc, sec);
+        self.page_dx = dx;
+        self.v_align = sec.layout.v_align;
+        let (top, bottom) = body_area(&frame, hf);
         if rot == 0 {
             self.vertical = None;
-            self.setup = sec.page;
+            self.setup = frame;
             self.top = top;
             self.bottom = bottom;
         } else {
-            let (v, r) = vertical_setup(&sec.page, top, bottom, rot);
-            self.vertical = Some((sec.page, r));
+            let (v, r) = vertical_setup(&frame, top, bottom, rot);
+            self.vertical = Some((frame, r));
             self.setup = v;
             let (vt, vb) = body_area(&v, (0.0, 0.0));
             self.top = vt;
@@ -2265,10 +2370,8 @@ impl Flow {
     ) -> Result<(), LayoutError> {
         let doc = ctx.doc;
         if let (Some(blocks), Some(sec)) = (&doc.continuation_notice, doc.sections.first()) {
-            let w = (sec.page.width.to_pt()
-                - sec.page.margin_left.to_pt()
-                - sec.page.margin_right.to_pt())
-            .max(36.0);
+            let f = page_frame(doc, sec).0;
+            let w = (f.width.to_pt() - f.margin_left.to_pt() - f.margin_right.to_pt()).max(36.0);
             self.notice = Some(stack_blocks(ctx, blocks, w, false, None)?);
         }
         let (s0, k0) = from.unwrap_or((0, 0));
@@ -2278,7 +2381,7 @@ impl Flow {
             if from.is_some() && si == s0 {
                 k = k0;
             } else {
-                self.start_section(si, sec, si == 0);
+                self.start_section(doc, si, sec, si == 0);
                 section_start = Some(self.checkpoint(ctx));
             }
             self.beneath = doc.footnote_props(si).pos == Some(NotePos::BeneathText);

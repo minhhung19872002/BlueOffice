@@ -6,6 +6,45 @@
 use crate::types::{Layer, LineSource, Page, PageDecor, PageItem, PathCmd, ShapePath};
 use bo_model::{Border, Color, Document, PageBorder, PageBorderDisplay, PageBorders, PageSetup};
 
+/// Margins of a section's pages with the gutter (ECMA-376 Part 1, §17.6.11 pgMar
+/// `w:gutter`) and the "Multiple pages" settings applied, as the reference word processor
+/// lays them out (measured in its PDF export, docs/ui/REPORT.md "Dàn trang vòng 6"):
+/// the setup of odd (right-hand) pages and how far even pages move to the right.
+///
+/// - gutter at the left, or at the top with §17.15.1.49 gutterAtTop (the header stays);
+/// - §17.15.1.57 mirrorMargins: left / right are inside / outside — odd pages
+///   left + gutter, even pages start at the right margin (the gutter inside);
+/// - §17.15.1.13 bookFoldPrinting: the other way round — odd pages start at the right
+///   margin + gutter, even pages at the left margin;
+/// - §17.15.1.65 printTwoOnOne only changes printing (the export lays out whole pages).
+#[must_use]
+pub fn page_frame(doc: &Document, sec: &bo_model::Section) -> (PageSetup, f32) {
+    let mut s = sec.page;
+    let g = sec.layout.gutter;
+    let pages = &doc.pages;
+    if pages.book_fold {
+        let (ml, mr) = (s.margin_left, s.margin_right);
+        s.margin_left = bo_model::Twips(mr.0 + g.0);
+        s.margin_right = ml;
+        return (s, ml.to_pt() - s.margin_left.to_pt());
+    }
+    if pages.gutter_at_top && !pages.mirror_margins {
+        s.margin_top = if s.margin_top.0 < 0 {
+            bo_model::Twips(s.margin_top.0 - g.0)
+        } else {
+            bo_model::Twips(s.margin_top.0 + g.0)
+        };
+        return (s, 0.0);
+    }
+    s.margin_left = bo_model::Twips(s.margin_left.0 + g.0);
+    let dx = if pages.mirror_margins {
+        s.margin_right.to_pt() - s.margin_left.to_pt()
+    } else {
+        0.0
+    };
+    (s, dx)
+}
+
 /// A repeated motif of an art border (BlueOffice designs: simple geometric shapes).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ArtMotif {
@@ -163,6 +202,7 @@ pub(crate) fn decorate_pages(doc: &Document, pages: &mut [Page]) -> Vec<usize> {
         };
         if let Some(sec) = doc.sections.get(p.section) {
             if let Some(pb) = sec.page_borders.as_ref().filter(|pb| !pb.is_empty()) {
+                let frame = page_frame(doc, sec).0;
                 let first = first_of.get(p.section) == Some(&pi);
                 let shown = match pb.display {
                     PageBorderDisplay::AllPages => true,
@@ -173,9 +213,9 @@ pub(crate) fn decorate_pages(doc: &Document, pages: &mut [Page]) -> Vec<usize> {
                     let around = if pb.offset_from_page {
                         Surround::default()
                     } else {
-                        surround(doc, p, &sec.page)
+                        surround(doc, p, &frame)
                     };
-                    decor.borders = border_items_around(pb, &sec.page, around);
+                    decor.borders = border_items_around(pb, &frame, around);
                     decor.borders_behind = pb.behind;
                 }
             }

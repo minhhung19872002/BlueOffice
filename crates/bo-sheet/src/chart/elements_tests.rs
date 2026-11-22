@@ -528,3 +528,50 @@ fn overlays_legend_side_and_table_keys() {
     c.axes.table_no_keys = true;
     assert_eq!(keys(&draw(&wb, &c).0), 0);
 }
+
+/// Black-box (office-22 exported by the reference word processor): a chart part without
+/// formatting of its own is drawn with black 0.5 pt gridlines and axis lines, a 0.5 pt grey
+/// border, value labels from 6.5 pt with 0.85 em to the plot, and a compact legend.
+#[test]
+fn classic_charts_use_the_automatic_formatting() {
+    let wb = wb();
+    let mut c = chart(&wb, "column");
+    c.legend = Some("b".into());
+    let lines = |out: &[Command], rgb: (u8, u8, u8)| {
+        out.iter()
+            .filter(|cmd| {
+                matches!(cmd, Command::Line { color, width, .. }
+                    if (color.0, color.1, color.2) == rgb && (*width - 0.5).abs() < 1e-3)
+            })
+            .count()
+    };
+    let (modern, _) = draw(&wb, &c);
+    assert_eq!(lines(&modern, (0, 0, 0)), 0);
+    c.format.classic = true;
+    let (out, boxes) = draw(&wb, &c);
+    // Gridlines 0..12 by 2 plus the two axis lines.
+    assert!(lines(&out, (0, 0, 0)) >= 8, "{}", lines(&out, (0, 0, 0)));
+    assert_eq!(lines(&out, (0x89, 0x89, 0x89)), 4, "chart border");
+    // Value labels: right-aligned 0.85 em (10 pt text) before the plot, which starts after
+    // the widest label.
+    // The last "10" (the first ones measure the labels).
+    let ten = boxes.iter().rev().find(|(t, _)| t == "10").unwrap().1;
+    let axis = out
+        .iter()
+        .find_map(|cmd| match cmd {
+            Command::Line {
+                x1,
+                x2,
+                y1,
+                y2,
+                color,
+                ..
+            } if (color.0, color.1, color.2) == (0, 0, 0) && x1 == x2 && y1 != y2 => {
+                Some(f64::from(*x1))
+            }
+            _ => None,
+        })
+        .unwrap();
+    assert!((axis - ten[2] - 8.5).abs() < 0.01, "{axis} {ten:?}");
+    assert!((ten[0] - 6.5).abs() < 0.01);
+}

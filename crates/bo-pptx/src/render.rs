@@ -2128,6 +2128,21 @@ fn draw_chart_frame(
             None => cx.color(&Color::scheme(&format!("accent{}", i % 6 + 1)), None),
         }
     };
+    // §21.2.2.216 txPr: the chart's typeface (`a:latin`, else the theme's body font) and a
+    // bold title (§21.2.2.210 title text runs `b="1"`).
+    let latin = chart
+        .format
+        .font_face
+        .as_ref()
+        .map(|f| bo_model::slide::TextFont {
+            typeface: f.clone(),
+            ..Default::default()
+        });
+    let title = chart
+        .title
+        .as_deref()
+        .filter(|_| chart.format.title_bold)
+        .unwrap_or_default();
     let mut label = |text: &str,
                      rect: [f64; 4],
                      align: bo_sheet::chart::Align,
@@ -2159,6 +2174,8 @@ fn draw_chart_frame(
                 runs: vec![TextRun::Run {
                     props: RunProps {
                         sz: Some((size * 100.0) as i32),
+                        b: (!title.is_empty() && text == title).then_some(true),
+                        latin: latin.clone(),
                         fill: Some(Fill::Solid(Color::srgb(
                             (u32::from(r) << 16) | (u32::from(g) << 8) | u32::from(b),
                         ))),

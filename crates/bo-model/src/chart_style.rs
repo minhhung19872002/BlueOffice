@@ -97,8 +97,20 @@ pub struct ChartFormat {
     pub text_color: Option<ChartColor>,
     /// Base font size in hundredths of a point (`a:defRPr@sz`); `None` = automatic.
     pub font_size: Option<u32>,
+    /// Typeface of the chart's text (`a:defRPr/a:latin@typeface`, §21.1.2.3.7); `None` = the
+    /// theme's body font.
+    pub font_face: Option<String>,
     /// Bold chart title (`a:defRPr@b` of the title's text).
     pub title_bold: bool,
+    /// Size of the chart title's text in hundredths of a point (`a:rPr@sz` / `a:defRPr@sz` of
+    /// the title, §21.2.2.210); `None` = automatic.
+    pub title_size: Option<u32>,
+    /// The chart part formats none of its chart area, plot area, axes and gridlines
+    /// (no `c:spPr` on them, §21.2.2.197): the reference draws such a chart with its automatic
+    /// ("classic") formatting — black text, gridlines and axis lines, a grey chart border.
+    /// Read from files only (not serialised).
+    #[serde(skip)]
+    pub classic: bool,
     /// §21.2.2.156 roundedCorners of the chart area.
     pub rounded: bool,
     /// The value axis has no major gridlines (§21.2.2.100 majorGridlines absent).

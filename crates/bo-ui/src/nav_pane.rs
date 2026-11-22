@@ -58,6 +58,8 @@ pub(crate) enum NavAction {
     Search,
     /// Redraw only.
     Redraw,
+    /// The ▾ at the right of the search box: the search options menu (round 11).
+    SearchMenu,
 }
 
 /// The navigation pane.
@@ -146,10 +148,10 @@ impl NavPane {
         }
     }
 
-    /// Left edge of heading `i`'s text (device px): 43 logical px for level 1 and 19 more per
-    /// level (34 / 24 device px measured at 125 %).
+    /// Left edge of heading `i`'s text (device px): 36 logical px for level 1 and 19 more per
+    /// level (45 / 24 device px from the pane's edge, measured at 125 %).
     fn heading_x(&self, level: u8) -> f32 {
-        self.px(43.2 + f32::from(level) * 19.2)
+        self.px(36.0 + f32::from(level) * 19.2)
     }
 
     /// The heading under window point (`x`, `y`) (index into `headings`).
@@ -378,6 +380,10 @@ impl NavPane {
             return NavAction::Close;
         }
         if inside(self.search_rect(), x, y) {
+            let b = self.search_rect();
+            if x >= b[0] + b[2] - self.px(16.0) {
+                return NavAction::SearchMenu;
+            }
             self.focus = true;
             return NavAction::Redraw;
         }
@@ -534,7 +540,7 @@ impl NavPane {
         }
         // Magnifier at the right of the box (own drawing).
         let (mx, my, r) = (
-            b[0] + b[2] - self.px(16.0),
+            b[0] + b[2] - self.px(30.0),
             b[1] + b[3] / 2.0 - self.px(1.0),
             self.px(4.0),
         );
@@ -548,6 +554,17 @@ impl NavPane {
                 PathSeg::Q(mx - r, my + r, mx - r, my),
                 PathSeg::M(mx - r * 0.7, my + r * 0.7),
                 PathSeg::L(mx - r * 1.9, my + r * 1.9),
+            ],
+            None,
+            Some((t.text, lw)),
+        );
+        // ▾ for the search options menu.
+        let (vx, vy, vk) = (b[0] + b[2] - self.px(9.0), b[1] + b[3] / 2.0, self.px(3.0));
+        p.path(
+            &[
+                PathSeg::M(vx - vk, vy - vk * 0.5),
+                PathSeg::L(vx, vy + vk * 0.6),
+                PathSeg::L(vx + vk, vy - vk * 0.5),
             ],
             None,
             Some((t.text, lw)),
@@ -640,7 +657,7 @@ impl NavPane {
                 let hd = &self.headings[hi];
                 // The reference's band: light blue (194, 213, 242) from the text column of a
                 // level-1 heading to near the pane's edge, no frame.
-                let (bx, bw) = (self.px(38.4), w - self.px(38.4) - self.px(29.0));
+                let (bx, bw) = (self.px(31.2), self.px(289.6));
                 if self.current == Some(hi) {
                     p.fill_rect(bx, ry, bw, rh, Rgba(194, 213, 242, 255));
                 } else if self.hover == Some(i) {
@@ -649,7 +666,7 @@ impl NavPane {
                 let tx0 = self.heading_x(hd.level);
                 if self.has_children(hi) {
                     let open = !self.collapsed.contains(&hd.para);
-                    let (cx, cy, k) = (tx0 - self.px(12.8), ry + rh / 2.0, self.px(3.6));
+                    let (cx, cy, k) = (tx0 - self.px(11.2), ry + rh / 2.0, self.px(3.6));
                     if open {
                         // Solid ◢: expanded.
                         p.path(
@@ -676,8 +693,14 @@ impl NavPane {
                         );
                     }
                 }
-                let tx = ty([0.0, ry, 0.0, rh], style);
-                p.text(&hd.text, tx0, tx, style, ROW_TEXT);
+                // Headings in the larger list font: "Introduction" 98 px wide at 125 % on the
+                // reference (85 px at the search box size).
+                let hs = TextStyle {
+                    size: self.px(13.8),
+                    bold: false,
+                };
+                let tx = ty([0.0, ry, 0.0, rh], hs);
+                p.text(&hd.text, tx0, tx, hs, ROW_TEXT);
                 continue;
             }
             if self.current == Some(i) {

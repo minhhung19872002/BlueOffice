@@ -17,6 +17,7 @@ use windows::Win32::Graphics::Direct2D::{
 use windows::Win32::Graphics::Direct2D::{
     ID2D1Brush, ID2D1SolidColorBrush, ID2D1StrokeStyle, D2D1_CAP_STYLE_ROUND,
     D2D1_DRAW_TEXT_OPTIONS_NONE, D2D1_LINE_JOIN_ROUND, D2D1_TEXT_ANTIALIAS_MODE_DEFAULT,
+    D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE,
 };
 use windows::Win32::Graphics::DirectWrite::{
     DWriteCreateFactory, IDWriteFactory, IDWriteTextFormat, IDWriteTextLayout,
@@ -784,6 +785,20 @@ impl Frame<'_> {
     pub fn pop_clip(&self) {
         // SAFETY: paired with a previous `push_clip` in the same frame.
         unsafe { self.device.context.PopAxisAlignedClip() }
+    }
+
+    /// Draw later interface text in grayscale (`true`) or with the system's ClearType again.
+    pub fn gray_text(&self, on: bool) {
+        if on {
+            // SAFETY: inside BeginDraw/EndDraw on the frame's context.
+            unsafe {
+                self.device
+                    .context
+                    .SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
+            }
+        } else {
+            self.device.apply_ui_text();
+        }
     }
 
     /// Draw interface text with its layout box's top-left corner at (`x`, `y`).

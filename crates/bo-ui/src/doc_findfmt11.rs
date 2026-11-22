@@ -695,6 +695,10 @@ pub(super) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
             let mut fonts = c.fonts.clone();
             fonts.sort_by_key(|n| n.to_lowercase());
             fonts.dedup();
+            // The theme's body / heading fonts first; no hidden ".…" system families (the
+            // reference's list goes "+Headings", "AcadEref", … with "+Body" just above).
+            fonts.retain(|n| !n.starts_with('.') && !n.starts_with('@'));
+            fonts.splice(0..0, ["+Body".to_owned(), "+Headings".to_owned()]);
             f.form.add(
                 "fontList",
                 Some(0),
@@ -702,7 +706,7 @@ pub(super) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
                 super::Kind::List {
                     items: fonts,
                     sel: None,
-                    top: 0,
+                    top: 1,
                 },
             );
             f.label_on(
@@ -785,11 +789,14 @@ pub(super) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
                 Some(0),
                 [365.0, 280.0, 143.0, 26.0],
                 super::Kind::Combo {
-                    items: vec![tr("findFmt11.noColor", "No Color")],
+                    items: {
+                        let mut v = vec![tr("findFmt11.noColor", "No Color")];
+                        v.extend(COLORS.iter().map(|(_, k, fb)| tr(k, fb)));
+                        v
+                    },
                     sel: 0,
                 },
             );
-            f.disable("ulColor");
             f.group_on(
                 Some(0),
                 "effects",
@@ -937,7 +944,7 @@ pub(super) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
                 [302.0, 149.0, 200.0, 20.0],
                 &tr("findFmt11.collapsed", "Collapsed by default"),
             );
-            f.tri_off("collapsed");
+
             f.group_on(
                 Some(0),
                 "indentation",
@@ -992,7 +999,7 @@ pub(super) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
                 [38.0, 303.0, 200.0, 20.0],
                 &tr("findFmt11.mirror", "Mirror indents"),
             );
-            f.tri_off("mirror");
+
             f.group_on(
                 Some(0),
                 "spacing",
@@ -1119,7 +1126,20 @@ pub(super) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
                 &tr("findFmt11.setDefault", "Set As Default"),
                 false,
             );
+            // Disabled: BlueDoc never writes the document's defaults from a search dialog (the
+            // reference enables it; a button that did nothing would be worse).
             f.disable("setDefault");
+            f.preview = vec![
+                tr(
+                    "findFmt11.pvBefore",
+                    "Text of the paragraph before this one.",
+                ),
+                tr(
+                    "findFmt11.pvSample",
+                    "Sample of the paragraph searched for.",
+                ),
+                tr("findFmt11.pvAfter", "Text of the paragraph after this one."),
+            ];
             f.button(
                 "ok",
                 [334.0, 666.0, 112.0, 28.0],
@@ -1294,7 +1314,18 @@ pub(super) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
             let mut langs: Vec<String> = LANGUAGES.iter().map(|l| l.1.to_owned()).collect();
             langs.push(tr("findFmt11.noLanguage", "(no language)"));
             f.list("list", [10.0, 113.0, 365.0, 164.0], langs, None);
-            f.label("note", [10.0, 284.0, 370.0, 36.0], &tr("docR3.languageNote", "The speller and other proofing tools automatically use dictionaries of the selected language, if available."));
+            // Two lines, broken at the space nearest the middle (the reference wraps it).
+            let note = tr(
+                "docR3.languageNote",
+                "The speller and other proofing tools automatically use dictionaries of the selected language, if available.",
+            );
+            let mut mid = (note.len() / 2 + note.len() / 10).min(note.len());
+            while !note.is_char_boundary(mid) {
+                mid -= 1;
+            }
+            let cut = note[..mid].rfind(' ').unwrap_or(note.len());
+            f.label("note", [10.0, 282.0, 370.0, 18.0], note[..cut].trim());
+            f.label("note2", [10.0, 299.0, 370.0, 18.0], note[cut..].trim());
             f.tri(
                 None,
                 "noProof",
@@ -1545,7 +1576,13 @@ pub(super) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
             let mut desc = vec![String::new()];
             for (id, name, para) in &c.styles {
                 // ¶ marks a paragraph style, a a character style, as the reference's icons.
-                items.push(format!("{}  {name}", if *para { '\u{b6}' } else { 'a' }));
+                // Built-in names show capitalised ("heading 1" → "Heading 1"), as the reference.
+                let mut cs = name.chars();
+                let shown: String = cs
+                    .next()
+                    .map(|c| c.to_uppercase().chain(cs).collect())
+                    .unwrap_or_default();
+                items.push(format!("{}  {shown}", if *para { '\u{b6}' } else { 'a' }));
                 ids.push(id.clone());
                 desc.push(if *para {
                     tr("findFmt11.paraStyle", "Paragraph style")
@@ -1684,23 +1721,45 @@ pub(super) fn paint_canvas(
                 r[3] - 2.0,
                 Rgba(255, 255, 255, 255),
             );
-            // Grey bars for the paragraphs around, a black one for this paragraph (own sample
-            // drawing rather than the reference's sample words).
-            let grey = Rgba(0xc8, 0xc8, 0xc8, 255);
+            // Sample text as the reference lays it out: the paragraph before in grey, the
+            // paragraph searched for in black, the one after in grey (BlueOffice's own words).
+            let small = Font {
+                size: font.size * 0.62,
+                ..*font
+            };
             let x = r[0] + 32.0 * k;
             let w = r[2] - 64.0 * k;
+            let line_h = (small.size * 1.33).round();
+            let per_line = ((w / (small.size * 0.47)).floor() as usize).max(8);
+            let grey = Rgba(0xa6, 0xa6, 0xa6, 255);
             let mut y = r[1] + 10.0 * k;
-            for i in 0..2 {
-                p.fill_rect(x, y, if i == 1 { w * 0.6 } else { w }, 3.0 * k, grey);
-                y += 9.0 * k;
+            p.push_clip(r[0] + 1.0, r[1] + 1.0, r[2] - 2.0, r[3] - 2.0);
+            let parts: [(usize, usize, Rgba); 3] =
+                [(0, 3, grey), (1, 1, Rgba(0, 0, 0, 255)), (2, 7, grey)];
+            for (i, reps, color) in parts {
+                let one = f.preview.get(i).cloned().unwrap_or_default();
+                let text = vec![one.as_str(); reps].join(" ");
+                let mut line = String::new();
+                let mut lines = Vec::new();
+                for word in text.split(' ') {
+                    if !line.is_empty()
+                        && line.chars().count() + word.chars().count() + 1 > per_line
+                    {
+                        lines.push(std::mem::take(&mut line));
+                    }
+                    if !line.is_empty() {
+                        line.push(' ');
+                    }
+                    line.push_str(word);
+                }
+                lines.push(line);
+                for l in lines {
+                    p.text_font(&l, x, y, &small, color);
+                    y += line_h;
+                }
+                y += line_h * 0.6;
             }
-            y += 6.0 * k;
-            p.fill_rect(x, y, w * 0.55, 3.0 * k, Rgba(0x40, 0x40, 0x40, 255));
-            y += 15.0 * k;
-            for i in 0..4 {
-                p.fill_rect(x, y, if i == 3 { w * 0.4 } else { w }, 3.0 * k, grey);
-                y += 9.0 * k;
-            }
+            p.pop_clip();
             true
         }
         _ => false,
@@ -1710,7 +1769,7 @@ pub(super) fn paint_canvas(
 /// A three-state check box: any = blue rounded square with a light dash (measured 16 px at
 /// 125 %: #005FB8, dash #609BD3), on = blue with a white tick, off = white with a dark frame.
 fn paint_tri(p: &mut dyn Painter, r: [f32; 4], t: &Tri, font: &Font<'_>, k: f32) {
-    let d = (13.0 * k).round();
+    let d = (16.0 * k).round();
     let (x, y) = (r[0], (r[1] + (r[3] - d) / 2.0).round());
     let blue = if t.enabled {
         Rgba(0x00, 0x5f, 0xb8, 255)
@@ -1779,7 +1838,7 @@ fn paint_tri(p: &mut dyn Painter, r: [f32; 4], t: &Tri, font: &Font<'_>, k: f32)
     let line = font.size * 1.33;
     p.text_font(
         &t.label,
-        x + d + 8.0 * k,
+        x + d + 5.0 * k,
         (r[1] + (r[3] - line) / 2.0).round(),
         font,
         if t.enabled {

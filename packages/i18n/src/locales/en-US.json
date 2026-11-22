@@ -15752,6 +15752,9 @@
     "wrapFront": "I&n Front of Text"
   },
   "findFmt11": {
+    "pvBefore": "Text of the paragraph before this one.",
+    "pvSample": "Sample of the paragraph searched for.",
+    "pvAfter": "Text of the paragraph after this one.",
     "noSpaceW": "Don't add space",
     "afterL": "After:",
     "alignment": "Alignment",
@@ -15912,6 +15915,16 @@
     "advanced": "Character spacing and OpenType features are not searched."
   },
   "docR11": {
+    "options": "Options...",
+    "advFind": "Advanced Find...",
+    "replace": "Replace...",
+    "goTo": "Go To...",
+    "findHeader": "Find:",
+    "graphics": "Graphics",
+    "tables": "Tables",
+    "equations": "Equations",
+    "footnotes": "Footnotes/Endnotes",
+    "comments": "Comments",
     "promote": "Promote",
     "demote": "Demote",
     "moveUp": "Move Up",

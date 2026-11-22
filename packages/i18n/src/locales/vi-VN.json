@@ -15752,6 +15752,9 @@
     "wrapFront": "&Trước văn bản"
   },
   "findFmt11": {
+    "pvBefore": "Nội dung của đoạn văn đứng trước đoạn này.",
+    "pvSample": "Mẫu của đoạn văn đang tìm.",
+    "pvAfter": "Nội dung của đoạn văn đứng sau đoạn này.",
     "noSpaceW": "Không thêm khoảng cách",
     "afterL": "Sau:",
     "alignment": "Căn lề",
@@ -15912,6 +15915,16 @@
     "advanced": "Không tìm theo giãn ký tự và tính năng OpenType."
   },
   "docR11": {
+    "options": "Tùy chọn...",
+    "advFind": "Tìm nâng cao...",
+    "replace": "Thay thế...",
+    "goTo": "Đi tới...",
+    "findHeader": "Tìm:",
+    "graphics": "Đồ họa",
+    "tables": "Bảng",
+    "equations": "Phương trình",
+    "footnotes": "Chú thích chân trang/cuối",
+    "comments": "Chú thích",
     "promote": "Nâng cấp",
     "demote": "Hạ cấp",
     "moveUp": "Chuyển lên",

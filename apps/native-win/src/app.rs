@@ -239,6 +239,9 @@ impl Painter for WinPainter<'_, '_> {
     fn clear(&mut self, color: Rgba) {
         self.frame.clear(color);
     }
+    fn gray_text(&mut self, on: bool) {
+        self.frame.gray_text(on);
+    }
     fn fill_rect(&mut self, x: f32, y: f32, w: f32, h: f32, color: Rgba) {
         self.frame.fill_rect(x, y, w, h, color);
     }

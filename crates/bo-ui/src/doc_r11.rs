@@ -327,7 +327,13 @@ impl DocWindow {
             }
             return Some(true);
         }
+        if let Some(n) = id.strip_prefix("nav11.go.") {
+            let what = n.parse::<usize>().unwrap_or(9);
+            return Some(self.go_to_target(what, "+1"));
+        }
         match id {
+            "nav11.advFind" => return Some(self.open_find_dialog(0)),
+            "nav11.options" | "nav11.none" => return Some(false),
             "nav11.expandAll" => {
                 if let Some(nav) = self.nav.as_mut() {
                     nav.collapsed.clear();
@@ -378,6 +384,49 @@ impl DocWindow {
             nav.show(NavTab::Headings);
         }
         Some(r)
+    }
+
+    /// The navigation pane's search ▾ menu: Options…, Advanced Find…, Replace…, Go To…, then
+    /// find the next graphic, table, equation, footnote or comment (the reference's list).
+    pub(super) fn r11_search_menu(&mut self) -> bool {
+        let rows: [(&str, &str, &str, bool); 10] = [
+            ("options", "Options...", "nav11.options", true),
+            ("advFind", "Advanced Find...", "nav11.advFind", false),
+            ("replace", "Replace...", "edit.replace", false),
+            ("goTo", "Go To...", "edit.goTo", false),
+            ("findHeader", "Find:", "nav11.none", true),
+            ("graphics", "Graphics", "nav11.go.9", false),
+            ("tables", "Tables", "nav11.go.8", false),
+            ("equations", "Equations", "nav11.go.10", false),
+            ("footnotes", "Footnotes/Endnotes", "nav11.go.5", false),
+            ("comments", "Comments", "nav11.go.4", false),
+        ];
+        let items: Vec<MenuItem> = rows
+            .iter()
+            .map(|(k, f, id, dim)| MenuItem {
+                label: self.r11_t(k, f),
+                choice: Choice::Command((*id).to_owned()),
+                checked: false,
+                dim: *dim,
+            })
+            .collect();
+        let (x, y) = self.pointer;
+        let look = MenuLook {
+            item_h: 36.0 / 1.25,
+            min_w: 240.0 / 1.25,
+            ..MenuLook::default()
+        };
+        let menu = Menu::open_with(
+            items,
+            [x - 1.0, y + 8.0, 1.0, 0.0],
+            self.size,
+            self.scale,
+            look,
+        )
+        .with_decor(vec![None; rows.len()], vec![4])
+        .with_soft_shadow();
+        self.menu = Some(menu);
+        true
     }
 
     /// Show Heading Levels ▸: All, Level 1 … Level 9 (checked: the levels shown).

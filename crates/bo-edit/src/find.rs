@@ -532,11 +532,23 @@ impl FindFormat {
                 bo_model::Underline::None
             });
         }
-        if let Some(f) = &self.font {
-            rp.font = Some(f.clone());
-            rp.font_h_ansi = Some(f.clone());
-            rp.theme_ascii = None;
-            rp.theme_h_ansi = None;
+        match self.font.as_deref() {
+            Some(t @ ("+Body" | "+Headings")) => {
+                let theme = if t == "+Body" {
+                    "minorHAnsi"
+                } else {
+                    "majorHAnsi"
+                };
+                rp.theme_ascii = Some(theme.into());
+                rp.theme_h_ansi = Some(theme.into());
+            }
+            Some(f) => {
+                rp.font = Some(f.to_owned());
+                rp.font_h_ansi = Some(f.to_owned());
+                rp.theme_ascii = None;
+                rp.theme_h_ansi = None;
+            }
+            None => {}
         }
         if let Some(sz) = self.size {
             rp.size = Some(bo_model::HalfPoints(sz));
@@ -682,10 +694,18 @@ impl FindFormat {
             && self.style.as_ref().is_none_or(|s| {
                 para_style.as_deref() == Some(s.as_str()) || direct.style.as_deref() == Some(s)
             })
-            && self
-                .font
-                .as_ref()
-                .is_none_or(|f| font.is_some_and(|x| x.eq_ignore_ascii_case(f)))
+            && self.font.as_deref().is_none_or(|f| match f {
+                // The theme's body / heading font (§17.3.2.26 asciiTheme minor… / major…).
+                "+Body" => rp
+                    .theme_ascii
+                    .as_deref()
+                    .is_some_and(|t| t.starts_with("minor")),
+                "+Headings" => rp
+                    .theme_ascii
+                    .as_deref()
+                    .is_some_and(|t| t.starts_with("major")),
+                _ => font.is_some_and(|x| x.eq_ignore_ascii_case(f)),
+            })
             && self.color.as_ref().is_none_or(|c| {
                 rp.color.unwrap_or(bo_model::Color::BLACK).to_hex() == c.to_ascii_uppercase()
             })

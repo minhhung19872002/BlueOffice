@@ -319,4 +319,9 @@ pub trait Painter {
     fn raw_colours(&mut self, on: bool) {
         let _ = on;
     }
+    /// Interface text drawn until `gray_text(false)` is antialiased in grayscale (no ClearType
+    /// colour fringes), as the reference draws its rulers' numbers. Others ignore it.
+    fn gray_text(&mut self, on: bool) {
+        let _ = on;
+    }
 }

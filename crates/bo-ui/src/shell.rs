@@ -960,6 +960,7 @@ impl DocWindow {
                 true
             }
             NavAction::Redraw => true,
+            NavAction::SearchMenu => self.r11_search_menu(),
         }
     }
 
@@ -3679,6 +3680,8 @@ impl DocWindow {
             }
         });
         if self.show_ruler {
+            // The reference draws its rulers' numbers in grayscale (no ClearType fringes).
+            p.gray_text(true);
             self.ruler.paint(p, &self.theme);
             if let Some(page) = self.view.ruler_page_v() {
                 let top = self.view_top();
@@ -3693,6 +3696,7 @@ impl DocWindow {
                     self.scale,
                 );
             }
+            p.gray_text(false);
         }
         if let Some(nav) = &self.nav {
             nav.paint(p, &self.theme, &self.strings);

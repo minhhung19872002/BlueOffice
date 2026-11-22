@@ -332,3 +332,39 @@ fn table_properties_tabs_and_ok() {
     assert!(t.header_row);
     assert_eq!(t.width, 5760);
 }
+
+// source: the reference's Table Properties › Row › Next Row moves to the next row and shows
+// "Row 2:"; Options… opens Table Options over it and comes back.
+#[test]
+fn table_properties_next_row_and_options() {
+    let mut w = window();
+    w.view
+        .run_command(Command::InsertTable { rows: 3, cols: 2 });
+    assert!(w.action("table.properties"));
+    let f = w.r3.form.as_mut().expect("Table Properties");
+    f.set_on("rBreak", false);
+    let out = f.click_for_test("nextRow");
+    assert!(matches!(out, FormOut::TableMove(..)), "{out:?}");
+    assert!(w.form_out(out));
+    let t = w.view.format().table.clone().expect("table");
+    assert_eq!(t.row, 1);
+    let f = w.r3.form.as_ref().expect("still open");
+    assert_eq!(f.label_for_test("rRow"), "Row 2:");
+    let f = w.r3.form.as_mut().expect("form");
+    let out = f.click_for_test("options");
+    assert!(w.form_out(out));
+    assert_eq!(
+        w.r3.form.as_ref().map(|f| f.kind),
+        Some(DocFormKind::TableOptions)
+    );
+    let f = w.r3.form.as_mut().expect("options");
+    f.set_text("mTop", "0.1\"");
+    let out = f.input(&Input::Key(Key::Enter, Mods::default()));
+    assert!(w.form_out(out));
+    assert_eq!(
+        w.r3.form.as_ref().map(|f| f.kind),
+        Some(DocFormKind::TableProps)
+    );
+    let t = w.view.format().table.clone().expect("table");
+    assert_eq!(t.cell_margin_v.0, 144);
+}

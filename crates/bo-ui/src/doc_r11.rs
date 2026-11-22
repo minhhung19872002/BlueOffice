@@ -452,6 +452,21 @@ impl DocWindow {
         true
     }
 
+    /// Table Properties › Previous / Next Row / Column.
+    pub(super) fn r11_table_move(&mut self, cmds: Vec<serde_json::Value>, part: &str) -> bool {
+        let mut all = cmds;
+        all.push(json!({ "cmd": "tableEdit", "edit": { "kind": "select", "part": part } }));
+        for c in all {
+            if let Some(cmd) = crate::catalog::from_json(c) {
+                self.view.run_command(cmd);
+            }
+        }
+        if let (Some(tbl), Some(f)) = (self.view.format().table.clone(), self.r3.form.as_mut()) {
+            f.tp_refresh(&self.strings, &tbl);
+        }
+        true
+    }
+
     /// Show Heading Levels ▸: All, Level 1 … Level 9 (checked: the levels shown).
     fn r11_levels_menu(&mut self) -> bool {
         let max = self.nav.as_ref().map_or(9, |n| n.max_level);

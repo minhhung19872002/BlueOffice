@@ -718,7 +718,10 @@ impl Session {
             indent: t.props.indent.map_or(0, |i| i.0),
             cant_split: row.props.cant_split,
             row_exact: matches!(row.props.height, Some((_, bo_model::HeightRule::Exact))),
-            cell_margin_v: t.props.cell_margin_vertical.map_or((0, 0), |(a, b)| (a.0, b.0)),
+            cell_margin_v: t
+                .props
+                .cell_margin_vertical
+                .map_or((0, 0), |(a, b)| (a.0, b.0)),
         })
     }
 

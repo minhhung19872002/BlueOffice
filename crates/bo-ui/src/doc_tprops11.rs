@@ -89,6 +89,101 @@ impl DocForm {
         }
     }
 
+    /// The Row tab's edits for the caret's row.
+    fn tp_row_cmds(&self) -> Vec<Value> {
+        let inches = self.preview.first().is_some_and(|u| u == "in");
+        let edit = |e: Value| json!({ "cmd": "tableEdit", "edit": e });
+        let height = if self.on("rSpec") {
+            parse(&self.text("rHeight"), inches)
+        } else {
+            None
+        };
+        let mut v = vec![edit(json!({ "kind": "rowHeight", "twips": height }))];
+        if height.is_some() {
+            v.push(edit(
+                json!({ "kind": "rowHeightRule", "exact": self.sel("rIs") == Some(1) }),
+            ));
+        }
+        v.push(edit(
+            json!({ "kind": "allowRowBreak", "on": self.on("rBreak") }),
+        ));
+        v.push(edit(
+            json!({ "kind": "headerRow", "on": self.on("rHeader") }),
+        ));
+        v
+    }
+
+    /// The Column tab's edit for the caret's column.
+    fn tp_column_cmds(&self) -> Vec<Value> {
+        let inches = self.preview.first().is_some_and(|u| u == "in");
+        if !self.on("cPref") {
+            return Vec::new();
+        }
+        parse(&self.text("cWidth"), inches)
+            .filter(|w| *w > 0)
+            .map(|w| {
+                vec![json!({ "cmd": "tableEdit", "edit": { "kind": "columnWidth", "twips": w } })]
+            })
+            .unwrap_or_default()
+    }
+
+    /// Previous / Next Row / Column: this row's (column's) edits, then the caret moves.
+    pub(super) fn tp_clicked(&mut self, id: &str) -> FormOut {
+        let (cmds, part) = match id {
+            "prevRow" => (self.tp_row_cmds(), "prevRow"),
+            "nextRow" => (self.tp_row_cmds(), "nextRow"),
+            "prevCol" => (self.tp_column_cmds(), "prevColumn"),
+            "nextCol" => (self.tp_column_cmds(), "nextColumn"),
+            "options" => return FormOut::Stash(DocFormKind::TableOptions),
+            _ => return FormOut::Redraw,
+        };
+        FormOut::TableMove(cmds, part)
+    }
+
+    /// Show the row / column the caret moved to.
+    pub(crate) fn tp_refresh(&mut self, s: &Strings, tbl: &bo_edit::TableState) {
+        let inches = self.preview.first().is_some_and(|u| u == "in");
+        self.set_label(
+            "rRow",
+            &format!("{} {}:", t(s, "tprops11.rowN", "Row"), tbl.row + 1),
+        );
+        self.set_label(
+            "cCol",
+            &format!("{} {}:", t(s, "tprops11.columnN", "Column"), tbl.col + 1),
+        );
+        self.set_on("rSpec", tbl.row_height > 0);
+        self.form
+            .set_text("rHeight", &len(tbl.row_height.max(0), inches));
+        self.form.set_sel("rIs", Some(usize::from(tbl.row_exact)));
+        self.set_on("rBreak", !tbl.cant_split);
+        self.set_on("rHeader", tbl.header_row);
+        self.set_on("cPref", tbl.col_width > 0);
+        self.form
+            .set_text("cWidth", &len(tbl.col_width.max(0), inches));
+        self.form.enable("prevRow", tbl.row > 0);
+        self.form.enable("nextRow", tbl.row + 1 < tbl.rows);
+        self.form.enable("prevCol", tbl.col > 0);
+        self.form.enable("nextCol", tbl.col + 1 < tbl.cols);
+        self.tp_changed("rSpec");
+        self.tp_changed("cPref");
+    }
+
+    /// Table Options OK: default cell margins.
+    pub(super) fn options_ok(&mut self) -> FormOut {
+        let inches = self.preview.first().is_some_and(|u| u == "in");
+        let v = |id: &str| parse(&self.text(id), inches).unwrap_or(0);
+        let edit = |e: Value| json!({ "cmd": "tableEdit", "edit": e });
+        FormOut::Run(
+            vec![
+                edit(json!({ "kind": "cellMargins", "left": v("mLeft"), "right": v("mRight") })),
+                edit(
+                    json!({ "kind": "cellMarginsVertical", "top": v("mTop"), "bottom": v("mBottom") }),
+                ),
+            ],
+            true,
+        )
+    }
+
     /// OK: the table edits.
     pub(super) fn tp_ok(&mut self) -> FormOut {
         let inches = self.preview.first().is_some_and(|u| u == "in");
@@ -121,20 +216,13 @@ impl DocForm {
         cmds.push(edit(
             json!({ "kind": "wrap", "around": self.pick_state(1) == "around" }),
         ));
-        let height = if self.on("rSpec") {
-            parse(&self.text("rHeight"), inches)
-        } else {
-            None
-        };
-        cmds.push(edit(json!({ "kind": "rowHeight", "twips": height })));
-        cmds.push(edit(
-            json!({ "kind": "headerRow", "on": self.on("rHeader") }),
-        ));
-        if self.on("cPref") {
-            if let Some(w) = parse(&self.text("cWidth"), inches).filter(|w| *w > 0) {
-                cmds.push(edit(json!({ "kind": "columnWidth", "twips": w })));
+        if self.pick_state(0) == "left" {
+            if let Some(i) = parse(&self.text("tIndent"), inches) {
+                cmds.push(edit(json!({ "kind": "indent", "twips": i })));
             }
         }
+        cmds.extend(self.tp_row_cmds());
+        cmds.extend(self.tp_column_cmds());
         let vertical = match self.pick_state(2) {
             "center" => "Center",
             "bottom" => "Bottom",
@@ -283,9 +371,8 @@ pub(super) fn open(s: &Strings, c: &FormContext) -> DocForm {
         0,
         "tIndent",
         [323.0, 197.0, 130.0, 24.0],
-        &len(0, inches),
+        &len(tbl.indent, inches),
     );
-    f.form.enable("tIndent", false);
     group(
         &mut f,
         0,
@@ -337,7 +424,7 @@ pub(super) fn open(s: &Strings, c: &FormContext) -> DocForm {
         [427.0, 479.0, 112.0, 28.0],
         &tr("tprops11.options", "Options..."),
     );
-    f.form.enable("options", false);
+
     // Row.
     f.label_on(
         1,
@@ -380,7 +467,7 @@ pub(super) fn open(s: &Strings, c: &FormContext) -> DocForm {
                 tr("tprops11.atLeast", "At least"),
                 tr("tprops11.exactly", "Exactly"),
             ],
-            sel: 0,
+            sel: usize::from(tbl.row_exact),
         },
     );
     f.form.add(
@@ -394,9 +481,9 @@ pub(super) fn open(s: &Strings, c: &FormContext) -> DocForm {
         "rBreak",
         [62.0, 199.0, 300.0, 22.0],
         &tr("tprops11.allowBreak", "Allow row to break across pages"),
-        true,
+        !tbl.cant_split,
     );
-    f.form.enable("rBreak", false);
+
     f.check_on(
         1,
         "rHeader",
@@ -419,8 +506,6 @@ pub(super) fn open(s: &Strings, c: &FormContext) -> DocForm {
         [151.0, 265.0, 112.0, 28.0],
         &tr("tprops11.nextRow", "Next Row"),
     );
-    f.form.enable("prevRow", false);
-    f.form.enable("nextRow", false);
     // Column.
     f.label_on(
         2,
@@ -475,8 +560,6 @@ pub(super) fn open(s: &Strings, c: &FormContext) -> DocForm {
         [170.0, 183.0, 112.0, 28.0],
         &tr("tprops11.nextCol", "Next Column"),
     );
-    f.form.enable("prevCol", false);
-    f.form.enable("nextCol", false);
     // Cell.
     group(&mut f, 3, "eSize", 88.0, &tr("tprops11.size", "Size"));
     f.label_on(
@@ -546,9 +629,108 @@ pub(super) fn open(s: &Strings, c: &FormContext) -> DocForm {
         &tr("common.cancel", "Cancel"),
         false,
     );
+    f.form.enable("prevRow", tbl.row > 0);
+    f.form.enable("nextRow", tbl.row + 1 < tbl.rows);
+    f.form.enable("prevCol", tbl.col > 0);
+    f.form.enable("nextCol", tbl.col + 1 < tbl.cols);
     f.tp_changed("tPref");
     f.tp_changed("rSpec");
     f.tp_changed("cPref");
+    f
+}
+
+/// Table Options (Table Properties › Options…): default cell margins of the table.
+pub(super) fn open_options(s: &Strings, c: &FormContext) -> DocForm {
+    let tr = |k: &str, f: &str| t(s, k, f);
+    let mut f = DocForm::new(
+        DocFormKind::TableOptions,
+        &tr("tprops11.optionsTitle", "Table Options"),
+        (380.0, 300.0),
+        vec![],
+    );
+    let inches = c.inches;
+    let tbl = c.table.clone().unwrap_or_default();
+    f.preview = vec![if inches { "in" } else { "cm" }.to_owned()];
+    f.form.add(
+        "mG",
+        None,
+        [10.0, 46.0, 360.0, 18.0],
+        super::Kind::Group(tr("tprops11.defaultMargins", "Default cell margins")),
+    );
+    let boxes: [(&'static str, &'static str, &str, &str, f32, f32, i32); 4] = [
+        (
+            "mTopL",
+            "mTop",
+            "tprops11.top",
+            "Top:",
+            24.0,
+            74.0,
+            tbl.cell_margin_v.0,
+        ),
+        (
+            "mLeftL",
+            "mLeft",
+            "tprops11.leftM",
+            "Left:",
+            196.0,
+            74.0,
+            tbl.cell_margin.0,
+        ),
+        (
+            "mBottomL",
+            "mBottom",
+            "tprops11.bottomM",
+            "Bottom:",
+            24.0,
+            108.0,
+            tbl.cell_margin_v.1,
+        ),
+        (
+            "mRightL",
+            "mRight",
+            "tprops11.rightM",
+            "Right:",
+            196.0,
+            108.0,
+            tbl.cell_margin.1,
+        ),
+    ];
+    for (lid, id, k, fb, x, y, v) in boxes {
+        let mut label = tr(k, fb);
+        if !label.ends_with(':') {
+            label.push(':');
+        }
+        f.label(lid, [x, y + 3.0, 60.0, 18.0], &label);
+        f.edit(id, [x + 62.0, y, 100.0, 24.0], &len(v.max(0), inches));
+    }
+    f.form.add(
+        "oG",
+        None,
+        [10.0, 150.0, 360.0, 18.0],
+        super::Kind::Group(tr("tprops11.optionsG", "Options")),
+    );
+    f.check(
+        "autoResize",
+        [24.0, 176.0, 330.0, 22.0],
+        &tr(
+            "tprops11.autoResize",
+            "Automatically resize to fit contents",
+        ),
+        !tbl.fixed_layout,
+    );
+    f.disable("autoResize");
+    f.button(
+        "ok",
+        [128.0, 258.0, 112.0, 28.0],
+        &tr("common.ok", "OK"),
+        true,
+    );
+    f.button(
+        "cancel",
+        [255.0, 258.0, 112.0, 28.0],
+        &tr("common.cancel", "Cancel"),
+        false,
+    );
     f
 }
 

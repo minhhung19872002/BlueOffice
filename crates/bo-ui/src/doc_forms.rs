@@ -103,6 +103,8 @@ pub(crate) enum DocFormKind {
     FindStyle,
     /// Table Properties with its five tabs (round 11).
     TableProps,
+    /// Table Properties › Options… (default cell margins).
+    TableOptions,
 }
 
 /// What the owner does after an input.
@@ -136,6 +138,9 @@ pub(crate) enum FormOut {
     /// A Find … dialog of Find and Replace › Format ▾: its part, the `FindFormat` fields and
     /// the words shown after "Format:" (round 11).
     FindFormat(&'static str, Value, String),
+    /// Table Properties › Previous / Next Row / Column: run these edits, move the caret
+    /// (`tableEdit` select part) and show the new row / column (round 11).
+    TableMove(Vec<Value>, &'static str),
 }
 
 /// A radio button drawn on a canvas control.
@@ -775,6 +780,7 @@ impl DocForm {
             }
             (DocFormKind::CrossRef | DocFormKind::Language, "list") => self.ok(),
             (k, _) if findfmt11::handles(k) => self.r11_clicked(id),
+            (DocFormKind::TableProps, _) => self.tp_clicked(id),
             (k, _) if r5::handles(k) => self.r5_clicked(id),
             (k, _) if r7::handles(k) => self.r7_clicked(id),
             (DocFormKind::DateTime, "setDefault") => FormOut::DateDefault(
@@ -1158,6 +1164,7 @@ impl DocForm {
             | DocFormKind::FindFrame
             | DocFormKind::FindStyle => self.r11_ok(),
             DocFormKind::TableProps => self.tp_ok(),
+            DocFormKind::TableOptions => self.options_ok(),
             DocFormKind::Zoom => {
                 let pct = match self.chosen("zoom") {
                     Some("z200") => "200".to_owned(),
@@ -3106,6 +3113,7 @@ pub(crate) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
         | DocFormKind::FindFrame
         | DocFormKind::FindStyle => findfmt11::open(kind, s, c),
         DocFormKind::TableProps => tprops11::open(s, c),
+        DocFormKind::TableOptions => tprops11::open_options(s, c),
         DocFormKind::Zoom => {
             let mut f = DocForm::new(kind, &tr("docR4.zoomTitle", "Zoom"), (381.0, 258.0), vec![]);
             f.label(

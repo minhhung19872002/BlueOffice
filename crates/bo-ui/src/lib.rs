@@ -147,6 +147,7 @@ mod strings;
 mod symbol_grid;
 mod table_grid;
 mod theme;
+mod thesaurus10;
 mod titlebar;
 
 pub use backstage::{Backstage, FileAction};

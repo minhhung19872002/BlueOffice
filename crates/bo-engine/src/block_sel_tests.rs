@@ -177,3 +177,48 @@ fn mouse_block_and_typing_replace_the_pieces() {
     e.command(Command::BlockClear).expect("clear");
     assert!(!e.block_active());
 }
+
+#[test]
+fn a_block_inside_a_table_cell_stays_in_that_cell_and_leaving_it_selects_on() {
+    // Measured on the reference (COM ColumnSelectMode): a block started in a cell covers only
+    // that cell's lines; moving its corner past the cell turns it into an ordinary selection.
+    let mut e = Engine::with_bundled_fonts();
+    e.new_document("a.docx").expect("new");
+    e.command(Command::InsertTable { rows: 2, cols: 2 })
+        .expect("table");
+    let p = e.session.as_ref().expect("session").selection().focus.para;
+    for (i, line) in ["abcdef", "abcdef", "abcdef"].iter().enumerate() {
+        if i > 0 {
+            e.command(Command::SplitParagraph).expect("enter");
+        }
+        e.command(Command::InsertText {
+            text: (*line).to_owned(),
+        })
+        .expect("type");
+    }
+    // The cell beside it holds text at the same heights.
+    let at = |para, offset| Selection::caret(Pos::new(para, offset));
+    e.command(Command::SetSelection {
+        selection: at(p + 3, 0),
+    })
+    .expect("next cell");
+    e.command(Command::InsertText {
+        text: "uvwxyz".into(),
+    })
+    .expect("type");
+    e.command(Command::SetSelection {
+        selection: at(p, 1),
+    })
+    .expect("caret");
+    keys(
+        &mut e,
+        &[Motion::Down, Motion::Down, Motion::Right, Motion::Right],
+    );
+    assert_eq!(e.block_text(), ["bc", "bc", "bc"]);
+    // Down past the cell's last line: no block, an ordinary selection from the anchor.
+    keys(&mut e, &[Motion::Down]);
+    assert!(!e.block_active());
+    let sel = e.session.as_ref().expect("session").selection();
+    assert_eq!(sel.anchor, Pos::new(p, 1));
+    assert!(sel.focus.para > p + 2);
+}

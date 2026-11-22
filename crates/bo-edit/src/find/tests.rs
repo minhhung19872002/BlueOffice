@@ -37,6 +37,12 @@ const PLAIN: FindOptions = FindOptions {
     whole_word: false,
     regex: false,
     wildcards: false,
+    sounds_like: false,
+    word_forms: false,
+    match_prefix: false,
+    match_suffix: false,
+    ignore_punctuation: false,
+    ignore_space: false,
 };
 
 const WILD: FindOptions = FindOptions {

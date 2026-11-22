@@ -280,10 +280,25 @@ impl Painter for WinPainter<'_, '_> {
 /// Interface text measured by DirectWrite (before a device exists: an estimate).
 struct Measure<'a>(Option<&'a Device>);
 
+thread_local! {
+    /// Interface texts whose measuring took 5 ms or more since the last input (performance log).
+    static SLOW_MEASURES: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
 impl TextMeasure for Measure<'_> {
     fn measure(&self, text: &str, style: TextStyle) -> (f32, f32) {
         match self.0 {
-            Some(d) => d.measure_text(text, ui_size(style.size), style.bold),
+            Some(d) => {
+                let t = Instant::now();
+                let r = d.measure_text(text, ui_size(style.size), style.bold);
+                if t.elapsed().as_millis() >= 5 {
+                    SLOW_MEASURES.with(|s| {
+                        s.borrow_mut()
+                            .push(format!("{text:?} {:.1}ms", t.elapsed().as_secs_f64() * 1e3));
+                    });
+                }
+                r
+            }
             None => (
                 text.chars().count() as f32 * style.size * 0.55,
                 style.size * 1.33,
@@ -497,6 +512,9 @@ impl Shell {
                 }
                 Request::SaveAsType(ext) => redraw |= self.save_as_type(&ext),
                 Request::OpenLocation(p) => host6::open_location(&p),
+                Request::OpenUrl(u) => {
+                    let _ = win32::shell_open(std::path::Path::new(&u), "open");
+                }
                 Request::PrinterProperties(name) => {
                     // The driver's own settings dialog; nothing is printed.
                     let _ = host6::print::properties(self.hwnd, &name, None);
@@ -735,6 +753,7 @@ impl Handler for Shell {
                 bitmaps: HashMap::new(),
             },
         });
+        self.view.set_ole_drag(true);
         let m = Measure(self.gpu.as_ref().map(|g| &g.device));
         self.view.handle(Input::Scale(scale), &m);
         self.view.handle(
@@ -792,15 +811,39 @@ impl Handler for Shell {
         if matches!(input, Input::Press { .. }) {
             self.view.set_pointer_mods(win32::mouse_mods());
         }
+        // The context menu offers the paste options the clipboard's content allows.
+        if matches!(input, Input::Context { .. }) {
+            let (i, h, t) = win32::clipboard_kinds();
+            self.view.set_clipboard_kinds(i, h, t);
+        }
         // Ctrl at the drop copies dragged text instead of moving it.
         if matches!(input, Input::Release { .. }) {
             self.view.set_release_mods(win32::mouse_mods());
         }
         let m = Measure(self.gpu.as_ref().map(|g| &g.device));
         let mut redraw = self.view.handle(input, &m);
+        let t_view = start.elapsed();
         redraw |= self.handle_requests();
+        let t_req = start.elapsed();
         let m = Measure(self.gpu.as_ref().map(|g| &g.device));
         redraw |= self.view.refresh(&m);
+        // Performance log: the parts of an input that took long (one line each).
+        if let Some(file) = self
+            .perf
+            .as_mut()
+            .filter(|_| start.elapsed().as_millis() >= 10)
+        {
+            let ms = |d: std::time::Duration| d.as_secs_f64() * 1e3;
+            let _ = writeln!(
+                file,
+                r#"{{"slow":"{kind}","view_ms":{:.3},"requests_ms":{:.3},"refresh_ms":{:.3},"measures":{:?}}}"#,
+                ms(t_view),
+                ms(t_req.saturating_sub(t_view)),
+                ms(start.elapsed().saturating_sub(t_req)),
+                SLOW_MEASURES.with(|s| s.borrow().join("; "))
+            );
+        }
+        SLOW_MEASURES.with(|s| s.borrow_mut().clear());
         if !redraw {
             return;
         }
@@ -872,6 +915,54 @@ impl Handler for Shell {
 
     fn wants_frame(&self) -> bool {
         self.dirty || self.view.animating()
+    }
+
+    fn cursor(&self) -> Option<u8> {
+        Some(self.view.cursor())
+    }
+
+    fn frame_waitable(&self) -> Option<isize> {
+        self.gpu.as_ref().map(|g| g.surface.waitable())
+    }
+
+    fn frame_waited(&mut self) {
+        if let Some(g) = self.gpu.as_mut() {
+            g.surface.frame_waited();
+        }
+    }
+
+    fn accepts_drops(&self) -> bool {
+        true
+    }
+
+    fn drag_over(&mut self, x: f32, y: f32) -> bool {
+        let ok = self.view.drag_over(x, y);
+        self.dirty = true;
+        ok
+    }
+
+    fn drag_leave(&mut self) {
+        self.view.drag_leave();
+        self.dirty = true;
+    }
+
+    fn drop_data(&mut self, x: f32, y: f32, copy: bool, data: win32::ole_drag::DropData) -> bool {
+        let ok = self
+            .view
+            .drop_data(x, y, copy, data.internal, data.html, data.text);
+        self.handle_requests();
+        let m = Measure(self.gpu.as_ref().map(|g| &g.device));
+        self.view.refresh(&m);
+        self.dirty = true;
+        ok
+    }
+
+    fn drag_done(&mut self, effect: u32) {
+        self.view.drag_done(effect);
+        self.handle_requests();
+        let m = Measure(self.gpu.as_ref().map(|g| &g.device));
+        self.view.refresh(&m);
+        self.dirty = true;
     }
 
     fn frame(&mut self) {

@@ -2248,7 +2248,9 @@ impl crate::Engine {
                                 let fix = bo_edit::AutoCorrectOptions::word_before(&head, c)
                                     .filter(|w| !speller.check(w) && !o.is_other_exception(w))
                                     .and_then(|w| {
-                                        let sug = speller.suggest(w);
+                                        // Close candidates only: the loose similarity search of a long unknown word costs
+                                        // 30 ms on every word ended (round 10, first-space keystroke).
+                                        let sug = speller.suggest_close(w);
                                         (sug.len() == 1).then(|| (w.to_owned(), sug[0].clone()))
                                     });
                                 if let Some((from, to)) = fix {

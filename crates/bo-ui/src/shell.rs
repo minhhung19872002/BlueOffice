@@ -26,6 +26,10 @@ use bo_engine::edit::Command;
 use bo_render::{PathSeg, Rgba};
 use serde_json::json;
 
+#[path = "doc_ctx10.rs"]
+mod ctx10;
+#[path = "doc_r10.rs"]
+mod r10;
 #[path = "doc_r3.rs"]
 mod r3;
 #[path = "doc_r4.rs"]
@@ -63,6 +67,16 @@ pub enum Request {
     },
     /// Read the system clipboard and call [`DocWindow::paste`].
     Paste,
+    /// Drag these forms of the selection with the platform's drag and drop (modal), then call
+    /// [`DocWindow::drag_done`] with the effect.
+    DragText {
+        /// Plain text.
+        text: String,
+        /// HTML fragment.
+        html: String,
+        /// BlueOffice internal form.
+        internal: String,
+    },
     /// Let the user pick a mail-merge data file and call [`DocWindow::merge_data`].
     PickMergeData,
     /// New blank document (new window).
@@ -101,6 +115,8 @@ pub enum Request {
     SaveAsType(String),
     /// Show this file in the system file manager (File › Info).
     OpenLocation(String),
+    /// Open this web or e-mail address (http(s):, mailto:) with the system's handler.
+    OpenUrl(String),
     /// Print with the File screen's settings.
     PrintJob(PrintJob),
     /// Store the application preferences ([`DocWindow::take_prefs`]).
@@ -248,6 +264,7 @@ pub struct DocWindow {
     r7: r7::R7,
     r8: r8::R8,
     r9: r9::R9,
+    r10: r10::R10,
 }
 
 /// Font sizes offered by the size box (points).
@@ -442,6 +459,7 @@ impl DocWindow {
             r7: r7::R7::default(),
             r8: r8::R8::default(),
             r9: r9::R9::default(),
+            r10: r10::R10::default(),
         }
     }
 
@@ -1411,6 +1429,9 @@ impl DocWindow {
         let sel = self.find.as_ref().map(|f| f.0.clone()).unwrap_or_default();
         self.menu = None;
         let mut fd = FindDialog::new(tab, &sel, self.find_history.clone());
+        // Format ▾ offers the selection's paragraph style and font (round 10).
+        let f = self.view.format();
+        fd.sel_format = (f.style.clone(), f.font.clone());
         fd.bookmarks = self
             .view
             .engine()
@@ -1433,6 +1454,8 @@ impl DocWindow {
         let query = fd.query();
         let with = fd.replacement();
         let options = fd.options();
+        let format = fd.format_json();
+        self.r10.find_format = format.clone();
         if matches!(
             a,
             FindAction::FindNext | FindAction::Replace | FindAction::ReplaceAll
@@ -1463,6 +1486,7 @@ impl DocWindow {
             FindAction::ReplaceAll => {
                 let cmd = catalog::from_json(json!({
                     "cmd": "replaceAll", "query": query, "with": with, "options": options,
+                    "format": format,
                 }));
                 let n = cmd
                     .and_then(|c| self.view.exec(c))
@@ -1606,18 +1630,21 @@ impl DocWindow {
 
     /// Find the next match of `query` with search `options` (JSON) and select it.
     fn find_with(&mut self, query: &str, options: &serde_json::Value) {
-        if query.is_empty() {
+        // Find by format (Format ▾ of the dialog) may leave the text empty.
+        let format = self.find_dialog.as_ref().and(self.r10.find_format.clone());
+        if query.is_empty() && format.is_none() {
             return;
         }
-        let key = options.to_string();
+        let key = format!("{options}{}", format.clone().unwrap_or_default());
         let fresh = self.find_options != key || self.find.as_ref().is_none_or(|f| f.0 != query);
         if fresh {
             self.find_options = key;
-            let matches =
-                catalog::from_json(json!({ "cmd": "find", "query": query, "options": options }))
-                    .and_then(|c| self.view.exec(c))
-                    .and_then(|r| r.matches)
-                    .unwrap_or_default();
+            let matches = catalog::from_json(
+                json!({ "cmd": "find", "query": query, "options": options, "format": format }),
+            )
+            .and_then(|c| self.view.exec(c))
+            .and_then(|r| r.matches)
+            .unwrap_or_default();
             self.find = Some((query.to_owned(), matches, usize::MAX));
         }
         let found = match self.find.as_mut() {
@@ -1970,78 +1997,6 @@ impl DocWindow {
         self.menu = Some(Menu::open(items, anchor, self.size, self.scale));
     }
 
-    fn context_menu(&mut self, x: f32, y: f32) {
-        // Clipboard, then insert commands behind a separator, with icons; cut and copy dim
-        // without a selection, as in a desktop word processor's context menu.
-        let selected = self.view.has_selection();
-        let ids = [
-            ("edit.cut", "edit.cut"),
-            ("edit.copy", "edit.copy"),
-            ("edit.paste", "edit.paste"),
-            ("insert.link", "insert.link"),
-            ("review.newComment", "review.newComment"),
-        ];
-        let items = ids
-            .iter()
-            .map(|(id, _)| MenuItem {
-                label: self.strings.get(&format!("commands.{id}")).to_owned(),
-                choice: Choice::Command((*id).to_owned()),
-                checked: false,
-                dim: !selected && matches!(*id, "edit.cut" | "edit.copy"),
-            })
-            .collect();
-        let mut icons: Vec<Option<&'static str>> =
-            ids.iter().map(|(_, icon)| Some(*icon)).collect();
-        let mut items: Vec<MenuItem> = items;
-        let mut separators = vec![3];
-        // Over a misspelt word: its corrections first, then ignore / add, as on the
-        // reference's context menu.
-        self.spell_menu = self.view.spell_at(x, y);
-        if let Some(info) = &self.spell_menu {
-            let mut top: Vec<MenuItem> = info
-                .suggestions
-                .iter()
-                .take(5)
-                .enumerate()
-                .map(|(i, s)| MenuItem {
-                    label: s.clone(),
-                    choice: Choice::Command(format!("spell.use.{i}")),
-                    checked: false,
-                    dim: false,
-                })
-                .collect();
-            if top.is_empty() {
-                top.push(MenuItem {
-                    label: self.strings.get("spell.noSuggestions").to_owned(),
-                    choice: Choice::Command("spell.none".into()),
-                    checked: false,
-                    dim: true,
-                });
-            }
-            if info.rule.is_none() {
-                for key in ["spell.ignoreAll", "spell.addToDictionary"] {
-                    top.push(MenuItem {
-                        label: self.strings.get(key).to_owned(),
-                        choice: Choice::Command(key.to_owned()),
-                        checked: false,
-                        dim: false,
-                    });
-                }
-            }
-            let n = top.len();
-            separators = vec![n, n + 3];
-            let mut tops: Vec<Option<&'static str>> = vec![None; n];
-            tops.append(&mut icons);
-            icons = tops;
-            top.append(&mut items);
-            items = top;
-        }
-        self.menu = Some(
-            Menu::open(items, [x, y - 2.0, 1.0, 0.0], self.size, self.scale)
-                .with_decor(icons, separators),
-        );
-    }
-
     /// Ids drawn as switched on beyond the formatting state.
     fn on_ids(&self) -> Vec<&'static str> {
         let mut on = Vec::new();
@@ -2107,6 +2062,9 @@ impl DocWindow {
 
     /// Run interface command `id` from the ribbon, title bar, a menu or a shortcut.
     fn action(&mut self, id: &str) -> bool {
+        if let Some(r) = self.r10_action(id) {
+            return r;
+        }
         if let Some(r) = self.r8_action(id) {
             return r;
         }
@@ -3166,7 +3124,7 @@ impl DocWindow {
         }
         if let Input::Context { x, y } = input {
             if y >= self.view_top() && y < self.size.1 - self.status_h() {
-                self.context_menu(x, y);
+                self.r10_context_menu(x, y, text);
                 return true;
             }
             return false;
@@ -3305,6 +3263,7 @@ impl DocWindow {
                 self.ribbon.hover(-1.0e6, -1.0e6) || a
             }
             Input::Move { x, y } => {
+                self.r10.pointer = (x, y);
                 let a = self.title.hover(x, y);
                 self.ribbon.hover(x, y) || a
             }
@@ -3409,6 +3368,9 @@ impl DocWindow {
 
     /// Input while a menu is open; `None` lets the event through to the window.
     fn menu_input(&mut self, input: &Input) -> Option<bool> {
+        if let Some(r) = self.r10_menu_input(input) {
+            return Some(r);
+        }
         let menu = self.menu.as_mut()?;
         Some(match *input {
             Input::Move { x, y } | Input::Drag { x, y } => menu.hover(x, y),
@@ -3808,7 +3770,8 @@ impl DocWindow {
             );
         }
         if let Some(menu) = &self.menu {
-            menu.paint(p, &self.theme, &self.icons);
+            menu.paint(p, &self.r10_menu_theme(), &self.icons);
+            self.r10_paint_menu(p);
         } else if let Some((label, tw, anchor)) = &self.tooltip {
             match &self.tip {
                 Some(tip) if tip.title == *label => {

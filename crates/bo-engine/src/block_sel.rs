@@ -64,6 +64,12 @@ impl Engine {
         match cmd {
             Command::BlockSelect { page, x, y, extend } => {
                 let at = nav::hit_test(self.layout.document(), page, x, y);
+                if let (Some(at), Some(b)) = (at, self.block.filter(|_| extend)) {
+                    let home = self.block_cell(b.anchor.para);
+                    if home.is_some() && self.block_cell(at.para) != home {
+                        return self.block_leave_cell(b, at, None, now);
+                    }
+                }
                 if let Some(at) = at {
                     self.block = Some(match self.block.filter(|_| extend) {
                         Some(b) => BlockSel {
@@ -85,7 +91,10 @@ impl Engine {
                 if self.block.is_none() {
                     self.block_from_caret();
                 }
-                self.block_move(motion);
+                if let Some(b) = self.block_move(motion) {
+                    let focus = b.focus;
+                    return self.block_leave_cell(b, focus, Some(motion), now);
+                }
                 self.block_result(Vec::new(), None)
             }
             Command::MoveText { to, copy } => {
@@ -97,7 +106,73 @@ impl Engine {
                 self.command_inner(Command::State, now)
             }
             cmd if self.block.is_some() => self.block_edit(cmd, now),
-            cmd => self.command_inner(cmd, now),
+            cmd => self.smart_wrap(cmd, now),
+        }
+    }
+
+    /// The table cell holding body paragraph `id` (its path without the last step); `None`
+    /// outside tables.
+    fn block_cell(&self, id: usize) -> Option<Vec<usize>> {
+        let paths = bo_model::index::body_paragraphs(self.document()?);
+        let p = paths.get(id)?;
+        (p.len() > 2).then(|| p[..p.len() - 1].to_vec())
+    }
+
+    /// The lines a block anchored at `anchor` spans: inside a table cell only that cell's lines
+    /// (the reference keeps a column selection inside the cell it starts in), else every body
+    /// line.
+    fn block_lines<'l>(
+        &self,
+        layout: &'l bo_layout::LayoutDocument,
+        anchor: Pos,
+    ) -> Vec<(usize, &'l bo_layout::Line)> {
+        let all = nav::body_lines(layout);
+        let Some(doc) = self.document() else {
+            return all;
+        };
+        let paths = bo_model::index::body_paragraphs(doc);
+        let cell = |id: usize| {
+            paths
+                .get(id)
+                .filter(|p| p.len() > 2)
+                .map(|p| &p[..p.len() - 1])
+        };
+        let Some(home) = cell(anchor.para) else {
+            return all;
+        };
+        all.into_iter()
+            .filter(|(_, l)| nav::body_id(l).and_then(cell) == Some(home))
+            .collect()
+    }
+
+    /// The block's corner left the cell it started in: the block becomes an ordinary
+    /// selection from its anchor (whole cells once it spans two), as on the reference.
+    fn block_leave_cell(
+        &mut self,
+        b: BlockSel,
+        focus: Pos,
+        motion: Option<Motion>,
+        now: Option<i64>,
+    ) -> crate::Result<EditResult> {
+        self.block = None;
+        self.command_inner(
+            Command::SetSelection {
+                selection: Selection {
+                    anchor: b.anchor,
+                    focus,
+                },
+            },
+            now,
+        )?;
+        match motion {
+            Some(motion) => self.command_inner(
+                Command::Move {
+                    motion,
+                    extend: true,
+                },
+                now,
+            ),
+            None => self.command_inner(Command::State, now),
         }
     }
 
@@ -118,15 +193,16 @@ impl Engine {
 
     /// Move the block's moving corner: Left / Right by a character on its line (the column
     /// follows the character), Up / Down a line keeping the column, Home / End to the line ends.
-    fn block_move(&mut self, motion: Motion) {
+    /// Returns the block when Up / Down leave the table cell it is in.
+    fn block_move(&mut self, motion: Motion) -> Option<BlockSel> {
         let (Some(b), Some(s)) = (self.block, self.session.as_ref()) else {
-            return;
+            return None;
         };
         let layout = self.layout.document();
-        let lines = nav::body_lines(layout);
-        let Some((i, _, line)) = nav::line_of(&lines, b.focus) else {
-            return;
-        };
+        let lines = self.block_lines(layout, b.anchor);
+        let (i, _, line) = nav::line_of(&lines, b.focus)?;
+        let in_cell = self.block_cell(b.anchor.para).is_some();
+        let mut leave = false;
         let step = |p: Pos, fwd: bool| -> Pos {
             let n = s.char_step(p, fwd);
             // Stay on the corner's line.
@@ -149,8 +225,8 @@ impl Engine {
             Motion::Up | Motion::Down | Motion::ParaUp | Motion::ParaDown => {
                 let up = matches!(motion, Motion::Up | Motion::ParaUp);
                 let j = if up { i.checked_sub(1) } else { Some(i + 1) };
-                match j.and_then(|j| lines.get(j)) {
-                    Some(&(_, l)) => match nav::body_id(l) {
+                if let Some(&(_, l)) = j.and_then(|j| lines.get(j)) {
+                    match nav::body_id(l) {
                         Some(id) => {
                             // The first stop at or right of the column, as the reference.
                             let off = l
@@ -161,8 +237,10 @@ impl Engine {
                             (Pos::new(id, off), b.fx)
                         }
                         None => (b.focus, b.fx),
-                    },
-                    None => (b.focus, b.fx),
+                    }
+                } else {
+                    leave = in_cell;
+                    (b.focus, b.fx)
                 }
             }
             Motion::LineStart => {
@@ -176,7 +254,11 @@ impl Engine {
             }
             _ => (b.focus, b.fx),
         };
+        if leave {
+            return Some(b);
+        }
         self.block = Some(BlockSel { focus, fx, ..b });
+        None
     }
 
     /// The block as drawn: one rectangle per page from the start corner's x to the moving
@@ -187,7 +269,7 @@ impl Engine {
             return Vec::new();
         };
         let layout = self.layout.document();
-        let lines = nav::body_lines(layout);
+        let lines = self.block_lines(layout, b.anchor);
         let (Some((ia, ..)), Some((ib, ..))) = (
             nav::line_of(&lines, b.anchor),
             nav::line_of(&lines, b.focus),
@@ -228,7 +310,7 @@ impl Engine {
             return Vec::new();
         };
         let layout = self.layout.document();
-        let lines = nav::body_lines(layout);
+        let lines = self.block_lines(layout, b.anchor);
         let (Some((ia, ..)), Some((ib, ..))) = (
             nav::line_of(&lines, b.anchor),
             nav::line_of(&lines, b.focus),

@@ -91,3 +91,33 @@ fn typing_cost() {
         drop(e.spelling_marks(Some(&[10, 11, 12])));
     });
 }
+
+#[test]
+#[ignore = "timing, run by hand"]
+fn typing_first_word_cost() {
+    // `BO_PERF_DOC=big.docx cargo test --release -p bo-engine --lib typing_first_word -- --ignored --nocapture`
+    let Ok(path) = std::env::var("BO_PERF_DOC") else {
+        return;
+    };
+    let mut e = Engine::with_bundled_fonts();
+    e.open(&std::fs::read(path).unwrap(), "big.docx").unwrap();
+    e.set_typing_runs(true);
+    e.command(Command::AutoCorrect {
+        options: None,
+        reset: true,
+    })
+    .unwrap();
+    let sel = bo_edit::Selection::caret(bo_edit::Pos::new(3, 0));
+    e.command(Command::SetSelection { selection: sel }).unwrap();
+    for c in "nhanh hon nua di ban oi, go thu ".chars() {
+        let t = Instant::now();
+        e.command(Command::InsertText { text: c.into() }).unwrap();
+        let ms = t.elapsed().as_secs_f64() * 1e3;
+        let t = Instant::now();
+        drop(e.spelling_marks(Some(&[0])));
+        println!(
+            "{c:?} {ms:8.3} ms  spelling page 0 {:8.3} ms",
+            t.elapsed().as_secs_f64() * 1e3
+        );
+    }
+}

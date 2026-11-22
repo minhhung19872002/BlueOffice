@@ -390,9 +390,11 @@ fn misspelt_words_get_a_wavy_line_and_corrections_in_the_context_menu() {
     );
     w.handle(Input::Context { x, y }, &Fixed);
     let menu = w.menu.as_ref().expect("context menu");
-    let first = menu.items()[0].label.clone();
+    // Row 0 is the "Search the menus" box (round 10), then the corrections.
+    let first = menu.items()[1].label.clone();
     assert_ne!(first, "");
     // The first correction replaces the word.
+    w.handle(Input::Key(Key::Down, Mods::default()), &Fixed);
     w.handle(Input::Key(Key::Down, Mods::default()), &Fixed);
     w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
     w.view.run_command(Command::SelectAll);

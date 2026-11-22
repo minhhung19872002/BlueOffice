@@ -515,6 +515,9 @@ pub struct WindowSurface {
         windows::Win32::Graphics::DirectComposition::IDCompositionTarget,
         windows::Win32::Graphics::DirectComposition::IDCompositionVisual,
     )>,
+    /// The host already waited on the frame-latency object for the next frame
+    /// ([`WindowSurface::frame_waited`]).
+    waited: bool,
 }
 
 const FLAGS: DXGI_SWAP_CHAIN_FLAG = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
@@ -554,6 +557,7 @@ impl WindowSurface {
             let mut surface = Self {
                 swap,
                 waitable,
+                waited: false,
                 target: None,
                 width,
                 height,
@@ -618,6 +622,7 @@ impl WindowSurface {
             let mut surface = Self {
                 swap,
                 waitable,
+                waited: false,
                 target: None,
                 width,
                 height,
@@ -687,14 +692,29 @@ impl WindowSurface {
         self.bind(device)
     }
 
+    /// The frame-latency waitable object (a raw handle): a host may wait on it together with
+    /// its message queue (`MsgWaitForMultipleObjectsEx`) so input arriving meanwhile is
+    /// handled before the frame is drawn, then call [`WindowSurface::frame_waited`].
+    pub fn waitable(&self) -> isize {
+        self.waitable.0 as isize
+    }
+
+    /// The host's wait on [`WindowSurface::waitable`] succeeded: the next frame does not wait.
+    pub fn frame_waited(&mut self) {
+        self.waited = true;
+    }
+
     /// Draw one frame with `paint` and present it.
     pub fn frame(&mut self, device: &Device, paint: impl FnOnce(&Frame<'_>)) -> Result<(), String> {
         let target = self.target.as_ref().ok_or("no back buffer")?;
         // SAFETY: the waitable handle belongs to the live swap chain; the context targets the
         // back buffer only between BeginDraw and EndDraw and is reset afterwards.
         unsafe {
-            // Wait until the swap chain can take a frame (at most a few frames' time).
-            let _ = WaitForSingleObjectEx(self.waitable, 100, true);
+            // Wait until the swap chain can take a frame (at most a few frames' time), unless
+            // the host waited for it while handling messages.
+            if !std::mem::take(&mut self.waited) {
+                let _ = WaitForSingleObjectEx(self.waitable, 100, true);
+            }
             device.context.SetTarget(target);
             device.context.SetDpi(96.0, 96.0);
             device.context.BeginDraw();

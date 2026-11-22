@@ -42,6 +42,20 @@ impl Engine {
                     Pos::new(to.para - (b.para - a.para), to.offset)
                 };
             }
+            // Smart cut: the space left doubled (or before punctuation) goes too.
+            if gone && !self.smart_off {
+                if let Some(s) = self.session.as_mut() {
+                    if crate::smart_cut::fix_after_cut(s, &clip.text)
+                        .map_err(crate::smart_cut::bad)?
+                    {
+                        let at = s.selection().focus;
+                        let removed = at.offset.min(a.offset);
+                        if target.para == a.para && target.offset > removed {
+                            target.offset -= 1;
+                        }
+                    }
+                }
+            }
         }
         self.command_inner(
             Command::SetSelection {
@@ -64,11 +78,23 @@ impl Engine {
         dirty.extend(r.dirty);
         if let Some(s) = self.session.as_mut() {
             let end = s.selection().focus;
-            s.merge_history_since(depth);
             s.set_selection(Selection {
                 anchor: target,
                 focus: end,
             });
+            // Smart paste: the dropped words get the spaces they need (still selected).
+            if !self.smart_off {
+                s.set_selection(Selection::caret(end));
+                if !crate::smart_cut::fix_after_paste(s, target, true)
+                    .map_err(crate::smart_cut::bad)?
+                {
+                    s.set_selection(Selection {
+                        anchor: target,
+                        focus: end,
+                    });
+                }
+            }
+            s.merge_history_since(depth);
         }
         dirty.extend(self.relayout()?);
         dirty.sort_unstable();
@@ -125,9 +151,10 @@ mod tests {
                 copy: false,
             })
             .expect("move");
-        assert_eq!(text(&e), ["two threeone "]);
+        // Smart paste: the space travels to the other side ("two three one").
+        assert_eq!(text(&e), ["two three one"]);
         let (a, b) = r.selection.ordered();
-        assert_eq!((a, b), (Pos::new(0, 9), Pos::new(0, 13)));
+        assert_eq!((a, b), (Pos::new(0, 10), Pos::new(0, 13)));
         e.command(Command::Undo).expect("undo");
         assert_eq!(text(&e), ["one two three"]);
     }
@@ -141,14 +168,14 @@ mod tests {
             copy: true,
         })
         .expect("copy");
-        assert_eq!(text(&e), ["gammaalpha", "beta gamma", "delta"]);
+        assert_eq!(text(&e), ["gamma alpha", "beta gamma", "delta"]);
         select(&mut e, Pos::new(0, 0), Pos::new(1, 2));
         e.command(Command::MoveText {
             to: Pos::new(2, 5),
             copy: false,
         })
         .expect("move lines");
-        assert_eq!(text(&e), ["ta gamma", "deltagammaalpha", "be"]);
+        assert_eq!(text(&e), ["ta gamma", "deltagamma alpha", "be"]);
         let before = text(&e);
         select(&mut e, Pos::new(0, 0), Pos::new(0, 4));
         e.command(Command::MoveText {

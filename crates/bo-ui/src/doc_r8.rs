@@ -300,12 +300,16 @@ impl DocWindow {
         if tables_on && at.offset == text.len() && f.table.is_none() {
             if let Some(cols) = table_columns(&text) {
                 let para = at.para;
+                // Each column as wide as its "+---" run as typed (round 10: the reference's
+                // cells are 24 / 42 pt for "+-----+----------+" in Calibri 12 pt).
+                let widths = self.r10_plus_widths(para, &text);
                 self.r8_select(Pos::new(para, 0), Pos::new(para, text.len()));
                 self.view.run_command(Command::DeleteBackward);
-                return Some(
-                    self.view
-                        .run_command(Command::InsertTable { rows: 1, cols }),
-                );
+                let made = self
+                    .view
+                    .run_command(Command::InsertTable { rows: 1, cols });
+                self.r10_set_column_widths(&widths);
+                return Some(made);
             }
         }
         let rule = text.len() >= 3

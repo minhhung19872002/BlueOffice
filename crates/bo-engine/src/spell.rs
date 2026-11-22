@@ -85,6 +85,25 @@ fn span_at(spans: &[Span], at: usize) -> Option<&Span> {
         .find(|s| s.range.start <= at && at < s.range.end)
 }
 
+/// A Vietnamese administrative abbreviation the checker must not flag: a single letter, a part
+/// of a slash-joined short token ("V/v", "K/g", "Đ/c") or a short word written with a full stop
+/// ("Tp.", "Th."). The reference word processor flags nothing in `vi-VN` text (COM
+/// `SpellingErrors` = 0 on office-01-cong-van.docx and on "V/v trien khai xyzqw", round 11), so
+/// at least these common forms stay unmarked.
+fn vi_abbreviation(text: &str, r: &Range<usize>) -> bool {
+    let word = &text[r.clone()];
+    let letters = word.chars().filter(|c| c.is_alphabetic()).count();
+    if letters <= 1 {
+        return true;
+    }
+    let before = text[..r.start].chars().next_back();
+    let after = text[r.end..].chars().next();
+    if letters <= 3 && (before == Some('/') || after == Some('/')) {
+        return true;
+    }
+    letters <= 3 && after == Some('.') && word.chars().next().is_some_and(char::is_uppercase)
+}
+
 /// A misspelt word: its range and the language it was checked in.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Misspelt {
@@ -328,7 +347,11 @@ impl SpellState {
                 }
                 let word = &text[r.clone()];
                 let lang = span.lang.as_deref();
-                let (ok, none) = self.check_word(word, lang, para_vi);
+                let (mut ok, none) = self.check_word(word, lang, para_vi);
+                let vi_text = lang.map_or(para_vi, |l| bo_spell::primary_language(l) == "vi");
+                if !ok && vi_text && vi_abbreviation(text, &r) {
+                    ok = true;
+                }
                 if let Some(l) = none {
                     unchecked.insert(l);
                 } else if !ok {
@@ -765,6 +788,19 @@ mod tests {
             "BlueDoc", "Ctrls",
         ];
         assert_eq!(flagged, reference);
+    }
+
+    // source: COM SpellingErrors of the reference on a scratch copy of
+    // tests/corpus/doc/office-01-cong-van.docx (vi-VN): no word flagged (round 11).
+    #[test]
+    fn vietnamese_admin_abbreviations_are_not_flagged() {
+        let mut e =
+            engine("V/v triển khai phần mềm. Số: 245/CV-AS, UBND TP. Hà Nội, Tp. Huế, K/g anh.");
+        let marks = e.spelling_marks(None);
+        assert!(marks.is_empty(), "{marks:?}");
+        // A wrong syllable is still flagged.
+        let mut e = engine("Xin chaò các bạn ở Hà Nội.");
+        assert_eq!(e.spelling_marks(None).len(), 1);
     }
 
     #[test]

@@ -280,10 +280,25 @@ impl Painter for WinPainter<'_, '_> {
 /// Interface text measured by DirectWrite (before a device exists: an estimate).
 struct Measure<'a>(Option<&'a Device>);
 
+thread_local! {
+    /// Interface texts whose measuring took 5 ms or more since the last input (performance log).
+    static SLOW_MEASURES: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
 impl TextMeasure for Measure<'_> {
     fn measure(&self, text: &str, style: TextStyle) -> (f32, f32) {
         match self.0 {
-            Some(d) => d.measure_text(text, ui_size(style.size), style.bold),
+            Some(d) => {
+                let t = Instant::now();
+                let r = d.measure_text(text, ui_size(style.size), style.bold);
+                if t.elapsed().as_millis() >= 5 {
+                    SLOW_MEASURES.with(|s| {
+                        s.borrow_mut()
+                            .push(format!("{text:?} {:.1}ms", t.elapsed().as_secs_f64() * 1e3));
+                    });
+                }
+                r
+            }
             None => (
                 text.chars().count() as f32 * style.size * 0.55,
                 style.size * 1.33,
@@ -807,9 +822,28 @@ impl Handler for Shell {
         }
         let m = Measure(self.gpu.as_ref().map(|g| &g.device));
         let mut redraw = self.view.handle(input, &m);
+        let t_view = start.elapsed();
         redraw |= self.handle_requests();
+        let t_req = start.elapsed();
         let m = Measure(self.gpu.as_ref().map(|g| &g.device));
         redraw |= self.view.refresh(&m);
+        // Performance log: the parts of an input that took long (one line each).
+        if let Some(file) = self
+            .perf
+            .as_mut()
+            .filter(|_| start.elapsed().as_millis() >= 10)
+        {
+            let ms = |d: std::time::Duration| d.as_secs_f64() * 1e3;
+            let _ = writeln!(
+                file,
+                r#"{{"slow":"{kind}","view_ms":{:.3},"requests_ms":{:.3},"refresh_ms":{:.3},"measures":{:?}}}"#,
+                ms(t_view),
+                ms(t_req.saturating_sub(t_view)),
+                ms(start.elapsed().saturating_sub(t_req)),
+                SLOW_MEASURES.with(|s| s.borrow().join("; "))
+            );
+        }
+        SLOW_MEASURES.with(|s| s.borrow_mut().clear());
         if !redraw {
             return;
         }

@@ -73,6 +73,8 @@ mod m {
     /// Mini toolbar size (text): 456 × 94; (picture) 114 × 94.
     pub const BAR: (f32, f32) = (456.0, 94.0);
     pub const BAR_PICTURE: (f32, f32) = (114.0, 94.0);
+    /// In a table: 545 × 94 (Insert / Delete in place of Styles).
+    pub const BAR_TABLE: (f32, f32) = (545.0, 94.0);
 }
 
 const BAR_FRAME: Rgba = Rgba(0xC6, 0xC6, 0xC6, 255);
@@ -110,7 +112,7 @@ impl DocWindow {
     pub(super) fn r10_context_menu(&mut self, x: f32, y: f32, text: &dyn TextMeasure) {
         let f = self.view.format().clone();
         let selected = self.view.has_selection();
-        let picture = f.picture.is_some() && selected;
+        let picture = f.picture.is_some() || f.picture_tools;
         let table = f.table.is_some();
         let link = f.link.clone().filter(|l| !l.is_empty());
         self.spell_menu = if picture {
@@ -210,13 +212,21 @@ impl DocWindow {
             rows.push(self.r10_row("sizePosition", "picture.layoutOptions", None));
             rows.push(self.r10_row("formatPicture", "picture.layout", None));
         } else if table {
+            if syn.is_some() {
+                let mut r = self.r10_row("synonyms", "ctx.sub.syn", None);
+                r.arrow = true;
+                r.sep = true;
+                rows.push(r);
+            }
             let mut r = self.r10_row("insert", "ctx.sub.insert", None);
             r.arrow = true;
             r.sep = true;
             rows.push(r);
             rows.push(self.r10_row("deleteCells", "table.deleteCell", None));
             rows.push(self.r10_row("splitCells", "table.splitCell", None));
-            rows.push(self.r10_row("borderStyles", "table.borderStyles", None));
+            let mut r = self.r10_row("borderStyles", "table.borderStyles", None);
+            r.arrow = true;
+            rows.push(r);
             rows.push(self.r10_row("textDirection", "table.textDirection", None));
             rows.push(self.r10_row("tableProperties", "table.properties", None));
             let mut r = self.r10_row("link", "insert.link", Some("insert.link"));
@@ -275,7 +285,7 @@ impl DocWindow {
             .with_access_keys(text, false);
         let rect = menu.rect();
         self.menu = Some(menu);
-        let bar = Some(self.r10_minibar(rect, picture, &f));
+        let bar = Some(self.r10_minibar(rect, picture, table, &f));
         self.r10.ctx = Some(Ctx {
             menu: rect,
             paste_head: Some(head),
@@ -290,9 +300,21 @@ impl DocWindow {
     }
 
     /// Lay out the mini toolbar next to a menu at `menu` (above, else below).
-    fn r10_minibar(&self, menu: [f32; 4], picture: bool, f: &bo_edit::FormatState) -> MiniBar {
+    fn r10_minibar(
+        &self,
+        menu: [f32; 4],
+        picture: bool,
+        table: bool,
+        f: &bo_edit::FormatState,
+    ) -> MiniBar {
         let k = self.scale / 1.25;
-        let (bw, bh) = if picture { m::BAR_PICTURE } else { m::BAR };
+        let (bw, bh) = if picture {
+            m::BAR_PICTURE
+        } else if table {
+            m::BAR_TABLE
+        } else {
+            m::BAR
+        };
         let (w, h) = ((bw * k).round(), (bh * k).round());
         let gap = (m::GAP * k).round();
         let above = menu[1] - gap - h;
@@ -313,7 +335,24 @@ impl DocWindow {
                 ],
             )
         };
-        let buttons = if picture {
+        let buttons = if table && !picture {
+            vec![
+                b("format.fontDialog", 5.0, 8.0, 102.0, 36.0),
+                b("ctx.size", 107.0, 8.0, 68.0, 36.0),
+                b("format.growStep", 175.0, 9.0, 32.0, 34.0),
+                b("format.shrinkStep", 207.0, 9.0, 32.0, 34.0),
+                b("format.bullets", 239.0, 9.0, 53.0, 34.0),
+                b("format.numbering", 292.0, 9.0, 53.0, 34.0),
+                b("format.bold", 5.0, 51.0, 32.0, 34.0),
+                b("format.italic", 37.0, 51.0, 32.0, 34.0),
+                b("format.highlight", 101.0, 51.0, 53.0, 34.0),
+                b("format.color", 154.0, 51.0, 53.0, 34.0),
+                b("format.painter", 313.0, 51.0, 32.0, 34.0),
+                b("ctx.sub.insert", 346.0, 5.0, 58.0, 84.0),
+                b("table.deleteCell", 404.0, 5.0, 58.0, 84.0),
+                b("review.newComment", 463.0, 5.0, 77.0, 84.0),
+            ]
+        } else if picture {
             vec![
                 b("picture.quickStyles", 5.0, 5.0, 58.0, 84.0),
                 b("picture.crop", 63.0, 5.0, 46.0, 84.0),
@@ -508,11 +547,15 @@ impl DocWindow {
                 ("wrapFront", "picture.wrap.inFront"),
             ]
         };
-        let anchor = self.r10.ctx.as_ref().map_or([0.0; 4], |c| {
-            let (x, y) = self.r10.pointer;
-            let _ = x;
-            [c.menu[0] + c.menu[2] - 2.0, y - 12.0, 1.0, 0.0]
-        });
+        let anchor =
+            self.r10
+                .ctx
+                .as_ref()
+                .map_or([self.r10.pointer.0, self.r10.pointer.1, 1.0, 0.0], |c| {
+                    let (x, y) = self.r10.pointer;
+                    let _ = x;
+                    [c.menu[0] + c.menu[2] - 2.0, y - 12.0, 1.0, 0.0]
+                });
         let items = rows
             .iter()
             .map(|(k, id)| MenuItem {
@@ -547,14 +590,18 @@ impl DocWindow {
         let Some((_, words)) = &self.r10.syn else {
             return;
         };
-        let anchor = self.r10.ctx.as_ref().map_or([0.0; 4], |c| {
-            [
-                c.menu[0] + c.menu[2] - 2.0,
-                self.r10.pointer.1 - 12.0,
-                1.0,
-                0.0,
-            ]
-        });
+        let anchor =
+            self.r10
+                .ctx
+                .as_ref()
+                .map_or([self.r10.pointer.0, self.r10.pointer.1, 1.0, 0.0], |c| {
+                    [
+                        c.menu[0] + c.menu[2] - 2.0,
+                        self.r10.pointer.1 - 12.0,
+                        1.0,
+                        0.0,
+                    ]
+                });
         let items = words
             .iter()
             .enumerate()
@@ -846,11 +893,15 @@ impl DocWindow {
                 "view.stylesPane"
                 | "review.newComment"
                 | "picture.quickStyles"
-                | "picture.crop" => {
+                | "picture.crop"
+                | "ctx.sub.insert"
+                | "table.deleteCell" => {
                     let size = (32.0 * s / 1.25 * 1.0).round();
                     let icon = match *id {
                         "review.newComment" => "review.newComment",
                         "view.stylesPane" => "styles",
+                        "ctx.sub.insert" => "table.insertRowBelow",
+                        "table.deleteCell" => "table.deleteRow",
                         other => other,
                     };
                     let ix = (bx + (bw - size) / 2.0).round();
@@ -862,6 +913,8 @@ impl DocWindow {
                         "review.newComment" => "newCommentBtn",
                         "picture.crop" => "crop",
                         "picture.quickStyles" => "style",
+                        "ctx.sub.insert" => "insertBtn",
+                        "table.deleteCell" => "deleteBtn",
                         _ => "styles",
                     });
                     let mut ly = by + size + (10.0 * s).round();
@@ -936,7 +989,18 @@ fn glyph(
     size: f32,
     s: f32,
 ) {
-    if icons.has(id) {
+    // Letters of our own for the text buttons (dark, with the colour bars), shared icons else.
+    let letter = matches!(
+        id,
+        "format.bold"
+            | "format.italic"
+            | "format.underline"
+            | "format.highlight"
+            | "format.color"
+            | "format.growStep"
+            | "format.shrinkStep"
+    );
+    if icons.has(id) && !letter {
         icons.draw(p, id, x, y, size, colors(t, true));
         return;
     }

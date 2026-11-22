@@ -15692,6 +15692,8 @@
     }
   },
   "docCtx": {
+    "insertBtn": "Chèn",
+    "deleteBtn": "Xóa",
     "body": "(Thân bài)",
     "searchMenus": "Tìm trong menu",
     "synonyms": "Từ đồng &nghĩa",

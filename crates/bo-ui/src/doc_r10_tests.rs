@@ -307,9 +307,17 @@ fn typing_window_cost() {
         },
         &Fixed,
     );
-    w.view.run_command(Command::SetSelection {
-        selection: Selection::caret(Pos::new(3, 0)),
-    });
+    // As the measurement script: a click on the first page, then the typing.
+    w.handle(
+        Input::Press {
+            x: 600.0,
+            y: 500.0,
+            count: 1,
+            shift: false,
+        },
+        &Fixed,
+    );
+    w.handle(Input::Release { x: 600.0, y: 500.0 }, &Fixed);
     for c in "nhanh hon nua di ban oi, go thu ".chars() {
         let t = std::time::Instant::now();
         w.handle(Input::Text(c.to_string()), &Fixed);

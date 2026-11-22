@@ -15692,6 +15692,8 @@
     }
   },
   "docCtx": {
+    "insertBtn": "Insert",
+    "deleteBtn": "Delete",
     "body": "(Body)",
     "searchMenus": "Search the menus",
     "synonyms": "S&ynonyms",

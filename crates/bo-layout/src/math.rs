@@ -466,15 +466,12 @@ impl MathCtx<'_> {
         let upright = nor || matches!(sty, Some("p" | "b"));
         // Operators get a little room (thick spaces around relations, §22.1.2 spacing) —
         // not in scripts, limits and text-style fractions (smaller than the base: the
-        // reference sets "ax²+b" over "c" and "aₜ−aₜ₋₁" tight), and not a sign that starts
-        // the run ("−b±√…": unary minus).
+        // reference sets "ax²+b" over "c" and "aₜ−aₜ₋₁" tight).
         let script = size < self.base * 0.99;
         let spaced: String = text
             .chars()
-            .enumerate()
-            .flat_map(|(k, c)| {
-                let unary = k == 0 && "+−-±∓".contains(c);
-                if !script && !unary && "=<>≤≥≠≈±∓+−×÷→←⇒⇔∈∉⊂⊆∪∩".contains(c)
+            .flat_map(|c| {
+                if !script && "=<>≤≥≠≈±∓+−×÷→←⇒⇔∈∉⊂⊆∪∩".contains(c)
                 {
                     vec!['\u{2005}', c, '\u{2005}']
                 } else {

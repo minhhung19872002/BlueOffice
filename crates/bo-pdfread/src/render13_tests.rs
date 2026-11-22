@@ -535,6 +535,58 @@ fn a_stroke_painted_with_a_pattern_fills_its_outline_with_the_cells() {
 }
 
 #[test]
+fn a_fine_picture_pattern_paints_its_average_colour() {
+    // A word processor's shading pattern: 0.96 pt cells, each an 8 × 8 one-bit picture
+    // in an Indexed red / yellow palette (half of each), over 180 × 80 pt — far too many
+    // cells to draw one by one. The area reads as orange, not the grey stand-in.
+    let p = render(page_pdf(
+        "/Pattern cs /P scn 10 10 180 80 re f",
+        "/Pattern << /P 5 0 R >>",
+        &[
+            &xstream(
+                "/Type /Pattern /PatternType 1 /PaintType 1 /TilingType 2 /BBox [0 0 0.96 0.96] \
+                 /XStep 0.96 /YStep 0.96 /Resources << /XObject << /I 6 0 R >> >>",
+                "q 0.96 0 0 0.96 0 0 cm /I Do Q",
+            ),
+            &xstream(
+                "/Type /XObject /Subtype /Image /Width 8 /Height 8 \
+                 /ColorSpace [/Indexed /DeviceRGB 1 <FF0000FFFF00>] /BitsPerComponent 1 \
+                 /Filter /ASCIIHexDecode",
+                "FFFFFFFF00000000>",
+            ),
+        ],
+    ));
+    let fills = solid_fills(&p);
+    assert!(fills.contains(&Rgba(255, 128, 0, 255)), "{fills:?}");
+    assert!(!fills.contains(&Rgba(200, 200, 200, 255)));
+    // The same tiles over a small cell box (fewer than 4000 tiles): still one even fill,
+    // no tile-by-tile moiré — the tile is under two device pixels.
+    let p = render(page_pdf(
+        "/Pattern cs /P scn 10 10 20 10 re f",
+        "/Pattern << /P 5 0 R >>",
+        &[
+            &xstream(
+                "/Type /Pattern /PatternType 1 /PaintType 1 /TilingType 2 /BBox [0 0 0.96 0.96] \
+                 /XStep 0.96 /YStep 0.96 /Resources << /XObject << /I 6 0 R >> >>",
+                "q 0.96 0 0 0.96 0 0 cm /I Do Q",
+            ),
+            &xstream(
+                "/Type /XObject /Subtype /Image /Width 8 /Height 8 \
+                 /ColorSpace [/Indexed /DeviceRGB 1 <0070C0FFFFFF>] /BitsPerComponent 1 \
+                 /Filter /ASCIIHexDecode",
+                "F0F0F0F0F0F0F0F0>",
+            ),
+        ],
+    ));
+    assert!(solid_fills(&p).contains(&Rgba(128, 184, 224, 255)));
+    assert!(!p
+        .list
+        .commands
+        .iter()
+        .any(|c| matches!(c, Command::Image { .. })));
+}
+
+#[test]
 fn cjk_substitutes_pick_the_reference_faces_and_weights() {
     use crate::font::cjk_substitutes;
     // The four lines of the corpus file 04 (PyMuPDF's built-in CJK names, /Flags 4).

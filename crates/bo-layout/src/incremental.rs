@@ -206,10 +206,18 @@ fn decorate(
     let doc = ctx.doc;
     let si = page.section;
     let sec = &doc.sections[si.min(doc.sections.len() - 1)];
-    let setup = sec.page;
+    // Gutter and mirrored margins (§17.6.11 pgMar w:gutter, §17.15.1.57): the header
+    // and footer move with the body.
+    let (setup, dx) = crate::page::page_frame(doc, sec);
     ctx.fields = fields;
-    let left = setup.margin_left.to_pt();
-    let w = content_width(sec);
+    let left = setup.margin_left.to_pt()
+        + if page.number.is_multiple_of(2) {
+            dx
+        } else {
+            0.0
+        };
+    let w =
+        (setup.width.to_pt() - setup.margin_left.to_pt() - setup.margin_right.to_pt()).max(36.0);
     let (mut head, mut foot) = (0, 0);
     let items0 = page.items.len();
     for header in [true, false] {
@@ -800,7 +808,7 @@ fn hf_heights(
     let mut hf = Vec::with_capacity(doc.sections.len());
     let mut hf_fields = false;
     for (si, s) in doc.sections.iter().enumerate() {
-        let w = content_width(s);
+        let w = content_width(doc, s);
         let mut heights = [(0.0f32, 0.0f32); 3];
         for header in [true, false] {
             for v in 0..3u8 {

@@ -2208,6 +2208,58 @@ impl<'s, 'a> Interp<'s, 'a> {
         self.shading_paint(sh, m)
     }
 
+    /// Average colour (alpha-weighted, over white) of the only picture among a
+    /// pattern cell's `/XObject` resources, if the cell draws exactly one picture.
+    fn cell_image_average(&self, res: &Dictionary) -> Option<Rgba> {
+        let doc = self.doc();
+        let xo = res.get(b"XObject").ok()?;
+        let xo = doc.dereference(xo).map_or(xo, |(_, o)| o).as_dict().ok()?;
+        let mut it = xo.iter();
+        let (_, first) = it.next()?;
+        if it.next().is_some() {
+            return None;
+        }
+        let Object::Stream(s) = doc.dereference(first).ok()?.1 else {
+            return None;
+        };
+        if s.dict.get(b"Subtype").and_then(Object::as_name).ok()? != b"Image" {
+            return None;
+        }
+        let lookup = |n: &[u8]| {
+            res.get(b"ColorSpace")
+                .ok()
+                .and_then(|c| doc.dereference(c).map_or(Some(c), |(_, o)| Some(o)))
+                .and_then(|c| c.as_dict().ok())
+                .and_then(|c| c.get(n).ok().cloned())
+        };
+        let space = s
+            .dict
+            .get(b"ColorSpace")
+            .ok()
+            .and_then(|o| ColorSpace::parse(doc, o, &lookup, 0));
+        let img = image::decode(&image::Params {
+            doc,
+            dict: &s.dict,
+            data: &s.content,
+            space,
+            fill: self.gs.fill_cs.rgb(&self.gs.fill),
+        })?;
+        let n = (img.width as usize) * (img.height as usize);
+        if n == 0 {
+            return None;
+        }
+        // Premultiplied pixels over white.
+        let mut sum = [0_u64; 3];
+        for px in img.pixels.chunks_exact(4) {
+            let a = u64::from(px[3]);
+            for k in 0..3 {
+                sum[k] += u64::from(px[k]) + (255 - a);
+            }
+        }
+        let avg = |k: usize| (sum[k] as f64 / n as f64).round().clamp(0.0, 255.0) as u8;
+        Some(Rgba(avg(0), avg(1), avg(2), 255))
+    }
+
     /// Fill `segs` with a tiling pattern by drawing its cell over the path's bounds.
     fn tiling_fill(&mut self, name: &[u8], segs: &[PathSeg]) {
         let doc = self.doc();
@@ -2261,16 +2313,26 @@ impl<'s, 'a> Interp<'s, 'a> {
         let i1 = ((hi.0 - bbox[0]) / xs).ceil() as i64;
         let j0 = ((lo.1 - bbox[3]) / ys).floor() as i64;
         let j1 = ((hi.1 - bbox[1]) / ys).ceil() as i64;
-        if (i1 - i0).saturating_mul(j1 - j0) > 4000 || self.depth > 8 {
-            // Too many cells: an even grey keeps the area visible.
-            self.out.commands.push(Command::Path {
-                segs: segs.to_vec(),
-                fill: Some(Paint::Solid {
-                    color: Rgba(200, 200, 200, 255),
-                }),
-                stroke: None,
-            });
-            return;
+        // A cell under two device pixels (`min_line` is one, in points) that is one
+        // picture — the 1/600" hatch tiles of word-processor shading patterns, §8.7.3.1 —
+        // paints its average colour, what its texture reads as (drawn tile by tile it
+        // only shows moiré); so does any picture cell when there are too many cells to
+        // draw, else an even grey keeps the area visible.
+        let tile = xs.min(ys) * scale_of(m);
+        let tiny = tile < 2.0 * self.sh.opts.min_line;
+        let many = (i1 - i0).saturating_mul(j1 - j0) > 4000 || self.depth > 8;
+        if tiny || many {
+            let avg = res.and_then(|r| self.cell_image_average(r));
+            if avg.is_some() || many {
+                self.out.commands.push(Command::Path {
+                    segs: segs.to_vec(),
+                    fill: Some(Paint::Solid {
+                        color: avg.unwrap_or(Rgba(200, 200, 200, 255)),
+                    }),
+                    stroke: None,
+                });
+                return;
+            }
         }
         self.push_clip(segs);
         let ctm = self.gs.ctm;

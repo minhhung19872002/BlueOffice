@@ -314,9 +314,22 @@ impl ShadingPattern {
     /// §17.18.78 (`pct5` … `pct95`, `solid`); line patterns count as a light mix.
     #[must_use]
     pub fn coverage(&self) -> f32 {
+        // Share of pattern-colour pixels in the 8 × 8 tiles the reference word processor
+        // exports (1/600" pixels, read from its PDF; docs/ui/REPORT.md "Dàn trang vòng
+        // 6"): the line patterns, and pct12 / 37 / 62 / 87 being 12.5 % steps.
         match self.val.as_str() {
             "clear" | "nil" => 0.0,
             "solid" => 1.0,
+            "horzStripe" | "vertStripe" | "reverseDiagStripe" | "diagStripe" | "horzCross" => 0.5,
+            "diagCross" => 0.75,
+            "thinHorzStripe" | "thinVertStripe" | "thinReverseDiagStripe" | "thinDiagStripe" => {
+                0.25
+            }
+            "thinHorzCross" | "thinDiagCross" => 0.4375,
+            "pct12" => 0.125,
+            "pct37" => 0.375,
+            "pct62" => 0.625,
+            "pct87" => 0.875,
             v => v
                 .strip_prefix("pct")
                 .and_then(|p| p.parse::<f32>().ok())

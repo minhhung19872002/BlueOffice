@@ -478,7 +478,9 @@ fn fonts_painter_and_paste_special() {
         r#"{"cmd":"paste","html":"<b>đậm</b>","text":"đậm","mode":"text"}"#,
     );
     assert!(!r["format"]["bold"].as_bool().unwrap());
-    assert_eq!(doc(&e).plain_text(), "một haiđậm");
+    // Smart cut and paste (round 10, measured on the reference): a pasted word
+    // gets a space from the word it is glued to.
+    assert_eq!(doc(&e).plain_text(), "một hai đậm");
     let r = cmd(&mut e, r#"{"cmd":"clearFormatting"}"#);
     assert!(r["format"]["canUndo"].as_bool().unwrap());
 }

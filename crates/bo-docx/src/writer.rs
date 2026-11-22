@@ -327,6 +327,48 @@ fn insert_setting(xml: &str, el: &str, after: &[&str]) -> String {
     s
 }
 
+/// When `content` holds w15 elements ([MS-DOCX] 2.6.1.1 collapsed …), the root start tag
+/// `root` of `xml` declares the w15 namespace as ignorable (ECMA-376 Part 3, §10.2.1
+/// mc:Ignorable), as the reference writes it, so older consumers skip them.
+fn ignorable_w15(xml: &str, root: &str, content: &str) -> String {
+    if !content.contains("<w15:") {
+        return xml.to_owned();
+    }
+    let Some(at) = find_element(xml, root) else {
+        return xml.to_owned();
+    };
+    let Some(end) = xml[at..].find('>').map(|e| at + e) else {
+        return xml.to_owned();
+    };
+    let tag = &xml[at..end];
+    let mut add = String::new();
+    if !tag.contains("xmlns:w15=") {
+        let _ = write!(add, " xmlns:w15=\"{W15_NS}\"");
+    }
+    if !tag.contains("xmlns:mc=") {
+        let _ = write!(add, " xmlns:mc=\"{MC_NS}\"");
+    }
+    let mut tag = tag.to_owned();
+    if let Some(i) = tag.find("mc:Ignorable=\"") {
+        let v = i + "mc:Ignorable=\"".len();
+        let close = tag[v..].find('"').map_or(tag.len(), |c| v + c);
+        if !tag[v..close].split_whitespace().any(|p| p == "w15") {
+            tag.insert_str(close, " w15");
+        }
+    } else {
+        add.push_str(" mc:Ignorable=\"w15\"");
+    }
+    let self_closing = tag.ends_with('/');
+    if self_closing {
+        tag.pop();
+    }
+    tag.push_str(&add);
+    if self_closing {
+        tag.push('/');
+    }
+    format!("{}{tag}{}", &xml[..at], &xml[end..])
+}
+
 /// Byte offset of the first `<tag` start (followed by `/`, `>` or whitespace).
 fn find_element(xml: &str, tag: &str) -> Option<usize> {
     let pat = format!("<{tag}");
@@ -511,6 +553,7 @@ impl Writer<'_> {
             Some(s) if s.background == bg => prefix,
             _ => with_background(&prefix, bg),
         };
+        let prefix = ignorable_w15(&prefix, "w:document", &body);
         let xml = format!("{prefix}{body}{suffix}");
         if self.doc.source.is_some() {
             self.pkg.put_part(main, xml.into_bytes());
@@ -1715,6 +1758,7 @@ impl Writer<'_> {
             s.push_str("</w:style>");
         }
         s.push_str("</w:styles>");
+        let s = ignorable_w15(&s, "w:styles", &s);
         let part = existing.unwrap_or_else(|| "/word/styles.xml".into());
         self.pkg.add_part(&part, CT_STYLES, s.into_bytes())?;
         self.rels.id_for(REL_STYLES, &part, false);

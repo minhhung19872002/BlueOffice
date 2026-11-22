@@ -98,6 +98,10 @@ fn collapsed_written_after_outline_level_with_its_namespace() {
     let c = main.find("<w15:collapsed").unwrap();
     assert!(lvl < c, "{main}");
     assert!(main.contains(&format!(r#"<w15:collapsed xmlns:w15="{W15}"/>"#)));
+    // The root declares w15 ignorable, as the reference's files (OpenXmlValidator: 0 errors).
+    let root = &main[main.find("<w:document").unwrap()..];
+    let root = &root[..root.find('>').unwrap()];
+    assert!(root.contains(r#"mc:Ignorable="w15""#), "{root}");
     let back = read_docx(&bytes).unwrap();
     assert_eq!(first_props(&back).collapsed, Some(true));
 }

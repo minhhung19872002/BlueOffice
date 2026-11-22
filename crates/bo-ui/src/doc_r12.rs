@@ -33,24 +33,48 @@ fn borders_json(b: Option<&bo_model::Borders>) -> Value {
     })
 }
 
-/// Lighter (`tint` > 0) or darker (`tint` < 0) shade of `hex`.
+/// Lighter (`tint` > 0) or darker (`tint` < 0) shade of `hex`, on the HSL luminance as
+/// DrawingML's lumMod / lumOff (§20.1.2.3.20 / .21): lighter = L·(1 − t) + t, darker =
+/// L·(1 + t), hue and saturation kept (round 14: the palette rows match the reference's).
 fn shade(hex: &str, tint: f32) -> String {
     let v = u32::from_str_radix(hex, 16).unwrap_or(0);
-    let ch = |c: u32| {
-        let c = c as f32;
-        let out = if tint >= 0.0 {
-            c + (255.0 - c) * tint
-        } else {
-            c * (1.0 + tint)
-        };
-        out.round().clamp(0.0, 255.0) as u32
+    let [r, g, b] = [v >> 16 & 255, v >> 8 & 255, v & 255].map(|c| c as f32 / 255.0);
+    let (max, min) = (r.max(g).max(b), r.min(g).min(b));
+    let l = f32::midpoint(max, min);
+    let d = max - min;
+    let s = if d == 0.0 {
+        0.0
+    } else {
+        d / (1.0 - (2.0 * l - 1.0).abs())
     };
-    format!(
-        "{:02X}{:02X}{:02X}",
-        ch(v >> 16 & 255),
-        ch(v >> 8 & 255),
-        ch(v & 255)
-    )
+    let h = if d == 0.0 {
+        0.0
+    } else if (max - r).abs() < f32::EPSILON {
+        ((g - b) / d).rem_euclid(6.0)
+    } else if (max - g).abs() < f32::EPSILON {
+        (b - r) / d + 2.0
+    } else {
+        (r - g) / d + 4.0
+    };
+    let l = if tint >= 0.0 {
+        l * (1.0 - tint) + tint
+    } else {
+        l * (1.0 + tint)
+    }
+    .clamp(0.0, 1.0);
+    let c = (1.0 - (2.0 * l - 1.0).abs()) * s;
+    let x = c * (1.0 - (h.rem_euclid(2.0) - 1.0).abs());
+    let (r1, g1, b1) = match h as u32 {
+        0 => (c, x, 0.0),
+        1 => (x, c, 0.0),
+        2 => (0.0, c, x),
+        3 => (0.0, x, c),
+        4 => (x, 0.0, c),
+        _ => (c, 0.0, x),
+    };
+    let m = l - c / 2.0;
+    let ch = |v: f32| ((v + m) * 255.0).round().clamp(0.0, 255.0) as u32;
+    format!("{:02X}{:02X}{:02X}", ch(r1), ch(g1), ch(b1))
 }
 
 /// The colour drop-downs' palette: the document theme's ten colours (background, text,

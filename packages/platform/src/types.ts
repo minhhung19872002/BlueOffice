@@ -935,9 +935,10 @@ export type EditCommand =
   | { cmd: 'removeToc' }
   /**
    * Update the fields; `answers`: typed answers of the ASK / FILLIN questions by prompt key;
-   * `selection`: only the fields in the selection (F9; the field at the caret).
+   * `selection`: only the fields in the selection (F9; the field at the caret); `print`: only
+   * what a print / PDF export updates (SEQ, REF, PAGEREF…, not tables of contents).
    */
-  | { cmd: 'updateFields'; answers?: Record<string, string>; selection?: boolean }
+  | { cmd: 'updateFields'; answers?: Record<string, string>; selection?: boolean; print?: boolean }
   /** The ASK / FILLIN questions an update asks (`fieldPrompts`; `selection` as `updateFields`). */
   | { cmd: 'fieldPrompts'; selection?: boolean }
   /** Shift+F9: the fields in the selection show their codes, or their results again. */

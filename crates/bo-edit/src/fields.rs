@@ -893,6 +893,22 @@ pub fn update_in(
     up
 }
 
+/// [`update`] as a print or PDF export does it: block fields (TOC, INDEX, TOA,
+/// BIBLIOGRAPHY) keep their results, the others are recomputed.
+pub fn update_for_print(doc: &Document, pages: &[u32], env: &FieldEnv) -> FieldUpdate {
+    let skip = doc
+        .sections
+        .iter()
+        .enumerate()
+        .flat_map(|(si, s)| {
+            toc_ranges(&s.blocks)
+                .into_iter()
+                .map(move |t| (si, t.first))
+        })
+        .collect();
+    update_all(doc, pages, env, &skip)
+}
+
 /// The ASK / FILLIN questions an update of the fields in `scope` asks.
 pub fn prompts_in(doc: &Document, scope: &Scope) -> Vec<crate::merge::rules::Prompt> {
     prompts(&mark(doc, scope).0)

@@ -568,3 +568,59 @@ và images-03 (giới hạn bộ chấm). `fuzz_smoke` của bo-engine chạy > 
 `docfid-25-empty-line-mark-office39-before-after.png`, `docfid-26-equations-office29-before-after.png`,
 `docfid-27-wrap-first-indent-office31-before-after.png`, `docfid-28-squeeze-limit-office34-before-after.png`,
 `docfid-29-table-border-edge-office36-before-after.png`, `docfid-30-new20-after-worst6.png`.
+
+## Dàn trang vòng 5 — BlueDoc so với trình soạn thảo đối chiếu (2026-11-22)
+
+Cách chấm như vòng 4 (`SCORER=3`, PDF xuất bằng COM trong instance riêng trên bản sao scratch, không in). Hiệu chuẩn
+biểu đồ: 13 biến thể của biểu đồ office-22 (chữ 8 / 10 / 14 pt, không tiêu đề, chú giải phải / trên, khung
+300 × 200 và 432 × 324 pt, Arial, cột ngang, nhãn số liệu, tiêu đề 18 pt) xuất PDF bằng trình soạn thảo đối chiếu,
+toạ độ đọc thẳng từ luồng nội dung PDF (`m` / `l` / `re` / `Tm`); kiểm lại cùng phần XML biểu đồ trong một sổ tính
+bằng trình bảng tính đối chiếu (vẽ giống hệt).
+
+| | Tệp | Số trang khớp | Đầu dòng khớp (TB tệp) | Đầu dòng khớp (theo dòng) | Điểm ảnh lệch TB |
+|---|---|---|---|---|---|
+| Trước → sau | 96 | 96 / 96 | 97,9 → 98,0 % | 99,2 → 99,4 % | 0,0165 → 0,0159 |
+
+Theo tệp: office-22 (biểu đồ) đầu dòng 79,2 → 93,1 %, điểm ảnh 0,0435 → 0,0130; office-29 (phương trình) điểm ảnh
+0,0655 → 0,0428. Không tệp nào lùi.
+
+Sửa (test: `crates/bo-sheet/src/chart/elements_tests.rs`, `crates/bo-xlsx/src/chart_format.rs`,
+`crates/bo-layout/tests/features.rs`, `crates/bo-ui/src/doc_view.rs`):
+1. **Chữ trong biểu đồ** (§21.2.2.216 txPr → §21.1.2.3.7 `a:latin`, §21.2.2.210 title): phông của biểu đồ (Times New
+   Roman thay phông thân của chủ đề), tiêu đề đậm và đúng cỡ run tiêu đề — ở cả BlueDoc, BlueSlide và BlueSheet
+   (`ChartFormat::font_face`, `title_size`, ghi lại khi lưu).
+2. **Định dạng tự động của phần biểu đồ không định dạng** (không `c:spPr` ở vùng biểu đồ, vùng vẽ, trục, đường lưới —
+   `ChartFormat::classic`; theo XML nên một tệp hiện giống nhau ở cả ba ứng dụng): chữ đen 10 pt, đường lưới và trục
+   đen 0,5 pt (`0 G` / `0.5 w` trong PDF đối chiếu), viền xám `0.537 G` 0,5 pt; nhãn giá trị từ 6,5 pt, cách vùng vẽ
+   0,85 em; vùng vẽ cách mép phải 11 pt; nhãn hạng mục có đường cơ sở 1,486 em dưới vùng vẽ, thêm 8,66 pt tới đáy;
+   tiêu đề từ 8 pt, dòng 1,15 em, rồi 12 pt (hoặc nửa dòng nhãn + 5,7 pt) tới vùng vẽ; chú giải gọn (ô màu 0,5 em,
+   chữ cách 0,72 em, 0,85 em giữa các mục, dải 1,314 em + 9,84 pt; bên phải: cột cách 1,7 em, cách mép 10 pt, cách
+   vùng vẽ 15,74 pt; dãy đường có khoá là đoạn 1,93 em); thang giá trị bỏ số 0 khi độ trải < 1/6 giá trị lớn nhất,
+   đệm như bảng tính, bước 1 / 2 / 5 × 10ⁿ nhỏ nhất còn chừa một dòng nhãn (1,15 em) giữa hai đường lưới
+   (88..96,8 → 82..98 bước 2; chữ 14 pt trên vùng 123 pt → bước 5); đường 2,25 pt; hình tròn bán kính 0,4555 × chiều
+   cao vùng, không viền lát; nhãn số liệu đen cỡ chữ biểu đồ (trên cột: đường cơ sở 0,66 em trên đỉnh; trong lát: 0,7
+   bán kính, bán kính bớt 0,84 em). Biểu đồ BlueOffice tự tạo ghi vùng vẽ `a:noFill` nên mở lại vẫn giữ giao diện
+   BlueOffice.
+3. **Dòng có phân số trong dòng thấp ~1 pt** (mục 2 của brief): bản đối chiếu giữ phía trên mực của mỗi run chữ toán
+   khoảng MathLeading của phông toán (Cambria Math 0,146 em, ISO/IEC 14496-22 §6.3.6.3): đỉnh dòng 0,80 em trên chỉ số
+   "2" (mực 0,674 em), 0,59 em trên tử số "a" (mực 0,47 em); toán tử lớn, căn và ngoặc giãn giữ mực. Đường cơ sở
+   office-29 khớp ≤ 0,3 pt tới phương trình (3). Còn: V = V₀(1 + r/100)ᵗ — bản đối chiếu đặt tử số thấp hơn (0,37 em
+   thay vì 0,59 em) khi phân số nằm trong cơ sở của chỉ số trên; dòng của BlueDoc cao hơn 2,4 pt.
+4. **Trường khi in / xuất PDF trong ứng dụng** (mục 3): BlueDoc native (In, Tệp › In, Xuất PDF, Lưu dạng PDF, công
+   cụ `--print`), chuyển Office → PDF của BlueEditor và web (xuất PDF, in, bảng in) chạy `updateFields { print: true }`
+   trước — SEQ / REF / PAGEREF / DATE cập nhật, mục lục giữ nguyên — như `bo-cli convert` (`DocView::update_print_fields`
+   giữ vị trí cuộn; office-28 "Bảng 3 (trang 5)" → "Bảng 1 (trang 1)").
+5. **Hiển thị trên màn hình** (mục 4): cửa sổ BlueDoc native và cửa sổ trình soạn thảo đối chiếu (instance riêng, bản
+   sao scratch, PrintWindow) ở 100 % và 150 %, office-01 / 05 / 22, căn theo tương quan mực rồi so từng dòng chữ: vị
+   trí dòng và glyph lệch ≤ 1 px (đa số 0) ở cả hai mức; trang rộng hơn 2–3 px ở 100 % (990 px của bản đối chiếu so
+   với 993 px = 595,3 pt × 1,667 làm tròn); bảng không viền ở office-01 thấp ~2 px so với màn hình bản đối chiếu (PDF
+   hai bên khớp ≤ 0,1 pt — bản đối chiếu làm tròn hàng bảng riêng trên màn hình). Không đổi code.
+
+Kiểm tra (mục 5): bo-sheet, bo-xlsx, bo-pptx, bo-model, bo-layout, test `print_fields` của bo-ui xanh; clippy sạch
+(cả bo-ui, bo-native-win); `pnpm build:wasm` (release) + `pnpm --filter @blueoffice/platform test` 185 / 185 (parity
+với bo-cli mới). `cargo test --release -p bo-engine` (106 tệp test, -j 2): đang chạy khi ghi mục này.
+
+Ảnh (đối chiếu trái / trên): `scratchpad/show/docfid-31-charts-office22-before-after.png`,
+`docfid-32-sheet-chart-classic-before-after.png`, `docfid-33-inline-fraction-lines-office29-before-after.png`,
+`docfid-34-screen-office01-100pct.png`, `docfid-35-screen-office05-150pct.png`, `docfid-36-screen-office01-150pct.png`,
+`docfid-37-chart-data-labels.png`, `docfid-38-screen-office22-100pct-charts.png`.

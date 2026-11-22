@@ -593,7 +593,8 @@ fn modify_from_manage_styles_changes_the_style() {
     let f = w.r3.form.as_mut().expect("form");
     assert_eq!(f.kind, DocFormKind::NewStyle);
     assert_eq!(f.modify.as_deref(), Some("Normal"));
-    f.set_on("bold", true);
+    // Round 13: the reference's Bold toggle of the Formatting row.
+    assert!(f.r13_canvas_for_test("sBold"));
     press_key(&mut w, Key::Enter);
     let normal = w
         .view

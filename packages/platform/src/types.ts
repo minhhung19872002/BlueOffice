@@ -409,6 +409,12 @@ export interface TableSortKey {
   descending: boolean;
 }
 
+/** A shading pattern (§17.18.78 ST_Shd value, pattern colour RRGGBB; round 13). */
+export interface ShadingPatternSpec {
+  val: string;
+  color?: string | null;
+}
+
 /** A border line of the Borders and Shading dialog (mirrors `bo_edit::table::BorderPen`). */
 export interface BorderPen {
   /** §17.18.2 ST_Border style. */
@@ -417,6 +423,10 @@ export interface BorderPen {
   size: number;
   /** RRGGBB; null = automatic. */
   color?: string | null;
+  /** §17.18.2 w:shadow (Shadow setting, round 13). */
+  shadow?: boolean;
+  /** §17.18.2 w:frame (3-D setting). */
+  frame?: boolean;
 }
 
 /** Edges set exactly (null removes one; mirrors `bo_edit::table::BorderEdges`). */
@@ -456,7 +466,7 @@ export type TableEdit =
   | { kind: 'insertCell'; right: boolean }
   | { kind: 'insertColumn'; right: boolean }
   /** `whole`: every cell of the table (round 12). */
-  | { kind: 'shading'; hex: string | null; whole?: boolean }
+  | { kind: 'shading'; hex: string | null; whole?: boolean; pattern?: ShadingPatternSpec | null }
   /** Exact borders of the table or (cells) of the selected cells (round 12). */
   | ({ kind: 'setBorders'; cells?: boolean } & BorderEdges)
   /** §17.4.63 tblCaption / §17.4.58 tblDescription; empty removes. */
@@ -655,7 +665,7 @@ export type ParaFormat =
       kind: 'borders';
       preset: 'none' | 'bottom' | 'top' | 'left' | 'right' | 'inside' | 'outside' | 'all';
     }
-  | { kind: 'shading'; hex: string | null }
+  | { kind: 'shading'; hex: string | null; pattern?: ShadingPatternSpec | null }
   /** Exact paragraph borders and their distances from the text in points (round 12). */
   | ({
       kind: 'setBorders';

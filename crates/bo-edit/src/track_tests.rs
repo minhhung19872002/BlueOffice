@@ -214,6 +214,7 @@ fn run(s: &mut Session, a: &Act) {
                 .filter(|h| !h.is_empty())
                 .map(|h| (*h).to_owned()),
             whole: false,
+            pattern: None,
         }),
         Act::Borders(k) => s.edit_table(&TableEdit::Borders {
             preset: [
@@ -484,6 +485,7 @@ fn tracked_row_insert_delete_and_reject() {
     s.edit_table(&TableEdit::Shading {
         hex: Some("FFEE00".into()),
         whole: false,
+        pattern: None,
     })
     .unwrap();
     let kinds: Vec<_> = s.revisions().iter().map(|r| r.kind).collect();

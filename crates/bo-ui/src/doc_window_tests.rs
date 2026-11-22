@@ -520,15 +520,14 @@ fn view_tab_layouts_and_page_fit_zooms() {
 fn page_setup_dialog_sets_margins_and_paper_in_centimetres() {
     let mut w = window();
     act(&mut w, "layout.pageSetup");
-    let d = w.dialog.as_ref().expect("page setup dialog");
-    assert_eq!(d.kind, DialogKind::PageSetup);
-    // Replace the top margin (first field) by 3 cm and confirm.
-    for _ in 0..8 {
-        w.handle(Input::Key(Key::Backspace, Mods::default()), &Fixed);
-    }
-    w.handle(Input::Text("3".into()), &Fixed);
-    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
-    assert!(w.dialog.is_none());
+    // Round 13: the reference's Page Setup (Margins / Paper / Layout).
+    let f = w.r3.form.as_mut().expect("page setup dialog");
+    assert_eq!(f.kind, crate::doc_forms::DocFormKind::PageSetup);
+    // The top margin by 3 cm, then OK.
+    f.set_text("mTop", "3 cm");
+    let out = f.input(&Input::Key(Key::Enter, Mods::default()));
+    w.form_out(out);
+    assert!(w.r3.form.is_none());
     assert_eq!(w.view.format().section.margin_top, 1701);
 }
 

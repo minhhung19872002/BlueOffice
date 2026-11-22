@@ -15,6 +15,10 @@ pub(super) struct R13 {
     pub(super) template_styles: Vec<Value>,
     /// The spec the next New / Modify Style dialog opens with (Modify Style).
     modify_spec: Option<Value>,
+    /// Style Pane Options: styles shown (0 recommended, 1 in use, 2 in the document, 3 all)
+    /// and the order (0 as recommended, 1 alphabetical, 2 based on, 3 by type).
+    pane_show: usize,
+    pane_sort: usize,
 }
 
 /// Format ▾ entries of New / Modify Style: id, key, en-US label, available.
@@ -22,7 +26,7 @@ const STYLE_FORMAT: [(&str, &str, &str, bool); 9] = [
     ("font", "doc13.ns_fmtFont", "Font...", true),
     ("paragraph", "doc13.ns_fmtParagraph", "Paragraph...", true),
     ("tabs", "doc13.ns_fmtTabs", "Tabs...", true),
-    ("border", "doc13.ns_fmtBorder", "Border...", false),
+    ("border", "doc13.ns_fmtBorder", "Border...", true),
     ("language", "doc13.ns_fmtLanguage", "Language...", true),
     ("frame", "doc13.ns_fmtFrame", "Frame...", false),
     ("numbering", "doc13.ns_fmtNumbering", "Numbering...", false),
@@ -47,6 +51,13 @@ impl DocWindow {
             let m: Map<String, Value> = serde_json::from_str(j).unwrap_or_default();
             if let Some(f) = self.r3.form.as_mut() {
                 f.style_take_format(&m);
+            }
+            return Some(true);
+        }
+        if let Some(j) = id.strip_prefix("r13.bsOptionsDone:") {
+            let v: Vec<u32> = serde_json::from_str(j).unwrap_or_default();
+            if let (Some(f), [t, l, b, r]) = (self.r3.form.as_mut(), v.as_slice()) {
+                f.set_bs_space([*t, *l, *b, *r]);
             }
             return Some(true);
         }
@@ -75,7 +86,25 @@ impl DocWindow {
         if let Some(s) = id.strip_prefix("styles.modify:") {
             return Some(self.r13_modify_style(s));
         }
+        if let Some(j) = id.strip_prefix("r13.paneOptions:") {
+            let v: Value = serde_json::from_str(j).unwrap_or_default();
+            self.r13.pane_show = v["show"].as_u64().unwrap_or(0).min(3) as usize;
+            self.r13.pane_sort = v["sort"].as_u64().unwrap_or(0).min(3) as usize;
+            if v["template"].as_bool() == Some(true) {
+                self.r13.template_styles.retain(|t| t["pane"].is_null());
+                self.r13
+                    .template_styles
+                    .push(json!({ "pane": [self.r13.pane_show, self.r13.pane_sort] }));
+                self.requests.push(super::Request::SaveDefaults);
+            }
+            if let Some(mut pane) = self.r3.styles_pane.take() {
+                self.refresh_styles_pane_into(&mut pane);
+                self.r3.styles_pane = Some(pane);
+            }
+            return Some(true);
+        }
         match id {
+            "styles.paneOptions" => Some(self.r13_open(DocFormKind::PaneOptions)),
             "format.paragraphSettings" => Some(self.r13_open(DocFormKind::Paragraph)),
             "layout.pageSetup" => Some(self.r13_open(DocFormKind::PageSetup)),
             "format.tabs" | "r13.open.tabs" => Some(self.r13_open(DocFormKind::Tabs)),
@@ -99,7 +128,14 @@ impl DocWindow {
             let doc = sess.doc();
             let (a, _) = sess.selection().ordered();
             if let Some(p) = bo_model::index::para_by_id(doc, a.para) {
-                out["para"] = para_json(&bo_edit::effective_para(doc, &p.props));
+                let eff = bo_edit::effective_para(doc, &p.props);
+                out["para"] = para_json(&eff);
+                // §17.3.1.31 shd pattern for Borders and Shading › Shading.
+                if let Some(sp) = &eff.shading_pattern {
+                    out["shadingPattern"] = json!({
+                        "val": sp.val, "color": sp.color.map(bo_model::Color::to_hex),
+                    });
+                }
                 let text: String = bo_model::index::para_index_text(p)
                     .chars()
                     .filter(|c| !c.is_control())
@@ -113,17 +149,20 @@ impl DocWindow {
             }
         }
         out["tabs"] = serde_json::to_value(&f.tabs).unwrap_or(Value::Null);
+        if let Some(bs) = self.r3.stash.as_ref() {
+            out["bsSpace"] = json!(bs.bs_space());
+        }
         let style = f.style.clone().unwrap_or_else(|| "Normal".into());
         out["style"] = json!(style);
-        out["spec"] = match self.r13.modify_spec.take() {
-            Some(s) => s,
-            None => {
+        out["spec"] = if let Some(s) = self.r13.modify_spec.take() {
+            s
+        } else {
+            {
                 // A new style starts from the selection's formatting on its style.
                 let mut s = self
                     .view
                     .run_json(&json!({ "cmd": "styleDetails", "id": style }))
-                    .map(|v| v["styleMgr"]["spec"].clone())
-                    .unwrap_or_else(|| json!({}));
+                    .map_or_else(|| json!({}), |v| v["styleMgr"]["spec"].clone());
                 if let Some(font) = &f.font {
                     s["font"] = json!(font);
                 }
@@ -140,6 +179,105 @@ impl DocWindow {
             }
         };
         out["color"] = out["spec"]["color"].clone();
+        out["pane"] = json!({ "show": self.r13.pane_show, "sort": self.r13.pane_sort });
+        out
+    }
+
+    /// Style Pane Options applied to the pane's list: which styles and in what order.
+    pub(super) fn r13_pane_filter(&mut self, pane: &mut crate::doc_r3_ui::StylesPane) {
+        let (show, sort) = (self.r13.pane_show, self.r13.pane_sort);
+        if show == 0 && sort == 0 {
+            return;
+        }
+        let all = self.view.all_styles();
+        let entry = |id: &str| all.iter().find(|s| s.id == id);
+        let mark = |s: &bo_engine::gallery::StyleEntry| {
+            if s.kind == "character" {
+                "a"
+            } else if s.linked.is_some() {
+                "\u{b6}a"
+            } else {
+                "\u{b6}"
+            }
+        };
+        let doc_styles = || {
+            all.iter()
+                .filter(|s| s.kind == "paragraph" || s.kind == "character")
+                .map(|s| crate::doc_r3_ui::PaneStyle {
+                    id: s.id.clone(),
+                    name: crate::commands::style_name_key(&s.name)
+                        .map_or_else(|| s.name.clone(), |k| self.strings.get(k).to_owned()),
+                    mark: mark(s),
+                    preview: Some(s.preview.clone()),
+                })
+                .collect::<Vec<_>>()
+        };
+        match show {
+            1 => pane
+                .styles
+                .retain(|p| entry(&p.id).is_some_and(|s| s.in_use)),
+            2 => pane.styles = doc_styles(),
+            3 => {
+                let mut list = doc_styles();
+                for p in std::mem::take(&mut pane.styles) {
+                    if !list.iter().any(|l| l.id == p.id) {
+                        list.push(p);
+                    }
+                }
+                pane.styles = list;
+            }
+            _ => {}
+        }
+        match sort {
+            1 => pane.styles.sort_by_key(|p| p.name.to_lowercase()),
+            2 => pane.styles.sort_by_key(|p| {
+                (
+                    entry(&p.id)
+                        .and_then(|s| s.based_on.clone())
+                        .unwrap_or_default(),
+                    p.name.to_lowercase(),
+                )
+            }),
+            3 => pane
+                .styles
+                .sort_by_key(|p| (p.mark == "a", p.name.to_lowercase())),
+            _ => {}
+        }
+    }
+
+    /// The document defaults for Manage Styles › Set Defaults (§17.7.5.1 docDefaults as
+    /// `FindFormat` fields), the font families, the palette and the unit.
+    pub(super) fn r13_doc_defaults(&mut self) -> Value {
+        let mut out = json!({});
+        if let Some(sess) = self.view.engine().session() {
+            let doc = sess.doc();
+            out = para_json(&doc.default_para);
+            let r = &doc.default_run;
+            let font = r
+                .theme_ascii
+                .as_deref()
+                .map(|t| {
+                    if t.starts_with("major") {
+                        "+Headings"
+                    } else {
+                        "+Body"
+                    }
+                })
+                .map(str::to_owned)
+                .or_else(|| r.font.clone());
+            out["font"] = json!(font);
+            out["size"] = json!(r.size.map_or(20, |s| s.0));
+            if let Some(c) = r.color {
+                out["color"] = json!(c.to_hex());
+            }
+        }
+        out["fonts"] = json!(self
+            .view
+            .font_list()
+            .into_iter()
+            .map(|f| f.name)
+            .collect::<Vec<_>>());
+        out["inches"] = json!(self.units.inches);
         out
     }
 
@@ -217,6 +355,7 @@ impl DocWindow {
             "paragraph" => DocFormKind::Paragraph,
             "tabs" => DocFormKind::Tabs,
             "language" => DocFormKind::FindLanguage,
+            "border" => DocFormKind::BordersShading,
             _ => return false,
         };
         let Some(style) = self.r3.form.take() else {
@@ -234,7 +373,9 @@ impl DocWindow {
         let kind_now = self.r3.form.as_ref().map(|f| f.kind);
         let title = match kind_now {
             Some(DocFormKind::FindFont) => Some(self.r13_t("doc13.ns_fontTitle", "Font")),
-            Some(DocFormKind::FindLanguage) => Some(self.r13_t("doc13.ns_languageTitle", "Language")),
+            Some(DocFormKind::FindLanguage) => {
+                Some(self.r13_t("doc13.ns_languageTitle", "Language"))
+            }
             _ => None,
         };
         if let Some(f) = self.r3.form.as_mut() {
@@ -280,10 +421,10 @@ impl DocWindow {
         ]);
         if v["scope"].as_str() == Some("default") {
             // Set As Default: kept for new documents with the design defaults.
-            self.r13.template_styles.retain(|t| t["pageSetup"].is_null());
             self.r13
                 .template_styles
-                .push(json!({ "pageSetup": setup }));
+                .retain(|t| t["pageSetup"].is_null());
+            self.r13.template_styles.push(json!({ "pageSetup": setup }));
             self.requests.push(super::Request::SaveDefaults);
         }
         ok
@@ -314,6 +455,24 @@ impl DocWindow {
     /// New documents based on this template: keep the style for new documents (BlueDoc's
     /// own defaults file in the user's profile; the reference's template is never touched).
     fn r13_template_style(&mut self, v: Value) -> bool {
+        if let Some(d) = v["docDefaults"].as_object() {
+            // Later defaults add to the earlier ones.
+            let mut all = self
+                .r13
+                .template_styles
+                .iter()
+                .find_map(|t| t["docDefaults"].as_object().cloned())
+                .unwrap_or_default();
+            all.extend(d.clone());
+            self.r13
+                .template_styles
+                .retain(|t| t["docDefaults"].is_null());
+            self.r13
+                .template_styles
+                .push(json!({ "docDefaults": Value::Object(all) }));
+            self.requests.push(super::Request::SaveDefaults);
+            return true;
+        }
         let name = v["spec"]["name"].as_str().unwrap_or("").to_owned();
         self.r13
             .template_styles
@@ -334,6 +493,10 @@ impl DocWindow {
     pub(super) fn r13_read_defaults(&mut self, v: &Value) {
         if let Some(a) = v["templateStyles"].as_array() {
             self.r13.template_styles.clone_from(a);
+            if let Some(p) = a.iter().find_map(|t| t["pane"].as_array()) {
+                self.r13.pane_show = p.first().and_then(Value::as_u64).unwrap_or(0).min(3) as usize;
+                self.r13.pane_sort = p.get(1).and_then(Value::as_u64).unwrap_or(0).min(3) as usize;
+            }
         }
     }
 
@@ -359,7 +522,16 @@ impl DocWindow {
         let mut cmds = Vec::new();
         for t in &self.r13.template_styles {
             if t["pageSetup"].is_object() {
-                cmds.push(json!({ "cmd": "setPageSetup", "setup": t["pageSetup"], "scope": "document" }));
+                cmds.push(
+                    json!({ "cmd": "setPageSetup", "setup": t["pageSetup"], "scope": "document" }),
+                );
+                continue;
+            }
+            if t["pane"].is_array() {
+                continue;
+            }
+            if t["docDefaults"].is_object() {
+                cmds.push(json!({ "cmd": "setDocDefaults", "format": t["docDefaults"] }));
                 continue;
             }
             let spec = t["spec"].clone();
@@ -438,5 +610,21 @@ fn section_json(
 /// @w:gutter, §17.6.23 vAlign, §17.15.1.57 mirrorMargins, §17.15.1.49 gutterAtTop,
 /// §17.15.1.13 bookFoldPrinting, §17.15.1.65 printTwoOnOne).
 fn section_extra(doc: &bo_model::Document, sec: &bo_model::Section, v: &mut Value) {
-    let _ = (doc, sec, v);
+    v["gutter"] = json!(sec.layout.gutter.0);
+    v["vAlign"] = json!(sec.layout.v_align.as_str());
+    v["gutterTop"] = json!(doc.pages.gutter_at_top);
+    v["mirror"] = json!(doc.pages.mirror_margins);
+    v["twoOnOne"] = json!(doc.pages.two_on_one);
+    v["bookFold"] = json!(doc.pages.book_fold);
+    v["lineNumbers"] = json!(sec.line_numbers.is_some());
+    if let Some(ln) = &sec.line_numbers {
+        v["lineNumbering"] = json!({
+            "countBy": ln.count_by, "start": ln.start,
+            "distance": ln.distance.map(|d| d.0), "restart": ln.restart.as_str(),
+        });
+    }
 }
+
+#[cfg(test)]
+#[path = "doc_r13_tests.rs"]
+mod tests;

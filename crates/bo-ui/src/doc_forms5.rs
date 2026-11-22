@@ -466,8 +466,12 @@ pub(crate) struct ManagedStyle {
 
 /// Manage Styles (Styles pane › Manage Styles), 629 × 661 at 125 %: Edit (sort order, the
 /// styles, preview and description, Delete, New Style…), Recommend, Restrict, Set Defaults
-/// (font and size of Normal).
-pub(crate) fn open_manage_styles(s: &Strings, styles: Vec<ManagedStyle>) -> DocForm {
+/// (document defaults, round 13: `defaults` as `doc_forms13::manage_defaults` reads them).
+pub(crate) fn open_manage_styles(
+    s: &Strings,
+    styles: Vec<ManagedStyle>,
+    defaults: &Value,
+) -> DocForm {
     use super::Kind;
     let tr = |k: &str, f: &str| t(s, k, f);
     let tabs = vec![
@@ -482,7 +486,6 @@ pub(crate) fn open_manage_styles(s: &Strings, styles: Vec<ManagedStyle>) -> DocF
         (629.0, 661.0),
         tabs,
     );
-    let normal = styles.iter().find(|x| x.id == "Normal").cloned();
     f.managed = styles;
     f.label_on(
         0,
@@ -604,25 +607,8 @@ pub(crate) fn open_manage_styles(s: &Strings, styles: Vec<ManagedStyle>) -> DocF
             top: 0,
         },
     );
-    // Set Defaults: the font and size of Normal.
-    let (font, size) = normal.map_or_else(
-        || ("Times New Roman".to_owned(), 12.0),
-        |n| (n.font.clone(), n.size),
-    );
-    f.label_on(
-        3,
-        "fontL",
-        [32.0, 92.0, 60.0, 18.0],
-        &tr("docR5.font", "Font:"),
-    );
-    f.edit_on(3, "font", [100.0, 88.0, 240.0, 26.0], &font);
-    f.label_on(
-        3,
-        "sizeL",
-        [360.0, 92.0, 50.0, 18.0],
-        &tr("docR5.size", "Size:"),
-    );
-    f.edit_on(3, "size", [410.0, 88.0, 80.0, 26.0], &format!("{size}"));
+    // Set Defaults: the document defaults (round 13).
+    super::r13::manage_defaults(&mut f, s, defaults);
     f.radio(
         "thisDoc",
         "scope",
@@ -637,7 +623,6 @@ pub(crate) fn open_manage_styles(s: &Strings, styles: Vec<ManagedStyle>) -> DocF
         &tr("docR5.newDocs", "New documents based on this template"),
         false,
     );
-    f.disable("template");
     f.button(
         "importExport",
         [18.0, 613.0, 116.0, 30.0],
@@ -795,24 +780,21 @@ impl DocForm {
             }
             DocFormKind::FindRecipient => self.r5_clicked("findFirst"),
             DocFormKind::ManageStyles => {
-                // Set Defaults: the font and size of Normal, when changed.
-                let normal = self.managed.iter().find(|m| m.id == "Normal");
-                let font = self.text("font");
-                let size = self.text("size").trim().replace(',', ".");
-                let changed = normal.is_none_or(|n| {
-                    n.font != font.trim() || size.parse::<f32>().ok() != Some(n.size)
-                });
-                if changed && !font.trim().is_empty() {
-                    FormOut::Run(
-                        vec![json!({
-                            "cmd": "ui.action",
-                            "id": format!("styles.setDefaults:{}\u{1f}{size}", font.trim()),
-                        })],
-                        true,
-                    )
-                } else {
-                    FormOut::Close
+                // Set Defaults: the changed document defaults (§17.7.5.1 docDefaults); with
+                // "New documents based on this template" also kept for new documents.
+                let m = self.defaults_changes();
+                if m.is_empty() {
+                    return FormOut::Close;
                 }
+                let format = Value::Object(m);
+                let mut cmds = vec![json!({ "cmd": "setDocDefaults", "format": format })];
+                if self.chosen("scope") == Some("template") {
+                    cmds.push(json!({
+                        "cmd": "ui.action",
+                        "id": format!("r13.templateStyle:{}", json!({ "docDefaults": format })),
+                    }));
+                }
+                FormOut::Run(cmds, true)
             }
             _ => match self.rule() {
                 // Ask and Set need a bookmark name (OK stays dimmed until there is one).
@@ -898,6 +880,7 @@ impl DocForm {
             }
             (DocFormKind::ManageStyles, "sort" | "recOnly") => self.manage_fill(),
             (DocFormKind::ManageStyles, "list") => self.manage_show(),
+            (DocFormKind::ManageStyles, other) => self.defaults_changed(other),
             (DocFormKind::FindRecipient, "what") => {
                 let any = !self.text("what").is_empty();
                 self.form.enable("findFirst", any);

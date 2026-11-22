@@ -59,7 +59,7 @@ pub use refs::{CitationMark, IndexMark, NoteConversion};
 use revisions::Tracker;
 pub use revisions::{RevKind, RevisionItem, StoryRef};
 pub use section::{HfVariant, PageSetupSpec, PasteMode, SectionStart, SetupScope};
-pub use table::{BorderPen, BorderPreset, TableEdit};
+pub use table::{BorderPen, BorderPreset, PatternSpec, TableEdit};
 
 use bo_model::change::BlockChanges;
 use bo_model::index::{blocks_at, body_paragraphs, para_at, ParaPath};
@@ -375,6 +375,10 @@ pub enum ParaFormat {
     Shading {
         /// Fill colour as `RRGGBB`; `None` removes the shading.
         hex: Option<String>,
+        /// Pattern and pattern colour (§17.3.1.31 shd `w:val` / `w:color`, §17.18.78);
+        /// `None` is clear (round 13).
+        #[serde(default)]
+        pattern: Option<table::PatternSpec>,
     },
     /// Leave the paragraphs out of line numbering (§17.3.1.35 suppressLineNumbers).
     SuppressLineNumbers {
@@ -3949,7 +3953,8 @@ impl Session {
                         line.space = 1;
                         pr.borders = preset.apply(pr.borders.as_ref(), &line);
                     }
-                    ParaFormat::Shading { hex } => {
+                    ParaFormat::Shading { hex, pattern } => {
+                        pr.shading_pattern = pattern.as_ref().and_then(table::PatternSpec::model);
                         pr.shading = hex.as_deref().and_then(Color::from_hex);
                     }
                     ParaFormat::SetBorders { edges, space } => {

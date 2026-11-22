@@ -562,7 +562,12 @@ impl DocWindow {
             styles.push(self.managed_style(s));
         }
         self.menu = None;
-        self.r3.form = Some(crate::doc_forms::open_manage_styles(&self.strings, styles));
+        let defaults = self.r13_doc_defaults();
+        self.r3.form = Some(crate::doc_forms::open_manage_styles(
+            &self.strings,
+            styles,
+            &defaults,
+        ));
         self.relayout_pending = true;
         true
     }

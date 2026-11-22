@@ -620,11 +620,25 @@ impl DocWindow {
     fn table_grid_input(&mut self, input: &Input) -> Option<bool> {
         let grid = self.table_grid.as_mut()?;
         Some(match *input {
-            Input::Move { x, y } | Input::Drag { x, y } => grid.hover(x, y),
+            Input::Move { x, y } | Input::Drag { x, y } => {
+                let changed = grid.hover(x, y);
+                // Quick Tables opens on hover beside its row, as the reference's submenu.
+                let quick_row = grid.hovered_command() == Some((4, true));
+                let row = grid.row_rect(4);
+                if quick_row && self.r12.quick.is_none() {
+                    self.r12_open_quick(row);
+                } else if !quick_row && changed && self.r12.quick.is_some() {
+                    self.r12.quick = None;
+                }
+                true
+            }
             Input::Press { x, y, .. } => {
                 let pick = grid.press(x, y);
                 let grid_rect = grid.row_rect(4);
                 self.table_grid = None;
+                if pick != Some(GridPick::Command(4)) {
+                    self.r12.quick = None;
+                }
                 self.ribbon.clear_pointer();
                 match pick {
                     Some(GridPick::Size(cols, rows)) => {
@@ -4286,23 +4300,23 @@ mod tests {
             },
             &Fixed,
         );
-        for (id, kind) in [
-            ("format.fontSettings", DialogKind::Font),
-            ("format.paragraphSettings", DialogKind::Paragraph),
-        ] {
+        for id in ["format.fontSettings", "format.paragraphSettings"] {
             assert!(
                 w.ribbon.rect_of(RibbonHit::Command(id)).is_some(),
                 "{id} on the ribbon"
             );
-            w.action(id);
-            assert_eq!(w.dialog.as_ref().map(|d| d.kind), Some(kind));
-            w.dialog = None;
         }
-        // Paragraph dialog: the left indent typed in points applies on Enter ("0" + "36").
+        w.action("format.fontSettings");
+        assert_eq!(w.dialog.as_ref().map(|d| d.kind), Some(DialogKind::Font));
+        w.dialog = None;
+        // Paragraph dialog (round 13: the reference's layout): Left indent 0.5" on Enter.
         w.action("format.paragraphSettings");
-        w.handle(Input::Text("36".into()), &Fixed);
-        w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
-        assert!(w.dialog.is_none());
+        let f = w.r3.form.as_mut().expect("Paragraph dialog");
+        assert_eq!(f.kind, crate::doc_forms::DocFormKind::Paragraph);
+        f.set_text("inside", "0.5\"");
+        let out = f.input(&Input::Key(Key::Enter, Mods::default()));
+        w.form_out(out);
+        assert!(w.r3.form.is_none());
         assert_eq!(w.view.format().indent_left, 720);
         // Font dialog: the size field (second) takes 7,5 pt.
         w.action("format.fontSettings");

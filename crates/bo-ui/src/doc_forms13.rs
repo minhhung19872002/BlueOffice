@@ -38,7 +38,14 @@ pub(crate) struct R13 {
 }
 
 /// Spin arrows beside a number box: arrow canvas id, box id, step (twips), unit.
-const SPINS: [(&str, &str, i32, Unit); 15] = [
+const SPINS: [(&str, &str, i32, Unit); 22] = [
+    ("lnStartSp", "lnStart", 1, Unit::Num),
+    ("lnBySp", "lnBy", 1, Unit::Num),
+    ("lnFromSp", "lnFrom", 144, Unit::Len),
+    ("boTopSp", "boTop", 20, Unit::Pt),
+    ("boLeftSp", "boLeft", 20, Unit::Pt),
+    ("boBottomSp", "boBottom", 20, Unit::Pt),
+    ("boRightSp", "boRight", 20, Unit::Pt),
     ("inSp", "inside", 144, Unit::Len),
     ("outSp", "outside", 144, Unit::Len),
     ("bySp", "by", 144, Unit::Len),
@@ -64,6 +71,8 @@ enum Unit {
     Pt,
     /// Line spacing "At": lines for Multiple, points otherwise.
     At,
+    /// A whole number, at least 1 (Line Numbers › Start at / Count by).
+    Num,
 }
 
 /// Paper sizes offered (twips) with their names: ANSI / ISO sizes.
@@ -79,7 +88,13 @@ pub(crate) const PAPERS: [(i32, i32, &str); 8] = [
 ];
 
 /// Section start values (§17.18.77 ST_SectionMark) in the reference's order.
-const STARTS: [&str; 5] = ["continuous", "nextColumn", "nextPage", "evenPage", "oddPage"];
+const STARTS: [&str; 5] = [
+    "continuous",
+    "nextColumn",
+    "nextPage",
+    "evenPage",
+    "oddPage",
+];
 
 /// Vertical alignment values (§17.18.101 ST_VerticalJc) in the reference's order.
 const VALIGNS: [&str; 4] = ["top", "center", "both", "bottom"];
@@ -158,7 +173,7 @@ impl DocForm {
     /// dialog built from Find Paragraph). `true` when handled.
     pub(super) fn r13_canvas(&mut self, id: &str, x: f32, y: f32) -> bool {
         let _ = x;
-        if !handles(self.kind) && !self.r13.as_ref().is_some_and(|r| r.style_mode) {
+        if !handles(self.kind) && self.r13.is_none() {
             return false;
         }
         if let Some(&(_, edit, step, unit)) = SPINS.iter().find(|s| s.0 == id) {
@@ -183,6 +198,12 @@ impl DocForm {
                 Unit::Pt => {
                     let cur = parse_len(&text, 20.0).unwrap_or(0);
                     show_pt((if up { cur + step } else { cur - step }).max(0))
+                }
+                Unit::Num => {
+                    let cur = text.trim().parse::<i32>().unwrap_or(1);
+                    (if up { cur + step } else { cur - step })
+                        .max(1)
+                        .to_string()
                 }
                 Unit::At => {
                     // Multiple: lines in steps of 0.5; At least / Exactly: points.
@@ -256,6 +277,12 @@ impl DocForm {
                 }
             }
             (DocFormKind::PageSetup, "multi") => self.ps_multi_changed(),
+            (DocFormKind::LineNumbers, "lnOn") => self.line_numbers_enable(),
+            (DocFormKind::Tabs, "tabPos") => {
+                // Set needs a position, as the reference.
+                let any = !self.form.text("tabPos").trim().is_empty();
+                self.form.enable("set", any);
+            }
             (DocFormKind::PageSetup, "paper") => {
                 if let Some(&(w, h, _)) = self.sel("paper").and_then(|i| PAPERS.get(i)) {
                     let (w, h) = if self.r13().landscape { (h, w) } else { (w, h) };
@@ -325,7 +352,9 @@ impl DocForm {
                 // Set As Default: the Normal style gets these values (this document).
                 let m = self.paragraph_changes();
                 FormOut::Run(
-                    vec![json!({ "cmd": "ui.action", "id": format!("r13.paraDefault:{}", Value::Object(m)) })],
+                    vec![
+                        json!({ "cmd": "ui.action", "id": format!("r13.paraDefault:{}", Value::Object(m)) }),
+                    ],
                     true,
                 )
             }
@@ -353,10 +382,7 @@ impl DocForm {
                 self.refresh_tab_list();
                 FormOut::Redraw
             }
-            (DocFormKind::PageSetup, "lineNumbers") => FormOut::Run(
-                vec![json!({ "cmd": "ui.action", "id": "layout.lineNumbers.options" })],
-                true,
-            ),
+            (DocFormKind::PageSetup, "lineNumbers") => FormOut::Stash(DocFormKind::LineNumbers),
             (DocFormKind::PageSetup, "borders") => FormOut::Run(
                 vec![json!({ "cmd": "ui.action", "id": "design.pageBorders" })],
                 true,
@@ -369,6 +395,7 @@ impl DocForm {
                     true,
                 )
             }
+            (DocFormKind::BordersShading, "bOptions") => FormOut::Stash(DocFormKind::BorderOptions),
             (DocFormKind::NewStyle, "format") => {
                 // Format ▾: the window opens the menu under the button.
                 let r = self
@@ -376,7 +403,9 @@ impl DocForm {
                     .get("format")
                     .map_or([0.0; 4], |c| self.form.dev(c.rect));
                 FormOut::Run(
-                    vec![json!({ "cmd": "ui.action", "id": format!("r13.styleFmtMenu:{},{},{},{}", r[0], r[1], r[2], r[3]) })],
+                    vec![
+                        json!({ "cmd": "ui.action", "id": format!("r13.styleFmtMenu:{},{},{},{}", r[0], r[1], r[2], r[3]) }),
+                    ],
                     false,
                 )
             }
@@ -396,13 +425,16 @@ impl DocForm {
                     m.insert("tabs".into(), self.tabs_json());
                     m
                 }
+                DocFormKind::BordersShading => self.style_border_values(),
                 _ => match self.r11_ok() {
                     FormOut::FindFormat(_, Value::Object(m), _) => m,
                     _ => Map::new(),
                 },
             };
             return Some(FormOut::Run(
-                vec![json!({ "cmd": "ui.action", "id": format!("r13.styleFmtDone:{}", Value::Object(m)) })],
+                vec![
+                    json!({ "cmd": "ui.action", "id": format!("r13.styleFmtDone:{}", Value::Object(m)) }),
+                ],
                 true,
             ));
         }
@@ -411,7 +443,9 @@ impl DocForm {
             DocFormKind::Tabs => {
                 self.tabs_set();
                 Some(FormOut::Run(
-                    vec![json!({ "cmd": "formatParagraph", "format": { "kind": "tabs", "tabs": self.tabs_json() } })],
+                    vec![
+                        json!({ "cmd": "formatParagraph", "format": { "kind": "tabs", "tabs": self.tabs_json() } }),
+                    ],
                     true,
                 ))
             }
@@ -423,6 +457,22 @@ impl DocForm {
                 ))
             }
             DocFormKind::NewStyle => Some(self.style_ok()),
+            DocFormKind::LineNumbers => Some(self.line_numbers_ok()),
+            DocFormKind::PaneOptions => Some(FormOut::Run(
+                vec![
+                    json!({ "cmd": "ui.action", "id": format!("r13.paneOptions:{}", json!({
+                    "show": self.sel("show").unwrap_or(0),
+                    "sort": self.sel("sort").unwrap_or(0),
+                    "template": self.chosen("scope") == Some("template"),
+                })) }),
+                ],
+                true,
+            )),
+            DocFormKind::BorderOptions => Some(FormOut::Run(
+                vec![json!({ "cmd": "ui.action",
+                    "id": format!("r13.bsOptionsDone:{}", json!(self.border_options_values())) })],
+                true,
+            )),
             _ => None,
         }
     }
@@ -462,7 +512,9 @@ impl DocForm {
         );
         m.insert(
             "spaceAfter".into(),
-            json!(parse_len(&self.form.text("after"), 20.0).unwrap_or(0).max(0)),
+            json!(parse_len(&self.form.text("after"), 20.0)
+                .unwrap_or(0)
+                .max(0)),
         );
         let at = self.form.text("at");
         let ls = match self.sel("line") {
@@ -510,7 +562,9 @@ impl DocForm {
             return FormOut::Close;
         }
         FormOut::Run(
-            vec![json!({ "cmd": "formatParagraph", "format": { "kind": "props", "format": Value::Object(m) } })],
+            vec![
+                json!({ "cmd": "formatParagraph", "format": { "kind": "props", "format": Value::Object(m) } }),
+            ],
             true,
         )
     }
@@ -627,15 +681,27 @@ impl DocForm {
             }
             "spMore" | "spLess" => {
                 let cur = r.spec["spaceBefore"].as_i64().unwrap_or(0);
-                let v = if id == "spMore" { cur + 120 } else { (cur - 120).max(0) };
+                let v = if id == "spMore" {
+                    cur + 120
+                } else {
+                    (cur - 120).max(0)
+                };
                 r.spec["spaceBefore"] = json!(v);
                 let cur = r.spec["spaceAfter"].as_i64().unwrap_or(0);
-                let v = if id == "spMore" { cur + 120 } else { (cur - 120).max(0) };
+                let v = if id == "spMore" {
+                    cur + 120
+                } else {
+                    (cur - 120).max(0)
+                };
                 r.spec["spaceAfter"] = json!(v);
             }
             "inMore" | "inLess" => {
                 let cur = r.spec["indentLeft"].as_i64().unwrap_or(0);
-                let v = if id == "inMore" { cur + 720 } else { (cur - 720).max(0) };
+                let v = if id == "inMore" {
+                    cur + 720
+                } else {
+                    (cur - 720).max(0)
+                };
                 r.spec["indentLeft"] = json!(v);
             }
             _ => return false,
@@ -687,7 +753,16 @@ impl DocForm {
             spec["lineSpacing"] = json!([240, 360, 480][l.min(2)]);
         }
         if !r.fmt.is_empty() {
-            spec["format"] = Value::Object(r.fmt.clone());
+            // Tabs… go to the style's tab stops, the rest are FindFormat fields.
+            let mut fmt = r.fmt.clone();
+            for k in ["tabs", "border", "shading"] {
+                if let Some(v) = fmt.remove(k) {
+                    spec[k] = v;
+                }
+            }
+            if !fmt.is_empty() {
+                spec["format"] = Value::Object(fmt);
+            }
         }
         spec
     }
@@ -716,10 +791,7 @@ impl DocForm {
         let spec = self.style_spec();
         let mut words: Vec<String> = Vec::new();
         if let Some(f) = spec["font"].as_str() {
-            let mut w = format!(
-                "{} {f}",
-                word(self, "doc13.ns_fontW", "Font:")
-            );
+            let mut w = format!("{} {f}", word(self, "doc13.ns_fontW", "Font:"));
             if let Some(sz) = spec["size"].as_u64() {
                 #[allow(clippy::cast_precision_loss)]
                 let pt = sz as f32 / 2.0;
@@ -779,10 +851,36 @@ impl DocForm {
         }
     }
 
+    /// Borders and Shading opened from Format ▾ › Border…: the paragraph box line (one line
+    /// for the style, §17.3.1.24 pBdr) and the shading fill (§17.3.1.31 shd), read from the
+    /// commands its OK would run.
+    fn style_border_values(&mut self) -> Map<String, Value> {
+        let mut m = Map::new();
+        let FormOut::Run(cmds, _) = self.r12_ok() else {
+            return m;
+        };
+        for c in &cmds {
+            let f = &c["format"];
+            if c["cmd"] == "formatParagraph" && f["kind"] == "setBorders" {
+                let line = ["top", "left", "bottom", "right"]
+                    .iter()
+                    .map(|k| &f[*k])
+                    .find(|v| v.is_object())
+                    .cloned()
+                    .unwrap_or(Value::Null);
+                m.insert("border".into(), line);
+            }
+            if c["cmd"] == "formatParagraph" && f["kind"] == "shading" {
+                m.insert("shading".into(), f["hex"].clone());
+            }
+        }
+        m
+    }
+
     /// Make this dialog set a style's format (New / Modify Style › Format ▾), starting from
     /// the style dialog's `spec`.
     pub(crate) fn set_style_mode(&mut self, spec: &Value) {
-        let inches = self.r13.as_ref().map_or(true, |r| r.inches);
+        let inches = self.r13.as_ref().is_none_or(|r| r.inches);
         let r = self.r13_mut();
         r.style_mode = true;
         r.inches = inches;
@@ -796,19 +894,30 @@ impl DocForm {
                 self.form.set_text("inside", &len("indentLeft"));
                 self.form.set_text("outside", &len("indentRight"));
                 let first = spec["indentFirstLine"].as_i64().unwrap_or(0) as i32;
-                self.form.set_sel("special", Some(match first {
-                    0 => 0,
-                    x if x > 0 => 1,
-                    _ => 2,
-                }));
+                self.form.set_sel(
+                    "special",
+                    Some(match first {
+                        0 => 0,
+                        x if x > 0 => 1,
+                        _ => 2,
+                    }),
+                );
                 self.form.set_text(
                     "by",
-                    &if first == 0 { String::new() } else { show_len(first.abs(), inches) },
+                    &if first == 0 {
+                        String::new()
+                    } else {
+                        show_len(first.abs(), inches)
+                    },
                 );
-                self.form
-                    .set_text("before", &show_pt(spec["spaceBefore"].as_i64().unwrap_or(0) as i32));
-                self.form
-                    .set_text("after", &show_pt(spec["spaceAfter"].as_i64().unwrap_or(0) as i32));
+                self.form.set_text(
+                    "before",
+                    &show_pt(spec["spaceBefore"].as_i64().unwrap_or(0) as i32),
+                );
+                self.form.set_text(
+                    "after",
+                    &show_pt(spec["spaceAfter"].as_i64().unwrap_or(0) as i32),
+                );
                 match spec["lineSpacing"].as_u64() {
                     Some(360) => self.form.set_sel("line", Some(1)),
                     Some(480) => self.form.set_sel("line", Some(2)),
@@ -882,7 +991,12 @@ impl DocForm {
 pub(super) fn handles(kind: DocFormKind) -> bool {
     matches!(
         kind,
-        DocFormKind::Paragraph | DocFormKind::Tabs | DocFormKind::PageSetup
+        DocFormKind::Paragraph
+            | DocFormKind::Tabs
+            | DocFormKind::PageSetup
+            | DocFormKind::BorderOptions
+            | DocFormKind::PaneOptions
+            | DocFormKind::LineNumbers
     )
 }
 
@@ -924,6 +1038,9 @@ pub(super) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
     let mut f = match kind {
         DocFormKind::Paragraph => open_paragraph(s, c),
         DocFormKind::Tabs => open_tabs(s, c),
+        DocFormKind::BorderOptions => open_border_options(s, c),
+        DocFormKind::PaneOptions => open_pane_options(s, c),
+        DocFormKind::LineNumbers => open_line_numbers(s, c),
         _ => open_page_setup(s, c),
     };
     f.words.extend(words(s));
@@ -964,13 +1081,10 @@ fn open_paragraph(s: &Strings, c: &FormContext) -> DocForm {
     f.form.set_items("align", aligns, Some(a));
     let mut levels = vec![tr("findFmt11.bodyText", "Body Text")];
     levels.extend((1..=9).map(|i| format!("{} {i}", tr("findFmt11.level", "Level"))));
-    let lvl = v["outlineLevel"].as_u64().map_or(0, |l| {
-        if (1..=9).contains(&l) {
-            l as usize
-        } else {
-            0
-        }
-    });
+    let lvl =
+        v["outlineLevel"]
+            .as_u64()
+            .map_or(0, |l| if (1..=9).contains(&l) { l as usize } else { 0 });
     f.form.set_items("outline", levels, Some(lvl));
     let specials = vec![
         tr("findFmt11.none", "(none)"),
@@ -1023,10 +1137,14 @@ fn open_paragraph(s: &Strings, c: &FormContext) -> DocForm {
             show_len(first.abs(), inches)
         },
     );
-    f.form
-        .set_text("before", &show_pt(v["spaceBefore"].as_i64().unwrap_or(0) as i32));
-    f.form
-        .set_text("after", &show_pt(v["spaceAfter"].as_i64().unwrap_or(0) as i32));
+    f.form.set_text(
+        "before",
+        &show_pt(v["spaceBefore"].as_i64().unwrap_or(0) as i32),
+    );
+    f.form.set_text(
+        "after",
+        &show_pt(v["spaceAfter"].as_i64().unwrap_or(0) as i32),
+    );
     f.form.set_text("at", &at);
     for (id, key) in [
         ("noSpace", "contextualSpacing"),
@@ -1072,7 +1190,8 @@ fn open_paragraph(s: &Strings, c: &FormContext) -> DocForm {
     );
     f.disable("tight");
     f.form.enable("tabs", true);
-    f.form.enable("setDefault", c.extra["r13"]["styleMode"] != json!(true));
+    f.form
+        .enable("setDefault", c.extra["r13"]["styleMode"] != json!(true));
     // The preview repeats its words the way the reference fills its sample.
     f.preview = vec![
         vec![tr("doc13.para_pvBefore", "Previous Paragraph"); 3].join(" "),
@@ -1120,14 +1239,20 @@ fn open_tabs(s: &Strings, c: &FormContext) -> DocForm {
         &tr("doc13.tabs_defaultStops", "Default tab stops:"),
     );
     let def = v["defaultTab"].as_i64().unwrap_or(720) as i32;
-    f.edit("defTab", [248.0, 68.0, 142.0, 24.0], &show_len(def, c.inches));
+    f.edit(
+        "defTab",
+        [248.0, 68.0, 142.0, 24.0],
+        &show_len(def, c.inches),
+    );
     f.disable("defTab");
     f.label("clearedL", [248.0, 132.0, 150.0, 18.0], "");
-    f.form.enable("set", true);
     if let Some((pos, align, leader)) = f.r13().tabs.first().cloned() {
         f.form.set_text("tabPos", &show_len(pos, c.inches));
         f.set_tab_radios(&align, &leader);
     }
+    // Set needs a position (dimmed on an empty box, as the reference).
+    let any = !f.form.text("tabPos").trim().is_empty();
+    f.form.enable("set", any);
     f.refresh_tab_list();
     f
 }
@@ -1157,7 +1282,12 @@ fn open_page_setup(s: &Strings, c: &FormContext) -> DocForm {
         landscape: width > height,
         ..R13::default()
     }));
-    let spin = |f: &mut DocForm, page: usize, id: &'static str, sp: &'static str, r: [f32; 4], val: &str| {
+    let spin = |f: &mut DocForm,
+                page: usize,
+                id: &'static str,
+                sp: &'static str,
+                r: [f32; 4],
+                val: &str| {
         f.form.add(
             id,
             Some(page),
@@ -1175,37 +1305,142 @@ fn open_page_setup(s: &Strings, c: &FormContext) -> DocForm {
         );
     };
     // Margins.
-    group_on(&mut f, Some(0), "gMargins", [24.0, 88.0, 483.0, 18.0], &tr("doc13.ps_margins", "Margins"));
-    let rows: [(&'static str, &'static str, &'static str, &'static str, &str, &str, f32, f32); 4] = [
-        ("mTopL", "mTop", "topSp", "marginTop", "doc13.ps_top", "Top:", 38.0, 113.0),
-        ("mBottomL", "mBottom", "botSp", "marginBottom", "doc13.ps_bottom", "Bottom:", 259.0, 113.0),
-        ("mLeftL", "mLeft", "lefSp", "marginLeft", "doc13.ps_leftL", "Left:", 38.0, 143.0),
-        ("mRightL", "mRight", "rigSp", "marginRight", "doc13.ps_rightL", "Right:", 259.0, 143.0),
+    group_on(
+        &mut f,
+        Some(0),
+        "gMargins",
+        [24.0, 88.0, 483.0, 18.0],
+        &tr("doc13.ps_margins", "Margins"),
+    );
+    #[allow(clippy::type_complexity)]
+    let rows: [(
+        &'static str,
+        &'static str,
+        &'static str,
+        &'static str,
+        &str,
+        &str,
+        f32,
+        f32,
+    ); 4] = [
+        (
+            "mTopL",
+            "mTop",
+            "topSp",
+            "marginTop",
+            "doc13.ps_top",
+            "Top:",
+            38.0,
+            113.0,
+        ),
+        (
+            "mBottomL",
+            "mBottom",
+            "botSp",
+            "marginBottom",
+            "doc13.ps_bottom",
+            "Bottom:",
+            259.0,
+            113.0,
+        ),
+        (
+            "mLeftL",
+            "mLeft",
+            "lefSp",
+            "marginLeft",
+            "doc13.ps_leftL",
+            "Left:",
+            38.0,
+            143.0,
+        ),
+        (
+            "mRightL",
+            "mRight",
+            "rigSp",
+            "marginRight",
+            "doc13.ps_rightL",
+            "Right:",
+            259.0,
+            143.0,
+        ),
     ];
     for (lid, id, sp, key, k, fb, x, y) in rows {
         f.label_on(0, lid, [x, y + 5.0, 70.0, 18.0], &tr(k, fb));
         let bx = if x < 100.0 { 109.0 } else { 370.0 };
         spin(&mut f, 0, id, sp, [bx, y, 129.0, 26.0], &len(key));
     }
-    f.label_on(0, "gutterL", [38.0, 179.0, 70.0, 18.0], &tr("doc13.ps_gutter", "Gutter:"));
-    spin(&mut f, 0, "gutter", "gutSp", [109.0, 174.0, 129.0, 26.0], &len("gutter"));
-    f.label_on(0, "gutterPosL", [259.0, 179.0, 110.0, 18.0], &tr("doc13.ps_gutterPos", "Gutter position:"));
+    f.label_on(
+        0,
+        "gutterL",
+        [38.0, 179.0, 70.0, 18.0],
+        &tr("doc13.ps_gutter", "Gutter:"),
+    );
+    spin(
+        &mut f,
+        0,
+        "gutter",
+        "gutSp",
+        [109.0, 174.0, 129.0, 26.0],
+        &len("gutter"),
+    );
+    f.label_on(
+        0,
+        "gutterPosL",
+        [259.0, 179.0, 110.0, 18.0],
+        &tr("doc13.ps_gutterPos", "Gutter position:"),
+    );
     f.form.add(
         "gutterPos",
         Some(0),
         [370.0, 174.0, 129.0, 26.0],
         Kind::Combo {
-            items: vec![tr("doc13.ps_left", "Left"), tr("doc13.ps_top", "Top").trim_end_matches(':').to_owned()],
+            items: vec![
+                tr("doc13.ps_left", "Left"),
+                tr("doc13.ps_top", "Top").trim_end_matches(':').to_owned(),
+            ],
             sel: usize::from(v["gutterTop"].as_bool() == Some(true)),
         },
     );
-    group_on(&mut f, Some(0), "gOrient", [24.0, 212.0, 483.0, 18.0], &tr("doc13.ps_orientation", "Orientation"));
-    f.form.add("portrait", Some(0), [38.0, 237.0, 70.0, 57.0], Kind::Canvas);
-    f.form.add("landscape", Some(0), [123.0, 237.0, 70.0, 57.0], Kind::Canvas);
-    f.label_on(0, "portraitL", [38.0, 299.0, 80.0, 18.0], &tr("doc13.ps_portrait", "Portrait"));
-    f.label_on(0, "landscapeL", [127.0, 299.0, 90.0, 18.0], &tr("doc13.ps_landscape", "Landscape"));
-    group_on(&mut f, Some(0), "gPages", [24.0, 327.0, 483.0, 18.0], &tr("doc13.ps_pages", "Pages"));
-    f.label_on(0, "multiL", [38.0, 358.0, 125.0, 18.0], &tr("doc13.ps_multiple", "Multiple pages:"));
+    group_on(
+        &mut f,
+        Some(0),
+        "gOrient",
+        [24.0, 212.0, 483.0, 18.0],
+        &tr("doc13.ps_orientation", "Orientation"),
+    );
+    f.form
+        .add("portrait", Some(0), [38.0, 237.0, 70.0, 57.0], Kind::Canvas);
+    f.form.add(
+        "landscape",
+        Some(0),
+        [123.0, 237.0, 70.0, 57.0],
+        Kind::Canvas,
+    );
+    f.label_on(
+        0,
+        "portraitL",
+        [38.0, 299.0, 80.0, 18.0],
+        &tr("doc13.ps_portrait", "Portrait"),
+    );
+    f.label_on(
+        0,
+        "landscapeL",
+        [127.0, 299.0, 90.0, 18.0],
+        &tr("doc13.ps_landscape", "Landscape"),
+    );
+    group_on(
+        &mut f,
+        Some(0),
+        "gPages",
+        [24.0, 327.0, 483.0, 18.0],
+        &tr("doc13.ps_pages", "Pages"),
+    );
+    f.label_on(
+        0,
+        "multiL",
+        [38.0, 358.0, 125.0, 18.0],
+        &tr("doc13.ps_multiple", "Multiple pages:"),
+    );
     let multi = if v["bookFold"].as_bool() == Some(true) {
         3
     } else if v["twoOnOne"].as_bool() == Some(true) {
@@ -1228,15 +1463,18 @@ fn open_page_setup(s: &Strings, c: &FormContext) -> DocForm {
         },
     );
     // Paper.
-    group_on(&mut f, Some(1), "gPaper", [24.0, 88.0, 483.0, 18.0], &tr("doc13.ps_paperSize", "Paper size:"));
+    group_on(
+        &mut f,
+        Some(1),
+        "gPaper",
+        [24.0, 88.0, 483.0, 18.0],
+        &tr("doc13.ps_paperSize", "Paper size:"),
+    );
     let (pw, ph) = (width.min(height), width.max(height));
     let paper = PAPERS
         .iter()
         .position(|p| (p.0 - pw).abs() <= 20 && (p.1 - ph).abs() <= 20);
-    let mut papers: Vec<String> = PAPERS
-        .iter()
-        .map(|p| p.2.to_owned())
-        .collect();
+    let mut papers: Vec<String> = PAPERS.iter().map(|p| p.2.to_owned()).collect();
     papers.push(tr("doc13.ps_custom", "Custom size"));
     f.form.add(
         "paper",
@@ -1247,13 +1485,53 @@ fn open_page_setup(s: &Strings, c: &FormContext) -> DocForm {
             items: papers,
         },
     );
-    f.label_on(1, "pWidthL", [38.0, 150.0, 55.0, 18.0], &tr("doc13.ps_width", "Width:"));
-    spin(&mut f, 1, "pWidth", "wSp", [93.0, 145.0, 182.0, 26.0], &show_len(width, inches));
-    f.label_on(1, "pHeightL", [38.0, 180.0, 55.0, 18.0], &tr("doc13.ps_height", "Height:"));
-    spin(&mut f, 1, "pHeight", "hSp", [93.0, 175.0, 182.0, 26.0], &show_len(height, inches));
-    group_on(&mut f, Some(1), "gSource", [24.0, 212.0, 483.0, 18.0], &tr("doc13.ps_source", "Paper source"));
-    f.label_on(1, "firstL", [38.0, 238.0, 120.0, 18.0], &tr("doc13.ps_firstPage", "First page:"));
-    f.label_on(1, "otherL", [276.0, 238.0, 120.0, 18.0], &tr("doc13.ps_otherPages", "Other pages:"));
+    f.label_on(
+        1,
+        "pWidthL",
+        [38.0, 150.0, 55.0, 18.0],
+        &tr("doc13.ps_width", "Width:"),
+    );
+    spin(
+        &mut f,
+        1,
+        "pWidth",
+        "wSp",
+        [93.0, 145.0, 182.0, 26.0],
+        &show_len(width, inches),
+    );
+    f.label_on(
+        1,
+        "pHeightL",
+        [38.0, 180.0, 55.0, 18.0],
+        &tr("doc13.ps_height", "Height:"),
+    );
+    spin(
+        &mut f,
+        1,
+        "pHeight",
+        "hSp",
+        [93.0, 175.0, 182.0, 26.0],
+        &show_len(height, inches),
+    );
+    group_on(
+        &mut f,
+        Some(1),
+        "gSource",
+        [24.0, 212.0, 483.0, 18.0],
+        &tr("doc13.ps_source", "Paper source"),
+    );
+    f.label_on(
+        1,
+        "firstL",
+        [38.0, 238.0, 120.0, 18.0],
+        &tr("doc13.ps_firstPage", "First page:"),
+    );
+    f.label_on(
+        1,
+        "otherL",
+        [276.0, 238.0, 120.0, 18.0],
+        &tr("doc13.ps_otherPages", "Other pages:"),
+    );
     let trays = vec![
         tr("doc13.ps_defaultTray", "Default tray (Auto Select)"),
         tr("doc13.ps_autoSelect", "Auto Select"),
@@ -1278,11 +1556,27 @@ fn open_page_setup(s: &Strings, c: &FormContext) -> DocForm {
             top: 0,
         },
     );
-    f.button_on(1, "printOptions", [387.0, 616.0, 111.0, 28.0], &tr("doc13.ps_printOptions", "Print Options..."));
+    f.button_on(
+        1,
+        "printOptions",
+        [387.0, 616.0, 111.0, 28.0],
+        &tr("doc13.ps_printOptions", "Print Options..."),
+    );
     f.disable("printOptions");
     // Layout.
-    group_on(&mut f, Some(2), "gSection", [24.0, 88.0, 483.0, 18.0], &tr("doc13.ps_section", "Section"));
-    f.label_on(2, "startL", [38.0, 119.0, 120.0, 18.0], &tr("doc13.ps_sectionStart", "Section start:"));
+    group_on(
+        &mut f,
+        Some(2),
+        "gSection",
+        [24.0, 88.0, 483.0, 18.0],
+        &tr("doc13.ps_section", "Section"),
+    );
+    f.label_on(
+        2,
+        "startL",
+        [38.0, 119.0, 120.0, 18.0],
+        &tr("doc13.ps_sectionStart", "Section start:"),
+    );
     let start = STARTS
         .iter()
         .position(|s| Some(*s) == v["start"].as_str())
@@ -1302,9 +1596,21 @@ fn open_page_setup(s: &Strings, c: &FormContext) -> DocForm {
             sel: start,
         },
     );
-    f.check_on(2, "noEndnotes", [38.0, 147.0, 220.0, 20.0], &tr("doc13.ps_suppressEndnotes", "Suppress endnotes"), false);
+    f.check_on(
+        2,
+        "noEndnotes",
+        [38.0, 147.0, 220.0, 20.0],
+        &tr("doc13.ps_suppressEndnotes", "Suppress endnotes"),
+        false,
+    );
     f.disable("noEndnotes");
-    group_on(&mut f, Some(2), "gHf", [24.0, 177.0, 483.0, 18.0], &tr("doc13.ps_headersFooters", "Headers and footers"));
+    group_on(
+        &mut f,
+        Some(2),
+        "gHf",
+        [24.0, 177.0, 483.0, 18.0],
+        &tr("doc13.ps_headersFooters", "Headers and footers"),
+    );
     f.check_on(
         2,
         "evenOdd",
@@ -1319,13 +1625,53 @@ fn open_page_setup(s: &Strings, c: &FormContext) -> DocForm {
         &tr("doc13.ps_differentFirst", "Different first page"),
         v["titlePage"].as_bool() == Some(true),
     );
-    f.label_on(2, "edgeL", [38.0, 270.0, 100.0, 18.0], &tr("doc13.ps_fromEdge", "From edge:"));
-    f.label_on(2, "hdrL", [164.0, 257.0, 60.0, 18.0], &tr("doc13.ps_header", "Header:"));
-    spin(&mut f, 2, "hdr", "hdrSp", [219.0, 252.0, 110.0, 26.0], &len("header"));
-    f.label_on(2, "ftrL", [164.0, 287.0, 60.0, 18.0], &tr("doc13.ps_footer", "Footer:"));
-    spin(&mut f, 2, "ftr", "ftrSp", [219.0, 282.0, 110.0, 26.0], &len("footer"));
-    group_on(&mut f, Some(2), "gPage", [24.0, 319.0, 483.0, 18.0], &tr("doc13.ps_page", "Page"));
-    f.label_on(2, "vAlignL", [38.0, 350.0, 120.0, 18.0], &tr("doc13.ps_vAlign", "Vertical alignment:"));
+    f.label_on(
+        2,
+        "edgeL",
+        [38.0, 270.0, 100.0, 18.0],
+        &tr("doc13.ps_fromEdge", "From edge:"),
+    );
+    f.label_on(
+        2,
+        "hdrL",
+        [164.0, 257.0, 60.0, 18.0],
+        &tr("doc13.ps_header", "Header:"),
+    );
+    spin(
+        &mut f,
+        2,
+        "hdr",
+        "hdrSp",
+        [219.0, 252.0, 110.0, 26.0],
+        &len("header"),
+    );
+    f.label_on(
+        2,
+        "ftrL",
+        [164.0, 287.0, 60.0, 18.0],
+        &tr("doc13.ps_footer", "Footer:"),
+    );
+    spin(
+        &mut f,
+        2,
+        "ftr",
+        "ftrSp",
+        [219.0, 282.0, 110.0, 26.0],
+        &len("footer"),
+    );
+    group_on(
+        &mut f,
+        Some(2),
+        "gPage",
+        [24.0, 319.0, 483.0, 18.0],
+        &tr("doc13.ps_page", "Page"),
+    );
+    f.label_on(
+        2,
+        "vAlignL",
+        [38.0, 350.0, 120.0, 18.0],
+        &tr("doc13.ps_vAlign", "Vertical alignment:"),
+    );
     let va = VALIGNS
         .iter()
         .position(|s| Some(*s) == v["vAlign"].as_str())
@@ -1344,12 +1690,30 @@ fn open_page_setup(s: &Strings, c: &FormContext) -> DocForm {
             sel: va,
         },
     );
-    f.button_on(2, "lineNumbers", [255.0, 616.0, 116.0, 28.0], &tr("doc13.ps_lineNumbers", "Line Numbers..."));
-    f.button_on(2, "borders", [387.0, 616.0, 111.0, 28.0], &tr("doc13.ps_borders", "Borders..."));
+    f.button_on(
+        2,
+        "lineNumbers",
+        [255.0, 616.0, 116.0, 28.0],
+        &tr("doc13.ps_lineNumbers", "Line Numbers..."),
+    );
+    f.button_on(
+        2,
+        "borders",
+        [387.0, 616.0, 111.0, 28.0],
+        &tr("doc13.ps_borders", "Borders..."),
+    );
     // Every tab: preview, Apply to, Set As Default, OK, Cancel.
-    f.group("gPreview", [24.0, 431.0, 483.0, 18.0], &tr("doc13.ps_preview", "Preview"));
+    f.group(
+        "gPreview",
+        [24.0, 431.0, 483.0, 18.0],
+        &tr("doc13.ps_preview", "Preview"),
+    );
     f.canvas("psPreview", [24.0, 452.0, 483.0, 145.0]);
-    f.label("applyL", [24.0, 622.0, 66.0, 18.0], &tr("doc13.ps_applyTo", "Apply to:"));
+    f.label(
+        "applyL",
+        [24.0, 622.0, 66.0, 18.0],
+        &tr("doc13.ps_applyTo", "Apply to:"),
+    );
     let mut scopes = Vec::new();
     if sections > 1 {
         scopes.push(("section", tr("doc13.ps_thisSection", "This section")));
@@ -1363,14 +1727,35 @@ fn open_page_setup(s: &Strings, c: &FormContext) -> DocForm {
         scopes.into_iter().map(|s| s.1).collect(),
         0,
     );
-    f.button("setDefault", [10.0, 670.0, 112.0, 29.0], &tr("docR3.setAsDefault", "Set As Default"), false);
-    f.button("ok", [273.0, 670.0, 112.0, 29.0], &tr("common.ok", "OK"), true);
-    f.button("cancel", [400.0, 670.0, 112.0, 29.0], &tr("common.cancel", "Cancel"), false);
+    f.button(
+        "setDefault",
+        [10.0, 670.0, 112.0, 29.0],
+        &tr("docR3.setAsDefault", "Set As Default"),
+        false,
+    );
+    f.button(
+        "ok",
+        [273.0, 670.0, 112.0, 29.0],
+        &tr("common.ok", "OK"),
+        true,
+    );
+    f.button(
+        "cancel",
+        [400.0, 670.0, 112.0, 29.0],
+        &tr("common.cancel", "Cancel"),
+        false,
+    );
     f
 }
 
 /// Paint a round-13 canvas; `false` when `id` is not one.
-pub(super) fn paint_canvas(f: &DocForm, id: &str, r: [f32; 4], p: &mut dyn Painter, font: &Font<'_>) -> bool {
+pub(super) fn paint_canvas(
+    f: &DocForm,
+    id: &str,
+    r: [f32; 4],
+    p: &mut dyn Painter,
+    font: &Font<'_>,
+) -> bool {
     let k = f.form.scale_k();
     if SPINS.iter().any(|s| s.0 == id) && (handles(f.kind) || f.r13.is_some()) {
         let edit = SPINS.iter().find(|s| s.0 == id).map_or("", |s| s.1);
@@ -1382,6 +1767,10 @@ pub(super) fn paint_canvas(f: &DocForm, id: &str, r: [f32; 4], p: &mut dyn Paint
         (DocFormKind::PageSetup, "portrait" | "landscape") => {
             let on = (id == "landscape") == f.r13().landscape;
             paint_orientation(p, r, id == "landscape", on, k);
+            true
+        }
+        (DocFormKind::BorderOptions, "boPreview") => {
+            paint_border_options(f, p, r, k);
             true
         }
         (DocFormKind::PageSetup, "psPreview") => {
@@ -1396,9 +1785,18 @@ pub(super) fn paint_canvas(f: &DocForm, id: &str, r: [f32; 4], p: &mut dyn Paint
 fn paint_spin(p: &mut dyn Painter, r: [f32; 4], enabled: bool, k: f32) {
     let edge = Rgba(0xab, 0xad, 0xb3, 255);
     p.fill_rect(r[0], r[1], r[2], r[3], edge);
-    p.fill_rect(r[0], r[1] + 1.0, r[2] - 1.0, r[3] - 2.0, Rgba(255, 255, 255, 255));
+    p.fill_rect(
+        r[0],
+        r[1] + 1.0,
+        r[2] - 1.0,
+        r[3] - 2.0,
+        Rgba(255, 255, 255, 255),
+    );
     let half = (r[3] / 2.0).floor();
-    for (y, h) in [(r[1] + 2.0, half - 2.0), (r[1] + half + 1.0, r[3] - half - 3.0)] {
+    for (y, h) in [
+        (r[1] + 2.0, half - 2.0),
+        (r[1] + half + 1.0, r[3] - half - 3.0),
+    ] {
         p.fill_rect(r[0] + 1.0, y, r[2] - 3.0, h, Rgba(0xf0, 0xf0, 0xf0, 255));
     }
     let c = if enabled {
@@ -1434,8 +1832,18 @@ fn paint_orientation(p: &mut dyn Painter, r: [f32; 4], land: bool, on: bool, k: 
     };
     let bw = if on { 2.0 * t1 } else { t1 };
     p.fill_rect(r[0], r[1], r[2], r[3], frame);
-    p.fill_rect(r[0] + bw, r[1] + bw, r[2] - 2.0 * bw, r[3] - 2.0 * bw, Rgba(255, 255, 255, 255));
-    let (pw, ph) = if land { (32.0 * k, 22.0 * k) } else { (22.0 * k, 30.0 * k) };
+    p.fill_rect(
+        r[0] + bw,
+        r[1] + bw,
+        r[2] - 2.0 * bw,
+        r[3] - 2.0 * bw,
+        Rgba(255, 255, 255, 255),
+    );
+    let (pw, ph) = if land {
+        (32.0 * k, 22.0 * k)
+    } else {
+        (22.0 * k, 30.0 * k)
+    };
     let x = (r[0] + (r[2] - pw) / 2.0).round();
     let y = (r[1] + (r[3] - ph) / 2.0).round();
     let fold = 7.0 * k;
@@ -1468,13 +1876,21 @@ fn paint_orientation(p: &mut dyn Painter, r: [f32; 4], land: bool, on: bool, k: 
 fn paint_page_preview(f: &DocForm, p: &mut dyn Painter, r: [f32; 4], k: f32) {
     let per = f.len_per();
     let num = |id: &str, d: i32| parse_len(&f.form.text(id), per).unwrap_or(d).max(0);
-    let (w, h) = (num("pWidth", 12240).max(1440), num("pHeight", 15840).max(1440));
-    let (mt, mb, ml, mr) = (num("mTop", 1440), num("mBottom", 1440), num("mLeft", 1440), num("mRight", 1440));
+    let (w, h) = (
+        num("pWidth", 12240).max(1440),
+        num("pHeight", 15840).max(1440),
+    );
+    let (mt, mb, ml, mr) = (
+        num("mTop", 1440),
+        num("mBottom", 1440),
+        num("mLeft", 1440),
+        num("mRight", 1440),
+    );
     let gutter = num("gutter", 0);
     let multi = f.sel("multi").unwrap_or(0);
     let pages = if multi == 0 { 1 } else { 2 };
     let box_h = 132.0 * k;
-    let scale = box_h / h.max(w) as f32 * if w > h { 1.0 } else { 1.0 };
+    let scale = box_h / h.max(w) as f32;
     let (pw, ph) = (w as f32 * scale, h as f32 * scale);
     let total = pw * pages as f32;
     let x0 = (r[0] + 78.0 * k - (total - 104.0 * k) / 2.0).round();
@@ -1483,9 +1899,19 @@ fn paint_page_preview(f: &DocForm, p: &mut dyn Painter, r: [f32; 4], k: f32) {
     for i in 0..pages {
         let x = x0 + i as f32 * pw;
         p.fill_rect(x, y0, pw.round(), ph.round(), Rgba(0, 0, 0, 255));
-        p.fill_rect(x + 1.0, y0 + 1.0, pw.round() - 2.0, ph.round() - 2.0, Rgba(255, 255, 255, 255));
+        p.fill_rect(
+            x + 1.0,
+            y0 + 1.0,
+            pw.round() - 2.0,
+            ph.round() - 2.0,
+            Rgba(255, 255, 255, 255),
+        );
         // Mirrored: the left page's inside margin is on its right.
-        let (l, rr) = if multi == 1 && i == 0 { (mr, ml + gutter) } else { (ml + gutter, mr) };
+        let (l, rr) = if multi == 1 && i == 0 {
+            (mr, ml + gutter)
+        } else {
+            (ml + gutter, mr)
+        };
         let lx = x + l as f32 * scale;
         let lw = (pw - (l + rr) as f32 * scale).max(4.0);
         let mut y = y0 + mt as f32 * scale;
@@ -1501,7 +1927,14 @@ fn paint_page_preview(f: &DocForm, p: &mut dyn Painter, r: [f32; 4], k: f32) {
 }
 
 /// Toggle and alignment buttons of the New / Modify Style formatting rows.
-fn paint_style_canvas(f: &DocForm, id: &str, r: [f32; 4], p: &mut dyn Painter, font: &Font<'_>, k: f32) -> bool {
+fn paint_style_canvas(
+    f: &DocForm,
+    id: &str,
+    r: [f32; 4],
+    p: &mut dyn Painter,
+    font: &Font<'_>,
+    k: f32,
+) -> bool {
     let st = f.r13();
     let on = match id {
         "sBold" => st.toggles[0],
@@ -1521,19 +1954,43 @@ fn paint_style_canvas(f: &DocForm, id: &str, r: [f32; 4], p: &mut dyn Painter, f
         }
         "descBox" => {
             p.fill_rect(r[0], r[1], r[2], r[3], Rgba(0xab, 0xad, 0xb3, 255));
-            p.fill_rect(r[0] + 1.0, r[1] + 1.0, r[2] - 2.0, r[3] - 2.0, Rgba(255, 255, 255, 255));
-            p.fill_rect(r[0] + 2.0, r[1] + 2.0, r[2] - 3.0, r[3] - 3.0, Rgba(0xf0, 0xf0, 0xf0, 255));
+            p.fill_rect(
+                r[0] + 1.0,
+                r[1] + 1.0,
+                r[2] - 2.0,
+                r[3] - 2.0,
+                Rgba(255, 255, 255, 255),
+            );
+            p.fill_rect(
+                r[0] + 2.0,
+                r[1] + 2.0,
+                r[2] - 3.0,
+                r[3] - 3.0,
+                Rgba(0xf0, 0xf0, 0xf0, 255),
+            );
             return true;
         }
         id if id.starts_with("sSep") => {
-            p.fill_rect(r[0], r[1], k.round().max(1.0), r[3], Rgba(0xc8, 0xc8, 0xc8, 255));
+            p.fill_rect(
+                r[0],
+                r[1],
+                k.round().max(1.0),
+                r[3],
+                Rgba(0xc8, 0xc8, 0xc8, 255),
+            );
             return true;
         }
         _ => return false,
     };
     if on {
         p.fill_rect(r[0], r[1], r[2], r[3], Rgba(0x98, 0xc6, 0xf0, 255));
-        p.fill_rect(r[0] + 1.0, r[1] + 1.0, r[2] - 2.0, r[3] - 2.0, Rgba(0xcc, 0xe4, 0xf7, 255));
+        p.fill_rect(
+            r[0] + 1.0,
+            r[1] + 1.0,
+            r[2] - 2.0,
+            r[3] - 2.0,
+            Rgba(0xcc, 0xe4, 0xf7, 255),
+        );
     }
     let ink = Rgba(0x40, 0x40, 0x40, 255);
     let t1 = k.round().max(1.0);
@@ -1553,18 +2010,34 @@ fn paint_style_canvas(f: &DocForm, id: &str, r: [f32; 4], p: &mut dyn Painter, f
                 italic: id == "sItalic",
                 underline: id == "sUnder",
             };
-            p.text_font(g, cx - font.size * 0.32, r[1] + (r[3] - fnt.size * 1.33) / 2.0, &fnt, ink);
+            p.text_font(
+                g,
+                cx - font.size * 0.32,
+                r[1] + (r[3] - fnt.size * 1.33) / 2.0,
+                &fnt,
+                ink,
+            );
         }
         "aLeft" | "aCenter" | "aRight" | "aJust" => {
             let w = 16.0 * k;
             for i in 0..4 {
-                let lw = if id == "aJust" || i % 2 == 0 { w } else { w * 0.65 };
+                let lw = if id == "aJust" || i % 2 == 0 {
+                    w
+                } else {
+                    w * 0.65
+                };
                 let x = match id {
                     "aCenter" => cx - lw / 2.0,
                     "aRight" => cx + w / 2.0 - lw,
                     _ => cx - w / 2.0,
                 };
-                p.fill_rect(x.round(), (cy - 6.0 * k + i as f32 * 4.0 * k).round(), lw.round(), t1, ink);
+                p.fill_rect(
+                    x.round(),
+                    (cy - 6.0 * k + i as f32 * 4.0 * k).round(),
+                    lw.round(),
+                    t1,
+                    ink,
+                );
             }
         }
         "lSingle" | "l15" | "lDouble" => {
@@ -1576,7 +2049,13 @@ fn paint_style_canvas(f: &DocForm, id: &str, r: [f32; 4], p: &mut dyn Painter, f
             let w = 13.0 * k;
             for i in 0..3 {
                 let y = cy - gap + i as f32 * gap;
-                p.fill_rect((cx - w / 2.0).round(), y.round(), w.round(), (1.5 * k).round().max(1.0), ink);
+                p.fill_rect(
+                    (cx - w / 2.0).round(),
+                    y.round(),
+                    w.round(),
+                    (1.5 * k).round().max(1.0),
+                    ink,
+                );
             }
         }
         _ => {
@@ -1584,13 +2063,25 @@ fn paint_style_canvas(f: &DocForm, id: &str, r: [f32; 4], p: &mut dyn Painter, f
             let w = 12.0 * k;
             let x = cx - 2.0 * k;
             for i in 0..3 {
-                p.fill_rect(x.round(), (cy - 5.0 * k + i as f32 * 5.0 * k).round(), w.round(), t1, ink);
+                p.fill_rect(
+                    x.round(),
+                    (cy - 5.0 * k + i as f32 * 5.0 * k).round(),
+                    w.round(),
+                    t1,
+                    ink,
+                );
             }
             let blue = Rgba(0x2b, 0x57, 0x9a, 255);
             let up = matches!(id, "spMore" | "inLess");
             let ax = cx - 7.0 * k;
             let s = if up { -1.0 } else { 1.0 };
-            p.fill_rect((ax - t1 / 2.0).round(), (cy - 6.0 * k).round(), t1, (12.0 * k).round(), blue);
+            p.fill_rect(
+                (ax - t1 / 2.0).round(),
+                (cy - 6.0 * k).round(),
+                t1,
+                (12.0 * k).round(),
+                blue,
+            );
             p.path(
                 &[
                     PathSeg::M(ax - 3.0 * k, cy + s * 3.0 * k),
@@ -1617,10 +2108,26 @@ pub(super) fn open_new_style(s: &Strings, c: &FormContext) -> DocForm {
         (653.0, 695.0),
         vec![],
     );
-    f.group("props", [10.0, 48.0, 633.0, 18.0], &tr("docR3.properties", "Properties"));
-    f.label("nameL", [24.0, 78.0, 180.0, 18.0], &tr("docR3.name", "Name:"));
-    f.edit("name", [212.0, 73.0, 431.0, 26.0], &tr("docR3.style1", "Style1"));
-    f.label("typeL", [24.0, 109.0, 180.0, 18.0], &tr("docR3.styleType", "Style type:"));
+    f.group(
+        "props",
+        [10.0, 48.0, 633.0, 18.0],
+        &tr("docR3.properties", "Properties"),
+    );
+    f.label(
+        "nameL",
+        [24.0, 78.0, 180.0, 18.0],
+        &tr("docR3.name", "Name:"),
+    );
+    f.edit(
+        "name",
+        [212.0, 73.0, 431.0, 26.0],
+        &tr("docR3.style1", "Style1"),
+    );
+    f.label(
+        "typeL",
+        [24.0, 109.0, 180.0, 18.0],
+        &tr("docR3.styleType", "Style type:"),
+    );
     f.combo(
         "type",
         [212.0, 104.0, 431.0, 26.0],
@@ -1644,25 +2151,45 @@ pub(super) fn open_new_style(s: &Strings, c: &FormContext) -> DocForm {
         .position(|s| s.0 == current)
         .or_else(|| paras.iter().position(|s| s.0 == "Normal"))
         .map_or(0, |i| i + 1);
-    f.label("basedL", [24.0, 140.0, 180.0, 18.0], &tr("docR3.basedOn", "Style based on:"));
+    f.label(
+        "basedL",
+        [24.0, 140.0, 180.0, 18.0],
+        &tr("docR3.basedOn", "Style based on:"),
+    );
     f.combo("basedOn", [212.0, 135.0, 431.0, 26.0], names.clone(), based);
-    f.label("nextL", [24.0, 171.0, 186.0, 18.0], &tr("docR3.following", "Style for following paragraph:"));
+    f.label(
+        "nextL",
+        [24.0, 171.0, 186.0, 18.0],
+        &tr("docR3.following", "Style for following paragraph:"),
+    );
     // Following paragraph: the new style itself first (no `w:next`, §17.7.4.10).
     let mut next = names;
     next[0] = tr("docR3.style1", "Style1");
     f.combo("next", [212.0, 166.0, 431.0, 26.0], next, 0);
-    f.group("fmt", [10.0, 204.0, 633.0, 18.0], &tr("docR3.formatting", "Formatting"));
+    f.group(
+        "fmt",
+        [10.0, 204.0, 633.0, 18.0],
+        &tr("docR3.formatting", "Formatting"),
+    );
     let mut fonts = vec![c.font.clone()];
-    for x in ["Times New Roman", "Arial", "Calibri", "Cambria", "Calibri Light"] {
+    for x in [
+        "Times New Roman",
+        "Arial",
+        "Calibri",
+        "Cambria",
+        "Calibri Light",
+    ] {
         if !fonts.iter().any(|f| f == x) {
             fonts.push(x.to_owned());
         }
     }
     f.combo("font", [24.0, 231.0, 141.0, 26.0], fonts, 0);
-    let sizes: Vec<String> = [8, 9, 10, 11, 12, 13, 14, 16, 18, 20, 22, 24, 26, 28, 36, 48, 72]
-        .iter()
-        .map(ToString::to_string)
-        .collect();
+    let sizes: Vec<String> = [
+        8, 9, 10, 11, 12, 13, 14, 16, 18, 20, 22, 24, 26, 28, 36, 48, 72,
+    ]
+    .iter()
+    .map(ToString::to_string)
+    .collect();
     let cur = format!("{}", c.size as f32 / 2.0);
     let si = sizes.iter().position(|v| *v == cur).unwrap_or(3);
     f.combo("size", [170.0, 231.0, 48.0, 26.0], sizes, si);
@@ -1678,7 +2205,11 @@ pub(super) fn open_new_style(s: &Strings, c: &FormContext) -> DocForm {
             hex: color,
             palette: c.extra["palette"]
                 .as_array()
-                .map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|v| v.as_str().map(str::to_owned))
+                        .collect()
+                })
                 .unwrap_or_default(),
         },
     );
@@ -1702,7 +2233,11 @@ pub(super) fn open_new_style(s: &Strings, c: &FormContext) -> DocForm {
         let w = if id.starts_with("sSep") { 1.0 } else { 30.0 };
         f.canvas(id, [x, 274.0, w, 26.0]);
     }
-    let sample = c.extra["r13"]["sample"].as_str().unwrap_or("").trim().to_owned();
+    let sample = c.extra["r13"]["sample"]
+        .as_str()
+        .unwrap_or("")
+        .trim()
+        .to_owned();
     f.preview = vec![
         tr("doc13.para_pvBefore", "Previous Paragraph"),
         if sample.is_empty() {
@@ -1713,12 +2248,29 @@ pub(super) fn open_new_style(s: &Strings, c: &FormContext) -> DocForm {
         tr("doc13.para_pvAfter", "Following Paragraph"),
     ];
     f.canvas("preview", [25.0, 306.0, 618.0, 200.0]);
-    f.form.add("descBox", None, [25.0, 511.0, 618.0, 72.0], Kind::Canvas);
+    f.form
+        .add("descBox", None, [25.0, 511.0, 618.0, 72.0], Kind::Canvas);
     f.label("desc1", [29.0, 515.0, 610.0, 18.0], "");
     f.label("desc2", [45.0, 532.0, 594.0, 18.0], "");
-    f.check("gallery", [11.0, 596.0, 180.0, 20.0], &tr("docR3.addGallery", "Add to the Styles gallery"), true);
-    f.check("auto", [193.0, 596.0, 200.0, 20.0], &tr("docR3.autoUpdate", "Automatically update"), false);
-    f.radio("thisDoc", "scope", [11.0, 621.0, 170.0, 20.0], &tr("docR3.thisDoc", "Only in this document"), true);
+    f.check(
+        "gallery",
+        [11.0, 596.0, 180.0, 20.0],
+        &tr("docR3.addGallery", "Add to the Styles gallery"),
+        true,
+    );
+    f.check(
+        "auto",
+        [193.0, 596.0, 200.0, 20.0],
+        &tr("docR3.autoUpdate", "Automatically update"),
+        false,
+    );
+    f.radio(
+        "thisDoc",
+        "scope",
+        [11.0, 621.0, 170.0, 20.0],
+        &tr("docR3.thisDoc", "Only in this document"),
+        true,
+    );
     f.radio(
         "template",
         "scope",
@@ -1726,9 +2278,24 @@ pub(super) fn open_new_style(s: &Strings, c: &FormContext) -> DocForm {
         &tr("docR3.newDocs", "New documents based on this template"),
         false,
     );
-    f.button("format", [11.0, 656.0, 110.0, 29.0], &tr("doc13.ns_format", "Format ▾"), false);
-    f.button("ok", [403.0, 656.0, 112.0, 29.0], &tr("common.ok", "OK"), true);
-    f.button("cancel", [530.0, 656.0, 112.0, 29.0], &tr("common.cancel", "Cancel"), false);
+    f.button(
+        "format",
+        [11.0, 656.0, 110.0, 29.0],
+        &tr("doc13.ns_format", "Format ▾"),
+        false,
+    );
+    f.button(
+        "ok",
+        [403.0, 656.0, 112.0, 29.0],
+        &tr("common.ok", "OK"),
+        true,
+    );
+    f.button(
+        "cancel",
+        [530.0, 656.0, 112.0, 29.0],
+        &tr("common.cancel", "Cancel"),
+        false,
+    );
     f.r13 = Some(Box::new(R13 {
         inches: c.inches,
         spec: c.extra["r13"]["spec"].clone(),
@@ -1741,7 +2308,9 @@ pub(super) fn open_new_style(s: &Strings, c: &FormContext) -> DocForm {
             spec["italic"].as_bool() == Some(true),
             spec["underline"].as_bool() == Some(true),
         ];
-        r.align = ALIGNS.iter().position(|a| Some(*a) == spec["align"].as_str());
+        r.align = ALIGNS
+            .iter()
+            .position(|a| Some(*a) == spec["align"].as_str());
         r.line = match spec["lineSpacing"].as_u64() {
             Some(240) => Some(0),
             Some(360) => Some(1),
@@ -1762,7 +2331,13 @@ fn group_on(f: &mut DocForm, page: Option<usize>, id: &'static str, r: [f32; 4],
 /// in the style's font, size, colour and alignment between them (own sample words).
 fn paint_style_preview(f: &DocForm, r: [f32; 4], p: &mut dyn Painter, font: &Font<'_>, k: f32) {
     p.fill_rect(r[0], r[1], r[2], r[3], Rgba(0xab, 0xad, 0xb3, 255));
-    p.fill_rect(r[0] + 1.0, r[1] + 1.0, r[2] - 2.0, r[3] - 2.0, Rgba(255, 255, 255, 255));
+    p.fill_rect(
+        r[0] + 1.0,
+        r[1] + 1.0,
+        r[2] - 2.0,
+        r[3] - 2.0,
+        Rgba(255, 255, 255, 255),
+    );
     p.push_clip(r[0] + 1.0, r[1] + 1.0, r[2] - 2.0, r[3] - 2.0);
     let spec = f.style_spec();
     let grey = Rgba(0xc0, 0xc0, 0xc0, 255);
@@ -1807,7 +2382,11 @@ fn paint_style_preview(f: &DocForm, r: [f32; 4], p: &mut dyn Painter, font: &Fon
     let big = Font {
         family: family.as_str(),
         size: (pt.min(16.0) * 1.1 * k).round(),
-        weight: if spec["bold"].as_bool() == Some(true) { 700 } else { 400 },
+        weight: if spec["bold"].as_bool() == Some(true) {
+            700
+        } else {
+            400
+        },
         italic: spec["italic"].as_bool() == Some(true),
         underline: spec["underline"].as_bool() == Some(true),
     };
@@ -1815,7 +2394,13 @@ fn paint_style_preview(f: &DocForm, r: [f32; 4], p: &mut dyn Painter, font: &Fon
         .as_str()
         .and_then(|h| crate::theme::parse_color(&format!("#{h}")))
         .unwrap_or(Rgba(0, 0, 0, 255));
-    let sample: String = f.preview.get(1).map_or("", String::as_str).chars().take(60).collect();
+    let sample: String = f
+        .preview
+        .get(1)
+        .map_or("", String::as_str)
+        .chars()
+        .take(60)
+        .collect();
     let tw = sample.chars().count() as f32 * big.size * 0.5;
     let sx = match spec["align"].as_str() {
         Some("center") => r[0] + (r[2] - tw) / 2.0,
@@ -1833,4 +2418,810 @@ fn paint_style_preview(f: &DocForm, r: [f32; 4], p: &mut dyn Painter, font: &Fon
         y += lh;
     }
     p.pop_clip();
+}
+
+// ------------------------------------------------------------ Manage Styles › Set Defaults
+
+/// Manage Styles › Set Defaults, laid out from the reference's page (629 × 661 window):
+/// Font / Size lists with their boxes, Font color, Paragraph Position (Left, Right, Special,
+/// By, Alignment) and Paragraph Spacing (Before, After, Line spacing, At). `d` holds the
+/// document defaults (§17.7.5.1 docDefaults) as `FindFormat` fields, the font families and
+/// the colour palette. OK sets the changed fields (`setDocDefaults`).
+pub(crate) fn manage_defaults(f: &mut DocForm, s: &Strings, d: &Value) {
+    let tr = |k: &str, fb: &str| t(s, k, fb);
+    let inches = d["inches"].as_bool().unwrap_or(true);
+    f.r13 = Some(Box::new(R13 {
+        inches,
+        ..R13::default()
+    }));
+    let pg = Some(3);
+    f.label_on(
+        3,
+        "dFontL",
+        [57.0, 88.0, 100.0, 18.0],
+        &tr("docR5.font", "Font:"),
+    );
+    let font = d["font"].as_str().unwrap_or("").to_owned();
+    f.edit_on(3, "font", [57.0, 108.0, 267.0, 24.0], &font);
+    let mut fonts: Vec<String> = d["fonts"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(str::to_owned))
+                .collect()
+        })
+        .unwrap_or_default();
+    fonts.sort_by_key(|n| n.to_lowercase());
+    fonts.dedup();
+    fonts.retain(|n| !n.starts_with('.') && !n.starts_with('@'));
+    fonts.splice(0..0, ["+Body".to_owned(), "+Headings".to_owned()]);
+    let fsel = fonts.iter().position(|n| *n == font);
+    f.form.add(
+        "fontList",
+        pg,
+        [57.0, 134.0, 267.0, 88.0],
+        Kind::List {
+            items: fonts,
+            sel: fsel,
+            top: fsel.unwrap_or(0),
+        },
+    );
+    f.label_on(
+        3,
+        "dSizeL",
+        [483.0, 88.0, 100.0, 18.0],
+        &tr("docR5.size", "Size:"),
+    );
+    let size = d["size"].as_u64().map_or_else(String::new, |hp| {
+        #[allow(clippy::cast_precision_loss)]
+        let pt = hp as f32 / 2.0;
+        format!("{pt}")
+    });
+    f.edit_on(3, "size", [483.0, 108.0, 114.0, 24.0], &size);
+    let sizes: Vec<String> = [8, 9, 10, 11, 12, 14, 16, 18, 20, 22, 24, 26, 28, 36, 48, 72]
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    let ssel = sizes.iter().position(|x| *x == size);
+    f.form.add(
+        "sizeList",
+        pg,
+        [483.0, 134.0, 114.0, 88.0],
+        Kind::List {
+            items: sizes,
+            sel: ssel,
+            top: ssel.map_or(0, |i| i.saturating_sub(4)),
+        },
+    );
+    f.label_on(
+        3,
+        "dColorL",
+        [57.0, 236.0, 120.0, 18.0],
+        &tr("findFmt11.fontColorL", "Font color:"),
+    );
+    f.form.add(
+        "color",
+        pg,
+        [181.0, 232.0, 142.0, 26.0],
+        Kind::ColorPick {
+            hex: d["color"].as_str().unwrap_or("").to_owned(),
+            palette: d["palette"]
+                .as_array()
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|v| v.as_str().map(str::to_owned))
+                        .collect()
+                })
+                .unwrap_or_default(),
+        },
+    );
+    group_on(
+        f,
+        pg,
+        "dPosG",
+        [43.0, 262.0, 554.0, 18.0],
+        &tr("doc13.md_position", "Paragraph Position"),
+    );
+    let len = |k: &str| show_len(d[k].as_i64().unwrap_or(0) as i32, inches);
+    let spin = |f: &mut DocForm, id: &'static str, sp: &'static str, r: [f32; 4], val: &str| {
+        f.form.add(
+            id,
+            pg,
+            [r[0], r[1], r[2] - 19.0, r[3]],
+            Kind::Edit {
+                value: val.chars().collect(),
+                caret: val.chars().count(),
+            },
+        );
+        f.form
+            .add(sp, pg, [r[0] + r[2] - 19.0, r[1], 19.0, r[3]], Kind::Canvas);
+    };
+    f.label_on(
+        3,
+        "insideL",
+        [57.0, 292.0, 100.0, 18.0],
+        &tr("doc13.ps_leftL", "Left:"),
+    );
+    spin(
+        f,
+        "inside",
+        "inSp",
+        [181.0, 288.0, 141.0, 26.0],
+        &len("indentLeft"),
+    );
+    f.label_on(
+        3,
+        "outsideL",
+        [57.0, 328.0, 100.0, 18.0],
+        &tr("doc13.ps_rightL", "Right:"),
+    );
+    spin(
+        f,
+        "outside",
+        "outSp",
+        [181.0, 324.0, 141.0, 26.0],
+        &len("indentRight"),
+    );
+    f.label_on(
+        3,
+        "specialL",
+        [338.0, 292.0, 120.0, 18.0],
+        &tr("findFmt11.specialL", "Special:"),
+    );
+    let first = d["firstLine"].as_i64().unwrap_or(0) as i32;
+    f.form.add(
+        "special",
+        pg,
+        [338.0, 324.0, 130.0, 26.0],
+        Kind::Combo {
+            items: vec![
+                tr("findFmt11.none", "(none)"),
+                tr("findFmt11.firstLine", "First line"),
+                tr("findFmt11.hanging", "Hanging"),
+            ],
+            sel: match first {
+                0 => 0,
+                x if x > 0 => 1,
+                _ => 2,
+            },
+        },
+    );
+    f.label_on(
+        3,
+        "byL",
+        [483.0, 292.0, 60.0, 18.0],
+        &tr("findFmt11.byL", "By:"),
+    );
+    let by = if first == 0 {
+        String::new()
+    } else {
+        show_len(first.abs(), inches)
+    };
+    spin(f, "by", "bySp", [482.0, 324.0, 115.0, 26.0], &by);
+    f.label_on(
+        3,
+        "alignL",
+        [57.0, 360.0, 120.0, 18.0],
+        &tr("findFmt11.alignmentL", "Alignment:"),
+    );
+    let a = ALIGNS
+        .iter()
+        .position(|x| Some(*x) == d["align"].as_str())
+        .unwrap_or(0);
+    f.form.add(
+        "align",
+        pg,
+        [181.0, 356.0, 287.0, 26.0],
+        Kind::Combo {
+            items: [
+                ("findFmt11.left", "Left"),
+                ("findFmt11.centered", "Centered"),
+                ("findFmt11.right", "Right"),
+                ("findFmt11.justified", "Justified"),
+            ]
+            .iter()
+            .map(|(k, fb)| tr(k, fb))
+            .collect(),
+            sel: a,
+        },
+    );
+    group_on(
+        f,
+        pg,
+        "dSpG",
+        [43.0, 388.0, 554.0, 18.0],
+        &tr("doc13.md_spacing", "Paragraph Spacing"),
+    );
+    f.label_on(
+        3,
+        "beforeL",
+        [57.0, 418.0, 100.0, 18.0],
+        &tr("findFmt11.beforeL", "Before:"),
+    );
+    let pt = |k: &str| show_pt(d[k].as_i64().unwrap_or(0) as i32);
+    spin(
+        f,
+        "before",
+        "befSp",
+        [181.0, 414.0, 141.0, 26.0],
+        &pt("spaceBefore"),
+    );
+    f.label_on(
+        3,
+        "afterL",
+        [57.0, 454.0, 100.0, 18.0],
+        &tr("findFmt11.afterL", "After:"),
+    );
+    spin(
+        f,
+        "after",
+        "aftSp",
+        [181.0, 450.0, 141.0, 26.0],
+        &pt("spaceAfter"),
+    );
+    f.label_on(
+        3,
+        "lineL",
+        [338.0, 418.0, 120.0, 18.0],
+        &tr("findFmt11.lineSpacingL", "Line spacing:"),
+    );
+    let (li, at) = match d["lineSpacing"].as_str().unwrap_or("single") {
+        "1.5" => (1, String::new()),
+        "double" => (2, String::new()),
+        x => match x.split_once(':') {
+            Some(("atLeast", n)) => (3, show_pt(n.parse().unwrap_or(240))),
+            Some(("exactly", n)) => (4, show_pt(n.parse().unwrap_or(240))),
+            Some(("multiple", n)) => {
+                let l = n.parse::<f32>().unwrap_or(240.0) / 240.0;
+                let s = format!("{l:.2}");
+                (5, s.trim_end_matches('0').trim_end_matches('.').to_owned())
+            }
+            _ => (0, String::new()),
+        },
+    };
+    f.form.add(
+        "line",
+        pg,
+        [338.0, 450.0, 130.0, 26.0],
+        Kind::Combo {
+            items: [
+                ("findFmt11.single", "Single"),
+                ("findFmt11.lines15", "1.5 lines"),
+                ("findFmt11.double", "Double"),
+                ("findFmt11.atLeast", "At least"),
+                ("findFmt11.exactly", "Exactly"),
+                ("findFmt11.multiple", "Multiple"),
+            ]
+            .iter()
+            .map(|(k, fb)| tr(k, fb))
+            .collect(),
+            sel: li,
+        },
+    );
+    f.label_on(
+        3,
+        "atL",
+        [483.0, 418.0, 60.0, 18.0],
+        &tr("findFmt11.atL", "At:"),
+    );
+    spin(f, "at", "atSp", [482.0, 450.0, 115.0, 26.0], &at);
+    let initial = f.defaults_values();
+    if let Some(r) = f.r13.as_mut() {
+        r.initial = Value::Object(initial);
+    }
+}
+
+impl DocForm {
+    /// Set Defaults: the page's values as `FindFormat` fields.
+    fn defaults_values(&self) -> Map<String, Value> {
+        let mut m = self.paragraph_values();
+        let font = self.form.text("font");
+        if !font.trim().is_empty() {
+            m.insert("font".into(), json!(font.trim()));
+        }
+        if let Ok(pt) = self
+            .form
+            .text("size")
+            .trim()
+            .replace(',', ".")
+            .parse::<f32>()
+        {
+            m.insert(
+                "size".into(),
+                json!((pt * 2.0).round().clamp(2.0, 3276.0) as u32),
+            );
+        }
+        let c = self.form.color("color");
+        if !c.is_empty() && c != super::form::NO_COLOR {
+            m.insert("color".into(), json!(c));
+        }
+        m
+    }
+
+    /// Set Defaults: the fields changed since the dialog opened (empty: nothing to set).
+    pub(crate) fn defaults_changes(&self) -> Map<String, Value> {
+        if self.r13.is_none() {
+            return Map::new();
+        }
+        let now = self.defaults_values();
+        let was = &self.r13().initial;
+        now.into_iter().filter(|(k, v)| was[k] != *v).collect()
+    }
+
+    /// Set Defaults: a list choice fills its box; Special / Line spacing as in Paragraph.
+    pub(crate) fn defaults_changed(&mut self, id: &str) {
+        match id {
+            "fontList" | "sizeList" => {
+                if let Some(i) = self.sel(id) {
+                    let v = self.list_item_text(id, i);
+                    let edit = if id == "fontList" { "font" } else { "size" };
+                    self.form.set_text(edit, &v);
+                }
+            }
+            "special" | "line" => {
+                let kind = self.kind;
+                self.kind = DocFormKind::Paragraph;
+                self.r13_changed(id);
+                self.kind = kind;
+            }
+            _ => {}
+        }
+    }
+}
+
+// ------------------------------------------------- Borders and Shading › Options…
+
+/// Border and Shading Options (Borders and Shading › Options…): the distance of a
+/// paragraph's border from its text, top / left / bottom / right in points (§17.3.4
+/// `w:space` of the pBdr edges), and a preview. OK hands the distances back to Borders and
+/// Shading (`r13.bsOptionsDone`).
+fn open_border_options(s: &Strings, c: &FormContext) -> DocForm {
+    let tr = |k: &str, fb: &str| t(s, k, fb);
+    let mut f = DocForm::new(
+        DocFormKind::BorderOptions,
+        &tr("doc13.bo_title", "Border and Shading Options"),
+        (400.0, 340.0),
+        vec![],
+    );
+    f.r13 = Some(Box::new(R13::default()));
+    let sp = &c.extra["r13"]["bsSpace"];
+    let pt = |i: usize| {
+        sp[i]
+            .as_u64()
+            .unwrap_or(if i.is_multiple_of(2) { 1 } else { 4 })
+    };
+    group_on(
+        &mut f,
+        None,
+        "boG",
+        [18.0, 48.0, 364.0, 18.0],
+        &tr("doc13.bo_distance", "Distance from text"),
+    );
+    #[allow(clippy::type_complexity)]
+    let rows: [(
+        &'static str,
+        &'static str,
+        &'static str,
+        &str,
+        &str,
+        f32,
+        f32,
+        usize,
+    ); 4] = [
+        (
+            "boTopL",
+            "boTop",
+            "boTopSp",
+            "doc13.bo_top",
+            "Top:",
+            32.0,
+            80.0,
+            0,
+        ),
+        (
+            "boLeftL",
+            "boLeft",
+            "boLeftSp",
+            "doc13.bo_left",
+            "Left:",
+            212.0,
+            80.0,
+            1,
+        ),
+        (
+            "boBottomL",
+            "boBottom",
+            "boBottomSp",
+            "doc13.bo_bottom",
+            "Bottom:",
+            32.0,
+            116.0,
+            2,
+        ),
+        (
+            "boRightL",
+            "boRight",
+            "boRightSp",
+            "doc13.bo_right",
+            "Right:",
+            212.0,
+            116.0,
+            3,
+        ),
+    ];
+    for (lid, id, spid, key, fb, x, y, i) in rows {
+        f.label(lid, [x, y + 4.0, 64.0, 18.0], &tr(key, fb));
+        let v = format!("{} pt", pt(i));
+        f.form.add(
+            id,
+            None,
+            [x + 64.0, y, 81.0, 26.0],
+            Kind::Edit {
+                caret: v.chars().count(),
+                value: v.chars().collect(),
+            },
+        );
+        f.form
+            .add(spid, None, [x + 145.0, y, 19.0, 26.0], Kind::Canvas);
+    }
+    group_on(
+        &mut f,
+        None,
+        "boPvG",
+        [18.0, 156.0, 364.0, 18.0],
+        &tr("findFmt11.preview", "Preview"),
+    );
+    f.canvas("boPreview", [110.0, 182.0, 180.0, 96.0]);
+    f.button(
+        "ok",
+        [152.0, 294.0, 110.0, 28.0],
+        &tr("common.ok", "OK"),
+        true,
+    );
+    f.button(
+        "cancel",
+        [272.0, 294.0, 110.0, 28.0],
+        &tr("common.cancel", "Cancel"),
+        false,
+    );
+    f
+}
+
+impl DocForm {
+    /// Border and Shading Options: the four distances in points (top, left, bottom, right).
+    fn border_options_values(&self) -> [u32; 4] {
+        let mut out = [0; 4];
+        for (i, id) in ["boTop", "boLeft", "boBottom", "boRight"]
+            .iter()
+            .enumerate()
+        {
+            let tw = parse_len(&self.form.text(id), 20.0).unwrap_or(0);
+            // §17.3.4: w:space is 0–31 points.
+            out[i] = u32::try_from((tw / 20).clamp(0, 31)).unwrap_or(0);
+        }
+        out
+    }
+}
+
+/// Border and Shading Options preview: a grey paragraph inside its box at the distances.
+fn paint_border_options(f: &DocForm, p: &mut dyn Painter, r: [f32; 4], k: f32) {
+    p.fill_rect(r[0], r[1], r[2], r[3], Rgba(255, 255, 255, 255));
+    let [t, l, b, rt] = f.border_options_values().map(|v| v as f32 * k * 1.2);
+    let (bx, by) = (r[0] + 24.0 * k, r[1] + 14.0 * k);
+    let (bw, bh) = (r[2] - 48.0 * k, r[3] - 28.0 * k);
+    let ink = Rgba(0x40, 0x40, 0x40, 255);
+    let line = k.max(1.0).round();
+    p.fill_rect(bx, by, bw, line, ink);
+    p.fill_rect(bx, by + bh - line, bw, line, ink);
+    p.fill_rect(bx, by, line, bh, ink);
+    p.fill_rect(bx + bw - line, by, line, bh, ink);
+    let grey = Rgba(0xb4, 0xb4, 0xb4, 255);
+    let tx = bx + line + l;
+    let tw = (bw - 2.0 * line - l - rt).max(4.0);
+    let mut y = by + line + t;
+    let bottom = by + bh - line - b;
+    let row = (6.0 * k).round().max(4.0);
+    let mut i = 0;
+    while y + row * 0.6 <= bottom {
+        let w = if i % 3 == 2 { tw * 0.6 } else { tw };
+        p.fill_rect(tx, y, w, (row * 0.5).round().max(2.0), grey);
+        y += row;
+        i += 1;
+    }
+}
+
+// ------------------------------------------------------------- Style Pane Options
+
+/// Style Pane Options (Styles pane › Options…): which styles the pane lists and their order
+/// (working), the formatting shown as styles and the built-in name choices (kept as the
+/// reference's defaults, dimmed: BlueDoc lists styles only).
+fn open_pane_options(s: &Strings, c: &FormContext) -> DocForm {
+    let tr = |k: &str, fb: &str| t(s, k, fb);
+    let mut f = DocForm::new(
+        DocFormKind::PaneOptions,
+        &tr("doc13.po_title", "Style Pane Options"),
+        (430.0, 470.0),
+        vec![],
+    );
+    let v = &c.extra["r13"]["pane"];
+    f.label(
+        "showL",
+        [18.0, 50.0, 380.0, 18.0],
+        &tr("doc13.po_show", "Select styles to show:"),
+    );
+    f.combo(
+        "show",
+        [18.0, 72.0, 394.0, 26.0],
+        vec![
+            tr("doc13.po_recommended", "Recommended"),
+            tr("doc13.po_inUse", "In use"),
+            tr("doc13.po_inDocument", "In current document"),
+            tr("doc13.po_all", "All styles"),
+        ],
+        v["show"].as_u64().unwrap_or(0).min(3) as usize,
+    );
+    f.label(
+        "sortL",
+        [18.0, 110.0, 380.0, 18.0],
+        &tr("doc13.po_sort", "Select how list is sorted:"),
+    );
+    f.combo(
+        "sort",
+        [18.0, 132.0, 394.0, 26.0],
+        vec![
+            tr("docR5.sortRecommended", "As Recommended"),
+            tr("docR5.sortAlpha", "Alphabetical"),
+            tr("doc13.po_basedOn", "Based on"),
+            tr("docR5.sortType", "By type"),
+        ],
+        v["sort"].as_u64().unwrap_or(0).min(3) as usize,
+    );
+    group_on(
+        &mut f,
+        None,
+        "fmtG",
+        [18.0, 172.0, 394.0, 18.0],
+        &tr(
+            "doc13.po_formatting",
+            "Select formatting to show as styles:",
+        ),
+    );
+    for (i, (id, key, fb)) in [
+        ("poPara", "doc13.po_para", "Paragraph level formatting"),
+        ("poFont", "doc13.po_font", "Font formatting"),
+        ("poList", "doc13.po_list", "Bullet and numbering formatting"),
+    ]
+    .iter()
+    .enumerate()
+    {
+        f.check(
+            id,
+            [32.0, 198.0 + i as f32 * 26.0, 370.0, 20.0],
+            &tr(key, fb),
+            false,
+        );
+        f.disable(id);
+    }
+    group_on(
+        &mut f,
+        None,
+        "namesG",
+        [18.0, 284.0, 394.0, 18.0],
+        &tr(
+            "doc13.po_names",
+            "Select how built-in style names are shown",
+        ),
+    );
+    f.check(
+        "poNext",
+        [32.0, 310.0, 370.0, 20.0],
+        &tr(
+            "doc13.po_nextHeading",
+            "Show next heading when previous level is used",
+        ),
+        true,
+    );
+    f.check(
+        "poHide",
+        [32.0, 336.0, 370.0, 20.0],
+        &tr(
+            "doc13.po_hideBuiltin",
+            "Hide built-in name when alternate name exists",
+        ),
+        false,
+    );
+    f.disable("poNext");
+    f.disable("poHide");
+    f.radio(
+        "thisDoc",
+        "scope",
+        [18.0, 378.0, 190.0, 20.0],
+        &tr("docR3.thisDoc", "Only in this document"),
+        true,
+    );
+    f.radio(
+        "template",
+        "scope",
+        [18.0, 402.0, 394.0, 20.0],
+        &tr("docR5.newDocs", "New documents based on this template"),
+        false,
+    );
+    f.button(
+        "ok",
+        [182.0, 432.0, 110.0, 28.0],
+        &tr("common.ok", "OK"),
+        true,
+    );
+    f.button(
+        "cancel",
+        [302.0, 432.0, 110.0, 28.0],
+        &tr("common.cancel", "Cancel"),
+        false,
+    );
+    f
+}
+
+// ------------------------------------------------------------------ Line Numbers
+
+/// Line Numbers (Page Setup › Layout › Line Numbers…): §17.6.8 lnNumType of the section —
+/// Add line numbering, Start at (`w:start` + 1), From text (`w:distance`, Auto = none),
+/// Count by (`w:countBy`) and the restart (`w:restart`). OK sets it and goes back to Page
+/// Setup.
+fn open_line_numbers(s: &Strings, c: &FormContext) -> DocForm {
+    let tr = |k: &str, fb: &str| t(s, k, fb);
+    let mut f = DocForm::new(
+        DocFormKind::LineNumbers,
+        &tr("doc13.ln_title", "Line Numbers"),
+        (360.0, 340.0),
+        vec![],
+    );
+    let inches = c.inches;
+    f.r13 = Some(Box::new(R13 {
+        inches,
+        ..R13::default()
+    }));
+    let v = &c.extra["r13"]["section"]["lineNumbering"];
+    let on = v.is_object();
+    f.check(
+        "lnOn",
+        [18.0, 50.0, 320.0, 20.0],
+        &tr("doc13.ln_add", "Add line numbering"),
+        on,
+    );
+    #[allow(clippy::type_complexity)]
+    let rows: [(&'static str, &'static str, &'static str, &str, &str, String); 3] = [
+        (
+            "lnStartL",
+            "lnStart",
+            "lnStartSp",
+            "doc13.ln_start",
+            "Start at:",
+            (v["start"].as_u64().unwrap_or(0) + 1).to_string(),
+        ),
+        (
+            "lnFromL",
+            "lnFrom",
+            "lnFromSp",
+            "doc13.ln_from",
+            "From text:",
+            v["distance"].as_i64().map_or_else(
+                || tr("doc13.ln_auto", "Auto"),
+                |d| show_len(d as i32, inches),
+            ),
+        ),
+        (
+            "lnByL",
+            "lnBy",
+            "lnBySp",
+            "doc13.ln_countBy",
+            "Count by:",
+            v["countBy"].as_u64().unwrap_or(1).to_string(),
+        ),
+    ];
+    for (i, (lid, id, sp, key, fb, val)) in rows.into_iter().enumerate() {
+        let y = 84.0 + i as f32 * 34.0;
+        f.label(lid, [44.0, y + 4.0, 110.0, 18.0], &tr(key, fb));
+        f.form.add(
+            id,
+            None,
+            [160.0, y, 120.0, 26.0],
+            Kind::Edit {
+                caret: val.chars().count(),
+                value: val.chars().collect(),
+            },
+        );
+        f.form.add(sp, None, [280.0, y, 19.0, 26.0], Kind::Canvas);
+    }
+    f.label(
+        "lnNumL",
+        [44.0, 190.0, 200.0, 18.0],
+        &tr("doc13.ln_numbering", "Numbering:"),
+    );
+    let restart = v["restart"].as_str().unwrap_or("newPage");
+    for (i, (id, key, fb, val)) in [
+        ("lnPage", "doc13.ln_page", "Restart each page", "newPage"),
+        (
+            "lnSection",
+            "doc13.ln_section",
+            "Restart each section",
+            "newSection",
+        ),
+        ("lnCont", "doc13.ln_cont", "Continuous", "continuous"),
+    ]
+    .iter()
+    .enumerate()
+    {
+        f.radio(
+            id,
+            "lnRestart",
+            [58.0, 214.0 + i as f32 * 26.0, 260.0, 20.0],
+            &tr(key, fb),
+            restart == *val,
+        );
+    }
+    f.button(
+        "ok",
+        [112.0, 300.0, 110.0, 28.0],
+        &tr("common.ok", "OK"),
+        true,
+    );
+    f.button(
+        "cancel",
+        [232.0, 300.0, 110.0, 28.0],
+        &tr("common.cancel", "Cancel"),
+        false,
+    );
+    f.line_numbers_enable();
+    f
+}
+
+impl DocForm {
+    /// The boxes follow "Add line numbering".
+    fn line_numbers_enable(&mut self) {
+        let on = self.on("lnOn");
+        for id in [
+            "lnStart",
+            "lnFrom",
+            "lnBy",
+            "lnStartL",
+            "lnFromL",
+            "lnByL",
+            "lnNumL",
+            "lnPage",
+            "lnSection",
+            "lnCont",
+        ] {
+            self.form.enable(id, on);
+        }
+    }
+
+    /// Line Numbers OK: `setLineNumbering` for the section (`null` turns it off).
+    fn line_numbers_ok(&self) -> FormOut {
+        let numbering = self.on("lnOn").then(|| {
+            let n = |id: &str, d: u64| self.form.text(id).trim().parse::<u64>().unwrap_or(d);
+            let restart = match self.chosen("lnRestart") {
+                Some("lnSection") => "newSection",
+                Some("lnCont") => "continuous",
+                _ => "newPage",
+            };
+            json!({
+                "countBy": n("lnBy", 1).clamp(1, 100),
+                "start": n("lnStart", 1).clamp(1, 32_768) - 1,
+                "distance": parse_len(&self.form.text("lnFrom"), self.len_per()),
+                "restart": restart,
+            })
+        });
+        FormOut::Run(
+            vec![json!({ "cmd": "setLineNumbering", "numbering": numbering, "scope": "section" })],
+            true,
+        )
+    }
+}
+
+impl DocForm {
+    /// Press a round-13 canvas (tests).
+    #[cfg(test)]
+    pub(crate) fn r13_canvas_for_test(&mut self, id: &str) -> bool {
+        self.r13_canvas(id, 0.0, 0.0)
+    }
 }

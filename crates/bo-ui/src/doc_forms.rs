@@ -125,6 +125,12 @@ pub(crate) enum DocFormKind {
     Tabs,
     /// Layout › Page Setup with its Margins, Paper and Layout tabs (round 13).
     PageSetup,
+    /// Border and Shading Options (Borders and Shading › Options…, round 13).
+    BorderOptions,
+    /// Style Pane Options (Styles pane › Options…, round 13).
+    PaneOptions,
+    /// Line Numbers (Page Setup › Layout › Line Numbers…, round 13).
+    LineNumbers,
 }
 
 /// What the owner does after an input.
@@ -557,7 +563,7 @@ impl DocForm {
             .map(|r| r.id)
     }
 
-    fn set_radio(&mut self, id: &str) {
+    pub(crate) fn set_radio(&mut self, id: &str) {
         let Some(group) = self.radios.iter().find(|r| r.id == id).map(|r| r.group) else {
             return;
         };
@@ -818,6 +824,7 @@ impl DocForm {
             (DocFormKind::CrossRef | DocFormKind::Language, "list") => self.ok(),
             (k, _) if r13::handles(k) => self.r13_clicked(id),
             (DocFormKind::NewStyle, "format") => self.r13_clicked(id),
+            (DocFormKind::BordersShading, "bOptions") => self.r13_clicked(id),
             (k, _) if findfmt11::handles(k) => self.r11_clicked(id),
             (DocFormKind::TableProps, _) => self.tp_clicked(id),
             (k, _) if r5::handles(k) => self.r5_clicked(id),
@@ -937,7 +944,10 @@ impl DocForm {
                 self.sel("other").unwrap_or(0),
             ]),
             // Round 13 (`r13_ok`).
-            DocFormKind::NewStyle => FormOut::Close,
+            DocFormKind::NewStyle
+            | DocFormKind::BorderOptions
+            | DocFormKind::PaneOptions
+            | DocFormKind::LineNumbers => FormOut::Close,
             DocFormKind::Toc => {
                 let levels = self.form.num("levels").clamp(1, 9);
                 let mut instr = match &self.toc_map {
@@ -3003,7 +3013,12 @@ pub(crate) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
         DocFormKind::TablePosition | DocFormKind::BordersShading | DocFormKind::NewBlock => {
             r12::open(kind, s, c)
         }
-        DocFormKind::Paragraph | DocFormKind::Tabs | DocFormKind::PageSetup => r13::open(kind, s, c),
+        DocFormKind::Paragraph
+        | DocFormKind::Tabs
+        | DocFormKind::PageSetup
+        | DocFormKind::BorderOptions
+        | DocFormKind::PaneOptions
+        | DocFormKind::LineNumbers => r13::open(kind, s, c),
         DocFormKind::Zoom => {
             let mut f = DocForm::new(kind, &tr("docR4.zoomTitle", "Zoom"), (381.0, 258.0), vec![]);
             f.label(

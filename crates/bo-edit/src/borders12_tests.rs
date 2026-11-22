@@ -41,6 +41,8 @@ fn pen(style: &str, size: u32, color: Option<&str>) -> Option<BorderPen> {
         style: style.into(),
         size,
         color: color.map(str::to_owned),
+        shadow: false,
+        frame: false,
     })
 }
 
@@ -165,6 +167,7 @@ fn table_and_cell_borders_and_whole_table_shading() {
     s.edit_table(&TableEdit::Shading {
         hex: Some("FFF2CC".into()),
         whole: true,
+        pattern: None,
     })
     .unwrap();
     let t = table(&s);

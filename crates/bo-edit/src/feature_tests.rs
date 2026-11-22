@@ -313,6 +313,7 @@ fn table_rows_columns_merge_split_delete() {
     s.edit_table(&TableEdit::Shading {
         hex: Some("DDEEFF".into()),
         whole: false,
+        pattern: None,
     })
     .unwrap();
     assert_eq!(
@@ -331,6 +332,8 @@ fn table_rows_columns_merge_split_delete() {
         style: "double".into(),
         size: 12,
         color: Some("C00000".into()),
+        shadow: false,
+        frame: false,
     };
     s.edit_table(&TableEdit::Borders {
         preset: BorderPreset::InsideH,

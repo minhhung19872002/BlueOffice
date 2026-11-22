@@ -28,7 +28,7 @@ pub(super) struct R3 {
     /// (0 keep, 1 merge, 2 text).
     paste_defaults: [usize; 3],
     pub(super) form: Option<DocForm>,
-    styles_pane: Option<StylesPane>,
+    pub(super) styles_pane: Option<StylesPane>,
     restrict: Option<RestrictPane>,
     pub(super) tiles: Option<TileMenu>,
     pub(super) outline: Option<OutlineView>,
@@ -775,7 +775,7 @@ impl DocWindow {
         true
     }
 
-    fn refresh_styles_pane_into(&mut self, pane: &mut StylesPane) {
+    pub(super) fn refresh_styles_pane_into(&mut self, pane: &mut StylesPane) {
         let all = self.view.all_styles();
         let all_default = all
             .iter()
@@ -823,6 +823,7 @@ impl DocWindow {
             .collect::<Vec<_>>();
         list.extend(rest);
         pane.styles = list;
+        self.r13_pane_filter(pane);
         // No direct style: the document's default paragraph style.
         pane.default_id = all_default.unwrap_or_else(|| "Normal".into());
         pane.current = Some(
@@ -929,6 +930,7 @@ impl DocWindow {
             PaneAction::Button("new") => self.r3_open_form(DocFormKind::NewStyle),
             PaneAction::Button("inspector") => self.action("styles.inspector"),
             PaneAction::Button("manage") => self.action("styles.manage"),
+            PaneAction::Button("options") => self.action("styles.paneOptions"),
             PaneAction::Button("start") => self.r3_open_form(DocFormKind::Protect),
             PaneAction::Button("stop") => {
                 let has_pw = self

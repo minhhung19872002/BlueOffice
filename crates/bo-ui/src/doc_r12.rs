@@ -23,7 +23,8 @@ fn borders_json(b: Option<&bo_model::Borders>) -> Value {
     };
     let line = |l: &Option<bo_model::Border>| {
         l.as_ref().map_or(Value::Null, |l| {
-            json!({ "style": l.style, "size": l.size, "color": l.color.map(bo_model::Color::to_hex) })
+            json!({ "style": l.style, "size": l.size, "color": l.color.map(bo_model::Color::to_hex),
+                "shadow": l.shadow, "frame": l.frame })
         })
     };
     json!({
@@ -145,13 +146,22 @@ impl DocWindow {
             .unwrap_or_default()
             .iter()
             .filter(|b| b["store"] == "user" && b["gallery"] == "tbls")
-            .map(|b| crate::doc_quick12::QuickEntry {
-                key: b["key"].as_str().unwrap_or("").to_owned(),
-                name: b["name"].as_str().unwrap_or("").to_owned(),
-                title: None,
-                table: None,
-                text: b["text"].as_str().unwrap_or("").to_owned(),
-                user: true,
+            .map(|b| {
+                let key = b["key"].as_str().unwrap_or("").to_owned();
+                // A saved table shows a picture of itself, as the built-in designs (round 13).
+                let (table, title) = self
+                    .view
+                    .engine()
+                    .block_table(&key)
+                    .map_or((None, None), |(t, title)| (Some(t), title));
+                crate::doc_quick12::QuickEntry {
+                    key,
+                    name: b["name"].as_str().unwrap_or("").to_owned(),
+                    title,
+                    table,
+                    text: b["text"].as_str().unwrap_or("").to_owned(),
+                    user: true,
+                }
             })
             .collect();
         let footer_on = self.view.has_selection();
@@ -189,6 +199,16 @@ impl DocWindow {
     #[inline(never)]
     pub(super) fn r12_input(&mut self, input: &crate::Input) -> Option<bool> {
         use crate::{Input, Key};
+        let q = self.r12.quick.as_mut()?;
+        // Opened on hover from the table menu: outside the gallery the menu takes the pointer.
+        if let Input::Move { x, y } | Input::Drag { x, y } | Input::Press { x, y, .. } = *input {
+            if self.table_grid.is_some() && !q.contains(x, y) {
+                return None;
+            }
+        }
+        if matches!(input, Input::Press { .. }) {
+            self.table_grid = None;
+        }
         let q = self.r12.quick.as_mut()?;
         Some(match *input {
             Input::Move { x, y } | Input::Drag { x, y } => q.hover(x, y),

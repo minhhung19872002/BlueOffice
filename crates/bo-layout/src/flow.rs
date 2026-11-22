@@ -1848,6 +1848,27 @@ impl Flow {
             self.next_column();
         }
 
+        // A wrapped picture placed relative to the paragraph that would run below the
+        // bottom margin takes its paragraph to the next page (measured black-box in the
+        // reference word processor, gen-16: an 81 pt square-wrapped picture 1 pt too low
+        // moves its paragraph; docs/ui/REPORT.md "Dàn trang vòng 6").
+        if self.col_has_content && !pb.page_break_before {
+            let full = self.full_height();
+            let overflows = pb.floats.iter().any(|f| {
+                f.img.anchor.as_ref().is_some_and(|a| {
+                    let below = a.y.to_pt() + f.img.height.to_pt();
+                    a.v_relative == "paragraph"
+                        && a.v_align.is_none()
+                        && !a.behind
+                        && a.wrap != bo_model::Wrap::None
+                        && below <= full
+                        && self.y + below > self.bottom - self.foot_h + 0.01
+                })
+            });
+            if overflows {
+                self.next_column();
+            }
+        }
         if let Some(d) = self.drop.take() {
             self.place_drop(&d, pb);
         }

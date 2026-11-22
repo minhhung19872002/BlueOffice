@@ -234,7 +234,9 @@ impl DocWindow {
         let kind_now = self.r3.form.as_ref().map(|f| f.kind);
         let title = match kind_now {
             Some(DocFormKind::FindFont) => Some(self.r13_t("doc13.ns_fontTitle", "Font")),
-            Some(DocFormKind::FindLanguage) => Some(self.r13_t("doc13.ns_languageTitle", "Language")),
+            Some(DocFormKind::FindLanguage) => {
+                Some(self.r13_t("doc13.ns_languageTitle", "Language"))
+            }
             _ => None,
         };
         if let Some(f) = self.r3.form.as_mut() {
@@ -280,10 +282,10 @@ impl DocWindow {
         ]);
         if v["scope"].as_str() == Some("default") {
             // Set As Default: kept for new documents with the design defaults.
-            self.r13.template_styles.retain(|t| t["pageSetup"].is_null());
             self.r13
                 .template_styles
-                .push(json!({ "pageSetup": setup }));
+                .retain(|t| t["pageSetup"].is_null());
+            self.r13.template_styles.push(json!({ "pageSetup": setup }));
             self.requests.push(super::Request::SaveDefaults);
         }
         ok
@@ -359,7 +361,9 @@ impl DocWindow {
         let mut cmds = Vec::new();
         for t in &self.r13.template_styles {
             if t["pageSetup"].is_object() {
-                cmds.push(json!({ "cmd": "setPageSetup", "setup": t["pageSetup"], "scope": "document" }));
+                cmds.push(
+                    json!({ "cmd": "setPageSetup", "setup": t["pageSetup"], "scope": "document" }),
+                );
                 continue;
             }
             let spec = t["spec"].clone();

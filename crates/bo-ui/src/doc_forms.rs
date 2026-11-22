@@ -3003,7 +3003,9 @@ pub(crate) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
         DocFormKind::TablePosition | DocFormKind::BordersShading | DocFormKind::NewBlock => {
             r12::open(kind, s, c)
         }
-        DocFormKind::Paragraph | DocFormKind::Tabs | DocFormKind::PageSetup => r13::open(kind, s, c),
+        DocFormKind::Paragraph | DocFormKind::Tabs | DocFormKind::PageSetup => {
+            r13::open(kind, s, c)
+        }
         DocFormKind::Zoom => {
             let mut f = DocForm::new(kind, &tr("docR4.zoomTitle", "Zoom"), (381.0, 258.0), vec![]);
             f.label(

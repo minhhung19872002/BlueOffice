@@ -613,7 +613,13 @@ impl StylesPane {
             let current = style.is_some_and(|s| Some(&s.id) == self.current.as_ref());
             if current {
                 let b = self.px(1.6).max(1.0).round();
-                p.fill_rect(r[0], r[1] + 3.0, r[2], r[3] - 6.0, Rgba(0x2b, 0x57, 0x9a, 255));
+                p.fill_rect(
+                    r[0],
+                    r[1] + 3.0,
+                    r[2],
+                    r[3] - 6.0,
+                    Rgba(0x2b, 0x57, 0x9a, 255),
+                );
                 p.fill_rect(
                     r[0] + b,
                     r[1] + 3.0 + b,

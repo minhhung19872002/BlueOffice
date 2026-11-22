@@ -27,6 +27,11 @@ pub trait Checker: Send + Sync {
     fn check(&self, word: &str) -> bool;
     /// Correction candidates, best first.
     fn suggest(&self, word: &str) -> Vec<String>;
+    /// Close candidates only (edits of the word, no loose similarity search): cheap enough to
+    /// run as each word is typed (AutoCorrect's "use suggestions from the spelling checker").
+    fn suggest_close(&self, word: &str) -> Vec<String> {
+        self.suggest(word)
+    }
 }
 
 /// A Hunspell-compatible dictionary.
@@ -371,6 +376,18 @@ impl Checker for Dictionary {
     }
 
     fn suggest(&self, word: &str) -> Vec<String> {
+        self.suggest_with(word, true)
+    }
+
+    fn suggest_close(&self, word: &str) -> Vec<String> {
+        self.suggest_with(word, false)
+    }
+}
+
+impl Dictionary {
+    /// Suggestions; `ngram`: fall back to a similarity search over every root of similar
+    /// length when no edit of the word is a word (tens of ms on a long word).
+    fn suggest_with(&self, word: &str, ngram: bool) -> Vec<String> {
         let case = case_of(word);
         let base = match case {
             Case::Lower | Case::Mixed => word.to_owned(),
@@ -391,7 +408,7 @@ impl Checker for Dictionary {
                 scored.push((c, s));
             }
         }
-        if scored.is_empty() && self.words.len() <= 500_000 {
+        if ngram && scored.is_empty() && self.words.len() <= 500_000 {
             // n-gram search over roots of similar length.
             let n = base.chars().count();
             let mut best: Vec<(usize, &String)> = self
@@ -545,6 +562,21 @@ impl Speller {
             }
         }
         any.then_some(false)
+    }
+
+    /// Close suggestions from every checker ([`Checker::suggest_close`]), merged in order.
+    #[must_use]
+    pub fn suggest_close(&self, w: &str) -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        for c in self.serving(None) {
+            for s in c.suggest_close(w) {
+                if !out.contains(&s) {
+                    out.push(s);
+                }
+            }
+        }
+        out.truncate(8);
+        out
     }
 
     /// Suggestions from every checker, merged in order.

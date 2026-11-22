@@ -318,6 +318,18 @@ fn typing_window_cost() {
         &Fixed,
     );
     w.handle(Input::Release { x: 600.0, y: 500.0 }, &Fixed);
+    // Through the engine only (after the shell turned AutoCorrect on with the first key).
+    if std::env::var_os("BO_PERF_ENGINE").is_some() {
+        w.handle(Input::Text("n".into()), &Fixed);
+        for c in "hanh hon ".chars() {
+            let t = std::time::Instant::now();
+            w.view.run_command(Command::InsertText { text: c.into() });
+            let a = t.elapsed();
+            let at = w.view.engine().session().map(|s| s.selection().focus);
+            println!("{c:?} view {:8.3} ms {at:?}", a.as_secs_f64() * 1e3);
+        }
+        return;
+    }
     for c in "nhanh hon nua di ban oi, go thu ".chars() {
         let t = std::time::Instant::now();
         w.handle(Input::Text(c.to_string()), &Fixed);

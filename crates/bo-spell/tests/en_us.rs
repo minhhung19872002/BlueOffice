@@ -53,3 +53,17 @@ fn english_suggestions() {
         assert!(s.iter().any(|x| x == good), "{bad}: {s:?}");
     }
 }
+
+#[test]
+fn close_suggestions_skip_the_similarity_search() {
+    // A long unknown word has no edit that is a word: `suggest` falls back to the similarity
+    // search, `suggest_close` (AutoCorrect as you type) does not.
+    let d = en_us();
+    let w = "xyzqnhanhvwq";
+    assert!(!d.check(w));
+    assert_eq!(d.suggest_close(w), Vec::<String>::new());
+    assert_eq!(
+        d.suggest_close("recieve").first().map(String::as_str),
+        Some("receive")
+    );
+}

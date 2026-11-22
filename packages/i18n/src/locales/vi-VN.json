@@ -15692,6 +15692,11 @@
     }
   },
   "docCtx": {
+    "bordersAll": "&Tất cả viền",
+    "bordersOutside": "Viền &ngoài",
+    "bordersInside": "Viền &trong",
+    "bordersNone": "&Không viền",
+    "borderPainter": "&Chổi viền",
     "insertBtn": "Chèn",
     "deleteBtn": "Xóa",
     "body": "(Thân bài)",

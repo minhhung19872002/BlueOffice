@@ -15692,6 +15692,11 @@
     }
   },
   "docCtx": {
+    "bordersAll": "&All Borders",
+    "bordersOutside": "Out&side Borders",
+    "bordersInside": "&Inside Borders",
+    "bordersNone": "&No Border",
+    "borderPainter": "Border &Painter",
     "insertBtn": "Insert",
     "deleteBtn": "Delete",
     "body": "(Body)",

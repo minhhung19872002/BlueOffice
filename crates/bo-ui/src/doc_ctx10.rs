@@ -110,6 +110,7 @@ impl DocWindow {
 
     /// Open the context menu for window point (`x`, `y`) (right-click, Shift+F10, menu key).
     pub(super) fn r10_context_menu(&mut self, x: f32, y: f32, text: &dyn TextMeasure) {
+        self.r10.pointer = (x, y);
         let f = self.view.format().clone();
         let selected = self.view.has_selection();
         let picture = f.picture.is_some() || f.picture_tools;
@@ -223,11 +224,14 @@ impl DocWindow {
             r.sep = true;
             rows.push(r);
             rows.push(self.r10_row("deleteCells", "table.deleteCell", None));
+            glyphs.push((rows.len(), "ctx.split"));
             rows.push(self.r10_row("splitCells", "table.splitCell", None));
-            let mut r = self.r10_row("borderStyles", "table.borderStyles", None);
+            let mut r = self.r10_row("borderStyles", "ctx.sub.borders", None);
             r.arrow = true;
             rows.push(r);
+            glyphs.push((rows.len(), "ctx.textdir"));
             rows.push(self.r10_row("textDirection", "table.textDirection", None));
+            glyphs.push((rows.len(), "ctx.props"));
             rows.push(self.r10_row("tableProperties", "table.properties", None));
             let mut r = self.r10_row("link", "insert.link", Some("insert.link"));
             r.sep = true;
@@ -317,8 +321,11 @@ impl DocWindow {
         };
         let (w, h) = ((bw * k).round(), (bh * k).round());
         let gap = (m::GAP * k).round();
+        // On the click's side away from the menu, as the reference: above it when the menu
+        // opens downward (and there is room), below the menu when it opens upward.
         let above = menu[1] - gap - h;
-        let y = if above >= self.view_top() {
+        let down = menu[1] + 1.0 >= self.r10.pointer.1 - (4.0 * k).round();
+        let y = if down && above >= self.view_top() {
             above
         } else {
             menu[1] + menu[3] + gap
@@ -508,7 +515,7 @@ impl DocWindow {
                     display: String::new(),
                 })
             }
-            "ctx.sub.insert" | "ctx.sub.wrap" => {
+            "ctx.sub.insert" | "ctx.sub.wrap" | "ctx.sub.borders" => {
                 self.r10_submenu(id);
                 true
             }
@@ -529,7 +536,15 @@ impl DocWindow {
 
     /// Open the Insert (table) or Wrap Text (picture) sub-menu beside the row chosen.
     fn r10_submenu(&mut self, id: &str) {
-        let rows: &[(&str, &str)] = if id == "ctx.sub.insert" {
+        let rows: &[(&str, &str)] = if id == "ctx.sub.borders" {
+            &[
+                ("bordersAll", "table.bordersAll"),
+                ("bordersOutside", "table.bordersOutside"),
+                ("bordersInside", "table.bordersInside"),
+                ("bordersNone", "table.bordersNone"),
+                ("borderPainter", "table.borderPainter"),
+            ]
+        } else if id == "ctx.sub.insert" {
             &[
                 ("insertAbove", "table.insertRowAbove"),
                 ("insertBelow", "table.insertRowBelow"),
@@ -1061,6 +1076,41 @@ fn own_icon(p: &mut dyn Painter, name: &str, x: f32, y: f32, size: f32) {
     let u = size / 16.0;
     let ink = Rgba(0x44, 0x44, 0x44, 255);
     let w = u.max(1.0);
+    if matches!(name, "ctx.split" | "ctx.props") {
+        // A grid: split cells (one cell with a dividing line) / table properties (2 × 2).
+        p.fill_rect(x + 2.0 * u, y + 3.0 * u, 12.0 * u, w, ink);
+        p.fill_rect(x + 2.0 * u, y + 13.0 * u, 12.0 * u, w, ink);
+        p.fill_rect(x + 2.0 * u, y + 3.0 * u, w, 10.0 * u, ink);
+        p.fill_rect(x + 14.0 * u, y + 3.0 * u, w, 10.0 * u + w, ink);
+        p.fill_rect(x + 8.0 * u, y + 3.0 * u, w, 10.0 * u, ink);
+        if name == "ctx.props" {
+            p.fill_rect(x + 2.0 * u, y + 8.0 * u, 12.0 * u, w, ink);
+        }
+        return;
+    }
+    if name == "ctx.textdir" {
+        // Lines of text turned upright with an arrow down beside them.
+        for i in 0..3 {
+            p.fill_rect(
+                x + (2.0 + 3.0 * i as f32) * u,
+                y + 2.0 * u,
+                w,
+                10.0 * u,
+                ink,
+            );
+        }
+        p.fill_rect(x + 12.0 * u, y + 2.0 * u, w, 11.0 * u, ink);
+        p.path(
+            &[
+                PathSeg::M(x + 10.0 * u, y + 11.0 * u),
+                PathSeg::L(x + 12.5 * u, y + 14.0 * u),
+                PathSeg::L(x + 15.0 * u, y + 11.0 * u),
+            ],
+            None,
+            Some((ink, w)),
+        );
+        return;
+    }
     if name == "ctx.font" {
         p.path(
             &[

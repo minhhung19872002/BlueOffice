@@ -23,6 +23,8 @@ pub(super) struct R10 {
     pub(super) clip_kinds: (bool, bool, bool),
     /// The word a Synonyms sub-menu replaces and its synonyms.
     pub(super) syn: Option<((usize, usize, usize), Vec<String>)>,
+    /// The Find and Replace dialog's Format ▾ criteria (FindFormat JSON), for its searches.
+    pub(super) find_format: Option<serde_json::Value>,
 }
 
 /// Pointer shapes the host maps to system cursors (see the host's `cursor`).

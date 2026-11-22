@@ -407,3 +407,22 @@ fn a_right_click_on_a_hyperlink_gives_the_hyperlink_rows() {
         assert!(labels.iter().any(|x| x == l), "{l} in {labels:?}");
     }
 }
+
+#[test]
+fn find_by_format_and_the_find_next_enable_rule() {
+    let mut w = window("plain bold plain");
+    select(&mut w, 0, 6, 10);
+    w.view.run_command(Command::FormatText {
+        format: bo_edit::CharFormat::Bold,
+    });
+    select(&mut w, 0, 0, 0);
+    assert!(w.action("edit.replace"));
+    let fd = w.find_dialog.as_mut().expect("dialog");
+    // Nothing to find yet: Find Next is off, as on the reference.
+    assert!(!fd.find_next_enabled());
+    fd.toggle_format(0);
+    assert!(fd.find_next_enabled());
+    assert!(w.find_dialog_action(crate::doc_find::FindAction::FindNext));
+    let (a, b) = w.view.engine().session().expect("s").selection().ordered();
+    assert_eq!((a.offset, b.offset), (6, 10));
+}

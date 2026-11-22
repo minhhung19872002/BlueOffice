@@ -11933,6 +11933,13 @@
     "chartSheetPrefix": "Chart"
   },
   "findDlg": {
+    "fmtBold": "Bold",
+    "fmtItalic": "Italic",
+    "fmtUnderline": "Underline",
+    "fmtHighlight": "Highlight",
+    "fmtStyle": "Style:",
+    "fmtFont": "Font:",
+    "fmtLabel": "Format:",
     "enterSection": "&Enter section number:",
     "enterLine": "&Enter line number:",
     "enterBookmark": "&Enter bookmark name:",

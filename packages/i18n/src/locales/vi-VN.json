@@ -11933,6 +11933,13 @@
     "chartSheetPrefix": "Biểu đồ"
   },
   "findDlg": {
+    "fmtBold": "Đậm",
+    "fmtItalic": "Nghiêng",
+    "fmtUnderline": "Gạch chân",
+    "fmtHighlight": "Tô sáng",
+    "fmtStyle": "Kiểu:",
+    "fmtFont": "Phông:",
+    "fmtLabel": "Định dạng:",
     "enterSection": "&Nhập số phần:",
     "enterLine": "&Nhập số dòng:",
     "enterBookmark": "&Nhập tên dấu trang:",

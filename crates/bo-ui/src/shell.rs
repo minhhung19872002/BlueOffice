@@ -1429,6 +1429,9 @@ impl DocWindow {
         let sel = self.find.as_ref().map(|f| f.0.clone()).unwrap_or_default();
         self.menu = None;
         let mut fd = FindDialog::new(tab, &sel, self.find_history.clone());
+        // Format ▾ offers the selection's paragraph style and font (round 10).
+        let f = self.view.format();
+        fd.sel_format = (f.style.clone(), f.font.clone());
         fd.bookmarks = self
             .view
             .engine()
@@ -1451,6 +1454,8 @@ impl DocWindow {
         let query = fd.query();
         let with = fd.replacement();
         let options = fd.options();
+        let format = fd.format_json();
+        self.r10.find_format = format.clone();
         if matches!(
             a,
             FindAction::FindNext | FindAction::Replace | FindAction::ReplaceAll
@@ -1481,6 +1486,7 @@ impl DocWindow {
             FindAction::ReplaceAll => {
                 let cmd = catalog::from_json(json!({
                     "cmd": "replaceAll", "query": query, "with": with, "options": options,
+                    "format": format,
                 }));
                 let n = cmd
                     .and_then(|c| self.view.exec(c))
@@ -1624,18 +1630,21 @@ impl DocWindow {
 
     /// Find the next match of `query` with search `options` (JSON) and select it.
     fn find_with(&mut self, query: &str, options: &serde_json::Value) {
-        if query.is_empty() {
+        // Find by format (Format ▾ of the dialog) may leave the text empty.
+        let format = self.find_dialog.as_ref().and(self.r10.find_format.clone());
+        if query.is_empty() && format.is_none() {
             return;
         }
-        let key = options.to_string();
+        let key = format!("{options}{}", format.clone().unwrap_or_default());
         let fresh = self.find_options != key || self.find.as_ref().is_none_or(|f| f.0 != query);
         if fresh {
             self.find_options = key;
-            let matches =
-                catalog::from_json(json!({ "cmd": "find", "query": query, "options": options }))
-                    .and_then(|c| self.view.exec(c))
-                    .and_then(|r| r.matches)
-                    .unwrap_or_default();
+            let matches = catalog::from_json(
+                json!({ "cmd": "find", "query": query, "options": options, "format": format }),
+            )
+            .and_then(|c| self.view.exec(c))
+            .and_then(|r| r.matches)
+            .unwrap_or_default();
             self.find = Some((query.to_owned(), matches, usize::MAX));
         }
         let found = match self.find.as_mut() {

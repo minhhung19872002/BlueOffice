@@ -480,7 +480,8 @@ impl DocWindow {
             (self.t("tprops11.drawTable", "Draw Table"), true),
             (
                 self.t("tprops11.convertText", "Convert Text to Table..."),
-                true,
+                // Only with text selected, as the reference.
+                self.view.has_selection(),
             ),
             (self.t("tprops11.excel", "Spreadsheet"), false),
             (self.t("tprops11.quickTables", "Quick Tables"), false),
@@ -3798,7 +3799,9 @@ impl DocWindow {
         if let Some(menu) = &self.menu {
             menu.paint(p, &self.r10_menu_theme(), &self.icons);
             self.r10_paint_menu(p);
-        } else if let Some((label, tw, anchor)) = &self.tooltip {
+        } else if let Some((label, tw, anchor)) =
+            self.tooltip.as_ref().filter(|_| self.table_grid.is_none())
+        {
             match &self.tip {
                 Some(tip) if tip.title == *label => {
                     crate::doc_tips::paint(p, &self.theme, tip, *anchor, w, self.scale);

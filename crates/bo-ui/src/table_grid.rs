@@ -21,7 +21,7 @@ const ITEMS_Y: f32 = 220.8;
 const TEXT_X: f32 = 36.8;
 const POPUP_EDGE: Rgba = Rgba(148, 148, 148, 255);
 const BAND_FILL: Rgba = Rgba(235, 235, 235, 255);
-const CELL_EDGE: Rgba = Rgba(160, 160, 160, 255);
+const CELL_EDGE: Rgba = Rgba(118, 118, 118, 255);
 const HOT_OUT: Rgba = Rgba(239, 72, 16, 255);
 const HOT_IN: Rgba = Rgba(255, 226, 148, 255);
 const INK: Rgba = Rgba(38, 38, 38, 255);
@@ -135,7 +135,7 @@ impl TableGrid {
             Rgba(255, 255, 255, 255),
         );
         let style = TextStyle {
-            size: self.px(12.0),
+            size: self.px(13.2),
             bold: false,
         };
         // Band: the size being picked, else the heading (bold dark grey on light grey).

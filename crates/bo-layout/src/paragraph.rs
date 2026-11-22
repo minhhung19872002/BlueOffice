@@ -794,6 +794,9 @@ struct Atom {
     obj_d: f32,
 }
 
+/// Leading above a math text run in its line ([`math_object`]): Cambria Math's MathLeading.
+const MATH_LEADING: f32 = 0.146;
+
 /// An Office Math zone (ECMA-376 Part 1, §22.1) as an inline object: the placeholder picture (box above
 /// the baseline), its drawing (glyph runs + rules, origin at the box top) and its depth below the baseline.
 fn math_object(
@@ -802,7 +805,40 @@ fn math_object(
     fonts: &mut FontManager,
 ) -> Option<(Image, Arc<Drawing>, f32)> {
     let b = math_box(xml, st, fonts)?;
-    let top = b.asc;
+    // The line holds each text run's ink plus the math font's leading above it (black-box,
+    // office-29: the reference's line tops sit 0.80 em over a superscript "2" (ink 0.674 em) and
+    // 0.59 em over a numerator "a" (ink 0.47 em) — the ink plus its math font's MathLeading,
+    // 0.146 em, ISO/IEC 14496-22 §6.3.6.3). Large operators, radical signs and delimiters drawn
+    // on their own (office-29 ∑, √, the grown brackets of (1 + r/100)) keep their ink. The
+    // equation's own layout keeps the ink boxes.
+    let top =
+        b.runs
+            .iter()
+            .filter(|r| {
+                let delimiters = !r.text.is_empty()
+                    && r.text.chars().all(|c| {
+                        matches!(
+                            c,
+                            '(' | ')' | '[' | ']' | '{' | '}' | '|' | '‖' | '⟨' | '⟩' | '⌈'..='⌋'
+                        )
+                    });
+                !delimiters
+                    && !r.text.chars().any(
+                        |c| matches!(c, '∑' | '∏' | '∐' | '∫'..='∳' | '√' | '∛' | '∜' | '⋀'..='⋃'),
+                    )
+            })
+            .map(|r| {
+                let scale = r.size / f32::from(fonts.info(r.face).units_per_em);
+                let ink = r
+                    .glyphs
+                    .iter()
+                    .map(|&(id, _, dy, _)| {
+                        f32::from(fonts.glyph_extents(r.face, id).y_max) * scale - dy
+                    })
+                    .fold(0.0, f32::max);
+                -r.y + ink + MATH_LEADING * r.size
+            })
+            .fold(b.asc, f32::max);
     let fragments = b
         .runs
         .into_iter()

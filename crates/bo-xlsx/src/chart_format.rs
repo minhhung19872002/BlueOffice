@@ -249,11 +249,15 @@ pub(crate) fn axis_sp_pr(fmt: &ChartFormat) -> String {
     })
 }
 
-/// `c:spPr` of the plot area (§21.2.2.145).
+/// `c:spPr` of the plot area (§21.2.2.145). A chart BlueOffice formats (not one read without
+/// formatting, `ChartFormat::classic`) always has one — `a:noFill` without a plot fill — so it is
+/// not drawn with the automatic ("classic") formatting when read back.
 pub(crate) fn plot_sp_pr(fmt: &ChartFormat) -> String {
-    fmt.plot_fill
-        .as_ref()
-        .map_or_else(String::new, |c| format!("<c:spPr>{}</c:spPr>", solid(c)))
+    match &fmt.plot_fill {
+        Some(c) => format!("<c:spPr>{}</c:spPr>", solid(c)),
+        None if fmt.classic => String::new(),
+        None => "<c:spPr><a:noFill/></c:spPr>".to_owned(),
+    }
 }
 
 /// `c:spPr` and `c:txPr` of the chart space (§21.2.2.29: after `c:chart`).
@@ -285,7 +289,7 @@ pub(crate) fn space_props_in(fmt: &ChartFormat, p: &str) -> String {
         }
         let _ = write!(out, "</{p}:spPr>");
     }
-    if fmt.text_color.is_some() || fmt.font_size.is_some() {
+    if fmt.text_color.is_some() || fmt.font_size.is_some() || fmt.font_face.is_some() {
         // §21.1.2.3.2 defRPr: sz in hundredths of a point (100..=400000).
         let _ = write!(
             out,
@@ -297,6 +301,10 @@ pub(crate) fn space_props_in(fmt: &ChartFormat, p: &str) -> String {
         out.push('>');
         if let Some(c) = &fmt.text_color {
             out.push_str(&solid(c));
+        }
+        // §21.1.2.3.7 latin (after the fill in CT_TextCharacterProperties).
+        if let Some(face) = &fmt.font_face {
+            let _ = write!(out, "<a:latin typeface=\"{}\"/>", escape(face));
         }
         let _ = write!(
             out,
@@ -393,10 +401,32 @@ fn labels_of(d: &Node) -> Option<DataLabels> {
     l.any().then_some(l)
 }
 
+/// No `c:spPr` (§21.2.2.197) on the chart space, the plot area, the axes or their gridlines.
+fn unformatted(dom: &Node, chart: &Node) -> bool {
+    if dom.child("spPr").is_some() {
+        return false;
+    }
+    let Some(pa) = chart.child("plotArea") else {
+        return true;
+    };
+    pa.child("spPr").is_none()
+        && pa
+            .children
+            .iter()
+            .filter(|c| matches!(c.name.as_str(), "catAx" | "valAx" | "dateAx" | "serAx"))
+            .all(|a| {
+                a.child("spPr").is_none()
+                    && ["majorGridlines", "minorGridlines"]
+                        .iter()
+                        .all(|g| a.child(g).and_then(|g| g.child("spPr")).is_none())
+            })
+}
+
 /// The formatting of a parsed `c:chartSpace` (`dom`) with its `c:chart` element.
 pub(crate) fn read_format(dom: &Node, chart: &Node) -> ChartFormat {
     let mut f = ChartFormat {
         rounded: flag(dom, "roundedCorners"),
+        classic: unformatted(dom, chart),
         ..ChartFormat::default()
     };
     if let Some(sp) = dom.child("spPr") {
@@ -411,6 +441,12 @@ pub(crate) fn read_format(dom: &Node, chart: &Node) -> ChartFormat {
     {
         f.text_color = d.child("solidFill").and_then(color_of);
         f.font_size = d.attr("sz").and_then(|s| s.trim().parse().ok());
+        // §21.1.2.3.7 latin; theme references (`+mn-lt`) stay with the theme's font.
+        f.font_face = d
+            .child("latin")
+            .and_then(|l| l.attr("typeface"))
+            .filter(|t| !t.is_empty() && !t.starts_with('+'))
+            .map(str::to_owned);
     }
     if let Some(t) = chart.child("title") {
         let mut runs = Vec::new();
@@ -419,6 +455,10 @@ pub(crate) fn read_format(dom: &Node, chart: &Node) -> ChartFormat {
         f.title_bold = runs
             .iter()
             .any(|r| r.attr("b").is_some_and(|b| b == "1" || b == "true"));
+        f.title_size = runs
+            .iter()
+            .find_map(|r| r.attr("sz").and_then(|s| s.trim().parse::<u32>().ok()))
+            .filter(|s| (100..=400_000).contains(s));
     }
     let Some(pa) = chart.child("plotArea") else {
         return f;
@@ -571,7 +611,9 @@ mod tests {
             axis_line: Some(ChartColor::Rgb(0x50_6070)),
             text_color: Some(ChartColor::Rgb(0xEE_EEEE)),
             font_size: Some(1_100),
+            font_face: Some("Times New Roman".into()),
             title_bold: true,
+            title_size: Some(1_200),
             rounded: true,
             hide_val_grid: false,
             cat_grid: true,
@@ -620,5 +662,60 @@ mod tests {
         assert!(xml.contains("<c:symbol val=\"circle\"/>"));
         let back = crate::chart::parse_chart_space(xml.as_bytes(), "/c.xml").unwrap();
         assert_eq!(back.format, fmt);
+    }
+
+    // §21.2.2.197 spPr: a chart part formatting none of its chart area, plot area, axes and
+    // gridlines is "classic" (drawn with the automatic formatting); BlueOffice's own charts keep
+    // an a:noFill plot area so they read back as formatted; a classic chart stays classic.
+    #[test]
+    fn unformatted_chart_parts_read_as_classic() {
+        let c = chart(ChartKind::Bar, ChartFormat::default());
+        let xml = crate::chart_write::chart_space_xml(&c);
+        assert!(
+            xml.contains("<c:spPr><a:noFill/></c:spPr></c:plotArea>"),
+            "{xml}"
+        );
+        let back = crate::chart::parse_chart_space(xml.as_bytes(), "/c.xml").unwrap();
+        assert!(!back.format.classic);
+        let bare = xml.replace("<c:spPr><a:noFill/></c:spPr></c:plotArea>", "</c:plotArea>");
+        let back = crate::chart::parse_chart_space(bare.as_bytes(), "/c.xml").unwrap();
+        assert!(back.format.classic);
+        let again = crate::chart_write::chart_space_xml(&back);
+        assert!(
+            !again.contains("<a:noFill/></c:spPr></c:plotArea>"),
+            "{again}"
+        );
+        // Gridlines with a line of their own are formatting.
+        let grid = bare.replace(
+            "<c:majorGridlines/>",
+            "<c:majorGridlines><c:spPr><a:ln><a:solidFill><a:srgbClr val=\"D9D9D9\"/></a:solidFill></a:ln></c:spPr></c:majorGridlines>",
+        );
+        assert_ne!(grid, bare);
+        let back = crate::chart::parse_chart_space(grid.as_bytes(), "/c.xml").unwrap();
+        assert!(!back.format.classic);
+    }
+
+    // §21.1.2.3.7 latin of the chart space's txPr and the title runs' size (§21.1.2.3.9 sz).
+    #[test]
+    fn chart_typeface_and_title_size_are_read() {
+        let c = chart(ChartKind::Bar, ChartFormat::default());
+        let xml = crate::chart_write::chart_space_xml(&c).replace(
+            "</c:chartSpace>",
+            "<c:txPr><a:bodyPr/><a:lstStyle/><a:p><a:pPr><a:defRPr sz=\"1000\"><a:latin typeface=\"Times New Roman\"/></a:defRPr></a:pPr><a:endParaRPr lang=\"vi-VN\"/></a:p></c:txPr></c:chartSpace>",
+        );
+        let xml = xml.replacen(
+            "<a:r><a:t>T</a:t>",
+            "<a:r><a:rPr lang=\"vi-VN\" sz=\"1200\" b=\"1\"/><a:t>T</a:t>",
+            1,
+        );
+        let back = crate::chart::parse_chart_space(xml.as_bytes(), "/c.xml").unwrap();
+        assert_eq!(back.format.font_face.as_deref(), Some("Times New Roman"));
+        assert_eq!(back.format.font_size, Some(1000));
+        assert_eq!(back.format.title_size, Some(1200));
+        assert!(back.format.title_bold);
+        // A theme reference stays with the theme.
+        let theme = xml.replace("typeface=\"Times New Roman\"", "typeface=\"+mn-lt\"");
+        let back = crate::chart::parse_chart_space(theme.as_bytes(), "/c.xml").unwrap();
+        assert_eq!(back.format.font_face, None);
     }
 }

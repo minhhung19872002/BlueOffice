@@ -1353,7 +1353,11 @@ pub fn draw_chart_masked(
             _ => color(c, i),
         }
     };
-    let look = Look::new(fmt, &pal);
+    let mut look = Look::new(fmt, &pal);
+    // Keyed on the chart part alone, so a file draws the same in all three applications.
+    if fmt.classic {
+        look.use_classic(fmt);
+    }
     let ink = look.text;
     let mut text = |t: &str, r: [f64; 4], a: Align, size: f64, c: Rgba, out: &mut Vec<Command>| {
         let c = if c == TEXT { ink.unwrap_or(c) } else { c };
@@ -1436,20 +1440,46 @@ fn draw_body(
     // Sheet charts use the desktop spreadsheet's default chart text whatever the chart's size:
     // axis labels and legend 9 pt, title 14 pt (measured: "Sales" 46 × 16 px at 125 %);
     // slide and document charts are read from further away.
-    let font = look.font.unwrap_or(if framed {
+    // The automatic formatting's text is 10 pt (office-22 variants).
+    let font = look.font.unwrap_or(if look.classic {
+        10.0
+    } else if framed {
         9.0
     } else {
         (h / 22.0).clamp(6.0, 14.0)
     });
     let mut top = 6.0;
-    if let Some(t) = chart.title.as_deref().filter(|t| !t.is_empty()) {
+    let title = chart.title.as_deref().filter(|t| !t.is_empty());
+    if look.classic {
+        // The reference's margins (cal: 12 office-22 variants exported to PDF): the plot 11 pt
+        // from the top, or at least half a label line; a title 8 pt from the top, its line
+        // 1.15 em, then 12 pt (or half a label line and 5.7 pt) to the plot.
+        let half = 0.575 * font;
+        top = (5.25 + half).max(11.0);
+        if let Some(t) = title {
+            let ts = look.title_font.unwrap_or(font * 1.2);
+            label(
+                t,
+                [0.0, 8.0, w, 8.0 + 1.15 * ts],
+                Align::Center,
+                ts,
+                TEXT,
+                out,
+            );
+            if !chart.title_overlay {
+                top = 8.0 + 1.15 * ts + (5.7 + half).max(12.0);
+            }
+        }
+    } else if let Some(t) = title {
         let th = font * 1.9;
         label(
             t,
             [0.0, top, w, top + th],
             Align::Center,
-            // 14 pt over 9 pt labels on sheets; slide and document charts keep their ratio.
-            font * if framed { 14.0 / 9.0 } else { 1.35 },
+            // The title's own size, else 14 pt over 9 pt labels on sheets; slide and
+            // document charts keep their ratio.
+            look.title_font
+                .unwrap_or(font * if framed { 14.0 / 9.0 } else { 1.35 }),
             TEXT,
             out,
         );
@@ -1594,7 +1624,29 @@ fn draw_body(
     // An overlaid legend (§21.2.2.132) takes no room from the plot.
     let overlay = chart.legend_overlay;
     legend_span.0 = out.len();
-    if let Some(pos) = chart.legend.as_deref() {
+    if look.classic {
+        // The reference: labels from 6.5 pt, the plot 11 pt from the right edge, category
+        // labels from the bottom edge (`draw_xy_plain`).
+        // Line series show a line in their key.
+        let lines: Vec<bool> = if pie || surface || ex.is_some() {
+            Vec::new()
+        } else {
+            plots
+                .iter()
+                .flat_map(|(p, s)| s.iter().map(|_| p.kind == ChartKind::Line))
+                .collect()
+        };
+        [left0, top, right, bottom] = classic_legend(
+            &entries,
+            (&lines, look.line_w),
+            chart.legend.as_deref().filter(|_| !overlay),
+            (w, h),
+            font,
+            [6.5, top, w - 11.0, h],
+            label,
+            out,
+        );
+    } else if let Some(pos) = chart.legend.as_deref() {
         if !entries.is_empty() {
             let row = font * 1.6;
             if pos == "b" || pos == "t" {
@@ -1982,6 +2034,173 @@ fn draw_xy(
     })
 }
 
+/// The reference's automatic value scale for data `lo..=hi` on a plot `ph` points high with
+/// `font`-point labels: `(min, max, unit)` (see `draw_xy_plain`).
+fn classic_scale(lo: f64, hi: f64, ph: f64, font: f64) -> Option<(f64, f64, f64)> {
+    if !(lo.is_finite() && hi.is_finite()) || hi <= lo {
+        return None;
+    }
+    let (mut a, mut b) = (lo, hi);
+    if a > 0.0 && (b - a) / b > 1.0 / 6.0 {
+        a = 0.0;
+    }
+    if b < 0.0 && (b - a) / -a > 1.0 / 6.0 {
+        b = 0.0;
+    }
+    let span = b - a;
+    let pa = if a > 0.0 {
+        a - 0.5 * span
+    } else if a < 0.0 {
+        a - 0.05 * span
+    } else {
+        a
+    };
+    let pb = if b > 0.0 {
+        b + 0.05 * span
+    } else if b < 0.0 {
+        b + 0.5 * span
+    } else {
+        b
+    };
+    let mut step = 10f64.powf(((pb - pa) / 100.0).log10().floor());
+    for _ in 0..40 {
+        let (l, h) = ((pa / step).floor() * step, (pb / step).ceil() * step);
+        if ph * step / (h - l) >= 1.15 * font || (h - l) / step <= 1.0 {
+            return Some((l, h, step));
+        }
+        // 1 → 2 → 5 → 10 × 10ⁿ.
+        let m = step / 10f64.powf(step.log10().floor());
+        step *= if m < 1.5 {
+            2.0
+        } else if m < 3.5 {
+            2.5
+        } else {
+            2.0
+        };
+    }
+    None
+}
+
+/// Width of `text` at `size` as `label` draws it (the run origin of a right-aligned label);
+/// half an em per character when the label function draws no glyph runs.
+fn text_width(label: &mut LabelFn<'_>, text: &str, size: f64) -> f64 {
+    const R: f64 = 10_000.0;
+    let mut tmp = Vec::new();
+    label(
+        text,
+        [0.0, 0.0, R, size * 2.0],
+        Align::Right,
+        size,
+        TEXT,
+        &mut tmp,
+    );
+    tmp.iter()
+        .filter_map(|c| match c {
+            Command::Glyphs { x, .. } => Some(f64::from(*x)),
+            _ => None,
+        })
+        .reduce(f64::min)
+        .map_or(text.chars().count() as f64 * size * 0.5, |x| {
+            (R - x).max(0.0)
+        })
+}
+
+/// The legend of a chart drawn with the reference's automatic layout ([`Look::use_classic`]):
+/// keys 0.5 em square, text 0.72 em after the key's left edge, 0.85 em between entries; at the
+/// bottom / top a centred row (1.8 pt right of the centre, baseline 8.6 pt + 0.22 em above the
+/// bottom edge), taking 1.314 em + 9.84 pt from the plot; at the right / left a column with
+/// rows 1.7 em apart, 10 pt from the edge and 15.74 pt from the plot. Returns the plot's room
+/// `[l, t, r, b]` (cal: 12 office-22 variants, 8 / 10 / 14 pt, 300 – 432 pt wide).
+#[allow(clippy::too_many_arguments)]
+fn classic_legend(
+    entries: &[(String, Rgba)],
+    (lines, line_w): (&[bool], f64),
+    pos: Option<&str>,
+    (w, h): (f64, f64),
+    f: f64,
+    [mut l, mut t, mut r, mut b]: [f64; 4],
+    label: &mut LabelFn<'_>,
+    out: &mut Vec<Command>,
+) -> [f64; 4] {
+    let Some(pos) = pos.filter(|_| !entries.is_empty()) else {
+        return [l, t, r, b];
+    };
+    let widths: Vec<f64> = entries
+        .iter()
+        .map(|(n, _)| text_width(label, n, f))
+        .collect();
+    // A line series' key: a 1.93 em line 0.31 em over the baseline, its text 2.13 em from the
+    // key's left edge (office-22 line chart: 19.2 pt, 21.28 pt at 10 pt).
+    let key_w = |i: usize| {
+        if lines.get(i).copied().unwrap_or(false) {
+            2.13 * f
+        } else {
+            0.72 * f
+        }
+    };
+    let mut put = |i: usize, x: f64, base: f64, out: &mut Vec<Command>| {
+        let (name, c) = &entries[i];
+        if lines.get(i).copied().unwrap_or(false) {
+            out.push(hline(x, x + 1.93 * f, base - 0.31 * f, *c, line_w));
+        } else {
+            out.push(rect(x, base - 0.6 * f, 0.5 * f, 0.5 * f, *c));
+        }
+        // A centred label box: its middle 0.34 em above the baseline.
+        let mid = base - 0.34 * f;
+        let tx = x + key_w(i);
+        label(
+            name,
+            [tx, mid - 0.6 * f, tx + widths[i] + f, mid + 0.6 * f],
+            Align::Left,
+            f,
+            TEXT,
+            out,
+        );
+    };
+    if pos == "b" || pos == "t" {
+        let total = widths
+            .iter()
+            .enumerate()
+            .map(|(i, wi)| key_w(i) + wi)
+            .sum::<f64>()
+            + 0.85 * f * (entries.len() as f64 - 1.0);
+        let mut x = (w - total) / 2.0 + 1.8;
+        let base = if pos == "b" {
+            h - (8.6 + 0.22 * f)
+        } else {
+            t + 0.706 * f
+        };
+        for (i, wi) in widths.iter().enumerate() {
+            put(i, x, base, out);
+            x += key_w(i) + wi + 0.85 * f;
+        }
+        let band = 1.314 * f + 9.84;
+        if pos == "b" {
+            b = b.min(h - band);
+        } else {
+            t += band;
+        }
+    } else {
+        let lw = (0..entries.len())
+            .map(|i| key_w(i) + widths[i])
+            .fold(0.0, f64::max);
+        let row = 1.7 * f;
+        let mid = (t + h - 11.0) / 2.0;
+        let n = entries.len() as f64;
+        let x = if pos == "l" { 10.0 } else { w - 10.0 - lw };
+        for i in 0..entries.len() {
+            let base = mid + 0.34 * f + (i as f64 - (n - 1.0) / 2.0) * row;
+            put(i, x, base, out);
+        }
+        if pos == "l" {
+            l = x + lw + 15.74;
+        } else {
+            r = x - 15.74;
+        }
+    }
+    [l, t, r, b]
+}
+
 #[allow(clippy::too_many_lines, clippy::too_many_arguments)]
 fn draw_xy_plain(
     plots: &[(&ChartPlot, Vec<Ser>)],
@@ -2086,7 +2305,7 @@ fn draw_xy_plain(
         .flat_map(|(_, s)| s.iter().flat_map(|s| s.vals.iter().flatten().copied()))
         .filter(|v| *v > 0.0)
         .fold(f64::MAX, f64::min);
-    let scale1 = elements::val_scale(
+    let mut scale1 = elements::val_scale(
         vmin,
         vmax,
         positive_min,
@@ -2094,6 +2313,36 @@ fn draw_xy_plain(
         axes.log_base,
         axes.val.major_unit,
     );
+    // The reference's automatic scale (Look::use_classic): the data's range (zero kept out
+    // when the spread is under a sixth of the largest value), padded as the spreadsheet does
+    // ([`auto_scale`]), and the finest 1 / 2 / 5 × 10ⁿ unit leaving a label line (1.15 em)
+    // between gridlines (cal office-22: 88..96.8 → 82..98 by 2 on a 121 pt plot; 14 pt labels
+    // on a 123 pt plot step by 5).
+    if look.classic
+        && !horizontal
+        && !scatter
+        && axes.min.is_none()
+        && axes.max.is_none()
+        && axes.val.major_unit.is_none()
+        && scale1.log.is_none()
+        && vmax > vmin
+    {
+        let stacked = plots.iter().any(|(p, _)| stacked_of(p));
+        let dmin = if stacked || prices_only(false) {
+            vmin
+        } else {
+            plots
+                .iter()
+                .filter(|(p, _)| !p.secondary)
+                .flat_map(|(_, ss)| ss.iter().flat_map(|s| s.vals.iter().flatten().copied()))
+                .fold(vmax, f64::min)
+        };
+        let ph = (b - (1.486 * font + 8.66) - t).max(1.0);
+        if let Some((lo, hi, step)) = classic_scale(dmin, vmax, ph, font) {
+            scale1 =
+                elements::val_scale(lo, hi, positive_min, (Some(lo), Some(hi)), None, Some(step));
+        }
+    }
     let log = scale1.log;
     let (vmin, vmax) = (scale1.lo, scale1.hi);
     let untf = |t: f64| scale1.untf(t);
@@ -2198,7 +2447,29 @@ fn draw_xy_plain(
     } else {
         0.0
     };
-    let (pl, pt, pr, pb) = if horizontal {
+    // The reference's automatic layout (Look::use_classic): the value labels' width and 0.85 em
+    // to the plot, the category labels' baseline 1.486 em under it and 8.66 pt more to the
+    // bottom (cal: office-22 variants at 8 / 10 / 14 pt).
+    let classic = look.classic && !horizontal && !scatter && !cat_high && right_w == 0.0;
+    let classic_w = if classic && val_labels {
+        scale1
+            .ticks()
+            .into_iter()
+            .map(|tv| {
+                text_width(
+                    label,
+                    &elements::fmt_tick(untf(tv), &axes.val, locale),
+                    font,
+                )
+            })
+            .fold(0.0, f64::max)
+            + 0.85 * font
+    } else {
+        0.0
+    };
+    let (pl, pt, pr, pb) = if classic {
+        (l + classic_w, t, r, b - (1.486 * font + 8.66))
+    } else if horizontal {
         (l + label_w * 1.4, t, r, b - label_h)
     } else if cat_high {
         (l + label_w, t + label_h, r - right_w, b - font * 0.5)
@@ -2267,9 +2538,10 @@ fn draw_xy_plain(
                     out,
                 );
             } else if val_labels {
+                let gap = if classic { 0.85 * font } else { 3.0 };
                 label(
                     &text,
-                    [l, y - label_h / 2.0, pl - 3.0, y + label_h / 2.0],
+                    [l, y - label_h / 2.0, pl - gap, y + label_h / 2.0],
                     Align::Right,
                     font,
                     TEXT,
@@ -2351,6 +2623,14 @@ fn draw_xy_plain(
         out.push(vline(pl + zero * pw, pt, pb, AXIS, 0.75));
     } else {
         out.push(hline(pl, pr, pb - zero * ph, AXIS, 0.75));
+    }
+    // The value axis line of the automatic formatting.
+    if look.classic && !axes.val.deleted {
+        out.push(if horizontal {
+            hline(pl, pr, pb, AXIS, 0.75)
+        } else {
+            vline(pl, pt, pb, AXIS, 0.75)
+        });
     }
     let slot = if horizontal { ph } else { pw } / ncat as f64;
     // §21.2.2.100 majorGridlines of the category axis: between the categories (at the X steps of
@@ -2505,6 +2785,10 @@ fn draw_xy_plain(
                 // tickLblPos `high`: above the plot.
                 let (y0, y1) = if cat_high {
                     (t, pt - 1.0)
+                } else if classic {
+                    // Baseline 1.486 em under the plot (label box centred 0.34 em above it).
+                    let mid = pb + 1.146 * font;
+                    (mid - 0.6 * font, mid + 0.6 * font)
                 } else {
                     (pb + 1.0, b)
                 };
@@ -2612,6 +2896,10 @@ fn draw_xy_plain(
                                 (true, false, false) => {
                                     (bx[0] + bx[2] + font * 1.2, bx[1] + bx[3] / 2.0)
                                 }
+                                // The automatic layout: the baseline 0.66 em over the bar.
+                                (false, false, false) if look.classic => {
+                                    (bx[0] + bx[2] / 2.0, bx[1] - font)
+                                }
                                 (false, false, false) => (bx[0] + bx[2] / 2.0, bx[1] - font * 0.8),
                             };
                             let ink = if centre || inside {
@@ -2619,7 +2907,7 @@ fn draw_xy_plain(
                             } else {
                                 TEXT
                             };
-                            Look::put_label(&text, x, y, font, ink, label, out);
+                            look.put_label(&text, x, y, font, ink, label, out);
                         }
                     }
                 }
@@ -2731,7 +3019,7 @@ fn draw_xy_plain(
                         {
                             // §21.2.2.48 dLblPos of a line: above by default.
                             let (dx, dy) = point_label_offset(d.pos.as_deref(), &text, font);
-                            Look::put_label(&text, x + dx, y + dy, font, TEXT, label, out);
+                            look.put_label(&text, x + dx, y + dy, font, TEXT, label, out);
                         }
                     }
                     if stacked {
@@ -2762,7 +3050,7 @@ fn draw_xy_plain(
                         let cat = s.cats.get(i).map_or("", String::as_str);
                         if let Some(text) = elements::label_text(d, &s.name, cat, y, None, locale) {
                             let (dx, dy) = point_label_offset(d.pos.as_deref(), &text, font);
-                            Look::put_label(&text, px + dx, py + dy, font, TEXT, label, out);
+                            look.put_label(&text, px + dx, py + dy, font, TEXT, label, out);
                         }
                     }
                 }
@@ -3480,8 +3768,25 @@ fn draw_pie(
             .is_some_and(|d| d.pos.as_deref() == Some("outEnd"))
     });
     let room = if outside { font * 3.2 } else { 0.0 };
-    let rad = ((((r - l).min(b - t) / 2.0 - 2.0 - room) / (1.0 + ex)).max(1.0)).max(1.0);
-    let (cx, cy) = (f64::midpoint(l, r), f64::midpoint(t, b));
+    let inside =
+        (0..s.vals.len()).any(|i| elements::labels_at(look.labels.as_ref(), s, i).is_some());
+    let (rad, cy) = if look.classic && room == 0.0 {
+        // The reference's automatic plot area of a pie (office-22: 123 pt between title and
+        // legend → radius 56.1 pt, the centre 56.1 pt under the top); labels in the slices
+        // take 0.84 em off the radius (47.7 pt), the centre stays.
+        let full = (((r - l) / 2.0).min(0.4555 * (b - t)) / (1.0 + ex)).max(1.0);
+        let rad = if inside {
+            (full - 0.84 * font).max(1.0)
+        } else {
+            full
+        };
+        (rad, t + full * (1.0 + ex))
+    } else {
+        let rad = ((((r - l).min(b - t) / 2.0 - 2.0 - room) / (1.0 + ex)).max(1.0)).max(1.0);
+        (rad, f64::midpoint(t, b))
+    };
+    // Classic margins (6.5 pt left, 11 pt right): the pie at the chart's centre.
+    let cx = f64::midpoint(l, r) + if look.classic { 2.25 } else { 0.0 };
     let inner = rad * hole.clamp(0.0, 0.9);
     let mut a = 0.0;
     for (i, v) in vals.iter().enumerate() {
@@ -3503,7 +3808,8 @@ fn draw_pie(
             out.push(Command::Path {
                 segs: wedge(cx + ox, cy + oy, rad, inner, a, sw),
                 fill: Some(Paint::Solid { color: pc }),
-                stroke: Some(Stroke {
+                // The automatic formatting draws slices without an outline.
+                stroke: (!look.classic).then(|| Stroke {
                     width: 0.75,
                     color: Rgba(255, 255, 255, 255),
                     dash: vec![],
@@ -3544,17 +3850,19 @@ fn draw_pie(
                         dash: None,
                     });
                 }
-                Look::put_label(&text, lx, ly, font, TEXT, label, out);
+                look.put_label(&text, lx, ly, font, TEXT, label, out);
             } else {
                 // A doughnut's labels sit in the middle of its ring.
                 let lr = match (hole > 0.0, d.pos.as_deref()) {
                     (true, _) => f64::midpoint(rad, inner),
                     (false, Some("inEnd")) => rad * 0.8,
                     (false, Some("ctr")) => rad * 0.5,
+                    // bestFit of the automatic layout: about 0.7 of the radius (0.68–0.76).
+                    (false, _) if look.classic => rad * 0.7,
                     (false, _) => rad * 0.62,
                 };
                 let (lx, ly) = (cx + ox + lr * mid.sin(), cy + oy - lr * mid.cos());
-                Look::put_label(&text, lx, ly, font, Rgba(255, 255, 255, 255), label, out);
+                look.put_label(&text, lx, ly, font, Rgba(255, 255, 255, 255), label, out);
             }
         }
         a += sw;
@@ -3817,7 +4125,7 @@ fn draw_ex(
             } else {
                 (y - font * 0.8, TEXT)
             };
-            Look::put_label(&text, x + w / 2.0, cy, font, ink, label, out);
+            look.put_label(&text, x + w / 2.0, cy, font, ink, label, out);
         }
     };
     match p.kind {

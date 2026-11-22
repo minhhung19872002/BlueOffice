@@ -2538,7 +2538,7 @@ fn draw_xy_plain(
             ChartKind::Bar => {
                 let stacked = stacked_of(p);
                 let gap = look.gap / nbar_groups;
-                let group = slot / (1.0 + gap);
+                let group = cluster_width(p, slot, gap, ss.len());
                 let (bar, pitch) = bar_layout(p, group, ss.len());
                 for i in 0..ncat {
                     let total: f64 = ss.iter().map(|s| val(s, i).abs()).sum();
@@ -2922,7 +2922,7 @@ fn draw_xy_plain(
             // X positions of the points (category centre; the bar's own centre for clustered bars).
             let bar_x = |i: usize| -> f64 {
                 if p.kind == ChartKind::Bar && !stacked_of(p) {
-                    let group = slot / (1.0 + look.gap);
+                    let group = cluster_width(p, slot, look.gap, ss.len());
                     let (bar, pitch) = bar_layout(p, group, ss.len());
                     pl + i as f64 * slot + (slot - group) / 2.0 + si as f64 * pitch + bar / 2.0
                 } else {
@@ -3151,6 +3151,22 @@ fn err_amounts(e: &bo_model::sheet::ErrorBars, i: usize, v: f64, all: &[f64]) ->
 /// Width of one bar and the distance from one bar of a category to the next, for `n` series
 /// sharing a group `group` wide: bars side by side, or overlapping by overlap
 /// (percent of a bar; negative = a gap between them).
+/// Width of a category's cluster of bars in a category slot `slot` wide: §21.2.2.75 gapWidth
+/// is a percentage of one bar's width (measured: two series at 219 % / −27 % in a 242 px
+/// slot are 54 px bars, 16 px apart, 118 px between clusters), not of the cluster's.
+fn cluster_width(p: &ChartPlot, slot: f64, gap: f64, n: usize) -> f64 {
+    let n = n.max(1) as f64;
+    let span = if matches!(p.grouping.as_deref(), Some("stacked" | "percentStacked")) {
+        1.0
+    } else {
+        match p.overlap {
+            Some(o) => 1.0 + (n - 1.0) * (1.0 - f64::from(o.clamp(-100, 100)) / 100.0),
+            None => n,
+        }
+    };
+    slot * span / (span + gap)
+}
+
 fn bar_layout(p: &ChartPlot, group: f64, n: usize) -> (f64, f64) {
     let n = n.max(1) as f64;
     if matches!(p.grouping.as_deref(), Some("stacked" | "percentStacked")) {

@@ -477,10 +477,10 @@ fn series_lines_markers_and_bar_overlap() {
     c.plots[0].overlap = Some(100);
     let (out, _) = draw(&wb, &c);
     let (a, b) = (bars(&out, 0), bars(&out, 1));
-    assert!(
-        (b[0].0 - a[0].0).abs() < 0.01
-            && b[0].2 > 1.9 * (bars(&draw(&wb, &chart(&wb, "column")).0, 0)[0].2)
-    );
+    // §21.2.2.75 gapWidth is a percentage of one bar: two fully overlapping bars with the
+    // 150 % gap are (2 + 1.5) / (1 + 1.5) = 1.4 times as wide as side-by-side ones.
+    let single = bars(&draw(&wb, &chart(&wb, "column")).0, 0)[0].2;
+    assert!((b[0].0 - a[0].0).abs() < 0.01 && (b[0].2 / single - 1.4).abs() < 0.01);
     c.plots[0].overlap = Some(-100);
     let (out, _) = draw(&wb, &c);
     let (a, b) = (bars(&out, 0), bars(&out, 1));

@@ -356,9 +356,12 @@ fn border_shadow_frame_and_shading_patterns_round_trip() {
     assert!(left.frame && !left.shadow);
     let pat = p.props.shading_pattern.clone().unwrap();
     assert_eq!(pat.val, "pct25");
-    assert_eq!(pat.color.map(|c| c.to_hex()).as_deref(), Some("FF0000"));
     assert_eq!(
-        p.props.shading.map(|c| c.to_hex()).as_deref(),
+        pat.color.map(bo_model::Color::to_hex).as_deref(),
+        Some("FF0000")
+    );
+    assert_eq!(
+        p.props.shading.map(bo_model::Color::to_hex).as_deref(),
         Some("FFFF00")
     );
     // An edit: the bottom border gets a shadow too.

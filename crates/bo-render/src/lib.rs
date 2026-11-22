@@ -435,6 +435,18 @@ fn item_commands_opaque(item: &PageItem, out: &mut Vec<Command>) {
                     dash: border_dash(style, w),
                 });
             };
+            if (x1 - x2).abs() >= f32::EPSILON && (y1 - y2).abs() >= f32::EPSILON {
+                // Diagonal cell borders (§17.4.80 tl2br, §17.4.79 tr2bl): the reference word
+                // processor strokes them as one line — `double` three border widths wide,
+                // `thick` two, compound lines one (measured in its PDF export).
+                let w = match style.as_str() {
+                    "double" => *width * 3.0,
+                    "thick" => *width * 2.0,
+                    _ => *width,
+                };
+                line(0.0, w);
+                return;
+            }
             match style.as_str() {
                 // Double line (§17.18.2 ST_Border `double`): two strokes of the border
                 // width with a gap of the same width, as desktop word processors draw it —

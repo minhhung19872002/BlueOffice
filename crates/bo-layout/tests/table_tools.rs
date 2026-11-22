@@ -239,3 +239,81 @@ fn spanning_cell_widens_the_columns_it_covers() {
         .max_widths[0];
     assert!((w[2] - own).abs() < 0.5, "{w:?} vs {own}");
 }
+
+/// A 3 × 2 floating table `w` twips wide, labelled `name`, at (`x`, `y`) twips from the
+/// page's top-left corner, 180 twips (9 pt) from text left and right.
+fn page_table(name: &str, x: i32, y: i32, w: i32, never: bool) -> Block {
+    let mut t = Table::simple(3, 2, Twips(w));
+    t.rows[0].cells[0].blocks = vec![p(name)];
+    t.props.float = Some(TableFloat {
+        left_from_text: Twips(180),
+        right_from_text: Twips(180),
+        horz_anchor: Some("page".into()),
+        vert_anchor: Some("page".into()),
+        x: Twips(x),
+        y: Twips(y),
+        ..TableFloat::default()
+    });
+    t.props.overlap = never.then(|| "never".into());
+    Block::Table(t)
+}
+
+/// Left and top of the line labelled `name`.
+fn at(l: &LayoutDocument, name: &str) -> (f32, f32) {
+    let line = l.pages[0].lines.iter().find(|l| text(l) == name).unwrap();
+    (line.fragments[0].x, line.top)
+}
+
+#[test]
+fn tbl_overlap_never_moves_the_table_beside_or_below() {
+    // ECMA-376 Part 1, §17.4.56 tblOverlap — moves as the reference word processor
+    // exports them (docs/ui/REPORT.md "Dàn trang vòng 6").
+    let near = |a: (f32, f32), b: (f32, f32)| (a.0 - b.0).abs() < 0.6 && (a.1 - b.1).abs() < 0.6;
+    let tables = |specs: &[(&str, i32, i32, i32, bool)]| {
+        let mut blocks: Vec<Block> = specs
+            .iter()
+            .map(|&(n, x, y, w, never)| page_table(n, x, y, w, never))
+            .collect();
+        blocks.push(p("x"));
+        run(&doc(blocks))
+    };
+    // Room on the right: B moves right of A (A's right edge + 9 + 9 pt), same y.
+    let l = tables(&[
+        ("A", 2000, 3000, 3600, false),
+        ("B", 3000, 3300, 3600, true),
+    ]);
+    let (a, b) = (at(&l, "A"), at(&l, "B"));
+    assert!(near(b, (a.0 + 198.0, a.1 + 15.0)), "{a:?} {b:?}");
+    // No room beside a 300 pt wide table: B moves below its three rows, keeping its x.
+    let l = tables(&[
+        ("A", 2000, 3000, 6000, false),
+        ("B", 3000, 3300, 3600, true),
+    ]);
+    let (a, b) = (at(&l, "A"), at(&l, "B"));
+    assert!((b.0 - (a.0 + 50.0)).abs() < 0.6, "{a:?} {b:?}");
+    assert!(b.1 > a.1 + 30.0 && b.1 < a.1 + 60.0, "{a:?} {b:?}");
+    // `never` on the first table also moves the second one.
+    let l = tables(&[
+        ("A", 2000, 3000, 3600, true),
+        ("B", 3000, 3300, 3600, false),
+    ]);
+    let (a, b) = (at(&l, "A"), at(&l, "B"));
+    assert!(near(b, (a.0 + 198.0, a.1 + 15.0)), "{a:?} {b:?}");
+    // Without `never` they overlap where they were put.
+    let l = tables(&[
+        ("A", 2000, 3000, 3600, false),
+        ("B", 3000, 3300, 3600, false),
+    ]);
+    let (a, b) = (at(&l, "A"), at(&l, "B"));
+    assert!(near(b, (a.0 + 50.0, a.1 + 15.0)), "{a:?} {b:?}");
+    // No room right of B: C moves left of it, onto A, then below A — never back to
+    // the right — ending under A as in the reference.
+    let l = tables(&[
+        ("A", 2000, 3000, 3600, false),
+        ("B", 5970, 3300, 3600, false),
+        ("C", 6500, 3000, 3600, true),
+    ]);
+    let (a, c) = (at(&l, "A"), at(&l, "C"));
+    assert!((c.0 - (a.0 + 0.5)).abs() < 0.6, "{a:?} {c:?}");
+    assert!(c.1 > a.1 + 30.0 && c.1 < a.1 + 60.0, "{a:?} {c:?}");
+}

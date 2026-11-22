@@ -1945,7 +1945,7 @@ fn layout_uncached(
         widow_control: props.widow_control.unwrap_or(true),
         contextual_spacing: props.contextual_spacing.unwrap_or(false),
         style: props.style.clone(),
-        shading: props.shading,
+        shading: crate::charfx::mixed_shading(props.shading, props.shading_pattern.as_ref()),
         borders: props.borders.clone(),
         indent_left,
         indent_right,

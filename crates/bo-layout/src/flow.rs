@@ -103,6 +103,7 @@ pub(crate) struct Snap {
     text_bottom: Option<f32>,
     excl: Vec<(f32, f32)>,
     sides: Vec<SideZone>,
+    float_tables: Vec<FloatTable>,
     prev: Option<Prev>,
     lists: ListCounters,
     other_lists: ListCounters,
@@ -183,6 +184,8 @@ pub(crate) struct Flow {
     excl: Vec<(f32, f32)>,
     /// Areas of square/tight-wrapped pictures on the current page (text flows beside them).
     sides: Vec<SideZone>,
+    /// Floating tables placed on the current page (§17.4.56 tblOverlap).
+    float_tables: Vec<FloatTable>,
     pub foot_cache: HashMap<NoteKey, Stack>,
     prev: Option<Prev>,
     /// Page index at which each section started on a fresh page.
@@ -522,6 +525,75 @@ pub(crate) struct SideZone {
     pub outline: Option<Outline>,
 }
 
+/// A floating table on the page (points): its box and its distances from text
+/// (§17.4.58 tblpPr), and whether it forbids overlap (§17.4.56 tblOverlap `never`).
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct FloatTable {
+    pub x0: f32,
+    pub y0: f32,
+    pub x1: f32,
+    pub y1: f32,
+    /// left, right, top, bottom distances from text.
+    pub dist: [f32; 4],
+    pub never: bool,
+}
+
+impl FloatTable {
+    /// Whether a table box at (`x`, `y`) `w` × `h` with distances `d` comes closer to
+    /// this one than both tables' distances allow.
+    fn hits(&self, x: f32, y: f32, w: f32, h: f32, d: [f32; 4]) -> bool {
+        const EPS: f32 = 0.01;
+        x - d[0] < self.x1 + self.dist[1] - EPS
+            && x + w + d[1] > self.x0 - self.dist[0] + EPS
+            && y - d[2] < self.y1 + self.dist[3] - EPS
+            && y + h + d[3] > self.y0 - self.dist[2] + EPS
+    }
+}
+
+/// Moves a floating table at (`x`, `y`) `w` × `h` (distances `d`) clear of the tables
+/// already on the page where either forbids overlap (§17.4.56 tblOverlap `never`), as
+/// the reference word processor does (measured black-box in its PDF export,
+/// docs/ui/REPORT.md "Dàn trang vòng 6"): beside the table it hits — the nearer side
+/// that stays on the page, `rightFromText` + `leftFromText` away, never back the way it
+/// came — else below it (`bottomFromText` + `topFromText`), keeping its x.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn clear_float_tables(
+    tables: &[FloatTable],
+    never: bool,
+    mut x: f32,
+    mut y: f32,
+    w: f32,
+    h: f32,
+    d: [f32; 4],
+    page_w: f32,
+) -> (f32, f32) {
+    // Direction of the last sideways move: -1 left, 1 right, 0 none since moving down.
+    let mut dir = 0i8;
+    for _ in 0..32 {
+        let Some(o) = tables
+            .iter()
+            .find(|o| (never || o.never) && o.hits(x, y, w, h, d))
+        else {
+            break;
+        };
+        let on_page = |cx: f32| cx - d[0] >= -0.01 && cx + w + d[1] <= page_w + 0.01;
+        let right = o.x1 + o.dist[1] + d[0];
+        let left = o.x0 - o.dist[0] - d[1] - w;
+        let side = [(right, 1i8), (left, -1i8)]
+            .into_iter()
+            .filter(|&(cx, s)| on_page(cx) && dir != -s)
+            .min_by(|a, b| (a.0 - x).abs().total_cmp(&(b.0 - x).abs()));
+        if let Some((cx, s)) = side {
+            x = cx;
+            dir = s;
+        } else {
+            y = o.y1 + o.dist[3] + d[2];
+            dir = 0;
+        }
+    }
+    (x, y)
+}
+
 /// Wrap polygon of a tight-wrapped picture (ECMA-376 Part 1, §20.4.2.16) with
 /// the left / right distances from text (§20.4.2.20 `distL` `distR`).
 #[derive(Debug, Clone, PartialEq)]
@@ -616,6 +688,7 @@ impl Flow {
             notice: None,
             excl: Vec::new(),
             sides: Vec::new(),
+            float_tables: Vec::new(),
             foot_cache: HashMap::new(),
             prev: None,
             section_start: vec![None; sections],
@@ -668,6 +741,7 @@ impl Flow {
                 text_bottom: self.text_bottom,
                 excl: self.excl.clone(),
                 sides: self.sides.clone(),
+                float_tables: self.float_tables.clone(),
                 prev: self.prev.clone(),
                 lists: ctx.lists.clone(),
                 other_lists: ctx.other_lists.clone(),
@@ -704,6 +778,7 @@ impl Flow {
         self.text_bottom = s.text_bottom;
         self.excl.clone_from(&s.excl);
         self.sides.clone_from(&s.sides);
+        self.float_tables.clone_from(&s.float_tables);
         self.prev.clone_from(&s.prev);
         self.cols_top = s.cols_top;
         self.cols_low = s.cols_low;
@@ -802,6 +877,7 @@ impl Flow {
         }
         self.excl.clear();
         self.sides.clear();
+        self.float_tables.clear();
         self.page_after = self.prev.as_ref().map_or(0.0, |p| p.after);
         self.prev = None;
     }
@@ -1957,6 +2033,30 @@ impl Flow {
             Some("bottom" | "outside") => vref.0 + vref.1 - h,
             _ => vref.0 + f.y.to_pt(),
         };
+        let dist = [
+            f.left_from_text.to_pt(),
+            f.right_from_text.to_pt(),
+            f.top_from_text.to_pt(),
+            f.bottom_from_text.to_pt(),
+        ];
+        let (x, y) = clear_float_tables(
+            &self.float_tables,
+            tb.overlap_never,
+            x,
+            y,
+            w,
+            h,
+            dist,
+            page_w,
+        );
+        self.float_tables.push(FloatTable {
+            x0: x,
+            y0: y,
+            x1: x + w,
+            y1: y + h,
+            dist,
+            never: tb.overlap_never,
+        });
         let mut top = y;
         for row in &tb.rows {
             let band = row_band(row, row.h, 0.0, false, false);

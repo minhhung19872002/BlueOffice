@@ -514,6 +514,61 @@ pub(crate) fn deco_items(d: &Deco, y0: f32, y1: f32, out: &mut Vec<PageItem>) {
             let x = d.x1 + pad(&e);
             out.push(rule(&e, x, y0, x, y1));
         }
+        shadow_items(b, d, y0, y1, out);
+    }
+}
+
+/// Distance across a border line as drawn (`double`: two strokes and the gap between).
+fn border_extent(b: &Border) -> f32 {
+    let w = border_width(b);
+    match b.style.as_str() {
+        "double" => 3.0 * w,
+        "thick" => 1.5 * w,
+        _ => w,
+    }
+}
+
+/// Shadow of a paragraph box (§17.18.2 CT_Border `w:shadow` on the right / bottom
+/// edge): as the reference word processor exports it, a black band as wide as the
+/// edge's line right outside it — the right one from the inner edge of the top line
+/// down past the bottom one, the bottom one from the inner edge of the left line.
+/// `w:frame` draws like a plain border there.
+fn shadow_items(b: &Borders, d: &Deco, y0: f32, y1: f32, out: &mut Vec<PageItem>) {
+    let vis = |e: &Option<Border>| e.clone().filter(Border::is_visible);
+    let (top, left) = (vis(&b.top), vis(&b.left));
+    let (right, bottom) = (
+        vis(&b.right).filter(|e| e.shadow),
+        vis(&b.bottom).filter(|e| e.shadow),
+    );
+    if right.is_none() && bottom.is_none() {
+        return;
+    }
+    // Outer edges of the drawn lines.
+    let top_in = top
+        .as_ref()
+        .map_or(y0, |e| y0 - e.space as f32 + border_extent(e) / 2.0);
+    let left_in = left
+        .as_ref()
+        .map_or(d.x0, |e| d.x0 - e.space as f32 + border_extent(e) / 2.0);
+    let right_out = vis(&b.right).map(|e| d.x1 + e.space as f32 + border_extent(&e) / 2.0);
+    let bottom_out = vis(&b.bottom).map(|e| y1 + e.space as f32 + border_extent(&e) / 2.0);
+    let rw = right.as_ref().map_or(0.0, border_extent);
+    let bw = bottom.as_ref().map_or(0.0, border_extent);
+    let shade = |x: f32, y: f32, w: f32, h: f32| PageItem::Rect {
+        x,
+        y,
+        w: w.max(0.0),
+        h: h.max(0.0),
+        color: Color::BLACK,
+        layer: Layer::Front,
+    };
+    if let (Some(_), Some(x)) = (&right, right_out) {
+        let y_end = bottom_out.unwrap_or(y1) + bw;
+        out.push(shade(x, top_in, rw, y_end - top_in));
+    }
+    if let (Some(_), Some(y)) = (&bottom, bottom_out) {
+        let x_end = right_out.unwrap_or(d.x1) + rw;
+        out.push(shade(left_in, y, x_end - left_in, bw));
     }
 }
 
@@ -662,6 +717,9 @@ pub(crate) struct CellBox {
     pub shading: Option<Color>,
     /// top, right, bottom, left (visible borders only)
     pub edges: [Option<Border>; 4],
+    /// Diagonal borders (visible only): top-left to bottom-right (§17.4.80 tl2br) and
+    /// top-right to bottom-left (§17.4.79 tr2bl).
+    pub diagonals: [Option<Border>; 2],
     pub v_align: CellVAlign,
     /// `vMerge` continuation (content drawn by the restart cell above).
     pub continued: bool,
@@ -701,6 +759,8 @@ pub(crate) struct TableBox {
     pub rows: Vec<RowBox>,
     /// Floating position (§17.4.58 tblpPr) of a table the text wraps around.
     pub float: Option<bo_model::TableFloat>,
+    /// §17.4.56 tblOverlap `never`: no other floating table may overlap this one.
+    pub overlap_never: bool,
 }
 
 /// Paragraph properties of the table's style chain (ECMA-376 Part 1, §17.7.6 table
@@ -1393,11 +1453,26 @@ pub(crate) fn layout_table(
                 content,
                 content_h,
                 margins: [ml, mr, mt, mb],
-                shading: if pl.hidden { None } else { cell.props.shading },
+                shading: if pl.hidden {
+                    None
+                } else {
+                    crate::charfx::mixed_shading(
+                        cell.props.shading,
+                        cell.props.shading_pattern.as_ref(),
+                    )
+                },
                 edges: if pl.hidden {
                     [None, None, None, None]
                 } else {
                     edges
+                },
+                diagonals: if pl.hidden || continued {
+                    [None, None]
+                } else {
+                    cell.props
+                        .diagonals
+                        .clone()
+                        .map(|d| d.filter(Border::is_visible))
                 },
                 v_align,
                 continued,
@@ -1426,6 +1501,7 @@ pub(crate) fn layout_table(
                 c.content_h = 0.0;
                 c.shading = None;
                 c.edges = [None, None, None, None];
+                c.diagonals = [None, None];
             }
             h = 0.0;
         }
@@ -1488,6 +1564,7 @@ pub(crate) fn layout_table(
         x,
         rows,
         float: t.props.float.clone(),
+        overlap_never: t.props.overlap.as_deref() == Some("never"),
     })
 }
 
@@ -1633,6 +1710,27 @@ pub(crate) fn row_band(
         }
         if let Some(b) = right {
             band.items.push(rule(b, x1, 0.0, x1, h));
+        }
+        // Diagonal borders run corner to corner across the whole (merged) cell box
+        // (§17.4.80 tl2br, §17.4.79 tr2bl); a vMerge continuation has none of its own.
+        // The reference word processor joins the inner corners of the cell's borders
+        // (measured in its PDF export: the line starts where the top and left border
+        // strokes end).
+        if c.diagonals.iter().any(Option::is_some) {
+            let half = |e: &Option<Border>| e.as_ref().map_or(0.0, |b| border_width(b) / 2.0);
+            let bottom = if c.edges[2].is_some() {
+                &c.edges[2]
+            } else {
+                &c.edges[0]
+            };
+            let (l, r) = (x0 + half(left), x1 - half(right));
+            let (t, b) = (half(top), h + c.span_below - half(bottom));
+            if let Some(d) = &c.diagonals[0] {
+                band.items.push(rule(d, l, t, r, b));
+            }
+            if let Some(d) = &c.diagonals[1] {
+                band.items.push(rule(d, r, t, l, b));
+            }
         }
         // Gridlines where a cell edge has no border (View Gridlines).
         if TABLE_GRID.with(std::cell::Cell::get) {

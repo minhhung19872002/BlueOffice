@@ -1179,13 +1179,22 @@ pub(crate) fn layout_table(
     // sits one left cell margin (§17.4.43 tblCellMar) left of it — the cell text lines up
     // with the body text, as the desktop word processor draws such files; from mode 15 on
     // it places the table edge.
+    let tb = table_borders(ctx.doc, t);
+    // From mode 15 the indent places the outer edge of the table's left border: grid line,
+    // border centre and cell text all sit half that border's width further right (measured
+    // on the reference's PDFs, office-09 / office-36: a 0.5 pt left border spans 85.1–85.58
+    // pt from an 85.05 pt margin, cell text 0.24 pt right of grid + cell margin).
+    let half_left = tb
+        .left
+        .as_ref()
+        .filter(|b| !matches!(b.style.as_str(), "nil" | "none"))
+        .map_or(0.0, |b| b.size as f32 / 16.0);
     let x = match t.props.align {
         Some(bo_model::Alignment::Center) => (avail - total) / 2.0,
         Some(bo_model::Alignment::Right) => avail - total,
         _ if !ctx.doc.modern_layout() => indent - ml,
-        _ => indent,
+        _ => indent + half_left,
     };
-    let tb = table_borders(ctx.doc, t);
     let table_ppr = table_style_ppr(ctx.doc, t);
     let (cell_top, cell_bottom) = t
         .props

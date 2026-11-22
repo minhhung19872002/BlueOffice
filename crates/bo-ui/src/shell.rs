@@ -110,6 +110,9 @@ pub enum Request {
     /// Store the Design tab's theme, style set and effects as the defaults of new documents
     /// (Design › Set as Default; [`DocWindow::design_defaults`]).
     SaveDefaults,
+    /// Store the user's building blocks file (`.dotx`, base64; round 12) and load it again
+    /// with [`DocWindow::load_block_store`] in later sessions.
+    SaveBlockStore(String),
     /// Open this file in a new window (File › Open / Home recent list).
     OpenPath(String),
     /// New document from one of BlueOffice's own templates (new window; the host calls

@@ -198,3 +198,58 @@ fn quick_tables_gallery_inserts_a_design() {
         .count();
     assert_eq!(tables, 1, "the design is in the document");
 }
+
+// source: the reference's Quick Tables › Save Selection to Quick Tables Gallery… opens Create
+// New Building Block (Name, Gallery: Tables, Category: General, Description, Save in,
+// Options); the saved table shows under "General" in the gallery, also in a later session.
+#[test]
+fn save_selection_to_quick_tables_round_trip() {
+    let mut w = window();
+    w.view
+        .run_command(Command::InsertTable { rows: 2, cols: 2 });
+    w.view.run_command(Command::InsertText {
+        text: "Mẫu".into()
+    });
+    assert!(w.action("table.select.table"));
+    assert!(w.r12_open_quick([100.0, 200.0, 280.0, 36.0]));
+    let q = w.r12.quick.as_ref().expect("gallery");
+    assert!(q.footer_on, "a selection to save");
+    // The footer (38 px at the panel's foot, 676 px high at 125 %).
+    let (x, y) = (480.0, 200.0 + 676.0 - 19.0);
+    w.handle(
+        Input::Press {
+            x,
+            y,
+            count: 1,
+            shift: false,
+        },
+        &Fixed,
+    );
+    let f = w.r3.form.as_mut().expect("Create New Building Block");
+    assert_eq!(f.kind, DocFormKind::NewBlock);
+    assert_eq!(f.text("gallery"), "Tables");
+    assert_eq!(f.text("category"), "General");
+    f.set_text("name", "Bảng mẫu của tôi");
+    let out = f.input(&Input::Key(Key::Enter, Mods::default()));
+    w.form_out(out);
+    let file = w
+        .requests
+        .iter()
+        .find_map(|r| match r {
+            super::super::Request::SaveBlockStore(f) => Some(f.clone()),
+            _ => None,
+        })
+        .expect("the host is asked to store the file");
+    // A later session loads the file: the block is under General.
+    let mut w2 = window();
+    assert!(w2.load_block_store(&file));
+    assert!(w2.r12_open_quick([100.0, 200.0, 280.0, 36.0]));
+    let q = w2.r12.quick.as_ref().expect("gallery");
+    let mine: Vec<&str> = q
+        .entries
+        .iter()
+        .filter(|e| e.user)
+        .map(|e| e.name.as_str())
+        .collect();
+    assert_eq!(mine, ["Bảng mẫu của tôi"]);
+}

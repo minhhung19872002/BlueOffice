@@ -133,6 +133,11 @@ pub fn run() -> Result<(), String> {
     if let Some(t) = &template {
         view.apply_template(t);
     }
+    // The user's saved building blocks (Quick Tables › Save Selection…).
+    if let Some(bytes) = blocks_path().and_then(|p| std::fs::read(p).ok()) {
+        use base64::Engine as _;
+        view.load_block_store(&base64::engine::general_purpose::STANDARD.encode(bytes));
+    }
     // Sizes in the region's unit and decimal separator, as the reference shows them
     // (iMeasure 1: US system, inches). BLUEOFFICE_UNITS=cm|in overrides.
     let inches = match std::env::var("BLUEOFFICE_UNITS").as_deref() {
@@ -462,6 +467,19 @@ impl Shell {
                 }
             }
             // Design › Set as Default: kept for new documents.
+            // Round 12: the user's building blocks file (Quick Tables › Save Selection…).
+            Request::SaveBlockStore(b64) => {
+                use base64::Engine as _;
+                if let (Some(path), Ok(bytes)) = (
+                    blocks_path(),
+                    base64::engine::general_purpose::STANDARD.decode(b64),
+                ) {
+                    if let Some(dir) = path.parent() {
+                        let _ = std::fs::create_dir_all(dir);
+                    }
+                    let _ = std::fs::write(path, bytes);
+                }
+            }
             Request::SaveDefaults => {
                 if let (Some(path), Some(v)) = (defaults_path(), self.view.design_defaults()) {
                     if let Some(dir) = path.parent() {
@@ -625,7 +643,8 @@ impl Shell {
                 }
                 r @ (Request::PickCompareFile
                 | Request::OpenNewDocument
-                | Request::SaveDefaults) => redraw |= self.round3_request(&r),
+                | Request::SaveDefaults
+                | Request::SaveBlockStore(_)) => redraw |= self.round3_request(&r),
                 other => self.pending.push(other),
             }
         }
@@ -657,6 +676,18 @@ impl Shell {
 }
 
 /// Where Design › Set as Default keeps the defaults of new documents.
+/// The user's building blocks file (round 12); `BLUEOFFICE_BLOCKS` names another one.
+fn blocks_path() -> Option<std::path::PathBuf> {
+    if let Some(p) = std::env::var_os("BLUEOFFICE_BLOCKS") {
+        return Some(std::path::PathBuf::from(p));
+    }
+    std::env::var_os("APPDATA").map(|d| {
+        std::path::PathBuf::from(d)
+            .join("BlueOffice")
+            .join("bluedoc-blocks.dotx")
+    })
+}
+
 fn defaults_path() -> Option<std::path::PathBuf> {
     std::env::var_os("APPDATA").map(|d| {
         std::path::PathBuf::from(d)

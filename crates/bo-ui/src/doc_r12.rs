@@ -99,6 +99,9 @@ impl DocWindow {
     /// A round-12 command; `None` when `id` is not one.
     #[inline(never)]
     pub(super) fn r12_action(&mut self, id: &str) -> Option<bool> {
+        if let Some(spec) = id.strip_prefix("blocks12.save:") {
+            return Some(self.r12_save_block(spec));
+        }
         if let Some(rest) = id.strip_prefix("style12.") {
             return Some(self.r12_style_command(rest));
         }
@@ -111,6 +114,7 @@ impl DocWindow {
                 Some(self.r12_open(DocFormKind::BordersShading))
             }
             "table.positioning" => Some(self.r12_open(DocFormKind::TablePosition)),
+            "insert.saveQuickTable" => Some(self.r12_open(DocFormKind::NewBlock)),
             // Insert › Table › Quick Tables, beside the Insert Table button (scripted captures).
             "insert.quickTables" => {
                 let r = self
@@ -131,11 +135,54 @@ impl DocWindow {
                 "doc12.saveQuick",
                 "Save Selection to Quick Tables Gallery...",
             ),
+            self.t("doc12.general", "General"),
         ];
+        // The user's saved Quick Tables (the building blocks file in the user's profile).
+        let user: Vec<crate::doc_quick12::QuickEntry> = self
+            .view
+            .run_json(&json!({ "cmd": "buildingBlocks" }))
+            .and_then(|v| v["blocks"]["list"].as_array().cloned())
+            .unwrap_or_default()
+            .iter()
+            .filter(|b| b["store"] == "user" && b["gallery"] == "tbls")
+            .map(|b| crate::doc_quick12::QuickEntry {
+                key: b["key"].as_str().unwrap_or("").to_owned(),
+                name: b["name"].as_str().unwrap_or("").to_owned(),
+                title: None,
+                table: None,
+                text: b["text"].as_str().unwrap_or("").to_owned(),
+                user: true,
+            })
+            .collect();
+        let footer_on = self.view.has_selection();
         self.r12.quick = Some(Box::new(crate::doc_quick12::QuickTables::open(
-            anchor, self.size, labels, self.scale,
+            anchor, self.size, labels, self.scale, user, footer_on,
         )));
         true
+    }
+
+    /// Create New Building Block OK: save the selection in the user's building blocks file
+    /// (`spec` as JSON) and ask the host to store the file.
+    fn r12_save_block(&mut self, spec: &str) -> bool {
+        let Ok(spec) = serde_json::from_str::<Value>(spec) else {
+            return false;
+        };
+        let out = self.view.run_json(&json!({
+            "cmd": "saveBuildingBlock", "spec": spec, "store": "user",
+        }));
+        if let Some(file) = out.as_ref().and_then(|v| v["blocks"]["store"].as_str()) {
+            self.requests
+                .push(super::Request::SaveBlockStore(file.to_owned()));
+            return true;
+        }
+        false
+    }
+
+    /// Load the user's building blocks file (`.dotx`, base64) kept by the host.
+    pub fn load_block_store(&mut self, base64: &str) -> bool {
+        self.view
+            .run_json(&json!({ "cmd": "loadBlockStore", "file": base64 }))
+            .is_some()
     }
 
     /// Input while the Quick Tables gallery is open; `None` lets it through.
@@ -148,6 +195,10 @@ impl DocWindow {
             Input::Wheel(d) => q.wheel(d),
             Input::Press { x, y, .. } => match q.press(x, y) {
                 Some(key) if key.is_empty() => true,
+                Some(key) if key == "save" => {
+                    self.r12.quick = None;
+                    self.r12_open(DocFormKind::NewBlock)
+                }
                 Some(key) => {
                     self.r12.quick = None;
                     self.activate_context = true;

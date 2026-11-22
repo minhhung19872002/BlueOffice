@@ -31,7 +31,12 @@ pub(crate) struct QuickEntry {
     pub(crate) name: String,
     /// The text above the table (a calendar's month), if any.
     pub(crate) title: Option<String>,
-    pub(crate) table: Table,
+    /// The table (built-in designs); a saved block shows its text instead.
+    pub(crate) table: Option<Table>,
+    /// Summary of a saved block's text.
+    pub(crate) text: String,
+    /// Saved by the user (shown under "General").
+    pub(crate) user: bool,
 }
 
 /// The built-in Quick Tables of the library, in gallery order.
@@ -53,7 +58,9 @@ pub(crate) fn entries() -> Vec<QuickEntry> {
                 key: format!("builtin:{i}"),
                 name: p.props.name,
                 title,
-                table,
+                table: Some(table),
+                text: String::new(),
+                user: false,
             })
         })
         .collect()
@@ -65,8 +72,10 @@ pub(crate) struct QuickTables {
     y: f32,
     scale: f32,
     pub(crate) entries: Vec<QuickEntry>,
-    /// Labels: the band ("Built-In") and the footer command.
-    labels: [String; 2],
+    /// Labels: the band ("Built-In"), the footer command and the user's band ("General").
+    labels: [String; 3],
+    /// The footer command is available (a selection to save).
+    pub(crate) footer_on: bool,
     /// First pixel of the list shown (reference pixels).
     scroll: f32,
     hover: Option<usize>,
@@ -77,8 +86,10 @@ impl QuickTables {
     pub(crate) fn open(
         anchor: [f32; 4],
         size: (f32, f32),
-        labels: [String; 2],
+        labels: [String; 3],
         scale: f32,
+        user: Vec<QuickEntry>,
+        footer_on: bool,
     ) -> Self {
         let k = scale / 1.25;
         let (w, h) = (W * k, H * k);
@@ -91,8 +102,9 @@ impl QuickTables {
             x,
             y,
             scale,
-            entries: entries(),
+            entries: entries().into_iter().chain(user).collect(),
             labels,
+            footer_on,
             scroll: 0.0,
             hover: None,
         }
@@ -111,8 +123,23 @@ impl QuickTables {
         H - BAND - FOOT
     }
 
+    /// Top of each entry in the list (reference pixels; the first saved block has the
+    /// "General" band above it) and the list's height.
+    fn tops(&self) -> (Vec<f32>, f32) {
+        let mut y = 0.0;
+        let mut out = Vec::with_capacity(self.entries.len());
+        for (i, e) in self.entries.iter().enumerate() {
+            if e.user && (i == 0 || !self.entries[i - 1].user) {
+                y += BAND;
+            }
+            out.push(y);
+            y += NAME + PICTURE;
+        }
+        (out, y)
+    }
+
     fn content_h(&self) -> f32 {
-        self.entries.len() as f32 * (NAME + PICTURE)
+        self.tops().1
     }
 
     /// The panel contains device point (x, y).
@@ -126,8 +153,10 @@ impl QuickTables {
         if !(0.0..W - BAR).contains(&lx) || !(BAND..H - FOOT).contains(&ly) {
             return None;
         }
-        let i = ((ly - BAND + self.scroll) / (NAME + PICTURE)).floor() as usize;
-        (i < self.entries.len()).then_some(i)
+        let at = ly - BAND + self.scroll;
+        let (tops, _) = self.tops();
+        tops.iter()
+            .position(|t| at >= *t && at < t + NAME + PICTURE)
     }
 
     pub(crate) fn hover(&mut self, x: f32, y: f32) -> bool {
@@ -159,6 +188,13 @@ impl QuickTables {
                 -page / 60.0
             });
             return Some(String::new());
+        }
+        if ly >= H - FOOT {
+            return Some(if self.footer_on {
+                "save".to_owned()
+            } else {
+                String::new()
+            });
         }
         Some(
             self.entry_at(x, y)
@@ -201,8 +237,21 @@ impl QuickTables {
         let top = y + band;
         let list = self.px(self.list_h());
         p.push_clip(x + 1.0, top, w - self.px(BAR) - 1.0, list);
+        let (tops, _) = self.tops();
         for (i, e) in self.entries.iter().enumerate() {
-            let ey = top + self.px(i as f32 * (NAME + PICTURE) - self.scroll);
+            let ey = top + self.px(tops[i] - self.scroll);
+            if e.user && (i == 0 || !self.entries[i - 1].user) {
+                // The user's section band.
+                let by = ey - self.px(BAND);
+                p.fill_rect(x + 1.0, by, w - self.px(BAR) - 2.0, self.px(BAND), BAND_BG);
+                p.text(
+                    &self.labels[2],
+                    x + self.px(12.0),
+                    (by + (self.px(BAND) - line_h) / 2.0).round(),
+                    bold,
+                    NAME_INK,
+                );
+            }
             if ey > top + list || ey + self.px(NAME + PICTURE) < top {
                 continue;
             }
@@ -226,7 +275,23 @@ impl QuickTables {
                 self.px(PICTURE - 8.0),
             ];
             p.fill_rect(pic[0], pic[1], pic[2], pic[3], WHITE);
-            self.paint_table(p, e, pic);
+            p.push_clip(pic[0], pic[1], pic[2], pic[3]);
+            if e.table.is_some() {
+                self.paint_table(p, e, pic);
+            } else {
+                let st = TextStyle {
+                    size: self.px(12.0),
+                    bold: false,
+                };
+                p.text(
+                    &e.text,
+                    pic[0] + self.px(8.0),
+                    pic[1] + self.px(8.0),
+                    st,
+                    INK,
+                );
+            }
+            p.pop_clip();
         }
         p.pop_clip();
         // Scroll bar.
@@ -245,7 +310,7 @@ impl QuickTables {
             th,
             Rgba(0xc2, 0xc3, 0xc9, 255),
         );
-        // Footer: save the selection (not available yet).
+        // Footer: save the selection as a Quick Table (with a selection).
         let fy = y + h - self.px(FOOT);
         p.fill_rect(x + 1.0, fy, w - 2.0, 1.0, EDGE);
         let st = TextStyle {
@@ -257,7 +322,7 @@ impl QuickTables {
             x + self.px(44.0),
             (fy + (self.px(FOOT) - st.size * 1.33) / 2.0).round(),
             st,
-            DIM,
+            if self.footer_on { INK } else { DIM },
         );
         let ix = x + self.px(12.0);
         let iy = fy + self.px(11.0);
@@ -281,7 +346,9 @@ impl QuickTables {
 
     /// The table in `r`: columns scaled to fit, rows 21 px, fills, lines and each cell's text.
     fn paint_table(&self, p: &mut dyn Painter, e: &QuickEntry, r: [f32; 4]) {
-        let t = &e.table;
+        let Some(t) = &e.table else {
+            return;
+        };
         let mut y = r[1] + self.px(6.0);
         if let Some(title) = &e.title {
             let st = TextStyle {

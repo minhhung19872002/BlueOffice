@@ -93,6 +93,9 @@ pub(crate) struct Bs {
     space: [u32; 4],
     /// The selection spans paragraphs (the line between them is offered).
     multi_para: bool,
+    /// The selection covers several cells (one cell is set like a paragraph, as the
+    /// reference: Shadow / 3-D and its four edges).
+    multi_cell: bool,
 }
 
 fn style_index(s: &str) -> usize {
@@ -146,13 +149,12 @@ fn setting_of(e: &[Option<Line>; EDGES], table: bool) -> usize {
     4
 }
 
-/// The reference's settings for the scope: paragraphs and text have Shadow / 3-D, cells and
-/// tables All / Grid.
-fn tabular(scope: &str) -> bool {
-    matches!(scope, "cell" | "table")
-}
-
 impl DocForm {
+    /// The scope has the table settings (All / Grid and inside lines).
+    fn bs_tabular(&self, scope: &str) -> bool {
+        scope == "table" || (scope == "cell" && self.bs().multi_cell)
+    }
+
     fn bs(&self) -> &Bs {
         static EMPTY: std::sync::OnceLock<Bs> = std::sync::OnceLock::new();
         self.bs
@@ -187,7 +189,7 @@ impl DocForm {
     /// Edges of setting `s` with the pen (None, Box, Shadow / All, 3-D / Grid; Custom keeps).
     fn bs_preset(&mut self, tab: usize, s: usize) {
         let pen = self.bs_pen(tab);
-        let grid = tab == 0 && tabular(self.bs_scope());
+        let grid = tab == 0 && self.bs_tabular(self.bs_scope());
         let thin = Line {
             style: 0,
             size: 4,
@@ -251,7 +253,8 @@ impl DocForm {
             "paragraph" if self.bs().multi_para => vec![0, 4, 2, 1, 3],
             "paragraph" => vec![0, 2, 1, 3],
             // Diagonals for cells (the selected cells' tl2br / tr2bl).
-            "cell" => vec![0, 4, 2, 1, 5, 3, 7, 6],
+            "cell" if self.bs().multi_cell => vec![0, 4, 2, 1, 5, 3, 7, 6],
+            "cell" => vec![0, 2, 1, 3, 7, 6],
             _ => vec![0, 4, 2, 1, 5, 3],
         }
     }
@@ -407,6 +410,10 @@ impl DocForm {
                 self.form.enable("sColor", solid);
                 self.form.enable("sColorL", solid);
             }
+            (DocFormKind::NewBlock, "name") => {
+                let ok = !self.text("name").trim().is_empty();
+                self.form.enable("ok", ok);
+            }
             (DocFormKind::TablePosition, "hPick") => {
                 let v = self.text("hPick");
                 self.form.set_text("hPos", &v);
@@ -440,8 +447,28 @@ impl DocForm {
     pub(super) fn r12_ok(&mut self) -> FormOut {
         match self.kind {
             DocFormKind::TablePosition => self.position_ok(),
+            DocFormKind::NewBlock => self.new_block_ok(),
             _ => self.bs_ok(),
         }
+    }
+
+    /// Create New Building Block OK: `saveBuildingBlock` in the user's file (through the
+    /// window, which stores the file).
+    fn new_block_ok(&self) -> FormOut {
+        let name = self.text("name");
+        if name.trim().is_empty() {
+            return FormOut::Redraw;
+        }
+        let gallery = NEW_BLOCK_GALLERIES[self.sel("gallery").unwrap_or(0).min(6)].0;
+        let behavior = ["content", "p", "pg"][self.sel("options").unwrap_or(1).min(2)];
+        let spec = json!({
+            "name": name.trim(), "gallery": gallery, "category": self.text("category"),
+            "description": self.text("desc"), "behavior": behavior,
+        });
+        FormOut::Run(
+            vec![json!({ "cmd": "ui.action", "id": format!("blocks12.save:{spec}") })],
+            true,
+        )
     }
 
     fn position_ok(&self) -> FormOut {
@@ -633,7 +660,7 @@ impl DocForm {
 pub(super) fn handles(kind: DocFormKind) -> bool {
     matches!(
         kind,
-        DocFormKind::TablePosition | DocFormKind::BordersShading
+        DocFormKind::TablePosition | DocFormKind::BordersShading | DocFormKind::NewBlock
     )
 }
 
@@ -641,6 +668,7 @@ pub(super) fn handles(kind: DocFormKind) -> bool {
 pub(super) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
     match kind {
         DocFormKind::TablePosition => open_position(s, c),
+        DocFormKind::NewBlock => open_new_block(s, c),
         _ => open_borders(s, c),
     }
 }
@@ -663,6 +691,94 @@ fn edit_combo(
         super::Kind::Combo { items, sel: 0 },
     );
     f.form.drop_spans.push((list, r[0], r[2]));
+}
+
+/// Galleries a new building block can go to (§17.18.15 ST_DocPartGallery) and their names.
+const NEW_BLOCK_GALLERIES: [(&str, &str, &str); 7] = [
+    ("tbls", "doc12.galTables", "Tables"),
+    ("docParts", "doc12.galQuickParts", "Quick Parts"),
+    ("autoTxt", "doc12.galAutoText", "AutoText"),
+    ("coverPg", "doc12.galCover", "Cover Pages"),
+    ("hdrs", "doc12.galHeaders", "Headers"),
+    ("ftrs", "doc12.galFooters", "Footers"),
+    ("txtBox", "doc12.galTextBoxes", "Text Boxes"),
+];
+
+/// Create New Building Block, measured on the reference at 125 %: 409 × 317 (name, gallery,
+/// category, description, save in, options; OK grey until a name is typed).
+fn open_new_block(s: &Strings, c: &FormContext) -> DocForm {
+    let tr = |k: &str, f: &str| t(s, k, f);
+    let mut f = DocForm::new(
+        DocFormKind::NewBlock,
+        &tr("doc12.newBlockTitle", "Create New Building Block"),
+        (409.0, 317.0),
+        vec![],
+    );
+    let rows: [(&'static str, &str, &str, f32); 6] = [
+        ("nameL", "doc12.nameC", "Name:", 47.0),
+        ("galleryL", "doc12.galleryC", "Gallery:", 78.0),
+        ("categoryL", "doc12.categoryC", "Category:", 110.0),
+        ("descL", "doc12.descriptionC", "Description:", 141.0),
+        ("saveL", "doc12.saveInC", "Save in:", 203.0),
+        ("optionsL", "doc12.optionsC", "Options:", 234.0),
+    ];
+    for (id, k, fb, y) in rows {
+        f.label(id, [10.0, y + 4.0, 82.0, 18.0], &tr(k, fb));
+    }
+    // A name from the selection's first words, as the reference suggests one.
+    let name: String = c
+        .selection
+        .split_whitespace()
+        .take(4)
+        .collect::<Vec<_>>()
+        .join(" ");
+    f.edit("name", [93.0, 47.0, 306.0, 26.0], &name);
+    f.combo(
+        "gallery",
+        [93.0, 78.0, 306.0, 26.0],
+        NEW_BLOCK_GALLERIES
+            .iter()
+            .map(|(_, k, fb)| tr(k, fb))
+            .collect(),
+        0,
+    );
+    f.combo(
+        "category",
+        [93.0, 110.0, 306.0, 26.0],
+        vec![tr("doc12.general", "General")],
+        0,
+    );
+    f.edit("desc", [93.0, 141.0, 306.0, 56.0], "");
+    f.combo(
+        "saveIn",
+        [93.0, 203.0, 306.0, 26.0],
+        vec![tr("doc12.userBlocks", "BlueOffice Building Blocks.dotx")],
+        0,
+    );
+    f.combo(
+        "options",
+        [93.0, 234.0, 306.0, 26.0],
+        vec![
+            tr("doc12.insContent", "Insert content only"),
+            tr("doc12.insParagraph", "Insert content in its own paragraph"),
+            tr("doc12.insPage", "Insert content in its own page"),
+        ],
+        1,
+    );
+    f.button(
+        "ok",
+        [161.0, 277.0, 112.0, 29.0],
+        &tr("common.ok", "OK"),
+        true,
+    );
+    f.button(
+        "cancel",
+        [287.0, 277.0, 112.0, 29.0],
+        &tr("common.cancel", "Cancel"),
+        false,
+    );
+    f.form.enable("ok", !name.is_empty());
+    f
 }
 
 /// Table Positioning, measured on the reference at 125 %: 340 × 449.
@@ -924,6 +1040,7 @@ fn open_borders(s: &Strings, c: &FormContext) -> DocForm {
         scopes: scopes.clone(),
         space: [1, 4, 1, 4],
         multi_para: x["multiPara"].as_bool().unwrap_or(false),
+        multi_cell: x["multiCell"].as_bool().unwrap_or(false),
         ..Bs::default()
     };
     // Current borders of the scope shown first.
@@ -953,7 +1070,11 @@ fn open_borders(s: &Strings, c: &FormContext) -> DocForm {
     }
     bs.setting[0] = setting_of(
         &bs.edges[0],
-        tabular(scopes.get(first).copied().unwrap_or("")),
+        match scopes.get(first).copied().unwrap_or("") {
+            "table" => true,
+            "cell" => x["multiCell"].as_bool().unwrap_or(false),
+            _ => false,
+        },
     );
     let pb = &x["pageBorders"];
     let mut page_words = Vec::new();
@@ -1486,8 +1607,8 @@ pub(super) fn paint_canvas(
             icon[3] - 2.0 * inset,
             if on { SEL_FILL } else { WHITE },
         );
-        paint_setting_icon(p, icon, n, tabular(scope), k);
-        let name = match (n, tabular(scope)) {
+        paint_setting_icon(p, icon, n, f.bs_tabular(scope), k);
+        let name = match (n, f.bs_tabular(scope)) {
             (0, _) => word(f, "name0"),
             (1, _) => word(f, "name1"),
             (2, false) => word(f, "name2"),
@@ -1600,7 +1721,7 @@ pub(super) fn paint_canvas(
         let m = (20.0 * k).round();
         let (bx, by, bw, bh) = (d[0] + m, d[1] + m, d[2] - 2.0 * m, d[3] - 2.0 * m);
         // Content: text lines (paragraph / page / text) or a 2 × 2 table.
-        if tabular(scope) {
+        if f.bs_tabular(scope) {
             for row in 0..2 {
                 for col in 0..2 {
                     let cx = bx + col as f32 * bw / 2.0 + 6.0 * k;
@@ -1696,7 +1817,7 @@ pub(super) fn paint_canvas(
             }
         }
         // Shadow (paragraph Shadow / page Shadow setting).
-        if f.bs().setting[tab] == 2 && !tabular(scope) && edges.iter().any(Option::is_some) {
+        if f.bs().setting[tab] == 2 && !f.bs_tabular(scope) && edges.iter().any(Option::is_some) {
             let s = (4.0 * k).round();
             p.fill_rect(bx + s, by + bh, bw, s, Rgba(0x80, 0x80, 0x80, 255));
             p.fill_rect(bx + bw, by + s, s, bh, Rgba(0x80, 0x80, 0x80, 255));

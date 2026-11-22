@@ -114,6 +114,8 @@ pub(crate) enum DocFormKind {
     TablePosition,
     /// Borders and Shading with its Borders, Page Border and Shading tabs (round 12).
     BordersShading,
+    /// Create New Building Block (Quick Tables › Save Selection…, round 12).
+    NewBlock,
 }
 
 /// What the owner does after an input.
@@ -1183,7 +1185,9 @@ impl DocForm {
             DocFormKind::TableProps => self.tp_ok(),
             DocFormKind::TableOptions => self.options_ok(),
             DocFormKind::InsertTable => self.insert_table_ok(),
-            DocFormKind::TablePosition | DocFormKind::BordersShading => self.r12_ok(),
+            DocFormKind::TablePosition | DocFormKind::BordersShading | DocFormKind::NewBlock => {
+                self.r12_ok()
+            }
             DocFormKind::Zoom => {
                 let pct = match self.chosen("zoom") {
                     Some("z200") => "200".to_owned(),
@@ -3135,7 +3139,9 @@ pub(crate) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
         DocFormKind::TableProps => tprops11::open(s, c),
         DocFormKind::TableOptions => tprops11::open_options(s, c),
         DocFormKind::InsertTable => tprops11::open_insert(s),
-        DocFormKind::TablePosition | DocFormKind::BordersShading => r12::open(kind, s, c),
+        DocFormKind::TablePosition | DocFormKind::BordersShading | DocFormKind::NewBlock => {
+            r12::open(kind, s, c)
+        }
         DocFormKind::Zoom => {
             let mut f = DocForm::new(kind, &tr("docR4.zoomTitle", "Zoom"), (381.0, 258.0), vec![]);
             f.label(

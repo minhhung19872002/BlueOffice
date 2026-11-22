@@ -645,6 +645,8 @@ export type ParaFormat =
     } & BorderEdges)
   /** §17.3.1.35 suppressLineNumbers / §17.3.1.34 suppressAutoHyphens. */
   | { kind: 'suppressLineNumbers' | 'suppressAutoHyphens'; on: boolean }
+  /** Several paragraph properties at once (Paragraph dialog, round 13; FindFormat fields). */
+  | { kind: 'props'; format: Record<string, string | number | boolean> }
   | { kind: 'style'; id: string };
 
 export type Motion =

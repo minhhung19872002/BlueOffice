@@ -239,10 +239,98 @@ pub fn mixed_shading(
     })
 }
 
+/// Screen tile of a §17.18.78 shading pattern (see [`crate::ShadePattern`]): rows of
+/// the 8 × 8 device-pixel brush the reference word processor paints on screen, read
+/// from its window at 100 % and 200 % zoom (125 % display scale; the tile does not scale
+/// with zoom and is anchored to the page). Several percentages share one dither
+/// (pct10 / 12 / 15, pct35 / 37, pct40 / 45, pct50 / 55, pct60 / 62 / 65, pct85 / 87,
+/// pct90 / 95). Measured black-box, docs/ui/REPORT.md "Dàn trang vòng 7".
+fn pattern_tile(val: &str) -> Option<[u8; 8]> {
+    Some(match val {
+        "pct5" => [0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x40, 0x00],
+        "pct10" | "pct12" | "pct15" => [0x40, 0x00, 0x04, 0x00, 0x40, 0x00, 0x04, 0x00],
+        "pct20" => [0x11, 0x00, 0x44, 0x00, 0x11, 0x00, 0x44, 0x00],
+        "pct25" => [0x44, 0x11, 0x44, 0x11, 0x44, 0x11, 0x44, 0x11],
+        "pct30" => [0x55, 0x88, 0x55, 0x22, 0x55, 0x88, 0x55, 0x22],
+        "pct35" | "pct37" => [0x55, 0x88, 0x55, 0xAA, 0x55, 0x88, 0x55, 0xAA],
+        "pct40" | "pct45" => [0x55, 0xA8, 0x55, 0xAA, 0x55, 0x8A, 0x55, 0xAA],
+        "pct50" | "pct55" => [0x55, 0xAA, 0x55, 0xAA, 0x55, 0xAA, 0x55, 0xAA],
+        "pct60" | "pct62" | "pct65" => [0xDD, 0xAA, 0x77, 0xAA, 0xDD, 0xAA, 0x77, 0xAA],
+        "pct70" => [0xBB, 0xEE, 0xBB, 0xEE, 0xBB, 0xEE, 0xBB, 0xEE],
+        "pct75" => [0xEE, 0xFF, 0xBB, 0xFF, 0xEE, 0xFF, 0xBB, 0xFF],
+        "pct80" => [0xF7, 0xFF, 0x7F, 0xFF, 0xF7, 0xFF, 0x7F, 0xFF],
+        "pct85" | "pct87" => [0xEF, 0xFF, 0xFB, 0xFF, 0xFE, 0xFF, 0xBF, 0xFF],
+        "pct90" | "pct95" => [0xFF, 0xFB, 0xFF, 0xFF, 0xFF, 0xBF, 0xFF, 0xFF],
+        "horzStripe" => [0x00, 0x00, 0xFF, 0xFF, 0x00, 0x00, 0xFF, 0xFF],
+        "vertStripe" => [0x66; 8],
+        "reverseDiagStripe" => [0x99, 0xCC, 0x66, 0x33, 0x99, 0xCC, 0x66, 0x33],
+        "diagStripe" => [0x66, 0xCC, 0x99, 0x33, 0x66, 0xCC, 0x99, 0x33],
+        "horzCross" => [0x33, 0xCC, 0xCC, 0x33, 0x33, 0xCC, 0xCC, 0x33],
+        "diagCross" => [0xFF, 0xCC, 0xFF, 0x33, 0xFF, 0xCC, 0xFF, 0x33],
+        "thinHorzStripe" => [0x00, 0x00, 0xFF, 0x00, 0x00, 0x00, 0xFF, 0x00],
+        "thinVertStripe" => [0x44; 8],
+        "thinReverseDiagStripe" => [0x11, 0x88, 0x44, 0x22, 0x11, 0x88, 0x44, 0x22],
+        "thinDiagStripe" => [0x22, 0x44, 0x88, 0x11, 0x22, 0x44, 0x88, 0x11],
+        "thinHorzCross" => [0x44, 0x44, 0xFF, 0x44, 0x44, 0x44, 0xFF, 0x44],
+        "thinDiagCross" => [0x11, 0xAA, 0x44, 0xAA, 0x11, 0xAA, 0x44, 0xAA],
+        _ => return None,
+    })
+}
+
+/// Screen pattern of a fill and a §17.18.78 pattern (runs §17.3.2.32, paragraphs
+/// §17.3.1.31, cells §17.4.32). `None` when the screen shows a flat colour: no pattern,
+/// `clear` / `solid`, or a percentage pattern whose colour and fill are both auto — the
+/// reference word processor draws those as the grey of the mix ([`mixed_shading`]).
+#[must_use]
+pub fn shade_pattern(
+    fill: Option<Color>,
+    pat: Option<&bo_model::run_fx::ShadingPattern>,
+) -> Option<crate::ShadePattern> {
+    let pat = pat?;
+    let tile = pattern_tile(&pat.val)?;
+    if pat.val.starts_with("pct") && fill.is_none() && pat.color.is_none() {
+        return None;
+    }
+    Some(crate::ShadePattern {
+        tile,
+        fg: pat.color.unwrap_or(Color::BLACK),
+        bg: fill.unwrap_or(Color::WHITE),
+    })
+}
+
+/// Screen pattern of a run's character shading (see [`shade_pattern`]).
+#[must_use]
+pub fn run_shade_pattern(rp: &RunProps) -> Option<crate::ShadePattern> {
+    if rp.highlight.is_some() {
+        return None;
+    }
+    shade_pattern(rp.shading, rp.shading_pattern.as_ref())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use bo_model::run_fx::{ShadingPattern, TextGlow, TextShadow};
+
+    #[test]
+    fn screen_patterns_follow_the_reference() {
+        let pat = |val: &str, color: Option<Color>| ShadingPattern {
+            val: val.into(),
+            color,
+        };
+        // Auto colour on an auto fill: percentages are a flat grey, stripes stay.
+        assert_eq!(shade_pattern(None, Some(&pat("pct25", None))), None);
+        let s = shade_pattern(None, Some(&pat("horzStripe", None))).expect("stripe");
+        assert_eq!((s.fg, s.bg), (Color::BLACK, Color::WHITE));
+        assert_eq!(s.tile[2], 0xFF);
+        // A coloured percentage pattern is a dither; 50 % is a checkerboard.
+        let red = Color { r: 255, g: 0, b: 0 };
+        let s = shade_pattern(None, Some(&pat("pct50", Some(red)))).expect("pct50");
+        assert_eq!((s.fg, s.tile[0], s.tile[1]), (red, 0x55, 0xAA));
+        assert_eq!(shade_pattern(Some(red), Some(&pat("solid", None))), None);
+        assert_eq!(shade_pattern(Some(red), Some(&pat("clear", None))), None);
+        assert_eq!(shade_pattern(Some(red), None), None);
+    }
 
     #[test]
     fn plain_runs_have_no_effects() {

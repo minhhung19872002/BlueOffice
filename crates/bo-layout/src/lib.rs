@@ -52,7 +52,7 @@ pub use sigline::signature_line_page;
 pub use style::{author_color, para_props, ListCounters};
 pub use types::{
     stacked, Carets, Fragment, GlyphPos, Layer, LayoutDocument, Line, LineRotation, LineSource,
-    NoteKey, Page, PageDecor, PageItem, PathCmd, ShapePath, SharedStr,
+    NoteKey, Page, PageDecor, PageItem, PathCmd, ShadePattern, ShapePath, SharedStr,
 };
 
 use bo_model::change::BlockChanges;

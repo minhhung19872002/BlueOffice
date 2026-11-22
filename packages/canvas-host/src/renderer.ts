@@ -299,6 +299,9 @@ function drawCommand(
       ctx.fillStyle = rgba(cmd.color);
       ctx.fillRect(cmd.x, cmd.y, cmd.w, cmd.h);
       break;
+    case 'fillPattern':
+      // The canvas keeps the mixed colour of the preceding fillRect.
+      break;
     case 'line':
       ctx.strokeStyle = rgba(cmd.color);
       ctx.lineWidth = cmd.width;

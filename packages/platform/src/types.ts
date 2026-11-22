@@ -107,7 +107,22 @@ export type DisplayCommand =
    * matching `popGroup` is composited with `blend` and, when set, through `mask`.
    */
   | { op: 'pushGroup'; blend?: BlendMode; mask?: SoftMask; knockout?: boolean }
-  | { op: 'popGroup' };
+  | { op: 'popGroup' }
+  /**
+   * Shading pattern (ECMA-376 §17.18.78) over the preceding `fillRect` (which holds the
+   * pattern's mixed colour): 8 × 8 device pixels from the page origin, bit 7 of a `tile` row
+   * = left column, set bits `fg`, others `bg`. Backends without device tiles keep the mix.
+   */
+  | {
+      op: 'fillPattern';
+      x: number;
+      y: number;
+      w: number;
+      h: number;
+      tile: number[];
+      fg: Rgba;
+      bg: Rgba;
+    };
 
 /** Blend modes of `bo_render::BlendMode` (ISO 32000-1 §11.3.5, Tables 136–137). */
 export type BlendMode =

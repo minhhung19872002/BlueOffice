@@ -8,9 +8,9 @@
 use super::{field_complex, field_simple, inline_pic, png, Doc};
 
 /// Text width of the A4 page with the 3 cm / 1.5 cm side margins of `sect_a4` (twips).
-const TEXT_W: i32 = 11906 - 1701 - 850;
+pub(super) const TEXT_W: i32 = 11906 - 1701 - 850;
 
-const SENT: &[&str] = &[
+pub(super) const SENT: &[&str] = &[
     "Thực hiện kế hoạch công tác năm 2026, đơn vị đã triển khai đồng bộ các giải pháp nhằm nâng cao chất lượng phục vụ người dân và doanh nghiệp.",
     "Các phòng, ban chuyên môn chủ động rà soát quy trình nội bộ, cắt giảm thủ tục không cần thiết và rút ngắn thời gian giải quyết hồ sơ.",
     "Việc ứng dụng công nghệ thông tin trong quản lý văn bản, hồ sơ công việc được đẩy mạnh, tỷ lệ văn bản điện tử đạt trên chín mươi phần trăm.",
@@ -22,21 +22,21 @@ const SENT: &[&str] = &[
 ];
 
 /// `n` sentences starting at `k`, joined into one paragraph text.
-fn sents(k: usize, n: usize) -> String {
+pub(super) fn sents(k: usize, n: usize) -> String {
     (0..n)
         .map(|i| SENT[(k + i) % SENT.len()])
         .collect::<Vec<_>>()
         .join(" ")
 }
 
-fn esc(t: &str) -> String {
+pub(super) fn esc(t: &str) -> String {
     t.replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
 }
 
 /// A run with run properties `rpr` (children of `w:rPr`, §17.3.2) and text `t`.
-fn r(rpr: &str, t: &str) -> String {
+pub(super) fn r(rpr: &str, t: &str) -> String {
     let props = if rpr.is_empty() {
         String::new()
     } else {
@@ -49,13 +49,13 @@ fn r(rpr: &str, t: &str) -> String {
 }
 
 /// A tab run (§17.3.3.32).
-fn tab() -> String {
+pub(super) fn tab() -> String {
     "<w:r><w:tab/></w:r>".to_owned()
 }
 
 /// A paragraph with paragraph properties `ppr` (children of `w:pPr` in CT_PPrBase order,
 /// ECMA-376 Part 1, §17.3.1.26) and runs `runs`.
-fn para(ppr: &str, runs: &str) -> String {
+pub(super) fn para(ppr: &str, runs: &str) -> String {
     if ppr.is_empty() {
         format!("<w:p>{runs}</w:p>")
     } else {
@@ -64,7 +64,7 @@ fn para(ppr: &str, runs: &str) -> String {
 }
 
 /// A body paragraph: justified (§17.3.1.13 jc both) with a first-line indent of `first` twips.
-fn body(first: i32, t: &str) -> String {
+pub(super) fn body(first: i32, t: &str) -> String {
     para(
         &format!(r#"<w:ind w:firstLine="{first}"/><w:jc w:val="both"/>"#),
         &r("", t),
@@ -72,12 +72,12 @@ fn body(first: i32, t: &str) -> String {
 }
 
 /// Font family run property (§17.3.2.26 rFonts).
-fn font(f: &str) -> String {
+pub(super) fn font(f: &str) -> String {
     format!(r#"<w:rFonts w:ascii="{f}" w:hAnsi="{f}" w:cs="{f}"/>"#)
 }
 
 /// Size in points as §17.3.2.38 sz / §17.3.2.39 szCs.
-fn sz(pt: f32) -> String {
+pub(super) fn sz(pt: f32) -> String {
     let hp = (pt * 2.0).round() as i32;
     format!(r#"<w:sz w:val="{hp}"/><w:szCs w:val="{hp}"/>"#)
 }
@@ -86,28 +86,28 @@ fn sz(pt: f32) -> String {
 /// left, right) as the Vietnamese administrative format asks. `refs` = header / footer
 /// references and §17.11.11 footnotePr / §17.6.22 type before pgSz; `after` = elements
 /// after pgMar (pgNumType, cols, titlePg) in CT_SectPr order.
-fn sect_a4(refs: &str, after: &str) -> String {
+pub(super) fn sect_a4(refs: &str, after: &str) -> String {
     format!(
         r#"<w:sectPr>{refs}<w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="850" w:bottom="1134" w:left="1701" w:header="709" w:footer="709" w:gutter="0"/>{after}<w:docGrid w:linePitch="360"/></w:sectPr>"#
     )
 }
 
 /// Landscape A4 (§17.6.13 pgSz orient) with 2 cm margins.
-fn sect_a4_landscape(refs: &str, after: &str) -> String {
+pub(super) fn sect_a4_landscape(refs: &str, after: &str) -> String {
     format!(
         r#"<w:sectPr>{refs}<w:pgSz w:w="16838" w:h="11906" w:orient="landscape"/><w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134" w:header="709" w:footer="709" w:gutter="0"/>{after}<w:docGrid w:linePitch="360"/></w:sectPr>"#
     )
 }
 
 /// An empty paragraph ending a section (§17.6.17 sectPr in pPr).
-fn sect_para(sect: &str) -> String {
+pub(super) fn sect_para(sect: &str) -> String {
     format!("<w:p><w:pPr>{sect}</w:pPr></w:p>")
 }
 
 /// Styles part content: document defaults `font` `pt` with line spacing `line` (240ths,
 /// auto) or exact (`exact` twips) and space after `after` twips; Normal, Table Grid,
 /// headings 1–3, TOC 1–3, header / footer, foot / end notes, caption, list paragraph.
-fn styles(f: &str, pt: f32, spacing: &str) -> String {
+pub(super) fn styles(f: &str, pt: f32, spacing: &str) -> String {
     let hp = (pt * 2.0).round() as i32;
     format!(
         r#"<w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="{f}" w:eastAsia="{f}" w:hAnsi="{f}" w:cs="{f}"/><w:sz w:val="{hp}"/><w:szCs w:val="{hp}"/><w:lang w:val="vi-VN" w:eastAsia="en-US" w:bidi="ar-SA"/></w:rPr></w:rPrDefault><w:pPrDefault><w:pPr>{spacing}</w:pPr></w:pPrDefault></w:docDefaults><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:qFormat/></w:style><w:style w:type="character" w:default="1" w:styleId="DefaultParagraphFont"><w:name w:val="Default Paragraph Font"/><w:uiPriority w:val="1"/><w:semiHidden/><w:unhideWhenUsed/></w:style><w:style w:type="table" w:default="1" w:styleId="TableNormal"><w:name w:val="Normal Table"/><w:uiPriority w:val="99"/><w:semiHidden/><w:unhideWhenUsed/><w:tblPr><w:tblInd w:w="0" w:type="dxa"/><w:tblCellMar><w:top w:w="0" w:type="dxa"/><w:left w:w="108" w:type="dxa"/><w:bottom w:w="0" w:type="dxa"/><w:right w:w="108" w:type="dxa"/></w:tblCellMar></w:tblPr></w:style><w:style w:type="numbering" w:default="1" w:styleId="NoList"><w:name w:val="No List"/><w:uiPriority w:val="99"/><w:semiHidden/><w:unhideWhenUsed/></w:style><w:style w:type="table" w:styleId="TableGrid"><w:name w:val="Table Grid"/><w:basedOn w:val="TableNormal"/><w:uiPriority w:val="39"/><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr><w:tblPr><w:tblBorders><w:top w:val="single" w:sz="4" w:space="0" w:color="auto"/><w:left w:val="single" w:sz="4" w:space="0" w:color="auto"/><w:bottom w:val="single" w:sz="4" w:space="0" w:color="auto"/><w:right w:val="single" w:sz="4" w:space="0" w:color="auto"/><w:insideH w:val="single" w:sz="4" w:space="0" w:color="auto"/><w:insideV w:val="single" w:sz="4" w:space="0" w:color="auto"/></w:tblBorders></w:tblPr></w:style><w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="heading 1"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:uiPriority w:val="9"/><w:qFormat/><w:pPr><w:keepNext/><w:keepLines/><w:spacing w:before="240" w:after="120"/><w:outlineLvl w:val="0"/></w:pPr><w:rPr><w:b/><w:bCs/><w:sz w:val="{h1}"/><w:szCs w:val="{h1}"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="Heading2"><w:name w:val="heading 2"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:uiPriority w:val="9"/><w:unhideWhenUsed/><w:qFormat/><w:pPr><w:keepNext/><w:keepLines/><w:spacing w:before="120" w:after="60"/><w:outlineLvl w:val="1"/></w:pPr><w:rPr><w:b/><w:bCs/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="Heading3"><w:name w:val="heading 3"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:uiPriority w:val="9"/><w:unhideWhenUsed/><w:qFormat/><w:pPr><w:keepNext/><w:keepLines/><w:spacing w:before="60" w:after="60"/><w:outlineLvl w:val="2"/></w:pPr><w:rPr><w:b/><w:bCs/><w:i/><w:iCs/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="TOC1"><w:name w:val="toc 1"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:uiPriority w:val="39"/><w:unhideWhenUsed/><w:pPr><w:tabs><w:tab w:val="right" w:leader="dot" w:pos="{tw}"/></w:tabs><w:spacing w:after="100"/></w:pPr><w:rPr><w:b/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="TOC2"><w:name w:val="toc 2"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:uiPriority w:val="39"/><w:unhideWhenUsed/><w:pPr><w:tabs><w:tab w:val="right" w:leader="dot" w:pos="{tw}"/></w:tabs><w:spacing w:after="100"/><w:ind w:left="280"/></w:pPr></w:style><w:style w:type="paragraph" w:styleId="TOC3"><w:name w:val="toc 3"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:uiPriority w:val="39"/><w:unhideWhenUsed/><w:pPr><w:tabs><w:tab w:val="right" w:leader="dot" w:pos="{tw}"/></w:tabs><w:spacing w:after="100"/><w:ind w:left="560"/></w:pPr><w:rPr><w:i/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="Header"><w:name w:val="header"/><w:basedOn w:val="Normal"/><w:uiPriority w:val="99"/><w:unhideWhenUsed/><w:pPr><w:tabs><w:tab w:val="center" w:pos="4680"/><w:tab w:val="right" w:pos="{tw}"/></w:tabs><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr></w:style><w:style w:type="paragraph" w:styleId="Footer"><w:name w:val="footer"/><w:basedOn w:val="Normal"/><w:uiPriority w:val="99"/><w:unhideWhenUsed/><w:pPr><w:tabs><w:tab w:val="center" w:pos="4680"/><w:tab w:val="right" w:pos="{tw}"/></w:tabs><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr></w:style><w:style w:type="paragraph" w:styleId="FootnoteText"><w:name w:val="footnote text"/><w:basedOn w:val="Normal"/><w:uiPriority w:val="99"/><w:unhideWhenUsed/><w:pPr><w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/><w:jc w:val="both"/></w:pPr><w:rPr><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr></w:style><w:style w:type="character" w:styleId="FootnoteReference"><w:name w:val="footnote reference"/><w:basedOn w:val="DefaultParagraphFont"/><w:uiPriority w:val="99"/><w:unhideWhenUsed/><w:rPr><w:vertAlign w:val="superscript"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="EndnoteText"><w:name w:val="endnote text"/><w:basedOn w:val="Normal"/><w:uiPriority w:val="99"/><w:unhideWhenUsed/><w:pPr><w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/></w:pPr><w:rPr><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr></w:style><w:style w:type="character" w:styleId="EndnoteReference"><w:name w:val="endnote reference"/><w:basedOn w:val="DefaultParagraphFont"/><w:uiPriority w:val="99"/><w:unhideWhenUsed/><w:rPr><w:vertAlign w:val="superscript"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="Caption"><w:name w:val="caption"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:uiPriority w:val="35"/><w:unhideWhenUsed/><w:qFormat/><w:pPr><w:spacing w:before="60" w:after="120" w:line="240" w:lineRule="auto"/><w:jc w:val="center"/></w:pPr><w:rPr><w:i/><w:iCs/><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="ListParagraph"><w:name w:val="List Paragraph"/><w:basedOn w:val="Normal"/><w:uiPriority w:val="34"/><w:qFormat/><w:pPr><w:ind w:left="720"/><w:contextualSpacing/></w:pPr></w:style>"#,
@@ -118,7 +118,7 @@ fn styles(f: &str, pt: f32, spacing: &str) -> String {
 
 /// Paragraph spacing for `pPrDefault`: space before / after (twips) and line spacing
 /// (§17.3.1.33): `line` in 240ths of a line (auto) or, with `exact`, in twips.
-fn spacing(before: i32, after: i32, line: i32, exact: bool) -> String {
+pub(super) fn spacing(before: i32, after: i32, line: i32, exact: bool) -> String {
     let rule = if exact { "exact" } else { "auto" };
     format!(
         r#"<w:spacing w:before="{before}" w:after="{after}" w:line="{line}" w:lineRule="{rule}"/>"#
@@ -126,15 +126,16 @@ fn spacing(before: i32, after: i32, line: i32, exact: bool) -> String {
 }
 
 /// No spacing around a paragraph, single lines (for header tables and signatures).
-const TIGHT: &str = r#"<w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/>"#;
+pub(super) const TIGHT: &str =
+    r#"<w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/>"#;
 
 /// A table cell (§17.4.66 tcPr) of width `w` twips with extra properties and paragraphs.
-fn tc(w: i32, extra: &str, paras: &str) -> String {
+pub(super) fn tc(w: i32, extra: &str, paras: &str) -> String {
     format!(r#"<w:tc><w:tcPr><w:tcW w:w="{w}" w:type="dxa"/>{extra}</w:tcPr>{paras}</w:tc>"#)
 }
 
 /// A table row (§17.4.79 trPr).
-fn tr(trpr: &str, cells: &[String]) -> String {
+pub(super) fn tr(trpr: &str, cells: &[String]) -> String {
     let props = if trpr.is_empty() {
         String::new()
     } else {
@@ -144,7 +145,7 @@ fn tr(trpr: &str, cells: &[String]) -> String {
 }
 
 /// A table on `grid` (twips); `grid_style` = with Table Grid borders, else no borders.
-fn tbl(grid: &[i32], grid_style: bool, tblpr: &str, rows: &[String]) -> String {
+pub(super) fn tbl(grid: &[i32], grid_style: bool, tblpr: &str, rows: &[String]) -> String {
     let g: String = grid
         .iter()
         .map(|w| format!(r#"<w:gridCol w:w="{w}"/>"#))
@@ -162,13 +163,19 @@ fn tbl(grid: &[i32], grid_style: bool, tblpr: &str, rows: &[String]) -> String {
 }
 
 /// Centred tight paragraph.
-fn center(rpr: &str, t: &str) -> String {
+pub(super) fn center(rpr: &str, t: &str) -> String {
     para(&format!(r#"{TIGHT}<w:jc w:val="center"/>"#), &r(rpr, t))
 }
 
 /// The two-column header of a Vietnamese administrative document (agency, number and
 /// subject left; national title, motto and place / date right), as a borderless table.
-fn admin_header(pt: f32, agency: &str, unit: &str, number: &str, subject: &str) -> String {
+pub(super) fn admin_header(
+    pt: f32,
+    agency: &str,
+    unit: &str,
+    number: &str,
+    subject: &str,
+) -> String {
     let small = sz(pt - 1.0);
     let b = format!("<w:b/>{}", sz(pt - 1.0));
     let left = [
@@ -205,7 +212,7 @@ fn admin_header(pt: f32, agency: &str, unit: &str, number: &str, subject: &str) 
 }
 
 /// Signature block: recipients left, title and (invented) signer right.
-fn signature(pt: f32, title: &str, name: &str) -> String {
+pub(super) fn signature(pt: f32, title: &str, name: &str) -> String {
     let left = [
         para(
             TIGHT,
@@ -233,17 +240,17 @@ fn signature(pt: f32, title: &str, name: &str) -> String {
     )
 }
 
-fn page_break() -> String {
+pub(super) fn page_break() -> String {
     r#"<w:p><w:r><w:br w:type="page"/></w:r></w:p>"#.to_owned()
 }
 
 /// `<w:pStyle>` for heading level `lvl`.
-fn heading(lvl: u8, t: &str) -> String {
+pub(super) fn heading(lvl: u8, t: &str) -> String {
     para(&format!(r#"<w:pStyle w:val="Heading{lvl}"/>"#), &r("", t))
 }
 
 /// Footnote / endnote reference run (§17.11.14 footnoteReference, §17.11.2 endnoteReference).
-fn note_ref(kind: &str, id: i32) -> String {
+pub(super) fn note_ref(kind: &str, id: i32) -> String {
     let style = if kind == "footnote" {
         "FootnoteReference"
     } else {
@@ -255,7 +262,7 @@ fn note_ref(kind: &str, id: i32) -> String {
 }
 
 /// A footnote / endnote with one paragraph of text `t`.
-fn note(kind: &str, id: i32, t: &str) -> String {
+pub(super) fn note(kind: &str, id: i32, t: &str) -> String {
     let (ps, rs, mark) = if kind == "footnote" {
         ("FootnoteText", "FootnoteReference", "footnoteRef")
     } else {
@@ -268,7 +275,7 @@ fn note(kind: &str, id: i32, t: &str) -> String {
 }
 
 /// A paragraph with the "Trang X/Y" page field pair (§17.16.5.48 PAGE, §17.16.5.38 NUMPAGES).
-fn page_x_of_y(jc: &str, pt: f32) -> String {
+pub(super) fn page_x_of_y(jc: &str, pt: f32) -> String {
     para(
         &format!(r#"<w:pStyle w:val="Footer"/><w:jc w:val="{jc}"/>"#),
         &[
@@ -284,7 +291,13 @@ fn page_x_of_y(jc: &str, pt: f32) -> String {
 /// An anchored text box (wordprocessingShape `wps:wsp` with §17.17.1 txbxContent) at
 /// `x`, `y` EMU from the margin / paragraph, `cx` × `cy` EMU, wrap element `wrap`
 /// (§20.4.2.17 wrapSquare, §20.4.2.20 wrapTopAndBottom).
-fn text_box(id: u32, at: (i64, i64), size: (i64, i64), wrap: &str, content: &str) -> String {
+pub(super) fn text_box(
+    id: u32,
+    at: (i64, i64),
+    size: (i64, i64),
+    wrap: &str,
+    content: &str,
+) -> String {
     let ((x, y), (cx, cy)) = (at, size);
     format!(
         r#"<w:r><w:rPr><w:noProof/></w:rPr><w:drawing><wp:anchor distT="45720" distB="45720" distL="114300" distR="114300" simplePos="0" relativeHeight="{id}" behindDoc="0" locked="0" layoutInCell="1" allowOverlap="1"><wp:simplePos x="0" y="0"/><wp:positionH relativeFrom="margin"><wp:posOffset>{x}</wp:posOffset></wp:positionH><wp:positionV relativeFrom="paragraph"><wp:posOffset>{y}</wp:posOffset></wp:positionV><wp:extent cx="{cx}" cy="{cy}"/><wp:effectExtent l="0" t="0" r="0" b="0"/>{wrap}<wp:docPr id="{id}" name="Hộp văn bản {id}"/><wp:cNvGraphicFramePr/><a:graphic><a:graphicData uri="http://schemas.microsoft.com/office/word/2010/wordprocessingShape"><wps:wsp xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape"><wps:cNvSpPr txBox="1"/><wps:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="{cx}" cy="{cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill><a:ln w="9525"><a:solidFill><a:srgbClr val="000000"/></a:solidFill></a:ln></wps:spPr><wps:txbx><w:txbxContent>{content}</w:txbxContent></wps:txbx><wps:bodyPr rot="0" vert="horz" wrap="square" lIns="91440" tIns="45720" rIns="91440" bIns="45720" anchor="t" anchorCtr="0"><a:noAutofit/></wps:bodyPr></wps:wsp></a:graphicData></a:graphic></wp:anchor></w:drawing></w:r>"#
@@ -292,10 +305,10 @@ fn text_box(id: u32, at: (i64, i64), size: (i64, i64), wrap: &str, content: &str
 }
 
 /// A numbering level: numFmt, lvlText, left indent, hanging indent, bold label.
-type Lvl<'a> = (&'a str, &'a str, i32, i32, bool);
+pub(super) type Lvl<'a> = (&'a str, &'a str, i32, i32, bool);
 
 /// Amount with `.` between thousands (Vietnamese number format).
-fn thousands(v: u64) -> String {
+pub(super) fn thousands(v: u64) -> String {
     let s = v.to_string();
     let mut out = String::new();
     for (k, ch) in s.chars().enumerate() {
@@ -310,7 +323,7 @@ fn thousands(v: u64) -> String {
 /// Numbering part: abstract numbering definitions given as (id, levels), each level
 /// (numFmt, lvlText, left indent, hanging, bold label), with `w:num` i+1 → abstract i
 /// (ECMA-376 Part 1, §17.9.1 abstractNum, §17.9.6 lvlText).
-fn numbering(abstracts: &[&[Lvl<'_>]]) -> String {
+pub(super) fn numbering(abstracts: &[&[Lvl<'_>]]) -> String {
     let mut s = String::new();
     for (id, levels) in abstracts.iter().enumerate() {
         s.push_str(&format!(r#"<w:abstractNum w:abstractNumId="{id}"><w:nsid w:val="5B0C{id:04X}"/><w:multiLevelType w:val="multilevel"/>"#));
@@ -331,7 +344,7 @@ fn numbering(abstracts: &[&[Lvl<'_>]]) -> String {
 
 /// A numbered paragraph; `extra` = further pPr children (keepNext first: it precedes
 /// numPr in CT_PPrBase, the others follow it).
-fn num_para(num: i32, lvl: u8, extra: &str, runs: &str) -> String {
+pub(super) fn num_para(num: i32, lvl: u8, extra: &str, runs: &str) -> String {
     let (keep, rest) = match extra.strip_prefix("<w:keepNext/>") {
         Some(rest) => ("<w:keepNext/>", rest),
         None => ("", extra),
@@ -345,7 +358,7 @@ fn num_para(num: i32, lvl: u8, extra: &str, runs: &str) -> String {
 }
 
 /// "Điều N. Title" article heading followed by its clauses.
-fn article(n: usize, title: &str, clauses: &[String]) -> String {
+pub(super) fn article(n: usize, title: &str, clauses: &[String]) -> String {
     let mut s = para(
         r#"<w:keepNext/><w:spacing w:before="120"/><w:ind w:firstLine="567"/><w:jc w:val="both"/>"#,
         &[r("<w:b/>", &format!("Điều {n}. ")), r("<w:b/>", title)].concat(),

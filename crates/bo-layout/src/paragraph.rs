@@ -1001,10 +1001,15 @@ fn layout_uncached(
         ));
         run_style_idx.push(styles.len() - 1);
     }
-    let mark_style = match styles.last() {
-        Some(s) => s.clone(),
-        None => run_style(doc, fonts, &base_run).ok_or(LayoutError::NoFonts)?,
+    // The paragraph mark (§17.3.1.29 pPr/rPr over the paragraph style), not the last run,
+    // gives a line without text its extents: measured (cal-40) an empty run of 10 pt in a
+    // 13 pt paragraph keeps the 13 pt line, a 20 pt mark makes it 23 pt, a 8 pt mark 9.2 pt
+    // whatever the empty run's size; a mark never changes a line that has text.
+    let mark_rp = match &props.mark_run {
+        Some(m) => run_props(doc, &base_run, m),
+        None => base_run.clone(),
     };
+    let mark_style = run_style(doc, fonts, &mark_rp).ok_or(LayoutError::NoFonts)?;
     if styles.is_empty() {
         styles.push(mark_style.clone());
     }
@@ -1376,6 +1381,12 @@ fn layout_uncached(
                     .unwrap_or_else(|| row_height(&word.pieces, &styles, &mark_style, spacing));
                 let x0 = indent_left + if is_first { first } else { 0.0 };
                 row = segments(inp.wrap, x0, x1, y, h);
+                // A first line pushed right by a wrapped object keeps its first-line indent
+                // from the object's edge (measured: office-31, text box at the left margin,
+                // the paragraph's 1 cm indent starts at the box's wrap distance).
+                if is_first && first > 0.0 && row[0].0 > x0 + 0.01 && row[0].1 > first {
+                    row[0] = (row[0].0 + first, row[0].1 - first);
+                }
                 cur_segs = vec![(0, row[0].0, row[0].1)];
             }
             let seg = cur_segs.len() - 1;
@@ -2434,15 +2445,21 @@ fn is_inner_space(pieces: &[Piece], i: usize) -> bool {
 /// Width a justified line (§17.18.44 `ST_Jc` `both`) may exceed its room by, narrowing its
 /// inter-word spaces to keep its last word (`last`: that word's width with the space
 /// before it). Measured black-box in the reference word processor (docs/ui/REPORT.md,
-/// Fidelity round 1, words of 1–8 letters at 8–24 pt): the spaces give up at most a
-/// quarter of their width, and the narrowing stays below about a third of what moving
-/// the word down would leave to stretch (`last` − overflow ≥ 1.85 × overflow).
+/// Fidelity round 1; round 4 calibration cal-41: 1 176 lines, Times New Roman 10–16 pt,
+/// last words of 1–12 letters, every one classified right): the spaces give up at most a
+/// quarter of their width, and each of the `n` spaces narrows by at most about half of what
+/// each of the `n − 1` spaces would stretch if the word moved down:
+/// overflow / n ≤ c × (`last` − overflow) / (n − 1) with c in [0.4972, 0.5006) from cal-41
+/// and a Times New Roman 13 pt line of office-13 that moves its word at 0.50064.
 fn squeeze_room(pieces: &[Piece], last: f32) -> f32 {
-    let spaces: f32 = (0..pieces.len())
+    const C: f32 = 0.499;
+    let (n, spaces) = (0..pieces.len())
         .filter(|&i| is_inner_space(pieces, i))
-        .map(|i| pieces[i].width)
-        .sum();
-    (spaces * 0.25).min(last / 2.85)
+        .fold((0.0f32, 0.0f32), |(n, w), i| (n + 1.0, w + pieces[i].width));
+    if n < 1.0 {
+        return 0.0;
+    }
+    (spaces * 0.25).min(C * last * n / ((n - 1.0) + C * n))
 }
 
 fn special_piece(kind: Kind, style: usize, styles: &[RunStyle], at: u32, virtual_: bool) -> Piece {

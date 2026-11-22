@@ -567,7 +567,9 @@ pub(crate) fn sub_command(
         }
         // Fields of headers, footers and notes: F9 (with the ASK / FILLIN answers), Shift+F9,
         // Ctrl+F9 and its code typed in place, as in the main text (§17.16).
-        Command::UpdateFields { answers, selection } => {
+        Command::UpdateFields {
+            answers, selection, ..
+        } => {
             if *selection {
                 s.update_selected_fields(&mut |_| Vec::new(), answers.clone())?;
             } else {

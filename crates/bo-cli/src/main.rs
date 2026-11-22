@@ -986,6 +986,7 @@ fn run(cli: Cli) -> R {
             let r = engine.command(bo_engine::Command::UpdateFields {
                 answers: std::collections::BTreeMap::new(),
                 selection: false,
+                print: false,
             })?;
             if let Some(e) = r.error {
                 return Err(e.into());
@@ -1321,6 +1322,13 @@ fn run_convert(
         (Loaded::Document { doc, .. }, "pdf") => {
             let mut engine = Engine::with_bundled_fonts();
             engine.load(doc, &name)?;
+            // Like a print, the export refreshes SEQ, REF, PAGEREF… (not tables of
+            // contents), as the reference word processor's PDF export does.
+            engine.command(bo_engine::Command::UpdateFields {
+                answers: std::collections::BTreeMap::new(),
+                selection: false,
+                print: true,
+            })?;
             match &job {
                 Some(j) => engine.print_pdf_json(j)?,
                 None if plain => engine.export_pdf()?,

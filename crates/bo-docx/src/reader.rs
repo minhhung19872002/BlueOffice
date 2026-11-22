@@ -2248,6 +2248,17 @@ fn read_ppr(r: &mut XmlReader<'_>, mut sect: Option<SectCtx<'_, '_>>) -> Result<
                     || p.mark_del.is_some()
                     || p.mark_lang.is_some()
                     || p.mark_no_proof.is_some();
+                // The mark's font and size give a line without text its height
+                // (§17.3.1.29): read them as run properties too.
+                if !kept.is_empty() {
+                    let xml = format!("<w:rPr>{kept}</w:rPr>");
+                    let mut mr = XmlReader::new(xml.as_bytes(), "w:pPr/w:rPr");
+                    if let Ok(Event::Start(_)) = mr.read() {
+                        if let Ok(rp) = read_rpr(&mut mr) {
+                            p.mark_run = Some(Box::new(rp));
+                        }
+                    }
+                }
                 if !kept.is_empty() || !modelled {
                     let xml = format!("{}{kept}{close}", r.slice(before, tag_end));
                     p.unknown.push(Raw::new(xml, 0));

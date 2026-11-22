@@ -503,3 +503,68 @@ nội dung PDF); điểm ảnh của bảng dày chữ số (office-09, office-1
 `docfid-18-merged-cell-centre-office17-before-after.png`, `docfid-19-footnote-separator-office10-before-after.png`,
 `docfid-20-page-break-space-after-office04-before-after.png`, `docfid-21-section-space-before-office06-before-after.png`,
 `docfid-22-two-columns-office16-before-after.png`, `docfid-23-worst6-after.png`.
+
+## Dàn trang vòng 4 — BlueDoc so với trình soạn thảo đối chiếu (2026-11-22)
+
+Cách chấm như vòng 3 (PDF xuất bằng COM trong instance riêng trên bản sao scratch, không in). Corpus thêm **20 tài
+liệu văn phòng Việt Nam** (`tests/corpus/doc/office-21..40`, `crates/bo-cli/src/corpus/office2.rs`, cả 20 qua
+OpenXmlValidator): hợp đồng "Điều N." đánh số tự động + bảng chữ ký có viền, báo cáo có biểu đồ cột / đường / tròn
+và chú thích SEQ, giấy mời viền trang, biên bản họp, CV hai cột có ảnh, đề cương 1. / 1.1. / 1.1.1. gắn Heading,
+mục lục có PAGEREF, tham chiếu chéo REF / PAGEREF cache cũ, phương trình, sơ đồ nhóm hình có ảnh dự phòng, hộp văn
+bản neo đoạn, bảng dài gộp ô qua trang, trang ngang giữa văn bản, trang đầu khác + chẵn / lẻ, SECTIONPAGES, bảng số
+dày Arial 9, tab thập phân, Gantt chữ dọc, tờ khai hàng cao cố định. Bộ chấm `SCORER=3`: đoạn chữ trong vùng đầu /
+chân trang (50 pt từ mép trang) xếp sau thân trang ở cả hai phía — số trang ở chân trang không còn bị tính sai do thứ
+tự luồng nội dung PDF (office-04 / 05 / 20 / 27 / 35, sections-02 / 04, gen-10 nay 100 %).
+
+| | Tệp | Số trang khớp | Đầu dòng khớp (TB tệp) | Đầu dòng khớp (theo dòng) | Điểm ảnh lệch TB |
+|---|---|---|---|---|---|
+| 76 tệp cũ, trước → sau | 76 | 76 / 76 | 98,2 → 98,3 % | 99,5 → 99,6 % | 0,0150 → 0,0140 |
+| 20 tệp mới, trước → sau | 20 | 20 / 20 | 94,9 → 96,5 % | 96,7 → 98,0 % | 0,0375 → 0,0261 |
+| Tất cả | 96 | 96 / 96 | 97,5 → 97,9 % | 98,8 → 99,2 % | 0,0197 → 0,0165 |
+
+Không tệp nào lùi. Theo tệp: office-39 (Gantt) điểm ảnh 0,167 → 0,030; office-31 80,8 → 100 %; office-29 72,9 →
+77,8 %, 0,083 → 0,066; office-36 0,076 → 0,047; office-17 0,072 → 0,052; gen-07 0,050 → 0,022; office-04 / 08 / 13 /
+27 / 33 / 34 / 37 → 100 %.
+
+Sửa (test trong `crates/bo-layout/tests/word_fidelity.rs`, `features.rs`, `src/math.rs`; hiệu chuẩn `cal-40`, `cal-41`):
+1. **Dòng không có chữ lấy cỡ của dấu đoạn** (§17.3.1.29 `w:pPr/w:rPr`, nay đọc vào `ParaProps::mark_run`, XML vẫn
+   giữ nguyên): run rỗng 10 pt trong đoạn 13 pt vẫn cao 15 pt, dấu đoạn 20 pt → 23 pt, 8 pt → 9,2 pt; dấu đoạn không
+   đổi dòng có chữ (cal-40, 12 trường hợp lệch ≤ 0,17 pt). Ô trống của bảng Gantt.
+2. **Giới hạn nén dấu cách của dòng đều hai bên** (§17.18.44 `both`, mục 2 của brief): cal-41 — 1 176 dòng Times New
+   Roman 10–16 pt, từ cuối 1–12 chữ, lượng tràn quét quanh ranh giới — một quy tắc phân loại đúng tất cả: giữ từ cuối
+   khi (a) tràn ≤ 25 % bề rộng các dấu cách và (b) mỗi dấu cách trong n dấu co ≤ c × mức mỗi dấu cách trong n − 1 dấu
+   phải giãn nếu đẩy từ xuống, c ∈ [0,4972; 0,5006) (biên trên từ một dòng TNR 13 pt của office-13), dùng 0,499. Quy
+   tắc cũ "tràn ≤ từ cuối / 2,85" là xấp xỉ của (b) với n lớn; ranh giới 2,86–2,98 vòng 3 là do n. Câu "… định kỳ báo"
+   lệch ở 9 tệp nay khớp.
+3. **Dòng đầu bị hộp / ảnh bao đẩy sang phải vẫn giữ thụt dòng đầu** tính từ mép vùng bao (office-31).
+4. **Bảng chế độ 15 bắt đầu ở mép ngoài viền trái** (§17.4.50 tblInd): lưới, viền và chữ trong ô dịch sang phải nửa
+   bề rộng viền trái (PDF đối chiếu: viền 0,5 pt phủ 85,1–85,58 pt từ lề 85,05 pt; chữ ô cách lưới + lề ô 0,24 pt).
+   Mục 3 của brief: phần lớn điểm ảnh lệch của bảng số dày là độ dịch này (cả cột). Phần còn lại là vẽ chữ: bản đối
+   chiếu làm tròn vị trí từng glyph về lưới 1/600" (bước 5,03 / 4,94 pt xen kẽ cho chữ số 5,00 pt của Arial 9) và
+   đường cơ sở về bội 0,12 pt; BlueDoc không mô phỏng (không đổi ngắt dòng, lệch ≤ 0,06 pt).
+5. **Phương trình** (OMML §22.1): trong dòng (không phải `m:oMathPara`) giới hạn của ∑ đặt bên cạnh như chỉ số
+   (0,398 / 0,24 em) bất kể limLoc; vạch phân số ở 0,292 em, tử / mẫu 0,593 / 0,509 em (trong dòng), 0,759 / 0,676 em
+   (`oMathPara`); giới hạn ∑ hiển thị cách ≥ 1,50 / 1,27 em; không chèn khoảng quanh toán tử trong chỉ số, phân số
+   kiểu chữ nhỏ ("−b±√…" trên tử số); chỉ số cấp hai 84 % (13 → 9 → 7,56 pt); cơ sở là chữ thường không đẩy
+   chỉ số (gₜ như aᵢ). Lệch tích luỹ 30 pt → ≤ 1,4 pt. Còn: độ cao phần trên của dòng có phân số trong dòng thấp hơn
+   bản đối chiếu ~1 pt (phông Cambria Math khác STIX Two Math).
+6. **Trường khi in / xuất PDF** (mục 4 của brief): bản đối chiếu cập nhật SEQ, REF, PAGEREF, DATE khi xuất PDF
+   ("Bảng 3 (trang 5)" cache cũ → "Bảng 1 (trang 1)"; SEQ đánh lại; fields-04/05/06, office-28) nhưng **giữ nguyên
+   mục lục** cũ. Lệnh `updateFields` có `print: true` (`Session::update_print_fields`, `fields::update_for_print` bỏ
+   qua TOC / INDEX / TOA / BIBLIOGRAPHY); `bo-cli convert --to pdf` chạy nó trước khi xuất. PAGE / NUMPAGES /
+   SECTIONPAGES đã khớp (office-35 "Phụ lục – trang 1/2").
+7. **Khoảng cách cột biểu đồ** (§21.2.2.75 gapWidth) tính theo bề rộng một cột, không theo cụm (office-22: 2 dãy
+   219 % / −27 % trong ô 242 px → cột 54 px, cách 16 px, giữa cụm 118 px) — dùng chung cho BlueSheet.
+
+Hiệu năng (mục 5): `cargo bench -p bo-layout` 300 trang 718 ms (trước) → 732 ms (sau, khoảng tin cậy chồng nhau),
+sửa một đoạn 26,5 → 26,3 ms; `bo-cli bench` 1 000 trang (bản debug, 2 lần mỗi bản) mở + dàn trang 8 784 / 8 936 ms →
+8 939 / 8 177 ms — không lùi.
+
+Còn lệch: chữ trong biểu đồ (phông `a:latin` của txPr chưa dùng, tiêu đề đậm, viền / lưới mặc định khi không có
+spPr), sơ đồ nhóm hình office-30 (bộ chấm ghép chữ trong hình khác thứ tự), phương trình (phông toán), gen-14 drop cap
+và images-03 (giới hạn bộ chấm). `fuzz_smoke` của bo-engine chạy > 40 phút ở bản debug nên không chạy hết vòng này.
+
+Ảnh (đối chiếu trái, BlueDoc trước, BlueDoc sau): `scratchpad/show/docfid-24-new20-baseline-worst6.png`,
+`docfid-25-empty-line-mark-office39-before-after.png`, `docfid-26-equations-office29-before-after.png`,
+`docfid-27-wrap-first-indent-office31-before-after.png`, `docfid-28-squeeze-limit-office34-before-after.png`,
+`docfid-29-table-border-edge-office36-before-after.png`, `docfid-30-new20-after-worst6.png`.

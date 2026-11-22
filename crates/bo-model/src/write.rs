@@ -1436,6 +1436,11 @@ pub struct ParaProps {
     /// `w:noProof` of the paragraph mark (§17.3.2.21 in `w:pPr/w:rPr`). Never inherited.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mark_no_proof: Option<bool>,
+    /// Formatting of the paragraph mark (§17.3.1.29 `w:pPr/w:rPr`: font, size…) as read;
+    /// the XML itself stays in `unknown` for the round trip. A line without text (an empty
+    /// paragraph, a line of tabs) takes its height from it. Never inherited.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mark_run: Option<Box<RunProps>>,
     /// Tracked paragraph formatting change (§17.13.5.29 pPrChange). Never inherited.
     pub change: Option<Box<ParaPropsChange>>,
     /// Unknown `w:pPr` children kept verbatim.
@@ -1473,6 +1478,7 @@ impl ParaProps {
             mark_del: self.mark_del.clone(),
             mark_lang: self.mark_lang.clone(),
             mark_no_proof: self.mark_no_proof,
+            mark_run: self.mark_run.clone(),
             change: self.change.clone(),
             unknown: if self.unknown.is_empty() {
                 base.unknown.clone()

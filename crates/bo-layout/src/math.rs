@@ -138,6 +138,9 @@ pub(crate) struct MathCtx<'a> {
     pub display: bool,
     /// Slot elements (by address) and their pre-order id ([`slot_ids`]).
     pub slot_ids: HashMap<usize, usize>,
+    /// Size of the equation's base text: smaller runs are scripts, limits or text-style
+    /// fraction parts, set without operator spacing.
+    pub base: f32,
 }
 
 /// The Mathematical Italic letter for `c` (Unicode Mathematical Alphanumeric Symbols, with the
@@ -179,6 +182,12 @@ impl MathCtx<'_> {
 
     /// Size of scripts and limits of a base at `size`.
     fn script_size(&self, size: f32) -> f32 {
+        // Second level (a script of a script / of a text-style fraction part): the reference
+        // shrinks it to 84 % only (13 pt → 9 → 7.56 pt, office-29), not by the first
+        // level's factor again.
+        if size < self.base * 0.99 {
+            return size * 0.84;
+        }
         match &self.math {
             Some((_, c)) if c.script_percent_scale_down > 0 => {
                 size * f32::from(c.script_percent_scale_down) / 100.0
@@ -455,11 +464,15 @@ impl MathCtx<'_> {
             .and_then(|s| s.val());
         let nor = el.kid("rPr").and_then(|p| p.kid("nor")).is_some();
         let upright = nor || matches!(sty, Some("p" | "b"));
-        // Operators get a little room (thick spaces around relations, §22.1.2 spacing).
+        // Operators get a little room (thick spaces around relations, §22.1.2 spacing) —
+        // not in scripts, limits and text-style fractions (smaller than the base: the
+        // reference sets "ax²+b" over "c" and "aₜ−aₜ₋₁" tight).
+        let script = size < self.base * 0.99;
         let spaced: String = text
             .chars()
             .flat_map(|c| {
-                if "=<>≤≥≠≈±∓+−×÷→←⇒⇔∈∉⊂⊆∪∩".contains(c) {
+                if !script && "=<>≤≥≠≈±∓+−×÷→←⇒⇔∈∉⊂⊆∪∩".contains(c)
+                {
                     vec!['\u{2005}', c, '\u{2005}']
                 } else {
                     vec![c]
@@ -862,26 +875,21 @@ impl MathCtx<'_> {
                 let part = if display { size } else { small };
                 let (num, den) =
                     self.text_style(|s| (s.arg(el, "num", part), s.arg(el, "den", part)));
-                let axis = mv(c.axis_height);
                 let t = if no_bar {
                     0.0
                 } else {
                     mv(c.fraction_rule_thickness)
                 };
+                // Bar height and baseline shifts as the reference places them (black-box,
+                // office-29 at 13 pt: bar centre 0.292 em over the baseline; numerator /
+                // denominator baselines 0.593 / 0.509 em inline, 0.759 / 0.676 em in
+                // m:oMathPara), the gaps only keeping tall parts off the bar. The bundled
+                // math font's own constants put inline denominators 1 pt lower.
+                let axis = 0.292 * size;
                 let (up, down, gn, gd) = if display {
-                    (
-                        mv(c.fraction_numerator_display_style_shift_up),
-                        mv(c.fraction_denominator_display_style_shift_down),
-                        mv(c.fraction_num_display_style_gap_min),
-                        mv(c.fraction_denom_display_style_gap_min),
-                    )
+                    (0.759 * size, 0.676 * size, t, t)
                 } else {
-                    (
-                        mv(c.fraction_numerator_shift_up),
-                        mv(c.fraction_denominator_shift_down),
-                        mv(c.fraction_numerator_gap_min),
-                        mv(c.fraction_denominator_gap_min),
-                    )
+                    (0.593 * size, 0.509 * size, t, t)
                 };
                 // Baselines (y down): the shift, or more when the gap to the bar would be too small.
                 let num_base = (-up).min(-axis - t / 2.0 - gn - num.desc);
@@ -983,6 +991,9 @@ impl MathCtx<'_> {
                 let loc = Self::prop(el, "naryPr", "limLoc")
                     .unwrap_or(if integral { "subSup" } else { "undOvr" })
                     .to_owned();
+                // Inline (not m:oMathPara) the reference sets limits beside the operator
+                // like scripts, whatever limLoc says (§22.1.2.53): "Sₙ = ∑ⁿᵢ₌₁ aᵢ".
+                let loc = if display { loc } else { "subSup".to_owned() };
                 let min = if display {
                     f32::from(c.display_operator_min_height) * size
                         / f32::from(c.units_per_em.max(1))
@@ -1019,24 +1030,49 @@ impl MathCtx<'_> {
                     if let Some(s) = sup {
                         let rise = (mv(c.upper_limit_gap_min) + s.desc)
                             .max(mv(c.upper_limit_baseline_rise_min));
+                        // The reference's display operator is taller than the bundled
+                        // font's: its limits sit at least 1.50 em above / 1.27 em below
+                        // the baseline (office-29, ∑ at 13 pt).
+                        let y = if display {
+                            (-oasc - rise).min(-1.50 * size)
+                        } else {
+                            -oasc - rise
+                        };
                         let sw = s.w;
-                        opbox.put(s, (w - sw) / 2.0 + ic / 2.0, -oasc - rise);
+                        opbox.put(s, (w - sw) / 2.0 + ic / 2.0, y);
                     }
                     if let Some(s) = sub {
                         let drop = (mv(c.lower_limit_gap_min) + s.asc)
                             .max(mv(c.lower_limit_baseline_drop_min));
+                        let y = if display {
+                            (odesc + drop).max(1.27 * size)
+                        } else {
+                            odesc + drop
+                        };
                         let sw = s.w;
-                        opbox.put(s, (w - sw) / 2.0 - ic / 2.0, odesc + drop);
+                        opbox.put(s, (w - sw) / 2.0 - ic / 2.0, y);
                     }
                     opbox.w = w;
                 } else {
-                    let (sup_shift, sub_shift) = Self::script_shifts(
-                        c,
-                        size,
-                        &opbox_of(oasc, odesc),
-                        sup.as_ref(),
-                        sub.as_ref(),
-                    );
+                    let (sup_shift, sub_shift) = if display {
+                        Self::script_shifts(
+                            c,
+                            size,
+                            &opbox_of(oasc, odesc),
+                            sup.as_ref(),
+                            sub.as_ref(),
+                        )
+                    } else {
+                        // Inline the reference keeps the operator near text size and its
+                        // scripts close (office-29 at 13 pt: ∑ raised 0.055 em, upper limit
+                        // 0.398 em up, lower limit 0.24 em down).
+                        (0.398 * size, 0.24 * size)
+                    };
+                    let op = if display {
+                        op
+                    } else {
+                        op.shifted(0.0, -0.055 * size - (-axis - mid))
+                    };
                     opbox.put(op, 0.0, 0.0);
                     let mut sw: f32 = 0.0;
                     if let Some(s) = sup {
@@ -1140,11 +1176,16 @@ impl MathCtx<'_> {
         sub: Option<&MathBox>,
     ) -> (f32, f32) {
         let mv = |v: i16| Self::mv(c, v, size);
-        let mut up = mv(c.superscript_shift_up).max(e.asc - mv(c.superscript_baseline_drop_max));
+        // A base of plain characters does not move its scripts (as in TeX for a single
+        // character): the reference sets gₜ's subscript as deep as aᵢ's (0.204 em), not
+        // below g's descender (office-29).
+        let simple = e.runs.len() <= 1 && e.rules.is_empty();
+        let (e_asc, e_desc) = if simple { (0.0, 0.0) } else { (e.asc, e.desc) };
+        let mut up = mv(c.superscript_shift_up).max(e_asc - mv(c.superscript_baseline_drop_max));
         if let Some(s) = sup {
             up = up.max(s.desc + mv(c.superscript_bottom_min));
         }
-        let mut down = mv(c.subscript_shift_down).max(e.desc + mv(c.subscript_baseline_drop_min));
+        let mut down = mv(c.subscript_shift_down).max(e_desc + mv(c.subscript_baseline_drop_min));
         if let Some(s) = sub {
             down = down.max(s.asc - mv(c.subscript_top_max));
         }
@@ -1425,6 +1466,7 @@ pub(crate) fn layout_math(
         math,
         display,
         slot_ids: ids,
+        base: size,
     };
     let mut b = cx.children(&el, size);
     // A little room around the zone.
@@ -1505,21 +1547,48 @@ mod tests {
             r"<m:oMathPara {M}><m:oMath><m:f><m:num><m:r><m:t>a</m:t></m:r></m:num><m:den><m:r><m:t>b</m:t></m:r></m:den></m:f></m:oMath></m:oMathPara>"
         );
         let b = lay(&mut fm, text, math, &xml);
-        // The fraction bar: on the axis, with the table's thickness.
+        // The fraction bar: where the reference puts it (0.292 em up), with the table's
+        // thickness.
         let bar = b.rules[0];
-        assert!(
-            (bar.1 + f32::from(c.axis_height) * k).abs() < 1e-3,
-            "{bar:?}"
-        );
+        assert!((bar.1 + 0.292 * 20.0).abs() < 1e-3, "{bar:?}");
         assert!((bar.4 - f32::from(c.fraction_rule_thickness) * k).abs() < 1e-3);
-        // Numerator raised by at least the display shift, denominator lowered by at least its shift.
+        // Numerator / denominator baselines of the reference's display fractions (0.759 /
+        // 0.676 em, office-29).
         let a = &b.runs.iter().find(|r| r.text == "\u{1D44E}").unwrap();
         let bb = &b.runs.iter().find(|r| r.text == "\u{1D44F}").unwrap();
-        assert!(-a.y >= f32::from(c.fraction_numerator_display_style_shift_up) * k - 1e-3);
-        assert!(bb.y >= f32::from(c.fraction_denominator_display_style_shift_down) * k - 1e-3);
+        assert!((-a.y - 0.759 * 20.0).abs() < 1e-3, "{}", a.y);
+        assert!((bb.y - 0.676 * 20.0).abs() < 1e-3, "{}", bb.y);
         // Letters are Mathematical Italic glyphs of the math font.
         assert_eq!(a.face, math);
         assert_eq!(a.glyphs[0].0, fm.glyph_of(math, '\u{1D44E}'));
+    }
+
+    #[test]
+    fn inline_equations_are_set_like_the_reference() {
+        // office-29 at 13 pt, measured on the reference's PDF: inline ∑ with limits beside
+        // it (0.398 em up / 0.24 em down), text-style fractions at 0.593 / 0.509 em, no
+        // operator spacing in a numerator, gₜ's subscript as deep as aᵢ's, a script of a
+        // script at 84 %.
+        let (mut fm, text, math) = fonts();
+        let xml = format!(
+            r"<m:oMath {M}><m:nary><m:naryPr><m:chr m:val='∑'/><m:limLoc m:val='undOvr'/></m:naryPr><m:sub><m:r><m:t>i</m:t></m:r></m:sub><m:sup><m:r><m:t>n</m:t></m:r></m:sup><m:e><m:r><m:t>x</m:t></m:r></m:e></m:nary><m:f><m:num><m:r><m:t>a+b</m:t></m:r></m:num><m:den><m:sSup><m:e><m:r><m:t>c</m:t></m:r></m:e><m:sup><m:r><m:t>2</m:t></m:r></m:sup></m:sSup></m:den></m:f><m:sSub><m:e><m:r><m:t>g</m:t></m:r></m:e><m:sub><m:r><m:t>t</m:t></m:r></m:sub></m:sSub><m:sSub><m:e><m:r><m:t>a</m:t></m:r></m:e><m:sub><m:r><m:t>t</m:t></m:r></m:sub></m:sSub></m:oMath>"
+        );
+        let b = lay(&mut fm, text, math, &xml);
+        let run = |t: &str| b.runs.iter().find(|r| r.text.contains(t)).unwrap();
+        let (n, i) = (run("\u{1D45B}"), run("\u{1D456}"));
+        assert!((n.y + 0.398 * 20.0).abs() < 1e-3, "{}", n.y);
+        assert!((i.y - 0.24 * 20.0).abs() < 1e-3, "{}", i.y);
+        // Upper and lower limit beside the operator, at the same x.
+        assert!((n.x - i.x).abs() < 0.5);
+        let num = run("+");
+        assert!((num.y + 0.593 * 20.0).abs() < 1e-3);
+        assert!(!num.text.contains('\u{2005}'), "{:?}", num.text);
+        let two = run("2");
+        let c = run("\u{1D450}");
+        assert!((two.size - c.size * 0.84).abs() < 1e-3);
+        let ts: Vec<_> = b.runs.iter().filter(|r| r.text == "\u{1D461}").collect();
+        assert_eq!(ts.len(), 2);
+        assert!((ts[0].y - ts[1].y).abs() < 1e-3);
     }
 
     // source: MathVariants of STIX Two Math (vertical constructions of "(" and "∫").

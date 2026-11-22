@@ -534,6 +534,10 @@ pub enum Command {
         /// everything is selected). The updated fields show their results.
         #[serde(default)]
         selection: bool,
+        /// Only what a print or a PDF export updates (SEQ, REF, PAGEREF…, not tables of
+        /// contents and other block fields), as the reference word processor does.
+        #[serde(default)]
+        print: bool,
     },
     /// Insert a table of contents at the caret.
     InsertToc,
@@ -2525,7 +2529,15 @@ impl crate::Engine {
                     Command::NextComment { forward } => {
                         extra.1 = s.next_comment(forward).map(|i| i.max(0) as usize);
                     }
-                    Command::UpdateFields { answers, selection } => {
+                    Command::UpdateFields {
+                        print: true,
+                        ..
+                    } => {
+                        extra.1 = Some(s.update_print_fields(&mut pages_of)?);
+                    }
+                    Command::UpdateFields {
+                        answers, selection, ..
+                    } => {
                         extra.1 = Some(if selection {
                             s.update_selected_fields(&mut pages_of, answers)?
                         } else {

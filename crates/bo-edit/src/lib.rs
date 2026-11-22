@@ -1105,10 +1105,21 @@ impl Tx<'_> {
         env: &fields::FieldEnv,
         scope: Option<&fields::Scope>,
     ) -> Result<usize> {
+        self.update_fields_with(pages_of, &|doc, pages| {
+            fields::update_in(doc, pages, env, scope)
+        })
+    }
+
+    /// The loop of [`Tx::update_fields`] with the update `step`.
+    fn update_fields_with(
+        &mut self,
+        pages_of: &mut dyn FnMut(&Document) -> Vec<u32>,
+        step: &dyn Fn(&Document, &[u32]) -> fields::FieldUpdate,
+    ) -> Result<usize> {
         let mut total = 0;
         for round in 0..3 {
             let pages = pages_of(self.doc);
-            let up = fields::update_in(self.doc, &pages, env, scope);
+            let up = step(self.doc, &pages);
             let unchanged = up.styles.is_none()
                 && up
                     .sections
@@ -1780,6 +1791,27 @@ impl Session {
     #[must_use]
     pub fn field_prompts(&self) -> Vec<merge::rules::Prompt> {
         fields::prompts(&self.doc)
+    }
+
+    /// Update the fields a print or a PDF export refreshes, in one undo step: SEQ, REF,
+    /// PAGEREF, dates…, but not tables of contents, indexes, tables of authorities and
+    /// bibliographies (measured: the reference's PDF export turns a stale "Bảng 3 (trang 5)"
+    /// into "Bảng 1 (trang 1)" and renumbers SEQ captions, but keeps a stale TOC).
+    pub fn update_print_fields(
+        &mut self,
+        pages_of: &mut dyn FnMut(&Document) -> Vec<u32>,
+    ) -> Result<usize> {
+        let mut n = self.recalc_form_fields()?;
+        let sel = self.selection;
+        let env = self.fields_now();
+        self.edit(|tx, _| {
+            n += tx.update_fields_with(pages_of, &|doc, pages| {
+                fields::update_for_print(doc, pages, &env)
+            })?;
+            Ok(sel)
+        })?;
+        self.fix_selection();
+        Ok(n)
     }
 
     /// Update the fields with the answers typed for their ASK / FILLIN questions (by the keys

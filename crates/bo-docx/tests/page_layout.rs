@@ -322,3 +322,53 @@ fn table_cell_margins_top_and_bottom_round_trip() {
     assert_eq!(t.props.cell_margin, Some((Twips(108), Twips(115))));
     assert_eq!(t.props.cell_margin_vertical, Some((Twips(144), Twips(72))));
 }
+
+/// Page Setup (round 13): §17.6.11 pgMar @w:gutter and §17.6.23 vAlign per section,
+/// §17.15.1.57 mirrorMargins / §17.15.1.49 gutterAtTop / §17.15.1.13 bookFoldPrinting /
+/// §17.15.1.65 printTwoOnOne in settings — patched into a read document in schema order
+/// and written for a new one.
+#[test]
+fn gutter_vertical_alignment_and_multiple_pages_round_trip() {
+    let mut doc = read_docx(&sample()).unwrap();
+    assert_eq!(doc.sections[0].layout, bo_model::SectionLayout::default());
+    assert!(doc.pages.is_default());
+    doc.sections[1].layout = bo_model::SectionLayout {
+        gutter: Twips(567),
+        v_align: bo_model::PageVAlign::Bottom,
+    };
+    doc.pages.mirror_margins = true;
+    doc.pages.gutter_at_top = true;
+    doc.pages.two_on_one = true;
+    let bytes = write_docx(&doc).unwrap();
+    let main = part(&bytes, "/word/document.xml");
+    assert!(main.contains(r#"w:gutter="567""#));
+    let v = main.find(r#"<w:vAlign w:val="bottom"/>"#).unwrap();
+    assert!(v < main.rfind("<w:textDirection").unwrap());
+    let settings = part(&bytes, "/word/settings.xml");
+    let at = |t: &str| settings.find(t).unwrap();
+    assert!(at("<w:zoom") < at("<w:mirrorMargins/>"));
+    assert!(at("<w:mirrorMargins/>") < at("<w:gutterAtTop/>"));
+    assert!(at("<w:gutterAtTop/>") < at("<w:defaultTabStop"));
+    assert!(at("<w:characterSpacingControl") < at("<w:printTwoOnOne/>"));
+    let back = read_docx(&bytes).unwrap();
+    assert_eq!(back.sections[1].layout, doc.sections[1].layout);
+    assert_eq!(back.pages, doc.pages);
+    // Turning them off removes the elements.
+    let mut off = back.clone();
+    off.pages = bo_model::PagesSettings::default();
+    let again = part(&write_docx(&off).unwrap(), "/word/settings.xml");
+    assert!(!again.contains("mirrorMargins") && !again.contains("printTwoOnOne"));
+    // A new document writes them too.
+    let mut fresh = Document::default();
+    fresh
+        .sections
+        .push(Section::new(vec![para(ParaProps::default(), "x")]));
+    fresh.sections[0].layout.v_align = bo_model::PageVAlign::Center;
+    fresh.pages.book_fold = true;
+    let b = write_docx(&fresh).unwrap();
+    assert!(part(&b, "/word/document.xml").contains(r#"<w:vAlign w:val="center"/>"#));
+    assert!(part(&b, "/word/settings.xml").contains("<w:bookFoldPrinting/>"));
+    let r = read_docx(&b).unwrap();
+    assert!(r.pages.book_fold);
+    assert_eq!(r.sections[0].layout.v_align, bo_model::PageVAlign::Center);
+}

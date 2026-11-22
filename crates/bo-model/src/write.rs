@@ -194,6 +194,9 @@ pub struct SourcePackage {
     /// Custom XML parts as read (ECMA-376 Part 1, §15.2.4; changed ⇒ parts rewritten).
     #[serde(default)]
     pub custom_xml: Vec<crate::custom_xml::CustomXmlPart>,
+    /// Multiple pages settings as read (changed ⇒ settings patched).
+    #[serde(default)]
+    pub pages: PagesSettings,
 }
 
 /// A whole word-processing document.
@@ -267,6 +270,10 @@ pub struct Document {
     /// file names none. `None` is a document created here (saved as 15).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compat_mode: Option<u16>,
+    /// Multiple pages settings of Page Setup (mirror margins, gutter at top, book fold, two
+    /// pages per sheet).
+    #[serde(default, skip_serializing_if = "PagesSettings::is_default")]
+    pub pages: PagesSettings,
 }
 
 impl Document {
@@ -784,9 +791,95 @@ pub struct Section {
     /// enforced (omitted ⇒ protected).
     #[serde(default)]
     pub form_unprotected: bool,
+    /// Gutter and vertical alignment of the pages (§17.6.11 pgMar @w:gutter, §17.6.23
+    /// vAlign).
+    #[serde(default, skip_serializing_if = "SectionLayout::is_default")]
+    pub layout: SectionLayout,
     /// Original `w:sectPr` XML.
     #[serde(skip)]
     pub src: Option<Raw>,
+}
+
+/// Gutter and vertical page alignment of a section (Page Setup dialog).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SectionLayout {
+    /// §17.6.11 pgMar @w:gutter: extra binding margin (left edge, or top with §17.15.1.49
+    /// gutterAtTop; inside edges with mirror margins), in twips.
+    #[serde(default)]
+    pub gutter: Twips,
+    /// §17.6.23 vAlign: vertical alignment of the text on the pages.
+    #[serde(default)]
+    pub v_align: PageVAlign,
+}
+
+impl SectionLayout {
+    /// No gutter, text from the top.
+    pub fn is_default(&self) -> bool {
+        *self == SectionLayout::default()
+    }
+}
+
+/// Vertical alignment of a section's text on the page (§17.18.101 `ST_VerticalJc`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PageVAlign {
+    /// From the top margin (default).
+    #[default]
+    Top,
+    /// Centred between the margins.
+    Center,
+    /// Justified: paragraphs spaced to fill the page (`both`).
+    Both,
+    /// Against the bottom margin.
+    Bottom,
+}
+
+impl PageVAlign {
+    /// Parse an `ST_VerticalJc` value (unknown = top).
+    pub fn parse(s: &str) -> PageVAlign {
+        match s {
+            "center" => PageVAlign::Center,
+            "both" => PageVAlign::Both,
+            "bottom" => PageVAlign::Bottom,
+            _ => PageVAlign::Top,
+        }
+    }
+    /// Serialized attribute value.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            PageVAlign::Top => "top",
+            PageVAlign::Center => "center",
+            PageVAlign::Both => "both",
+            PageVAlign::Bottom => "bottom",
+        }
+    }
+}
+
+/// Document-wide "Multiple pages" settings of Page Setup (§17.15.1.57 mirrorMargins,
+/// §17.15.1.49 gutterAtTop, §17.15.1.13 bookFoldPrinting, §17.15.1.65 printTwoOnOne).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PagesSettings {
+    /// Left / right margins become inside / outside on facing pages.
+    #[serde(default)]
+    pub mirror_margins: bool,
+    /// The gutter is at the top of the page.
+    #[serde(default)]
+    pub gutter_at_top: bool,
+    /// Book fold: two pages per side of a sheet folded in the middle.
+    #[serde(default)]
+    pub book_fold: bool,
+    /// Two pages per sheet.
+    #[serde(default)]
+    pub two_on_one: bool,
+}
+
+impl PagesSettings {
+    /// Normal (one page per sheet, no mirror, gutter at the left).
+    pub fn is_default(&self) -> bool {
+        *self == PagesSettings::default()
+    }
 }
 
 /// Source parts of a section's headers and footers: (header?, `ST_HdrFtr` kind, part
@@ -841,6 +934,7 @@ impl Section {
             text_direction,
             hf_parts: _,
             form_unprotected,
+            layout,
             src,
         } = self;
         *page == other.page
@@ -854,6 +948,7 @@ impl Section {
             && *endnote_pr == other.endnote_pr
             && *change == other.change
             && *form_unprotected == other.form_unprotected
+            && *layout == other.layout
             && *src == other.src
             && *blocks == other.blocks
     }
@@ -876,6 +971,7 @@ impl Section {
                 self.form_unprotected,
                 self.line_numbers,
                 self.text_direction,
+                self.layout,
             ),
         ))
     }

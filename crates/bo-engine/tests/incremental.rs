@@ -90,6 +90,7 @@ fn op() -> impl Strategy<Value = Command> {
                     footer: 720,
                     columns,
                     column_space: 720,
+                    ..Default::default()
                 },
                 scope: if all { bo_edit::SetupScope::Document } else { bo_edit::SetupScope::Section },
             }
@@ -276,6 +277,7 @@ fn a_page_setup_change_lays_out_from_its_section() {
                 footer: 720,
                 columns: 2,
                 column_space: 720,
+                ..Default::default()
             },
             scope: bo_edit::SetupScope::Section,
         })

@@ -156,6 +156,7 @@ fn page_setup_scopes_and_undo() {
         footer: 567,
         columns: 2,
         column_space: 425,
+        ..Default::default()
     };
     s.set_page_setup(spec, SetupScope::Section).unwrap();
     assert!(s.doc().sections[1].page.is_landscape());
@@ -174,6 +175,56 @@ fn page_setup_scopes_and_undo() {
     .unwrap();
     let p = s.doc().sections[1].page;
     assert!(p.width.0 - p.margin_left.0 - p.margin_right.0 >= 720);
+    undo_all(&mut s, &original);
+}
+
+#[test]
+fn page_setup_forward_gutter_layout_and_multiple_pages() {
+    let mut s = Session::new(doc(&["một", "hai", "ba"]));
+    let original = s.doc().clone();
+    caret(&mut s, 1, 1);
+    let base = s.section_state();
+    let spec = PageSetupSpec {
+        width: base.width,
+        height: base.height,
+        margin_top: base.margin_top,
+        margin_bottom: base.margin_bottom,
+        margin_left: base.margin_left,
+        margin_right: base.margin_right,
+        header: base.header,
+        footer: base.footer,
+        columns: 1,
+        column_space: 720,
+        gutter: Some(360),
+        v_align: Some(bo_model::PageVAlign::Center),
+        start: Some(crate::SectionStart::OddPage),
+        title_page: Some(true),
+        even_and_odd: Some(true),
+        mirror_margins: Some(true),
+        book_fold: None,
+        two_on_one: None,
+        gutter_top: None,
+    };
+    // This point forward: a section break before "hai", the new section gets the setup.
+    s.set_page_setup(spec, SetupScope::Forward).unwrap();
+    let d = s.doc();
+    assert_eq!(d.sections.len(), 2);
+    assert_eq!(d.sections[0].blocks.len(), 1);
+    assert_eq!(d.sections[1].blocks.len(), 2);
+    assert_eq!(d.sections[0].layout, bo_model::SectionLayout::default());
+    assert_eq!(d.sections[1].layout.gutter, Twips(360));
+    assert_eq!(d.sections[1].layout.v_align, bo_model::PageVAlign::Center);
+    assert_eq!(d.sections[1].break_type, bo_model::SectionBreak::OddPage);
+    assert!(d.sections[1].title_page && !d.sections[0].title_page);
+    assert!(d.even_and_odd_headers && d.pages.mirror_margins);
+    // One undo step takes it all back.
+    assert!(s.undo());
+    assert_eq!(s.doc(), &original);
+    // At a section's start no break is added.
+    caret(&mut s, 0, 0);
+    s.set_page_setup(spec, SetupScope::Forward).unwrap();
+    assert_eq!(s.doc().sections.len(), 1);
+    assert_eq!(s.doc().sections[0].layout.gutter, Twips(360));
     undo_all(&mut s, &original);
 }
 

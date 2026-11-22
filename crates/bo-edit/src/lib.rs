@@ -58,7 +58,7 @@ pub use ops::{Op, Pos, Selection, Transaction};
 pub use refs::{CitationMark, IndexMark, NoteConversion};
 use revisions::Tracker;
 pub use revisions::{RevKind, RevisionItem, StoryRef};
-pub use section::{HfVariant, PageSetupSpec, PasteMode, SetupScope};
+pub use section::{HfVariant, PageSetupSpec, PasteMode, SectionStart, SetupScope};
 pub use table::{BorderPen, BorderPreset, TableEdit};
 
 use bo_model::change::BlockChanges;

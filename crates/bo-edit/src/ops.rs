@@ -107,6 +107,21 @@ pub enum Op {
         /// New settings.
         new: Hyphenation,
     },
+    /// Replace the document defaults (§17.7.5.1 docDefaults: rPrDefault, pPrDefault).
+    Defaults {
+        /// Previous run and paragraph defaults.
+        old: Box<(bo_model::RunProps, bo_model::ParaProps)>,
+        /// New run and paragraph defaults.
+        new: Box<(bo_model::RunProps, bo_model::ParaProps)>,
+    },
+    /// Replace the multiple pages settings of Page Setup (§17.15.1.57 mirrorMargins,
+    /// §17.15.1.49 gutterAtTop, §17.15.1.13 bookFoldPrinting, §17.15.1.65 printTwoOnOne).
+    Pages {
+        /// Previous settings.
+        old: bo_model::PagesSettings,
+        /// New settings.
+        new: bo_model::PagesSettings,
+    },
     /// Replace the custom XML parts (ECMA-376 Part 1, §15.2.4 / §15.2.5).
     CustomXml {
         /// Previous parts.
@@ -186,6 +201,14 @@ impl Op {
             Op::Hyphenation { old, new } => Op::Hyphenation {
                 old: *new,
                 new: *old,
+            },
+            Op::Pages { old, new } => Op::Pages {
+                old: *new,
+                new: *old,
+            },
+            Op::Defaults { old, new } => Op::Defaults {
+                old: new.clone(),
+                new: old.clone(),
             },
             Op::CustomXml { old, new } => Op::CustomXml {
                 old: new.clone(),
@@ -325,6 +348,19 @@ impl Op {
                     return Err(EditError::Conflict);
                 }
                 doc.hyphenation = *new;
+            }
+            Op::Pages { old, new } => {
+                if doc.pages != *old {
+                    return Err(EditError::Conflict);
+                }
+                doc.pages = *new;
+            }
+            Op::Defaults { old, new } => {
+                if doc.default_run != old.0 || doc.default_para != old.1 {
+                    return Err(EditError::Conflict);
+                }
+                doc.default_run = new.0.clone();
+                doc.default_para = new.1.clone();
             }
             Op::CustomXml { old, new } => {
                 if doc.custom_xml != *old {

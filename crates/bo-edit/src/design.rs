@@ -687,6 +687,7 @@ impl Session {
         let targets: Vec<usize> = match scope {
             SetupScope::Section => vec![current],
             SetupScope::Document => (0..self.doc.sections.len()).collect(),
+            SetupScope::Forward => (current..self.doc.sections.len()).collect(),
         };
         let pb = spec
             .filter(|s| !matches!(s.style.as_str(), "none" | "nil") && s.sides.contains(&true))

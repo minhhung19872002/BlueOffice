@@ -1193,6 +1193,12 @@ pub enum Command {
         #[serde(default)]
         scope: SetupScope,
     },
+    /// Manage Styles › Set Defaults: document defaults (§17.7.5.1 docDefaults) from the
+    /// set fields of a `FindFormat` (font, size, colour, indents, alignment, spacing).
+    SetDocDefaults {
+        /// The defaults to set.
+        format: Box<bo_edit::find::FindFormat>,
+    },
     /// Hyphenation settings of the document (§17.15.1.10 autoHyphenation, …).
     SetHyphenation {
         /// New settings.
@@ -2016,6 +2022,7 @@ impl crate::Engine {
                     | Command::SetLineNumbering { .. }
                     | Command::SetSectionTextDirection { .. }
                     | Command::SetHyphenation { .. }
+                    | Command::SetDocDefaults { .. }
                     | Command::SetDropCap { .. } => {}
                     Command::Tab { back } => {
                         if s.next_cell(back)?.is_none() {

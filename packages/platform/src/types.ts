@@ -338,7 +338,26 @@ export interface SectionState {
 }
 
 /** Page setup sent with `setPageSetup` (twips). */
-export type PageSetupSpec = Omit<SectionState, 'index' | 'count' | 'titlePage' | 'evenAndOdd'>;
+export type PageSetupSpec = Omit<SectionState, 'index' | 'count' | 'titlePage' | 'evenAndOdd'> & {
+  /** §17.6.11 pgMar @w:gutter (unset = unchanged; round 13). */
+  gutter?: number;
+  /** §17.6.23 vAlign. */
+  vAlign?: 'top' | 'center' | 'both' | 'bottom';
+  /** §17.6.22 type: how the section starts. */
+  start?: 'continuous' | 'nextColumn' | 'nextPage' | 'evenPage' | 'oddPage';
+  /** §17.10.6 titlePg. */
+  titlePage?: boolean;
+  /** §17.15.1.35 evenAndOddHeaders (document-wide). */
+  evenAndOdd?: boolean;
+  /** §17.15.1.57 mirrorMargins (document-wide). */
+  mirrorMargins?: boolean;
+  /** §17.15.1.49 gutterAtTop (document-wide). */
+  gutterTop?: boolean;
+  /** §17.15.1.65 printTwoOnOne (document-wide). */
+  twoOnOne?: boolean;
+  /** §17.15.1.13 bookFoldPrinting (document-wide). */
+  bookFold?: boolean;
+};
 
 /** The table holding the caret (mirrors `bo_edit::TableState`). */
 export interface TableState {
@@ -894,7 +913,9 @@ export type EditCommand =
   | { cmd: 'tableEdit'; edit: TableEdit }
   /** Move the floating picture at the selection (points from its position references). */
   | { cmd: 'setPicturePosition'; x: number; y: number }
-  | { cmd: 'setPageSetup'; setup: PageSetupSpec; scope?: 'section' | 'document' }
+  | { cmd: 'setPageSetup'; setup: PageSetupSpec; scope?: 'section' | 'document' | 'forward' }
+  /** Manage Styles › Set Defaults: §17.7.5.1 docDefaults from FindFormat fields (round 13). */
+  | { cmd: 'setDocDefaults'; format: Record<string, string | number | boolean> }
   | { cmd: 'setHeaderOptions'; titlePage?: boolean; evenAndOdd?: boolean }
   | { cmd: 'setHeaderLink'; linked: boolean }
   | { cmd: 'editNote'; endnote?: boolean; id: number }

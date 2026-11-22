@@ -2876,8 +2876,17 @@ fn tcpr_items(p: &bo_model::CellProps) -> Vec<(String, String)> {
             },
         ));
     }
-    if let Some(b) = &p.borders {
-        items.push(("tcBorders".into(), borders_xml("tcBorders", b, false)));
+    if p.borders.is_some() || p.diagonals.iter().any(Option::is_some) {
+        let mut x = borders_xml("tcBorders", &p.borders.clone().unwrap_or_default(), false);
+        // ECMA-376 Part 1, §17.4.80 tl2br and §17.4.79 tr2bl close the sequence.
+        x.truncate(x.len() - "</w:tcBorders>".len());
+        for (tag, d) in [("tl2br", &p.diagonals[0]), ("tr2bl", &p.diagonals[1])] {
+            if let Some(d) = d {
+                x.push_str(&border_xml(tag, d));
+            }
+        }
+        x.push_str("</w:tcBorders>");
+        items.push(("tcBorders".into(), x));
     }
     if let Some(col) = p.shading {
         items.push((
@@ -3663,6 +3672,26 @@ fn tblpr_children(t: &TableProps) -> Vec<(String, String)> {
         }
         x.push_str("/>");
         v.push(("tblpPr".into(), x));
+    }
+    // ECMA-376 Part 1, §17.4.56 tblOverlap.
+    if let Some(o) = &t.overlap {
+        v.push((
+            "tblOverlap".into(),
+            format!("<w:tblOverlap w:val=\"{}\"/>", escape(o)),
+        ));
+    }
+    // ECMA-376 Part 1, §17.4.63 tblCaption / §17.4.58 tblDescription (alt text).
+    if let Some(c) = &t.caption {
+        v.push((
+            "tblCaption".into(),
+            format!("<w:tblCaption w:val=\"{}\"/>", escape(c)),
+        ));
+    }
+    if let Some(d) = &t.description {
+        v.push((
+            "tblDescription".into(),
+            format!("<w:tblDescription w:val=\"{}\"/>", escape(d)),
+        ));
     }
     if t.cell_margin.is_some() || t.cell_margin_vertical.is_some() {
         let (l, r) = t

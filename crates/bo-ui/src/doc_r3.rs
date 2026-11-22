@@ -280,6 +280,7 @@ impl DocWindow {
             fonts: Vec::new(),
             table: f.table.clone(),
             inches: self.units.inches,
+            extra: self.r12_form_extra(),
         }
     }
 

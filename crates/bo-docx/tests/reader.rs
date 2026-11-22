@@ -274,6 +274,72 @@ fn floating_table_and_vertical_text_round_trip() {
     );
 }
 
+/// ECMA-376 Part 1, §17.4.63 tblCaption, §17.4.58 tblDescription and §17.4.56 tblOverlap
+/// are read into the model and written back in schema order after a change.
+#[test]
+fn table_alt_text_and_overlap_round_trip() {
+    let body = r#"<w:tbl><w:tblPr><w:tblpPr w:leftFromText="180" w:rightFromText="180" w:vertAnchor="text" w:tblpY="1"/><w:tblOverlap w:val="never"/><w:tblW w:w="4000" w:type="dxa"/><w:tblLook w:val="04A0"/><w:tblCaption w:val="Sales &amp; costs"/><w:tblDescription w:val="Quarterly sales by region"/></w:tblPr><w:tblGrid><w:gridCol w:w="4000"/></w:tblGrid>
+<w:tr><w:tc><w:p/></w:tc></w:tr></w:tbl><w:p/>"#;
+    let doc = read_docx(&docx(body)).unwrap();
+    let Block::Table(t) = &doc.sections[0].blocks[0] else {
+        panic!("table")
+    };
+    assert_eq!(t.props.caption.as_deref(), Some("Sales & costs"));
+    assert_eq!(
+        t.props.description.as_deref(),
+        Some("Quarterly sales by region")
+    );
+    assert_eq!(t.props.overlap.as_deref(), Some("never"));
+    let mut doc = doc;
+    if let Block::Table(t) = &mut doc.sections[0].blocks[0] {
+        t.props.caption = Some("Sales <2026>".into());
+    }
+    let out = bo_docx::write_docx(&doc).unwrap();
+    let pkg = Package::read(&out, &bo_opc::Limits::default()).unwrap();
+    let xml = String::from_utf8(pkg.part("/word/document.xml").unwrap().data.clone()).unwrap();
+    let at = |s: &str| xml.find(s).unwrap_or_else(|| panic!("{s} in {xml}"));
+    // CT_TblPr order: tblpPr, tblOverlap, …, tblLook, tblCaption, tblDescription.
+    assert!(at("<w:tblpPr") < at("<w:tblOverlap w:val=\"never\"/>"));
+    assert!(at("<w:tblLook") < at("<w:tblCaption w:val=\"Sales &lt;2026&gt;\"/>"));
+    assert!(at("<w:tblCaption") < at("<w:tblDescription"));
+    let back = read_docx(&out).unwrap();
+    let Block::Table(t2) = &back.sections[0].blocks[0] else {
+        panic!("table")
+    };
+    assert_eq!(t2.props.caption.as_deref(), Some("Sales <2026>"));
+    assert_eq!(t2.props.overlap.as_deref(), Some("never"));
+    assert!(t2
+        .props
+        .unknown
+        .iter()
+        .all(|r| !r.xml.contains("tblCaption")));
+}
+
+/// ECMA-376 Part 1, §17.4.80 tl2br and §17.4.79 tr2bl are kept in the model and written
+/// last in `w:tcBorders`.
+#[test]
+fn cell_diagonals_round_trip() {
+    let body = r#"<w:tbl><w:tblPr/><w:tblGrid><w:gridCol w:w="2000"/></w:tblGrid><w:tr><w:tc><w:tcPr><w:tcBorders><w:top w:val="single" w:sz="4" w:space="0" w:color="auto"/><w:tl2br w:val="single" w:sz="8" w:space="0" w:color="FF0000"/></w:tcBorders></w:tcPr><w:p/></w:tc></w:tr></w:tbl><w:p/>"#;
+    let mut doc = read_docx(&docx(body)).unwrap();
+    let Block::Table(t) = &mut doc.sections[0].blocks[0] else {
+        panic!("table")
+    };
+    let c = &mut t.rows[0].cells[0].props;
+    assert_eq!(c.diagonals[0].as_ref().map(|b| b.size), Some(8));
+    assert!(c.diagonals[1].is_none());
+    c.diagonals[1] = c.diagonals[0].clone();
+    let out = bo_docx::write_docx(&doc).unwrap();
+    let pkg = Package::read(&out, &bo_opc::Limits::default()).unwrap();
+    let xml = String::from_utf8(pkg.part("/word/document.xml").unwrap().data.clone()).unwrap();
+    let at = |s: &str| xml.find(s).unwrap_or_else(|| panic!("{s} in {xml}"));
+    assert!(at("<w:top ") < at("<w:tl2br ") && at("<w:tl2br ") < at("<w:tr2bl "));
+    let back = read_docx(&out).unwrap();
+    let Block::Table(t2) = &back.sections[0].blocks[0] else {
+        panic!("table")
+    };
+    assert!(t2.rows[0].cells[0].props.diagonals[1].is_some());
+}
+
 #[test]
 fn self_closing_body_paragraph_is_a_paragraph() {
     // `<w:p/>` after a table (python-docx writes empty paragraphs this way): an empty,

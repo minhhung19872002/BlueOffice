@@ -22,18 +22,20 @@ const PICKS: [(&str, usize, &str); 8] = [
 ];
 
 /// A length the reference's way: `2.17"` or `5.51 cm`.
-fn len(twips: i32, inches: bool) -> String {
+pub(super) fn len(twips: i32, inches: bool) -> String {
+    // Hundredths rounded half away from zero, as the reference shows 180 twips as 0.13".
+    let hundredths = |v: f64| (v * 100.0).round() / 100.0;
     if inches {
-        let v = format!("{:.2}", f64::from(twips) / 1440.0);
+        let v = format!("{:.2}", hundredths(f64::from(twips) / 1440.0));
         format!("{}\"", v.trim_end_matches('0').trim_end_matches('.'))
     } else {
-        let v = format!("{:.2}", f64::from(twips) / 566.929);
+        let v = format!("{:.2}", hundredths(f64::from(twips) / 566.929));
         format!("{} cm", v.trim_end_matches('0').trim_end_matches('.'))
     }
 }
 
 /// Twips of a typed length (`2"`, `2 in`, `5 cm`, `50 mm`, `12 pt`; bare: inches or cm).
-fn parse(text: &str, inches: bool) -> Option<i32> {
+pub(super) fn parse(text: &str, inches: bool) -> Option<i32> {
     let s = text.trim().replace(',', ".");
     let split = s
         .find(|c: char| !(c.is_ascii_digit() || c == '.'))
@@ -65,6 +67,8 @@ impl DocForm {
             self.ids.resize(3, String::new());
         }
         self.ids[slot] = v.to_owned();
+        // Positioning… is for a table the text wraps around.
+        self.form.enable("positioning", self.ids[1] == "around");
         true
     }
 
@@ -135,6 +139,9 @@ impl DocForm {
             "prevCol" => (self.tp_column_cmds(), "prevColumn"),
             "nextCol" => (self.tp_column_cmds(), "nextColumn"),
             "options" => return FormOut::Stash(DocFormKind::TableOptions),
+            // Round 12: Positioning… and Borders and Shading….
+            "positioning" => return FormOut::Stash(DocFormKind::TablePosition),
+            "borders" => return FormOut::Stash(DocFormKind::BordersShading),
             _ => return FormOut::Redraw,
         };
         FormOut::TableMove(cmds, part)
@@ -235,6 +242,11 @@ impl DocForm {
             .unwrap_or_else(|| "Left".into());
         cmds.push(edit(json!({
             "kind": "cellAlign", "vertical": vertical, "horizontal": horizontal,
+        })));
+        cmds.push(edit(json!({
+            "kind": "altText",
+            "title": self.text("aTitle").trim(),
+            "description": self.text("aDesc").trim(),
         })));
         FormOut::Run(cmds, true)
     }
@@ -410,14 +422,13 @@ pub(super) fn open(s: &Strings, c: &FormContext) -> DocForm {
         [427.0, 377.0, 112.0, 28.0],
         &tr("tprops11.positioning", "Positioning..."),
     );
-    f.form.enable("positioning", false);
+    f.form.enable("positioning", tbl.wrap);
     f.button_on(
         0,
         "borders",
         [254.0, 479.0, 158.0, 28.0],
         &tr("tprops11.borders", "Borders and Shading..."),
     );
-    f.form.enable("borders", false);
     f.button_on(
         0,
         "options",
@@ -600,23 +611,49 @@ pub(super) fn open(s: &Strings, c: &FormContext) -> DocForm {
         [250.0, 252.0, 60.0, 18.0],
         &tr("tprops11.bottom", "Bottom"),
     );
-    // Alt Text: the engine keeps no table description yet.
-    f.label_on(
+    // Alt Text (§17.4.63 tblCaption, §17.4.58 tblDescription), measured on the reference:
+    // group lines at 88 / 150, title box 502 × 26, description box 502 × 108, then an
+    // explanation (own wording).
+    group(&mut f, 4, "aTitleG", 88.0, &tr("tprops11.title", "Title"));
+    edit(
+        &mut f,
         4,
-        "aTitleL",
-        [24.0, 88.0, 200.0, 18.0],
-        &tr("tprops11.title", "Title"),
+        "aTitle",
+        [38.0, 105.0, 502.0, 26.0],
+        &tbl.caption,
     );
-    edit(&mut f, 4, "aTitle", [24.0, 108.0, 516.0, 24.0], "");
-    f.label_on(
+    group(
+        &mut f,
         4,
-        "aDescL",
-        [24.0, 144.0, 200.0, 18.0],
+        "aDescG",
+        150.0,
         &tr("tprops11.description", "Description"),
     );
-    edit(&mut f, 4, "aDesc", [24.0, 164.0, 516.0, 140.0], "");
-    f.form.enable("aTitle", false);
-    f.form.enable("aDesc", false);
+    edit(
+        &mut f,
+        4,
+        "aDesc",
+        [38.0, 167.0, 502.0, 108.0],
+        &tbl.description,
+    );
+    f.label_on(
+        4,
+        "aAboutL",
+        [24.0, 294.0, 300.0, 18.0],
+        &tr("doc12.altAbout", "Alternative Text"),
+    );
+    f.form.add(
+        "aAbout",
+        Some(4),
+        [24.0, 312.0, 516.0, 120.0],
+        super::Kind::Note(tr(
+            "doc12.altNote",
+            "A title and a description give people who use a screen reader a text \
+             version of the table. Keep the title short so a listener can decide \
+             whether to hear the description; let the description say what the \
+             table shows and why it matters.",
+        )),
+    );
     f.button(
         "ok",
         [314.0, 532.0, 112.0, 28.0],

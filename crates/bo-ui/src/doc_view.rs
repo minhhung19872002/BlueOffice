@@ -352,6 +352,8 @@ impl DocView {
             self.engine.doc_security(c).ok()?
         } else if bo_engine::doc_chart::DocChartCommand::parse(v).is_some()
             || bo_engine::doc_smartart::DocSmartArtCommand::parse(v).is_some()
+            // Building blocks (Quick Tables, round 12).
+            || bo_engine::blocks::BlockCommand::parse(v).is_some()
         {
             // Charts and SmartArt answer JSON of their own: take the view's state after them
             // and draw every page again.

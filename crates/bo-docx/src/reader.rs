@@ -2285,10 +2285,18 @@ fn read_border(e: &BytesStart<'_>) -> Border {
 
 /// Border containers (§17.3.1.24 pBdr, §17.4.39 tblBorders, §17.4.66 tcBorders).
 fn read_borders(r: &mut XmlReader<'_>) -> Result<Borders> {
+    read_borders_diag(r).map(|(b, _)| b)
+}
+
+/// Border container with the cell diagonals (§17.4.80 tl2br, §17.4.79 tr2bl).
+fn read_borders_diag(r: &mut XmlReader<'_>) -> Result<(Borders, [Option<Border>; 2])> {
     let mut b = Borders::default();
+    let mut d: [Option<Border>; 2] = [None, None];
     children(r, |_, e, s, _| {
         let v = Some(read_border(e));
         match name(e).as_slice() {
+            b"tl2br" => d[0] = v,
+            b"tr2bl" => d[1] = v,
             b"top" => b.top = v,
             b"left" | b"start" => b.left = v,
             b"bottom" => b.bottom = v,
@@ -2299,7 +2307,7 @@ fn read_borders(r: &mut XmlReader<'_>) -> Result<Borders> {
         }
         Ok(!s)
     })?;
-    Ok(b)
+    Ok((b, d))
 }
 
 /// ECMA-376 Part 1, §17.3.2.20 lang (`ST_Lang` tags for Latin, East Asian and complex script text).
@@ -2517,6 +2525,20 @@ fn read_tblpr(r: &mut XmlReader<'_>) -> Result<TableProps> {
                     y: tw(b"tblpY"),
                     y_align: attr(e, b"tblpYSpec"),
                 });
+                return Ok(!s);
+            }
+            // ECMA-376 Part 1, §17.4.56 tblOverlap.
+            b"tblOverlap" => {
+                t.overlap = attr(e, b"val");
+                return Ok(!s);
+            }
+            // ECMA-376 Part 1, §17.4.63 tblCaption / §17.4.58 tblDescription (alt text).
+            b"tblCaption" => {
+                t.caption = attr(e, b"val");
+                return Ok(!s);
+            }
+            b"tblDescription" => {
+                t.description = attr(e, b"val");
                 return Ok(!s);
             }
             // §17.13.5.34 tblPrChange
@@ -2841,7 +2863,11 @@ fn read_tcpr(r: &mut XmlReader<'_>) -> Result<CellProps> {
                 });
             }
             b"shd" => c.shading = color_attr(e, b"fill"),
-            b"tcBorders" if s => c.borders = Some(read_borders(r)?),
+            b"tcBorders" if s => {
+                let (b, d) = read_borders_diag(r)?;
+                c.diagonals = d;
+                c.borders = (!b.is_empty() || c.diagonals.iter().all(Option::is_none)).then_some(b);
+            }
             // §17.13.5.4 cellIns / §17.13.5.3 cellDel
             n @ (b"cellIns" | b"cellDel") => {
                 let m = RevMark {

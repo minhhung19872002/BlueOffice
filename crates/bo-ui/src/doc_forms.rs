@@ -30,6 +30,9 @@ pub(crate) mod findfmt11;
 
 #[path = "doc_tprops11.rs"]
 mod tprops11;
+
+#[path = "doc_forms12.rs"]
+pub(crate) mod r12;
 pub(crate) use r5::{open_manage_styles, ManagedStyle};
 pub(crate) use r7::INSPECT;
 
@@ -107,6 +110,12 @@ pub(crate) enum DocFormKind {
     TableOptions,
     /// Insert › Table › Insert Table….
     InsertTable,
+    /// Table Properties › Positioning… (round 12).
+    TablePosition,
+    /// Borders and Shading with its Borders, Page Border and Shading tabs (round 12).
+    BordersShading,
+    /// Create New Building Block (Quick Tables › Save Selection…, round 12).
+    NewBlock,
 }
 
 /// What the owner does after an input.
@@ -181,6 +190,8 @@ pub(crate) struct DocForm {
     tris: Vec<findfmt11::Tri>,
     /// Translated words a dialog's OK puts together (round 11).
     words: Vec<(String, String)>,
+    /// Borders and Shading state (round 12).
+    bs: Option<Box<r12::Bs>>,
 }
 
 /// Reference ids of `ST_NumberFormat` values offered for notes (§17.18.59).
@@ -259,6 +270,8 @@ pub(crate) struct FormContext {
     pub(crate) fonts: Vec<String>,
     /// The table at the caret (Table Properties, round 11).
     pub(crate) table: Option<bo_edit::TableState>,
+    /// More state for round-12 dialogs (borders, shading, palette; see `doc_r12`).
+    pub(crate) extra: Value,
     /// Lengths in inches (else centimetres).
     pub(crate) inches: bool,
     /// Mail merge recipients: field names and rows.
@@ -381,6 +394,7 @@ impl DocForm {
             manage_text: Vec::new(),
             tris: Vec::new(),
             words: Vec::new(),
+            bs: None,
         }
     }
 
@@ -644,6 +658,7 @@ impl DocForm {
         self.form.layout(m, size, scale);
         let mut strings: Vec<String> = self.radios.iter().map(|r| r.label.clone()).collect();
         strings.extend(self.preview.iter().cloned());
+        strings.extend(self.words.iter().map(|w| w.1.clone()));
         self.form.measure(m, &strings);
         // Entry text before the page number, for the preview's leaders.
         let font = self.form.font();
@@ -699,6 +714,7 @@ impl DocForm {
             Event::None => FormOut::Redraw,
             Event::Cancel => FormOut::Close,
             Event::Canvas(id, _, y) if self.r11_canvas(id, *y) => FormOut::Redraw,
+            Event::Canvas(id, x, y) if self.r12_canvas(id, *x, *y) => FormOut::Redraw,
             Event::Canvas(id, ..) if self.kind == DocFormKind::TableProps && self.tp_canvas(id) => {
                 FormOut::Redraw
             }
@@ -743,6 +759,7 @@ impl DocForm {
             (DocFormKind::Protect, _) => {}
             (k, _) if findfmt11::handles(k) => self.r11_changed(id),
             (DocFormKind::TableProps, _) => self.tp_changed(id),
+            (k, _) if r12::handles(k) => self.r12_changed(id),
             _ => self.r5_changed(id),
         }
     }
@@ -1168,6 +1185,9 @@ impl DocForm {
             DocFormKind::TableProps => self.tp_ok(),
             DocFormKind::TableOptions => self.options_ok(),
             DocFormKind::InsertTable => self.insert_table_ok(),
+            DocFormKind::TablePosition | DocFormKind::BordersShading | DocFormKind::NewBlock => {
+                self.r12_ok()
+            }
             DocFormKind::Zoom => {
                 let pct = match self.chosen("zoom") {
                     Some("z200") => "200".to_owned(),
@@ -1198,6 +1218,7 @@ impl DocForm {
         let mut canvas = |id: &str, r: [f32; 4], p: &mut dyn Painter| {
             if findfmt11::paint_canvas(this, id, r, p, &font, k)
                 || tprops11::paint_canvas(this, id, r, p, k)
+                || r12::paint_canvas(this, id, r, p, &font)
             {
                 return;
             }
@@ -3118,6 +3139,9 @@ pub(crate) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
         DocFormKind::TableProps => tprops11::open(s, c),
         DocFormKind::TableOptions => tprops11::open_options(s, c),
         DocFormKind::InsertTable => tprops11::open_insert(s),
+        DocFormKind::TablePosition | DocFormKind::BordersShading | DocFormKind::NewBlock => {
+            r12::open(kind, s, c)
+        }
         DocFormKind::Zoom => {
             let mut f = DocForm::new(kind, &tr("docR4.zoomTitle", "Zoom"), (381.0, 258.0), vec![]);
             f.label(

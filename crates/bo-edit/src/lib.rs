@@ -205,6 +205,12 @@ fn case_char(ch: char, mode: CaseMode, word_start: bool, sentence_start: bool) -
     }
 }
 
+/// Default distances from the text of paragraph borders (points; top, left, bottom, right):
+/// the reference's Border and Shading Options defaults.
+fn para_border_space() -> [u32; 4] {
+    [1, 4, 1, 4]
+}
+
 /// Border choices of [`ParaFormat::Borders`] (ECMA-376 Part 1, §17.3.1.24 pBdr).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -352,6 +358,18 @@ pub enum ParaFormat {
     Borders {
         /// Which borders.
         preset: ParaBorderPreset,
+    },
+    /// Exact paragraph borders from the Borders and Shading dialog (§17.3.1.24 pBdr): each
+    /// edge drawn with its pen or removed (`None`); `between` is the line between paragraphs
+    /// of the group (§17.3.1.5 between); `space` the distances from the text in points
+    /// (top, left, bottom, right; §17.3.4 `w:space`).
+    SetBorders {
+        /// The edges (`between`: the line between the paragraphs).
+        #[serde(flatten)]
+        edges: Box<table::BorderEdges>,
+        /// Distance from the text of the top, left, bottom and right edges, in points.
+        #[serde(default = "para_border_space")]
+        space: [u32; 4],
     },
     /// Paragraph shading fill (§17.3.1.31 shd) or `None` to remove it.
     Shading {
@@ -572,6 +590,26 @@ pub struct TableState {
     pub row_exact: bool,
     /// Default top / bottom cell margins in twips (§17.4.43 tblCellMar).
     pub cell_margin_v: (i32, i32),
+    /// Table borders (§17.4.39 tblBorders).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub borders: Option<Box<bo_model::Borders>>,
+    /// Borders of the caret's cell (§17.4.67 tcBorders).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cell_borders: Option<Box<bo_model::Borders>>,
+    /// Diagonals of the caret's cell (§17.4.80 tl2br, §17.4.79 tr2bl), when it has one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cell_diagonals: Option<Box<[Option<bo_model::Border>; 2]>>,
+    /// Title of the table's alternative text (§17.4.63 tblCaption).
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub caption: String,
+    /// Description of the table's alternative text (§17.4.58 tblDescription).
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub description: String,
+    /// Floating position when the text wraps around the table (§17.4.58 tblpPr).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub float: Option<Box<bo_model::TableFloat>>,
+    /// The floating table may overlap other floating tables (§17.4.56 tblOverlap).
+    pub overlap: bool,
 }
 
 /// Formatting at the selection start (drives ribbon toggle states).
@@ -630,6 +668,9 @@ pub struct FormatState {
     pub tabs: Vec<TabSpec>,
     /// Paragraph shading.
     pub shading: Option<String>,
+    /// Effective paragraph borders (§17.3.1.24 pBdr).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub para_borders: Option<Box<bo_model::Borders>>,
     /// Page setup of the caret's section.
     pub section: SectionState,
     /// The table holding the caret, if any.
@@ -3902,6 +3943,32 @@ impl Session {
                     ParaFormat::Shading { hex } => {
                         pr.shading = hex.as_deref().and_then(Color::from_hex);
                     }
+                    ParaFormat::SetBorders { edges, space } => {
+                        let table::BorderEdges {
+                            top,
+                            left,
+                            bottom,
+                            right,
+                            inside_h: between,
+                            ..
+                        } = edges.as_ref();
+                        let edge = |p: &Option<table::BorderPen>, sp: u32| {
+                            p.as_ref().map(|p| {
+                                let mut b = p.line();
+                                b.space = sp.min(31);
+                                b
+                            })
+                        };
+                        let b = bo_model::Borders {
+                            top: edge(top, space[0]),
+                            left: edge(left, space[1]),
+                            bottom: edge(bottom, space[2]),
+                            right: edge(right, space[3]),
+                            inside_h: edge(between, 0),
+                            inside_v: None,
+                        };
+                        pr.borders = (!b.is_empty()).then_some(b);
+                    }
                     ParaFormat::SuppressLineNumbers { on } => {
                         pr.suppress_line_numbers = on.then_some(true);
                     }
@@ -4123,6 +4190,7 @@ impl Session {
                 .filter_map(|t| TabSpec::from_model(*t))
                 .collect(),
             shading: eff.shading.map(Color::to_hex),
+            para_borders: eff.borders.clone().map(Box::new),
             section: self.section_state(),
             table: self.table_state(),
             picture: self.picture_state(),
@@ -5091,6 +5159,8 @@ impl Session {
     }
 }
 
+#[cfg(test)]
+mod borders12_tests;
 #[cfg(test)]
 mod feature_tests;
 #[cfg(test)]

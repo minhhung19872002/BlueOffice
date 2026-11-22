@@ -261,6 +261,7 @@ fn table_rows_columns_merge_split_delete() {
     assert_eq!(table(&s).grid.len(), 2);
     s.edit_table(&TableEdit::Shading {
         hex: Some("DDEEFF".into()),
+        whole: false,
     })
     .unwrap();
     assert_eq!(

@@ -19,6 +19,7 @@ mod doc_find;
 mod doc_forms;
 mod doc_goto;
 mod doc_outline;
+mod doc_quick12;
 mod doc_r3_menus;
 mod doc_r3_ui;
 mod doc_r4_fit;

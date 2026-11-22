@@ -545,7 +545,7 @@ Sửa (test trong `crates/bo-layout/tests/word_fidelity.rs`, `features.rs`, `src
 5. **Phương trình** (OMML §22.1): trong dòng (không phải `m:oMathPara`) giới hạn của ∑ đặt bên cạnh như chỉ số
    (0,398 / 0,24 em) bất kể limLoc; vạch phân số ở 0,292 em, tử / mẫu 0,593 / 0,509 em (trong dòng), 0,759 / 0,676 em
    (`oMathPara`); giới hạn ∑ hiển thị cách ≥ 1,50 / 1,27 em; không chèn khoảng quanh toán tử trong chỉ số, phân số
-   kiểu chữ nhỏ và dấu đứng đầu ("−b ± √…"); chỉ số cấp hai 84 % (13 → 9 → 7,56 pt); cơ sở là chữ thường không đẩy
+   kiểu chữ nhỏ ("−b±√…" trên tử số); chỉ số cấp hai 84 % (13 → 9 → 7,56 pt); cơ sở là chữ thường không đẩy
    chỉ số (gₜ như aᵢ). Lệch tích luỹ 30 pt → ≤ 1,4 pt. Còn: độ cao phần trên của dòng có phân số trong dòng thấp hơn
    bản đối chiếu ~1 pt (phông Cambria Math khác STIX Two Math).
 6. **Trường khi in / xuất PDF** (mục 4 của brief): bản đối chiếu cập nhật SEQ, REF, PAGEREF, DATE khi xuất PDF

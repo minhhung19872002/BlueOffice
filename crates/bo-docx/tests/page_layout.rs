@@ -357,6 +357,10 @@ fn gutter_vertical_alignment_and_multiple_pages_round_trip() {
     doc.pages.gutter_at_top = true;
     doc.pages.two_on_one = true;
     let bytes = write_docx(&doc).unwrap();
+    // BO_PAGE_SETUP_OUT=<file.docx> keeps the output for OpenXmlValidator (bo-cli validate).
+    if let Ok(out) = std::env::var("BO_PAGE_SETUP_OUT") {
+        std::fs::write(out, &bytes).unwrap();
+    }
     let main = part(&bytes, "/word/document.xml");
     assert!(main.contains(r#"w:gutter="567""#));
     let v = main.find(r#"<w:vAlign w:val="bottom"/>"#).unwrap();

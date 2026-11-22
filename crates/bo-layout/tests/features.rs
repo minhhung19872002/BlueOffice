@@ -940,6 +940,39 @@ fn display_equation_takes_its_own_aligned_line() {
     assert_eq!(body, 1);
 }
 
+// source: ECMA-376 Part 1, §22.1.2.36 f (fraction) in an inline §22.1.2.77 oMath; black-box
+// (office-29): the line holds the numerator's ink plus the math font's leading (0.146 em,
+// OpenType MATH MathLeading), so a line with "a/c" in it is taller than its text alone.
+#[test]
+fn an_inline_fraction_line_holds_the_numerators_leading() {
+    let m = r#"xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math""#;
+    let frac = format!(
+        "<m:oMath {m}><m:f><m:num><m:r><m:t>a</m:t></m:r></m:num><m:den><m:r><m:t>c</m:t></m:r></m:den></m:f></m:oMath>"
+    );
+    let l = run(&doc(vec![Section::new(vec![
+        runs(vec![RunContent::Text("Trước sau".into())]),
+        runs(vec![
+            RunContent::Text("Trước ".into()),
+            RunContent::Markup(bo_model::Raw::new(frac, 0)),
+            RunContent::Text(" sau".into()),
+        ]),
+        runs(vec![RunContent::Text("Trước sau".into())]),
+    ])]));
+    let body: Vec<_> = l.pages[0]
+        .lines
+        .iter()
+        .filter(|x| matches!(x.source, bo_layout::LineSource::Body(_)))
+        .collect();
+    assert_eq!(body.len(), 3);
+    let size = body[0].fragments.first().map_or(11.0, |f| f.size);
+    // Above the baseline: the numerator's baseline (0.593 em), its ink ("a", 0.7 em text, about
+    // 0.46 em high) and the leading make about 1.02 em — 0.13 em more than the text's 0.89 em.
+    let plain = body[0].baseline - body[0].top;
+    let with = body[1].baseline - body[1].top;
+    assert!(with - plain > 0.09 * size, "{plain} → {with} at {size} pt");
+    assert!(with - plain < 0.2 * size, "{plain} → {with} at {size} pt");
+}
+
 /// TOC-style dot leader (§17.3.1.37 tab, leader="dot"): the dots run up to the page
 /// number, as desktop word processors draw them: the last dot ends where the number starts,
 /// wherever the tab stop falls.

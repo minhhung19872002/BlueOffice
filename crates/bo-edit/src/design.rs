@@ -67,6 +67,8 @@ impl PageBordersSpec {
                 .clamp(1, if is_art(&self.style) { 31 } else { 96 }),
             color: self.color.as_deref().and_then(Color::from_hex),
             space: self.space.min(31),
+            shadow: false,
+            frame: false,
         };
         let edge = |on: bool| {
             on.then(|| PageBorder {
@@ -93,6 +95,8 @@ fn is_art(style: &str) -> bool {
         size: 1,
         color: None,
         space: 0,
+        shadow: false,
+        frame: false,
     }
     .is_art()
 }

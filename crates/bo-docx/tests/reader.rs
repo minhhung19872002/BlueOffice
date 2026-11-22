@@ -340,6 +340,68 @@ fn cell_diagonals_round_trip() {
     assert!(t2.rows[0].cells[0].props.diagonals[1].is_some());
 }
 
+/// §17.18.2 CT_Border `w:shadow` / `w:frame` on paragraph borders and the §17.18.78
+/// shading pattern with its colour on paragraphs (§17.3.1.31) and cells (§17.4.32) are
+/// read into the model and written back after an edit.
+#[test]
+fn border_shadow_frame_and_shading_patterns_round_trip() {
+    let body = r#"<w:p><w:pPr><w:pBdr><w:top w:val="single" w:sz="4" w:space="1" w:color="auto" w:shadow="1"/><w:left w:val="single" w:sz="4" w:space="4" w:color="auto" w:frame="true"/></w:pBdr><w:shd w:val="pct25" w:color="FF0000" w:fill="FFFF00"/></w:pPr><w:r><w:t>x</w:t></w:r></w:p><w:tbl><w:tblPr/><w:tblGrid><w:gridCol w:w="2000"/></w:tblGrid><w:tr><w:tc><w:tcPr><w:shd w:val="diagCross" w:color="0070C0" w:fill="auto"/></w:tcPr><w:p/></w:tc></w:tr></w:tbl><w:p><w:pPr><w:shd w:val="clear" w:color="auto" w:fill="D9D9D9"/></w:pPr></w:p>"#;
+    let mut doc = read_docx(&docx(body)).unwrap();
+    let Block::Paragraph(p) = &mut doc.sections[0].blocks[0] else {
+        panic!("paragraph")
+    };
+    let b = p.props.borders.clone().unwrap();
+    let (top, left) = (b.top.unwrap(), b.left.unwrap());
+    assert!(top.shadow && !top.frame);
+    assert!(left.frame && !left.shadow);
+    let pat = p.props.shading_pattern.clone().unwrap();
+    assert_eq!(pat.val, "pct25");
+    assert_eq!(pat.color.map(|c| c.to_hex()).as_deref(), Some("FF0000"));
+    assert_eq!(
+        p.props.shading.map(|c| c.to_hex()).as_deref(),
+        Some("FFFF00")
+    );
+    // An edit: the bottom border gets a shadow too.
+    let mut bottom = top.clone();
+    bottom.frame = false;
+    p.props.borders.as_mut().unwrap().bottom = Some(bottom);
+    let Block::Table(t) = &doc.sections[0].blocks[1] else {
+        panic!("table")
+    };
+    let cp = t.rows[0].cells[0].props.shading_pattern.clone().unwrap();
+    assert_eq!(cp.val, "diagCross");
+    assert!(t.rows[0].cells[0].props.shading.is_none());
+    let Block::Paragraph(plain) = &doc.sections[0].blocks[2] else {
+        panic!("paragraph")
+    };
+    // A plain fill has no pattern.
+    assert!(plain.props.shading_pattern.is_none());
+    let out = bo_docx::write_docx(&doc).unwrap();
+    let pkg = Package::read(&out, &bo_opc::Limits::default()).unwrap();
+    let xml = String::from_utf8(pkg.part("/word/document.xml").unwrap().data.clone()).unwrap();
+    assert!(
+        xml.contains(
+            r#"<w:bottom w:val="single" w:sz="4" w:space="1" w:color="auto" w:shadow="1"/>"#
+        ),
+        "{xml}"
+    );
+    assert!(
+        xml.contains(r#"<w:shd w:val="pct25" w:color="FF0000" w:fill="FFFF00"/>"#),
+        "{xml}"
+    );
+    let back = read_docx(&out).unwrap();
+    let Block::Paragraph(p2) = &back.sections[0].blocks[0] else {
+        panic!("paragraph")
+    };
+    let b2 = p2.props.borders.clone().unwrap();
+    assert!(b2.bottom.unwrap().shadow && b2.left.unwrap().frame);
+    assert_eq!(p2.props.shading_pattern, Some(pat));
+    let Block::Table(t2) = &back.sections[0].blocks[1] else {
+        panic!("table")
+    };
+    assert_eq!(t2.rows[0].cells[0].props.shading_pattern, Some(cp));
+}
+
 #[test]
 fn self_closing_body_paragraph_is_a_paragraph() {
     // `<w:p/>` after a table (python-docx writes empty paragraphs this way): an empty,

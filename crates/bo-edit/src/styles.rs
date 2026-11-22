@@ -269,12 +269,16 @@ fn apply_spec(st: &mut Style, spec: &StyleSpec, cur: &StyleSpec) {
                 size: 0,
                 color: None,
                 space: 0,
+                shadow: false,
+                frame: false,
             },
             |b| Border {
                 style: b.style.clone(),
                 size: b.size,
                 color: b.color.as_deref().and_then(Color::from_hex),
                 space: 1,
+                shadow: false,
+                frame: false,
             },
         );
         p.borders = Some(Borders {

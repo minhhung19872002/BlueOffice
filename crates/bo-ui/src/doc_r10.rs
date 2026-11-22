@@ -206,7 +206,7 @@ impl DocWindow {
         self.dialog.is_some() || self.find_dialog.is_some()
     }
 
-    fn r10_in_selection(&self, page: usize, px: f32, py: f32) -> bool {
+    pub(super) fn r10_in_selection(&self, page: usize, px: f32, py: f32) -> bool {
         let Some(s) = self.view.engine().session() else {
             return false;
         };

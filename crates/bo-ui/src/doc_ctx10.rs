@@ -111,6 +111,20 @@ impl DocWindow {
     /// Open the context menu for window point (`x`, `y`) (right-click, Shift+F10, menu key).
     pub(super) fn r10_context_menu(&mut self, x: f32, y: f32, text: &dyn TextMeasure) {
         self.r10.pointer = (x, y);
+        // A right-click outside the selection puts the caret there first (the menu is for what
+        // is under the pointer: a hyperlink, a table cell), as on the reference.
+        if let Some((page, px, py)) = self.r8_page_point(x, y) {
+            if !self.r10_in_selection(page, px, py) {
+                // As a click: a picture under the pointer is selected.
+                self.view.run_command(bo_engine::edit::Command::Click {
+                    page,
+                    x: px,
+                    y: py,
+                    extend: false,
+                    count: 1,
+                });
+            }
+        }
         let f = self.view.format().clone();
         let selected = self.view.has_selection();
         let picture = f.picture.is_some() || f.picture_tools;
@@ -148,7 +162,9 @@ impl DocWindow {
                 rows.push(r);
             }
             if info.rule.is_none() {
-                rows.push(self.r10_row("ignoreAll", "spell.ignoreAll", None));
+                let mut r = self.r10_row("ignoreAll", "spell.ignoreAll", None);
+                r.sep = true;
+                rows.push(r);
                 rows.push(self.r10_row("addDictionary", "spell.addToDictionary", None));
             }
         }

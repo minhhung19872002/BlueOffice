@@ -377,3 +377,33 @@ fn typing_in_the_context_menu_searches_commands_and_synonyms_replace_the_word() 
     assert!(w.action("ctx.syn.0"));
     assert_eq!(para_text(&w, 0), format!("one {first} fox"));
 }
+
+#[test]
+fn a_right_click_on_a_hyperlink_gives_the_hyperlink_rows() {
+    let mut w = window("Visit the site for more.");
+    select(&mut w, 0, 10, 14);
+    w.view.run_command(Command::SetLink {
+        target: "https://example.com/".into(),
+        display: String::new(),
+    });
+    select(&mut w, 0, 0, 0);
+    // The caret is elsewhere: the right-click moves it onto the link first.
+    let (x, y) = pixel_of(&w, 0, 11);
+    w.handle(Input::Context { x, y }, &Fixed);
+    let labels: Vec<String> = w
+        .menu
+        .as_ref()
+        .expect("menu")
+        .items()
+        .iter()
+        .map(|i| i.label.clone())
+        .collect();
+    for l in [
+        "Edit Hyperlink...",
+        "Open Hyperlink",
+        "Copy Hyperlink",
+        "Remove Hyperlink",
+    ] {
+        assert!(labels.iter().any(|x| x == l), "{l} in {labels:?}");
+    }
+}

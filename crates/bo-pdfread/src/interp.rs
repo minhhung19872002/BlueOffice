@@ -2313,20 +2313,26 @@ impl<'s, 'a> Interp<'s, 'a> {
         let i1 = ((hi.0 - bbox[0]) / xs).ceil() as i64;
         let j0 = ((lo.1 - bbox[3]) / ys).floor() as i64;
         let j1 = ((hi.1 - bbox[1]) / ys).ceil() as i64;
-        if (i1 - i0).saturating_mul(j1 - j0) > 4000 || self.depth > 8 {
-            // Too many cells to draw one by one: a cell that is one picture (the 1/600"
-            // hatch tiles of word-processor shading patterns, §8.7.3.1) paints its
-            // average colour — what its fine texture reads as — else an even grey keeps
-            // the area visible.
-            let color = res
-                .and_then(|r| self.cell_image_average(r))
-                .unwrap_or(Rgba(200, 200, 200, 255));
-            self.out.commands.push(Command::Path {
-                segs: segs.to_vec(),
-                fill: Some(Paint::Solid { color }),
-                stroke: None,
-            });
-            return;
+        // A cell under two device pixels (`min_line` is one, in points) that is one
+        // picture — the 1/600" hatch tiles of word-processor shading patterns, §8.7.3.1 —
+        // paints its average colour, what its texture reads as (drawn tile by tile it
+        // only shows moiré); so does any picture cell when there are too many cells to
+        // draw, else an even grey keeps the area visible.
+        let tile = xs.min(ys) * scale_of(m);
+        let tiny = tile < 2.0 * self.sh.opts.min_line;
+        let many = (i1 - i0).saturating_mul(j1 - j0) > 4000 || self.depth > 8;
+        if tiny || many {
+            let avg = res.and_then(|r| self.cell_image_average(r));
+            if avg.is_some() || many {
+                self.out.commands.push(Command::Path {
+                    segs: segs.to_vec(),
+                    fill: Some(Paint::Solid {
+                        color: avg.unwrap_or(Rgba(200, 200, 200, 255)),
+                    }),
+                    stroke: None,
+                });
+                return;
+            }
         }
         self.push_clip(segs);
         let ctm = self.gs.ctm;

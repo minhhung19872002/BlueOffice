@@ -559,6 +559,31 @@ fn a_fine_picture_pattern_paints_its_average_colour() {
     let fills = solid_fills(&p);
     assert!(fills.contains(&Rgba(255, 128, 0, 255)), "{fills:?}");
     assert!(!fills.contains(&Rgba(200, 200, 200, 255)));
+    // The same tiles over a small cell box (fewer than 4000 tiles): still one even fill,
+    // no tile-by-tile moiré — the tile is under two device pixels.
+    let p = render(page_pdf(
+        "/Pattern cs /P scn 10 10 20 10 re f",
+        "/Pattern << /P 5 0 R >>",
+        &[
+            &xstream(
+                "/Type /Pattern /PatternType 1 /PaintType 1 /TilingType 2 /BBox [0 0 0.96 0.96] \
+                 /XStep 0.96 /YStep 0.96 /Resources << /XObject << /I 6 0 R >> >>",
+                "q 0.96 0 0 0.96 0 0 cm /I Do Q",
+            ),
+            &xstream(
+                "/Type /XObject /Subtype /Image /Width 8 /Height 8 \
+                 /ColorSpace [/Indexed /DeviceRGB 1 <0070C0FFFFFF>] /BitsPerComponent 1 \
+                 /Filter /ASCIIHexDecode",
+                "F0F0F0F0F0F0F0F0>",
+            ),
+        ],
+    ));
+    assert!(solid_fills(&p).contains(&Rgba(128, 184, 224, 255)));
+    assert!(!p
+        .list
+        .commands
+        .iter()
+        .any(|c| matches!(c, Command::Image { .. })));
 }
 
 #[test]

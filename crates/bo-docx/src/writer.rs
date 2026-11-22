@@ -164,6 +164,7 @@ pub fn write_docx(doc: &Document) -> Result<Vec<u8>> {
             || src.protection != doc.protection
             || src.hyphenation != doc.hyphenation
             || src.track_revisions != doc.track_revisions
+            || src.pages != doc.pages
         {
             w.patch_settings(&main)?;
         }
@@ -295,6 +296,14 @@ const SETTINGS_AFTER_BG: &[&str] = &[
 ];
 
 /// The settings following `name` in [`SETTINGS_AFTER_BG`].
+/// The CT_Settings children after `name` of [`SETTINGS_AFTER_EVEN_ODD`].
+fn settings_after_even_odd(name: &str) -> &'static [&'static str] {
+    SETTINGS_AFTER_EVEN_ODD
+        .iter()
+        .position(|n| *n == name)
+        .map_or(&[], |i| &SETTINGS_AFTER_EVEN_ODD[i + 1..])
+}
+
 fn settings_after(name: &str) -> &'static [&'static str] {
     SETTINGS_AFTER_BG
         .iter()
@@ -2075,6 +2084,39 @@ impl Writer<'_> {
                 );
             }
         }
+        // Page Setup › Multiple pages (§17.15.1.57 mirrorMargins, §17.15.1.49 gutterAtTop,
+        // §17.15.1.13 bookFoldPrinting, §17.15.1.65 printTwoOnOne), each at its CT_Settings
+        // place (§17.15.1.78).
+        if src.is_none_or(|p| p.pages != self.doc.pages) {
+            let pg = self.doc.pages;
+            for (tag, on, after) in [
+                (
+                    "mirrorMargins",
+                    pg.mirror_margins,
+                    settings_after("mirrorMargins"),
+                ),
+                (
+                    "gutterAtTop",
+                    pg.gutter_at_top,
+                    settings_after("gutterAtTop"),
+                ),
+                (
+                    "bookFoldPrinting",
+                    pg.book_fold,
+                    settings_after_even_odd("bookFoldPrinting"),
+                ),
+                (
+                    "printTwoOnOne",
+                    pg.two_on_one,
+                    settings_after_even_odd("printTwoOnOne"),
+                ),
+            ] {
+                s = remove_empty_element(&s, &format!("w:{tag}"));
+                if on {
+                    s = insert_setting(&s, &format!("<w:{tag}/>"), after);
+                }
+            }
+        }
         // §17.15.1.89 trackRevisions: after revisionView, before doNotTrackMoves …
         // documentProtection … in CT_Settings (§17.15.1.78).
         if src.is_none_or(|p| p.track_revisions != self.doc.track_revisions) {
@@ -2216,12 +2258,20 @@ impl Writer<'_> {
         if self.doc.design.display_background_shape {
             s.push_str("<w:displayBackgroundShape/>");
         }
+        // §17.15.1.57 mirrorMargins precedes bordersDoNotSurroundHeader.
+        if self.doc.pages.mirror_margins {
+            s.push_str("<w:mirrorMargins/>");
+        }
         // §17.15.1.18 / §17.15.1.19, between displayBackgroundShape and trackRevisions.
         if self.doc.design.borders_do_not_surround_header {
             s.push_str("<w:bordersDoNotSurroundHeader/>");
         }
         if self.doc.design.borders_do_not_surround_footer {
             s.push_str("<w:bordersDoNotSurroundFooter/>");
+        }
+        // §17.15.1.49 gutterAtTop follows them.
+        if self.doc.pages.gutter_at_top {
+            s.push_str("<w:gutterAtTop/>");
         }
         // §17.15.1.89 trackRevisions precedes documentProtection.
         if self.doc.track_revisions {
@@ -2239,6 +2289,13 @@ impl Writer<'_> {
         s.push_str(&hyphenation_xml(&self.doc.hyphenation));
         if self.doc.even_and_odd_headers {
             s.push_str("<w:evenAndOddHeaders/>");
+        }
+        // §17.15.1.13 bookFoldPrinting, §17.15.1.65 printTwoOnOne (after evenAndOddHeaders).
+        if self.doc.pages.book_fold {
+            s.push_str("<w:bookFoldPrinting/>");
+        }
+        if self.doc.pages.two_on_one {
+            s.push_str("<w:printTwoOnOne/>");
         }
         // §17.11.11 footnotePr / §17.11.4 endnotePr (document-wide), before compat.
         s.push_str(&note_pr_xml("footnotePr", &self.doc.footnote_pr));
@@ -2787,8 +2844,9 @@ fn sect_props_xml(sec: &Section) -> String {
     };
     let _ = write!(
             s,
-            "<w:pgSz w:w=\"{}\" w:h=\"{}\"{orient}/><w:pgMar w:top=\"{}\" w:right=\"{}\" w:bottom=\"{}\" w:left=\"{}\" w:header=\"{}\" w:footer=\"{}\" w:gutter=\"0\"/>",
-            p.width.0, p.height.0, p.margin_top.0, p.margin_right.0, p.margin_bottom.0, p.margin_left.0, p.header.0, p.footer.0
+            "<w:pgSz w:w=\"{}\" w:h=\"{}\"{orient}/><w:pgMar w:top=\"{}\" w:right=\"{}\" w:bottom=\"{}\" w:left=\"{}\" w:header=\"{}\" w:footer=\"{}\" w:gutter=\"{}\"/>",
+            p.width.0, p.height.0, p.margin_top.0, p.margin_right.0, p.margin_bottom.0, p.margin_left.0, p.header.0, p.footer.0,
+            sec.layout.gutter.0.max(0)
         );
     if let Some(pb) = &sec.page_borders {
         s.push_str(&page_borders_xml(pb));
@@ -2811,6 +2869,10 @@ fn sect_props_xml(sec: &Section) -> String {
     // §17.6.6 formProt (after cols, before titlePg in CT_SectPr).
     if sec.form_unprotected {
         s.push_str("<w:formProt w:val=\"0\"/>");
+    }
+    // §17.6.23 vAlign (after formProt, before noEndnote / titlePg in CT_SectPrBase).
+    if sec.layout.v_align != bo_model::PageVAlign::Top {
+        let _ = write!(s, "<w:vAlign w:val=\"{}\"/>", sec.layout.v_align.as_str());
     }
     if sec.title_page {
         s.push_str("<w:titlePg/>");

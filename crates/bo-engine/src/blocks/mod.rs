@@ -439,6 +439,20 @@ impl crate::Engine {
         Some((glossary_document(g, &doc.media), part))
     }
 
+    /// The first table of block `key` and the text above it (Quick Tables pictures of saved
+    /// blocks, round 13).
+    pub fn block_table(&self, key: &str) -> Option<(bo_model::Table, Option<String>)> {
+        let (_, part) = self.block(key)?;
+        let title = part.blocks.iter().find_map(|b| match b {
+            bo_model::Block::Paragraph(q) => Some(q.plain_text()).filter(|t| !t.trim().is_empty()),
+            _ => None,
+        });
+        part.blocks.into_iter().find_map(|b| match b {
+            bo_model::Block::Table(t) => Some((t, title.clone())),
+            _ => None,
+        })
+    }
+
     /// The user's building blocks file as it is now (`.dotx`), if any.
     pub fn block_store(&self) -> Option<Vec<u8>> {
         let store = self.blocks.user.as_ref()?;

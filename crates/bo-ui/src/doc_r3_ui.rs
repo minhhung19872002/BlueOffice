@@ -21,7 +21,6 @@ const HOVER: Rgba = Rgba(0xd5, 0xe1, 0xf2, 255);
 const PANE: Rgba = Rgba(0xf3, 0xf3, 0xf3, 255);
 const PANE_EDGE: Rgba = Rgba(0xd2, 0xd2, 0xd2, 255);
 /// Current style frame in the Styles pane (dark blue, as the reference).
-const CURRENT: Rgba = Rgba(0x00, 0x78, 0xd4, 255);
 const LINK: Rgba = Rgba(0x1e, 0x5c, 0xb3, 255);
 const HEADING_LINE: Rgba = Rgba(0xd9, 0xd9, 0xd9, 255);
 
@@ -427,9 +426,9 @@ impl StylesPane {
         }
     }
 
-    /// Width at display `scale` (250 px at 125 %).
+    /// Width at display `scale` (266 px at 125 %, the reference's docked pane, round 13).
     pub(crate) fn width(scale: f32) -> f32 {
-        (200.0 * scale).round()
+        (212.8 * scale).round()
     }
 
     fn px(&self, v: f32) -> f32 {
@@ -457,38 +456,40 @@ impl StylesPane {
         ]
     }
 
-    /// The list box (white, framed).
+    /// The list box (white, no frame): measured on the reference's docked pane at 125 %
+    /// (round 13) — 15 px in, 61 px down, 8 px from the right, 129 px above the bottom.
     fn list_rect(&self) -> [f32; 4] {
         let [x, y, w, h] = self.rect;
-        let top = y + self.px(48.0);
+        let top = y + self.px(48.8);
         [
-            x + self.px(10.0),
+            x + self.px(12.0),
             top,
-            w - self.px(20.0),
-            (h - self.px(48.0) - self.px(108.0)).max(0.0),
+            w - self.px(12.0) - self.px(6.4),
+            (h - self.px(48.8) - self.px(103.2)).max(0.0),
         ]
     }
 
+    /// Show Preview / Disable Linked Styles boxes (18 px, centres 20 and 56 px below the list).
     fn check_rect(&self, i: usize) -> [f32; 4] {
         let l = self.list_rect();
         [
-            l[0] + self.px(2.0),
-            l[1] + l[3] + self.px(14.0) + i as f32 * self.px(29.0),
-            self.px(13.0),
-            self.px(13.0),
+            l[0],
+            l[1] + l[3] + self.px(8.8) + i as f32 * self.px(28.8),
+            self.px(14.4),
+            self.px(14.4),
         ]
     }
 
-    /// New Style, Style Inspector, Manage Styles, Options….
+    /// New Style, Style Inspector, Manage Styles (36 px, 50 px apart), Options… (96 × 35).
     fn button_rect(&self, i: usize) -> [f32; 4] {
         let l = self.list_rect();
-        let y = l[1] + l[3] + self.px(72.0);
-        let b = self.px(28.0);
+        let y = l[1] + l[3] + self.px(61.6);
+        let b = self.px(28.8);
         if i < 3 {
             [l[0] + i as f32 * self.px(40.0), y, b, b]
         } else {
             let x = l[0] + 3.0 * self.px(40.0);
-            [x, y, l[0] + l[2] - x, b]
+            [x, y, self.px(76.8).min(l[0] + l[2] - x), self.px(28.0)]
         }
     }
 
@@ -518,7 +519,7 @@ impl StylesPane {
         if !inside(l, x, y) {
             return None;
         }
-        let i = ((y - l[1] - self.px(2.0) + self.scroll) / self.row_h()).floor();
+        let i = ((y - l[1] + self.scroll) / self.row_h()).floor();
         (i >= 0.0 && (i as usize) < self.rows()).then_some(i as usize)
     }
 
@@ -573,13 +574,15 @@ impl StylesPane {
             return;
         }
         p.push_clip(x, y, w, h);
-        p.fill_rect(x, y, w, h, PANE);
-        p.fill_rect(x, y, 1.0, h, PANE_EDGE);
-        let title = ui_font(self.px(24.0), 300);
+        // The reference's task pane grey (as the navigation pane), a line above and left.
+        p.fill_rect(x, y, w, h, Rgba(0xe6, 0xe6, 0xe6, 255));
+        p.fill_rect(x, y, 1.0, h, Rgba(0xbf, 0xbf, 0xbf, 255));
+        p.fill_rect(x, y, w, 1.0, PANE_EDGE);
+        let title = ui_font(self.px(26.0), 300);
         p.text_font(
             &self.labels[0],
-            x + self.px(10.0),
-            y + self.px(8.0),
+            x + self.px(12.0),
+            y + self.px(7.0),
             &title,
             INK,
         );
@@ -594,23 +597,30 @@ impl StylesPane {
             self.scale.max(1.0),
         );
         let l = self.list_rect();
-        p.fill_rect(l[0], l[1], l[2], l[3], PANE_EDGE);
-        p.fill_rect(l[0] + 1.0, l[1] + 1.0, l[2] - 2.0, l[3] - 2.0, WHITE);
-        p.push_clip(l[0] + 1.0, l[1] + 1.0, l[2] - 2.0, l[3] - 2.0);
+        p.fill_rect(l[0], l[1], l[2], l[3], WHITE);
+        p.push_clip(l[0], l[1], l[2], l[3]);
         let rh = self.row_h();
         let font = ui_font(self.px(11.5), 400);
         let mark_font = ui_font(self.px(10.0), 400);
         for i in 0..self.rows() {
-            let ry = l[1] + self.px(2.0) + i as f32 * rh - self.scroll;
+            let ry = l[1] + i as f32 * rh - self.scroll;
             if ry + rh < l[1] || ry > l[1] + l[3] {
                 continue;
             }
-            let r = [l[0] + self.px(4.0), ry, l[2] - self.px(8.0), rh];
+            // Rows span the list less the scroll bar (the reference's 2 px dark blue frame).
+            let r = [l[0], ry, l[2] - self.px(24.0), rh];
             let style = i.checked_sub(1).and_then(|k| self.styles.get(k));
             let current = style.is_some_and(|s| Some(&s.id) == self.current.as_ref());
             if current {
-                p.fill_rect(r[0], r[1] + 1.0, r[2], r[3] - 2.0, CURRENT);
-                p.fill_rect(r[0] + 1.0, r[1] + 2.0, r[2] - 2.0, r[3] - 4.0, WHITE);
+                let b = self.px(1.6).max(1.0).round();
+                p.fill_rect(r[0], r[1] + 3.0, r[2], r[3] - 6.0, Rgba(0x2b, 0x57, 0x9a, 255));
+                p.fill_rect(
+                    r[0] + b,
+                    r[1] + 3.0 + b,
+                    r[2] - 2.0 * b,
+                    r[3] - 6.0 - 2.0 * b,
+                    WHITE,
+                );
             } else if self.hover == Some(i) {
                 p.fill_rect(r[0], r[1] + 1.0, r[2], r[3] - 2.0, HOVER);
             }
@@ -649,8 +659,8 @@ impl StylesPane {
                 None => {
                     p.text_font(
                         name,
-                        r[0] + self.px(6.0),
-                        ry + self.px(5.0),
+                        r[0] + self.px(8.8),
+                        ry + self.px(4.0),
                         &font,
                         Rgba(0, 0, 0, 255),
                     );
@@ -660,7 +670,23 @@ impl StylesPane {
                 // Kind glyphs in grey (¶ paragraph, ¶a linked, a character), as the reference.
                 // The pilcrow drawn as a shape (a filled bowl and two stems), so it stays grey.
                 let grey = Rgba(0x70, 0x70, 0x70, 255);
-                let (gx, gy, u) = (r[0] + r[2] - self.px(22.0), ry + self.px(8.0), self.scale);
+                let linked = mark.len() > '¶'.len_utf8() && mark.starts_with('¶');
+                let back = if linked { 6.0 * self.scale } else { 0.0 };
+                let (gx, gy, u) = (
+                    r[0] + r[2] - self.px(8.0) - back,
+                    ry + self.px(6.4),
+                    self.scale,
+                );
+                if linked {
+                    // The reference underlines the linked-style mark.
+                    p.fill_rect(
+                        gx.round(),
+                        (gy + 10.5 * u).round(),
+                        (12.5 * u).round(),
+                        u.max(1.0).round(),
+                        grey,
+                    );
+                }
                 if mark.starts_with('¶') {
                     let s1 = (u).max(1.0).round();
                     p.fill_rect(
@@ -740,7 +766,7 @@ impl StylesPane {
                 );
             }
         }
-        let label_font = ui_font(self.px(12.5), 400);
+        let label_font = ui_font(self.px(13.9), 400);
         for (i, on) in [self.show_preview, self.disable_linked]
             .into_iter()
             .enumerate()
@@ -749,8 +775,8 @@ impl StylesPane {
             check_box(p, r, on, true, self.scale);
             p.text_font(
                 &self.labels[2 + i],
-                r[0] + self.px(20.0),
-                r[1] - self.px(4.0),
+                r[0] + self.px(20.8),
+                r[1] - self.px(3.2),
                 &label_font,
                 INK,
             );
@@ -784,9 +810,9 @@ impl StylesPane {
             } else {
                 p.text_font(
                     &self.labels[4],
-                    r[0] + self.px(6.0),
-                    r[1] + self.px(5.0),
-                    &label_font,
+                    r[0] + self.px(8.0),
+                    r[1] + self.px(3.0),
+                    &ui_font(self.px(14.5), 400),
                     DIM,
                 );
             }

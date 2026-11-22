@@ -262,6 +262,7 @@ impl Session {
         match scope {
             SetupScope::Section => vec![self.section_state().index],
             SetupScope::Document => (0..self.doc.sections.len()).collect(),
+            SetupScope::Forward => (self.section_state().index..self.doc.sections.len()).collect(),
         }
     }
 
@@ -352,6 +353,31 @@ impl Session {
     ) -> Result<()> {
         let dir = dir.filter(|d| d.rotation() != 0);
         self.update_sections(self.scope_sections(scope), |s| s.text_direction = dir)
+    }
+
+    /// Manage Styles › Set Defaults: the set fields of `f` (font, size, colour, indents,
+    /// alignment, spacing) go into the document defaults (§17.7.5.1 docDefaults), one undo
+    /// step.
+    pub fn set_doc_defaults(&mut self, f: &crate::find::FindFormat) -> Result<()> {
+        let f = crate::find::FindFormat {
+            style: None,
+            ..f.clone()
+        };
+        let old = (self.doc.default_run.clone(), self.doc.default_para.clone());
+        let mut new = old.clone();
+        f.apply_run(None, &mut new.0);
+        f.apply_para(None, &mut new.1);
+        if new == old {
+            return Ok(());
+        }
+        self.edit(|tx, sel| {
+            tx.push(Op::Defaults {
+                old: Box::new(old),
+                new: Box::new(new),
+            })?;
+            Ok(sel)
+        })?;
+        Ok(())
     }
 
     /// Document hyphenation settings (§17.15.1.10 autoHyphenation, §17.15.1.52

@@ -34,6 +34,8 @@ mod r10;
 mod r11;
 #[path = "doc_r12.rs"]
 mod r12;
+#[path = "doc_r13.rs"]
+mod r13;
 #[path = "doc_r3.rs"]
 mod r3;
 #[path = "doc_r4.rs"]
@@ -274,6 +276,7 @@ pub struct DocWindow {
     r10: r10::R10,
     r11: r11::R11,
     r12: r12::R12,
+    r13: Box<r13::R13>,
 }
 
 /// Font sizes offered by the size box (points).
@@ -471,6 +474,7 @@ impl DocWindow {
             r10: r10::R10::default(),
             r11: r11::R11::default(),
             r12: r12::R12::default(),
+            r13: Box::default(),
         }
     }
 
@@ -2093,6 +2097,9 @@ impl DocWindow {
 
     /// Run interface command `id` from the ribbon, title bar, a menu or a shortcut.
     fn action(&mut self, id: &str) -> bool {
+        if let Some(r) = self.r13_action(id) {
+            return r;
+        }
         if let Some(r) = self.r12_action(id) {
             return r;
         }
@@ -2864,6 +2871,9 @@ impl DocWindow {
         }
         if let Input::Press { x, y, .. } = input {
             self.pointer = (x, y);
+        }
+        if let Some(redraw) = self.r13_input(&input) {
+            return redraw;
         }
         if let Some(redraw) = self.r3_input(&input, text) {
             return redraw;
@@ -3852,6 +3862,7 @@ impl DocWindow {
             bd.paint(p, &self.theme);
         }
         self.r3_paint_popups(p);
+        self.r13_paint(p);
         self.r6_paint(p);
         self.r8_paint(p);
     }

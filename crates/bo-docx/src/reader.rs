@@ -218,6 +218,7 @@ pub fn read_docx(bytes: &[u8]) -> Result<Document> {
         hyphenation: doc.hyphenation,
         track_revisions: doc.track_revisions,
         custom_xml,
+        pages: doc.pages,
     }));
     crate::textfx::set_theme(None);
     Ok(doc)
@@ -636,6 +637,12 @@ fn read_settings(data: &[u8], part: &str, doc: &mut Document) -> Result<()> {
             Event::Start(e) | Event::Empty(e) => match name(&e).as_slice() {
                 b"defaultTabStop" => doc.default_tab_stop = twips(&e, b"val"),
                 b"evenAndOddHeaders" => doc.even_and_odd_headers = on_off(&e),
+                // §17.15.1.57 mirrorMargins, §17.15.1.49 gutterAtTop, §17.15.1.13
+                // bookFoldPrinting, §17.15.1.65 printTwoOnOne.
+                b"mirrorMargins" => doc.pages.mirror_margins = on_off(&e),
+                b"gutterAtTop" => doc.pages.gutter_at_top = on_off(&e),
+                b"bookFoldPrinting" => doc.pages.book_fold = on_off(&e),
+                b"printTwoOnOne" => doc.pages.two_on_one = on_off(&e),
                 b"autoHyphenation" => doc.hyphenation.auto = on_off(&e), // §17.15.1.10
                 // §17.15.1.52 hyphenationZone
                 b"hyphenationZone" => doc.hyphenation.zone = twips(&e, b"val"),
@@ -2987,6 +2994,12 @@ fn read_sect_pr(
                 p.margin_right = twips(e, b"right").unwrap_or(p.margin_right);
                 p.header = twips(e, b"header").unwrap_or(p.header);
                 p.footer = twips(e, b"footer").unwrap_or(p.footer);
+                s.layout.gutter = twips(e, b"gutter").map_or(Twips(0), |t| Twips(t.0.max(0)));
+            }
+            // §17.6.23 vAlign of the section's pages
+            b"vAlign" => {
+                s.layout.v_align =
+                    bo_model::PageVAlign::parse(attr(e, b"val").as_deref().unwrap_or(""));
             }
             // §17.6.4 cols
             b"cols" => {

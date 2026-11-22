@@ -732,10 +732,12 @@ pub(crate) struct Settings {
     pub custom_xml: Vec<CustomXmlPart>,
     /// `pt`: §17.15.1.29 documentProtection (`None`: no restriction).
     pub protection: Option<DocProtection>,
+    /// `pg`: Page Setup's multiple pages settings (§17.15.1.57 mirrorMargins, …).
+    pub pages: bo_model::PagesSettings,
 }
 
 /// `meta` keys of [`Settings`].
-const SETTING_KEYS: [&str; 4] = ["ds", "hy", "cx", "pt"];
+const SETTING_KEYS: [&str; 5] = ["ds", "hy", "cx", "pt", "pg"];
 
 impl Settings {
     pub fn of(doc: &Document) -> Settings {
@@ -744,10 +746,11 @@ impl Settings {
             hyphenation: doc.hyphenation,
             custom_xml: doc.custom_xml.clone(),
             protection: doc.protection.clone(),
+            pages: doc.pages,
         }
     }
 
-    fn entries(&self) -> [(&'static str, Option<String>); 4] {
+    fn entries(&self) -> [(&'static str, Option<String>); 5] {
         [
             ("ds", serde_json::to_string(&self.design).ok()),
             ("hy", serde_json::to_string(&self.hyphenation).ok()),
@@ -758,6 +761,7 @@ impl Settings {
                     .as_ref()
                     .and_then(|p| serde_json::to_string(p).ok()),
             ),
+            ("pg", serde_json::to_string(&self.pages).ok()),
         ]
     }
 
@@ -783,6 +787,9 @@ impl Settings {
         }
         if let Some(v) = get("cx").and_then(|j| serde_json::from_str(j).ok()) {
             s.custom_xml = v;
+        }
+        if let Some(v) = get("pg").and_then(|j| serde_json::from_str(j).ok()) {
+            s.pages = v;
         }
         if all || touched.contains("pt") {
             s.protection = get("pt").and_then(|j| serde_json::from_str(j).ok());

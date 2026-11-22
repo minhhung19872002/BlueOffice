@@ -242,6 +242,7 @@ fn run(s: &mut Session, a: &Act) {
                 footer: 720,
                 columns: 1 + u16::try_from(*k).unwrap_or(0) % 2,
                 column_space: 720,
+                ..Default::default()
             };
             s.set_page_setup(spec, SetupScope::Section)
                 .map(|()| s.selection())

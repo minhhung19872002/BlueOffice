@@ -40,6 +40,61 @@ pub struct PageSetupSpec {
     /// Space between columns.
     #[serde(default = "half_inch")]
     pub column_space: i32,
+    /// §17.6.11 pgMar @w:gutter (unset = unchanged).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gutter: Option<i32>,
+    /// §17.6.23 vAlign (unset = unchanged).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub v_align: Option<bo_model::PageVAlign>,
+    /// §17.6.22 type: how the section starts (unset = unchanged).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start: Option<SectionStart>,
+    /// §17.10.6 titlePg: different first page (unset = unchanged).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title_page: Option<bool>,
+    /// §17.15.1.35 evenAndOddHeaders, document-wide (unset = unchanged).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub even_and_odd: Option<bool>,
+    /// §17.15.1.57 mirrorMargins, document-wide (unset = unchanged).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mirror_margins: Option<bool>,
+    /// §17.15.1.49 gutterAtTop, document-wide (unset = unchanged).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gutter_top: Option<bool>,
+    /// §17.15.1.65 printTwoOnOne, document-wide (unset = unchanged).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub two_on_one: Option<bool>,
+    /// §17.15.1.13 bookFoldPrinting, document-wide (unset = unchanged).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub book_fold: Option<bool>,
+}
+
+/// How a section starts (§17.18.77 `ST_SectionMark`), as hosts name it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SectionStart {
+    /// Same page.
+    Continuous,
+    /// Next column.
+    NextColumn,
+    /// Next page.
+    NextPage,
+    /// Next even page.
+    EvenPage,
+    /// Next odd page.
+    OddPage,
+}
+
+impl SectionStart {
+    fn model(self) -> bo_model::SectionBreak {
+        match self {
+            SectionStart::Continuous => bo_model::SectionBreak::Continuous,
+            SectionStart::NextColumn => bo_model::SectionBreak::NextColumn,
+            SectionStart::NextPage => bo_model::SectionBreak::NextPage,
+            SectionStart::EvenPage => bo_model::SectionBreak::EvenPage,
+            SectionStart::OddPage => bo_model::SectionBreak::OddPage,
+        }
+    }
 }
 
 fn one() -> u16 {
@@ -59,6 +114,10 @@ pub enum SetupScope {
     Section,
     /// Every section.
     Document,
+    /// From the caret on (Page Setup › Apply to: This point forward): a next-page section
+    /// break before the caret's paragraph (none at a section's start), then that section
+    /// and every later one.
+    Forward,
 }
 
 /// Paste Special options.
@@ -386,6 +445,7 @@ impl Session {
         let targets: Vec<usize> = match scope {
             SetupScope::Section => vec![current],
             SetupScope::Document => (0..self.doc.sections.len()).collect(),
+            SetupScope::Forward => (current..self.doc.sections.len()).collect(),
         };
         let np = NoteProps {
             pos: spec.pos,
@@ -417,16 +477,57 @@ impl Session {
 
     /// Apply a page setup to the caret's section or the whole document (one undo step).
     pub fn set_page_setup(&mut self, spec: PageSetupSpec, scope: SetupScope) -> Result<()> {
-        let current = self.section_state().index;
-        let targets: Vec<usize> = match scope {
-            SetupScope::Section => vec![current],
-            SetupScope::Document => (0..self.doc.sections.len()).collect(),
-        };
+        let mut current = self.section_state().index;
+        let caret = self.selection().ordered().0.para;
         self.edit(|tx, sel| {
+            if scope == SetupScope::Forward {
+                // Split before the caret's top-level block unless it starts the section.
+                let paths = tx.paths();
+                let path = crate::path_of(tx.doc, &paths, caret)?;
+                let (si, bi) = (path[0], path.get(1).copied().unwrap_or(0));
+                current = si;
+                if bi > 0 {
+                    let sec = tx.doc.sections.get(si).cloned().ok_or(EditError::BadPath)?;
+                    let mut first = sec.clone();
+                    first.blocks = sec.blocks[..bi].to_vec();
+                    first.src = None;
+                    let mut second = sec.clone();
+                    second.blocks = sec.blocks[bi..].to_vec();
+                    second.break_type = bo_model::SectionBreak::NextPage;
+                    second.src = None;
+                    tx.push(Op::Sections {
+                        index: si,
+                        remove: vec![sec],
+                        insert: vec![first, second],
+                    })?;
+                    current = si + 1;
+                }
+            }
+            let targets: Vec<usize> = match scope {
+                SetupScope::Section => vec![current],
+                SetupScope::Document => (0..tx.doc.sections.len()).collect(),
+                SetupScope::Forward => (current..tx.doc.sections.len()).collect(),
+            };
             for si in targets {
                 let old = tx.doc.sections.get(si).cloned().ok_or(EditError::BadPath)?;
                 let mut new = old.clone();
                 spec.apply(&mut new.page, &mut new.columns);
+                if let Some(g) = spec.gutter {
+                    new.layout.gutter = Twips(g.clamp(0, 31_680));
+                }
+                if let Some(v) = spec.v_align {
+                    new.layout.v_align = v;
+                }
+                if let Some(t) = spec.title_page {
+                    new.title_page = t;
+                }
+                // The first section's start is not shown by the reference (always a new page).
+                if let Some(b) = spec
+                    .start
+                    .filter(|_| si > 0 || scope != SetupScope::Document)
+                {
+                    new.break_type = b.model();
+                }
                 if new != old && new.change.is_none() {
                     // §17.13.5.32 sectPrChange: the page setup before the tracked change.
                     if let Some(tr) = tx.track.as_mut() {
@@ -440,6 +541,29 @@ impl Session {
                         insert: vec![new],
                     })?;
                 }
+            }
+            if let Some(e) = spec.even_and_odd {
+                if tx.doc.even_and_odd_headers != e {
+                    tx.push(Op::EvenAndOddHeaders {
+                        old: tx.doc.even_and_odd_headers,
+                        new: e,
+                    })?;
+                }
+            }
+            let old = tx.doc.pages;
+            let mut pages = old;
+            for (slot, v) in [
+                (&mut pages.mirror_margins, spec.mirror_margins),
+                (&mut pages.gutter_at_top, spec.gutter_top),
+                (&mut pages.two_on_one, spec.two_on_one),
+                (&mut pages.book_fold, spec.book_fold),
+            ] {
+                if let Some(v) = v {
+                    *slot = v;
+                }
+            }
+            if pages != old {
+                tx.push(Op::Pages { old, new: pages })?;
             }
             Ok(sel)
         })?;

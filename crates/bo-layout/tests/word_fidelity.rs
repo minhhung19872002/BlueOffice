@@ -181,6 +181,16 @@ fn short_last_words_are_squeezed_less() {
 }
 
 #[test]
+fn the_squeeze_limit_compares_narrowing_with_stretching_per_space() {
+    // cal-41 (1 176 lines, Times New Roman 10–16 pt, last words of 1–12 letters): the last
+    // word stays when each of the n spaces narrows by at most half of what each of the
+    // n − 1 spaces would stretch without it. Eight "m" (7 spaces, last word 12.33 pt with
+    // its space): limit 12.33 × 7 / 19 = 4.54 pt (a fixed third would give 4.33 pt).
+    assert_eq!(justified_n("m", 8, 4.45, Some(15)), 8);
+    assert_eq!(justified_n("m", 8, 4.65, Some(15)), 7);
+}
+
+#[test]
 fn justified_lines_narrow_their_spaces_to_keep_a_word_in_modern_layout() {
     // Up to a quarter of the 27 pt of spaces (6.75 pt) can be given up.
     assert_eq!(justified(6.5, Some(15)), 10);
@@ -1324,4 +1334,55 @@ fn a_line_without_text_takes_the_paragraph_marks_size() {
         let h = lines(&l, 0)[0].height;
         assert!((h - want).abs() < 0.05, "case {k}: {h} != {want}");
     }
+}
+
+#[test]
+fn a_first_line_beside_a_wrapped_object_keeps_its_indent() {
+    // office-31: a box 1.8 in wide at the column's left edge, the paragraph indented 1 cm
+    // (567 twips) on its first line: the first line starts 1 cm right of the box's wrap
+    // edge, the next lines at the edge.
+    let pic = RunContent::Image(Box::new(Image {
+        media: "/word/media/image1.png".into(),
+        width: Emu(1_645_920),
+        height: Emu(914_400),
+        anchor: Some(Anchor {
+            h_relative: "column".into(),
+            v_relative: "paragraph".into(),
+            x: Emu(0),
+            y: Emu(0),
+            wrap: Wrap::Square,
+            wrap_text: bo_model::WrapText::BothSides,
+            dist: [Emu(0), Emu(0), Emu(114_300), Emu(114_300)],
+            ..Default::default()
+        }),
+        crop: None,
+        rotation: 0,
+        description: String::new(),
+        shape: None,
+        format: None,
+        src: None,
+        ole: None,
+    }));
+    let mut r = Run::text("words beside the box ".repeat(12), RunProps::default());
+    r.content.insert(0, pic);
+    let d = doc(vec![Block::Paragraph(Paragraph::new(
+        ParaProps {
+            space_before: Some(Twips(0)),
+            space_after: Some(Twips(0)),
+            line_spacing: Some(SINGLE),
+            indent_first_line: Some(Twips(567)),
+            ..ParaProps::default()
+        },
+        vec![r],
+    ))]);
+    let l = run(&d);
+    let ls = lines(&l, 0);
+    let edge = 72.0 + 129.6 + 9.0;
+    let x = |k: usize| ls[k].fragments[0].x;
+    assert!(
+        (x(0) - (edge + 28.35)).abs() < 0.1,
+        "first line at {}",
+        x(0)
+    );
+    assert!((x(1) - edge).abs() < 0.1, "second line at {}", x(1));
 }

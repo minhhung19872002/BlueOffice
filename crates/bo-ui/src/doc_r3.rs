@@ -277,6 +277,9 @@ impl DocWindow {
             zoom: self.view.zoom(),
             date_default: self.r4.date_default.unwrap_or(0),
             match_fields: self.r5.match_fields.clone(),
+            fonts: Vec::new(),
+            table: f.table.clone(),
+            inches: self.units.inches,
         }
     }
 
@@ -363,6 +366,8 @@ impl DocWindow {
     pub(super) fn form_out(&mut self, out: FormOut) -> bool {
         match out {
             FormOut::Inspect(cats, remove) => self.r7_inspect(&cats, remove.as_deref()),
+            FormOut::FindFormat(group, v, words) => self.r11_find_format(group, v, words),
+            FormOut::TableMove(cmds, part) => self.r11_table_move(cmds, part),
             FormOut::None => false,
             FormOut::Redraw => true,
             FormOut::Close => {
@@ -372,7 +377,8 @@ impl DocWindow {
             }
             FormOut::Run(cmds, close) => {
                 if close {
-                    self.r3.form = None;
+                    // Back to a dialog kept under this one (Table Properties › Options…).
+                    self.r3.form = self.r3.stash.take();
                 }
                 // Interface commands of round-4 dialogs (View › Zoom).
                 let (ui, cmds): (Vec<Value>, Vec<Value>) =

@@ -30,6 +30,8 @@ use serde_json::json;
 mod ctx10;
 #[path = "doc_r10.rs"]
 mod r10;
+#[path = "doc_r11.rs"]
+mod r11;
 #[path = "doc_r3.rs"]
 mod r3;
 #[path = "doc_r4.rs"]
@@ -265,6 +267,7 @@ pub struct DocWindow {
     r8: r8::R8,
     r9: r9::R9,
     r10: r10::R10,
+    r11: r11::R11,
 }
 
 /// Font sizes offered by the size box (points).
@@ -460,6 +463,7 @@ impl DocWindow {
             r8: r8::R8::default(),
             r9: r9::R9::default(),
             r10: r10::R10::default(),
+            r11: r11::R11::default(),
         }
     }
 
@@ -469,7 +473,19 @@ impl DocWindow {
             .ribbon
             .rect_of(RibbonHit::Command("insert.table"))
             .unwrap_or([0.0, self.ribbon.bottom(), 1.0, 0.0]);
-        let commands = vec![self.t("commands.table.fromText", "Convert Text to Table")];
+        // The reference's rows under the grid (round 11); the spreadsheet row and Quick
+        // Tables are not available in BlueDoc yet.
+        let commands = vec![
+            (self.t("tprops11.insertTable", "Insert Table..."), true),
+            (self.t("tprops11.drawTable", "Draw Table"), true),
+            (
+                self.t("tprops11.convertText", "Convert Text to Table..."),
+                // Only with text selected, as the reference.
+                self.view.has_selection(),
+            ),
+            (self.t("tprops11.excel", "Spreadsheet"), false),
+            (self.t("tprops11.quickTables", "Quick Tables"), false),
+        ];
         self.menu = None;
         self.table_grid = Some(TableGrid::open(anchor, commands, self.scale));
         true
@@ -602,6 +618,8 @@ impl DocWindow {
                         self.activate_context = true;
                         self.view.run_command(Command::InsertTable { rows, cols })
                     }
+                    Some(GridPick::Command(0)) => self.r11_insert_table_dialog(),
+                    Some(GridPick::Command(1)) => self.action("table.drawTable"),
                     Some(GridPick::Command(_)) => {
                         let cmd = catalog::from_json(json!({
                             "cmd": "tableEdit",
@@ -956,11 +974,15 @@ impl DocWindow {
                 true
             }
             NavAction::Redraw => true,
+            NavAction::SearchMenu => self.r11_search_menu(),
         }
     }
 
     /// Input for the navigation pane; `None` lets it through to the window.
     fn nav_input(&mut self, input: &Input) -> Option<bool> {
+        if let Some(r) = self.r11_nav_input(input) {
+            return Some(r);
+        }
         let nav = self.nav.as_mut()?;
         match *input {
             Input::Move { x, y } if nav.contains(x, y) => Some(nav.hover(x, y)),
@@ -1429,9 +1451,6 @@ impl DocWindow {
         let sel = self.find.as_ref().map(|f| f.0.clone()).unwrap_or_default();
         self.menu = None;
         let mut fd = FindDialog::new(tab, &sel, self.find_history.clone());
-        // Format ▾ offers the selection's paragraph style and font (round 10).
-        let f = self.view.format();
-        fd.sel_format = (f.style.clone(), f.font.clone());
         fd.bookmarks = self
             .view
             .engine()
@@ -1455,6 +1474,7 @@ impl DocWindow {
         let with = fd.replacement();
         let options = fd.options();
         let format = fd.format_json();
+        let replace_format = fd.replace_format_json();
         self.r10.find_format = format.clone();
         if matches!(
             a,
@@ -1467,13 +1487,14 @@ impl DocWindow {
             FindAction::None => return false,
             FindAction::Redraw => {}
             FindAction::Close => self.find_dialog = None,
+            FindAction::FormatDialog(i) => return self.r11_open_find_format(i),
             FindAction::FindNext => self.find_with(&query, &options),
             FindAction::Replace => {
                 if let Some((q, matches, i)) = self.find.clone().filter(|f| f.0 == query) {
                     if let Some(m) = matches.get(i) {
                         let cmd = catalog::from_json(json!({
                             "cmd": "replace", "match": m, "with": with, "query": q,
-                            "options": options,
+                            "options": options, "replaceFormat": replace_format,
                         }));
                         if let Some(c) = cmd {
                             self.view.run_command(c);
@@ -1486,7 +1507,7 @@ impl DocWindow {
             FindAction::ReplaceAll => {
                 let cmd = catalog::from_json(json!({
                     "cmd": "replaceAll", "query": query, "with": with, "options": options,
-                    "format": format,
+                    "format": format, "replaceFormat": replace_format,
                 }));
                 let n = cmd
                     .and_then(|c| self.view.exec(c))
@@ -2062,6 +2083,9 @@ impl DocWindow {
 
     /// Run interface command `id` from the ribbon, title bar, a menu or a shortcut.
     fn action(&mut self, id: &str) -> bool {
+        if let Some(r) = self.r11_action(id) {
+            return r;
+        }
         if let Some(r) = self.r10_action(id) {
             return r;
         }
@@ -3670,6 +3694,8 @@ impl DocWindow {
             }
         });
         if self.show_ruler {
+            // The reference draws its rulers' numbers in grayscale (no ClearType fringes).
+            p.gray_text(true);
             self.ruler.paint(p, &self.theme);
             if let Some(page) = self.view.ruler_page_v() {
                 let top = self.view_top();
@@ -3684,6 +3710,7 @@ impl DocWindow {
                     self.scale,
                 );
             }
+            p.gray_text(false);
         }
         if let Some(nav) = &self.nav {
             nav.paint(p, &self.theme, &self.strings);
@@ -3772,7 +3799,9 @@ impl DocWindow {
         if let Some(menu) = &self.menu {
             menu.paint(p, &self.r10_menu_theme(), &self.icons);
             self.r10_paint_menu(p);
-        } else if let Some((label, tw, anchor)) = &self.tooltip {
+        } else if let Some((label, tw, anchor)) =
+            self.tooltip.as_ref().filter(|_| self.table_grid.is_none())
+        {
             match &self.tip {
                 Some(tip) if tip.title == *label => {
                     crate::doc_tips::paint(p, &self.theme, tip, *anchor, w, self.scale);

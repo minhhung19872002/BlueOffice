@@ -203,7 +203,7 @@ pub enum Command {
         /// Find by format: only text with this formatting (an empty query finds every
         /// stretch of text with it).
         #[serde(default)]
-        format: Option<bo_edit::find::FindFormat>,
+        format: Option<Box<bo_edit::find::FindFormat>>,
         /// Also return the highlight rectangles of every match (`highlights`).
         #[serde(default)]
         highlight: bool,
@@ -228,6 +228,10 @@ pub enum Command {
         /// Options of `query`.
         #[serde(default)]
         options: FindOptions,
+        /// Replace with formatting: the format the new text gets (an empty `with` then keeps
+        /// the text found).
+        #[serde(default)]
+        replace_format: Option<Box<bo_edit::find::FindFormat>>,
     },
     /// Replace every match of a query (the number replaced is returned in `count`).
     ReplaceAll {
@@ -240,7 +244,11 @@ pub enum Command {
         with: String,
         /// Only replace matches with this formatting (find by format); `None` = any.
         #[serde(default)]
-        format: Option<bo_edit::find::FindFormat>,
+        format: Option<Box<bo_edit::find::FindFormat>>,
+        /// Replace with formatting: the format the new text gets (an empty `with` then keeps
+        /// the text found).
+        #[serde(default)]
+        replace_format: Option<Box<bo_edit::find::FindFormat>>,
     },
     /// Copy the selection (returned in `clip`).
     Copy,
@@ -2245,7 +2253,19 @@ impl crate::Engine {
                                     .para_text(at.para)
                                     .and_then(|t| t.get(..at.offset).map(str::to_owned))
                                     .unwrap_or_default();
+                                // Not inside what may be an address, a path or an abbreviation:
+                                // the reference leaves "www.example.com" alone (round 11 key
+                                // table; "www" was corrected to "wow" at the dot).
+                                let token = head
+                                    .rsplit(char::is_whitespace)
+                                    .next()
+                                    .unwrap_or("")
+                                    .trim_end_matches(c);
+                                let addressy = matches!(c, ':' | '/' | '@' | '\\')
+                                    || token.contains(['.', ':', '/', '@', '\\'])
+                                    || token.eq_ignore_ascii_case("www");
                                 let fix = bo_edit::AutoCorrectOptions::word_before(&head, c)
+                                    .filter(|_| !addressy)
                                     .filter(|w| !speller.check(w) && !o.is_other_exception(w))
                                     .and_then(|w| {
                                         // Close candidates only: the loose similarity search of a long unknown word costs
@@ -2278,6 +2298,12 @@ impl crate::Engine {
                         s.delete_forward()?;
                     }
                     Command::DeleteWordBackward => {
+                        // With a selection the reference keeps it and deletes the word before
+                        // it (round 8 / 11 key table `cback_sel`: "Hôm [nay]" → "[nay]").
+                        if !s.selection().is_collapsed() {
+                            let (a, _) = s.selection().ordered();
+                            s.set_selection(Selection::caret(a));
+                        }
                         s.delete_word(false)?;
                     }
                     Command::DeleteWordForward => {
@@ -2362,18 +2388,31 @@ impl crate::Engine {
                         with,
                         query,
                         options,
+                        replace_format,
                     } => {
-                        s.replace_match(m, query.as_deref().map(|q| (q, &options)), &with)?;
+                        let q = query.as_deref().map(|q| (q, &options));
+                        match replace_format.as_ref().filter(|r| !r.is_empty()) {
+                            Some(r) => {
+                                s.replace_match_formatted(m, q, &with, r)?;
+                            }
+                            None => {
+                                s.replace_match(m, q, &with)?;
+                            }
+                        }
                     }
                     Command::ReplaceAll {
                         query,
                         options,
                         with,
                         format,
+                        replace_format,
                     } => {
-                        extra.1 = Some(match &format {
-                            Some(f) => s.replace_all_formatted(&query, &options, f, &with)?,
-                            None => s.replace_all(&query, &options, &with)?,
+                        extra.1 = Some(match (&format, &replace_format) {
+                            (f, Some(r)) if !r.is_empty() => {
+                                s.replace_all_reformat(&query, &options, f.as_deref(), &with, r)?
+                            }
+                            (Some(f), _) => s.replace_all_formatted(&query, &options, f, &with)?,
+                            (None, _) => s.replace_all(&query, &options, &with)?,
                         });
                     }
                     Command::Copy => {

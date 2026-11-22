@@ -63,6 +63,8 @@ fn special_char(c: char) -> Option<char> {
         '+' => '\u{2014}',
         '=' => '\u{2013}',
         '^' => '^',
+        '%' => '\u{00A7}',
+        'v' => '\u{00B6}',
         _ => return None,
     })
 }

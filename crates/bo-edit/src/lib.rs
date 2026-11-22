@@ -564,6 +564,14 @@ pub struct TableState {
     pub cell_margin: (i32, i32),
     /// Width of the caret's cell's grid columns in twips (§17.4.48 gridCol).
     pub col_width: i32,
+    /// Indent from the left margin in twips (§17.4.50 tblInd).
+    pub indent: i32,
+    /// The caret's row may not break across pages (§17.4.6 cantSplit).
+    pub cant_split: bool,
+    /// The caret's row height is exact (§17.4.81 trHeight hRule="exact").
+    pub row_exact: bool,
+    /// Default top / bottom cell margins in twips (§17.4.43 tblCellMar).
+    pub cell_margin_v: (i32, i32),
 }
 
 /// Formatting at the selection start (drives ribbon toggle states).
@@ -3518,10 +3526,33 @@ impl Session {
     }
 
     fn split_paragraph_inner(&mut self) -> Result<Selection> {
+        // An empty item of a list that comes from its paragraph style (List Bullet): the
+        // reference keeps the style and switches the numbering off (numId 0) — round 11 key
+        // table `enter_list_empty` (style List Bullet, list 0, indent kept).
+        let style_list = {
+            let at = self.selection.focus;
+            self.selection.is_collapsed()
+                && self.para_text(at.para).is_some_and(|t| t.is_empty())
+                && body_paragraphs(&self.doc)
+                    .get(at.para)
+                    .and_then(|path| para_at(&self.doc, path))
+                    .is_some_and(|p| {
+                        p.props.num.is_none()
+                            && effective_para(&self.doc, &p.props)
+                                .num
+                                .is_some_and(|n| n.num_id != 0)
+                    })
+        };
         self.edit(|tx, sel| {
             let (a, b) = sel.ordered();
             let at = tx.delete_range(a, b)?;
             let (path, p, atoms) = tx.atoms(at.para)?;
+            if para::len(&atoms) == 0 && style_list {
+                let mut q = p.clone();
+                q.props.num = Some(bo_model::NumRef { num_id: 0, ilvl: 0 });
+                tx.replace_para(&path, q)?;
+                return Ok(Selection::caret(at));
+            }
             if para::len(&atoms) == 0 && p.props.num.is_some_and(|n| n.num_id != 0) {
                 let mut q = p.clone();
                 q.props.num = None;
@@ -4357,9 +4388,68 @@ impl Session {
         Ok(n)
     }
 
+    /// Replace one match of `query` and give the new text the format `rfmt` (Replace with
+    /// formatting; an empty `with` keeps the text found and only formats it).
+    pub fn replace_match_formatted(
+        &mut self,
+        m: Match,
+        query: Option<(&str, &FindOptions)>,
+        with: &str,
+        rfmt: &find::FindFormat,
+    ) -> Result<Selection> {
+        let with = if with.is_empty() { "^&" } else { with };
+        let replacement = find::replacement_for(&self.doc, &m, query, with)?;
+        self.replace_matches_fmt(vec![(m, replacement)], Some(rfmt))
+    }
+
+    /// Replace every match of `query` (with the format `fmt`, if any) and give the new text
+    /// the format `rfmt` (one undo step); an empty `with` keeps the text found.
+    pub fn replace_all_reformat(
+        &mut self,
+        query: &str,
+        opts: &FindOptions,
+        fmt: Option<&find::FindFormat>,
+        with: &str,
+        rfmt: &find::FindFormat,
+    ) -> Result<usize> {
+        let with = if with.is_empty() { "^&" } else { with };
+        let fmt = fmt.filter(|f| !f.is_empty());
+        let items = if query.is_empty() {
+            match fmt {
+                Some(f) => find::find_formatted(&self.doc, query, opts, f)?
+                    .into_iter()
+                    .map(|m| {
+                        let r = find::replacement_for(&self.doc, &m, None, with)?;
+                        Ok((m, r))
+                    })
+                    .collect::<Result<Vec<_>>>()?,
+                None => Vec::new(),
+            }
+        } else {
+            find::replacements(&self.doc, query, opts, Some(with), fmt)?
+        };
+        let n = items.len();
+        if n > 0 {
+            self.replace_matches_fmt(items, Some(rfmt))?;
+        }
+        Ok(n)
+    }
+
     /// Replace matches by their replacement texts (`\n` = paragraph mark), last first,
     /// in one transaction.
-    fn replace_matches(&mut self, mut items: Vec<(Match, String)>) -> Result<Selection> {
+    fn replace_matches(&mut self, items: Vec<(Match, String)>) -> Result<Selection> {
+        self.replace_matches_fmt(items, None)
+    }
+
+    /// [`Self::replace_matches`], giving each new text the format `rfmt` (run properties;
+    /// paragraph properties to its paragraph).
+    fn replace_matches_fmt(
+        &mut self,
+        mut items: Vec<(Match, String)>,
+        rfmt: Option<&find::FindFormat>,
+    ) -> Result<Selection> {
+        let rfmt = rfmt.filter(|f| !f.is_empty()).cloned();
+        let kind = rfmt.as_ref().and_then(|f| f.style_kind(&self.doc));
         items.sort_by_key(|(m, _)| std::cmp::Reverse((m.para, m.start)));
         self.edit(|tx, sel| {
             let mut last = sel;
@@ -4376,7 +4466,10 @@ impl Session {
                 if m.end > text.len() || m.end < m.start || !text.is_char_boundary(m.end) {
                     return Err(EditError::Conflict);
                 }
-                let props = para::props_at(&atoms, (m.start + 1).min(m.end.max(m.start)));
+                let mut props = para::props_at(&atoms, (m.start + 1).min(m.end.max(m.start)));
+                if let Some(f) = &rfmt {
+                    f.apply_run(kind, &mut props);
+                }
                 let at = if let Some(tr) = tx.track.as_mut() {
                     let mark = tr.mark();
                     let removed = revisions::mark_deleted(&mut atoms, m.start, m.end, tr, &mark);
@@ -4387,7 +4480,11 @@ impl Session {
                 };
                 let new = tx.mark_new(&atoms, at, para::text_atoms(&replacement, &props));
                 para::insert(&mut atoms, at, new);
-                tx.replace_para(&path, para::with_atoms(&p, atoms))?;
+                let mut np = para::with_atoms(&p, atoms);
+                if let Some(f) = rfmt.as_ref().filter(|f| f.touches_para(kind)) {
+                    f.apply_para(kind, &mut np.props);
+                }
+                tx.replace_para(&path, np)?;
                 let start = if tx.track.is_some() { at } else { m.start };
                 last = Selection {
                     anchor: Pos::new(m.para, start),

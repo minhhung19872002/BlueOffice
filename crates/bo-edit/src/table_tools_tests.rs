@@ -481,6 +481,34 @@ fn cell_align_looks_and_select() {
         s.format_state().table.map(|t| t.cell_margin),
         Some((200, 150))
     );
+    // Table Properties (round 11): top / bottom margins, indent, row break, exact height,
+    // Next Row / Previous Column moving the caret.
+    s.edit_table(&TableEdit::CellMarginsVertical {
+        top: 40,
+        bottom: 60,
+    })
+    .unwrap();
+    s.edit_table(&TableEdit::Indent { twips: 360 }).unwrap();
+    s.edit_table(&TableEdit::AllowRowBreak { on: false })
+        .unwrap();
+    s.edit_table(&TableEdit::RowHeight { twips: Some(500) })
+        .unwrap();
+    s.edit_table(&TableEdit::RowHeightRule { exact: true })
+        .unwrap();
+    let st = s.format_state().table.expect("in a table");
+    assert_eq!(st.cell_margin_v, (40, 60));
+    assert_eq!(st.indent, 360);
+    assert!(st.cant_split && st.row_exact);
+    let (row, col) = (st.row, st.col);
+    s.edit_table(&TableEdit::Select {
+        part: "nextRow".into(),
+    })
+    .unwrap();
+    let st = s.format_state().table.expect("in a table");
+    assert_eq!((st.row, st.col), (row + 1, col));
+    assert!(s.selection().is_collapsed());
+    s.edit_table(&TableEdit::RowHeight { twips: None }).unwrap();
+    s.set_selection(Selection::caret(Pos::new(4, 0)));
     // Split above the caret's row (row 1): two tables with a paragraph between.
     s.set_selection(Selection::caret(Pos::new(4, 0)));
     s.edit_table(&TableEdit::SplitTable).unwrap();

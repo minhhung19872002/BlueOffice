@@ -1,13 +1,31 @@
-//! Insert › Table drop-down of BlueDoc: a 10 × 8 grid to pick the table size by pointing, its
-//! "c × r Table" title, then text commands, as on a desktop word processor.
+//! Insert › Table drop-down of BlueDoc, laid out after the reference desktop word processor's
+//! as captured at 125 % on this machine (round 11): a 283 × 457 px popup with a grey
+//! "Insert Table" / "c x r Table" band, a 7 × 6 grid of 37 px cells 39 px apart (the hovered
+//! ones framed in orange), then the command rows (36 px): Insert Table…, Draw Table,
+//! Convert Text to Table…, an embedded spreadsheet (not available), Quick Tables ▸. Icons are BlueOffice's own.
 use crate::theme::Theme;
 use crate::{Painter, TextStyle};
-use bo_render::Rgba;
+use bo_render::{PathSeg, Rgba};
 
-const COLS: usize = 10;
-const ROWS: usize = 8;
-const CELL_EDGE: Rgba = Rgba(171, 171, 171, 255);
-const MENU_EDGE: Rgba = Rgba(198, 198, 198, 255);
+const COLS: usize = 7;
+const ROWS: usize = 6;
+/// Logical sizes (device px at 125 % ÷ 1.25).
+const W: f32 = 226.4;
+const BAND: f32 = 28.0;
+const GRID_X: f32 = 5.6;
+const GRID_Y: f32 = 31.2;
+const PITCH: f32 = 31.2;
+const CELL: f32 = 29.6;
+const ITEM_H: f32 = 28.8;
+const ITEMS_Y: f32 = 220.8;
+const TEXT_X: f32 = 36.8;
+const POPUP_EDGE: Rgba = Rgba(148, 148, 148, 255);
+const BAND_FILL: Rgba = Rgba(235, 235, 235, 255);
+const CELL_EDGE: Rgba = Rgba(118, 118, 118, 255);
+const HOT_OUT: Rgba = Rgba(239, 72, 16, 255);
+const HOT_IN: Rgba = Rgba(255, 226, 148, 255);
+const INK: Rgba = Rgba(38, 38, 38, 255);
+const DIM: Rgba = Rgba(160, 160, 160, 255);
 
 /// What a press in the drop-down picked.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -26,12 +44,12 @@ pub(crate) struct TableGrid {
     scale: f32,
     /// Hovered (columns, rows) size, or command index + 100 in `.0` with rows 0.
     hover: Option<(usize, usize)>,
-    /// Labels of the commands under the grid (already translated).
-    commands: Vec<String>,
+    /// The commands under the grid (already translated) and whether each can run.
+    commands: Vec<(String, bool)>,
 }
 
 impl TableGrid {
-    pub(crate) fn open(anchor: [f32; 4], commands: Vec<String>, scale: f32) -> Self {
+    pub(crate) fn open(anchor: [f32; 4], commands: Vec<(String, bool)>, scale: f32) -> Self {
         Self {
             x: anchor[0],
             y: anchor[1] + anchor[3],
@@ -45,34 +63,17 @@ impl TableGrid {
         (v * self.scale).round()
     }
 
-    fn cell(&self) -> f32 {
-        self.px(19.0)
-    }
-
-    fn title_h(&self) -> f32 {
-        self.px(28.0)
-    }
-
     fn grid_origin(&self) -> (f32, f32) {
-        (
-            self.x + self.px(8.0),
-            self.y + self.title_h() + self.px(4.0),
-        )
-    }
-
-    fn item_h(&self) -> f32 {
-        self.px(28.0)
+        (self.x + self.px(GRID_X), self.y + self.px(GRID_Y))
     }
 
     fn items_top(&self) -> f32 {
-        self.grid_origin().1 + ROWS as f32 * self.cell() + self.px(10.0)
+        self.y + self.px(ITEMS_Y)
     }
 
     fn size(&self) -> (f32, f32) {
-        let w = COLS as f32 * self.cell() + self.px(16.0);
-        let h =
-            self.items_top() - self.y + self.commands.len() as f32 * self.item_h() + self.px(4.0);
-        (w.max(self.px(220.0)), h)
+        let h = ITEMS_Y + self.commands.len() as f32 * ITEM_H + 3.0;
+        (self.px(W), self.px(h))
     }
 
     pub(crate) fn contains(&self, x: f32, y: f32) -> bool {
@@ -82,7 +83,7 @@ impl TableGrid {
 
     fn pick_at(&self, x: f32, y: f32) -> Option<GridPick> {
         let (gx, gy) = self.grid_origin();
-        let c = self.cell();
+        let c = PITCH * self.scale;
         if x >= gx && y >= gy && x < gx + COLS as f32 * c && y < gy + ROWS as f32 * c {
             let col = ((x - gx) / c) as usize + 1;
             let row = ((y - gy) / c) as usize + 1;
@@ -90,8 +91,12 @@ impl TableGrid {
         }
         let top = self.items_top();
         if y >= top && self.contains(x, y) {
-            let i = ((y - top) / self.item_h()) as usize;
-            return (i < self.commands.len()).then_some(GridPick::Command(i));
+            let i = ((y - top) / self.px(ITEM_H)) as usize;
+            return self
+                .commands
+                .get(i)
+                .filter(|c| c.1)
+                .map(|_| GridPick::Command(i));
         }
         None
     }
@@ -121,19 +126,25 @@ impl TableGrid {
         size_label: &dyn Fn(usize, usize) -> String,
     ) {
         let (w, h) = self.size();
-        p.fill_rect(self.x, self.y, w, h, MENU_EDGE);
-        p.fill_rect(self.x + 1.0, self.y + 1.0, w - 2.0, h - 2.0, t.surface);
-        let style = TextStyle {
-            size: self.px(12.0),
-            bold: false,
-        };
-        // Title band: the size being picked, else the heading.
+        p.fill_rect(self.x, self.y, w, h, POPUP_EDGE);
         p.fill_rect(
             self.x + 1.0,
             self.y + 1.0,
             w - 2.0,
-            self.title_h() - 1.0,
-            Rgba(240, 240, 240, 255),
+            h - 2.0,
+            Rgba(255, 255, 255, 255),
+        );
+        let style = TextStyle {
+            size: self.px(13.2),
+            bold: false,
+        };
+        // Band: the size being picked, else the heading (bold dark grey on light grey).
+        p.fill_rect(
+            self.x + 1.0,
+            self.y + 1.0,
+            w - 2.0,
+            self.px(BAND),
+            BAND_FILL,
         );
         let heading = match self.hover {
             Some((c, r)) if c < 100 => size_label(c, r),
@@ -142,48 +153,138 @@ impl TableGrid {
         let ty = |top: f32, hh: f32| top + (hh - style.size * 1.33) / 2.0;
         p.text(
             &heading,
-            self.x + self.px(10.0),
-            ty(self.y, self.title_h()),
+            self.x + self.px(8.0),
+            ty(self.y + 1.0, self.px(BAND)),
             TextStyle {
                 bold: true,
                 ..style
             },
-            t.text,
+            Rgba(80, 80, 80, 255),
         );
         let (gx, gy) = self.grid_origin();
-        let c = self.cell();
-        let inner = c - self.px(3.0);
+        let (pitch, cell) = (PITCH * self.scale, self.px(CELL));
         let (hc, hr) = match self.hover {
             Some((c, r)) if c < 100 => (c, r),
             _ => (0, 0),
         };
         for row in 0..ROWS {
             for col in 0..COLS {
-                let (x, y) = (gx + col as f32 * c, gy + row as f32 * c);
-                let on = col < hc && row < hr;
-                let (edge, fill) = if on {
-                    (t.accent, Rgba(255, 228, 196, 255))
+                let (x, y) = (
+                    (gx + col as f32 * pitch).round(),
+                    (gy + row as f32 * pitch).round(),
+                );
+                if col < hc && row < hr {
+                    p.fill_rect(x, y, cell, cell, HOT_OUT);
+                    p.fill_rect(x + 1.0, y + 1.0, cell - 2.0, cell - 2.0, HOT_IN);
+                    p.fill_rect(
+                        x + 2.0,
+                        y + 2.0,
+                        cell - 4.0,
+                        cell - 4.0,
+                        Rgba(255, 255, 255, 255),
+                    );
                 } else {
-                    (CELL_EDGE, Rgba(255, 255, 255, 255))
-                };
-                p.fill_rect(x, y, inner, inner, edge);
-                p.fill_rect(x + 1.0, y + 1.0, inner - 2.0, inner - 2.0, fill);
+                    p.fill_rect(x, y, cell, cell, CELL_EDGE);
+                    p.fill_rect(
+                        x + 1.0,
+                        y + 1.0,
+                        cell - 2.0,
+                        cell - 2.0,
+                        Rgba(255, 255, 255, 255),
+                    );
+                }
             }
         }
         let top = self.items_top();
-        p.fill_rect(self.x + 1.0, top - self.px(5.0), w - 2.0, 1.0, MENU_EDGE);
-        for (i, label) in self.commands.iter().enumerate() {
-            let y = top + i as f32 * self.item_h();
-            if self.hover == Some((100 + i, 0)) {
-                p.fill_rect(self.x + 1.0, y, w - 2.0, self.item_h(), t.hover);
+        let ih = self.px(ITEM_H);
+        for (i, (label, on)) in self.commands.iter().enumerate() {
+            let y = top + i as f32 * ih;
+            if *on && self.hover == Some((100 + i, 0)) {
+                p.fill_rect(self.x + 2.0, y, w - 4.0, ih, t.hover);
             }
-            p.text(
-                label,
-                self.x + self.px(34.0),
-                ty(y, self.item_h()),
-                style,
-                t.text,
+            let color = if *on { INK } else { DIM };
+            self.icon(
+                p,
+                i,
+                self.x + self.px(6.4),
+                y + (ih - self.px(16.0)) / 2.0,
+                color,
             );
+            p.text(label, self.x + self.px(TEXT_X), ty(y, ih), style, color);
+            // Quick Tables opens a sub-menu: ▸ at the right.
+            if i == 4 {
+                let (ax, ay, k) = (self.x + w - self.px(14.0), y + ih / 2.0, self.px(3.5));
+                p.path(
+                    &[
+                        PathSeg::M(ax, ay - k),
+                        PathSeg::L(ax + k, ay),
+                        PathSeg::L(ax, ay + k),
+                        PathSeg::Z,
+                    ],
+                    Some(color),
+                    None,
+                );
+            }
+        }
+    }
+
+    /// Own 16 px icons: a table, a pencil over a table, text lines into a table, a sheet with
+    /// a green corner, a table with a header band.
+    fn icon(&self, p: &mut dyn Painter, i: usize, x: f32, y: f32, ink: Rgba) {
+        let s = self.px(16.0);
+        let lw = self.scale.max(1.0);
+        let grid = |p: &mut dyn Painter, x: f32, y: f32, w: f32, h: f32| {
+            p.path(
+                &[
+                    PathSeg::M(x, y),
+                    PathSeg::L(x + w, y),
+                    PathSeg::L(x + w, y + h),
+                    PathSeg::L(x, y + h),
+                    PathSeg::Z,
+                    PathSeg::M(x + w / 3.0, y),
+                    PathSeg::L(x + w / 3.0, y + h),
+                    PathSeg::M(x + 2.0 * w / 3.0, y),
+                    PathSeg::L(x + 2.0 * w / 3.0, y + h),
+                    PathSeg::M(x, y + h / 2.0),
+                    PathSeg::L(x + w, y + h / 2.0),
+                ],
+                None,
+                Some((ink, lw)),
+            );
+        };
+        match i {
+            1 => {
+                grid(p, x, y + s * 0.3, s * 0.7, s * 0.6);
+                p.path(
+                    &[
+                        PathSeg::M(x + s * 0.45, y + s * 0.75),
+                        PathSeg::L(x + s, y + s * 0.15),
+                    ],
+                    None,
+                    Some((Rgba(0, 102, 204, 255), lw * 2.0)),
+                );
+            }
+            2 => {
+                for k in 0..3 {
+                    p.fill_rect(x, y + s * (0.15 + k as f32 * 0.2), s * 0.45, lw, ink);
+                }
+                grid(p, x + s * 0.5, y + s * 0.4, s * 0.5, s * 0.5);
+            }
+            3 => {
+                grid(p, x, y + s * 0.1, s * 0.8, s * 0.8);
+                p.fill_rect(
+                    x + s * 0.55,
+                    y + s * 0.55,
+                    s * 0.45,
+                    s * 0.45,
+                    Rgba(33, 115, 70, 255),
+                );
+            }
+            4 => {
+                p.fill_rect(x, y + s * 0.15, s, s * 0.22, Rgba(120, 120, 120, 255));
+                grid(p, x, y + s * 0.15, s, s * 0.75);
+            }
+            _ => grid(p, x, y + s * 0.15, s, s * 0.75),
         }
     }
 }

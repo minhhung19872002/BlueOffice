@@ -24,6 +24,12 @@ mod r7;
 
 #[path = "doc_autocorrect8.rs"]
 pub(crate) mod autocorrect8;
+
+#[path = "doc_findfmt11.rs"]
+pub(crate) mod findfmt11;
+
+#[path = "doc_tprops11.rs"]
+mod tprops11;
 pub(crate) use r5::{open_manage_styles, ManagedStyle};
 pub(crate) use r7::INSPECT;
 
@@ -83,6 +89,24 @@ pub(crate) enum DocFormKind {
     Inspect,
     /// File › Info › Check for Issues › Check Compatibility.
     Compatibility,
+    /// Find and Replace › Format ▾ › Font… (round 11).
+    FindFont,
+    /// Find and Replace › Format ▾ › Paragraph….
+    FindParagraph,
+    /// Find and Replace › Format ▾ › Tabs….
+    FindTabs,
+    /// Find and Replace › Format ▾ › Language….
+    FindLanguage,
+    /// Find and Replace › Format ▾ › Frame….
+    FindFrame,
+    /// Find and Replace › Format ▾ › Style….
+    FindStyle,
+    /// Table Properties with its five tabs (round 11).
+    TableProps,
+    /// Table Properties › Options… (default cell margins).
+    TableOptions,
+    /// Insert › Table › Insert Table….
+    InsertTable,
 }
 
 /// What the owner does after an input.
@@ -113,6 +137,12 @@ pub(crate) enum FormOut {
     DateDefault(usize),
     /// Document Inspector: inspect these categories, or remove everything of one.
     Inspect(Vec<String>, Option<String>),
+    /// A Find … dialog of Find and Replace › Format ▾: its part, the `FindFormat` fields and
+    /// the words shown after "Format:" (round 11).
+    FindFormat(&'static str, Value, String),
+    /// Table Properties › Previous / Next Row / Column: run these edits, move the caret
+    /// (`tableEdit` select part) and show the new row / column (round 11).
+    TableMove(Vec<Value>, &'static str),
 }
 
 /// A radio button drawn on a canvas control.
@@ -147,6 +177,10 @@ pub(crate) struct DocForm {
     /// Manage Styles: the document's styles and the texts of its preview.
     managed: Vec<r5::ManagedStyle>,
     manage_text: Vec<String>,
+    /// Three-state check boxes of the Find … dialogs (round 11).
+    tris: Vec<findfmt11::Tri>,
+    /// Translated words a dialog's OK puts together (round 11).
+    words: Vec<(String, String)>,
 }
 
 /// Reference ids of `ST_NumberFormat` values offered for notes (§17.18.59).
@@ -221,6 +255,12 @@ pub(crate) struct FormContext {
     pub(crate) selection: String,
     /// The paste defaults.
     pub(crate) paste_defaults: [usize; 3],
+    /// Font families (Find Font, round 11).
+    pub(crate) fonts: Vec<String>,
+    /// The table at the caret (Table Properties, round 11).
+    pub(crate) table: Option<bo_edit::TableState>,
+    /// Lengths in inches (else centimetres).
+    pub(crate) inches: bool,
     /// Mail merge recipients: field names and rows.
     pub(crate) recipients: (Vec<String>, Vec<Vec<String>>),
     /// Local date and time now (year, month, day, weekday 0 = Sunday, hour, minute,
@@ -339,6 +379,8 @@ impl DocForm {
             modify: None,
             managed: Vec::new(),
             manage_text: Vec::new(),
+            tris: Vec::new(),
+            words: Vec::new(),
         }
     }
 
@@ -656,6 +698,10 @@ impl DocForm {
         match ev {
             Event::None => FormOut::Redraw,
             Event::Cancel => FormOut::Close,
+            Event::Canvas(id, _, y) if self.r11_canvas(id, *y) => FormOut::Redraw,
+            Event::Canvas(id, ..) if self.kind == DocFormKind::TableProps && self.tp_canvas(id) => {
+                FormOut::Redraw
+            }
             Event::Canvas(id, ..) => {
                 if self.radios.iter().any(|r| r.id == *id && r.enabled) {
                     self.set_radio(id);
@@ -695,6 +741,8 @@ impl DocForm {
                 self.form.enable("bookmark", range);
             }
             (DocFormKind::Protect, _) => {}
+            (k, _) if findfmt11::handles(k) => self.r11_changed(id),
+            (DocFormKind::TableProps, _) => self.tp_changed(id),
             _ => self.r5_changed(id),
         }
     }
@@ -733,6 +781,8 @@ impl DocForm {
                 FormOut::NewDocument(self.labels())
             }
             (DocFormKind::CrossRef | DocFormKind::Language, "list") => self.ok(),
+            (k, _) if findfmt11::handles(k) => self.r11_clicked(id),
+            (DocFormKind::TableProps, _) => self.tp_clicked(id),
             (k, _) if r5::handles(k) => self.r5_clicked(id),
             (k, _) if r7::handles(k) => self.r7_clicked(id),
             (DocFormKind::DateTime, "setDefault") => FormOut::DateDefault(
@@ -1109,6 +1159,15 @@ impl DocForm {
             | DocFormKind::Encrypt
             | DocFormKind::Inspect
             | DocFormKind::Compatibility => self.r7_ok(),
+            DocFormKind::FindFont
+            | DocFormKind::FindParagraph
+            | DocFormKind::FindTabs
+            | DocFormKind::FindLanguage
+            | DocFormKind::FindFrame
+            | DocFormKind::FindStyle => self.r11_ok(),
+            DocFormKind::TableProps => self.tp_ok(),
+            DocFormKind::TableOptions => self.options_ok(),
+            DocFormKind::InsertTable => self.insert_table_ok(),
             DocFormKind::Zoom => {
                 let pct = match self.chosen("zoom") {
                     Some("z200") => "200".to_owned(),
@@ -1135,7 +1194,13 @@ impl DocForm {
         let label_w = &self.label_w;
         let kind = self.kind;
         let files = &self.files;
+        let this = self;
         let mut canvas = |id: &str, r: [f32; 4], p: &mut dyn Painter| {
+            if findfmt11::paint_canvas(this, id, r, p, &font, k)
+                || tprops11::paint_canvas(this, id, r, p, k)
+            {
+                return;
+            }
             if let Some(rb) = radios.iter().find(|rb| rb.id == id) {
                 paint_radio(p, r, rb, &font, k);
                 return;
@@ -3044,6 +3109,15 @@ pub(crate) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
         | DocFormKind::Encrypt
         | DocFormKind::Inspect
         | DocFormKind::Compatibility => r7::open(kind, s),
+        DocFormKind::FindFont
+        | DocFormKind::FindParagraph
+        | DocFormKind::FindTabs
+        | DocFormKind::FindLanguage
+        | DocFormKind::FindFrame
+        | DocFormKind::FindStyle => findfmt11::open(kind, s, c),
+        DocFormKind::TableProps => tprops11::open(s, c),
+        DocFormKind::TableOptions => tprops11::open_options(s, c),
+        DocFormKind::InsertTable => tprops11::open_insert(s),
         DocFormKind::Zoom => {
             let mut f = DocForm::new(kind, &tr("docR4.zoomTitle", "Zoom"), (381.0, 258.0), vec![]);
             f.label(

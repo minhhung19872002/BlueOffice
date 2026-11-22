@@ -328,6 +328,106 @@ pub struct FindFormat {
     pub color: Option<String>,
     /// §17.3.2.15 highlight present.
     pub highlight: Option<bool>,
+    /// Font size in half points (§17.3.2.38 sz).
+    pub size: Option<u32>,
+    /// §17.3.2.37 strike.
+    pub strike: Option<bool>,
+    /// §17.3.2.33 smallCaps.
+    pub small_caps: Option<bool>,
+    /// §17.3.2.5 caps.
+    pub caps: Option<bool>,
+    /// §17.3.2.41 vanish (hidden).
+    pub hidden: Option<bool>,
+    /// Paragraph alignment (§17.3.1.13 jc): `left`, `center`, `right` or `both`.
+    pub align: Option<String>,
+    /// Outline level 1–9, 10 = body text (§17.3.1.20 outlineLvl + 1).
+    pub outline_level: Option<u8>,
+    /// Left indent, twips (§17.3.1.12 ind).
+    pub indent_left: Option<i32>,
+    /// Right indent, twips.
+    pub indent_right: Option<i32>,
+    /// First-line indent (negative: hanging), twips.
+    pub first_line: Option<i32>,
+    /// Space before, twips (§17.3.1.33 spacing).
+    pub space_before: Option<i32>,
+    /// Space after, twips.
+    pub space_after: Option<i32>,
+    /// Line spacing: `single`, `1.5`, `double`, `multiple:<240ths>`, `atLeast:<twips>`,
+    /// `exactly:<twips>` (§17.3.1.33 spacing line / lineRule).
+    pub line_spacing: Option<String>,
+    /// A tab stop at this position, twips (§17.3.1.38 tabs).
+    pub tab: Option<i32>,
+    /// Proofing language (§17.3.2.20 lang `@w:val`), BCP 47; `"none"`: no language set.
+    pub lang: Option<String>,
+    /// §17.3.2.21 noProof.
+    pub no_proof: Option<bool>,
+    /// The paragraph is a text frame (§17.3.1.11 framePr).
+    pub frame: Option<bool>,
+    /// §17.3.1.44 widowControl.
+    pub widow_control: Option<bool>,
+    /// §17.3.1.15 keepNext.
+    pub keep_next: Option<bool>,
+    /// §17.3.1.14 keepLines.
+    pub keep_lines: Option<bool>,
+    /// §17.3.1.23 pageBreakBefore.
+    pub page_break_before: Option<bool>,
+    /// §17.3.1.34 suppressLineNumbers.
+    pub suppress_line_numbers: Option<bool>,
+    /// §17.3.1.34 suppressAutoHyphens.
+    pub suppress_auto_hyphens: Option<bool>,
+    /// §17.3.1.9 contextualSpacing (don't add space between paragraphs of the same style).
+    pub contextual_spacing: Option<bool>,
+    /// §17.3.2.9 dstrike.
+    pub double_strike: Option<bool>,
+    /// §17.3.2.42 vertAlign superscript.
+    pub superscript: Option<bool>,
+    /// §17.3.2.42 vertAlign subscript.
+    pub subscript: Option<bool>,
+}
+
+/// Line spacing word of [`FindFormat::line_spacing`].
+fn line_spacing_word(ls: bo_model::LineSpacing) -> String {
+    match ls {
+        bo_model::LineSpacing::Auto(240) => "single".into(),
+        bo_model::LineSpacing::Auto(360) => "1.5".into(),
+        bo_model::LineSpacing::Auto(480) => "double".into(),
+        bo_model::LineSpacing::Auto(n) => format!("multiple:{n}"),
+        bo_model::LineSpacing::AtLeast(t) => format!("atLeast:{}", t.0),
+        bo_model::LineSpacing::Exact(t) => format!("exactly:{}", t.0),
+    }
+}
+
+fn parse_line_spacing(s: &str) -> Option<bo_model::LineSpacing> {
+    use bo_model::{LineSpacing, Twips};
+    let num = |v: &str| v.trim().parse::<i64>().ok();
+    Some(match s {
+        "single" => LineSpacing::Auto(240),
+        "1.5" => LineSpacing::Auto(360),
+        "double" => LineSpacing::Auto(480),
+        _ => match s.split_once(':')? {
+            ("multiple", v) => LineSpacing::Auto(u32::try_from(num(v)?).ok()?),
+            ("atLeast", v) => LineSpacing::AtLeast(Twips(i32::try_from(num(v)?).ok()?)),
+            ("exactly", v) => LineSpacing::Exact(Twips(i32::try_from(num(v)?).ok()?)),
+            _ => return None,
+        },
+    })
+}
+
+fn align_word(a: bo_model::Alignment) -> &'static str {
+    match a {
+        bo_model::Alignment::Left => "left",
+        bo_model::Alignment::Center => "center",
+        bo_model::Alignment::Right => "right",
+        bo_model::Alignment::Justify => "both",
+    }
+}
+
+fn style_kind(doc: &Document, id: &str) -> Option<StyleKind> {
+    doc.styles
+        .styles
+        .iter()
+        .find(|s| s.id == id)
+        .map(|s| s.kind)
 }
 
 impl FindFormat {
@@ -336,8 +436,245 @@ impl FindFormat {
         *self == FindFormat::default()
     }
 
+    /// Whether a paragraph property is part of the search.
+    fn has_para(&self) -> bool {
+        self.align.is_some()
+            || self.outline_level.is_some()
+            || self.indent_left.is_some()
+            || self.indent_right.is_some()
+            || self.first_line.is_some()
+            || self.space_before.is_some()
+            || self.space_after.is_some()
+            || self.line_spacing.is_some()
+            || self.tab.is_some()
+            || self.frame.is_some()
+            || self.widow_control.is_some()
+            || self.keep_next.is_some()
+            || self.keep_lines.is_some()
+            || self.page_break_before.is_some()
+            || self.suppress_line_numbers.is_some()
+            || self.suppress_auto_hyphens.is_some()
+            || self.contextual_spacing.is_some()
+    }
+
+    /// The paragraph's own properties match (alignment, indents, spacing, tabs, frame).
+    fn para_matches(&self, doc: &Document, p: &Paragraph) -> bool {
+        if !self.has_para() {
+            return true;
+        }
+        let pp = crate::effective_para(doc, &p.props);
+        let tw = |v: Option<bo_model::Twips>| v.map_or(0, |t| t.0);
+        self.align
+            .as_deref()
+            .is_none_or(|a| align_word(pp.align.unwrap_or_default()) == a)
+            && self
+                .outline_level
+                .is_none_or(|l| pp.outline_level.map_or(10, |o| o.saturating_add(1)) == l)
+            && self.indent_left.is_none_or(|v| tw(pp.indent_left) == v)
+            && self.indent_right.is_none_or(|v| tw(pp.indent_right) == v)
+            && self
+                .first_line
+                .is_none_or(|v| tw(pp.indent_first_line) == v)
+            && self.space_before.is_none_or(|v| tw(pp.space_before) == v)
+            && self.space_after.is_none_or(|v| tw(pp.space_after) == v)
+            && self
+                .line_spacing
+                .as_deref()
+                .is_none_or(|w| line_spacing_word(pp.line_spacing.unwrap_or_default()) == w)
+            && self.tab.is_none_or(|pos| {
+                pp.tabs.as_ref().is_some_and(|ts| {
+                    ts.iter()
+                        .any(|t| t.pos.0 == pos && t.align != bo_model::TabAlign::Clear)
+                })
+            })
+            && self.frame.is_none_or(|f| pp.frame.is_some() == f)
+            && [
+                (self.widow_control, pp.widow_control, true),
+                (self.keep_next, pp.keep_next, false),
+                (self.keep_lines, pp.keep_lines, false),
+                (self.page_break_before, pp.page_break_before, false),
+                (self.suppress_line_numbers, pp.suppress_line_numbers, false),
+                (self.suppress_auto_hyphens, pp.suppress_auto_hyphens, false),
+                (self.contextual_spacing, pp.contextual_spacing, false),
+            ]
+            .iter()
+            .all(|&(want, have, default)| want.is_none_or(|w| have.unwrap_or(default) == w))
+    }
+
+    /// Run properties `rp` with this format applied (Replace with formatting).
+    /// `kind`: the kind of [`Self::style`] in the document ([`Self::style_kind`]).
+    pub fn apply_run(&self, kind: Option<StyleKind>, rp: &mut RunProps) {
+        let flag = |v: Option<bool>, slot: &mut Option<bool>| {
+            if let Some(b) = v {
+                *slot = Some(b);
+            }
+        };
+        flag(self.bold, &mut rp.bold);
+        flag(self.italic, &mut rp.italic);
+        flag(self.strike, &mut rp.strike);
+        flag(self.small_caps, &mut rp.small_caps);
+        flag(self.caps, &mut rp.caps);
+        flag(self.hidden, &mut rp.hidden);
+        flag(self.no_proof, &mut rp.no_proof);
+        flag(self.double_strike, &mut rp.double_strike);
+        match (self.superscript, self.subscript) {
+            (Some(true), _) => rp.vert_align = Some(bo_model::VertAlign::Superscript),
+            (_, Some(true)) => rp.vert_align = Some(bo_model::VertAlign::Subscript),
+            (Some(false), _) | (_, Some(false)) => {
+                rp.vert_align = Some(bo_model::VertAlign::Baseline);
+            }
+            _ => {}
+        }
+        if let Some(b) = self.underline {
+            rp.underline = Some(if b {
+                bo_model::Underline::Single
+            } else {
+                bo_model::Underline::None
+            });
+        }
+        match self.font.as_deref() {
+            Some(t @ ("+Body" | "+Headings")) => {
+                let theme = if t == "+Body" {
+                    "minorHAnsi"
+                } else {
+                    "majorHAnsi"
+                };
+                rp.theme_ascii = Some(theme.into());
+                rp.theme_h_ansi = Some(theme.into());
+            }
+            Some(f) => {
+                rp.font = Some(f.to_owned());
+                rp.font_h_ansi = Some(f.to_owned());
+                rp.theme_ascii = None;
+                rp.theme_h_ansi = None;
+            }
+            None => {}
+        }
+        if let Some(sz) = self.size {
+            rp.size = Some(bo_model::HalfPoints(sz));
+        }
+        if let Some(c) = self.color.as_deref().and_then(bo_model::Color::from_hex) {
+            rp.color = Some(c);
+            rp.theme_color = None;
+        }
+        match self.highlight {
+            // The reference highlights in the pen colour of the Home tab (yellow by default).
+            Some(true) => rp.highlight = bo_model::Color::from_hex("FFFF00"),
+            Some(false) => rp.highlight = None,
+            None => {}
+        }
+        if let Some(l) = &self.lang {
+            let mut lang = rp.lang.clone().unwrap_or_default();
+            lang.val = (l != "none").then(|| l.clone());
+            rp.lang = Some(lang);
+        }
+        if let Some(s) = &self.style {
+            if kind == Some(StyleKind::Character) {
+                rp.style = Some(s.clone());
+            }
+        }
+    }
+
+    /// Paragraph properties `pp` with this format applied (paragraph style, alignment,
+    /// indents, spacing, outline level, tab stop).
+    pub fn apply_para(&self, kind: Option<StyleKind>, pp: &mut bo_model::ParaProps) {
+        if let Some(s) = &self.style {
+            if kind == Some(StyleKind::Paragraph) {
+                pp.style = Some(s.clone());
+            }
+        }
+        if let Some(a) = self.align.as_deref() {
+            pp.align = Some(match a {
+                "center" => bo_model::Alignment::Center,
+                "right" => bo_model::Alignment::Right,
+                "both" => bo_model::Alignment::Justify,
+                _ => bo_model::Alignment::Left,
+            });
+        }
+        if let Some(l) = self.outline_level {
+            pp.outline_level = (1..=9).contains(&l).then(|| l - 1);
+        }
+        let set = |v: Option<i32>, slot: &mut Option<bo_model::Twips>| {
+            if let Some(v) = v {
+                *slot = Some(bo_model::Twips(v));
+            }
+        };
+        set(self.indent_left, &mut pp.indent_left);
+        set(self.indent_right, &mut pp.indent_right);
+        set(self.first_line, &mut pp.indent_first_line);
+        set(self.space_before, &mut pp.space_before);
+        set(self.space_after, &mut pp.space_after);
+        if let Some(ls) = self.line_spacing.as_deref().and_then(parse_line_spacing) {
+            pp.line_spacing = Some(ls);
+        }
+        for (v, slot) in [
+            (self.widow_control, &mut pp.widow_control),
+            (self.keep_next, &mut pp.keep_next),
+            (self.keep_lines, &mut pp.keep_lines),
+            (self.page_break_before, &mut pp.page_break_before),
+            (self.suppress_line_numbers, &mut pp.suppress_line_numbers),
+            (self.suppress_auto_hyphens, &mut pp.suppress_auto_hyphens),
+            (self.contextual_spacing, &mut pp.contextual_spacing),
+        ] {
+            if let Some(b) = v {
+                *slot = Some(b);
+            }
+        }
+        if let Some(pos) = self.tab {
+            let tabs = pp.tabs.get_or_insert_with(Vec::new);
+            if !tabs.iter().any(|t| t.pos.0 == pos) {
+                tabs.push(bo_model::TabStop {
+                    pos: bo_model::Twips(pos),
+                    align: bo_model::TabAlign::Left,
+                    leader: bo_model::TabLeader::None,
+                });
+                tabs.sort_by_key(|t| t.pos.0);
+            }
+        }
+    }
+
+    /// Whether applying the format changes paragraph properties.
+    pub fn touches_para(&self, kind: Option<StyleKind>) -> bool {
+        self.has_para() || (self.style.is_some() && kind == Some(StyleKind::Paragraph))
+    }
+
+    /// The kind of the style searched for / applied, in `doc`.
+    pub fn style_kind(&self, doc: &Document) -> Option<StyleKind> {
+        self.style.as_deref().and_then(|s| style_kind(doc, s))
+    }
+
     fn matches(&self, doc: &Document, p: &Paragraph, direct: &RunProps) -> bool {
         let rp = crate::effective_run(doc, p, direct);
+        let lang_ok = self.lang.as_deref().is_none_or(|want| {
+            match (want, rp.lang.as_ref().and_then(|l| l.val.as_deref())) {
+                ("none", None) => true,
+                (w, Some(h)) => w.eq_ignore_ascii_case(h),
+                _ => false,
+            }
+        });
+        let extra = lang_ok
+            && self.size.is_none_or(|sz| rp.size.map_or(22, |h| h.0) == sz)
+            && self.strike.is_none_or(|b| rp.strike.unwrap_or(false) == b)
+            && self
+                .small_caps
+                .is_none_or(|b| rp.small_caps.unwrap_or(false) == b)
+            && self.caps.is_none_or(|b| rp.caps.unwrap_or(false) == b)
+            && self.hidden.is_none_or(|b| rp.hidden.unwrap_or(false) == b)
+            && self
+                .double_strike
+                .is_none_or(|b| rp.double_strike.unwrap_or(false) == b)
+            && self.superscript.is_none_or(|b| {
+                matches!(rp.vert_align, Some(bo_model::VertAlign::Superscript)) == b
+            })
+            && self
+                .subscript
+                .is_none_or(|b| matches!(rp.vert_align, Some(bo_model::VertAlign::Subscript)) == b)
+            && self
+                .no_proof
+                .is_none_or(|b| rp.no_proof.unwrap_or(false) == b);
+        if !extra {
+            return false;
+        }
         let para_style = p.props.style.clone().or_else(|| {
             doc.styles
                 .default_of(StyleKind::Paragraph)
@@ -357,10 +694,18 @@ impl FindFormat {
             && self.style.as_ref().is_none_or(|s| {
                 para_style.as_deref() == Some(s.as_str()) || direct.style.as_deref() == Some(s)
             })
-            && self
-                .font
-                .as_ref()
-                .is_none_or(|f| font.is_some_and(|x| x.eq_ignore_ascii_case(f)))
+            && self.font.as_deref().is_none_or(|f| match f {
+                // The theme's body / heading font (§17.3.2.26 asciiTheme minor… / major…).
+                "+Body" => rp
+                    .theme_ascii
+                    .as_deref()
+                    .is_some_and(|t| t.starts_with("minor")),
+                "+Headings" => rp
+                    .theme_ascii
+                    .as_deref()
+                    .is_some_and(|t| t.starts_with("major")),
+                _ => font.is_some_and(|x| x.eq_ignore_ascii_case(f)),
+            })
             && self.color.as_ref().is_none_or(|c| {
                 rp.color.unwrap_or(bo_model::Color::BLACK).to_hex() == c.to_ascii_uppercase()
             })
@@ -369,6 +714,9 @@ impl FindFormat {
 
 /// Byte ranges of `p`'s index text whose runs have the format `fmt` (merged).
 fn formatted_ranges(doc: &Document, p: &Paragraph, fmt: &FindFormat) -> Vec<(usize, usize)> {
+    if !fmt.para_matches(doc, p) {
+        return Vec::new();
+    }
     let (_, spans) = para_index(p);
     let ok: Vec<bool> = p
         .runs

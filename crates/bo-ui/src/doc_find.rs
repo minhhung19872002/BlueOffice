@@ -174,18 +174,74 @@ fn enter_label(i: usize) -> usize {
     }
 }
 
-/// Special ▾ entries: label and the code typed into the box (the engine's search codes).
-const SPECIAL: [(&str, &str, &str); 9] = [
+/// Special ▾ entries with Find what focused, in the reference's order (round 11, captured
+/// from its menu): label key, en-US label and the code typed into the box.
+const SPECIAL: [(&str, &str, &str); 22] = [
     ("findDlg.sp.para", "Paragraph Mark", "^p"),
     ("findDlg.sp.tab", "Tab Character", "^t"),
     ("findDlg.sp.any", "Any Character", "^?"),
     ("findDlg.sp.digit", "Any Digit", "^#"),
     ("findDlg.sp.letter", "Any Letter", "^$"),
+    ("findFmt11.spCaret", "Caret Character", "^^"),
+    ("findFmt11.spSection", "\u{a7} Section Character", "^%"),
+    ("findFmt11.spPilcrow", "\u{b6} Paragraph Character", "^v"),
+    ("findFmt11.spColumn", "Column Break", "^n"),
     ("findDlg.sp.emDash", "Em Dash", "^+"),
     ("findDlg.sp.enDash", "En Dash", "^="),
+    ("findFmt11.spEndnote", "Endnote Mark", "^e"),
+    ("findFmt11.spField", "Field", "^d"),
+    ("findFmt11.spFootnote", "Footnote Mark", "^f"),
+    ("findFmt11.spGraphic", "Graphic", "^g"),
     ("findDlg.sp.lineBreak", "Manual Line Break", "^l"),
     ("findDlg.sp.pageBreak", "Manual Page Break", "^m"),
+    ("findFmt11.spNbHyphen", "Nonbreaking Hyphen", "^~"),
+    ("findFmt11.spNbSpace", "Nonbreaking Space", "^s"),
+    ("findFmt11.spOptHyphen", "Optional Hyphen", "^-"),
+    ("findFmt11.spSectionBreak", "Section Break", "^b"),
+    ("findFmt11.spWhite", "White Space", "^w"),
 ];
+
+/// Special ▾ entries with Replace with focused (the reference's shorter list).
+const SPECIAL_WITH: [(&str, &str, &str); 15] = [
+    ("findDlg.sp.para", "Paragraph Mark", "^p"),
+    ("findDlg.sp.tab", "Tab Character", "^t"),
+    ("findFmt11.spCaret", "Caret Character", "^^"),
+    ("findFmt11.spSection", "\u{a7} Section Character", "^%"),
+    ("findFmt11.spPilcrow", "\u{b6} Paragraph Character", "^v"),
+    ("findFmt11.spClipboard", "Clipboard Contents", "^c"),
+    ("findFmt11.spColumn", "Column Break", "^n"),
+    ("findDlg.sp.emDash", "Em Dash", "^+"),
+    ("findDlg.sp.enDash", "En Dash", "^="),
+    ("findFmt11.spFindWhat", "Find What Text", "^&"),
+    ("findDlg.sp.lineBreak", "Manual Line Break", "^l"),
+    ("findDlg.sp.pageBreak", "Manual Page Break", "^m"),
+    ("findFmt11.spNbHyphen", "Nonbreaking Hyphen", "^~"),
+    ("findFmt11.spNbSpace", "Nonbreaking Space", "^s"),
+    ("findFmt11.spOptHyphen", "Optional Hyphen", "^-"),
+];
+
+/// Format ▾ entries in the reference's order: the first six open a Find dialog
+/// ([`FindAction::FormatDialog`]), Highlight cycles Highlight / Not Highlight / any.
+const FORMAT_MENU: [(&str, &str); 7] = [
+    ("findFmt11.font", "Font..."),
+    ("findFmt11.paragraph", "Paragraph..."),
+    ("findFmt11.tabs", "Tabs..."),
+    ("findFmt11.language", "Language..."),
+    ("findFmt11.frame", "Frame..."),
+    ("findFmt11.style", "Style..."),
+    ("findFmt11.highlight", "Highlight"),
+];
+
+/// Access letters of the Format ▾ entries (underlined in the reference's menu).
+const FORMAT_KEYS: &str = "fptlmsh";
+
+/// Reference menus (Format ▾, Special ▾): row pitch, text inset and widths, logical px
+/// (30 / 44 / 174 / 247 device px measured at 125 %), and colours.
+const MENU_ROW: f32 = 24.0;
+const MENU_TEXT_X: f32 = 35.0;
+const MENU_EDGE: Rgba = Rgba(198, 198, 198, 255);
+const MENU_HOT_EDGE: Rgba = Rgba(163, 189, 227, 255);
+const MENU_HOT: Rgba = Rgba(213, 225, 242, 255);
 
 /// A text box of the dialog.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -236,35 +292,83 @@ pub(crate) enum FindAction {
     ReplaceAll,
     /// Go to the page typed (`3`, `+2`, `-1`).
     GoTo(usize, String),
+    /// Format ▾ entry `i` (0 Font … 5 Style): open that Find dialog over this one.
+    FormatDialog(usize),
 }
 
 /// Format ▾ words: key and en-US fallback.
-const FMT_WORDS: [(&str, &str); 7] = [
-    ("findDlg.fmtBold", "Bold"),
-    ("findDlg.fmtItalic", "Italic"),
-    ("findDlg.fmtUnderline", "Underline"),
-    ("findDlg.fmtHighlight", "Highlight"),
-    ("findDlg.fmtStyle", "Style:"),
-    ("findDlg.fmtFont", "Font:"),
+const FMT_WORDS: [(&str, &str); 3] = [
     ("findDlg.fmtLabel", "Format:"),
+    ("findDlg.fmtHighlight", "Highlight"),
+    ("findFmt11.notHighlight", "Not Highlight"),
 ];
 
-/// Formatting a match must have (Format ▾ of the Find and Replace dialog).
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+/// Formatting searched for or given (Format ▾ of the Find and Replace dialog): parts set by
+/// the Find Font / Paragraph / Tabs / Language / Frame / Style dialogs and Highlight, each
+/// with its `FindFormat` fields and the words the dialog shows after "Format:".
+#[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct FormatCriteria {
-    bold: bool,
-    italic: bool,
-    underline: bool,
-    highlight: bool,
-    style: Option<String>,
-    font: Option<String>,
+    parts: Vec<(String, serde_json::Map<String, serde_json::Value>, String)>,
+}
+
+impl FormatCriteria {
+    pub(crate) fn is_empty(&self) -> bool {
+        self.parts.is_empty()
+    }
+
+    /// Set part `group` (an empty object clears it).
+    pub(crate) fn set(&mut self, group: &str, v: serde_json::Value, words: String) {
+        let map = match v {
+            serde_json::Value::Object(m) => m,
+            _ => serde_json::Map::new(),
+        };
+        let at = self.parts.iter().position(|p| p.0 == group);
+        match (at, map.is_empty()) {
+            (Some(i), true) => {
+                self.parts.remove(i);
+            }
+            (Some(i), false) => self.parts[i] = (group.to_owned(), map, words),
+            (None, false) => self.parts.push((group.to_owned(), map, words)),
+            (None, true) => {}
+        }
+    }
+
+    fn get(&self, group: &str) -> Option<&serde_json::Map<String, serde_json::Value>> {
+        self.parts.iter().find(|p| p.0 == group).map(|p| &p.1)
+    }
+
+    /// `FindFormat` JSON of every part.
+    pub(crate) fn json(&self) -> Option<serde_json::Value> {
+        if self.parts.is_empty() {
+            return None;
+        }
+        let mut all = serde_json::Map::new();
+        for (_, m, _) in &self.parts {
+            for (k, v) in m {
+                all.insert(k.clone(), v.clone());
+            }
+        }
+        Some(serde_json::Value::Object(all))
+    }
+
+    /// The words after "Format:" ("Font: Bold, Centered").
+    pub(crate) fn summary(&self) -> String {
+        self.parts
+            .iter()
+            .map(|p| p.2.as_str())
+            .filter(|w| !w.is_empty())
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
 }
 
 /// An open drop-down list under a combo box or the Special button.
 #[derive(Debug, Clone)]
 struct DropList {
-    /// The Format ▾ menu (round 10) rather than Special ▾ or a history list.
+    /// The Format ▾ menu rather than Special ▾ or a history list.
     format: bool,
+    /// A reference-style menu (Format ▾, Special ▾) rather than a combo box list.
+    menu: bool,
     field: Option<Field>,
     items: Vec<String>,
     rect: [f32; 4],
@@ -330,10 +434,12 @@ pub(crate) struct FindDialog {
     /// Sounds like, word forms, match prefix, match suffix, ignore punctuation, ignore white
     /// space (round 10; check boxes 3–8).
     pub(crate) extra: [bool; 6],
-    /// Find by format (Format ▾): bold, italic, underline, highlight, style id, font name.
+    /// Find by format (Format ▾ with Find what focused).
     pub(crate) fmt: FormatCriteria,
-    /// The selection's paragraph style and font, offered by Format ▾.
-    pub(crate) sel_format: (Option<String>, Option<String>),
+    /// Replace with formatting (Format ▾ with Replace with focused).
+    pub(crate) rfmt: FormatCriteria,
+    /// Window height (menus stay inside the window).
+    win_h: f32,
     find: Edit,
     with: Edit,
     page: Edit,
@@ -356,6 +462,8 @@ pub(crate) struct FindDialog {
     labels: Vec<Label>,
     go_labels: Vec<Label>,
     special_labels: Vec<String>,
+    special_with_labels: Vec<String>,
+    format_labels: Vec<String>,
     /// Format ▾ words, translated (key, text).
     fmt_words: Vec<(String, String)>,
     hint: Vec<String>,
@@ -396,7 +504,8 @@ impl FindDialog {
             wildcards: false,
             extra: [false; 6],
             fmt: FormatCriteria::default(),
-            sel_format: (None, None),
+            rfmt: FormatCriteria::default(),
+            win_h: 0.0,
             find: Edit::new(find),
             with: Edit::default(),
             page: Edit::default(),
@@ -415,6 +524,8 @@ impl FindDialog {
             labels: Vec::new(),
             go_labels: Vec::new(),
             special_labels: Vec::new(),
+            special_with_labels: Vec::new(),
+            format_labels: Vec::new(),
             fmt_words: Vec::new(),
             hint: Vec::new(),
             carets: [0.0; 3],
@@ -560,10 +671,10 @@ impl FindDialog {
             .iter()
             .map(|(k, f)| ((*k).to_owned(), get(k, f)))
             .collect();
-        self.special_labels = SPECIAL
-            .iter()
-            .map(|(k, f, code)| format!("{}  {code}", get(k, f)))
-            .collect();
+        self.win_h = size.1;
+        self.special_labels = SPECIAL.iter().map(|(k, f, _)| get(k, f)).collect();
+        self.special_with_labels = SPECIAL_WITH.iter().map(|(k, f, _)| get(k, f)).collect();
+        self.format_labels = FORMAT_MENU.iter().map(|(k, f)| get(k, f)).collect();
         // The Go To hint wraps under the page number box.
         let hint = self.labels[L_HINT].text.clone();
         let width = self.px(FIELD_W - 120.0);
@@ -644,7 +755,7 @@ impl FindDialog {
         let more = if self.more { L_LESS } else { L_MORE };
         // As the reference: Find Next / Replace / Replace All only once there is something to
         // find (text, or a format); Find Next is then the default button.
-        let ready = !self.find.text.is_empty() || self.fmt != FormatCriteria::default();
+        let ready = !self.find.text.is_empty() || !self.fmt.is_empty();
         let mut out = match self.tab {
             0 => vec![
                 (Button::More, slot(0), more, true, false),
@@ -691,8 +802,9 @@ impl FindDialog {
                 true,
                 false,
             ));
-            // No Formatting shows once a format is set (the reference hides it before).
-            if self.fmt != FormatCriteria::default() {
+            // No Formatting is enabled once the focused box has a format (the reference
+            // dims it before).
+            if !self.focused_format().is_empty() {
                 out.push((
                     Button::NoFormat,
                     self.r(19.0 + 2.0 * (BW + 8.0), y, BW, BH),
@@ -792,7 +904,8 @@ impl FindDialog {
     fn hit(&self, x: f32, y: f32) -> Option<Hit> {
         if let Some(d) = &self.drop {
             if inside(d.rect, x, y) {
-                let row = ((y - d.rect[1]) / self.px(20.0)).floor().max(0.0) as usize;
+                let pitch = self.px(if d.menu { MENU_ROW } else { 20.0 });
+                let row = ((y - d.rect[1] - 1.0) / pitch).floor().max(0.0) as usize;
                 return (row < d.items.len()).then_some(Hit::Item(row));
             }
         }
@@ -890,7 +1003,13 @@ impl FindDialog {
                 .into_iter()
                 .find(|b| b.0 == Button::Special)
                 .map_or([0.0; 4], |b| b.1);
-            (self.special_labels.clone(), r)
+            let items = if self.replace_focused() {
+                self.special_with_labels.clone()
+            } else {
+                self.special_labels.clone()
+            };
+            self.open_menu(items, r, false);
+            return;
         };
         if items.is_empty() {
             return;
@@ -903,42 +1022,34 @@ impl FindDialog {
         };
         self.drop = Some(DropList {
             format: false,
+            menu: false,
             field,
             items,
             rect: [anchor[0], anchor[1] + anchor[3], w, h],
         });
     }
 
-    /// The Format ▾ entries: bold, italic, underline, highlight, the selection's style and font
-    /// (ticked when part of the search).
-    fn format_items(&self) -> Vec<String> {
-        let tick = |on: bool, s: String| {
-            if on {
-                format!("\u{2713} {s}")
-            } else {
-                format!("   {s}")
-            }
-        };
-        let f = &self.fmt;
-        let mut out = vec![
-            tick(f.bold, self.word("findDlg.fmtBold", "Bold")),
-            tick(f.italic, self.word("findDlg.fmtItalic", "Italic")),
-            tick(f.underline, self.word("findDlg.fmtUnderline", "Underline")),
-            tick(f.highlight, self.word("findDlg.fmtHighlight", "Highlight")),
-        ];
-        if let Some(s) = &self.sel_format.0 {
-            out.push(tick(
-                f.style.is_some(),
-                format!("{} {s}", self.word("findDlg.fmtStyle", "Style:")),
-            ));
+    /// Replace with has the focus (Format ▾ / Special ▾ / No Formatting act on it).
+    fn replace_focused(&self) -> bool {
+        self.tab == 1 && self.focus == Field::With
+    }
+
+    /// The format of the focused box.
+    fn focused_format(&self) -> &FormatCriteria {
+        if self.replace_focused() {
+            &self.rfmt
+        } else {
+            &self.fmt
         }
-        if let Some(n) = &self.sel_format.1 {
-            out.push(tick(
-                f.font.is_some(),
-                format!("{} {n}", self.word("findDlg.fmtFont", "Font:")),
-            ));
+    }
+
+    /// Set part `group` of the focused box's format (from a Find … dialog).
+    pub(crate) fn set_format(&mut self, group: &str, v: serde_json::Value, words: String) {
+        if self.replace_focused() {
+            self.rfmt.set(group, v, words);
+        } else {
+            self.fmt.set(group, v, words);
         }
-        out
     }
 
     fn word(&self, key: &str, fallback: &str) -> String {
@@ -948,45 +1059,62 @@ impl FindDialog {
             .map_or_else(|| fallback.to_owned(), |(_, v)| v.clone())
     }
 
+    /// A reference-style menu under button rectangle `r`, moved up to stay in the window.
+    fn open_menu(&mut self, items: Vec<String>, r: [f32; 4], format: bool) {
+        let h = (self.px(MENU_ROW) * items.len() as f32 + 3.0).round();
+        let w = self.px(if format { 139.2 } else { 197.6 });
+        let mut y = r[1] + r[3];
+        if self.win_h > 0.0 && y + h > self.win_h {
+            y = (self.win_h - h).max(0.0);
+        }
+        self.drop = Some(DropList {
+            format,
+            menu: true,
+            field: None,
+            items,
+            rect: [r[0], y, w, h],
+        });
+        self.hover = Some(Hit::Item(0));
+    }
+
     fn open_format_menu(&mut self) {
         let r = self
             .buttons()
             .into_iter()
             .find(|b| b.0 == Button::Format)
             .map_or([0.0; 4], |b| b.1);
-        let items = self.format_items();
-        let h = self.px(20.0) * items.len() as f32 + 2.0;
-        // Opens upward: the button sits at the dialog's bottom.
-        self.drop = Some(DropList {
-            format: true,
-            field: None,
-            items,
-            rect: [r[0], r[1] - h, self.px(220.0), h],
-        });
+        let items = if self.format_labels.is_empty() {
+            FORMAT_MENU.iter().map(|(_, f)| (*f).to_owned()).collect()
+        } else {
+            self.format_labels.clone()
+        };
+        self.open_menu(items, r, true);
     }
 
-    pub(crate) fn toggle_format(&mut self, i: usize) {
-        let f = &mut self.fmt;
-        match i {
-            0 => f.bold = !f.bold,
-            1 => f.italic = !f.italic,
-            2 => f.underline = !f.underline,
-            3 => f.highlight = !f.highlight,
-            4 if self.sel_format.0.is_some() => {
-                f.style = if f.style.is_some() {
-                    None
-                } else {
-                    self.sel_format.0.clone()
-                };
-            }
-            _ => {
-                f.font = if f.font.is_some() {
-                    None
-                } else {
-                    self.sel_format.1.clone()
-                };
-            }
+    /// Format ▾ entry `i`: a Find dialog to open, or Highlight (cycles Highlight, Not
+    /// Highlight, any — as the reference).
+    pub(crate) fn format_entry(&mut self, i: usize) -> FindAction {
+        if i < 6 {
+            return FindAction::FormatDialog(i);
         }
+        let now = self
+            .focused_format()
+            .get("highlight")
+            .and_then(|m| m.get("highlight"))
+            .and_then(serde_json::Value::as_bool);
+        let (v, words) = match now {
+            None => (
+                serde_json::json!({ "highlight": true }),
+                self.word("findDlg.fmtHighlight", "Highlight"),
+            ),
+            Some(true) => (
+                serde_json::json!({ "highlight": false }),
+                self.word("findFmt11.notHighlight", "Not Highlight"),
+            ),
+            Some(false) => (serde_json::json!({}), String::new()),
+        };
+        self.set_format("highlight", v, words);
+        FindAction::Redraw
     }
 
     /// Whether Find Next can be pressed (text or a format to find).
@@ -999,37 +1127,12 @@ impl FindDialog {
 
     /// The format to search for (`FindFormat` JSON), when one is set.
     pub(crate) fn format_json(&self) -> Option<serde_json::Value> {
-        let f = &self.fmt;
-        (*f != FormatCriteria::default()).then(|| {
-            let on = |b: bool| b.then_some(true);
-            serde_json::json!({
-                "bold": on(f.bold), "italic": on(f.italic), "underline": on(f.underline),
-                "highlight": on(f.highlight), "style": f.style, "font": f.font,
-            })
-        })
+        self.fmt.json()
     }
 
-    /// Words describing the format searched for ("Bold, Highlight").
-    fn format_summary(&self) -> String {
-        let f = &self.fmt;
-        let mut parts: Vec<String> = Vec::new();
-        for (on, k, w) in [
-            (f.bold, "findDlg.fmtBold", "Bold"),
-            (f.italic, "findDlg.fmtItalic", "Italic"),
-            (f.underline, "findDlg.fmtUnderline", "Underline"),
-            (f.highlight, "findDlg.fmtHighlight", "Highlight"),
-        ] {
-            if on {
-                parts.push(self.word(k, w));
-            }
-        }
-        if let Some(s) = &f.style {
-            parts.push(format!("{} {s}", self.word("findDlg.fmtStyle", "Style:")));
-        }
-        if let Some(n) = &f.font {
-            parts.push(format!("{} {n}", self.word("findDlg.fmtFont", "Font:")));
-        }
-        parts.join(", ")
+    /// The format the replacement gets (Replace with formatting), when one is set.
+    pub(crate) fn replace_format_json(&self) -> Option<serde_json::Value> {
+        (self.tab == 1).then(|| self.rfmt.json()).flatten()
     }
 
     fn button(&mut self, b: Button) -> FindAction {
@@ -1060,7 +1163,11 @@ impl FindDialog {
                 FindAction::Redraw
             }
             Button::NoFormat => {
-                self.fmt = FormatCriteria::default();
+                if self.replace_focused() {
+                    self.rfmt = FormatCriteria::default();
+                } else {
+                    self.fmt = FormatCriteria::default();
+                }
                 FindAction::Redraw
             }
             Button::Reading | Button::FindIn => FindAction::None,
@@ -1071,29 +1178,10 @@ impl FindDialog {
         let hit = self.hit(x, y);
         let drop = self.drop.take();
         match hit {
-            Some(Hit::Item(i)) => {
-                if let Some(d) = drop.as_ref().filter(|d| d.format) {
-                    self.toggle_format(i);
-                    let _ = d;
-                } else if let Some(d) = drop {
-                    if let Some(f) = d.field {
-                        let v = d.items.get(i).cloned().unwrap_or_default();
-                        self.edit(f).set(&v);
-                        self.focus = f;
-                    } else {
-                        let code = SPECIAL.get(i).map_or("", |s| s.2);
-                        let f = if self.focus == Field::Page {
-                            Field::Find
-                        } else {
-                            self.focus
-                        };
-                        let e = self.edit(f);
-                        e.all = false;
-                        e.insert(code);
-                    }
-                }
-                FindAction::Redraw
-            }
+            Some(Hit::Item(i)) => match drop {
+                Some(d) => self.pick(&d, i),
+                None => FindAction::Redraw,
+            },
             Some(Hit::Close) => FindAction::Close,
             Some(Hit::Tab(i)) => {
                 self.set_tab(i);
@@ -1130,6 +1218,67 @@ impl FindDialog {
         }
     }
 
+    /// Row `i` of the open list `d` chosen: a history entry, a special code typed into the
+    /// focused box, or a Format ▾ entry.
+    fn pick(&mut self, d: &DropList, i: usize) -> FindAction {
+        if d.format {
+            return self.format_entry(i);
+        }
+        if let Some(f) = d.field {
+            let v = d.items.get(i).cloned().unwrap_or_default();
+            self.edit(f).set(&v);
+            self.focus = f;
+        } else {
+            let code = if self.replace_focused() {
+                SPECIAL_WITH.get(i).map_or("", |s| s.2)
+            } else {
+                SPECIAL.get(i).map_or("", |s| s.2)
+            };
+            let f = if self.focus == Field::Page {
+                Field::Find
+            } else {
+                self.focus
+            };
+            let e = self.edit(f);
+            e.all = false;
+            e.insert(code);
+        }
+        FindAction::Redraw
+    }
+
+    /// Keys in an open Format ▾ / Special ▾ menu: arrows move the hot row, Enter picks it,
+    /// Format ▾'s access letters (the reference's F P T L M S H) pick their entry.
+    fn menu_key(&mut self, key: Key) -> Option<FindAction> {
+        let d = self.drop.as_ref().filter(|d| d.menu)?;
+        let n = d.items.len().max(1);
+        let cur = match self.hover {
+            Some(Hit::Item(i)) => Some(i),
+            _ => None,
+        };
+        match key {
+            Key::Down | Key::Up => {
+                let next = match (cur, key == Key::Down) {
+                    (None, true) => 0,
+                    (None, false) => n - 1,
+                    (Some(i), true) => (i + 1) % n,
+                    (Some(i), false) => (i + n - 1) % n,
+                };
+                self.hover = Some(Hit::Item(next));
+                Some(FindAction::Redraw)
+            }
+            Key::Enter => {
+                let d = self.drop.take()?;
+                Some(cur.map_or(FindAction::Redraw, |i| self.pick(&d, i)))
+            }
+            Key::Letter(c) if d.format => {
+                let i = FORMAT_KEYS.find(c.to_ascii_lowercase())?;
+                let d = self.drop.take()?;
+                Some(self.pick(&d, i))
+            }
+            _ => None,
+        }
+    }
+
     pub(crate) fn text(&mut self, s: &str) {
         let f = self.focus;
         self.edit(f).insert(s);
@@ -1141,6 +1290,11 @@ impl FindDialog {
                 return FindAction::Redraw;
             }
             return FindAction::Close;
+        }
+        if !m.alt {
+            if let Some(a) = self.menu_key(key) {
+                return a;
+            }
         }
         // Ctrl+Tab / Ctrl+PageDown / Ctrl+PageUp change tab, as in a property sheet.
         if m.ctrl && matches!(key, Key::Tab | Key::PageDown | Key::PageUp) {
@@ -1561,16 +1715,24 @@ impl FindDialog {
                 hy += (self.style().size * 1.33).round();
             }
         }
-        // "Format:" under Find what, as the reference shows the formatting searched for.
-        if self.tab < 2 && self.fmt != FormatCriteria::default() {
+        // "Format:" under Find what / Replace with: the label in the label column, the
+        // formatting at the box's left edge (as the reference).
+        for (f, y) in [(&self.fmt, FIND_Y), (&self.rfmt, WITH_Y)] {
+            if self.tab >= 2 || f.is_empty() || (y == WITH_Y && self.tab != 1) {
+                continue;
+            }
+            let ty = self.y0 + self.px(y + FIELD_H + 7.0);
             p.text(
-                &format!(
-                    "{}  {}",
-                    self.word("findDlg.fmtLabel", "Format:"),
-                    self.format_summary()
-                ),
+                &self.word("findDlg.fmtLabel", "Format:"),
                 self.x0 + self.px(19.0),
-                self.y0 + self.px(FIND_Y + FIELD_H + 6.0),
+                ty,
+                self.style(),
+                INK,
+            );
+            p.text(
+                &f.summary(),
+                self.x0 + self.px(FIELD_X),
+                ty,
                 self.style(),
                 INK,
             );
@@ -1689,7 +1851,30 @@ impl FindDialog {
                 );
             }
         }
-        // An open history / Special list.
+        // An open Format ▾ / Special ▾ menu, as the reference's: grey edge, white, rows of
+        // 30 device px at 125 % with the hot row framed in light blue.
+        if let Some(d) = self.drop.as_ref().filter(|d| d.menu) {
+            let r = d.rect;
+            p.fill_rect(r[0], r[1], r[2], r[3], MENU_EDGE);
+            p.fill_rect(r[0] + 1.0, r[1] + 1.0, r[2] - 2.0, r[3] - 2.0, WHITE);
+            let rh = self.px(MENU_ROW).round();
+            for (i, item) in d.items.iter().enumerate() {
+                let iy = r[1] + 2.0 + i as f32 * rh;
+                if self.hover == Some(Hit::Item(i)) {
+                    p.fill_rect(r[0] + 2.0, iy, r[2] - 4.0, rh - 1.0, MENU_HOT_EDGE);
+                    p.fill_rect(r[0] + 3.0, iy + 1.0, r[2] - 6.0, rh - 3.0, MENU_HOT);
+                }
+                p.text(
+                    item,
+                    r[0] + self.px(MENU_TEXT_X),
+                    self.text_y(iy, rh - 1.0),
+                    self.style(),
+                    Rgba(38, 38, 38, 255),
+                );
+            }
+            return;
+        }
+        // An open history list.
         if let Some(d) = &self.drop {
             let r = d.rect;
             p.fill_rect(r[0], r[1], r[2], r[3], Rgba(130, 135, 144, 255));

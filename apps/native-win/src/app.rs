@@ -796,6 +796,11 @@ impl Handler for Shell {
         if matches!(input, Input::Press { .. }) {
             self.view.set_pointer_mods(win32::mouse_mods());
         }
+        // The context menu offers the paste options the clipboard's content allows.
+        if matches!(input, Input::Context { .. }) {
+            let (i, h, t) = win32::clipboard_kinds();
+            self.view.set_clipboard_kinds(i, h, t);
+        }
         // Ctrl at the drop copies dragged text instead of moving it.
         if matches!(input, Input::Release { .. }) {
             self.view.set_release_mods(win32::mouse_mods());

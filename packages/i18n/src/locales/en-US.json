@@ -15692,6 +15692,9 @@
     }
   },
   "docCtx": {
+    "body": "(Body)",
+    "searchMenus": "Search the menus",
+    "synonyms": "S&ynonyms",
     "cut": "Cu&t",
     "copy": "&Copy",
     "pasteOptions": "Paste Options:",

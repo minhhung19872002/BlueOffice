@@ -15692,6 +15692,9 @@
     }
   },
   "docCtx": {
+    "body": "(Thân bài)",
+    "searchMenus": "Tìm trong menu",
+    "synonyms": "Từ đồng &nghĩa",
     "cut": "Cắ&t",
     "copy": "&Sao chép",
     "pasteOptions": "Tùy chọn dán:",

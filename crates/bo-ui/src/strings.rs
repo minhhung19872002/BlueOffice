@@ -51,6 +51,17 @@ impl Strings {
         self.0.get(key).map_or(key, String::as_str)
     }
 
+    /// Keys starting with `prefix` and their texts (command search).
+    pub(crate) fn with_prefix<'a>(
+        &'a self,
+        prefix: &'a str,
+    ) -> impl Iterator<Item = (&'a str, &'a str)> + 'a {
+        self.0
+            .iter()
+            .filter(move |(k, _)| k.starts_with(prefix))
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+    }
+
     /// Set `key` to `value` (a window naming its own commands from existing strings).
     pub(crate) fn set(&mut self, key: &str, value: &str) {
         self.0.insert(key.to_owned(), value.to_owned());

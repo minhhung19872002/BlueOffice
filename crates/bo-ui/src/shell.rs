@@ -3761,7 +3761,7 @@ impl DocWindow {
             );
         }
         if let Some(menu) = &self.menu {
-            menu.paint(p, &self.theme, &self.icons);
+            menu.paint(p, &self.r10_menu_theme(), &self.icons);
             self.r10_paint_menu(p);
         } else if let Some((label, tw, anchor)) = &self.tooltip {
             match &self.tip {

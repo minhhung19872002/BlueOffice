@@ -1435,6 +1435,17 @@ pub fn read_clipboard() -> (Option<String>, Option<String>, Option<String>) {
     }
 }
 
+/// Which forms the clipboard holds (internal, HTML, text), without reading it.
+pub fn clipboard_kinds() -> (bool, bool, bool) {
+    // SAFETY: plain queries of the clipboard's formats.
+    let has = |f: u32| unsafe { IsClipboardFormatAvailable(f).is_ok() };
+    (
+        has(format_id("BlueOffice.Internal")),
+        has(format_id("HTML Format")),
+        has(CF_UNICODETEXT),
+    )
+}
+
 // ---------------------------------------------------------------- file dialogs
 
 /// Show the system Open (`save` false) or Save As dialog with `filters` (name, pattern such as

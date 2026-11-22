@@ -159,24 +159,29 @@ fn pointer_is_text_over_the_page_and_an_arrow_over_the_selection_and_ribbon() {
 fn the_text_context_menu_has_the_reference_rows_and_the_mini_toolbar() {
     let mut w = window("one two three four");
     let (x, y) = pixel_of(&w, 0, 5);
+    // Text on the clipboard: only Keep Text Only is offered.
+    w.set_clipboard_kinds(false, false, true);
     w.handle(Input::Context { x, y }, &Fixed);
     let menu = w.menu.as_ref().expect("menu");
     let labels: Vec<&str> = menu.items().iter().map(|i| i.label.as_str()).collect();
     assert_eq!(
         labels,
         [
+            "",
             "Cut",
             "Copy",
             "Paste Options:",
             "",
             "Font...",
             "Paragraph...",
+            "Synonyms",
             "Link",
             "New Comment"
         ]
     );
+    assert_eq!(w.r10.ctx.as_ref().expect("ctx").paste_modes(), [2]);
     // Without a selection Cut and Copy are dim; access keys as on the reference.
-    assert!(menu.items()[0].dim && menu.items()[1].dim);
+    assert!(menu.items()[1].dim && menu.items()[2].dim);
     assert_eq!(
         menu.access_choice('f'),
         Some(crate::popup::Choice::Command("format.fontDialog".into()))
@@ -281,4 +286,74 @@ fn shift_arrows_extend_a_block_made_by_alt_drag() {
     assert_eq!(w.view.engine().block_text(), ["bc", "bc", "bc"]);
     w.handle(Input::Key(crate::Key::Right, shift), &Fixed);
     assert_eq!(w.view.engine().block_text(), ["bcd", "bcd", "bcd"]);
+}
+
+#[test]
+#[ignore = "timing, run by hand: BO_PERF_DOC=big.docx cargo test --release -p bo-ui --lib typing_window -- --ignored --nocapture"]
+fn typing_window_cost() {
+    let Ok(path) = std::env::var("BO_PERF_DOC") else {
+        return;
+    };
+    let mut engine = Engine::with_bundled_fonts();
+    engine
+        .open(&std::fs::read(path).expect("read"), "big.docx")
+        .expect("open");
+    let mut w = DocWindow::new(DocView::new(engine).expect("view"), "en-US", "big.docx");
+    w.handle(Input::Scale(1.25), &Fixed);
+    w.handle(
+        Input::Resize {
+            width: 1500.0,
+            height: 1102.0,
+        },
+        &Fixed,
+    );
+    w.view.run_command(Command::SetSelection {
+        selection: Selection::caret(Pos::new(3, 0)),
+    });
+    for c in "nhanh hon nua di ban oi, go thu ".chars() {
+        let t = std::time::Instant::now();
+        w.handle(Input::Text(c.to_string()), &Fixed);
+        let _ = w.take_requests();
+        w.refresh(&Fixed);
+        let a = t.elapsed();
+        let t = std::time::Instant::now();
+        w.handle(Input::Tick, &Fixed);
+        println!(
+            "{c:?} text {:8.3} ms  tick {:8.3} ms",
+            a.as_secs_f64() * 1e3,
+            t.elapsed().as_secs_f64() * 1e3
+        );
+    }
+}
+
+#[test]
+fn typing_in_the_context_menu_searches_commands_and_synonyms_replace_the_word() {
+    let mut w = window("one quick fox");
+    let (x, y) = pixel_of(&w, 0, 5);
+    w.handle(Input::Context { x, y }, &Fixed);
+    let before = w.menu.as_ref().expect("menu").items().len();
+    w.handle(Input::Text("bol".into()), &Fixed);
+    let labels: Vec<String> = w
+        .menu
+        .as_ref()
+        .expect("menu")
+        .items()
+        .iter()
+        .map(|i| i.label.clone())
+        .collect();
+    assert!(labels.iter().any(|l| l == "Bold"), "{labels:?}");
+    // Backspace to empty: the menu comes back.
+    for _ in 0..3 {
+        w.handle(
+            Input::Key(crate::Key::Backspace, crate::Mods::default()),
+            &Fixed,
+        );
+    }
+    assert_eq!(w.menu.as_ref().expect("menu").items().len(), before);
+    // Synonyms ▸ then a synonym replaces "quick".
+    assert!(w.action("ctx.sub.syn"));
+    let first = w.menu.as_ref().expect("submenu").items()[0].label.clone();
+    w.menu = None;
+    assert!(w.action("ctx.syn.0"));
+    assert_eq!(para_text(&w, 0), format!("one {first} fox"));
 }

@@ -19,6 +19,10 @@ pub(super) struct R10 {
     pub(super) pointer: (f32, f32),
     /// The open context menu's own rows and mini toolbar.
     pub(super) ctx: Option<super::ctx10::Ctx>,
+    /// What the system clipboard holds (internal form, HTML, text), told by the host.
+    pub(super) clip_kinds: (bool, bool, bool),
+    /// The word a Synonyms sub-menu replaces and its synonyms.
+    pub(super) syn: Option<((usize, usize, usize), Vec<String>)>,
 }
 
 /// Pointer shapes the host maps to system cursors (see the host's `cursor`).
@@ -35,6 +39,12 @@ impl DocWindow {
     /// [`DocWindow::drag_done`] report it.
     pub fn set_ole_drag(&mut self, on: bool) {
         self.r10.ole = on;
+    }
+
+    /// What the system clipboard holds (internal form, HTML, plain text), so the context menu
+    /// offers only the paste options that apply (the host tells it before a right-click).
+    pub fn set_clipboard_kinds(&mut self, internal: bool, html: bool, text: bool) {
+        self.r10.clip_kinds = (internal, html, text);
     }
 
     /// The selection started to move: hand it to the host's drag.

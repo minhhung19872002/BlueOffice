@@ -19,6 +19,16 @@ pub(super) struct Ctx {
     bar: Option<MiniBar>,
     /// The hyperlink under the pointer (Open / Copy Hyperlink).
     link: Option<String>,
+    /// Paste modes valid for the clipboard's content (indexes into `PASTE_MODES`).
+    paste_modes: Vec<usize>,
+    /// Rows whose icon BlueDoc draws itself (Font…, Paragraph…).
+    glyphs: Vec<(usize, &'static str)>,
+    /// Text typed in "Search the menus".
+    query: String,
+    /// The menu and its overlays while search results replace it.
+    saved: Option<Saved>,
+    /// The word under the pointer (paragraph, byte range) and its synonyms.
+    syn: Option<((usize, usize, usize), Vec<String>)>,
 }
 
 #[cfg(test)]
@@ -28,12 +38,20 @@ impl Ctx {
         self.bar.as_ref().map(|b| b.rect)
     }
 
+    /// Paste modes offered.
+    pub(super) fn paste_modes(&self) -> &[usize] {
+        &self.paste_modes
+    }
+
     /// The box of mini toolbar button `id`.
     pub(super) fn button(&self, id: &str) -> Option<[f32; 4]> {
         let bar = self.bar.as_ref()?;
         bar.buttons.iter().find(|(b, _)| *b == id).map(|(_, r)| *r)
     }
 }
+
+/// The menu, its paste heading row and own-icon rows, kept while search results replace it.
+type Saved = (Menu, Option<usize>, Vec<(usize, &'static str)>);
 
 /// The mini toolbar: buttons with their boxes (window pixels).
 struct MiniBar {
@@ -100,7 +118,15 @@ impl DocWindow {
         } else {
             self.view.spell_at(x, y)
         };
-        let mut rows: Vec<Row> = Vec::new();
+        // "Search the menus" box on top, as on the reference.
+        let mut rows: Vec<Row> = vec![Row {
+            label: String::new(),
+            id: "ctx.none".into(),
+            icon: None,
+            dim: false,
+            arrow: false,
+            sep: false,
+        }];
         // A misspelt word: its corrections, then Ignore All / Add to Dictionary.
         if let Some(info) = self.spell_menu.clone() {
             for (i, s) in info.suggestions.iter().take(5).enumerate() {
@@ -123,7 +149,7 @@ impl DocWindow {
                 rows.push(self.r10_row("addDictionary", "spell.addToDictionary", None));
             }
         }
-        let first = rows.len();
+        let first = rows.len() - 1;
         let mut cut = self.r10_row("cut", "edit.cut", Some("edit.cut"));
         cut.dim = !selected;
         cut.sep = first > 0;
@@ -132,15 +158,34 @@ impl DocWindow {
         copy.dim = !selected;
         rows.push(copy);
         let head = rows.len();
-        rows.push(self.r10_row("pasteOptions", "ctx.none", Some("edit.paste")));
-        rows.push(Row {
-            label: String::new(),
-            id: "ctx.pasteRow".into(),
-            icon: None,
-            dim: false,
-            arrow: false,
-            sep: false,
-        });
+        // Only the paste options the clipboard's content allows (text only: Keep Text Only).
+        let (internal, html, plain) = self.r10.clip_kinds;
+        let paste_modes: Vec<usize> = if internal || html {
+            vec![0, 1, 2]
+        } else if plain {
+            vec![2]
+        } else {
+            Vec::new()
+        };
+        let mut paste = self.r10_row("pasteOptions", "ctx.none", Some("edit.paste"));
+        paste.dim = paste_modes.is_empty();
+        rows.push(paste);
+        if !paste_modes.is_empty() {
+            rows.push(Row {
+                label: String::new(),
+                id: "ctx.pasteRow".into(),
+                icon: None,
+                dim: false,
+                arrow: false,
+                sep: false,
+            });
+        }
+        let mut glyphs: Vec<(usize, &'static str)> = Vec::new();
+        let syn = if picture {
+            None
+        } else {
+            self.r10_word_synonyms(x, y)
+        };
         if let Some(target) = &link {
             let _ = target;
             let mut r = self.r10_row("editLink", "insert.link", Some("insert.link"));
@@ -181,8 +226,16 @@ impl DocWindow {
         } else {
             let mut r = self.r10_row("font", "format.fontDialog", None);
             r.sep = true;
+            glyphs.push((rows.len(), "ctx.font"));
             rows.push(r);
+            glyphs.push((rows.len(), "ctx.para"));
             rows.push(self.r10_row("paragraph", "format.paragraphSettings", None));
+            if syn.is_some() {
+                let mut r = self.r10_row("synonyms", "ctx.sub.syn", None);
+                r.arrow = true;
+                r.sep = true;
+                rows.push(r);
+            }
             if link.is_none() {
                 let mut r = self.r10_row("link", "insert.link", Some("insert.link"));
                 r.sep = true;
@@ -209,13 +262,16 @@ impl DocWindow {
             .map(|(i, _)| i)
             .collect();
         let arrows = rows.iter().map(|r| r.arrow).collect();
+        // Rows 36 px and 342 px wide at 125 % (UI Automation on the reference's menu).
         let look = MenuLook {
+            item_h: 36.0 / 1.25,
             min_w: 342.0 / 1.25,
             ..MenuLook::default()
         };
         let menu = Menu::open_with(items, [x, y - 2.0, 1.0, 0.0], self.size, self.scale, look)
             .with_decor(icons, seps)
             .with_arrows(arrows, self.theme.hover)
+            .with_soft_shadow()
             .with_access_keys(text, false);
         let rect = menu.rect();
         self.menu = Some(menu);
@@ -225,6 +281,11 @@ impl DocWindow {
             paste_head: Some(head),
             bar,
             link,
+            paste_modes,
+            glyphs,
+            query: String::new(),
+            saved: None,
+            syn,
         });
     }
 
@@ -285,7 +346,15 @@ impl DocWindow {
         MiniBar {
             rect: [x, y, w, h],
             buttons,
-            font: f.font.clone().unwrap_or_default(),
+            // The theme's body font when the text has none of its own, as "Calibri (Body)".
+            font: f.font.clone().unwrap_or_else(|| {
+                self.view
+                    .engine()
+                    .session()
+                    .map(|s| s.doc().theme_fonts.minor_latin.clone())
+                    .filter(|n| !n.is_empty())
+                    .map_or_else(String::new, |n| format!("{n} {}", self.r10_label("body")))
+            }),
             size,
             pressed: None,
         }
@@ -304,6 +373,21 @@ impl DocWindow {
     pub(super) fn r10_menu_input(&mut self, input: &Input) -> Option<bool> {
         if !self.r10_ctx_open() {
             return None;
+        }
+        match input {
+            Input::Text(t) if !t.chars().any(char::is_control) => {
+                let mut q = self.r10.ctx.as_ref()?.query.clone();
+                q.push_str(t);
+                self.r10_search(&q);
+                return Some(true);
+            }
+            Input::Key(crate::Key::Backspace, _) => {
+                let mut q = self.r10.ctx.as_ref()?.query.clone();
+                q.pop();
+                self.r10_search(&q);
+                return Some(true);
+            }
+            _ => {}
         }
         let ctx = self.r10.ctx.as_mut()?;
         match *input {
@@ -349,9 +433,18 @@ impl DocWindow {
             "ctx.pasteRow" => {
                 // The icon under the pointer (keep / merge / text).
                 let (x, _) = self.r10.pointer;
+                let modes = self
+                    .r10
+                    .ctx
+                    .as_ref()
+                    .map(|c| c.paste_modes.clone())
+                    .unwrap_or_default();
                 let i = self.r10_paste_icon_at(x).unwrap_or(0);
                 self.r10.ctx = None;
-                self.action(PASTE_MODES[i])
+                match modes.get(i) {
+                    Some(&m) => self.action(PASTE_MODES[m]),
+                    None => false,
+                }
             }
             "ctx.link.open" => {
                 if let Some(url) = ctx_link.filter(|u| is_web(u)) {
@@ -379,6 +472,17 @@ impl DocWindow {
             "ctx.sub.insert" | "ctx.sub.wrap" => {
                 self.r10_submenu(id);
                 true
+            }
+            "ctx.sub.syn" => {
+                self.r10.syn = self.r10.ctx.as_mut().and_then(|c| c.syn.take());
+                self.r10_syn_menu();
+                true
+            }
+            _ if id.starts_with("ctx.syn.") => {
+                let i: usize = id["ctx.syn.".len()..].parse().ok()?;
+                let ((para, a, b), words) = self.r10.syn.take()?;
+                let word = words.get(i)?;
+                self.view.replace_range(para, a, b, word)
             }
             _ => return None,
         })
@@ -422,6 +526,138 @@ impl DocWindow {
         self.r10.ctx = None;
     }
 
+    /// The word under window point (`x`, `y`) and its synonyms (thesaurus, English).
+    fn r10_word_synonyms(&self, x: f32, y: f32) -> Option<((usize, usize, usize), Vec<String>)> {
+        let (page, px, py) = self.r8_page_point(x, y)?;
+        let at = bo_engine::nav::hit_test(self.view.engine().layout()?, page, px, py)?;
+        let text = self.view.engine().session()?.para_text(at.para)?;
+        let w = bo_spell::words(&text)
+            .into_iter()
+            .find(|r| r.start <= at.offset && at.offset <= r.end)?;
+        let word = text.get(w.clone())?;
+        if !word.chars().all(char::is_alphabetic) {
+            return None;
+        }
+        let syn = crate::thesaurus10::synonyms(word, 8);
+        (!syn.is_empty()).then_some(((at.para, w.start, w.end), syn))
+    }
+
+    /// The Synonyms sub-menu beside the context menu.
+    fn r10_syn_menu(&mut self) {
+        let Some((_, words)) = &self.r10.syn else {
+            return;
+        };
+        let anchor = self.r10.ctx.as_ref().map_or([0.0; 4], |c| {
+            [
+                c.menu[0] + c.menu[2] - 2.0,
+                self.r10.pointer.1 - 12.0,
+                1.0,
+                0.0,
+            ]
+        });
+        let items = words
+            .iter()
+            .enumerate()
+            .map(|(i, w)| MenuItem {
+                label: w.clone(),
+                choice: Choice::Command(format!("ctx.syn.{i}")),
+                checked: false,
+                dim: false,
+            })
+            .collect();
+        self.menu = Some(Menu::open(items, anchor, self.size, self.scale));
+        self.r10.ctx = None;
+    }
+
+    /// "Search the menus": rows of the commands whose names hold `q` (the menu again when
+    /// it is empty).
+    fn r10_search(&mut self, q: &str) {
+        let Some(ctx) = self.r10.ctx.as_mut() else {
+            return;
+        };
+        ctx.query = q.to_owned();
+        if q.is_empty() {
+            if let Some((menu, head, glyphs)) = ctx.saved.take() {
+                ctx.menu = menu.rect();
+                ctx.paste_head = head;
+                ctx.glyphs = glyphs;
+                self.menu = Some(menu);
+            }
+            return;
+        }
+        if ctx.saved.is_none() {
+            if let Some(menu) = self.menu.take() {
+                ctx.saved = Some((menu, ctx.paste_head.take(), std::mem::take(&mut ctx.glyphs)));
+            }
+        }
+        let rect = ctx.saved.as_ref().map_or([0.0; 4], |s| s.0.rect());
+        let needle = q.to_lowercase();
+        let mut hits: Vec<(String, String)> = self
+            .strings
+            .with_prefix("commands.")
+            .filter(|(k, v)| {
+                let id = &k["commands.".len()..];
+                [
+                    "edit.",
+                    "format.",
+                    "insert.",
+                    "layout.",
+                    "references.",
+                    "review.",
+                    "view.",
+                    "table.",
+                ]
+                .iter()
+                .any(|p| id.starts_with(p))
+                    && v.to_lowercase().contains(&needle)
+            })
+            .map(|(k, v)| (v.to_owned(), k["commands.".len()..].to_owned()))
+            .collect();
+        hits.sort();
+        hits.dedup_by(|a, b| a.0 == b.0);
+        hits.truncate(10);
+        let mut items = vec![MenuItem {
+            label: String::new(),
+            choice: Choice::Command("ctx.none".into()),
+            checked: false,
+            dim: false,
+        }];
+        items.extend(hits.into_iter().map(|(label, id)| MenuItem {
+            label,
+            choice: Choice::Command(id),
+            checked: false,
+            dim: false,
+        }));
+        let look = MenuLook {
+            item_h: 36.0 / 1.25,
+            min_w: 342.0 / 1.25,
+            ..MenuLook::default()
+        };
+        let menu = Menu::open_with(
+            items,
+            [rect[0], rect[1], 1.0, 0.0],
+            self.size,
+            self.scale,
+            look,
+        )
+        .with_soft_shadow();
+        if let Some(ctx) = self.r10.ctx.as_mut() {
+            ctx.menu = menu.rect();
+        }
+        self.menu = Some(menu);
+    }
+
+    /// The theme the context menu is drawn with: dimmed rows light grey as on the reference.
+    pub(super) fn r10_menu_theme(&self) -> std::borrow::Cow<'_, crate::theme::Theme> {
+        if self.r10_ctx_open() {
+            let mut t = self.theme.clone();
+            t.text_muted = Rgba(0xA0, 0xA0, 0xA0, 255);
+            std::borrow::Cow::Owned(t)
+        } else {
+            std::borrow::Cow::Borrowed(&self.theme)
+        }
+    }
+
     /// Which paste icon is at window x (the paste row).
     fn r10_paste_icon_at(&self, x: f32) -> Option<usize> {
         let menu = self.menu.as_ref()?;
@@ -444,6 +680,53 @@ impl DocWindow {
         let s = self.scale;
         let k = s / 1.25;
         let t = &self.theme;
+        // "Search the menus" box in the first row.
+        {
+            let [rx, ry, rw, rh] = menu.row_rect(0);
+            p.fill_rect(rx, ry, rw, rh, Rgba(255, 255, 255, 255));
+            let inset = (6.0 * k).round();
+            let (bx, by, bw, bh) = (
+                rx + inset,
+                ry + (3.0 * k).round(),
+                rw - 2.0 * inset,
+                rh - (6.0 * k).round(),
+            );
+            p.fill_rect(bx, by, bw, bh, Rgba(0xAB, 0xAB, 0xAB, 255));
+            p.fill_rect(
+                bx + 1.0,
+                by + 1.0,
+                bw - 2.0,
+                bh - 2.0,
+                Rgba(255, 255, 255, 255),
+            );
+            let style = TextStyle {
+                size: (12.0 * s).round(),
+                bold: false,
+            };
+            let (label, color) = if ctx.query.is_empty() {
+                (self.r10_label("searchMenus"), Rgba(0x60, 0x60, 0x60, 255))
+            } else {
+                (ctx.query.clone(), t.text)
+            };
+            p.text(
+                &label,
+                bx + (7.0 * k).round(),
+                by + (bh - style.size * 1.33) / 2.0,
+                style,
+                color,
+            );
+        }
+        for (row, glyph) in &ctx.glyphs {
+            let [rx, ry, _, rh] = menu.row_rect(*row);
+            let size = (16.0 * s).round();
+            own_icon(
+                p,
+                glyph,
+                rx + (6.0 * s).round(),
+                (ry + (rh - size) / 2.0).round(),
+                size,
+            );
+        }
         if let Some(head) = ctx.paste_head {
             let [hx, hy, hw, hh] = menu.row_rect(head);
             let pad = (4.0 * s).round();
@@ -468,7 +751,7 @@ impl DocWindow {
             );
             let [_, ry, _, rh] = menu.row_rect(head + 1);
             let size = (24.0 * k).round();
-            for (i, name) in PASTE_MODES.iter().enumerate() {
+            for (i, &mode) in ctx.paste_modes.iter().enumerate() {
                 let ix = hx + (46.0 * k).round() + i as f32 * (40.0 * k).round();
                 let iy = (ry + (rh - size) / 2.0).round();
                 let hover = menu.hovered() == Some(head + 1)
@@ -476,8 +759,7 @@ impl DocWindow {
                 if hover {
                     p.fill_rect(ix - 4.0, iy - 4.0, size + 8.0, size + 8.0, HOVER);
                 }
-                paste_icon(p, ix, iy, size, i);
-                let _ = name;
+                paste_icon(p, ix, iy, size, mode);
             }
         }
         if let Some(bar) = &ctx.bar {
@@ -659,21 +941,46 @@ fn glyph(
         return;
     }
     let style = TextStyle {
-        size: (14.0 * s).round(),
-        bold: matches!(id, "format.bold" | "format.growStep" | "format.shrinkStep"),
+        size: (15.0 * s).round(),
+        bold: matches!(id, "format.bold" | "format.underline" | "format.color"),
     };
     let (letter, bar) = match id {
         "format.bold" => ("B", None),
         "format.italic" => ("I", None),
-        "format.underline" => ("U", Some(t.text)),
+        "format.underline" => ("U", Some(Rgba(0x26, 0x26, 0x26, 255))),
         "format.highlight" => ("ab", Some(Rgba(0xFF, 0xFF, 0x00, 255))),
         "format.color" => ("A", Some(Rgba(0xFF, 0x00, 0x00, 255))),
-        "format.growStep" => ("A\u{02c4}", None),
-        "format.shrinkStep" => ("A\u{02c5}", None),
+        "format.growStep" | "format.shrinkStep" => {
+            // A large / small "A" with a little triangle up / down at its top right.
+            let grow = id == "format.growStep";
+            let st = TextStyle {
+                size: ((if grow { 17.0 } else { 13.0 }) * s).round(),
+                bold: false,
+            };
+            let ink = Rgba(0x26, 0x26, 0x26, 255);
+            let ty = y + size - st.size * 1.15;
+            p.text("A", x, ty, st, ink);
+            let (ax, ay, aw) = (x + size * 0.85, y + size * 0.2, (3.0 * s).round());
+            let tip = if grow { ay - aw } else { ay + aw };
+            p.path(
+                &[
+                    PathSeg::M(ax - aw, ay),
+                    PathSeg::L(ax, tip),
+                    PathSeg::L(ax + aw, ay),
+                    PathSeg::Z,
+                ],
+                Some(ink),
+                None,
+            );
+            return;
+        }
         _ => ("", None),
     };
     let ty = y + (size - style.size * 1.33) / 2.0 - (2.0 * s).round();
-    p.text(letter, x + (2.0 * s).round(), ty, style, t.text);
+    // Dark letters as the reference's (its B / I / U are near black, B bold).
+    let ink = Rgba(0x26, 0x26, 0x26, 255);
+    let _ = t;
+    p.text(letter, x + (2.0 * s).round(), ty, style, ink);
     if let Some(c) = bar {
         let h = if id == "format.underline" {
             1.0
@@ -681,6 +988,33 @@ fn glyph(
             (3.0 * s).round()
         };
         p.fill_rect(x, (y + size - h).round(), size, h, c);
+    }
+}
+
+/// Row icons of our own drawing: Font… (a capital A over a baseline) and Paragraph… (lines
+/// beside a pilcrow).
+fn own_icon(p: &mut dyn Painter, name: &str, x: f32, y: f32, size: f32) {
+    let u = size / 16.0;
+    let ink = Rgba(0x44, 0x44, 0x44, 255);
+    let w = u.max(1.0);
+    if name == "ctx.font" {
+        p.path(
+            &[
+                PathSeg::M(x + 3.0 * u, y + 13.0 * u),
+                PathSeg::L(x + 8.0 * u, y + 2.0 * u),
+                PathSeg::L(x + 13.0 * u, y + 13.0 * u),
+                PathSeg::M(x + 5.0 * u, y + 9.0 * u),
+                PathSeg::L(x + 11.0 * u, y + 9.0 * u),
+            ],
+            None,
+            Some((ink, w * 1.3)),
+        );
+    } else {
+        for (i, len) in [10.0, 10.0, 7.0, 10.0].iter().enumerate() {
+            p.fill_rect(x + u, y + (3.0 + 3.0 * i as f32) * u, len * u, w, ink);
+        }
+        p.fill_rect(x + 13.0 * u, y + 2.0 * u, w, 12.0 * u, ink);
+        p.fill_rect(x + 11.0 * u, y + 2.0 * u, 3.0 * u, 3.0 * u, ink);
     }
 }
 

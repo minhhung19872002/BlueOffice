@@ -225,6 +225,28 @@ pub enum TableEdit {
         /// Right margin.
         right: i32,
     },
+    /// Default top / bottom cell margins in twips (§17.4.43 tblCellMar top / bottom).
+    CellMarginsVertical {
+        /// Top margin.
+        top: i32,
+        /// Bottom margin.
+        bottom: i32,
+    },
+    /// Indent of a left-aligned table from the margin in twips (§17.4.50 tblInd).
+    Indent {
+        /// New indent.
+        twips: i32,
+    },
+    /// Whether the selected rows may break across pages (§17.4.6 cantSplit off / on).
+    AllowRowBreak {
+        /// Rows may break.
+        on: bool,
+    },
+    /// Height rule of the selected rows (§17.4.81 trHeight hRule): exact or at least.
+    RowHeightRule {
+        /// Exact height.
+        exact: bool,
+    },
     /// Select the caret's cell, column, row or the whole table.
     Select {
         /// `cell`, `column`, `row` or `table`.
@@ -693,6 +715,10 @@ impl Session {
             cell_h_align: bo_model::index::para_by_id(&self.doc, a.para)
                 .and_then(|p| p.props.align)
                 .unwrap_or_default(),
+            indent: t.props.indent.map_or(0, |i| i.0),
+            cant_split: row.props.cant_split,
+            row_exact: matches!(row.props.height, Some((_, bo_model::HeightRule::Exact))),
+            cell_margin_v: t.props.cell_margin_vertical.map_or((0, 0), |(a, b)| (a.0, b.0)),
         })
     }
 
@@ -852,8 +878,18 @@ impl Session {
                     "column" => ((0, g0), (rows, g1)),
                     "row" => ((r0, 0), (r1, usize::MAX)),
                     "table" => ((0, 0), (rows, usize::MAX)),
+                    // Table Properties › Previous / Next Row / Column: the caret moves to the
+                    // start of that cell.
+                    "prevRow" => ((r0.saturating_sub(1), g0), (r0.saturating_sub(1), g0)),
+                    "nextRow" => (((r0 + 1).min(rows), g0), ((r0 + 1).min(rows), g0)),
+                    "prevColumn" => ((r0, g0.saturating_sub(1)), (r0, g0.saturating_sub(1))),
+                    "nextColumn" => {
+                        let g = (g1 + 1).min(last_col(r0));
+                        ((r0, g), (r0, g))
+                    }
                     _ => return Err(EditError::Unsupported(format!("select {part}"))),
                 };
+                let caret_only = part.starts_with("prev") || part.starts_with("next");
                 let to = (
                     to.0,
                     if to.1 == usize::MAX {
@@ -862,9 +898,12 @@ impl Session {
                         to.1
                     },
                 );
-                let sel = self
+                let mut sel = self
                     .cell_range_selection(&at, &old, from, to)
                     .ok_or(EditError::BadPath)?;
+                if caret_only {
+                    sel = Selection::caret(sel.anchor);
+                }
                 self.set_selection(sel);
                 return Ok(sel);
             }
@@ -1241,6 +1280,32 @@ impl Session {
             TableEdit::RowHeight { twips } => tools::set_row_height(&mut t, r0, r1, *twips),
             TableEdit::CellMargins { left, right } => {
                 t.props.cell_margin = Some((Twips((*left).max(0)), Twips((*right).max(0))));
+            }
+            TableEdit::CellMarginsVertical { top, bottom } => {
+                t.props.cell_margin_vertical =
+                    Some((Twips((*top).max(0)), Twips((*bottom).max(0))));
+            }
+            TableEdit::Indent { twips } => {
+                if t.props.align.unwrap_or_default() == Alignment::Left {
+                    t.props.indent = Some(Twips(*twips));
+                }
+            }
+            TableEdit::AllowRowBreak { on } => {
+                for row in &mut t.rows[r0..=r1] {
+                    row.props.cant_split = !*on;
+                }
+            }
+            TableEdit::RowHeightRule { exact } => {
+                let rule = if *exact {
+                    bo_model::HeightRule::Exact
+                } else {
+                    bo_model::HeightRule::AtLeast
+                };
+                for row in &mut t.rows[r0..=r1] {
+                    if let Some((h, _)) = row.props.height {
+                        row.props.height = Some((h, rule));
+                    }
+                }
             }
             TableEdit::ColumnWidth { twips } => tools::set_column_width(&mut t, g0, g1, *twips),
             TableEdit::Look { preset, options } => {

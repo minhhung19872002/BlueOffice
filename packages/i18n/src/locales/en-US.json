@@ -15942,6 +15942,13 @@
     "allLevels": "All"
   },
   "tprops11": {
+    "optionsTitle": "Table Options",
+    "defaultMargins": "Default cell margins",
+    "leftM": "Left",
+    "rightM": "Right",
+    "bottomM": "Bottom",
+    "autoResize": "Automatically resize to fit contents",
+    "dialogTitle": "Table Properties",
     "alignment": "Alignment",
     "allowBreak": "Allow row to break across pages",
     "altText": "Alt Text",

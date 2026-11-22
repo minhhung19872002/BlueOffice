@@ -157,7 +157,7 @@ pub(super) fn open(s: &Strings, c: &FormContext) -> DocForm {
     let tr = |k: &str, f: &str| t(s, k, f);
     let mut f = DocForm::new(
         DocFormKind::TableProps,
-        &tr("docTable.properties", "Table Properties"),
+        &tr("tprops11.dialogTitle", "Table Properties"),
         (564.0, 573.0),
         vec![
             tr("tprops11.table", "Table"),
@@ -342,19 +342,19 @@ pub(super) fn open(s: &Strings, c: &FormContext) -> DocForm {
     f.label_on(
         1,
         "rRow",
-        [16.0, 88.0, 200.0, 18.0],
+        [24.0, 88.0, 200.0, 18.0],
         &format!("{} {}:", tr("tprops11.rowN", "Row"), tbl.row + 1),
     );
     f.form.add(
         "rSize",
         Some(1),
-        [40.0, 110.0, 508.0, 18.0],
+        [48.0, 110.0, 508.0, 18.0],
         super::Kind::Group(tr("tprops11.size", "Size")),
     );
     f.check_on(
         1,
         "rSpec",
-        [54.0, 137.0, 130.0, 22.0],
+        [62.0, 137.0, 130.0, 22.0],
         &tr("tprops11.specHeight", "Specify height:"),
         tbl.row_height > 0,
     );
@@ -362,19 +362,19 @@ pub(super) fn open(s: &Strings, c: &FormContext) -> DocForm {
         &mut f,
         1,
         "rHeight",
-        [178.0, 135.0, 110.0, 24.0],
+        [186.0, 135.0, 110.0, 24.0],
         &len(tbl.row_height.max(0), inches),
     );
     f.label_on(
         1,
         "rIsL",
-        [303.0, 139.0, 95.0, 18.0],
+        [311.0, 139.0, 95.0, 18.0],
         &tr("tprops11.heightIs", "Row height is:"),
     );
     f.form.add(
         "rIs",
         Some(1),
-        [398.0, 134.0, 134.0, 26.0],
+        [406.0, 134.0, 134.0, 26.0],
         super::Kind::Combo {
             items: vec![
                 tr("tprops11.atLeast", "At least"),
@@ -386,13 +386,13 @@ pub(super) fn open(s: &Strings, c: &FormContext) -> DocForm {
     f.form.add(
         "rOpts",
         Some(1),
-        [40.0, 174.0, 508.0, 18.0],
+        [48.0, 174.0, 508.0, 18.0],
         super::Kind::Group(tr("tprops11.optionsG", "Options")),
     );
     f.check_on(
         1,
         "rBreak",
-        [54.0, 199.0, 300.0, 22.0],
+        [62.0, 199.0, 300.0, 22.0],
         &tr("tprops11.allowBreak", "Allow row to break across pages"),
         true,
     );
@@ -400,7 +400,7 @@ pub(super) fn open(s: &Strings, c: &FormContext) -> DocForm {
     f.check_on(
         1,
         "rHeader",
-        [54.0, 224.0, 380.0, 22.0],
+        [62.0, 224.0, 380.0, 22.0],
         &tr(
             "tprops11.repeatHeader",
             "Repeat as header row at the top of each page",
@@ -410,13 +410,13 @@ pub(super) fn open(s: &Strings, c: &FormContext) -> DocForm {
     f.button_on(
         1,
         "prevRow",
-        [16.0, 265.0, 112.0, 28.0],
+        [24.0, 265.0, 112.0, 28.0],
         &tr("tprops11.prevRow", "Previous Row"),
     );
     f.button_on(
         1,
         "nextRow",
-        [143.0, 265.0, 112.0, 28.0],
+        [151.0, 265.0, 112.0, 28.0],
         &tr("tprops11.nextRow", "Next Row"),
     );
     f.form.enable("prevRow", false);
@@ -425,19 +425,19 @@ pub(super) fn open(s: &Strings, c: &FormContext) -> DocForm {
     f.label_on(
         2,
         "cCol",
-        [16.0, 88.0, 200.0, 18.0],
+        [24.0, 88.0, 200.0, 18.0],
         &format!("{} {}:", tr("tprops11.columnN", "Column"), tbl.col + 1),
     );
     f.form.add(
         "cSize",
         Some(2),
-        [40.0, 110.0, 508.0, 18.0],
+        [48.0, 110.0, 508.0, 18.0],
         super::Kind::Group(tr("tprops11.size", "Size")),
     );
     f.check_on(
         2,
         "cPref",
-        [54.0, 137.0, 130.0, 22.0],
+        [62.0, 137.0, 130.0, 22.0],
         &tr("tprops11.prefWidth", "Preferred width:"),
         tbl.col_width > 0,
     );
@@ -445,19 +445,19 @@ pub(super) fn open(s: &Strings, c: &FormContext) -> DocForm {
         &mut f,
         2,
         "cWidth",
-        [187.0, 135.0, 110.0, 24.0],
+        [195.0, 135.0, 110.0, 24.0],
         &len(tbl.col_width.max(0), inches),
     );
     f.label_on(
         2,
         "cMeasureL",
-        [312.0, 139.0, 80.0, 18.0],
+        [320.0, 139.0, 80.0, 18.0],
         &tr("tprops11.measureIn", "Measure in:"),
     );
     f.form.add(
         "cMeasure",
         Some(2),
-        [394.0, 134.0, 138.0, 26.0],
+        [402.0, 134.0, 138.0, 26.0],
         super::Kind::Combo {
             items: vec![measure[0].clone()],
             sel: 0,
@@ -466,13 +466,13 @@ pub(super) fn open(s: &Strings, c: &FormContext) -> DocForm {
     f.button_on(
         2,
         "prevCol",
-        [16.0, 183.0, 130.0, 28.0],
+        [24.0, 183.0, 130.0, 28.0],
         &tr("tprops11.prevCol", "Previous Column"),
     );
     f.button_on(
         2,
         "nextCol",
-        [162.0, 183.0, 112.0, 28.0],
+        [170.0, 183.0, 112.0, 28.0],
         &tr("tprops11.nextCol", "Next Column"),
     );
     f.form.enable("prevCol", false);

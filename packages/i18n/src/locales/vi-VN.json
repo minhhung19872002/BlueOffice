@@ -15942,6 +15942,13 @@
     "allLevels": "Tất cả"
   },
   "tprops11": {
+    "optionsTitle": "Tùy chọn bảng",
+    "defaultMargins": "Lề ô mặc định",
+    "leftM": "Trái",
+    "rightM": "Phải",
+    "bottomM": "Dưới",
+    "autoResize": "Tự động đổi cỡ cho vừa nội dung",
+    "dialogTitle": "Thuộc tính bảng",
     "alignment": "Căn lề",
     "allowBreak": "Cho phép hàng ngắt qua trang",
     "altText": "Văn bản thay thế",

@@ -564,6 +564,14 @@ pub struct TableState {
     pub cell_margin: (i32, i32),
     /// Width of the caret's cell's grid columns in twips (§17.4.48 gridCol).
     pub col_width: i32,
+    /// Indent from the left margin in twips (§17.4.50 tblInd).
+    pub indent: i32,
+    /// The caret's row may not break across pages (§17.4.6 cantSplit).
+    pub cant_split: bool,
+    /// The caret's row height is exact (§17.4.81 trHeight hRule="exact").
+    pub row_exact: bool,
+    /// Default top / bottom cell margins in twips (§17.4.43 tblCellMar).
+    pub cell_margin_v: (i32, i32),
 }
 
 /// Formatting at the selection start (drives ribbon toggle states).

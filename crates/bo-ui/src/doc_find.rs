@@ -26,7 +26,7 @@ const INK: Rgba = Rgba(0, 0, 0, 255);
 /// Width of the dialog and its heights, collapsed and with the search options.
 const W: f32 = 649.0;
 const H: f32 = 238.0;
-const H_MORE: f32 = 449.0;
+const H_MORE: f32 = 489.0;
 /// Bottom-row button slots (left x) and size.
 const SLOTS: [f32; 5] = [21.0, 237.6, 339.0, 440.6, 541.4];
 const BW: f32 = 85.6;
@@ -636,7 +636,7 @@ impl FindDialog {
             }
         };
         if self.more && self.tab < 2 {
-            let y = H_MORE - 37.0;
+            let y = H_MORE - 44.0;
             out.push((
                 Button::Format,
                 self.r(19.0, y, BW, BH),
@@ -672,14 +672,14 @@ impl FindDialog {
             let enabled = self.check_on(i);
             out.push((
                 L_CHECKS + i,
-                self.r(19.0, 282.0 + i as f32 * 22.0, 300.0, 18.0),
+                self.r(19.0, 279.0 + i as f32 * 19.2, 300.0, 18.0),
                 enabled,
             ));
         }
         for (k, row) in [(5, 0.0), (6, 1.0), (7, 3.0), (8, 4.0)] {
             out.push((
                 L_CHECKS + k,
-                self.r(452.0, 282.0 + row * 22.0, 180.0, 18.0),
+                self.r(342.0, 279.0 + row * 19.2, 240.0, 18.0),
                 self.check_on(k),
             ));
         }
@@ -1438,30 +1438,18 @@ impl FindDialog {
                 PAGE_EDGE,
             );
             if let Some(l) = self.labels.get(L_OPTIONS) {
-                self.draw_label(p, l, self.x0 + self.px(19.0), self.y0 + self.px(234.0), INK);
+                self.draw_label(p, l, self.x0 + self.px(19.0), self.y0 + self.px(238.0), INK);
             }
             if let Some(l) = self.labels.get(L_SEARCH) {
-                self.draw_label(
-                    p,
-                    l,
-                    self.x0 + self.px(19.0),
-                    self.y0 + self.px(256.0),
-                    GREY,
-                );
+                self.draw_label(p, l, self.x0 + self.px(19.0), self.y0 + self.px(263.0), INK);
             }
-            let cb = self.r(75.0, 254.0, 110.0, FIELD_H);
-            p.fill_rect(cb[0], cb[1], cb[2], cb[3], Rgba(204, 204, 204, 255));
-            p.fill_rect(
-                cb[0] + 1.0,
-                cb[1] + 1.0,
-                cb[2] - 2.0,
-                cb[3] - 2.0,
-                Rgba(245, 245, 245, 255),
-            );
+            let cb = self.r(66.0, 261.0, 78.0, FIELD_H);
+            p.fill_rect(cb[0], cb[1], cb[2], cb[3], FIELD_EDGE);
+            p.fill_rect(cb[0] + 1.0, cb[1] + 1.0, cb[2] - 2.0, cb[3] - 2.0, WHITE);
             if let Some(l) = self.labels.get(L_ALL) {
-                self.draw_label(p, l, cb[0] + self.px(4.0), self.text_y(cb[1], cb[3]), GREY);
+                self.draw_label(p, l, cb[0] + self.px(4.0), self.text_y(cb[1], cb[3]), INK);
             }
-            self.arrow(p, cb[0] + cb[2] - self.px(10.0), cb[1] + cb[3] / 2.0, GREY);
+            self.arrow(p, cb[0] + cb[2] - self.px(10.0), cb[1] + cb[3] / 2.0, INK);
             for (l, r, on) in self.checks() {
                 let s = self.px(13.0);
                 let by = r[1] + (r[3] - s) / 2.0;

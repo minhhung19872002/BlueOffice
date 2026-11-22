@@ -592,12 +592,13 @@ pub struct TableState {
     pub cell_margin_v: (i32, i32),
     /// Table borders (§17.4.39 tblBorders).
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub borders: Option<bo_model::Borders>,
+    pub borders: Option<Box<bo_model::Borders>>,
     /// Borders of the caret's cell (§17.4.67 tcBorders).
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub cell_borders: Option<bo_model::Borders>,
-    /// Diagonals of the caret's cell (§17.4.80 tl2br, §17.4.79 tr2bl).
-    pub cell_diagonals: [Option<bo_model::Border>; 2],
+    pub cell_borders: Option<Box<bo_model::Borders>>,
+    /// Diagonals of the caret's cell (§17.4.80 tl2br, §17.4.79 tr2bl), when it has one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cell_diagonals: Option<Box<[Option<bo_model::Border>; 2]>>,
     /// Title of the table's alternative text (§17.4.63 tblCaption).
     #[serde(skip_serializing_if = "String::is_empty")]
     pub caption: String,
@@ -606,7 +607,7 @@ pub struct TableState {
     pub description: String,
     /// Floating position when the text wraps around the table (§17.4.58 tblpPr).
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub float: Option<bo_model::TableFloat>,
+    pub float: Option<Box<bo_model::TableFloat>>,
     /// The floating table may overlap other floating tables (§17.4.56 tblOverlap).
     pub overlap: bool,
 }
@@ -669,7 +670,7 @@ pub struct FormatState {
     pub shading: Option<String>,
     /// Effective paragraph borders (§17.3.1.24 pBdr).
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub para_borders: Option<bo_model::Borders>,
+    pub para_borders: Option<Box<bo_model::Borders>>,
     /// Page setup of the caret's section.
     pub section: SectionState,
     /// The table holding the caret, if any.
@@ -4189,7 +4190,7 @@ impl Session {
                 .filter_map(|t| TabSpec::from_model(*t))
                 .collect(),
             shading: eff.shading.map(Color::to_hex),
-            para_borders: eff.borders.clone(),
+            para_borders: eff.borders.clone().map(Box::new),
             section: self.section_state(),
             table: self.table_state(),
             picture: self.picture_state(),

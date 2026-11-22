@@ -798,12 +798,17 @@ impl Session {
                 .props
                 .cell_margin_vertical
                 .map_or((0, 0), |(a, b)| (a.0, b.0)),
-            borders: t.props.borders.clone(),
-            cell_borders: cell.props.borders.clone(),
-            cell_diagonals: cell.props.diagonals.clone(),
+            borders: t.props.borders.clone().map(Box::new),
+            cell_borders: cell.props.borders.clone().map(Box::new),
+            cell_diagonals: cell
+                .props
+                .diagonals
+                .iter()
+                .any(Option::is_some)
+                .then(|| Box::new(cell.props.diagonals.clone())),
             caption: t.props.caption.clone().unwrap_or_default(),
             description: t.props.description.clone().unwrap_or_default(),
-            float: t.props.float.clone(),
+            float: t.props.float.clone().map(Box::new),
             overlap: t.props.overlap.as_deref() != Some("never"),
         })
     }

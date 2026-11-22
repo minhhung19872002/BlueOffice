@@ -679,14 +679,18 @@ fn open_position(s: &Strings, c: &FormContext) -> DocForm {
     let tbl = c.table.clone().unwrap_or_default();
     // An inline table gets the reference's first position: Left of the column, 0" below
     // the paragraph, 0.13" from the text on either side, no overlap.
-    let fl = tbl.float.clone().unwrap_or(bo_model::TableFloat {
-        left_from_text: bo_model::Twips(180),
-        right_from_text: bo_model::Twips(180),
-        horz_anchor: Some("text".into()),
-        vert_anchor: Some("text".into()),
-        x_align: Some("left".into()),
-        ..Default::default()
-    });
+    let fl = tbl
+        .float
+        .as_deref()
+        .cloned()
+        .unwrap_or(bo_model::TableFloat {
+            left_from_text: bo_model::Twips(180),
+            right_from_text: bo_model::Twips(180),
+            horz_anchor: Some("text".into()),
+            vert_anchor: Some("text".into()),
+            x_align: Some("left".into()),
+            ..Default::default()
+        });
     let overlap = tbl.float.is_some() && tbl.overlap;
     let h_items = vec![
         tr("doc12.left", "Left"),

@@ -12,7 +12,7 @@ pub(super) struct R12 {
     /// The next Borders and Shading opens on its Page Border tab (Design › Page Borders).
     page_tab: bool,
     /// Insert › Table › Quick Tables, when open.
-    pub(super) quick: Option<crate::doc_quick12::QuickTables>,
+    pub(super) quick: Option<Box<crate::doc_quick12::QuickTables>>,
 }
 
 /// `{style, size, color}` of each edge of `b` (`top`, `left`, `bottom`, `right`, `insideH`,
@@ -97,6 +97,7 @@ pub(super) fn palette(theme: &[(String, bo_model::Color)]) -> Vec<String> {
 
 impl DocWindow {
     /// A round-12 command; `None` when `id` is not one.
+    #[inline(never)]
     pub(super) fn r12_action(&mut self, id: &str) -> Option<bool> {
         if let Some(rest) = id.strip_prefix("style12.") {
             return Some(self.r12_style_command(rest));
@@ -110,6 +111,14 @@ impl DocWindow {
                 Some(self.r12_open(DocFormKind::BordersShading))
             }
             "table.positioning" => Some(self.r12_open(DocFormKind::TablePosition)),
+            // Insert › Table › Quick Tables, beside the Insert Table button (scripted captures).
+            "insert.quickTables" => {
+                let r = self
+                    .ribbon
+                    .rect_of(crate::ribbon::RibbonHit::Command("insert.table"))
+                    .unwrap_or([0.0, 0.0, 1.0, 1.0]);
+                Some(self.r12_open_quick([r[0], r[1] + r[3], 283.0 * self.scale / 1.25, 36.0]))
+            }
             _ => None,
         }
     }
@@ -123,13 +132,14 @@ impl DocWindow {
                 "Save Selection to Quick Tables Gallery...",
             ),
         ];
-        self.r12.quick = Some(crate::doc_quick12::QuickTables::open(
+        self.r12.quick = Some(Box::new(crate::doc_quick12::QuickTables::open(
             anchor, self.size, labels, self.scale,
-        ));
+        )));
         true
     }
 
     /// Input while the Quick Tables gallery is open; `None` lets it through.
+    #[inline(never)]
     pub(super) fn r12_input(&mut self, input: &crate::Input) -> Option<bool> {
         use crate::{Input, Key};
         let q = self.r12.quick.as_mut()?;
@@ -188,6 +198,7 @@ impl DocWindow {
 
     /// Right-click on style tile `i` of the gallery: Update to Match Selection, Modify…,
     /// Select All N Instance(s), Rename…, Remove from Style Gallery (the reference's menu).
+    #[inline(never)]
     pub(super) fn r12_style_menu(&mut self, i: usize, x: f32, y: f32) -> bool {
         use crate::popup::{Choice, Menu, MenuItem, MenuLook};
         let Some(st) = self.styles.get(i) else {
@@ -258,6 +269,7 @@ impl DocWindow {
     }
 
     /// A style gallery menu command: `update.<id>`, `selectAll.<id>`, `remove.<id>`.
+    #[inline(never)]
     fn r12_style_command(&mut self, rest: &str) -> bool {
         let Some((what, id)) = rest.split_once('.') else {
             return false;
@@ -283,6 +295,7 @@ impl DocWindow {
         }
     }
 
+    #[inline(never)]
     fn r12_open(&mut self, kind: DocFormKind) -> bool {
         self.menu = None;
         self.r3_open_form(kind)
@@ -290,6 +303,7 @@ impl DocWindow {
 
     /// The `extra` context of the round-12 dialogs: selection, borders and shading of the
     /// paragraph, run, cell and table at the caret, the page borders and the palette.
+    #[inline(never)]
     pub(super) fn r12_form_extra(&mut self) -> Value {
         let page_tab = std::mem::take(&mut self.r12.page_tab);
         let f = self.view.format().clone();
@@ -307,7 +321,7 @@ impl DocWindow {
             .and_then(|d| d.borders.clone())
             .and_then(|b| serde_json::to_value(b).ok())
             .unwrap_or(Value::Null);
-        let para = f.para_borders.as_ref();
+        let para = f.para_borders.as_deref();
         let space = para.map(|b| {
             let s = |l: &Option<bo_model::Border>, d: u32| l.as_ref().map_or(d, |l| l.space);
             json!([s(&b.top, 1), s(&b.left, 4), s(&b.bottom, 1), s(&b.right, 4)])
@@ -320,9 +334,11 @@ impl DocWindow {
             let (a, b) = s.selection().ordered();
             a.para != b.para
         });
-        let mut cell_borders = borders_json(f.table.as_ref().and_then(|t| t.cell_borders.as_ref()));
+        let mut cell_borders =
+            borders_json(f.table.as_ref().and_then(|t| t.cell_borders.as_deref()));
         if let Some(t) = &f.table {
-            for (k, d) in ["tl2br", "tr2bl"].iter().zip(&t.cell_diagonals) {
+            let diagonals = t.cell_diagonals.as_deref().cloned().unwrap_or_default();
+            for (k, d) in ["tl2br", "tr2bl"].iter().zip(&diagonals) {
                 if let Some(l) = d {
                     if !cell_borders.is_object() {
                         cell_borders = json!({});
@@ -342,7 +358,7 @@ impl DocWindow {
             "runBorders": run,
             "runShading": f.advanced.shading,
             "cellBorders": cell_borders,
-            "tableBorders": borders_json(f.table.as_ref().and_then(|t| t.borders.as_ref())),
+            "tableBorders": borders_json(f.table.as_ref().and_then(|t| t.borders.as_deref())),
             "cellShading": f.table.as_ref().and_then(|t| t.shading.clone()),
             "pageBorders": page,
             "pageTab": page_tab,

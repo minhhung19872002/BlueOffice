@@ -123,7 +123,7 @@ fn table_and_cell_borders_and_whole_table_shading() {
     // A missing edge is written as `nil` so the style's line does not show.
     assert_eq!(b.inside_v.map(|x| x.style), Some("nil".to_owned()));
     let st = s.table_state().unwrap();
-    assert_eq!(st.borders, t.props.borders);
+    assert_eq!(st.borders.as_deref(), t.props.borders.as_ref());
 
     // Select cells (0,0)…(1,1): a box around the four cells, a line between the rows.
     let ids = cell_paras(&s);
@@ -213,7 +213,7 @@ fn table_alt_text_and_position() {
     .unwrap();
     let st = s.table_state().unwrap();
     assert!(st.wrap);
-    assert_eq!(st.float, Some(f));
+    assert_eq!(st.float.as_deref(), Some(&f));
     assert!(!st.overlap);
     assert_eq!(table(&s).props.overlap.as_deref(), Some("never"));
     // Empty texts remove the elements; overlap allowed again drops tblOverlap.

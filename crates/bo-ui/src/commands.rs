@@ -88,7 +88,7 @@ pub fn static_id(id: &str) -> &'static str {
 }
 
 /// Commands the window handles itself (dialogs, view state, format painter, mail merge).
-pub const WINDOW: [&str; 32] = [
+pub const WINDOW: [&str; 33] = [
     "view.readMode",
     "layout.pageSetup",
     "view.printLayout",
@@ -121,6 +121,8 @@ pub const WINDOW: [&str; 32] = [
     "mailings.previousRecord",
     "mailings.nextRecord",
     "mailings.finish",
+    // Round 12: Home › Borders ▾ › Borders and Shading….
+    "format.bordersShading",
 ];
 
 /// Keyboard shortcut shown in the tooltip of command `id`.

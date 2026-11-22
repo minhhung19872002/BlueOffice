@@ -679,8 +679,314 @@ fn grid_table(widths: &[i32], head: &[&str], rows: &[&[&str]]) -> Block {
     })
 }
 
+/// One cell of the Quick Tables designs (§17.4.66 tc): text, width, fill, bold, alignment,
+/// grid span.
+struct Tc<'a> {
+    text: &'a str,
+    width: i32,
+    fill: Option<&'a str>,
+    bold: bool,
+    align: Alignment,
+    span: u32,
+    color: Option<&'a str>,
+}
+
+fn tc(text: &str, width: i32) -> Tc<'_> {
+    Tc {
+        text,
+        width,
+        fill: None,
+        bold: false,
+        align: Alignment::Left,
+        span: 1,
+        color: None,
+    }
+}
+
+/// A table of rows of [`Tc`] with `borders` (`None`: no lines), first rows repeated as a
+/// header (§17.4.49 tblHeader).
+fn designed_table(
+    rows: Vec<Vec<Tc<'_>>>,
+    grid: &[i32],
+    borders: Option<Borders>,
+    header: usize,
+) -> Block {
+    let rows = rows
+        .into_iter()
+        .enumerate()
+        .map(|(ri, cells)| Row {
+            props: RowProps {
+                header: ri < header,
+                ..RowProps::default()
+            },
+            cells: cells
+                .into_iter()
+                .map(|c| {
+                    let mut r = run(c.text, 22, c.bold, false);
+                    r.props.color = c.color.and_then(color);
+                    Cell {
+                        props: CellProps {
+                            width: Some(TableWidth::Dxa(Twips(c.width))),
+                            grid_span: c.span,
+                            shading: c.fill.and_then(color),
+                            v_align: Some(CellVAlign::Center),
+                            ..CellProps::default()
+                        },
+                        blocks: vec![block(spaced(para(vec![r], c.align), 40, 40))],
+                    }
+                })
+                .collect(),
+        })
+        .collect();
+    Block::Table(Table {
+        props: TableProps {
+            width: Some(TableWidth::Dxa(Twips(grid.iter().sum()))),
+            borders,
+            fixed_layout: true,
+            ..TableProps::default()
+        },
+        grid: grid.iter().copied().map(Twips).collect(),
+        grid_change: None,
+        rows,
+        src: None,
+    })
+}
+
+/// A month calendar (own design): month title over seven day columns, Monday first; the
+/// month begins on `first` (0 = Monday) and has `days` days.
+fn calendar(title: &str, first: usize, days: usize) -> Vec<Block> {
+    let w = WIDTH / 7;
+    let names = ["T2", "T3", "T4", "T5", "T6", "T7", "CN"];
+    let mut rows = vec![names
+        .iter()
+        .enumerate()
+        .map(|(i, n)| Tc {
+            fill: Some(ACCENT),
+            bold: true,
+            align: Alignment::Center,
+            color: Some(if i == 6 { "FFC7CE" } else { "FFFFFF" }),
+            ..tc(n, w)
+        })
+        .collect::<Vec<_>>()];
+    let numbers: Vec<String> = (1..=days).map(|d| d.to_string()).collect();
+    let mut day = 0usize;
+    let mut week = 0usize;
+    while day < days {
+        let row = (0..7)
+            .map(|col| {
+                let slot = week * 7 + col;
+                let text = if slot >= first && day < days {
+                    let t = numbers[day].as_str();
+                    day += 1;
+                    t
+                } else {
+                    ""
+                };
+                Tc {
+                    align: Alignment::Center,
+                    fill: (week % 2 == 1).then_some(TINT),
+                    color: (col == 6).then_some("C00000"),
+                    ..tc(text, w)
+                }
+            })
+            .collect();
+        rows.push(row);
+        week += 1;
+    }
+    let edge = Border::single(4);
+    let mut b = Borders::all(&edge);
+    b.inside_v = None;
+    let heading = spaced(
+        para(
+            vec![tinted(run(title, 36, true, false), ACCENT)],
+            Alignment::Left,
+        ),
+        0,
+        120,
+    );
+    vec![block(heading), designed_table(rows, &[w; 7], Some(b), 1)]
+}
+
 fn tables() -> Vec<(&'static str, &'static str, Vec<Block>)> {
+    let head = |t: &'static str, w: i32| Tc {
+        fill: Some(ACCENT),
+        bold: true,
+        color: Some("FFFFFF"),
+        ..tc(t, w)
+    };
+    let num = |t: &'static str, w: i32| Tc {
+        align: Alignment::Right,
+        ..tc(t, w)
+    };
+    let x = |t: &'static str, w: i32| Tc {
+        align: Alignment::Center,
+        ..tc(t, w)
+    };
+    let sub = |t: &'static str| Tc {
+        fill: Some(TINT),
+        bold: true,
+        span: 4,
+        ..tc(t, WIDTH)
+    };
+    let hline = Borders {
+        top: Some(Border::single(12)),
+        bottom: Some(Border::single(12)),
+        inside_h: Some(line(4, "BFBFBF")),
+        ..Borders::default()
+    };
     vec![
+        (
+            "Lịch tháng",
+            "Lịch một tháng, tuần bắt đầu từ thứ Hai, chủ nhật màu đỏ",
+            calendar("Tháng 7 năm 2026", 2, 31),
+        ),
+        (
+            "Bảng – Ma trận",
+            "Ma trận phân công: công việc theo hàng, người thực hiện theo cột",
+            vec![designed_table(
+                vec![
+                    vec![
+                        head("Công việc", 3_070),
+                        head("Trưởng phòng", 1_500),
+                        head("Chuyên viên", 1_500),
+                        head("Kế toán", 1_500),
+                        head("Văn thư", 1_500),
+                    ],
+                    vec![
+                        tc("Lập kế hoạch", 3_070),
+                        x("x", 1_500),
+                        x("x", 1_500),
+                        x("", 1_500),
+                        x("", 1_500),
+                    ],
+                    vec![
+                        tc("Dự toán kinh phí", 3_070),
+                        x("", 1_500),
+                        x("x", 1_500),
+                        x("x", 1_500),
+                        x("", 1_500),
+                    ],
+                    vec![
+                        tc("Phát hành văn bản", 3_070),
+                        x("x", 1_500),
+                        x("", 1_500),
+                        x("", 1_500),
+                        x("x", 1_500),
+                    ],
+                    vec![
+                        tc("Lưu hồ sơ", 3_070),
+                        x("", 1_500),
+                        x("", 1_500),
+                        x("", 1_500),
+                        x("x", 1_500),
+                    ],
+                ],
+                &[3_070, 1_500, 1_500, 1_500, 1_500],
+                Some(Borders::all(&Border::single(4))),
+                1,
+            )],
+        ),
+        (
+            "Bảng – Có tiêu đề phụ",
+            "Bảng kê có các nhóm (tiêu đề phụ tô nền) và cột số căn phải",
+            vec![designed_table(
+                vec![
+                    vec![
+                        head("Hạng mục", 4_270),
+                        head("Số lượng", 1_400),
+                        head("Đơn giá", 1_700),
+                        head("Thành tiền", 1_700),
+                    ],
+                    vec![sub("A. Thiết bị")],
+                    vec![
+                        tc("Máy tính xách tay", 4_270),
+                        num("4", 1_400),
+                        num("18.500.000", 1_700),
+                        num("74.000.000", 1_700),
+                    ],
+                    vec![
+                        tc("Máy in", 4_270),
+                        num("1", 1_400),
+                        num("6.200.000", 1_700),
+                        num("6.200.000", 1_700),
+                    ],
+                    vec![sub("B. Dịch vụ")],
+                    vec![
+                        tc("Lắp đặt, cài đặt", 4_270),
+                        num("1", 1_400),
+                        num("2.000.000", 1_700),
+                        num("2.000.000", 1_700),
+                    ],
+                    vec![
+                        tc("Bảo trì 12 tháng", 4_270),
+                        num("1", 1_400),
+                        num("3.600.000", 1_700),
+                        num("3.600.000", 1_700),
+                    ],
+                ],
+                &[4_270, 1_400, 1_700, 1_700],
+                Some(hline.clone()),
+                1,
+            )],
+        ),
+        (
+            "Bảng – Số liệu theo quý",
+            "Danh sách chỉ tiêu với số liệu bốn quý, chỉ có đường kẻ ngang",
+            vec![designed_table(
+                vec![
+                    vec![
+                        Tc {
+                            bold: true,
+                            ..tc("Chỉ tiêu", 3_470)
+                        },
+                        Tc {
+                            bold: true,
+                            align: Alignment::Right,
+                            ..tc("Quý I", 1_400)
+                        },
+                        Tc {
+                            bold: true,
+                            align: Alignment::Right,
+                            ..tc("Quý II", 1_400)
+                        },
+                        Tc {
+                            bold: true,
+                            align: Alignment::Right,
+                            ..tc("Quý III", 1_400)
+                        },
+                        Tc {
+                            bold: true,
+                            align: Alignment::Right,
+                            ..tc("Quý IV", 1_400)
+                        },
+                    ],
+                    vec![
+                        tc("Hồ sơ tiếp nhận", 3_470),
+                        num("1.240", 1_400),
+                        num("1.315", 1_400),
+                        num("1.402", 1_400),
+                        num("1.388", 1_400),
+                    ],
+                    vec![
+                        tc("Hồ sơ giải quyết đúng hạn", 3_470),
+                        num("1.198", 1_400),
+                        num("1.290", 1_400),
+                        num("1.371", 1_400),
+                        num("1.360", 1_400),
+                    ],
+                    vec![
+                        tc("Tỷ lệ đúng hạn (%)", 3_470),
+                        num("96,6", 1_400),
+                        num("98,1", 1_400),
+                        num("97,8", 1_400),
+                        num("98,0", 1_400),
+                    ],
+                ],
+                &[3_470, 1_400, 1_400, 1_400, 1_400],
+                Some(hline),
+                1,
+            )],
+        ),
         (
             "Bảng – Danh sách",
             "Bảng ba cột có hàng tiêu đề: STT, nội dung, ghi chú",
@@ -875,7 +1181,7 @@ mod tests {
         assert_eq!(count("ftrs"), 4);
         assert_eq!(count("pgNumB") + count("pgNumT"), 6);
         assert_eq!(count("txtBox"), 3);
-        assert_eq!(count("tbls"), 2);
+        assert_eq!(count("tbls"), 6);
         assert!(count("autoTxt") >= 4);
         // Names and ids are unique; every gallery is one BlueDoc knows.
         let names: BTreeSet<_> = parts.iter().map(|p| &p.props.name).collect();

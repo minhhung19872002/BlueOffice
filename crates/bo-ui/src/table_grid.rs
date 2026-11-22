@@ -112,6 +112,13 @@ impl TableGrid {
         changed
     }
 
+    /// Device rectangle of command row `i` (Quick Tables opens beside its row).
+    pub(crate) fn row_rect(&self, i: usize) -> [f32; 4] {
+        let (w, _) = self.size();
+        let ih = self.px(ITEM_H);
+        [self.x, self.items_top() + i as f32 * ih, w, ih]
+    }
+
     pub(crate) fn press(&self, x: f32, y: f32) -> Option<GridPick> {
         self.pick_at(x, y)
     }

@@ -644,7 +644,11 @@ pub(crate) fn menu(id: &str) -> Vec<Entry> {
         "table.borders" => BORDERS
             .iter()
             .map(|(i, _, l)| e(i, l))
-            .chain([e("table.viewGridlines", "docR7.cmd.viewGridlines")])
+            .chain([
+                e("table.viewGridlines", "docR7.cmd.viewGridlines"),
+                // Round 12: the Borders and Shading dialog.
+                e("table.bordersShading", "doc12.bsMenu"),
+            ])
             .collect(),
         "table.data" => vec![
             e("table.sortAsc", "docTable.sortAsc"),

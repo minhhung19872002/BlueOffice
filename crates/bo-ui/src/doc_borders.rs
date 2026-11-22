@@ -277,22 +277,6 @@ impl BordersDialog {
         }
     }
 
-    /// Centre of the setting button `i` / style row `i` / OK (tests).
-    #[cfg(test)]
-    #[allow(clippy::type_complexity)]
-    pub(crate) fn centers(&self) -> ([(f32, f32); 3], (f32, f32), (f32, f32)) {
-        let c = |r: [f32; 4]| (r[0] + r[2] / 2.0, r[1] + r[3] / 2.0);
-        (
-            [
-                c(self.setting_rect(0)),
-                c(self.setting_rect(1)),
-                c(self.setting_rect(2)),
-            ],
-            c(self.style_rect(3)),
-            c(self.button_rect(0)),
-        )
-    }
-
     fn line(&self, p: &mut dyn Painter, x: f32, y: f32, w: f32, style: usize, color: Rgba) {
         let t = self.scale.max(1.0).round();
         match STYLES[style].0 {

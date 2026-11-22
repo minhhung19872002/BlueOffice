@@ -390,6 +390,44 @@ export interface TableSortKey {
   descending: boolean;
 }
 
+/** A border line of the Borders and Shading dialog (mirrors `bo_edit::table::BorderPen`). */
+export interface BorderPen {
+  /** §17.18.2 ST_Border style. */
+  style: string;
+  /** Width in eighths of a point. */
+  size: number;
+  /** RRGGBB; null = automatic. */
+  color?: string | null;
+}
+
+/** Edges set exactly (null removes one; mirrors `bo_edit::table::BorderEdges`). */
+export interface BorderEdges {
+  top?: BorderPen | null;
+  left?: BorderPen | null;
+  bottom?: BorderPen | null;
+  right?: BorderPen | null;
+  /** Between rows (paragraphs: `between`). */
+  insideH?: BorderPen | null;
+  insideV?: BorderPen | null;
+  /** §17.4.80 / §17.4.79 cell diagonals (cells only). */
+  tl2br?: BorderPen | null;
+  tr2bl?: BorderPen | null;
+}
+
+/** §17.4.58 tblpPr (mirrors `bo_model::TableFloat`, snake_case fields). */
+export interface TableFloat {
+  left_from_text: number;
+  right_from_text: number;
+  top_from_text: number;
+  bottom_from_text: number;
+  horz_anchor: 'margin' | 'page' | 'text' | null;
+  vert_anchor: 'margin' | 'page' | 'text' | null;
+  x: number;
+  x_align: string | null;
+  y: number;
+  y_align: string | null;
+}
+
 export type TableEdit =
   | {
       kind:
@@ -398,7 +436,14 @@ export type TableEdit =
   | { kind: 'insertRow'; below: boolean }
   | { kind: 'insertCell'; right: boolean }
   | { kind: 'insertColumn'; right: boolean }
-  | { kind: 'shading'; hex: string | null }
+  /** `whole`: every cell of the table (round 12). */
+  | { kind: 'shading'; hex: string | null; whole?: boolean }
+  /** Exact borders of the table or (cells) of the selected cells (round 12). */
+  | ({ kind: 'setBorders'; cells?: boolean } & BorderEdges)
+  /** §17.4.63 tblCaption / §17.4.58 tblDescription; empty removes. */
+  | { kind: 'altText'; title: string; description: string }
+  /** §17.4.58 tblpPr and §17.4.56 tblOverlap. */
+  | { kind: 'position'; float: TableFloat; overlap?: boolean }
   | {
       kind: 'borders';
       preset:
@@ -592,6 +637,12 @@ export type ParaFormat =
       preset: 'none' | 'bottom' | 'top' | 'left' | 'right' | 'inside' | 'outside' | 'all';
     }
   | { kind: 'shading'; hex: string | null }
+  /** Exact paragraph borders and their distances from the text in points (round 12). */
+  | ({
+      kind: 'setBorders';
+      between?: BorderPen | null;
+      space?: [number, number, number, number];
+    } & BorderEdges)
   /** §17.3.1.35 suppressLineNumbers / §17.3.1.34 suppressAutoHyphens. */
   | { kind: 'suppressLineNumbers' | 'suppressAutoHyphens'; on: boolean }
   | { kind: 'style'; id: string };

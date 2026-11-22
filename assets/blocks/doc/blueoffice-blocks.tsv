@@ -19,6 +19,10 @@ Số trang – Trên phải	pgNumT	BlueOffice	p	"Trang X / Y" bên phải đầu
 Trích dẫn – Khung viền	txtBox	BlueOffice	content	Khung trích dẫn bên phải, viền mảnh
 Trích dẫn – Nền nhạt	txtBox	BlueOffice	content	Khung trích dẫn bên trái, nền nhạt không viền
 Trích dẫn – Dải ngang	txtBox	BlueOffice	content	Khung trích dẫn rộng ở giữa, kẻ trên và dưới
+Lịch tháng	tbls	BlueOffice	p	Lịch một tháng, tuần bắt đầu từ thứ Hai, chủ nhật màu đỏ
+Bảng – Ma trận	tbls	BlueOffice	p	Ma trận phân công: công việc theo hàng, người thực hiện theo cột
+Bảng – Có tiêu đề phụ	tbls	BlueOffice	p	Bảng kê có các nhóm (tiêu đề phụ tô nền) và cột số căn phải
+Bảng – Số liệu theo quý	tbls	BlueOffice	p	Danh sách chỉ tiêu với số liệu bốn quý, chỉ có đường kẻ ngang
 Bảng – Danh sách	tbls	BlueOffice	p	Bảng ba cột có hàng tiêu đề: STT, nội dung, ghi chú
 Bảng – Lịch công tác	tbls	BlueOffice	p	Bảng bốn cột: thời gian, nội dung, chủ trì, địa điểm
 Nơi nhận	autoTxt	Văn bản hành chính	p	Khối "Nơi nhận" (ô 9b): cỡ 12 đậm nghiêng, danh sách cỡ 11

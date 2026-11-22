@@ -2395,6 +2395,17 @@ pub struct TableProps {
     /// Floating table position (§17.4.58 tblpPr); `None` = the table is inline.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub float: Option<TableFloat>,
+    /// ECMA-376 Part 1, §17.4.56 tblOverlap: `never` keeps this floating table from
+    /// overlapping other floating tables, `overlap` (the default) allows it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub overlap: Option<String>,
+    /// ECMA-376 Part 1, §17.4.63 tblCaption: the table's title (alternative text).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub caption: Option<String>,
+    /// ECMA-376 Part 1, §17.4.58 tblDescription: the table's description (alternative
+    /// text).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     /// Unknown `w:tblPr` children kept verbatim.
     pub unknown: Vec<Raw>,
     /// Tracked change of the table properties (§17.13.5.34 tblPrChange).
@@ -2557,6 +2568,10 @@ pub struct CellProps {
     pub shading: Option<Color>,
     /// Cell borders (`w:tcBorders`).
     pub borders: Option<Borders>,
+    /// Diagonal lines of the cell: ECMA-376 Part 1, §17.4.80 tl2br (top left to bottom
+    /// right) and §17.4.79 tr2bl (top right to bottom left), in `w:tcBorders`.
+    #[serde(default, skip_serializing_if = "no_diagonals")]
+    pub diagonals: [Option<Border>; 2],
     /// Vertical alignment of the content (`w:vAlign`).
     pub v_align: Option<CellVAlign>,
     /// Text flow direction (`w:textDirection`, §17.4.72).
@@ -2578,6 +2593,10 @@ pub struct CellProps {
     pub merge: Option<Box<CellMerge>>,
 }
 
+fn no_diagonals(d: &[Option<Border>; 2]) -> bool {
+    d[0].is_none() && d[1].is_none()
+}
+
 impl Default for CellProps {
     fn default() -> Self {
         CellProps {
@@ -2586,6 +2605,7 @@ impl Default for CellProps {
             v_merge: None,
             shading: None,
             borders: None,
+            diagonals: [None, None],
             v_align: None,
             text_direction: None,
             unknown: Vec::new(),

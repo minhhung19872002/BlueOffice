@@ -114,18 +114,24 @@ fn style_set_gallery_and_page_borders() {
     press(&mut w, (more[0] + more[2] / 2.0, more[1] + more[3] / 2.0));
     assert!(w.design_gallery.is_some(), "▾ lists the sets");
     w.handle(Input::Key(Key::Escape, Mods::default()), &Fixed);
-    // Page Borders: Box, Double, OK puts borders on the pages.
+    // Page Borders: Borders and Shading on its Page Border tab; Box, Double, OK puts borders
+    // on the pages (round 12).
     w.action("design.pageBorders");
     w.handle(Input::Tick, &Fixed);
-    let (settings, double, ok) = w
-        .borders_dialog
-        .as_ref()
-        .map(crate::doc_borders::BordersDialog::centers)
-        .expect("dialog");
-    press(&mut w, settings[1]);
-    press(&mut w, double);
-    press(&mut w, ok);
-    assert!(w.borders_dialog.is_none());
+    let f = w.r3.form.as_mut().expect("Borders and Shading");
+    assert_eq!(f.kind, crate::doc_forms::DocFormKind::BordersShading);
+    assert!(f.canvas_for_test("pSet1", 10.0, 10.0));
+    // Scroll the Style list two rows, then the fifth row shown is Double.
+    f.canvas_for_test("pStyle", 195.0, 160.0);
+    f.canvas_for_test("pStyle", 195.0, 160.0);
+    f.canvas_for_test("pStyle", 30.0, 2.0 + 4.0 * 33.0 + 10.0);
+    assert_eq!(
+        f.bs_edge_for_test(1, 0).map(|e| e.0).as_deref(),
+        Some("double")
+    );
+    let out = f.input(&Input::Key(Key::Enter, Mods::default()));
+    w.form_out(out);
+    assert!(w.r3.form.is_none());
     let doc = w.view.engine().document().expect("document");
     let pb = doc.sections[0].page_borders.as_ref().expect("page borders");
     assert!(format!("{pb:?}").contains("ouble"));

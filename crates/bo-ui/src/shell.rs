@@ -32,6 +32,8 @@ mod ctx10;
 mod r10;
 #[path = "doc_r11.rs"]
 mod r11;
+#[path = "doc_r12.rs"]
+mod r12;
 #[path = "doc_r3.rs"]
 mod r3;
 #[path = "doc_r4.rs"]
@@ -268,6 +270,7 @@ pub struct DocWindow {
     r9: r9::R9,
     r10: r10::R10,
     r11: r11::R11,
+    r12: r12::R12,
 }
 
 /// Font sizes offered by the size box (points).
@@ -464,6 +467,7 @@ impl DocWindow {
             r9: r9::R9::default(),
             r10: r10::R10::default(),
             r11: r11::R11::default(),
+            r12: r12::R12::default(),
         }
     }
 
@@ -484,7 +488,8 @@ impl DocWindow {
                 self.view.has_selection(),
             ),
             (self.t("tprops11.excel", "Spreadsheet"), false),
-            (self.t("tprops11.quickTables", "Quick Tables"), false),
+            // Round 12: the built-in Quick Tables gallery.
+            (self.t("tprops11.quickTables", "Quick Tables"), true),
         ];
         self.menu = None;
         self.table_grid = Some(TableGrid::open(anchor, commands, self.scale));
@@ -611,6 +616,7 @@ impl DocWindow {
             Input::Move { x, y } | Input::Drag { x, y } => grid.hover(x, y),
             Input::Press { x, y, .. } => {
                 let pick = grid.press(x, y);
+                let grid_rect = grid.row_rect(4);
                 self.table_grid = None;
                 self.ribbon.clear_pointer();
                 match pick {
@@ -620,6 +626,7 @@ impl DocWindow {
                     }
                     Some(GridPick::Command(0)) => self.r11_insert_table_dialog(),
                     Some(GridPick::Command(1)) => self.action("table.drawTable"),
+                    Some(GridPick::Command(4)) => self.r12_open_quick(grid_rect),
                     Some(GridPick::Command(_)) => {
                         let cmd = catalog::from_json(json!({
                             "cmd": "tableEdit",
@@ -2083,6 +2090,9 @@ impl DocWindow {
 
     /// Run interface command `id` from the ribbon, title bar, a menu or a shortcut.
     fn action(&mut self, id: &str) -> bool {
+        if let Some(r) = self.r12_action(id) {
+            return r;
+        }
         if let Some(r) = self.r11_action(id) {
             return r;
         }
@@ -2945,6 +2955,9 @@ impl DocWindow {
                 _ => {}
             }
         }
+        if let Some(redraw) = self.r12_input(&input) {
+            return redraw;
+        }
         if let Some(redraw) = self.table_grid_input(&input) {
             return redraw;
         }
@@ -3147,6 +3160,10 @@ impl DocWindow {
             }
         }
         if let Input::Context { x, y } = input {
+            // Round 12: the style gallery's menu.
+            if let Some(RibbonHit::Style(i)) = self.ribbon.hit(x, y) {
+                return self.r12_style_menu(i, x, y);
+            }
             if y >= self.view_top() && y < self.size.1 - self.status_h() {
                 self.r10_context_menu(x, y, text);
                 return true;
@@ -3796,6 +3813,7 @@ impl DocWindow {
                 &label,
             );
         }
+        self.r12_paint(p);
         if let Some(menu) = &self.menu {
             menu.paint(p, &self.r10_menu_theme(), &self.icons);
             self.r10_paint_menu(p);

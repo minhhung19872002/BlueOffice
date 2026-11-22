@@ -288,6 +288,15 @@ pub(super) struct Form {
     placeholders: Vec<(&'static str, String)>,
     /// Labels drawn bold.
     bold: Vec<&'static str>,
+    /// Drop-down lists that open wider than their control: control id, left and width of
+    /// the list (reference pixels) — a narrow arrow button over an edit box.
+    pub drop_spans: Vec<(&'static str, f32, f32)>,
+    /// Colour drop-downs that name their automatic / no colour instead of showing a
+    /// swatch: control id, automatic label, no-colour label.
+    pub swatch_text: Vec<(&'static str, String, String)>,
+    /// Drop-downs of line widths that show a sample line after each item's name: control
+    /// id and each item's width in points.
+    pub combo_lines: Vec<(&'static str, Vec<f32>)>,
 }
 
 /// An entry of an open colour palette.
@@ -348,6 +357,9 @@ impl Form {
             palette: None,
             more_for: None,
             palette_labels: Vec::new(),
+            drop_spans: Vec::new(),
+            swatch_text: Vec::new(),
+            combo_lines: Vec::new(),
             font_k: 1.0,
             headings: false,
             radios: Vec::new(),
@@ -844,15 +856,8 @@ impl Form {
             return None;
         };
         let n = items.len().min(12);
-        Some((
-            [
-                c.rect[0],
-                c.rect[1] + c.rect[3],
-                c.rect[2],
-                n as f32 * ROW_H + 2.0,
-            ],
-            n,
-        ))
+        let (x, w) = self.drop_span(c);
+        Some(([x, c.rect[1] + c.rect[3], w, n as f32 * ROW_H + 2.0], n))
     }
 
     /// Pointer moved: `true` when the hovered button / drop-down item changed.
@@ -1002,15 +1007,16 @@ impl Form {
             return None;
         };
         let n = items.len().min(12);
-        (n > 0).then_some((
-            [
-                c.rect[0],
-                c.rect[1] + c.rect[3],
-                c.rect[2],
-                n as f32 * ROW_H + 2.0,
-            ],
-            n,
-        ))
+        let (x, w) = self.drop_span(c);
+        (n > 0).then_some(([x, c.rect[1] + c.rect[3], w, n as f32 * ROW_H + 2.0], n))
+    }
+
+    /// Left and width of a control's drop-down list (see `drop_spans`).
+    fn drop_span(&self, c: &Ctl) -> (f32, f32) {
+        self.drop_spans
+            .iter()
+            .find(|d| d.0 == c.id)
+            .map_or((c.rect[0], c.rect[2]), |d| (d.1, d.2))
     }
 
     /// Mouse wheel over a list box scrolls it.
@@ -1458,6 +1464,15 @@ impl Form {
                         value.iter().collect()
                     };
                     let tx = r[0] + 5.0 * self.k;
+                    // A tall box (a description) writes from its top line.
+                    let tall = r[3] > 40.0 * self.k;
+                    let text_y = |r: [f32; 4]| {
+                        if tall {
+                            (r[1] + 4.0 * self.k).round()
+                        } else {
+                            text_y(r)
+                        }
+                    };
                     match self.placeholders.iter().find(|(id, _)| *id == c.id) {
                         Some((_, hint)) if s.is_empty() => {
                             // Shown selected, as the reference's search box opens.
@@ -1487,7 +1502,12 @@ impl Form {
                     }
                     if focused && caret_on && self.all != Some(i) {
                         let cx = (tx + self.caret_w).round();
-                        p.fill_rect(cx, r[1] + 4.0 * self.k, 1.0, r[3] - 8.0 * self.k, INK);
+                        let ch = if tall {
+                            font.size * 1.33
+                        } else {
+                            r[3] - 8.0 * self.k
+                        };
+                        p.fill_rect(cx, r[1] + 4.0 * self.k, 1.0, ch, INK);
                     }
                     p.pop_clip();
                 }
@@ -1612,10 +1632,11 @@ impl Form {
                         r[3] - 2.0,
                         EDIT_EDGE,
                     );
-                    if let Some(s) = items.get(*sel) {
+                    if let Some(s) = items.get(*sel).filter(|_| r[2] - bw - 3.0 > 0.0) {
                         p.push_clip(r[0] + 1.0, r[1] + 1.0, r[2] - bw - 3.0, r[3] - 2.0);
                         p.text_font(s, r[0] + 5.0 * self.k, text_y(r), &font, ink);
                         p.pop_clip();
+                        self.paint_line_sample(p, c.id, *sel, r, bw, ink);
                     }
                     chevron(p, r[0] + r[2] - bw / 2.0 - 1.0, r[1] + r[3] / 2.0, self.k);
                 }
@@ -1707,7 +1728,27 @@ impl Form {
                         r[2] - bw - (10.0 * self.k).round(),
                         r[3] - (10.0 * self.k).round(),
                     ];
-                    if hex == NO_COLOR {
+                    let named = self.swatch_text.iter().find(|s| s.0 == c.id).and_then(|s| {
+                        if hex.is_empty() {
+                            Some(s.1.as_str())
+                        } else if hex == NO_COLOR {
+                            Some(s.2.as_str())
+                        } else {
+                            None
+                        }
+                    });
+                    if let Some(label) = named.filter(|l| !l.is_empty()) {
+                        // The colour's name centred in the box (Automatic, No Color).
+                        let w = self.width(label);
+                        let ink = if c.enabled { INK } else { GREY_INK };
+                        p.text_font(
+                            label,
+                            (r[0] + (r[2] - bw - w) / 2.0).round(),
+                            text_y(r),
+                            &font,
+                            ink,
+                        );
+                    } else if hex == NO_COLOR {
                         // No colour: an empty swatch in a grey outline.
                         p.fill_rect(sr[0], sr[1], sr[2], sr[3], EDIT_EDGE);
                         p.fill_rect(sr[0] + 1.0, sr[1] + 1.0, sr[2] - 2.0, sr[3] - 2.0, WHITE);
@@ -1743,6 +1784,14 @@ impl Form {
                         &font,
                         if k == item { WHITE } else { INK },
                     );
+                    self.paint_line_sample(
+                        p,
+                        self.ctls[i].id,
+                        k,
+                        [d[0], y, d[2], rh],
+                        0.0,
+                        if k == item { WHITE } else { INK },
+                    );
                 }
             }
         }
@@ -1750,6 +1799,33 @@ impl Form {
 }
 
 impl Form {
+    /// The sample line of item `k` of a line-width drop-down (`combo_lines`) in box `r`,
+    /// left of its `bw` button.
+    fn paint_line_sample(
+        &self,
+        p: &mut dyn Painter,
+        id: &str,
+        k: usize,
+        r: [f32; 4],
+        bw: f32,
+        ink: Rgba,
+    ) {
+        let Some(pt) = self
+            .combo_lines
+            .iter()
+            .find(|c| c.0 == id)
+            .and_then(|c| c.1.get(k).copied())
+        else {
+            return;
+        };
+        let t = (pt * 1.25 * self.k).max(1.0).round();
+        let x0 = r[0] + 64.0 * self.k;
+        let x1 = r[0] + r[2] - bw - 12.0 * self.k;
+        if x1 > x0 {
+            p.fill_rect(x0, (r[1] + (r[3] - t) / 2.0).round(), x1 - x0, t, ink);
+        }
+    }
+
     /// The open colour palette: Automatic, Theme Colors, Standard Colors, More Colors….
     fn paint_palette(
         &self,

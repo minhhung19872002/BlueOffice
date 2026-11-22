@@ -103,6 +103,8 @@ pub fn menu(id: &str) -> Vec<Entry> {
             e("format.paraBorders.outside", "Outside borders"),
             e("format.paraBorders.all", "All borders"),
             e("format.paraBorders.none", "No border"),
+            // Round 12: the Borders and Shading dialog.
+            e("format.bordersShading", "doc12.bsMenu"),
         ],
         "format.sortParagraphs" => vec![
             e("format.sortParagraphs.asc", "Sort A to Z"),

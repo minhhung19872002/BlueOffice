@@ -60,6 +60,12 @@ pub struct BorderPen {
 }
 
 impl BorderPen {
+    /// The model border drawn by this pen (no space from the text).
+    #[must_use]
+    pub fn line(&self) -> Border {
+        self.border()
+    }
+
     fn border(&self) -> Border {
         Border {
             style: self.style.clone(),
@@ -68,6 +74,37 @@ impl BorderPen {
             space: 0,
         }
     }
+}
+
+/// Edges set by the Borders and Shading dialog: each drawn with its pen, or removed
+/// (`None`). For paragraphs `insideH` is the line between them (also read as `between`).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BorderEdges {
+    /// Top edge.
+    #[serde(default)]
+    pub top: Option<BorderPen>,
+    /// Left edge.
+    #[serde(default)]
+    pub left: Option<BorderPen>,
+    /// Bottom edge.
+    #[serde(default)]
+    pub bottom: Option<BorderPen>,
+    /// Right edge.
+    #[serde(default)]
+    pub right: Option<BorderPen>,
+    /// Lines between rows (between paragraphs).
+    #[serde(default, alias = "between")]
+    pub inside_h: Option<BorderPen>,
+    /// Lines between columns.
+    #[serde(default)]
+    pub inside_v: Option<BorderPen>,
+    /// Diagonal from the top left corner of each selected cell (§17.4.80 tl2br; cells only).
+    #[serde(default)]
+    pub tl2br: Option<BorderPen>,
+    /// Diagonal from the top right corner (§17.4.79 tr2bl; cells only).
+    #[serde(default)]
+    pub tr2bl: Option<BorderPen>,
 }
 
 /// A table editing command.
@@ -113,6 +150,22 @@ pub enum TableEdit {
     Shading {
         /// Fill colour `RRGGBB`; `None` removes it.
         hex: Option<String>,
+        /// Every cell of the table (Borders and Shading › Apply to: Table), else the
+        /// selected cells.
+        #[serde(default)]
+        whole: bool,
+    },
+    /// Exact borders from the Borders and Shading dialog: each edge drawn with its pen or
+    /// removed (`None`). `cells`: the selected cells get them as cell borders (§17.4.67
+    /// tcBorders; the inside lines go between the selected cells), else the table
+    /// (§17.4.39 tblBorders) and the cell borders are cleared.
+    SetBorders {
+        /// Apply to the selected cells (else to the table).
+        #[serde(default)]
+        cells: bool,
+        /// The edges.
+        #[serde(flatten)]
+        edges: Box<BorderEdges>,
     },
     /// Apply a border preset to the table (`w:tblBorders`).
     Borders {
@@ -177,6 +230,25 @@ pub enum TableEdit {
     Wrap {
         /// Text wraps around the table.
         around: bool,
+    },
+    /// The table's alternative text (§17.4.63 tblCaption, §17.4.58 tblDescription); empty
+    /// texts remove the element.
+    AltText {
+        /// Title.
+        #[serde(default)]
+        title: String,
+        /// Description.
+        #[serde(default)]
+        description: String,
+    },
+    /// Position of a floating table (§17.4.58 tblpPr) and whether it may overlap other
+    /// floating tables (§17.4.56 tblOverlap); makes the table float when it is inline.
+    Position {
+        /// The new position (anchors, offsets or alignments, distances from the text).
+        float: Box<bo_model::TableFloat>,
+        /// Allow overlap (`false` writes `tblOverlap never`).
+        #[serde(default = "overlap_default")]
+        overlap: bool,
     },
     /// Replace the table by paragraphs, cells joined by `separator` (`"\t"`, `","`,
     /// `"\n"` = a paragraph per cell, or any text).
@@ -661,6 +733,10 @@ impl Session {
     }
 }
 
+fn overlap_default() -> bool {
+    true
+}
+
 pub(crate) fn nil_border() -> Border {
     Border {
         style: "nil".into(),
@@ -722,6 +798,13 @@ impl Session {
                 .props
                 .cell_margin_vertical
                 .map_or((0, 0), |(a, b)| (a.0, b.0)),
+            borders: t.props.borders.clone(),
+            cell_borders: cell.props.borders.clone(),
+            cell_diagonals: cell.props.diagonals.clone(),
+            caption: t.props.caption.clone().unwrap_or_default(),
+            description: t.props.description.clone().unwrap_or_default(),
+            float: t.props.float.clone(),
+            overlap: t.props.overlap.as_deref() != Some("never"),
         })
     }
 
@@ -1156,8 +1239,15 @@ impl Session {
                     }
                 }
             }
-            TableEdit::Shading { hex } => {
+            TableEdit::Shading { hex, whole } => {
                 let c = hex.as_deref().and_then(Color::from_hex);
+                if *whole {
+                    for row in &mut t.rows {
+                        for cell in &mut row.cells {
+                            cell.props.shading = c;
+                        }
+                    }
+                }
                 for r in r0..=r1 {
                     for g in g0..=g1 {
                         if let Some(i) = cell_covering(&t.rows[r], g) {
@@ -1317,6 +1407,69 @@ impl Session {
                 }
             }
             TableEdit::Wrap { around } => tools::set_wrap(&mut t, *around),
+            TableEdit::SetBorders { cells, edges } => {
+                let BorderEdges {
+                    top,
+                    left,
+                    bottom,
+                    right,
+                    inside_h,
+                    inside_v,
+                    tl2br,
+                    tr2bl,
+                } = edges.as_ref();
+                let line = |p: &Option<BorderPen>| {
+                    Some(p.as_ref().map_or_else(nil_border, BorderPen::border))
+                };
+                if *cells {
+                    for r in r0..=r1 {
+                        for g in g0..=g1 {
+                            let Some(i) = cell_covering(&t.rows[r], g) else {
+                                continue;
+                            };
+                            let first = starts(&t.rows[r]).get(i).copied().unwrap_or(g);
+                            let last = first + span(&t.rows[r].cells[i]) - 1;
+                            let b = Borders {
+                                top: line(if r == r0 { top } else { inside_h }),
+                                bottom: line(if r == r1 { bottom } else { inside_h }),
+                                left: line(if first <= g0 { left } else { inside_v }),
+                                right: line(if last >= g1 { right } else { inside_v }),
+                                inside_h: None,
+                                inside_v: None,
+                            };
+                            let props = &mut t.rows[r].cells[i].props;
+                            props.borders = Some(b);
+                            props.diagonals = [
+                                tl2br.as_ref().map(BorderPen::border),
+                                tr2bl.as_ref().map(BorderPen::border),
+                            ];
+                        }
+                    }
+                } else {
+                    t.props.borders = Some(Borders {
+                        top: line(top),
+                        left: line(left),
+                        bottom: line(bottom),
+                        right: line(right),
+                        inside_h: line(inside_h),
+                        inside_v: line(inside_v),
+                    });
+                    for row in &mut t.rows {
+                        for c in &mut row.cells {
+                            c.props.borders = None;
+                        }
+                    }
+                }
+            }
+            TableEdit::AltText { title, description } => {
+                let some = |s: &String| (!s.is_empty()).then(|| s.clone());
+                t.props.caption = some(title);
+                t.props.description = some(description);
+            }
+            TableEdit::Position { float, overlap } => {
+                t.props.float = Some(float.as_ref().clone());
+                t.props.overlap = (!overlap).then(|| "never".to_owned());
+            }
             // Handled before the table is copied.
             TableEdit::ToText { .. }
             | TableEdit::FromText { .. }

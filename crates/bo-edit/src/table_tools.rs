@@ -665,12 +665,15 @@ pub(crate) fn apply_look(t: &mut Table, name: &str, o: LookOptions) -> bool {
 pub(crate) fn set_wrap(t: &mut Table, around: bool) {
     if !around {
         t.props.float = None;
+        t.props.overlap = None;
         return;
     }
     if t.props.float.is_some() {
         return;
     }
-    // 0.125" (180 twips) between the table and the text beside it.
+    // 0.125" (180 twips) between the table and the text beside it; like the reference, a
+    // table set to wrap does not overlap other floating tables (§17.4.56 tblOverlap never).
+    t.props.overlap = Some("never".into());
     t.props.float = Some(TableFloat {
         left_from_text: Twips(180),
         right_from_text: Twips(180),
@@ -679,7 +682,7 @@ pub(crate) fn set_wrap(t: &mut Table, around: bool) {
         horz_anchor: Some("text".into()),
         vert_anchor: Some("text".into()),
         x: t.props.indent.unwrap_or(Twips(0)),
-        x_align: None,
+        x_align: Some("left".into()),
         y: Twips(0),
         y_align: None,
     });

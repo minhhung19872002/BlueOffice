@@ -213,17 +213,29 @@ pub fn features_of(rp: &RunProps) -> Vec<([u8; 4], u32)> {
 /// mixed with the pattern colour (auto = black) by the pattern's coverage.
 #[must_use]
 pub fn shading_color(rp: &RunProps) -> Option<Color> {
-    let Some(pat) = rp.shading_pattern.as_ref().filter(|p| p.coverage() > 0.0) else {
-        return rp.shading;
+    mixed_shading(rp.shading, rp.shading_pattern.as_ref())
+}
+
+/// Shading colour of a fill and a §17.18.78 pattern (runs §17.3.2.32, paragraphs
+/// §17.3.1.31, cells §17.4.32): the fill (auto = white) mixed with the pattern colour
+/// (auto = black) by the pattern's coverage — the reference word processor's tiles are
+/// 1/600" pixels, which read as that mix at any normal zoom.
+#[must_use]
+pub fn mixed_shading(
+    fill: Option<Color>,
+    pat: Option<&bo_model::run_fx::ShadingPattern>,
+) -> Option<Color> {
+    let Some(pat) = pat.filter(|p| p.coverage() > 0.0) else {
+        return fill;
     };
-    let fill = rp.shading.unwrap_or(Color::WHITE);
+    let base = fill.unwrap_or(Color::WHITE);
     let fg = pat.color.unwrap_or(Color::BLACK);
     let k = pat.coverage();
     let mix = |a: u8, b: u8| (f32::from(a) * (1.0 - k) + f32::from(b) * k).round() as u8;
     Some(Color {
-        r: mix(fill.r, fg.r),
-        g: mix(fill.g, fg.g),
-        b: mix(fill.b, fg.b),
+        r: mix(base.r, fg.r),
+        g: mix(base.g, fg.g),
+        b: mix(base.b, fg.b),
     })
 }
 

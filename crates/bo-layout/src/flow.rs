@@ -6,13 +6,14 @@ use crate::blocks::{
     stack_blocks, stack_note, Band, Brk, Ctx, ParaBlock, Stack, TableBox,
 };
 use crate::drawing::Float;
+use crate::page::page_frame;
 use crate::paragraph::{WrapZone, MIN_SEGMENT};
 use crate::style::ListCounters;
 use crate::types::{Layer, Line, LineRotation, LineSource, NoteKey, Page, PageItem};
 use crate::LayoutError;
 use bo_model::{
-    Block, Color, DropCap, Emu, FrameProps, LineNumberRestart, LineNumbering, NotePos, PageSetup,
-    Paragraph, Section, SectionBreak, Twips, Wrap, WrapText,
+    Block, Color, Document, DropCap, Emu, FrameProps, LineNumberRestart, LineNumbering, NotePos,
+    PageSetup, Paragraph, Section, SectionBreak, Twips, Wrap, WrapText,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -103,6 +104,9 @@ pub(crate) struct Snap {
     text_bottom: Option<f32>,
     excl: Vec<(f32, f32)>,
     sides: Vec<SideZone>,
+    float_tables: Vec<FloatTable>,
+    page_dx: f32,
+    v_align: bo_model::PageVAlign,
     prev: Option<Prev>,
     lists: ListCounters,
     other_lists: ListCounters,
@@ -183,6 +187,13 @@ pub(crate) struct Flow {
     excl: Vec<(f32, f32)>,
     /// Areas of square/tight-wrapped pictures on the current page (text flows beside them).
     sides: Vec<SideZone>,
+    /// Floating tables placed on the current page (§17.4.56 tblOverlap).
+    float_tables: Vec<FloatTable>,
+    /// How far even pages of the current section move right (mirror margins, book
+    /// fold: [`crate::page::page_frame`]).
+    page_dx: f32,
+    /// §17.6.23 vAlign of the current section.
+    v_align: bo_model::PageVAlign,
     pub foot_cache: HashMap<NoteKey, Stack>,
     prev: Option<Prev>,
     /// Page index at which each section started on a fresh page.
@@ -522,6 +533,122 @@ pub(crate) struct SideZone {
     pub outline: Option<Outline>,
 }
 
+/// Move the body of `page` down for §17.6.23 vAlign with `free` points left below it:
+/// half for `center`, all for `bottom`; `both` spreads it over the gaps between the
+/// paragraphs (lines and items below a paragraph's first line move with it).
+fn align_body(page: &mut Page, v: bo_model::PageVAlign, free: f32) {
+    use bo_model::PageVAlign;
+    let shift_of: Box<dyn Fn(f32) -> f32> = match v {
+        PageVAlign::Top => return,
+        PageVAlign::Center => Box::new(move |_| free / 2.0),
+        PageVAlign::Bottom => Box::new(move |_| free),
+        PageVAlign::Both => {
+            // Tops of the paragraphs, in page order.
+            let mut tops: Vec<(Option<LineSource>, f32)> = Vec::new();
+            for l in &page.lines {
+                let src = match l.source {
+                    LineSource::Body(_) => Some(l.source),
+                    _ => None,
+                };
+                if src.is_none() || tops.last().map(|t| t.0) != Some(src) {
+                    tops.push((src, l.top));
+                }
+            }
+            let mut starts: Vec<f32> = tops.iter().map(|t| t.1).collect();
+            starts.sort_by(f32::total_cmp);
+            starts.dedup_by(|a, b| (*a - *b).abs() < 0.01);
+            if starts.len() < 2 {
+                return;
+            }
+            let step = free / (starts.len() - 1) as f32;
+            Box::new(move |y| {
+                let k = starts.iter().rposition(|&t| t <= y + 0.01).unwrap_or(0);
+                step * k as f32
+            })
+        }
+    };
+    for l in &mut page.lines {
+        let dy = shift_of(l.top);
+        l.translate(0.0, dy);
+    }
+    for it in &mut page.items {
+        let y = match it {
+            PageItem::Rect { y, .. } | PageItem::Image { y, .. } | PageItem::Shape { y, .. } => *y,
+            PageItem::Rule { y1, y2, .. } => y1.min(*y2),
+        };
+        it.translate(0.0, shift_of(y));
+    }
+}
+
+/// A floating table on the page (points): its box and its distances from text
+/// (§17.4.58 tblpPr), and whether it forbids overlap (§17.4.56 tblOverlap `never`).
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct FloatTable {
+    pub x0: f32,
+    pub y0: f32,
+    pub x1: f32,
+    pub y1: f32,
+    /// left, right, top, bottom distances from text.
+    pub dist: [f32; 4],
+    pub never: bool,
+}
+
+impl FloatTable {
+    /// Whether a table box at (`x`, `y`) `w` × `h` with distances `d` comes closer to
+    /// this one than both tables' distances allow.
+    fn hits(&self, x: f32, y: f32, w: f32, h: f32, d: [f32; 4]) -> bool {
+        const EPS: f32 = 0.01;
+        x - d[0] < self.x1 + self.dist[1] - EPS
+            && x + w + d[1] > self.x0 - self.dist[0] + EPS
+            && y - d[2] < self.y1 + self.dist[3] - EPS
+            && y + h + d[3] > self.y0 - self.dist[2] + EPS
+    }
+}
+
+/// Moves a floating table at (`x`, `y`) `w` × `h` (distances `d`) clear of the tables
+/// already on the page where either forbids overlap (§17.4.56 tblOverlap `never`), as
+/// the reference word processor does (measured black-box in its PDF export,
+/// docs/ui/REPORT.md "Dàn trang vòng 6"): beside the table it hits — the nearer side
+/// that stays on the page, `rightFromText` + `leftFromText` away, never back the way it
+/// came — else below it (`bottomFromText` + `topFromText`), keeping its x.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn clear_float_tables(
+    tables: &[FloatTable],
+    never: bool,
+    mut x: f32,
+    mut y: f32,
+    w: f32,
+    h: f32,
+    d: [f32; 4],
+    page_w: f32,
+) -> (f32, f32) {
+    // Direction of the last sideways move: -1 left, 1 right, 0 none since moving down.
+    let mut dir = 0i8;
+    for _ in 0..32 {
+        let Some(o) = tables
+            .iter()
+            .find(|o| (never || o.never) && o.hits(x, y, w, h, d))
+        else {
+            break;
+        };
+        let on_page = |cx: f32| cx - d[0] >= -0.01 && cx + w + d[1] <= page_w + 0.01;
+        let right = o.x1 + o.dist[1] + d[0];
+        let left = o.x0 - o.dist[0] - d[1] - w;
+        let side = [(right, 1i8), (left, -1i8)]
+            .into_iter()
+            .filter(|&(cx, s)| on_page(cx) && dir != -s)
+            .min_by(|a, b| (a.0 - x).abs().total_cmp(&(b.0 - x).abs()));
+        if let Some((cx, s)) = side {
+            x = cx;
+            dir = s;
+        } else {
+            y = o.y1 + o.dist[3] + d[2];
+            dir = 0;
+        }
+    }
+    (x, y)
+}
+
 /// Wrap polygon of a tight-wrapped picture (ECMA-376 Part 1, §20.4.2.16) with
 /// the left / right distances from text (§20.4.2.20 `distL` `distR`).
 #[derive(Debug, Clone, PartialEq)]
@@ -616,6 +743,9 @@ impl Flow {
             notice: None,
             excl: Vec::new(),
             sides: Vec::new(),
+            float_tables: Vec::new(),
+            page_dx: 0.0,
+            v_align: bo_model::PageVAlign::Top,
             foot_cache: HashMap::new(),
             prev: None,
             section_start: vec![None; sections],
@@ -668,6 +798,9 @@ impl Flow {
                 text_bottom: self.text_bottom,
                 excl: self.excl.clone(),
                 sides: self.sides.clone(),
+                float_tables: self.float_tables.clone(),
+                page_dx: self.page_dx,
+                v_align: self.v_align,
                 prev: self.prev.clone(),
                 lists: ctx.lists.clone(),
                 other_lists: ctx.other_lists.clone(),
@@ -704,6 +837,9 @@ impl Flow {
         self.text_bottom = s.text_bottom;
         self.excl.clone_from(&s.excl);
         self.sides.clone_from(&s.sides);
+        self.float_tables.clone_from(&s.float_tables);
+        self.page_dx = s.page_dx;
+        self.v_align = s.v_align;
         self.prev.clone_from(&s.prev);
         self.cols_top = s.cols_top;
         self.cols_low = s.cols_low;
@@ -802,6 +938,7 @@ impl Flow {
         }
         self.excl.clear();
         self.sides.clear();
+        self.float_tables.clear();
         self.page_after = self.prev.as_ref().map_or(0.0, |p| p.after);
         self.prev = None;
     }
@@ -825,7 +962,48 @@ impl Flow {
     fn finish_page(&mut self) {
         self.close_columns();
         self.place_page_notes();
+        self.align_page();
         self.turn_page();
+    }
+
+    /// Vertical alignment of the body on the page (ECMA-376 Part 1, §17.6.23 vAlign) and
+    /// the mirrored margins of even pages, applied once the page's body is complete
+    /// (before its header and footer are added), as the reference word processor does
+    /// (measured in its PDF export, docs/ui/REPORT.md "Dàn trang vòng 6"): `center` /
+    /// `bottom` move the whole body by half / all of the room left below its last line,
+    /// `both` spreads that room evenly between its paragraphs.
+    fn align_page(&mut self) {
+        if self.vertical.is_some() {
+            return;
+        }
+        let (top, bottom, v_align, dx) = (self.top, self.bottom, self.v_align, self.page_dx);
+        let Some(page) = self.pages.last_mut() else {
+            return;
+        };
+        if v_align != bo_model::PageVAlign::Top
+            && !page
+                .lines
+                .iter()
+                .any(|l| matches!(l.source, LineSource::Note { .. }))
+        {
+            let low = page
+                .lines
+                .iter()
+                .map(|l| l.top + l.height)
+                .fold(top, f32::max);
+            let free = bottom - low;
+            if free > 0.01 {
+                align_body(page, v_align, free);
+            }
+        }
+        if dx.abs() > 0.001 && page.number.is_multiple_of(2) {
+            for l in &mut page.lines {
+                l.translate(dx, 0.0);
+            }
+            for it in &mut page.items {
+                it.translate(dx, 0.0);
+            }
+        }
     }
 
     /// Balance the columns of a section ended by a continuous section break on this page
@@ -1670,6 +1848,27 @@ impl Flow {
             self.next_column();
         }
 
+        // A wrapped picture placed relative to the paragraph that would run below the
+        // bottom margin takes its paragraph to the next page (measured black-box in the
+        // reference word processor, gen-16: an 81 pt square-wrapped picture 1 pt too low
+        // moves its paragraph; docs/ui/REPORT.md "Dàn trang vòng 6").
+        if self.col_has_content && !pb.page_break_before {
+            let full = self.full_height();
+            let overflows = pb.floats.iter().any(|f| {
+                f.img.anchor.as_ref().is_some_and(|a| {
+                    let below = a.y.to_pt() + f.img.height.to_pt();
+                    a.v_relative == "paragraph"
+                        && a.v_align.is_none()
+                        && !a.behind
+                        && a.wrap != bo_model::Wrap::None
+                        && below <= full
+                        && self.y + below > self.bottom - self.foot_h + 0.01
+                })
+            });
+            if overflows {
+                self.next_column();
+            }
+        }
         if let Some(d) = self.drop.take() {
             self.place_drop(&d, pb);
         }
@@ -1957,6 +2156,30 @@ impl Flow {
             Some("bottom" | "outside") => vref.0 + vref.1 - h,
             _ => vref.0 + f.y.to_pt(),
         };
+        let dist = [
+            f.left_from_text.to_pt(),
+            f.right_from_text.to_pt(),
+            f.top_from_text.to_pt(),
+            f.bottom_from_text.to_pt(),
+        ];
+        let (x, y) = clear_float_tables(
+            &self.float_tables,
+            tb.overlap_never,
+            x,
+            y,
+            w,
+            h,
+            dist,
+            page_w,
+        );
+        self.float_tables.push(FloatTable {
+            x0: x,
+            y0: y,
+            x1: x + w,
+            y1: y + h,
+            dist,
+            never: tb.overlap_never,
+        });
         let mut top = y;
         for row in &tb.rows {
             let band = row_band(row, row.h, 0.0, false, false);
@@ -2048,7 +2271,7 @@ impl Flow {
     }
 
     /// Start section `si`.
-    fn start_section(&mut self, si: usize, sec: &Section, first: bool) {
+    fn start_section(&mut self, doc: &Document, si: usize, sec: &Section, first: bool) {
         let phys = self.vertical.map_or(self.setup, |v| v.0);
         let same_size = phys.width == sec.page.width && phys.height == sec.page.height;
         let rot = sec
@@ -2071,15 +2294,18 @@ impl Flow {
             self.y = self.cols_top;
         }
         let hf = self.hf_heights.get(si).map_or((0.0, 0.0), |h| h[0]);
-        let (top, bottom) = body_area(&sec.page, hf);
+        let (frame, dx) = page_frame(doc, sec);
+        self.page_dx = dx;
+        self.v_align = sec.layout.v_align;
+        let (top, bottom) = body_area(&frame, hf);
         if rot == 0 {
             self.vertical = None;
-            self.setup = sec.page;
+            self.setup = frame;
             self.top = top;
             self.bottom = bottom;
         } else {
-            let (v, r) = vertical_setup(&sec.page, top, bottom, rot);
-            self.vertical = Some((sec.page, r));
+            let (v, r) = vertical_setup(&frame, top, bottom, rot);
+            self.vertical = Some((frame, r));
             self.setup = v;
             let (vt, vb) = body_area(&v, (0.0, 0.0));
             self.top = vt;
@@ -2165,10 +2391,8 @@ impl Flow {
     ) -> Result<(), LayoutError> {
         let doc = ctx.doc;
         if let (Some(blocks), Some(sec)) = (&doc.continuation_notice, doc.sections.first()) {
-            let w = (sec.page.width.to_pt()
-                - sec.page.margin_left.to_pt()
-                - sec.page.margin_right.to_pt())
-            .max(36.0);
+            let f = page_frame(doc, sec).0;
+            let w = (f.width.to_pt() - f.margin_left.to_pt() - f.margin_right.to_pt()).max(36.0);
             self.notice = Some(stack_blocks(ctx, blocks, w, false, None)?);
         }
         let (s0, k0) = from.unwrap_or((0, 0));
@@ -2178,7 +2402,7 @@ impl Flow {
             if from.is_some() && si == s0 {
                 k = k0;
             } else {
-                self.start_section(si, sec, si == 0);
+                self.start_section(doc, si, sec, si == 0);
                 section_start = Some(self.checkpoint(ctx));
             }
             self.beneath = doc.footnote_props(si).pos == Some(NotePos::BeneathText);

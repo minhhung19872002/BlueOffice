@@ -3,19 +3,19 @@ source: crates/bo-engine/tests/chart_elements.rs
 expression: "chart_summary(&wb, chart)"
 ---
 rect 0.0,0.0 480.0x288.0 #ffffffff
-line 0.0,0.2 → 480.0,0.2 0.50 #c8cdd3ff
-line 0.0,287.8 → 480.0,287.8 0.50 #c8cdd3ff
-line 0.2,0.0 → 0.2,288.0 0.50 #c8cdd3ff
-line 479.8,0.0 → 479.8,288.0 0.50 #c8cdd3ff
-path 4segs M241.5,134.4 L241.5,36.9 C270.2,41.2 Z fill #2e6db4ff stroke #ffffffff 0.75
-path 4segs M245.5,135.9 L274.2,42.8 C321.7,75.2 Z fill #f28c28ff stroke #ffffffff 0.75
-path 4segs M249.5,141.8 L325.7,81.1 C344.5,163.5 Z fill #2fa36bff stroke #ffffffff 0.75
-path 4segs M246.6,151.1 L341.6,172.8 C261.2,247.5 Z fill #d64545ff stroke #ffffffff 0.75
-path 4segs M234.5,152.1 L249.0,248.4 C139.5,173.7 Z fill #7e57c2ff stroke #ffffffff 0.75
-path 5segs M232.4,137.9 L137.4,159.6 C156.2,77.2 C232.4,40.5 Z fill #c9a227ff stroke #ffffffff 0.75
-label 8.1pt 245.3,15.8 30.6x12.6 "4,8%"
-label 8.1pt 302.7,35.9 30.6x12.6 "9,5%"
-label 8.1pt 359.7,110.3 36.0x12.6 "14,3%"
-label 8.1pt 318.1,228.0 36.0x12.6 "19,0%"
-label 8.1pt 142.4,239.5 36.0x12.6 "23,8%"
-label 8.1pt 111.6,60.9 36.0x12.6 "28,6%"
+line 0.0,0.2 → 480.0,0.2 0.50 #898989ff
+line 0.0,287.8 → 480.0,287.8 0.50 #898989ff
+line 0.2,0.0 → 0.2,288.0 0.50 #898989ff
+line 479.8,0.0 → 479.8,288.0 0.50 #898989ff
+path 4segs M241.4,140.1 L241.4,45.1 C269.4,49.3 Z fill #2e6db4ff stroke none
+path 4segs M245.4,141.7 L273.4,50.9 C319.6,82.4 Z fill #f28c28ff stroke none
+path 4segs M249.3,147.4 L323.5,88.2 C341.9,168.5 Z fill #2fa36bff stroke none
+path 4segs M246.5,156.5 L339.1,177.6 C260.6,250.4 Z fill #d64545ff stroke none
+path 4segs M234.6,157.3 L248.8,251.3 C142.0,178.5 Z fill #7e57c2ff stroke none
+path 5segs M232.6,143.6 L140.0,164.7 C158.3,84.3 C232.6,48.6 Z fill #c9a227ff stroke none
+label 10.0pt 243.6,22.9 34.0x14.0 "4,8%"
+label 10.0pt 300.7,42.5 34.0x14.0 "9,5%"
+label 10.0pt 357.5,115.6 40.0x14.0 "14,3%"
+label 10.0pt 315.9,231.2 40.0x14.0 "19,0%"
+label 10.0pt 140.6,242.5 40.0x14.0 "23,8%"
+label 10.0pt 109.8,67.1 40.0x14.0 "28,6%"

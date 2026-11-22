@@ -917,8 +917,24 @@ impl MathCtx<'_> {
                         el.kid("sub").map(|k| s.children(k, small)),
                     )
                 });
+                // Inline, a base made tall only by text-style fractions does not raise
+                // its superscript: the reference sets (1 + r/100)ᵗ's t 0.37 em up, as
+                // x²'s (office-29 at 13 pt, docs/ui/REPORT.md "Dàn trang vòng 6").
+                let frac_bars = !display
+                    && !e.rules.is_empty()
+                    && e.rules.iter().all(|r| {
+                        (r.1 - r.3).abs() < 1e-3 && (r.1 + 0.292 * size).abs() < 0.05 * size
+                    });
+                let base = if frac_bars {
+                    MathBox {
+                        w: e.w,
+                        ..MathBox::default()
+                    }
+                } else {
+                    e.clone()
+                };
                 let (sup_shift, sub_shift) =
-                    Self::script_shifts(c, size, &e, sup.as_ref(), sub.as_ref());
+                    Self::script_shifts(c, size, &base, sup.as_ref(), sub.as_ref());
                 let mut scripts = MathBox::default();
                 let sw = sup
                     .as_ref()
@@ -1589,6 +1605,20 @@ mod tests {
         let ts: Vec<_> = b.runs.iter().filter(|r| r.text == "\u{1D461}").collect();
         assert_eq!(ts.len(), 2);
         assert!((ts[0].y - ts[1].y).abs() < 1e-3);
+    }
+
+    #[test]
+    fn inline_fraction_in_a_base_does_not_raise_the_superscript() {
+        // office-29: V = V₀(1 + r/100)ᵗ inline — t as high as x²'s 2 (0.37 em at 13 pt in
+        // the reference's PDF), not above the numerator.
+        let (mut fm, text, math) = fonts();
+        let xml = format!(
+            r"<m:oMath {M}><m:sSup><m:e><m:r><m:t>(1+</m:t></m:r><m:f><m:num><m:r><m:t>r</m:t></m:r></m:num><m:den><m:r><m:t>100</m:t></m:r></m:den></m:f><m:r><m:t>)</m:t></m:r></m:e><m:sup><m:r><m:t>t</m:t></m:r></m:sup></m:sSup><m:sSup><m:e><m:r><m:t>x</m:t></m:r></m:e><m:sup><m:r><m:t>2</m:t></m:r></m:sup></m:sSup></m:oMath>"
+        );
+        let b = lay(&mut fm, text, math, &xml);
+        let run = |t: &str| b.runs.iter().find(|r| r.text.contains(t)).unwrap();
+        let (t, two) = (run("\u{1D461}"), run("2"));
+        assert!((t.y - two.y).abs() < 1e-3, "{} vs {}", t.y, two.y);
     }
 
     // source: MathVariants of STIX Two Math (vertical constructions of "(" and "∫").

@@ -657,3 +657,71 @@ với bo-cli mới). `cargo test --release -p bo-engine` (106 tệp test, -j 2):
 `docfid-32-sheet-chart-classic-before-after.png`, `docfid-33-inline-fraction-lines-office29-before-after.png`,
 `docfid-34-screen-office01-100pct.png`, `docfid-35-screen-office05-150pct.png`, `docfid-36-screen-office01-150pct.png`,
 `docfid-37-chart-data-labels.png`, `docfid-38-screen-office22-100pct-charts.png`.
+
+## Dàn trang vòng 6 — BlueDoc so với trình soạn thảo đối chiếu (2026-11-22)
+
+Cách chấm như vòng 5 (`SCORER=3`, PDF xuất bằng COM trong instance riêng trên bản sao scratch, không in). Hiệu chuẩn
+mới (tài liệu tự sinh, xuất PDF bằng trình soạn thảo đối chiếu, toạ độ đọc thẳng từ luồng nội dung PDF): đường chéo ô
+(8 kiểu × 3 ô, ô gộp dọc, ô có tô nền), bảng nổi chồng nhau (14 biến thể vị trí / bề rộng / `tblOverlap`), khung đoạn
+(8 khung sz 4–24, space 0–8, có / không bóng; khung `w:frame`), mẫu tô nền (pct5…pct95, sọc, lưới; đoạn / ô / run),
+Thiết lập trang (lề gáy, lề đối xứng, lề gáy ở trên, căn dọc trên / giữa / dưới / đều, gấp sách, hai trang một tờ).
+
+| | Tệp | Số trang khớp | Đầu dòng khớp (TB tệp) | Đầu dòng khớp (theo dòng) | Điểm ảnh lệch TB |
+|---|---|---|---|---|---|
+| Trước → sau | 96 | 96 / 96 | 98,0 → 98,1 % | 99,4 → 99,4 % | 0,0159 → 0,0149 |
+
+Theo tệp (chỉ các tệp đổi; không tệp nào lùi): office-25 (CV) điểm ảnh 0,0423 → 0,0060; gen-16 0,0498 → 0,0101;
+office-29 0,0428 → 0,0270 (đầu dòng 77,8 → 79,3 %); para-03 0,0069 → 0,0012; gen-10 0,0260 → 0,0256; office-05
+0,0216 → 0,0206.
+
+Sửa (test: `crates/bo-layout/tests/borders_shading.rs`, `page_setup.rs`, `table_tools.rs`, `src/math.rs`,
+`crates/bo-docx/tests/reader.rs`, `crates/bo-pdfread/src/render13_tests.rs`):
+1. **Đường chéo ô** (§17.4.80 tl2br, §17.4.79 tr2bl): nối hai góc trong của viền ô (đầu đường ở nơi nét viền trên và
+   trái kết thúc), qua cả ô gộp dọc; `double` vẽ một nét rộng 3 × bề rộng viền, `thick` 2 ×, nét kép mỏng / dày một
+   nét, `dotted` / `dashed` thành nét mảnh 0,14 pt chấm 0,14 / gạch 0,42 pt — như PDF đối chiếu. Màn hình và PDF.
+2. **`tblOverlap="never"`** (§17.4.56): bảng nổi chạm bảng nổi đặt trước (một trong hai có `never`) dời sang cạnh
+   bảng đó — phía gần hơn còn nằm trong trang, cách `rightFromText` + `leftFromText`, không quay lại hướng đã đi —
+   không có chỗ thì xuống dưới bảng đó (`bottomFromText` + `topFromText`), giữ x. Khớp cả 14 biến thể, kể cả chữ chảy
+   quanh.
+3. **Phân số trong cơ sở chỉ số trên** (office-29, V = V₀(1 + r/100)ᵗ): đo lại thấy tử số vẫn ở 0,59 em; cái lệch là
+   chỉ số t — bản đối chiếu đặt t 0,37 em như x², không đẩy lên theo chiều cao phân số. Trong dòng, cơ sở chỉ cao vì
+   phân số kiểu chữ không nâng chỉ số trên.
+4. **Khung đoạn** (§17.3.1.24 pBdr) làm lại theo số đo: khung chiếm chỗ — viền + `w:space` trên dòng đầu và dưới dòng
+   cuối (khung có bóng thêm một bề rộng viền); mép ngoài viền trên ở đỉnh đoạn; mép trong viền trái cách chữ `space`
+   + 1,4 pt, viền phải `space` + 1,5 pt; viền trên / dưới chạy giữa hai mép ngoài viền bên nên góc khép kín (trước đây
+   các cạnh rời và viền nằm trong lề). 8 khung lệch ≤ 0,1 pt. **Bóng** (§17.18.2 `w:shadow`): dải đen rộng bằng viền
+   ngay ngoài viền phải / dưới — dải phải từ mép trong viền trên xuống quá dải dưới; viền đỏ có bóng vẫn bóng đen.
+   `w:frame` xuất PDF như viền thường. Model + docx: `Border { shadow, frame }`, `ParaProps::shading_pattern`,
+   `CellProps::shading_pattern` (đọc / ghi, kế thừa như run).
+5. **Mẫu tô nền** (§17.18.78) trên đoạn, ô, run: bản đối chiếu xuất mỗi mẫu thành ô lặp 8 × 8 điểm 1/600" (0,96 pt) —
+   ở mọi mức thu phóng thường đọc thành màu trộn: pct12 / 37 / 62 / 87 là 12,5 / 37,5 / 62,5 / 87,5 %; sọc ngang /
+   dọc / chéo và lưới ngang 50 %, lưới chéo 75 %, sọc mảnh 25 %, lưới mảnh 43,75 % (đếm điểm trong ô mẫu).
+6. **Thiết lập trang** (mô hình của BlueDoc vòng 13): lề gáy (§17.6.11 `w:gutter`) cộng vào lề trái, hay lề trên với
+   §17.15.1.49 gutterAtTop (đầu trang giữ chỗ); lề đối xứng (§17.15.1.57): trang chẵn bắt đầu ở lề phải (lề ngoài),
+   đầu / chân trang đi theo; gấp sách (§17.15.1.13) ngược lại (trang lẻ bắt đầu ở lề phải + gáy, trang chẵn ở lề trái);
+   căn dọc (§17.6.23): giữa / dưới dời cả thân trang nửa / toàn bộ khoảng trống dưới dòng cuối, đều chia khoảng trống
+   cho các khe giữa đoạn. Hai trang một tờ (§17.15.1.65) không đổi bố cục khi xuất.
+7. **Mục 5 của brief** (3 tệp tệ nhất tiếp theo): office-25 — khung đoạn (mục 4); gen-16 — hình bao vuông neo theo
+   đoạn mà đáy vượt lề dưới (1 pt) kéo đoạn neo sang trang sau như bản đối chiếu; office-17 / 36 / 09 (bảng số dày) —
+   phần lệch còn lại là khử răng cưa khác nhau giữa hai bộ dựng ảnh (vị trí glyph lệch ≤ 0,13 pt), không sửa.
+8. **BlueReader** (`bo-pdfread`, cũng là bộ dựng ảnh đối chiếu của bộ chấm): mẫu lát quá nhiều ô (> 4 000) trước đây
+   thành xám phẳng — đoạn "đỏ trên vàng" hiện xám; nay ô mẫu là một ảnh thì tô màu trung bình của ảnh, và ô mẫu nhỏ
+   hơn hai điểm ảnh thiết bị (`min_line`) cũng tô màu trung bình thay vì lát từng ô (hết vân moiré).
+
+Còn: mẫu sọc / lưới trên màn hình (bản đối chiếu dùng ô 8 × 8 điểm ảnh thiết bị khi hiển thị) cần lệnh tô mẫu trong
+bo-render + Direct2D / PDF / canvas — vòng sau; các đoạn liền nhau cùng khung chưa gộp thành một khung (viền
+`between`); một từ đơn trong khúc dòng đều hai bên cạnh hình (gen-16 "nhằm") bản đối chiếu đẩy sát phải; office-30
+(chữ trong hình — giới hạn bộ chấm), gen-14 (drop cap), images-03.
+
+Kiểm tra (mục 6): `cargo test --release -p bo-engine` (108 tệp test, `fuzz_smoke` bỏ qua) — 1 074 test qua; ảnh chụp
+insta biểu đồ (`chart_elements`, `doc_charts`, `slides`) cập nhật theo giao diện tự động của biểu đồ vòng 5 (đã
+xem: chỉ phần biểu đồ đổi); còn đỏ `editing::mouse_keyboard_undo_find_clipboard` (dán "hai" thành " hai" — cắt dán
+thông minh của bo-edit từ vòng BlueDoc trước, không thuộc vòng này). `cargo test -p bo-cli` 46 / 46 (ảnh mẫu văn bản
+và corpus slide biểu đồ sinh lại, 5 tệp pptx qua OpenXmlValidator); bo-layout (gồm ảnh chụp insta, không đổi), bo-docx,
+bo-model, bo-render, bo-pdfread (202) xanh; clippy sạch; `pnpm build:wasm` (release) + `pnpm --filter
+@blueoffice/platform test` 185 / 185. Tệp khứ hồi có đường chéo / bóng / mẫu tô nền qua OpenXmlValidator.
+
+Ảnh (đối chiếu trái, BlueDoc trước, BlueDoc sau): `scratchpad/show/docfid-39-cell-diagonals.png`,
+`docfid-40-tbloverlap-never.png`, `docfid-41b-box-shadow-frame-corners.png`, `docfid-42b-shading-patterns-fixed-reader.png`,
+`docfid-42c-shading-patterns-size-rule.png`, `docfid-43-page-setup-mirror-gutter-valign.png`,
+`docfid-44-office25-cv-paragraph-boxes.png`, `docfid-45-gen16-picture-moves-paragraph.png`.

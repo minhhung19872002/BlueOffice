@@ -423,7 +423,25 @@ fn para_block(
         wrap,
     };
     let pl = layout_paragraph(&inp, ctx.fonts, ctx.cache)?;
-    let lines = pl.lines.iter().map(|l| rel_line_band(l, source)).collect();
+    let mut lines: Vec<Band> = pl.lines.iter().map(|l| rel_line_band(l, source)).collect();
+    // The box takes room above the first line and below the last (§17.3.1.24 pBdr):
+    // the line and its `w:space` (and the shadow's band), measured black-box in the
+    // reference word processor's PDF export (docs/ui/REPORT.md "Dàn trang vòng 6").
+    if let Some(b) = &pl.borders {
+        let (top, bottom) = box_room(b);
+        if top > 0.0 {
+            if let Some(first) = lines.first_mut() {
+                let mut moved = first.translated(0.0, top);
+                moved.h += top;
+                moved.text_h += top;
+                *first = moved;
+            }
+        }
+        if let Some(last) = lines.last_mut().filter(|_| bottom > 0.0) {
+            last.h += bottom;
+            last.text_h += bottom;
+        }
+    }
     let visible_borders = pl.borders.as_ref().is_some_and(|b| {
         [&b.top, &b.left, &b.bottom, &b.right]
             .iter()
@@ -496,24 +514,119 @@ pub(crate) fn deco_items(d: &Deco, y0: f32, y1: f32, out: &mut Vec<PageItem>) {
         });
     }
     if let Some(b) = &d.borders {
-        let vis = |e: &Option<Border>| e.clone().filter(Border::is_visible);
-        let pad = |e: &Border| e.space as f32;
-        if let Some(e) = vis(&b.top) {
-            let y = y0 - pad(&e);
-            out.push(rule(&e, d.x0, y, d.x1, y));
-        }
-        if let Some(e) = vis(&b.bottom) {
-            let y = y1 + pad(&e);
-            out.push(rule(&e, d.x0, y, d.x1, y));
-        }
-        if let Some(e) = vis(&b.left) {
-            let x = d.x0 - pad(&e);
-            out.push(rule(&e, x, y0, x, y1));
-        }
-        if let Some(e) = vis(&b.right) {
-            let x = d.x1 + pad(&e);
-            out.push(rule(&e, x, y0, x, y1));
-        }
+        box_items(b, d, y0, y1, out);
+    }
+}
+
+/// Distance across a border line as drawn (`double`: two strokes and the gap between).
+fn border_extent(b: &Border) -> f32 {
+    let w = border_width(b);
+    match b.style.as_str() {
+        "double" => 3.0 * w,
+        "thick" => 1.5 * w,
+        _ => w,
+    }
+}
+
+/// Visible edge with its drawn extent.
+fn edge(e: Option<&Border>) -> Option<(Border, f32)> {
+    e.cloned().filter(Border::is_visible).map(|b| {
+        let x = border_extent(&b);
+        (b, x)
+    })
+}
+
+/// Whether a paragraph box has a shadow (§17.18.2 CT_Border `w:shadow` on its right or
+/// bottom edge).
+fn box_shadow(b: &Borders) -> bool {
+    [&b.right, &b.bottom]
+        .iter()
+        .any(|e| e.as_ref().is_some_and(|e| e.shadow && e.is_visible()))
+}
+
+/// Room a paragraph box takes above its first line and below its last: line extent +
+/// `w:space`, and the line extent again for a shadowed box.
+pub(crate) fn box_room(b: &Borders) -> (f32, f32) {
+    let shadow = box_shadow(b);
+    let room = |e: Option<&Border>| {
+        edge(e).map_or(0.0, |(b, x)| {
+            x + b.space as f32 + if shadow { x } else { 0.0 }
+        })
+    };
+    (room(b.top.as_ref()), room(b.bottom.as_ref()))
+}
+
+/// Lines of a paragraph box (§17.3.1.24 pBdr) around a segment `y0..y1` (its room
+/// above / below included, see [`box_room`]), as the reference word processor exports
+/// them: the top line's outer edge on the segment top (one line extent lower with a
+/// shadow), the bottom one's on the segment bottom (one extent higher with a shadow);
+/// the left line's inner edge `w:space` + 1.4 pt left of the text, the right one's
+/// `w:space` + 1.5 pt right of it; top and bottom lines run between the outer edges of
+/// the side lines, side lines between the outer edges of the top and bottom ones. A
+/// shadow is a black band as wide as the line right outside the right / bottom line —
+/// the right one from the top line's inner edge down past the bottom band.
+fn box_items(b: &Borders, d: &Deco, y0: f32, y1: f32, out: &mut Vec<PageItem>) {
+    let shadow = box_shadow(b);
+    let (top, bottom, left, right) = (
+        edge(b.top.as_ref()),
+        edge(b.bottom.as_ref()),
+        edge(b.left.as_ref()),
+        edge(b.right.as_ref()),
+    );
+    let lift = |e: &Option<(Border, f32)>| {
+        e.as_ref()
+            .map_or(0.0, |(_, x)| if shadow { *x } else { 0.0 })
+    };
+    // Outer edges of the box.
+    let yt = y0 + lift(&top);
+    let yb = y1 - lift(&bottom);
+    let xl = d.x0 - left.as_ref().map_or(0.0, |(b, x)| b.space as f32 + 1.4 + x);
+    let xr = d.x1
+        + right
+            .as_ref()
+            .map_or(0.0, |(b, x)| b.space as f32 + 1.5 + x);
+    if let Some((e, x)) = &top {
+        let y = yt + x / 2.0;
+        out.push(rule(e, xl, y, xr, y));
+    }
+    if let Some((e, x)) = &bottom {
+        let y = yb - x / 2.0;
+        out.push(rule(e, xl, y, xr, y));
+    }
+    if let Some((e, x)) = &left {
+        let xc = xl + x / 2.0;
+        out.push(rule(e, xc, yt, xc, yb));
+    }
+    if let Some((e, x)) = &right {
+        let xc = xr - x / 2.0;
+        out.push(rule(e, xc, yt, xc, yb));
+    }
+    if !shadow {
+        return;
+    }
+    let shade = |x: f32, y: f32, w: f32, h: f32| PageItem::Rect {
+        x,
+        y,
+        w: w.max(0.0),
+        h: h.max(0.0),
+        color: Color::BLACK,
+        layer: Layer::Front,
+    };
+    let rw = right
+        .as_ref()
+        .filter(|(e, _)| e.shadow)
+        .map_or(0.0, |(_, x)| *x);
+    let bw = bottom
+        .as_ref()
+        .filter(|(e, _)| e.shadow)
+        .map_or(0.0, |(_, x)| *x);
+    if rw > 0.0 {
+        let from = yt + top.as_ref().map_or(0.0, |(_, x)| *x);
+        out.push(shade(xr, from, rw, yb + bw - from));
+    }
+    if bw > 0.0 {
+        let from = xl + left.as_ref().map_or(0.0, |(_, x)| *x);
+        out.push(shade(from, yb, xr + rw - from, bw));
     }
 }
 
@@ -662,6 +775,9 @@ pub(crate) struct CellBox {
     pub shading: Option<Color>,
     /// top, right, bottom, left (visible borders only)
     pub edges: [Option<Border>; 4],
+    /// Diagonal borders (visible only): top-left to bottom-right (§17.4.80 tl2br) and
+    /// top-right to bottom-left (§17.4.79 tr2bl).
+    pub diagonals: [Option<Border>; 2],
     pub v_align: CellVAlign,
     /// `vMerge` continuation (content drawn by the restart cell above).
     pub continued: bool,
@@ -701,6 +817,8 @@ pub(crate) struct TableBox {
     pub rows: Vec<RowBox>,
     /// Floating position (§17.4.58 tblpPr) of a table the text wraps around.
     pub float: Option<bo_model::TableFloat>,
+    /// §17.4.56 tblOverlap `never`: no other floating table may overlap this one.
+    pub overlap_never: bool,
 }
 
 /// Paragraph properties of the table's style chain (ECMA-376 Part 1, §17.7.6 table
@@ -1393,11 +1511,26 @@ pub(crate) fn layout_table(
                 content,
                 content_h,
                 margins: [ml, mr, mt, mb],
-                shading: if pl.hidden { None } else { cell.props.shading },
+                shading: if pl.hidden {
+                    None
+                } else {
+                    crate::charfx::mixed_shading(
+                        cell.props.shading,
+                        cell.props.shading_pattern.as_ref(),
+                    )
+                },
                 edges: if pl.hidden {
                     [None, None, None, None]
                 } else {
                     edges
+                },
+                diagonals: if pl.hidden || continued {
+                    [None, None]
+                } else {
+                    cell.props
+                        .diagonals
+                        .clone()
+                        .map(|d| d.filter(Border::is_visible))
                 },
                 v_align,
                 continued,
@@ -1426,6 +1559,7 @@ pub(crate) fn layout_table(
                 c.content_h = 0.0;
                 c.shading = None;
                 c.edges = [None, None, None, None];
+                c.diagonals = [None, None];
             }
             h = 0.0;
         }
@@ -1488,6 +1622,7 @@ pub(crate) fn layout_table(
         x,
         rows,
         float: t.props.float.clone(),
+        overlap_never: t.props.overlap.as_deref() == Some("never"),
     })
 }
 
@@ -1633,6 +1768,27 @@ pub(crate) fn row_band(
         }
         if let Some(b) = right {
             band.items.push(rule(b, x1, 0.0, x1, h));
+        }
+        // Diagonal borders run corner to corner across the whole (merged) cell box
+        // (§17.4.80 tl2br, §17.4.79 tr2bl); a vMerge continuation has none of its own.
+        // The reference word processor joins the inner corners of the cell's borders
+        // (measured in its PDF export: the line starts where the top and left border
+        // strokes end).
+        if c.diagonals.iter().any(Option::is_some) {
+            let half = |e: &Option<Border>| e.as_ref().map_or(0.0, |b| border_width(b) / 2.0);
+            let bottom = if c.edges[2].is_some() {
+                &c.edges[2]
+            } else {
+                &c.edges[0]
+            };
+            let (l, r) = (x0 + half(left), x1 - half(right));
+            let (t, b) = (half(top), h + c.span_below - half(bottom));
+            if let Some(d) = &c.diagonals[0] {
+                band.items.push(rule(d, l, t, r, b));
+            }
+            if let Some(d) = &c.diagonals[1] {
+                band.items.push(rule(d, r, t, l, b));
+            }
         }
         // Gridlines where a cell edge has no border (View Gridlines).
         if TABLE_GRID.with(std::cell::Cell::get) {

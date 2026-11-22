@@ -9,24 +9,28 @@ transform [1.000 0.000 0.000 1.000 36.0 18.0]
   text 28.0pt 102.5,30.3 #000000ff "tròn"
 pop transform
 transform [1.000 0.000 0.000 1.000 72.0 100.8]
-  text 16.2pt 342.2,22.9 #3c4043ff "Doanh "
-  text 16.2pt 389.1,22.9 #3c4043ff "thu "
-  text 16.2pt 415.3,22.9 #3c4043ff "theo "
-  text 16.2pt 449.5,22.9 #3c4043ff "quý"
-  rect 676.0,177.8 9.6x9.6 #2e75b6ff
-  text 12.0pt 689.2,185.7 #3c4043ff "Quý "
-  text 12.0pt 711.7,185.7 #3c4043ff "I"
-  rect 676.0,197.0 9.6x9.6 #ed7d31ff
-  text 12.0pt 689.2,204.9 #3c4043ff "Quý "
-  text 12.0pt 711.7,204.9 #3c4043ff "II"
-  rect 676.0,216.2 9.6x9.6 #a5a5a5ff
-  text 12.0pt 689.2,224.1 #3c4043ff "Quý "
-  text 12.0pt 711.7,224.1 #3c4043ff "III"
-  rect 676.0,235.4 9.6x9.6 #ffc000ff
-  text 12.0pt 689.2,243.3 #3c4043ff "Quý "
-  text 12.0pt 711.7,243.3 #3c4043ff "IV"
-  path n=5 [338.0 32.8 527.1 379.3] fill=#2e75b6ff stroke=#ffffffff w0.75
-  path n=4 [169.1 210.4 392.9 409.6] fill=#ed7d31ff stroke=#ffffffff w0.75
-  path n=4 [145.3 66.7 338.0 265.3] fill=#a5a5a5ff stroke=#ffffffff w0.75
-  path n=4 [233.6 32.8 338.0 210.4] fill=#ffc000ff stroke=#ffffffff w0.75
+  line 0.0,0.2 → 816.0,0.2 w0.50
+  line 0.0,395.8 → 816.0,395.8 w0.50
+  line 0.2,0.0 → 0.2,396.0 w0.50
+  line 815.8,0.0 → 815.8,396.0 w0.50
+  text 14.4pt 349.5,21.2 #000000ff "Doanh "
+  text 14.4pt 391.2,21.2 #000000ff "thu "
+  text 14.4pt 414.4,21.2 #000000ff "theo "
+  text 14.4pt 444.8,21.2 #000000ff "quý"
+  rect 765.0,177.4 6.0x6.0 #2e75b6ff
+  text 12.0pt 773.6,184.6 #000000ff "Quý "
+  text 12.0pt 796.2,184.6 #000000ff "I"
+  rect 765.0,197.8 6.0x6.0 #ed7d31ff
+  text 12.0pt 773.6,205.0 #000000ff "Quý "
+  text 12.0pt 796.2,205.0 #000000ff "II"
+  rect 765.0,218.2 6.0x6.0 #a5a5a5ff
+  text 12.0pt 773.6,225.4 #000000ff "Quý "
+  text 12.0pt 796.2,225.4 #000000ff "III"
+  rect 765.0,238.6 6.0x6.0 #ffc000ff
+  text 12.0pt 773.6,245.8 #000000ff "Quý "
+  text 12.0pt 796.2,245.8 #000000ff "IV"
+  path n=5 [380.1 37.2 554.1 356.1] fill=#2e75b6ff
+  path n=4 [224.7 200.6 430.6 384.0] fill=#ed7d31ff
+  path n=4 [202.8 68.4 380.1 251.1] fill=#a5a5a5ff
+  path n=4 [284.1 37.2 380.1 200.6] fill=#ffc000ff
 pop transform

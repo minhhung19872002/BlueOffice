@@ -200,8 +200,10 @@ fn endnotes_in(blocks: &[Block]) -> Vec<i32> {
 }
 
 /// Content width of a section in points.
-fn content_width(s: &bo_model::Section) -> f32 {
-    (s.page.width.to_pt() - s.page.margin_left.to_pt() - s.page.margin_right.to_pt()).max(36.0)
+fn content_width(doc: &Document, s: &bo_model::Section) -> f32 {
+    // The gutter narrows the text (§17.6.11 pgMar w:gutter).
+    let p = page::page_frame(doc, s).0;
+    (p.width.to_pt() - p.margin_left.to_pt() - p.margin_right.to_pt()).max(36.0)
 }
 
 /// How tracked changes (ECMA-376 Part 1, §17.13.5) are displayed.

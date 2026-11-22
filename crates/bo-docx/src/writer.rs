@@ -1236,9 +1236,15 @@ impl Writer<'_> {
             if t.italic {
                 font.push_str(";font-style:italic");
             }
+            // §19.1.2.23 trim: kept so the text's ink still fills the box when read again.
+            let trim = if t.trim {
+                " trim=\"t\" fitpath=\"t\""
+            } else {
+                ""
+            };
             let _ = write!(
                 x,
-                "<v:shape id=\"{name}\" o:spt=\"136\" style=\"{style}\" o:allowincell=\"f\" fillcolor=\"#{}\" stroked=\"f\" coordsize=\"21600,21600\" path=\"m0,10800l21600,10800e\">{opacity}<v:path textpathok=\"t\"/><v:textpath on=\"t\" fitshape=\"t\" style=\"{font}\" string=\"{}\"/></v:shape>",
+                "<v:shape id=\"{name}\" o:spt=\"136\" style=\"{style}\" o:allowincell=\"f\" fillcolor=\"#{}\" stroked=\"f\" coordsize=\"21600,21600\" path=\"m0,10800l21600,10800e\">{opacity}<v:path textpathok=\"t\"/><v:textpath on=\"t\" fitshape=\"t\" style=\"{font}\"{trim} string=\"{}\"/></v:shape>",
                 fill.to_hex(),
                 escape(&t.text)
             );

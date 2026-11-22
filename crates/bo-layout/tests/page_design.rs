@@ -398,3 +398,60 @@ fn borders_surround_header_and_footer_unless_told_not_to() {
     let r = rules(&layout(&d).pages[0]);
     assert!(close(r[0].1, 24.5), "{:?}", r[0]);
 }
+
+/// Round 7 (docs/ui/REPORT.md "Dàn trang vòng 7", watermarks the reference wrote
+/// itself, read back from its PDF export): with §19.1.2.23 `trim` the text's ink fills
+/// the box; without it the advance spans the width and the em the height, the baseline
+/// 0.9745 × ascent / (ascent + descent) of the box below its top.
+#[test]
+fn text_path_fills_the_box_as_the_reference_draws_it() {
+    let ink = |trim: bool| {
+        let mut d = doc(1);
+        let art = ShapeArt {
+            text: Some(TextPath {
+                text: "Hxgpq".into(),
+                font: "Calibri".into(),
+                trim,
+                ..TextPath::default()
+            }),
+            opacity: 500,
+            watermark: true,
+            ..ShapeArt::default()
+        };
+        let header = Paragraph::new(ParaProps::default(), vec![watermark(art, 300.0, 100.0, 0)]);
+        d.sections[0].headers.default = Some(vec![Block::Paragraph(header)]);
+        let l = layout(&d);
+        let (x, y, paths) = l.pages[0]
+            .items
+            .iter()
+            .find_map(|i| match i {
+                PageItem::Shape { x, y, paths, .. } => Some((*x, *y, paths.clone())),
+                _ => None,
+            })
+            .unwrap();
+        let mut b = [f32::MAX, f32::MAX, f32::MIN, f32::MIN];
+        for s in &paths[0].segs {
+            let pts: Vec<(f32, f32)> = match *s {
+                PathCmd::M(x, y) | PathCmd::L(x, y) => vec![(x, y)],
+                PathCmd::Q(a, b, x, y) => vec![(a, b), (x, y)],
+                PathCmd::C(a, b, c, d, x, y) => vec![(a, b), (c, d), (x, y)],
+                PathCmd::Z => vec![],
+            };
+            for (px, py) in pts {
+                b = [b[0].min(px), b[1].min(py), b[2].max(px), b[3].max(py)];
+            }
+        }
+        // Paths are relative to the shape box at (x, y).
+        assert!(x > 0.0 && y > 0.0);
+        (b[0], b[1], b[2], b[3])
+    };
+    let (l, t, r, b) = ink(true);
+    assert!(l.abs() < 0.05 && t.abs() < 0.05, "{l} {t}");
+    assert!(
+        (r - 300.0).abs() < 0.05 && (b - 100.0).abs() < 0.05,
+        "{r} {b}"
+    );
+    // Without trim (reference with Calibri: H top 9.65, descender bottom 90.95 of 100).
+    let (_, t, _, b) = ink(false);
+    assert!((t - 9.65).abs() < 1.0 && (b - 90.95).abs() < 1.0, "{t} {b}");
+}

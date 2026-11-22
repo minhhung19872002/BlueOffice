@@ -47,14 +47,14 @@ clip 85.1,71.6 425.2x255.1
       text 11.6pt 289.6,225.7 "3"
       text 11.6pt 359.5,225.7 "Quý "
       text 11.6pt 381.3,225.7 "4"
-      rect 79.9,89.7 18.3x122.3 #2e6db4ff
-      rect 98.2,132.7 18.3x79.3 #f28c28ff
-      rect 171.6,60.3 18.3x151.7 #2e6db4ff
-      rect 189.9,120.0 18.3x92.0 #f28c28ff
-      rect 263.3,82.8 18.3x129.2 #2e6db4ff
-      rect 281.6,114.1 18.3x97.9 #f28c28ff
-      rect 355.0,47.6 18.3x164.4 #2e6db4ff
-      rect 373.3,88.7 18.3x123.3 #f28c28ff
+      rect 72.0,89.7 26.2x122.3 #2e6db4ff
+      rect 98.2,132.7 26.2x79.3 #f28c28ff
+      rect 163.7,60.3 26.2x151.7 #2e6db4ff
+      rect 189.9,120.0 26.2x92.0 #f28c28ff
+      rect 255.4,82.8 26.2x129.2 #2e6db4ff
+      rect 281.6,114.1 26.2x97.9 #f28c28ff
+      rect 347.1,47.6 26.2x164.4 #2e6db4ff
+      rect 373.3,88.7 26.2x123.3 #f28c28ff
     pop transform
   pop transform
 pop clip

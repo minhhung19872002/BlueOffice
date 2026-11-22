@@ -2084,6 +2084,8 @@ fn read_ppr(r: &mut XmlReader<'_>, mut sect: Option<SectCtx<'_, '_>>) -> Result<
             b"pageBreakBefore" => p.page_break_before = Some(on_off(e)), // §17.3.1.23
             b"widowControl" => p.widow_control = Some(on_off(e)),
             b"contextualSpacing" => p.contextual_spacing = Some(on_off(e)),
+            // §17.3.1.18 mirrorIndents
+            b"mirrorIndents" => p.mirror_indents = Some(on_off(e)),
             b"bidi" => p.bidi = Some(on_off(e)), // §17.3.1.6
             // §17.3.1.35 suppressLineNumbers
             b"suppressLineNumbers" => p.suppress_line_numbers = Some(on_off(e)),

@@ -323,6 +323,23 @@ fn table_cell_margins_top_and_bottom_round_trip() {
     assert_eq!(t.props.cell_margin_vertical, Some((Twips(144), Twips(72))));
 }
 
+/// Paragraph › Mirror indents (round 13): §17.3.1.18 mirrorIndents read, written after
+/// contextualSpacing (CT_PPrBase order) and read back.
+#[test]
+fn mirror_indents_round_trip() {
+    let mut doc = read_docx(&sample()).unwrap();
+    if let Some(Block::Paragraph(p)) = doc.sections[0].blocks.get_mut(1) {
+        p.props.mirror_indents = Some(true);
+        p.props.contextual_spacing = Some(true);
+    }
+    let bytes = write_docx(&doc).unwrap();
+    let main = part(&bytes, "/word/document.xml");
+    let m = main.find("<w:mirrorIndents/>").expect("mirrorIndents");
+    assert!(main.find("<w:contextualSpacing/>").unwrap() < m);
+    let back = read_docx(&bytes).unwrap();
+    assert_eq!(props(&back, 1).mirror_indents, Some(true));
+}
+
 /// Page Setup (round 13): §17.6.11 pgMar @w:gutter and §17.6.23 vAlign per section,
 /// §17.15.1.57 mirrorMargins / §17.15.1.49 gutterAtTop / §17.15.1.13 bookFoldPrinting /
 /// §17.15.1.65 printTwoOnOne in settings — patched into a read document in schema order

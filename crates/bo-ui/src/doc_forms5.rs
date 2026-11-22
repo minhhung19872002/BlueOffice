@@ -666,10 +666,15 @@ impl DocForm {
             _ => v.sort_by_key(|x| !x.recommended),
         }
         self.ids = v.iter().map(|x| x.id.clone()).collect();
-        let pick = self
-            .ids
+        // The caret's style first (the reference opens on it), else Normal.
+        let current = self
+            .words
             .iter()
-            .position(|i| i == "Normal")
+            .find(|w| w.0 == "msCurrent")
+            .map(|w| w.1.clone());
+        let pick = current
+            .and_then(|c| self.ids.iter().position(|i| *i == c))
+            .or_else(|| self.ids.iter().position(|i| i == "Normal"))
             .or((!self.ids.is_empty()).then_some(0));
         let hide = self.manage_text.get(4).cloned().unwrap_or_default();
         let items = v

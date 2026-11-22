@@ -375,6 +375,8 @@ pub struct FindFormat {
     pub suppress_line_numbers: Option<bool>,
     /// §17.3.1.34 suppressAutoHyphens.
     pub suppress_auto_hyphens: Option<bool>,
+    /// §17.3.1.18 mirrorIndents (Paragraph dialog, round 13; set only, not searched).
+    pub mirror_indents: Option<bool>,
     /// §17.3.1.9 contextualSpacing (don't add space between paragraphs of the same style).
     pub contextual_spacing: Option<bool>,
     /// §17.3.2.9 dstrike.
@@ -454,6 +456,7 @@ impl FindFormat {
             || self.page_break_before.is_some()
             || self.suppress_line_numbers.is_some()
             || self.suppress_auto_hyphens.is_some()
+            || self.mirror_indents.is_some()
             || self.contextual_spacing.is_some()
     }
 
@@ -614,6 +617,7 @@ impl FindFormat {
             (self.page_break_before, &mut pp.page_break_before),
             (self.suppress_line_numbers, &mut pp.suppress_line_numbers),
             (self.suppress_auto_hyphens, &mut pp.suppress_auto_hyphens),
+            (self.mirror_indents, &mut pp.mirror_indents),
             (self.contextual_spacing, &mut pp.contextual_spacing),
         ] {
             if let Some(b) = v {

@@ -1710,21 +1710,49 @@ pub(super) fn paint_canvas(
         let scope = if tab == 0 { f.bs_scope() } else { "page" };
         let on = f.bs().setting[tab] == n;
         let icon = [r[0], r[1], (54.0 * k).round(), (50.0 * k).round()];
+        // Measured on the reference (round 13): a #828790 frame on white; the chosen setting
+        // adds a dotted focus line and a 2 px #0078D4 frame inside it, the picture stays white.
         p.fill_rect(
             icon[0],
             icon[1],
             icon[2],
             icon[3],
-            if on { SEL_EDGE } else { EDGE },
+            Rgba(0x82, 0x87, 0x90, 255),
         );
-        let inset = if on { 2.0 * t1 } else { t1 };
         p.fill_rect(
-            icon[0] + inset,
-            icon[1] + inset,
-            icon[2] - 2.0 * inset,
-            icon[3] - 2.0 * inset,
-            if on { SEL_FILL } else { WHITE },
+            icon[0] + t1,
+            icon[1] + t1,
+            icon[2] - 2.0 * t1,
+            icon[3] - 2.0 * t1,
+            WHITE,
         );
+        if on {
+            let (x0, y0, w0, h0) = (
+                icon[0] + 2.0 * t1,
+                icon[1] + 2.0 * t1,
+                icon[2] - 4.0 * t1,
+                icon[3] - 4.0 * t1,
+            );
+            let mut i = 0.0;
+            while i < w0 {
+                p.fill_rect(x0 + i, y0, t1, t1, INK);
+                p.fill_rect(x0 + i, y0 + h0 - t1, t1, t1, INK);
+                i += 2.0 * t1;
+            }
+            let mut j = 0.0;
+            while j < h0 {
+                p.fill_rect(x0, y0 + j, t1, t1, INK);
+                p.fill_rect(x0 + w0 - t1, y0 + j, t1, t1, INK);
+                j += 2.0 * t1;
+            }
+            let blue = Rgba(0x00, 0x78, 0xd4, 255);
+            let b = 2.0 * t1;
+            let (x1, y1, w1, h1) = (x0 + t1, y0 + t1, w0 - 2.0 * t1, h0 - 2.0 * t1);
+            p.fill_rect(x1, y1, w1, b, blue);
+            p.fill_rect(x1, y1 + h1 - b, w1, b, blue);
+            p.fill_rect(x1, y1, b, h1, blue);
+            p.fill_rect(x1 + w1 - b, y1, b, h1, blue);
+        }
         paint_setting_icon(p, icon, n, f.bs_tabular(scope), k);
         let name = match (n, f.bs_tabular(scope)) {
             (0, _) => word(f, "name0"),
@@ -1994,6 +2022,11 @@ pub(super) fn paint_canvas(
                 rgb(&fill),
             );
         }
+        // The reference's preview stays empty without a fill or a pattern.
+        let none = f.form.color("sFill");
+        if pat_i == 0 && (none.is_empty() || none == super::form::NO_COLOR) {
+            return true;
+        }
         let s = word(f, "name7");
         let w = f.form.width(s);
         p.text_font(
@@ -2018,7 +2051,7 @@ fn paint_setting_icon(p: &mut dyn Painter, r: [f32; 4], n: usize, table: bool, k
         r[2] - 18.0 * k,
         r[3] - 14.0 * k,
     );
-    let grey = Rgba(0x9a, 0x9a, 0x9a, 255);
+    let grey = Rgba(0xaa, 0xaa, 0xaa, 255);
     if table {
         // Cell text bars.
         for row in 0..3 {
@@ -2033,11 +2066,17 @@ fn paint_setting_icon(p: &mut dyn Painter, r: [f32; 4], n: usize, table: bool, k
             }
         }
     } else {
+        // Text lines: a short first line at the right, full lines, a short last line.
         for l in 0..7 {
+            let (lx, lw) = match l {
+                0 => (x + w * 0.45, w * 0.55 - 3.0 * k),
+                6 => (x + 3.0 * k, w * 0.6),
+                _ => (x + 3.0 * k, w - 6.0 * k),
+            };
             p.fill_rect(
-                x + 3.0 * k,
+                lx,
                 y + 3.0 * k + l as f32 * (h - 6.0 * k) / 7.0,
-                w - 6.0 * k,
+                lw,
                 t,
                 grey,
             );

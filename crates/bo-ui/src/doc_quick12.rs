@@ -349,10 +349,13 @@ impl QuickTables {
         let Some(t) = &e.table else {
             return;
         };
-        let mut y = r[1] + self.px(6.0);
+        // The reference draws each design reduced (about 0.72 of its size) on a white card
+        // with an 8 px margin (round 13 review).
+        let z = 0.72;
+        let mut y = r[1] + self.px(8.0);
         if let Some(title) = &e.title {
             let st = TextStyle {
-                size: self.px(20.0),
+                size: self.px(20.0 * z),
                 bold: true,
             };
             p.text(
@@ -362,10 +365,10 @@ impl QuickTables {
                 st,
                 Rgba(0x1f, 0x4e, 0x79, 255),
             );
-            y += self.px(34.0);
+            y += self.px(34.0 * z);
         }
         let total: f32 = t.grid.iter().map(|g| g.0 as f32).sum::<f32>().max(1.0);
-        let width = (r[2] - self.px(16.0)).min(total / 20.0 * 1.1 * self.k() * 1.25);
+        let width = (r[2] - self.px(16.0)).min(total / 20.0 * 1.1 * self.k() * 1.25 * z);
         let x0 = r[0] + self.px(8.0);
         let col_x: Vec<f32> = std::iter::once(0.0)
             .chain(t.grid.iter().scan(0.0, |acc, g| {
@@ -374,9 +377,9 @@ impl QuickTables {
             }))
             .map(|v| x0 + (v / total * width).round())
             .collect();
-        let rh = self.px(23.0);
+        let rh = self.px(23.0 * z);
         let st = TextStyle {
-            size: self.px(12.0),
+            size: self.px(12.0 * z),
             bold: false,
         };
         let line =

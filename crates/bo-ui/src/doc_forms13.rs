@@ -35,6 +35,8 @@ pub(crate) struct R13 {
     line: Option<usize>,
     /// Page Setup: orientation (landscape) and the paper sizes offered.
     landscape: bool,
+    /// New Style: the spec it started from (the description lists what differs).
+    base: Value,
 }
 
 /// Spin arrows beside a number box: arrow canvas id, box id, step (twips), unit.
@@ -387,6 +389,10 @@ impl DocForm {
                 vec![json!({ "cmd": "ui.action", "id": "design.pageBorders" })],
                 true,
             ),
+            (DocFormKind::PageSetup, "printOptions") => FormOut::Run(
+                vec![json!({ "cmd": "ui.action", "id": "file.options" })],
+                true,
+            ),
             (DocFormKind::PageSetup, "setDefault") => {
                 let mut v = self.ps_values();
                 v["scope"] = json!("default");
@@ -541,6 +547,8 @@ impl DocForm {
             ("pageBefore", "pageBreakBefore"),
             ("noLineNum", "suppressLineNumbers"),
             ("noHyphen", "suppressAutoHyphens"),
+            ("mirror", "mirrorIndents"),
+            ("mirror", "mirrorIndents"),
         ] {
             if let Some(v) = self.tri_value(id) {
                 m.insert(key.into(), json!(v));
@@ -627,7 +635,7 @@ impl DocForm {
         self.set_label("clearedL", &cleared.join(", "));
         let any = !self.r13().tabs.is_empty();
         self.form.enable("clear", any);
-        self.form.enable("clearAll", any);
+        // The reference keeps Clear All available.
     }
 
     // ------------------------------------------------------------------ Page Setup
@@ -732,8 +740,13 @@ impl DocForm {
         spec["addToGallery"] = json!(self.on("gallery"));
         spec["autoUpdate"] = json!(self.on("auto"));
         let font = self.text("font");
-        if !font.trim().is_empty() {
-            spec["font"] = json!(font.trim());
+        // "Calibri Light (Headings)" is the font Calibri Light.
+        let font = match font.trim().rfind(" (") {
+            Some(i) if font.trim().ends_with(')') => font.trim()[..i].to_owned(),
+            _ => font.trim().to_owned(),
+        };
+        if !font.is_empty() {
+            spec["font"] = json!(font);
         }
         if let Ok(pt) = self.text("size").trim().replace(',', ".").parse::<f32>() {
             spec["size"] = json!((pt * 2.0).round() as u32);
@@ -747,7 +760,8 @@ impl DocForm {
             spec["color"] = json!(color);
         }
         if let Some(a) = r.align {
-            spec["align"] = json!(["left", "center", "right", "both"][a.min(3)]);
+            // `bo_model::Alignment` names (the style spec's serde form).
+            spec["align"] = json!(["Left", "Center", "Right", "Justify"][a.min(3)]);
         }
         if let Some(l) = r.line {
             spec["lineSpacing"] = json!([240, 360, 480][l.min(2)]);
@@ -789,8 +803,15 @@ impl DocForm {
     /// The description under the preview: the format words of the spec.
     pub(crate) fn style_describe(&mut self) {
         let spec = self.style_spec();
+        let base = self.r13().base.clone();
+        // A new style lists what differs from the style it is based on (the reference's
+        // "Style: Show in the Styles gallery / Based on: …"); Modify Style lists all.
+        let differs = |k: &str| self.modify.is_some() || !base.is_object() || spec[k] != base[k];
         let mut words: Vec<String> = Vec::new();
-        if let Some(f) = spec["font"].as_str() {
+        if let Some(f) = spec["font"]
+            .as_str()
+            .filter(|_| differs("font") || differs("size"))
+        {
             let mut w = format!("{} {f}", word(self, "doc13.ns_fontW", "Font:"));
             if let Some(sz) = spec["size"].as_u64() {
                 #[allow(clippy::cast_precision_loss)]
@@ -804,15 +825,17 @@ impl DocForm {
             ("italic", "doc13.ns_italic", "Italic"),
             ("underline", "doc13.ns_underline", "Underline"),
         ] {
-            if spec[k].as_bool() == Some(true) {
+            if spec[k].as_bool() == Some(true) && differs(k) {
                 words.push(word(self, key, fb));
             }
         }
-        if let Some(a) = spec["align"].as_str() {
+        if let Some(a) = align_index(&spec["align"])
+            .filter(|a| differs("align") && !(align_index(&base["align"]).is_none() && *a == 0))
+        {
             let (key, fb) = match a {
-                "center" => ("doc13.ns_centered", "Centered"),
-                "right" => ("doc13.ns_right", "Right"),
-                "both" => ("doc13.ns_justified", "Justified"),
+                1 => ("doc13.ns_centered", "Centered"),
+                2 => ("doc13.ns_right", "Right"),
+                3 => ("doc13.ns_justified", "Justified"),
                 _ => ("doc13.ns_left", "Left"),
             };
             words.push(word(self, key, fb));
@@ -835,7 +858,14 @@ impl DocForm {
         let based = self
             .sel("basedOn")
             .filter(|&i| i > 0)
-            .map(|i| self.list_item_text("basedOn", i))
+            .map(|i| {
+                let n = self.list_item_text("basedOn", i);
+                let n = n
+                    .strip_prefix("\u{b6}a")
+                    .or_else(|| n.strip_prefix('\u{b6}'))
+                    .unwrap_or(&n);
+                n.trim().to_owned()
+            })
             .map(|n| format!("{} {n}", word(self, "doc13.ns_basedOnW", "Based on:")))
             .unwrap_or_default();
         self.set_label("desc1", &line1);
@@ -886,8 +916,7 @@ impl DocForm {
         r.inches = inches;
         match self.kind {
             DocFormKind::Paragraph => {
-                if let Some(a) = spec["align"].as_str() {
-                    let i = ALIGNS.iter().position(|x| *x == a).unwrap_or(0);
+                if let Some(i) = align_index(&spec["align"]) {
                     self.form.set_sel("align", Some(i));
                 }
                 let len = |k: &str| show_len(spec[k].as_i64().unwrap_or(0) as i32, inches);
@@ -1046,6 +1075,9 @@ pub(super) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
     f.words.extend(words(s));
     if kind == DocFormKind::PageSetup {
         f.ps_multi_changed();
+        // The reference opens with the top margin selected.
+        f.form.focus("mTop");
+        f.form.select_all("mTop");
     }
     f
 }
@@ -1154,14 +1186,15 @@ fn open_paragraph(s: &Strings, c: &FormContext) -> DocForm {
         ("pageBefore", "pageBreakBefore"),
         ("noLineNum", "suppressLineNumbers"),
         ("noHyphen", "suppressAutoHyphens"),
+        ("mirror", "mirrorIndents"),
     ] {
         if let Some(t) = f.tris.iter_mut().find(|t| t.id == id) {
             t.state = if v[key].as_bool() == Some(true) { 1 } else { 2 };
         }
     }
-    // Collapsed by default and mirror indents are not in BlueDoc's model: dimmed.
+    // Collapsed by default (w15:collapsed) is not in BlueDoc's model yet: dimmed.
     for t in &mut f.tris {
-        if t.id == "collapsed" || t.id == "mirror" {
+        if t.id == "collapsed" {
             t.state = 2;
             t.enabled = false;
         }
@@ -1170,21 +1203,21 @@ fn open_paragraph(s: &Strings, c: &FormContext) -> DocForm {
     f.form.add(
         "textbox",
         Some(1),
-        [24.0, 302.0, 544.0, 18.0],
+        [24.0, 310.0, 544.0, 18.0],
         Kind::Group(tr("doc13.para_textbox", "Textbox options")),
     );
     f.label_on(
         1,
         "tightL",
-        [38.0, 328.0, 200.0, 18.0],
+        [38.0, 336.0, 200.0, 18.0],
         &tr("doc13.para_tightWrap", "Tight wrap:"),
     );
     f.form.add(
         "tight",
         Some(1),
-        [38.0, 348.0, 224.0, 28.0],
+        [38.0, 356.0, 224.0, 28.0],
         Kind::Combo {
-            items: vec![tr("findFmt11.none", "(none)").replace(['(', ')'], "")],
+            items: vec![tr("doc13.para_noneWrap", "None")],
             sel: 0,
         },
     );
@@ -1562,7 +1595,7 @@ fn open_page_setup(s: &Strings, c: &FormContext) -> DocForm {
         [387.0, 616.0, 111.0, 28.0],
         &tr("doc13.ps_printOptions", "Print Options..."),
     );
-    f.disable("printOptions");
+
     // Layout.
     group_on(
         &mut f,
@@ -1783,39 +1816,30 @@ pub(super) fn paint_canvas(
 }
 
 fn paint_spin(p: &mut dyn Painter, r: [f32; 4], enabled: bool, k: f32) {
-    let edge = Rgba(0xab, 0xad, 0xb3, 255);
-    p.fill_rect(r[0], r[1], r[2], r[3], edge);
-    p.fill_rect(
-        r[0],
-        r[1] + 1.0,
-        r[2] - 1.0,
-        r[3] - 2.0,
-        Rgba(255, 255, 255, 255),
-    );
+    // The reference's spin box: two stacked buttons (#ADADAD frame, #E1E1E1 face) beside
+    // the field, each with a small filled triangle.
+    let edge = Rgba(0xad, 0xad, 0xad, 255);
+    let face = Rgba(0xe1, 0xe1, 0xe1, 255);
     let half = (r[3] / 2.0).floor();
-    for (y, h) in [
-        (r[1] + 2.0, half - 2.0),
-        (r[1] + half + 1.0, r[3] - half - 3.0),
-    ] {
-        p.fill_rect(r[0] + 1.0, y, r[2] - 3.0, h, Rgba(0xf0, 0xf0, 0xf0, 255));
-    }
-    let c = if enabled {
-        Rgba(0x60, 0x60, 0x60, 255)
+    let ink = if enabled {
+        Rgba(0, 0, 0, 255)
     } else {
         Rgba(0xbc, 0xbc, 0xbc, 255)
     };
-    let cx = r[0] + (r[2] - 1.0) / 2.0;
-    let (w, h) = (3.5 * k, 2.5 * k);
-    for (cy, up) in [(r[1] + r[3] * 0.27, true), (r[1] + r[3] * 0.73, false)] {
+    for (y, h, up) in [(r[1], half, true), (r[1] + half, r[3] - half, false)] {
+        p.fill_rect(r[0], y, r[2], h, edge);
+        p.fill_rect(r[0] + 1.0, y + 1.0, r[2] - 2.0, h - 2.0, face);
+        let (cx, cy) = (r[0] + r[2] / 2.0, y + h / 2.0);
+        let (w, th) = (3.0 * k, 2.4 * k);
         let s = if up { -1.0 } else { 1.0 };
         p.path(
             &[
-                PathSeg::M(cx - w, cy - s * h / 2.0),
-                PathSeg::L(cx + w, cy - s * h / 2.0),
-                PathSeg::L(cx, cy + s * h / 2.0),
+                PathSeg::M(cx - w, cy - s * th / 2.0),
+                PathSeg::L(cx + w, cy - s * th / 2.0),
+                PathSeg::L(cx, cy + s * th / 2.0),
                 PathSeg::Z,
             ],
-            Some(c),
+            Some(ink),
             None,
         );
     }
@@ -1898,6 +1922,15 @@ fn paint_page_preview(f: &DocForm, p: &mut dyn Painter, r: [f32; 4], k: f32) {
     let line = Rgba(0x30, 0x30, 0x30, 255);
     for i in 0..pages {
         let x = x0 + i as f32 * pw;
+        // The reference's page casts a grey shadow right and below.
+        let sh = (2.0 * k).round();
+        p.fill_rect(
+            x + sh,
+            y0 + sh,
+            pw.round(),
+            ph.round(),
+            Rgba(0x80, 0x80, 0x80, 255),
+        );
         p.fill_rect(x, y0, pw.round(), ph.round(), Rgba(0, 0, 0, 255));
         p.fill_rect(
             x + 1.0,
@@ -1916,10 +1949,17 @@ fn paint_page_preview(f: &DocForm, p: &mut dyn Painter, r: [f32; 4], k: f32) {
         let lw = (pw - (l + rr) as f32 * scale).max(4.0);
         let mut y = y0 + mt as f32 * scale;
         let bottom = y0 + ph - mb as f32 * scale;
+        // Paragraphs of text lines: four full lines and a short last one, a blank line
+        // between paragraphs (the reference's sample page).
         let mut n = 0;
         while y + 1.0 < bottom {
-            let ww = if n % 5 == 4 { lw * 0.4 } else { lw };
-            p.fill_rect(lx.round(), y.round(), ww.round(), k.round().max(1.0), line);
+            match n % 6 {
+                5 => {}
+                m => {
+                    let ww = if m == 4 { lw * 0.45 } else { lw };
+                    p.fill_rect(lx.round(), y.round(), ww.round(), k.round().max(1.0), line);
+                }
+            }
             y += 4.0 * k;
             n += 1;
         }
@@ -2141,8 +2181,11 @@ pub(super) fn open_new_style(s: &Strings, c: &FormContext) -> DocForm {
     let paras: Vec<&(String, String, bool)> = c.styles.iter().filter(|s| s.2).collect();
     let mut names = vec![tr("docR3.noStyle", "(no style)")];
     // Built-in styles by their interface names ("heading 1" reads Heading 1).
+    // Each name after its kind mark, as the reference (¶a linked, ¶ paragraph).
     names.extend(paras.iter().map(|s| {
-        crate::commands::style_name_key(&s.1).map_or_else(|| s.1.clone(), |k| t(s_, k, &s.1))
+        let name =
+            crate::commands::style_name_key(&s.1).map_or_else(|| s.1.clone(), |k| t(s_, k, &s.1));
+        format!("{}  {name}", style_mark(&s.0))
     }));
     f.style_ids = paras.iter().map(|s| s.0.clone()).collect();
     let current = c.extra["r13"]["style"].as_str().unwrap_or("Normal");
@@ -2171,7 +2214,16 @@ pub(super) fn open_new_style(s: &Strings, c: &FormContext) -> DocForm {
         [10.0, 204.0, 633.0, 18.0],
         &tr("docR3.formatting", "Formatting"),
     );
-    let mut fonts = vec![c.font.clone()];
+    // A theme font reads "Calibri Light (Headings)" / "Calibri (Body)", as the reference.
+    let theme = &c.extra["r13"]["themeFonts"];
+    let shown = if theme["major"].as_str() == Some(c.font.as_str()) {
+        format!("{} {}", c.font, tr("doc13.ns_headings", "(Headings)"))
+    } else if theme["minor"].as_str() == Some(c.font.as_str()) {
+        format!("{} {}", c.font, tr("doc13.ns_body", "(Body)"))
+    } else {
+        c.font.clone()
+    };
+    let mut fonts = vec![shown];
     for x in [
         "Times New Roman",
         "Arial",
@@ -2308,9 +2360,7 @@ pub(super) fn open_new_style(s: &Strings, c: &FormContext) -> DocForm {
             spec["italic"].as_bool() == Some(true),
             spec["underline"].as_bool() == Some(true),
         ];
-        r.align = ALIGNS
-            .iter()
-            .position(|a| Some(*a) == spec["align"].as_str());
+        r.align = align_index(&spec["align"]);
         r.line = match spec["lineSpacing"].as_u64() {
             Some(240) => Some(0),
             Some(360) => Some(1),
@@ -2319,8 +2369,39 @@ pub(super) fn open_new_style(s: &Strings, c: &FormContext) -> DocForm {
         };
     }
     f.words.extend(words(s));
+    // The reference opens with the name selected and its alignment button pressed.
+    f.form.focus("name");
+    f.form.select_all("name");
+    if let Some(r) = f.r13.as_mut() {
+        r.align = r.align.or(Some(0));
+        r.base = spec;
+    }
     f.style_describe();
     f
+}
+
+/// Index (0 left … 3 justified) of an alignment written either as `ST_Jc` (`both`) or as
+/// `bo_model::Alignment` (`Justify`).
+fn align_index(v: &Value) -> Option<usize> {
+    match v.as_str()?.to_ascii_lowercase().as_str() {
+        "left" | "start" => Some(0),
+        "center" => Some(1),
+        "right" | "end" => Some(2),
+        "both" | "justify" => Some(3),
+        _ => None,
+    }
+}
+
+/// The kind mark shown before a paragraph style's name: built-in styles the reference links
+/// to a character style get "¶a", the others "¶".
+fn style_mark(id: &str) -> &'static str {
+    let linked =
+        id.starts_with("Heading") || matches!(id, "Title" | "Subtitle" | "Quote" | "IntenseQuote");
+    if linked {
+        "\u{b6}a"
+    } else {
+        "\u{b6}"
+    }
 }
 
 fn group_on(f: &mut DocForm, page: Option<usize>, id: &'static str, r: [f32; 4], text: &str) {
@@ -2343,14 +2424,15 @@ fn paint_style_preview(f: &DocForm, r: [f32; 4], p: &mut dyn Painter, font: &Fon
     let grey = Rgba(0xc0, 0xc0, 0xc0, 255);
     let small = Font {
         family: "Times New Roman",
-        size: (10.0 * k).round(),
+        size: (11.9 * k).round(),
         weight: 400,
         italic: false,
         underline: false,
     };
-    let x = r[0] + 32.0 * k;
-    let w = r[2] - 64.0 * k;
-    let lh = (16.0 * k).round();
+    // Measured on the reference at 125 %: text 31 px in, 80 px from the right, 16 px lines.
+    let x = r[0] + 25.0 * k;
+    let w = r[2] - 89.0 * k;
+    let lh = (13.0 * k).round();
     let per_line = ((w / (small.size * 0.47)).floor() as usize).max(8);
     let lines_of = |text: &str, reps: usize| -> Vec<String> {
         let all = vec![text; reps].join(" ");
@@ -2402,9 +2484,9 @@ fn paint_style_preview(f: &DocForm, r: [f32; 4], p: &mut dyn Painter, font: &Fon
         .take(60)
         .collect();
     let tw = sample.chars().count() as f32 * big.size * 0.5;
-    let sx = match spec["align"].as_str() {
-        Some("center") => r[0] + (r[2] - tw) / 2.0,
-        Some("right") => r[0] + r[2] - 32.0 * k - tw,
+    let sx = match align_index(&spec["align"]) {
+        Some(1) => r[0] + (r[2] - tw) / 2.0,
+        Some(2) => r[0] + r[2] - 32.0 * k - tw,
         _ => x,
     };
     p.text_font(&sample, sx, y, &big, ink);
@@ -2435,6 +2517,9 @@ pub(crate) fn manage_defaults(f: &mut DocForm, s: &Strings, d: &Value) {
         ..R13::default()
     }));
     let pg = Some(3);
+    if let Some(cur) = d["current"].as_str() {
+        f.words.push(("msCurrent".into(), cur.to_owned()));
+    }
     f.label_on(
         3,
         "dFontL",

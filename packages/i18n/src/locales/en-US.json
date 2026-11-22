@@ -16100,6 +16100,9 @@
     "width": "Width:"
   },
   "doc13": {
+    "para_noneWrap": "None",
+    "ns_headings": "(Headings)",
+    "ns_body": "(Body)",
     "ln_title": "Line Numbers",
     "ln_add": "Add line numbering",
     "ln_start": "Start at:",

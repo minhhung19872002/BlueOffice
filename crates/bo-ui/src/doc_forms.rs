@@ -187,7 +187,7 @@ pub(crate) struct DocForm {
     /// Ids behind list rows (cross-reference targets, source tags, style ids …).
     pub(crate) ids: Vec<String>,
     /// Style ids of the New Style dialog's drop-downs.
-    style_ids: Vec<String>,
+    pub(crate) style_ids: Vec<String>,
     /// Files picked for Compare (original, revised): name and base64.
     pub(crate) files: [Option<(String, String)>; 2],
     /// Preview lines of the TOC / Index dialogs and the source preview.

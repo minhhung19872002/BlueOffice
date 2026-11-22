@@ -4,7 +4,7 @@
 //! shell.
 use super::DocWindow;
 use crate::doc_forms::DocFormKind;
-use crate::popup::{Choice, Menu, MenuItem};
+use crate::popup::{Choice, Menu, MenuItem, MenuLook};
 use serde_json::{json, Map, Value};
 
 /// Round-13 state of the window.
@@ -180,6 +180,12 @@ impl DocWindow {
         };
         out["color"] = out["spec"]["color"].clone();
         out["pane"] = json!({ "show": self.r13.pane_show, "sort": self.r13.pane_sort });
+        if let Some(d) = self.view.engine().document() {
+            out["themeFonts"] = json!({
+                "major": d.theme_fonts.resolve("majorHAnsi"),
+                "minor": d.theme_fonts.resolve("minorHAnsi"),
+            });
+        }
         out
     }
 
@@ -278,6 +284,12 @@ impl DocWindow {
             .map(|f| f.name)
             .collect::<Vec<_>>());
         out["inches"] = json!(self.units.inches);
+        out["current"] = json!(self
+            .view
+            .format()
+            .style
+            .clone()
+            .unwrap_or_else(|| "Normal".into()));
         out
     }
 
@@ -307,12 +319,13 @@ impl DocWindow {
                 let pt = hp as f32 / 2.0;
                 f.choose_item("size", &format!("{pt}"));
             }
-            let based = spec["basedOn"]
+            // By id: the list shows each name after its kind mark.
+            let _ = &names;
+            if let Some(i) = spec["basedOn"]
                 .as_str()
-                .and_then(|b| names.iter().find(|s| s.id == b))
-                .map(|s| s.name.clone());
-            if let Some(b) = based {
-                f.choose_item("basedOn", &b);
+                .and_then(|b| f.style_ids.iter().position(|s| s == b))
+            {
+                f.set_sel("basedOn", Some(i + 1));
             }
             if spec["type"].as_str() == Some("character") {
                 f.set_sel("type", Some(1));
@@ -343,7 +356,26 @@ impl DocWindow {
             })
             .collect();
         // The reference opens the menu upwards from the button's top.
-        self.menu = Some(Menu::open(items, [x, y, w, h], self.size, self.scale));
+        // The reference's dialog menu at 125 %: 189 × 273 px, nine 30 px rows, 14.5 px text,
+        // labels 42 px in, white with a #C6C6C6 frame.
+        let look = MenuLook {
+            item_h: 29.5 / 1.25,
+            text: 14.5 / 1.25,
+            text_x: (40.0 / 1.25, 40.0 / 1.25),
+            pad: 4.0 / 1.25,
+            min_w: 189.0 / 1.25,
+            char_w: 6.4,
+            fill: Some(bo_render::Rgba(255, 255, 255, 255)),
+            frame: Some(bo_render::Rgba(0xc6, 0xc6, 0xc6, 255)),
+            ..MenuLook::default()
+        };
+        self.menu = Some(Menu::open_with(
+            items,
+            [x, y, w, h],
+            self.size,
+            self.scale,
+            look,
+        ));
         true
     }
 
@@ -571,7 +603,9 @@ fn para_json(pp: &bo_model::ParaProps) -> Value {
         "spaceAfter": tw(pp.space_after),
         "lineSpacing": line,
         "contextualSpacing": pp.contextual_spacing.unwrap_or(false),
-        "widowControl": pp.widow_control.unwrap_or(false),
+        // Absent widowControl reads as on in the reference's dialog ([MS-OI29500]).
+        "widowControl": pp.widow_control.unwrap_or(true),
+        "mirrorIndents": pp.mirror_indents.unwrap_or(false),
         "keepNext": pp.keep_next.unwrap_or(false),
         "keepLines": pp.keep_lines.unwrap_or(false),
         "pageBreakBefore": pp.page_break_before.unwrap_or(false),

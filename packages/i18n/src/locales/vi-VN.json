@@ -16100,6 +16100,9 @@
     "width": "Độ dày:"
   },
   "doc13": {
+    "para_noneWrap": "Không",
+    "ns_headings": "(Đề mục)",
+    "ns_body": "(Thân bài)",
     "ln_title": "Số dòng",
     "ln_add": "Thêm số dòng",
     "ln_start": "Bắt đầu từ:",

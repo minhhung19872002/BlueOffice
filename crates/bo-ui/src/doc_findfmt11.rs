@@ -1723,14 +1723,17 @@ pub(super) fn paint_canvas(
             );
             // Sample text as the reference lays it out: the paragraph before in grey, the
             // paragraph searched for in black, the one after in grey (BlueOffice's own words).
+            // Measured on the reference's Paragraph dialog (round 13): regular 9 px text,
+            // 13 px lines, 32 px in and 46 px from the right.
             let small = Font {
-                size: font.size * 0.62,
+                size: (font.size * 0.74).round(),
+                weight: 400,
                 ..*font
             };
             let x = r[0] + 32.0 * k;
-            let w = r[2] - 64.0 * k;
-            let line_h = (small.size * 1.33).round();
-            let per_line = ((w / (small.size * 0.47)).floor() as usize).max(8);
+            let w = r[2] - 78.0 * k;
+            let line_h = (10.4 * k).round();
+            let per_line = ((w / (small.size * 0.5)).floor() as usize).max(8);
             let grey = Rgba(0xa6, 0xa6, 0xa6, 255);
             let mut y = r[1] + 10.0 * k;
             p.push_clip(r[0] + 1.0, r[1] + 1.0, r[2] - 2.0, r[3] - 2.0);

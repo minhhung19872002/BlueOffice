@@ -1533,6 +1533,9 @@ pub struct ParaProps {
     /// §17.3.1.34 suppressAutoHyphens: no automatic hyphenation in the paragraph.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub suppress_auto_hyphens: Option<bool>,
+    /// §17.3.1.18 mirrorIndents: left / right indents become inside / outside.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mirror_indents: Option<bool>,
     /// Tracked insertion / deletion of the paragraph mark (§17.13.5.16 / §17.13.5.15,
     /// children of `w:pPr/w:rPr`). Never inherited.
     pub mark_ins: Option<RevMark>,
@@ -1587,6 +1590,7 @@ impl ParaProps {
             frame: self.frame.or(base.frame),
             suppress_line_numbers: self.suppress_line_numbers.or(base.suppress_line_numbers),
             suppress_auto_hyphens: self.suppress_auto_hyphens.or(base.suppress_auto_hyphens),
+            mirror_indents: self.mirror_indents.or(base.mirror_indents),
             mark_ins: self.mark_ins.clone(),
             mark_del: self.mark_del.clone(),
             mark_lang: self.mark_lang.clone(),

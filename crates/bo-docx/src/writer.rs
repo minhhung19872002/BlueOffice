@@ -3430,6 +3430,8 @@ fn ppr_children(p: &ParaProps) -> Vec<(String, String)> {
         v.push(("ind".into(), s));
     }
     v.extend(flag("contextualSpacing", p.contextual_spacing));
+    // §17.3.1.18 mirrorIndents (after contextualSpacing in CT_PPrBase).
+    v.extend(flag("mirrorIndents", p.mirror_indents));
     v.extend(flag("bidi", p.bidi)); // §17.3.1.6
     if let Some(a) = p.align {
         v.push(("jc".into(), format!("<w:jc w:val=\"{}\"/>", jc(a))));

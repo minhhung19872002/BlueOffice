@@ -918,6 +918,10 @@ pub(crate) struct CellBox {
     /// Tracked cell insertion/deletion in markup (§17.13.5.4 cellIns, §17.13.5.3
     /// cellDel): (author colour, deleted).
     pub revision: Option<(Color, bool)>,
+    /// Table with cell spacing (§17.4.44 tblCellSpacing): room above and below the
+    /// cell's own box inside the row band (0 otherwise); the cell then draws all four of
+    /// its edges around that box.
+    pub inset: [f32; 2],
 }
 
 /// A laid-out row.
@@ -933,6 +937,21 @@ pub(crate) struct RowBox {
     /// Colour of a change bar for tracked cell/table property changes (§17.13.5.36,
     /// §17.13.5.34).
     pub changed: Option<Color>,
+    /// Table with cell spacing (§17.4.44 tblCellSpacing): the table's own border frame.
+    pub frame: Option<Box<SpacedFrame>>,
+}
+
+/// Border frame of a table with cell spacing around one row's band: side lines at
+/// `x0` / `x1` (relative to the table's x), the top line on the first row, the bottom
+/// line on the last.
+#[derive(Debug, Clone)]
+pub(crate) struct SpacedFrame {
+    pub x0: f32,
+    pub x1: f32,
+    /// top, right, bottom, left (visible only)
+    pub edges: [Option<Border>; 4],
+    pub first: bool,
+    pub last: bool,
 }
 
 /// A laid-out table.
@@ -1445,6 +1464,33 @@ pub(crate) fn layout_table(
         .cell_margin_vertical
         .map_or((0.0, 0.0), |(a, b)| (a.to_pt(), b.to_pt()));
     let nrows = t.rows.len();
+    // §17.4.44 tblCellSpacing: cells drawn apart inside the table's own border frame,
+    // measured black-box in the reference word processor's PDF export (docs/ui/REPORT.md
+    // "Dàn trang vòng 7", cs-a … cs-f): twice the spacing between the frame and the cells
+    // and between cells (both ways), the cells sharing what is left in proportion to
+    // their grid columns; each cell draws its own four edges.
+    let spacing = cell_spacing(&t.props).filter(|s| *s > 0.0);
+    let visible = |b: &Option<Border>| b.clone().filter(Border::is_visible);
+    let frame_edges = [
+        visible(&tb.top),
+        visible(&tb.right),
+        visible(&tb.bottom),
+        visible(&tb.left),
+    ];
+    let half_cell = [&tb.inside_v, &tb.left]
+        .iter()
+        .find_map(|b| b.as_ref().filter(|b| b.is_visible()))
+        .map_or(0.0, |b| border_width(b) / 2.0);
+    let spaced_x = |s: f32, g: usize, span: usize| -> (f32, f32) {
+        let step = 2.0 * s + 2.0 * half_cell;
+        let room = total - 2.0 * (2.0 * s + half_cell) - ncols.saturating_sub(1) as f32 * step;
+        let k = room.max(1.0) / total.max(1.0);
+        let x = 2.0 * s + half_cell + grid.iter().take(g).map(|w| w * k + step).sum::<f32>();
+        let end = (g + span).min(ncols);
+        let w = grid[g.min(end)..end].iter().map(|w| w * k).sum::<f32>()
+            + span.saturating_sub(1) as f32 * step;
+        (x, w)
+    };
 
     // Placement of each cell in the view, per row.
     let place_at = |ri: usize, g: usize| -> Option<&CellPlace> {
@@ -1482,6 +1528,10 @@ pub(crate) fn layout_table(
                 grid[g..(g + span).min(ncols)].iter().sum()
             } else {
                 avail / ncols.max(1) as f32
+            };
+            let (cx, w) = match spacing {
+                Some(s) if !pl.hidden && g < ncols => spaced_x(s, g, span),
+                _ => (cx, w),
             };
             let continued = pl.v_merge == Some(VMerge::Continue);
             // ECMA-376 Part 1, §17.4.72 textDirection: vertical lines as long as the
@@ -1615,8 +1665,25 @@ pub(crate) fn layout_table(
             let bw = |b: &Option<Border>| b.as_ref().map_or(0.0, |b| b.size as f32 / 8.0);
             // §17.4.42 tblCellMar top / bottom add to the borders (measured black-box:
             // 7.2 / 3.6 pt margins make a Table Grid row 0.48 + 10.8 pt taller than its line).
-            let mt = bw(&edges[0]) + cell_top;
-            let mb = if last_row { bw(&edges[2]) } else { 0.0 } + cell_bottom;
+            let inset = match spacing {
+                Some(s) => [
+                    2.0 * s + if first_row { bw(&frame_edges[0]) } else { 0.0 },
+                    if last_row {
+                        2.0 * s + bw(&frame_edges[2])
+                    } else {
+                        0.0
+                    },
+                ],
+                None => [0.0, 0.0],
+            };
+            let mt = inset[0] + bw(&edges[0]) + cell_top;
+            let mb = if spacing.is_some() {
+                bw(&edges[2]) + inset[1]
+            } else if last_row {
+                bw(&edges[2])
+            } else {
+                0.0
+            } + cell_bottom;
             let needed = content_h + mt + mb;
             if rows_spanned > 1 {
                 tall.push((ri, rows_spanned, needed));
@@ -1672,6 +1739,7 @@ pub(crate) fn layout_table(
                 rows_spanned,
                 span_below: 0.0,
                 revision,
+                inset,
             });
         }
         // Row height rule (§17.4.81 trHeight).
@@ -1731,6 +1799,15 @@ pub(crate) fn layout_table(
             cant_split: row.props.cant_split,
             revision,
             changed,
+            frame: spacing.map(|_| {
+                Box::new(SpacedFrame {
+                    x0: 0.0,
+                    x1: total,
+                    edges: frame_edges.clone(),
+                    first: ri == 0,
+                    last: ri + 1 == nrows,
+                })
+            }),
         });
     }
     for (ri, span, need) in tall {
@@ -1868,12 +1945,18 @@ pub(crate) fn row_band(
                 });
             }
         }
+        let spaced = row.frame.is_some();
+        let (cy0, cy1) = if spaced {
+            (c.inset[0], (h - c.inset[1]).max(c.inset[0]))
+        } else {
+            (0.0, h)
+        };
         if let Some(color) = c.shading {
             band.items.push(PageItem::Rect {
                 x: x0,
-                y: 0.0,
+                y: cy0,
                 w: c.w,
-                h,
+                h: cy1 - cy0,
                 color,
                 layer: Layer::Back,
                 pattern: c.pattern,
@@ -1894,6 +1977,22 @@ pub(crate) fn row_band(
             }
         }
         let [top, right, bottom, left] = &c.edges;
+        if spaced {
+            // §17.4.44: every cell is boxed on its own.
+            if let Some(b) = top {
+                band.items.push(rule(b, x0, cy0, x1, cy0));
+            }
+            if let Some(b) = bottom {
+                band.items.push(rule(b, x0, cy1, x1, cy1));
+            }
+            if let Some(b) = left {
+                band.items.push(rule(b, x0, cy0, x0, cy1));
+            }
+            if let Some(b) = right {
+                band.items.push(rule(b, x1, cy0, x1, cy1));
+            }
+            continue;
+        }
         if let Some(b) = top.as_ref().filter(|_| force_top || !c.continued) {
             band.items.push(rule(b, x0, 0.0, x1, 0.0));
         }
@@ -1943,9 +2042,43 @@ pub(crate) fn row_band(
             }
         }
     }
+    // The table's own frame around cells set apart (§17.4.44 tblCellSpacing).
+    if let Some(f) = &row.frame {
+        let (x0, x1) = (table_x + f.x0, table_x + f.x1);
+        let [top, right, bottom, left] = &f.edges;
+        if let Some(b) = top.as_ref().filter(|_| f.first || force_top) {
+            band.items.push(rule(b, x0, 0.0, x1, 0.0));
+        }
+        if let Some(b) = bottom.as_ref().filter(|_| f.last || force_bottom) {
+            band.items.push(rule(b, x0, h, x1, h));
+        }
+        if let Some(b) = left {
+            band.items.push(rule(b, x0, 0.0, x0, h));
+        }
+        if let Some(b) = right {
+            band.items.push(rule(b, x1, 0.0, x1, h));
+        }
+    }
     // After the cells' lines (the first line of a row stays its first cell's).
     band.lines.extend(row_end);
     band
+}
+
+/// Cell spacing of a table in points (§17.4.44 tblCellSpacing, kept verbatim among the
+/// unknown `w:tblPr` children; `dxa` widths only).
+fn cell_spacing(p: &bo_model::TableProps) -> Option<f32> {
+    p.unknown.iter().find_map(|r| {
+        let x: &str = &r.xml;
+        let at = x.find("tblCellSpacing")?;
+        let el = &x[at..];
+        let el = &el[..el.find('>').unwrap_or(el.len())];
+        if el.contains("w:type=\"pct\"") || el.contains("w:type=\"nil\"") {
+            return None;
+        }
+        let v = el.split("w:w=\"").nth(1)?;
+        let v = &v[..v.find('"')?];
+        v.parse::<f32>().ok().map(|tw| tw / 20.0)
+    })
 }
 
 /// Notes referenced anywhere in a row.

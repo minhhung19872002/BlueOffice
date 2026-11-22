@@ -111,6 +111,13 @@ pub struct StyleSpec {
     pub num_id: Option<i32>,
     /// Numbering level (§17.3.1.19 numPr ilvl).
     pub num_level: u8,
+    /// More formatting chosen with New / Modify Style › Format ▾ (Font…, Paragraph…,
+    /// Language…, Frame…): the set `FindFormat` fields go into the style (round 13).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub format: Option<Box<crate::find::FindFormat>>,
+    /// Tab stops chosen with Format ▾ › Tabs… (§17.3.1.37 tabs of the style).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tabs: Option<Vec<crate::TabSpec>>,
 }
 
 fn twips(v: Option<Twips>) -> Option<i32> {
@@ -172,6 +179,8 @@ pub fn style_spec(doc: &Document, id: &str) -> Option<StyleSpec> {
         shading: pp.shading.map(Color::to_hex),
         num_id: pp.num.map(|n| n.num_id),
         num_level: pp.num.map_or(0, |n| n.ilvl),
+        format: None,
+        tabs: None,
     })
 }
 
@@ -236,8 +245,22 @@ fn apply_spec(st: &mut Style, spec: &StyleSpec, cur: &StyleSpec) {
         r.color = spec.color.as_deref().and_then(Color::from_hex);
         r.theme_color = None;
     }
+    // Format ▾ dialogs: their set fields override the toggles above.
+    let more = spec.format.as_deref().map(|f| crate::find::FindFormat {
+        style: None,
+        ..f.clone()
+    });
+    if let Some(f) = &more {
+        f.apply_run(Some(st.kind), &mut st.rpr);
+    }
     if st.kind == StyleKind::Character {
         return;
+    }
+    if let Some(f) = &more {
+        f.apply_para(Some(st.kind), &mut st.ppr);
+    }
+    if let Some(tabs) = &spec.tabs {
+        st.ppr.tabs = crate::direct_tabs(&[], tabs);
     }
     let p = &mut st.ppr;
     if changed!(align) {
@@ -269,12 +292,16 @@ fn apply_spec(st: &mut Style, spec: &StyleSpec, cur: &StyleSpec) {
                 size: 0,
                 color: None,
                 space: 0,
+                shadow: false,
+                frame: false,
             },
             |b| Border {
                 style: b.style.clone(),
                 size: b.size,
                 color: b.color.as_deref().and_then(Color::from_hex),
                 space: 1,
+                shadow: false,
+                frame: false,
             },
         );
         p.borders = Some(Borders {

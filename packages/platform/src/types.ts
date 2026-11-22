@@ -338,7 +338,26 @@ export interface SectionState {
 }
 
 /** Page setup sent with `setPageSetup` (twips). */
-export type PageSetupSpec = Omit<SectionState, 'index' | 'count' | 'titlePage' | 'evenAndOdd'>;
+export type PageSetupSpec = Omit<SectionState, 'index' | 'count' | 'titlePage' | 'evenAndOdd'> & {
+  /** §17.6.11 pgMar @w:gutter (unset = unchanged; round 13). */
+  gutter?: number;
+  /** §17.6.23 vAlign. */
+  vAlign?: 'top' | 'center' | 'both' | 'bottom';
+  /** §17.6.22 type: how the section starts. */
+  start?: 'continuous' | 'nextColumn' | 'nextPage' | 'evenPage' | 'oddPage';
+  /** §17.10.6 titlePg. */
+  titlePage?: boolean;
+  /** §17.15.1.35 evenAndOddHeaders (document-wide). */
+  evenAndOdd?: boolean;
+  /** §17.15.1.57 mirrorMargins (document-wide). */
+  mirrorMargins?: boolean;
+  /** §17.15.1.49 gutterAtTop (document-wide). */
+  gutterTop?: boolean;
+  /** §17.15.1.65 printTwoOnOne (document-wide). */
+  twoOnOne?: boolean;
+  /** §17.15.1.13 bookFoldPrinting (document-wide). */
+  bookFold?: boolean;
+};
 
 /** The table holding the caret (mirrors `bo_edit::TableState`). */
 export interface TableState {
@@ -390,6 +409,12 @@ export interface TableSortKey {
   descending: boolean;
 }
 
+/** A shading pattern (§17.18.78 ST_Shd value, pattern colour RRGGBB; round 13). */
+export interface ShadingPatternSpec {
+  val: string;
+  color?: string | null;
+}
+
 /** A border line of the Borders and Shading dialog (mirrors `bo_edit::table::BorderPen`). */
 export interface BorderPen {
   /** §17.18.2 ST_Border style. */
@@ -398,6 +423,10 @@ export interface BorderPen {
   size: number;
   /** RRGGBB; null = automatic. */
   color?: string | null;
+  /** §17.18.2 w:shadow (Shadow setting, round 13). */
+  shadow?: boolean;
+  /** §17.18.2 w:frame (3-D setting). */
+  frame?: boolean;
 }
 
 /** Edges set exactly (null removes one; mirrors `bo_edit::table::BorderEdges`). */
@@ -437,7 +466,7 @@ export type TableEdit =
   | { kind: 'insertCell'; right: boolean }
   | { kind: 'insertColumn'; right: boolean }
   /** `whole`: every cell of the table (round 12). */
-  | { kind: 'shading'; hex: string | null; whole?: boolean }
+  | { kind: 'shading'; hex: string | null; whole?: boolean; pattern?: ShadingPatternSpec | null }
   /** Exact borders of the table or (cells) of the selected cells (round 12). */
   | ({ kind: 'setBorders'; cells?: boolean } & BorderEdges)
   /** §17.4.63 tblCaption / §17.4.58 tblDescription; empty removes. */
@@ -636,7 +665,7 @@ export type ParaFormat =
       kind: 'borders';
       preset: 'none' | 'bottom' | 'top' | 'left' | 'right' | 'inside' | 'outside' | 'all';
     }
-  | { kind: 'shading'; hex: string | null }
+  | { kind: 'shading'; hex: string | null; pattern?: ShadingPatternSpec | null }
   /** Exact paragraph borders and their distances from the text in points (round 12). */
   | ({
       kind: 'setBorders';
@@ -645,6 +674,8 @@ export type ParaFormat =
     } & BorderEdges)
   /** §17.3.1.35 suppressLineNumbers / §17.3.1.34 suppressAutoHyphens. */
   | { kind: 'suppressLineNumbers' | 'suppressAutoHyphens'; on: boolean }
+  /** Several paragraph properties at once (Paragraph dialog, round 13; FindFormat fields). */
+  | { kind: 'props'; format: Record<string, string | number | boolean> }
   | { kind: 'style'; id: string };
 
 export type Motion =
@@ -892,7 +923,9 @@ export type EditCommand =
   | { cmd: 'tableEdit'; edit: TableEdit }
   /** Move the floating picture at the selection (points from its position references). */
   | { cmd: 'setPicturePosition'; x: number; y: number }
-  | { cmd: 'setPageSetup'; setup: PageSetupSpec; scope?: 'section' | 'document' }
+  | { cmd: 'setPageSetup'; setup: PageSetupSpec; scope?: 'section' | 'document' | 'forward' }
+  /** Manage Styles › Set Defaults: §17.7.5.1 docDefaults from FindFormat fields (round 13). */
+  | { cmd: 'setDocDefaults'; format: Record<string, string | number | boolean> }
   | { cmd: 'setHeaderOptions'; titlePage?: boolean; evenAndOdd?: boolean }
   | { cmd: 'setHeaderLink'; linked: boolean }
   | { cmd: 'editNote'; endnote?: boolean; id: number }

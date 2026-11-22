@@ -218,6 +218,7 @@ pub fn read_docx(bytes: &[u8]) -> Result<Document> {
         hyphenation: doc.hyphenation,
         track_revisions: doc.track_revisions,
         custom_xml,
+        pages: doc.pages,
     }));
     crate::textfx::set_theme(None);
     Ok(doc)
@@ -636,6 +637,12 @@ fn read_settings(data: &[u8], part: &str, doc: &mut Document) -> Result<()> {
             Event::Start(e) | Event::Empty(e) => match name(&e).as_slice() {
                 b"defaultTabStop" => doc.default_tab_stop = twips(&e, b"val"),
                 b"evenAndOddHeaders" => doc.even_and_odd_headers = on_off(&e),
+                // §17.15.1.57 mirrorMargins, §17.15.1.49 gutterAtTop, §17.15.1.13
+                // bookFoldPrinting, §17.15.1.65 printTwoOnOne.
+                b"mirrorMargins" => doc.pages.mirror_margins = on_off(&e),
+                b"gutterAtTop" => doc.pages.gutter_at_top = on_off(&e),
+                b"bookFoldPrinting" => doc.pages.book_fold = on_off(&e),
+                b"printTwoOnOne" => doc.pages.two_on_one = on_off(&e),
                 b"autoHyphenation" => doc.hyphenation.auto = on_off(&e), // §17.15.1.10
                 // §17.15.1.52 hyphenationZone
                 b"hyphenationZone" => doc.hyphenation.zone = twips(&e, b"val"),
@@ -2077,6 +2084,8 @@ fn read_ppr(r: &mut XmlReader<'_>, mut sect: Option<SectCtx<'_, '_>>) -> Result<
             b"pageBreakBefore" => p.page_break_before = Some(on_off(e)), // §17.3.1.23
             b"widowControl" => p.widow_control = Some(on_off(e)),
             b"contextualSpacing" => p.contextual_spacing = Some(on_off(e)),
+            // §17.3.1.18 mirrorIndents
+            b"mirrorIndents" => p.mirror_indents = Some(on_off(e)),
             b"bidi" => p.bidi = Some(on_off(e)), // §17.3.1.6
             // §17.3.1.35 suppressLineNumbers
             b"suppressLineNumbers" => p.suppress_line_numbers = Some(on_off(e)),
@@ -2147,7 +2156,11 @@ fn read_ppr(r: &mut XmlReader<'_>, mut sect: Option<SectCtx<'_, '_>>) -> Result<
                 }
             }
             // §17.3.1.31 shd
-            b"shd" => p.shading = color_attr(e, b"fill"),
+            // §17.3.1.31 shd: fill, pattern (§17.18.78) and pattern colour.
+            b"shd" => {
+                p.shading = color_attr(e, b"fill");
+                p.shading_pattern = shd_pattern(e);
+            }
             // §17.3.1.24 pBdr
             b"pBdr" if s => p.borders = Some(read_borders(r)?),
             // §17.3.1.38 tabs
@@ -2274,12 +2287,22 @@ fn read_ppr(r: &mut XmlReader<'_>, mut sect: Option<SectCtx<'_, '_>>) -> Result<
     Ok(p)
 }
 
+/// Pattern of a `w:shd` (§17.3.5 CT_Shd): `None` for a plain `clear` fill.
+fn shd_pattern(e: &BytesStart<'_>) -> Option<bo_model::run_fx::ShadingPattern> {
+    let val = attr(e, b"val").unwrap_or_else(|| "clear".into());
+    let color = color_attr(e, b"color");
+    (val != "clear" || color.is_some()).then_some(bo_model::run_fx::ShadingPattern { val, color })
+}
+
 fn read_border(e: &BytesStart<'_>) -> Border {
     Border {
         style: attr(e, b"val").unwrap_or_else(|| "single".into()),
         size: int(e, b"sz").unwrap_or(4).max(0) as u32,
         color: color_attr(e, b"color"),
         space: int(e, b"space").unwrap_or(0).max(0) as u32,
+        // §17.18.2 CT_Border w:shadow / w:frame (ST_OnOff).
+        shadow: attr(e, b"shadow").is_some_and(|v| on_off_value(&v)),
+        frame: attr(e, b"frame").is_some_and(|v| on_off_value(&v)),
     }
 }
 
@@ -2862,7 +2885,11 @@ fn read_tcpr(r: &mut XmlReader<'_>) -> Result<CellProps> {
                     VMerge::Continue
                 });
             }
-            b"shd" => c.shading = color_attr(e, b"fill"),
+            // §17.4.32 shd: fill, pattern (§17.18.78) and pattern colour.
+            b"shd" => {
+                c.shading = color_attr(e, b"fill");
+                c.shading_pattern = shd_pattern(e);
+            }
             b"tcBorders" if s => {
                 let (b, d) = read_borders_diag(r)?;
                 c.diagonals = d;
@@ -2969,6 +2996,12 @@ fn read_sect_pr(
                 p.margin_right = twips(e, b"right").unwrap_or(p.margin_right);
                 p.header = twips(e, b"header").unwrap_or(p.header);
                 p.footer = twips(e, b"footer").unwrap_or(p.footer);
+                s.layout.gutter = twips(e, b"gutter").map_or(Twips(0), |t| Twips(t.0.max(0)));
+            }
+            // §17.6.23 vAlign of the section's pages
+            b"vAlign" => {
+                s.layout.v_align =
+                    bo_model::PageVAlign::parse(attr(e, b"val").as_deref().unwrap_or(""));
             }
             // §17.6.4 cols
             b"cols" => {

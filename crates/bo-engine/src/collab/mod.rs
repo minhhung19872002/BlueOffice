@@ -648,6 +648,7 @@ fn section_props(s: &Section) -> Section {
         text_direction: s.text_direction,
         hf_parts: bo_model::HfParts::default(),
         form_unprotected: s.form_unprotected,
+        layout: s.layout,
         src: None,
     }
 }
@@ -1689,6 +1690,12 @@ impl Engine {
                 ops.push(Op::Hyphenation {
                     old: doc.hyphenation,
                     new: st.hyphenation,
+                });
+            }
+            if st.pages != doc.pages {
+                ops.push(Op::Pages {
+                    old: doc.pages,
+                    new: st.pages,
                 });
             }
             if st.custom_xml != doc.custom_xml {

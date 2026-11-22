@@ -194,6 +194,9 @@ pub struct SourcePackage {
     /// Custom XML parts as read (ECMA-376 Part 1, §15.2.4; changed ⇒ parts rewritten).
     #[serde(default)]
     pub custom_xml: Vec<crate::custom_xml::CustomXmlPart>,
+    /// Multiple pages settings as read (changed ⇒ settings patched).
+    #[serde(default)]
+    pub pages: PagesSettings,
 }
 
 /// A whole word-processing document.
@@ -267,6 +270,10 @@ pub struct Document {
     /// file names none. `None` is a document created here (saved as 15).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compat_mode: Option<u16>,
+    /// Multiple pages settings of Page Setup (mirror margins, gutter at top, book fold, two
+    /// pages per sheet).
+    #[serde(default, skip_serializing_if = "PagesSettings::is_default")]
+    pub pages: PagesSettings,
 }
 
 impl Document {
@@ -784,9 +791,95 @@ pub struct Section {
     /// enforced (omitted ⇒ protected).
     #[serde(default)]
     pub form_unprotected: bool,
+    /// Gutter and vertical alignment of the pages (§17.6.11 pgMar @w:gutter, §17.6.23
+    /// vAlign).
+    #[serde(default, skip_serializing_if = "SectionLayout::is_default")]
+    pub layout: SectionLayout,
     /// Original `w:sectPr` XML.
     #[serde(skip)]
     pub src: Option<Raw>,
+}
+
+/// Gutter and vertical page alignment of a section (Page Setup dialog).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SectionLayout {
+    /// §17.6.11 pgMar @w:gutter: extra binding margin (left edge, or top with §17.15.1.49
+    /// gutterAtTop; inside edges with mirror margins), in twips.
+    #[serde(default)]
+    pub gutter: Twips,
+    /// §17.6.23 vAlign: vertical alignment of the text on the pages.
+    #[serde(default)]
+    pub v_align: PageVAlign,
+}
+
+impl SectionLayout {
+    /// No gutter, text from the top.
+    pub fn is_default(&self) -> bool {
+        *self == SectionLayout::default()
+    }
+}
+
+/// Vertical alignment of a section's text on the page (§17.18.101 `ST_VerticalJc`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PageVAlign {
+    /// From the top margin (default).
+    #[default]
+    Top,
+    /// Centred between the margins.
+    Center,
+    /// Justified: paragraphs spaced to fill the page (`both`).
+    Both,
+    /// Against the bottom margin.
+    Bottom,
+}
+
+impl PageVAlign {
+    /// Parse an `ST_VerticalJc` value (unknown = top).
+    pub fn parse(s: &str) -> PageVAlign {
+        match s {
+            "center" => PageVAlign::Center,
+            "both" => PageVAlign::Both,
+            "bottom" => PageVAlign::Bottom,
+            _ => PageVAlign::Top,
+        }
+    }
+    /// Serialized attribute value.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            PageVAlign::Top => "top",
+            PageVAlign::Center => "center",
+            PageVAlign::Both => "both",
+            PageVAlign::Bottom => "bottom",
+        }
+    }
+}
+
+/// Document-wide "Multiple pages" settings of Page Setup (§17.15.1.57 mirrorMargins,
+/// §17.15.1.49 gutterAtTop, §17.15.1.13 bookFoldPrinting, §17.15.1.65 printTwoOnOne).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PagesSettings {
+    /// Left / right margins become inside / outside on facing pages.
+    #[serde(default)]
+    pub mirror_margins: bool,
+    /// The gutter is at the top of the page.
+    #[serde(default)]
+    pub gutter_at_top: bool,
+    /// Book fold: two pages per side of a sheet folded in the middle.
+    #[serde(default)]
+    pub book_fold: bool,
+    /// Two pages per sheet.
+    #[serde(default)]
+    pub two_on_one: bool,
+}
+
+impl PagesSettings {
+    /// Normal (one page per sheet, no mirror, gutter at the left).
+    pub fn is_default(&self) -> bool {
+        *self == PagesSettings::default()
+    }
 }
 
 /// Source parts of a section's headers and footers: (header?, `ST_HdrFtr` kind, part
@@ -841,6 +934,7 @@ impl Section {
             text_direction,
             hf_parts: _,
             form_unprotected,
+            layout,
             src,
         } = self;
         *page == other.page
@@ -854,6 +948,7 @@ impl Section {
             && *endnote_pr == other.endnote_pr
             && *change == other.change
             && *form_unprotected == other.form_unprotected
+            && *layout == other.layout
             && *src == other.src
             && *blocks == other.blocks
     }
@@ -876,6 +971,7 @@ impl Section {
                 self.form_unprotected,
                 self.line_numbers,
                 self.text_direction,
+                self.layout,
             ),
         ))
     }
@@ -1182,6 +1278,13 @@ pub struct Border {
     pub color: Option<Color>,
     /// Spacing between the border and the content (`w:space`), in points.
     pub space: u32,
+    /// Shadow effect (`w:shadow`, ECMA-376 Part 1, §17.18.2 `CT_Border`): the reference
+    /// word processor thickens the right and bottom edges of a box.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub shadow: bool,
+    /// Frame (3-D) effect (`w:frame`, §17.18.2 `CT_Border`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub frame: bool,
 }
 
 impl Border {
@@ -1192,6 +1295,8 @@ impl Border {
             size,
             color: None,
             space: 0,
+            shadow: false,
+            frame: false,
         }
     }
     /// Whether the border draws anything.
@@ -1408,6 +1513,10 @@ pub struct ParaProps {
     pub tabs: Option<Vec<TabStop>>,
     /// Background fill colour (`w:shd/@w:fill`).
     pub shading: Option<Color>,
+    /// Shading pattern and pattern colour (§17.3.1.31 shd `w:val`, `w:color`); the
+    /// fill is [`ParaProps::shading`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shading_pattern: Option<crate::run_fx::ShadingPattern>,
     /// Paragraph borders (`w:pBdr`).
     pub borders: Option<Borders>,
     /// Outline level, 0-based (`w:outlineLvl`).
@@ -1424,6 +1533,9 @@ pub struct ParaProps {
     /// §17.3.1.34 suppressAutoHyphens: no automatic hyphenation in the paragraph.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub suppress_auto_hyphens: Option<bool>,
+    /// §17.3.1.18 mirrorIndents: left / right indents become inside / outside.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mirror_indents: Option<bool>,
     /// Tracked insertion / deletion of the paragraph mark (§17.13.5.16 / §17.13.5.15,
     /// children of `w:pPr/w:rPr`). Never inherited.
     pub mark_ins: Option<RevMark>,
@@ -1468,12 +1580,17 @@ impl ParaProps {
             num: self.num.or(base.num),
             tabs: merge_tabs(base.tabs.as_ref(), self.tabs.as_ref()),
             shading: self.shading.or(base.shading),
+            shading_pattern: self
+                .shading_pattern
+                .clone()
+                .or_else(|| base.shading_pattern.clone()),
             borders: self.borders.clone().or_else(|| base.borders.clone()),
             outline_level: self.outline_level.or(base.outline_level),
             bidi: self.bidi.or(base.bidi),
             frame: self.frame.or(base.frame),
             suppress_line_numbers: self.suppress_line_numbers.or(base.suppress_line_numbers),
             suppress_auto_hyphens: self.suppress_auto_hyphens.or(base.suppress_auto_hyphens),
+            mirror_indents: self.mirror_indents.or(base.mirror_indents),
             mark_ins: self.mark_ins.clone(),
             mark_del: self.mark_del.clone(),
             mark_lang: self.mark_lang.clone(),
@@ -2566,6 +2683,10 @@ pub struct CellProps {
     pub v_merge: Option<VMerge>,
     /// Background fill colour (`w:shd/@w:fill`).
     pub shading: Option<Color>,
+    /// Shading pattern and pattern colour (§17.4.32 shd `w:val`, `w:color`); the fill
+    /// is [`CellProps::shading`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shading_pattern: Option<crate::run_fx::ShadingPattern>,
     /// Cell borders (`w:tcBorders`).
     pub borders: Option<Borders>,
     /// Diagonal lines of the cell: ECMA-376 Part 1, §17.4.80 tl2br (top left to bottom
@@ -2604,6 +2725,7 @@ impl Default for CellProps {
             grid_span: 1,
             v_merge: None,
             shading: None,
+            shading_pattern: None,
             borders: None,
             diagonals: [None, None],
             v_align: None,

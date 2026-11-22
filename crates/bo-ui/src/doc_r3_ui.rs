@@ -21,7 +21,6 @@ const HOVER: Rgba = Rgba(0xd5, 0xe1, 0xf2, 255);
 const PANE: Rgba = Rgba(0xf3, 0xf3, 0xf3, 255);
 const PANE_EDGE: Rgba = Rgba(0xd2, 0xd2, 0xd2, 255);
 /// Current style frame in the Styles pane (dark blue, as the reference).
-const CURRENT: Rgba = Rgba(0x00, 0x78, 0xd4, 255);
 const LINK: Rgba = Rgba(0x1e, 0x5c, 0xb3, 255);
 const HEADING_LINE: Rgba = Rgba(0xd9, 0xd9, 0xd9, 255);
 
@@ -427,9 +426,9 @@ impl StylesPane {
         }
     }
 
-    /// Width at display `scale` (250 px at 125 %).
+    /// Width at display `scale` (266 px at 125 %, the reference's docked pane, round 13).
     pub(crate) fn width(scale: f32) -> f32 {
-        (200.0 * scale).round()
+        (212.8 * scale).round()
     }
 
     fn px(&self, v: f32) -> f32 {
@@ -457,38 +456,40 @@ impl StylesPane {
         ]
     }
 
-    /// The list box (white, framed).
+    /// The list box (white, no frame): measured on the reference's docked pane at 125 %
+    /// (round 13) — 15 px in, 61 px down, 8 px from the right, 129 px above the bottom.
     fn list_rect(&self) -> [f32; 4] {
         let [x, y, w, h] = self.rect;
-        let top = y + self.px(48.0);
+        let top = y + self.px(55.2);
         [
-            x + self.px(10.0),
+            x + self.px(12.0),
             top,
-            w - self.px(20.0),
-            (h - self.px(48.0) - self.px(108.0)).max(0.0),
+            w - self.px(12.0) - self.px(6.4),
+            (h - self.px(55.2) - self.px(107.2)).max(0.0),
         ]
     }
 
+    /// Show Preview / Disable Linked Styles boxes (18 px, centres 20 and 56 px below the list).
     fn check_rect(&self, i: usize) -> [f32; 4] {
         let l = self.list_rect();
         [
-            l[0] + self.px(2.0),
-            l[1] + l[3] + self.px(14.0) + i as f32 * self.px(29.0),
-            self.px(13.0),
-            self.px(13.0),
+            l[0],
+            l[1] + l[3] + self.px(8.8) + i as f32 * self.px(28.8),
+            self.px(14.4),
+            self.px(14.4),
         ]
     }
 
-    /// New Style, Style Inspector, Manage Styles, Options….
+    /// New Style, Style Inspector, Manage Styles (36 px, 50 px apart), Options… (96 × 35).
     fn button_rect(&self, i: usize) -> [f32; 4] {
         let l = self.list_rect();
-        let y = l[1] + l[3] + self.px(72.0);
-        let b = self.px(28.0);
+        let y = l[1] + l[3] + self.px(64.0);
+        let b = self.px(28.8);
         if i < 3 {
             [l[0] + i as f32 * self.px(40.0), y, b, b]
         } else {
             let x = l[0] + 3.0 * self.px(40.0);
-            [x, y, l[0] + l[2] - x, b]
+            [x, y, self.px(76.8).min(l[0] + l[2] - x), self.px(28.0)]
         }
     }
 
@@ -518,7 +519,7 @@ impl StylesPane {
         if !inside(l, x, y) {
             return None;
         }
-        let i = ((y - l[1] - self.px(2.0) + self.scroll) / self.row_h()).floor();
+        let i = ((y - l[1] + self.scroll) / self.row_h()).floor();
         (i >= 0.0 && (i as usize) < self.rows()).then_some(i as usize)
     }
 
@@ -564,6 +565,9 @@ impl StylesPane {
         if inside(self.button_rect(2), x, y) {
             return PaneAction::Button("manage");
         }
+        if inside(self.button_rect(3), x, y) {
+            return PaneAction::Button("options");
+        }
         PaneAction::None
     }
 
@@ -573,13 +577,15 @@ impl StylesPane {
             return;
         }
         p.push_clip(x, y, w, h);
-        p.fill_rect(x, y, w, h, PANE);
-        p.fill_rect(x, y, 1.0, h, PANE_EDGE);
-        let title = ui_font(self.px(24.0), 300);
+        // The reference's task pane grey (as the navigation pane), a line above and left.
+        p.fill_rect(x, y, w, h, Rgba(0xe6, 0xe6, 0xe6, 255));
+        p.fill_rect(x, y, 1.0, h, Rgba(0xbf, 0xbf, 0xbf, 255));
+        p.fill_rect(x, y, w, 1.0, PANE_EDGE);
+        let title = ui_font(self.px(27.2), 350);
         p.text_font(
             &self.labels[0],
-            x + self.px(10.0),
-            y + self.px(8.0),
+            x + self.px(12.0),
+            y + self.px(13.4),
             &title,
             INK,
         );
@@ -594,23 +600,36 @@ impl StylesPane {
             self.scale.max(1.0),
         );
         let l = self.list_rect();
-        p.fill_rect(l[0], l[1], l[2], l[3], PANE_EDGE);
-        p.fill_rect(l[0] + 1.0, l[1] + 1.0, l[2] - 2.0, l[3] - 2.0, WHITE);
-        p.push_clip(l[0] + 1.0, l[1] + 1.0, l[2] - 2.0, l[3] - 2.0);
+        p.fill_rect(l[0], l[1], l[2], l[3], WHITE);
+        p.push_clip(l[0], l[1], l[2], l[3]);
         let rh = self.row_h();
         let font = ui_font(self.px(11.5), 400);
         let mark_font = ui_font(self.px(10.0), 400);
         for i in 0..self.rows() {
-            let ry = l[1] + self.px(2.0) + i as f32 * rh - self.scroll;
+            let ry = l[1] + i as f32 * rh - self.scroll;
             if ry + rh < l[1] || ry > l[1] + l[3] {
                 continue;
             }
-            let r = [l[0] + self.px(4.0), ry, l[2] - self.px(8.0), rh];
+            // Rows span the list less the scroll bar (the reference's 2 px dark blue frame).
+            let r = [l[0], ry, l[2] - self.px(24.0), rh];
             let style = i.checked_sub(1).and_then(|k| self.styles.get(k));
             let current = style.is_some_and(|s| Some(&s.id) == self.current.as_ref());
             if current {
-                p.fill_rect(r[0], r[1] + 1.0, r[2], r[3] - 2.0, CURRENT);
-                p.fill_rect(r[0] + 1.0, r[1] + 2.0, r[2] - 2.0, r[3] - 4.0, WHITE);
+                let b = self.px(1.6).max(1.0).round();
+                p.fill_rect(
+                    r[0],
+                    r[1] + 3.0,
+                    r[2],
+                    r[3] - 6.0,
+                    Rgba(0x2b, 0x57, 0x9a, 255),
+                );
+                p.fill_rect(
+                    r[0] + b,
+                    r[1] + 3.0 + b,
+                    r[2] - 2.0 * b,
+                    r[3] - 6.0 - 2.0 * b,
+                    WHITE,
+                );
             } else if self.hover == Some(i) {
                 p.fill_rect(r[0], r[1] + 1.0, r[2], r[3] - 2.0, HOVER);
             }
@@ -649,8 +668,8 @@ impl StylesPane {
                 None => {
                     p.text_font(
                         name,
-                        r[0] + self.px(6.0),
-                        ry + self.px(5.0),
+                        r[0] + self.px(8.8),
+                        ry + self.px(4.0),
                         &font,
                         Rgba(0, 0, 0, 255),
                     );
@@ -660,51 +679,39 @@ impl StylesPane {
                 // Kind glyphs in grey (¶ paragraph, ¶a linked, a character), as the reference.
                 // The pilcrow drawn as a shape (a filled bowl and two stems), so it stays grey.
                 let grey = Rgba(0x70, 0x70, 0x70, 255);
-                let (gx, gy, u) = (r[0] + r[2] - self.px(22.0), ry + self.px(8.0), self.scale);
-                if mark.starts_with('¶') {
-                    let s1 = (u).max(1.0).round();
+                let linked = mark.len() > '¶'.len_utf8() && mark.starts_with('¶');
+                let u = self.scale;
+                if linked {
+                    // The reference's linked mark (measured at 125 %): a compact pilcrow and an
+                    // "a" of the same height side by side, 7 px tall from 11 px below the row
+                    // top, underlined 2 px below — our own drawing of the two letters.
+                    let h = 5.6 * u;
+                    let gx = r[0] + r[2] - self.px(8.0) - 10.0 * u;
+                    let gy = ry + self.px(8.8);
+                    let s1 = u.max(1.0).round();
+                    paint_pilcrow(p, gx, gy, h, grey);
+                    let ax = (gx + 5.2 * u).round();
+                    let (top, bot) = (gy.round(), (gy + h).round());
+                    let w = (3.2 * u).round();
+                    let mid = (gy + h * 0.45).round();
+                    p.fill_rect(ax, top, w, s1, grey);
+                    p.fill_rect(ax + w, top + s1, s1, bot - top - s1, grey);
+                    p.fill_rect(ax, mid, w, s1, grey);
+                    p.fill_rect(ax, mid, s1, bot - mid, grey);
+                    p.fill_rect(ax, bot - s1, w, s1, grey);
                     p.fill_rect(
-                        (gx + 3.0 * u).round(),
-                        gy.round(),
+                        gx.round(),
+                        (gy + h + 2.4 * u).round(),
+                        (ax + w + s1 - gx).round(),
                         s1,
-                        (9.0 * u).round(),
                         grey,
                     );
-                    p.fill_rect(
-                        (gx + 5.0 * u).round(),
-                        gy.round(),
-                        s1,
-                        (9.0 * u).round(),
-                        grey,
-                    );
-                    p.fill_rect(
-                        (gx + 1.0 * u).round(),
-                        gy.round(),
-                        (5.0 * u).round(),
-                        s1,
-                        grey,
-                    );
-                    p.path(
-                        &[
-                            PathSeg::M(gx + 3.0 * u, gy),
-                            PathSeg::L(gx + 1.2 * u, gy + 0.6 * u),
-                            PathSeg::L(gx + 0.6 * u, gy + 2.2 * u),
-                            PathSeg::L(gx + 1.2 * u, gy + 3.8 * u),
-                            PathSeg::L(gx + 3.0 * u, gy + 4.4 * u),
-                            PathSeg::Z,
-                        ],
-                        Some(grey),
-                        None,
-                    );
-                }
-                let rest = mark.trim_start_matches('¶');
-                if !rest.is_empty() {
-                    let ax = if mark.starts_with('¶') {
-                        gx + 7.5 * u
-                    } else {
-                        gx + 3.0 * u
-                    };
-                    p.text_font(rest, ax, ry + self.px(6.0), &mark_font, grey);
+                } else if mark.starts_with('¶') {
+                    let gx = r[0] + r[2] - self.px(8.0);
+                    paint_pilcrow(p, gx, ry + self.px(6.4), 9.0 * u, grey);
+                } else {
+                    let gx = r[0] + r[2] - self.px(8.0);
+                    p.text_font(mark, gx + 3.0 * u, ry + self.px(6.0), &mark_font, grey);
                 }
             }
         }
@@ -740,7 +747,7 @@ impl StylesPane {
                 );
             }
         }
-        let label_font = ui_font(self.px(12.5), 400);
+        let label_font = ui_font(self.px(13.9), 400);
         for (i, on) in [self.show_preview, self.disable_linked]
             .into_iter()
             .enumerate()
@@ -749,8 +756,8 @@ impl StylesPane {
             check_box(p, r, on, true, self.scale);
             p.text_font(
                 &self.labels[2 + i],
-                r[0] + self.px(20.0),
-                r[1] - self.px(4.0),
+                r[0] + self.px(20.8),
+                r[1] - self.px(3.2),
                 &label_font,
                 INK,
             );
@@ -784,10 +791,10 @@ impl StylesPane {
             } else {
                 p.text_font(
                     &self.labels[4],
-                    r[0] + self.px(6.0),
-                    r[1] + self.px(5.0),
-                    &label_font,
-                    DIM,
+                    r[0] + self.px(8.0),
+                    r[1] + self.px(3.0),
+                    &ui_font(self.px(14.5), 400),
+                    INK,
                 );
             }
         }
@@ -1112,4 +1119,32 @@ impl RestrictPane {
         p.text_font(self.label(14), l, y + h - self.px(28.0), &link, LINK);
         p.pop_clip();
     }
+}
+
+/// A grey pilcrow drawn as a shape (filled bowl, two stems, the top bar), `h` tall from
+/// (`x`, `y`), so it stays grey at every size (Styles pane kind marks).
+fn paint_pilcrow(p: &mut dyn Painter, x: f32, y: f32, h: f32, ink: Rgba) {
+    let u = h / 9.0;
+    let s1 = (u * 1.25).max(1.0).round();
+    p.fill_rect((x + 3.0 * u).round(), y.round(), s1, h.round(), ink);
+    p.fill_rect((x + 5.0 * u).round(), y.round(), s1, h.round(), ink);
+    p.fill_rect(
+        (x + 1.0 * u).round(),
+        y.round(),
+        (5.0 * u).round().max(2.0),
+        s1,
+        ink,
+    );
+    p.path(
+        &[
+            PathSeg::M(x + 3.0 * u, y),
+            PathSeg::L(x + 1.2 * u, y + 0.6 * u),
+            PathSeg::L(x + 0.6 * u, y + 2.2 * u),
+            PathSeg::L(x + 1.2 * u, y + 3.8 * u),
+            PathSeg::L(x + 3.0 * u, y + 4.4 * u),
+            PathSeg::Z,
+        ],
+        Some(ink),
+        None,
+    );
 }

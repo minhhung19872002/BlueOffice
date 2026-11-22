@@ -28,7 +28,7 @@ pub(super) struct R3 {
     /// (0 keep, 1 merge, 2 text).
     paste_defaults: [usize; 3],
     pub(super) form: Option<DocForm>,
-    styles_pane: Option<StylesPane>,
+    pub(super) styles_pane: Option<StylesPane>,
     restrict: Option<RestrictPane>,
     pub(super) tiles: Option<TileMenu>,
     pub(super) outline: Option<OutlineView>,
@@ -45,7 +45,7 @@ pub(super) struct R3 {
     /// Citation style shown in References › Style (read once, then kept up to date).
     cite_style: Option<String>,
     /// A dialog kept under another one (Table of Contents under TOC Options).
-    stash: Option<DocForm>,
+    pub(super) stash: Option<DocForm>,
     /// Mailings › Start Mail Merge document type (`letters`, `directory`, `normal`).
     pub(super) merge_type: String,
 }
@@ -280,7 +280,11 @@ impl DocWindow {
             fonts: Vec::new(),
             table: f.table.clone(),
             inches: self.units.inches,
-            extra: self.r12_form_extra(),
+            extra: {
+                let mut e = self.r12_form_extra();
+                e["r13"] = self.r13_form_extra();
+                e
+            },
         }
     }
 
@@ -320,6 +324,8 @@ impl DocWindow {
         if let Some(i) = self.r4.date_default {
             v["dateFormat"] = json!(crate::doc_forms::DATE_PICTURES[i]);
         }
+        // Template styles and page setup (round 13).
+        self.r13_defaults(&mut v);
         (v.as_object().is_some_and(|o| !o.is_empty())).then(|| v.to_string())
     }
 
@@ -332,6 +338,7 @@ impl DocWindow {
         if let Some(f) = v["dateFormat"].as_str() {
             self.r4.date_default = crate::doc_forms::DATE_PICTURES.iter().position(|p| *p == f);
         }
+        self.r13_read_defaults(&v);
     }
 
     /// Apply stored defaults (JSON of [`DocWindow::design_defaults`]) to a new document, as
@@ -353,6 +360,9 @@ impl DocWindow {
             self.r3.effects = Some(e.to_owned());
             cmds.push(json!({ "cmd": "applyThemeEffects", "id": e }));
         }
+        // Styles and page setup kept for new documents (round 13).
+        self.r13_read_defaults(&v);
+        cmds.extend(self.r13_new_document_commands());
         if !cmds.is_empty() {
             self.r3_run(cmds);
             self.view.mark_saved();
@@ -765,7 +775,7 @@ impl DocWindow {
         true
     }
 
-    fn refresh_styles_pane_into(&mut self, pane: &mut StylesPane) {
+    pub(super) fn refresh_styles_pane_into(&mut self, pane: &mut StylesPane) {
         let all = self.view.all_styles();
         let all_default = all
             .iter()
@@ -813,6 +823,7 @@ impl DocWindow {
             .collect::<Vec<_>>();
         list.extend(rest);
         pane.styles = list;
+        self.r13_pane_filter(pane);
         // No direct style: the document's default paragraph style.
         pane.default_id = all_default.unwrap_or_else(|| "Normal".into());
         pane.current = Some(
@@ -919,6 +930,7 @@ impl DocWindow {
             PaneAction::Button("new") => self.r3_open_form(DocFormKind::NewStyle),
             PaneAction::Button("inspector") => self.action("styles.inspector"),
             PaneAction::Button("manage") => self.action("styles.manage"),
+            PaneAction::Button("options") => self.action("styles.paneOptions"),
             PaneAction::Button("start") => self.r3_open_form(DocFormKind::Protect),
             PaneAction::Button("stop") => {
                 let has_pw = self

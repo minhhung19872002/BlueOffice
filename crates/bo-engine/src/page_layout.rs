@@ -16,6 +16,7 @@ impl Engine {
                 | Command::SetLineNumbering { .. }
                 | Command::SetSectionTextDirection { .. }
                 | Command::SetHyphenation { .. }
+                | Command::SetDocDefaults { .. }
                 | Command::SetDropCap { .. }
         );
         if !edit && !matches!(cmd, Command::PageLayout) {
@@ -40,6 +41,7 @@ impl Engine {
                     *scope,
                 ),
                 Command::SetHyphenation { hyphenation } => s.set_hyphenation(*hyphenation),
+                Command::SetDocDefaults { format } => s.set_doc_defaults(format),
                 Command::SetDropCap { drop_cap } => s.set_drop_cap(drop_cap.as_ref()),
                 _ => Ok(()),
             };

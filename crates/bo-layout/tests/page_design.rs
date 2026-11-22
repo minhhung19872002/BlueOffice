@@ -57,6 +57,8 @@ fn edge(style: &str, size: u32, space: u32) -> PageBorder {
             size,
             color: None,
             space,
+            shadow: false,
+            frame: false,
         },
         shadow: false,
         frame: false,

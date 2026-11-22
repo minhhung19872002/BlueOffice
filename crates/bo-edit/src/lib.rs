@@ -58,8 +58,8 @@ pub use ops::{Op, Pos, Selection, Transaction};
 pub use refs::{CitationMark, IndexMark, NoteConversion};
 use revisions::Tracker;
 pub use revisions::{RevKind, RevisionItem, StoryRef};
-pub use section::{HfVariant, PageSetupSpec, PasteMode, SetupScope};
-pub use table::{BorderPen, BorderPreset, TableEdit};
+pub use section::{HfVariant, PageSetupSpec, PasteMode, SectionStart, SetupScope};
+pub use table::{BorderPen, BorderPreset, PatternSpec, TableEdit};
 
 use bo_model::change::BlockChanges;
 use bo_model::index::{blocks_at, body_paragraphs, para_at, ParaPath};
@@ -375,6 +375,10 @@ pub enum ParaFormat {
     Shading {
         /// Fill colour as `RRGGBB`; `None` removes the shading.
         hex: Option<String>,
+        /// Pattern and pattern colour (§17.3.1.31 shd `w:val` / `w:color`, §17.18.78);
+        /// `None` is clear (round 13).
+        #[serde(default)]
+        pattern: Option<table::PatternSpec>,
     },
     /// Leave the paragraphs out of line numbering (§17.3.1.35 suppressLineNumbers).
     SuppressLineNumbers {
@@ -385,6 +389,15 @@ pub enum ParaFormat {
     SuppressAutoHyphens {
         /// Suppress (`true`) or hyphenate again.
         on: bool,
+    },
+    /// Several paragraph properties at once (the Paragraph dialog): the set fields of
+    /// `format` — §17.3.1.13 jc, §17.3.1.20 outlineLvl, §17.3.1.12 ind, §17.3.1.33 spacing,
+    /// §17.3.1.44 widowControl, §17.3.1.15 keepNext, §17.3.1.14 keepLines, §17.3.1.23
+    /// pageBreakBefore, §17.3.1.35 suppressLineNumbers, §17.3.1.34 suppressAutoHyphens,
+    /// §17.3.1.9 contextualSpacing.
+    Props {
+        /// The properties to set (unset fields stay as they are).
+        format: Box<find::FindFormat>,
     },
 }
 
@@ -3940,7 +3953,8 @@ impl Session {
                         line.space = 1;
                         pr.borders = preset.apply(pr.borders.as_ref(), &line);
                     }
-                    ParaFormat::Shading { hex } => {
+                    ParaFormat::Shading { hex, pattern } => {
+                        pr.shading_pattern = pattern.as_ref().and_then(table::PatternSpec::model);
                         pr.shading = hex.as_deref().and_then(Color::from_hex);
                     }
                     ParaFormat::SetBorders { edges, space } => {
@@ -3974,6 +3988,12 @@ impl Session {
                     }
                     ParaFormat::SuppressAutoHyphens { on } => {
                         pr.suppress_auto_hyphens = on.then_some(true);
+                    }
+                    ParaFormat::Props { format } => {
+                        let mut f = (**format).clone();
+                        // A paragraph style is applied by its own command.
+                        f.style = None;
+                        f.apply_para(None, pr);
                     }
                     ParaFormat::Clear | ParaFormat::Reset => {
                         let unknown = std::mem::take(&mut pr.unknown);
@@ -4152,7 +4172,14 @@ impl Session {
             strike: r.strike.unwrap_or(false),
             superscript: r.vert_align == Some(VertAlign::Superscript),
             subscript: r.vert_align == Some(VertAlign::Subscript),
-            font: r.font.clone(),
+            // A theme font (§17.3.2.26 rFonts @w:asciiTheme) shows the scheme's family, as the
+            // reference's font box does (round 13; was empty on headings).
+            font: r
+                .theme_ascii
+                .as_deref()
+                .and_then(|t| doc.theme_fonts.resolve(t))
+                .map(str::to_owned)
+                .or_else(|| r.font.clone()),
             size_half_points: r.size.map(|s| s.0),
             color: r.color.map(Color::to_hex),
             highlight: r.highlight.map(Color::to_hex),

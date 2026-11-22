@@ -112,6 +112,12 @@ impl TableGrid {
         changed
     }
 
+    /// The command row under the pointer and whether it can run (Quick Tables opens on hover).
+    pub(crate) fn hovered_command(&self) -> Option<(usize, bool)> {
+        let i = self.hover.filter(|h| h.0 >= 100 && h.1 == 0)?.0 - 100;
+        Some((i, self.commands.get(i).is_some_and(|c| c.1)))
+    }
+
     /// Device rectangle of command row `i` (Quick Tables opens beside its row).
     pub(crate) fn row_rect(&self, i: usize) -> [f32; 4] {
         let (w, _) = self.size();

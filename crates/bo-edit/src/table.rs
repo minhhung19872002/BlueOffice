@@ -57,6 +57,12 @@ pub struct BorderPen {
     /// `RRGGBB`; `None` is automatic.
     #[serde(default)]
     pub color: Option<String>,
+    /// §17.18.2 CT_Border `w:shadow` (Borders and Shading › Shadow, round 13).
+    #[serde(default)]
+    pub shadow: bool,
+    /// §17.18.2 CT_Border `w:frame` (Borders and Shading › 3-D).
+    #[serde(default)]
+    pub frame: bool,
 }
 
 impl BorderPen {
@@ -72,7 +78,31 @@ impl BorderPen {
             size: self.size.clamp(2, 96),
             color: self.color.as_deref().and_then(Color::from_hex),
             space: 0,
+            shadow: self.shadow,
+            frame: self.frame,
         }
+    }
+}
+
+/// A shading pattern as hosts send it: §17.18.78 `ST_Shd` value and the pattern colour
+/// `RRGGBB` (`None`: auto).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct PatternSpec {
+    /// `clear`, `solid`, `pct10`, `horzStripe`, …
+    pub val: String,
+    /// Pattern colour.
+    #[serde(default)]
+    pub color: Option<String>,
+}
+
+impl PatternSpec {
+    /// The model pattern (`None` for clear).
+    #[must_use]
+    pub fn model(&self) -> Option<bo_model::run_fx::ShadingPattern> {
+        (!self.val.is_empty() && self.val != "clear").then(|| bo_model::run_fx::ShadingPattern {
+            val: self.val.clone(),
+            color: self.color.as_deref().and_then(Color::from_hex),
+        })
     }
 }
 
@@ -154,6 +184,10 @@ pub enum TableEdit {
         /// selected cells.
         #[serde(default)]
         whole: bool,
+        /// Pattern and pattern colour (§17.4.32 shd `w:val` / `w:color`, §17.18.78); `None`
+        /// is clear.
+        #[serde(default)]
+        pattern: Option<PatternSpec>,
     },
     /// Exact borders from the Borders and Shading dialog: each edge drawn with its pen or
     /// removed (`None`). `cells`: the selected cells get them as cell borders (§17.4.67
@@ -743,6 +777,8 @@ pub(crate) fn nil_border() -> Border {
         size: 0,
         color: None,
         space: 0,
+        shadow: false,
+        frame: false,
     }
 }
 
@@ -1244,12 +1280,18 @@ impl Session {
                     }
                 }
             }
-            TableEdit::Shading { hex, whole } => {
+            TableEdit::Shading {
+                hex,
+                whole,
+                pattern,
+            } => {
                 let c = hex.as_deref().and_then(Color::from_hex);
+                let pat = pattern.as_ref().and_then(PatternSpec::model);
                 if *whole {
                     for row in &mut t.rows {
                         for cell in &mut row.cells {
                             cell.props.shading = c;
+                            cell.props.shading_pattern.clone_from(&pat);
                         }
                     }
                 }
@@ -1257,6 +1299,7 @@ impl Session {
                     for g in g0..=g1 {
                         if let Some(i) = cell_covering(&t.rows[r], g) {
                             t.rows[r].cells[i].props.shading = c;
+                            t.rows[r].cells[i].props.shading_pattern.clone_from(&pat);
                         }
                     }
                 }

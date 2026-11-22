@@ -164,6 +164,7 @@ pub fn write_docx(doc: &Document) -> Result<Vec<u8>> {
             || src.protection != doc.protection
             || src.hyphenation != doc.hyphenation
             || src.track_revisions != doc.track_revisions
+            || src.pages != doc.pages
         {
             w.patch_settings(&main)?;
         }
@@ -295,6 +296,14 @@ const SETTINGS_AFTER_BG: &[&str] = &[
 ];
 
 /// The settings following `name` in [`SETTINGS_AFTER_BG`].
+/// The CT_Settings children after `name` of [`SETTINGS_AFTER_EVEN_ODD`].
+fn settings_after_even_odd(name: &str) -> &'static [&'static str] {
+    SETTINGS_AFTER_EVEN_ODD
+        .iter()
+        .position(|n| *n == name)
+        .map_or(&[], |i| &SETTINGS_AFTER_EVEN_ODD[i + 1..])
+}
+
 fn settings_after(name: &str) -> &'static [&'static str] {
     SETTINGS_AFTER_BG
         .iter()
@@ -2075,6 +2084,39 @@ impl Writer<'_> {
                 );
             }
         }
+        // Page Setup › Multiple pages (§17.15.1.57 mirrorMargins, §17.15.1.49 gutterAtTop,
+        // §17.15.1.13 bookFoldPrinting, §17.15.1.65 printTwoOnOne), each at its CT_Settings
+        // place (§17.15.1.78).
+        if src.is_none_or(|p| p.pages != self.doc.pages) {
+            let pg = self.doc.pages;
+            for (tag, on, after) in [
+                (
+                    "mirrorMargins",
+                    pg.mirror_margins,
+                    settings_after("mirrorMargins"),
+                ),
+                (
+                    "gutterAtTop",
+                    pg.gutter_at_top,
+                    settings_after("gutterAtTop"),
+                ),
+                (
+                    "bookFoldPrinting",
+                    pg.book_fold,
+                    settings_after_even_odd("bookFoldPrinting"),
+                ),
+                (
+                    "printTwoOnOne",
+                    pg.two_on_one,
+                    settings_after_even_odd("printTwoOnOne"),
+                ),
+            ] {
+                s = remove_empty_element(&s, &format!("w:{tag}"));
+                if on {
+                    s = insert_setting(&s, &format!("<w:{tag}/>"), after);
+                }
+            }
+        }
         // §17.15.1.89 trackRevisions: after revisionView, before doNotTrackMoves …
         // documentProtection … in CT_Settings (§17.15.1.78).
         if src.is_none_or(|p| p.track_revisions != self.doc.track_revisions) {
@@ -2216,12 +2258,20 @@ impl Writer<'_> {
         if self.doc.design.display_background_shape {
             s.push_str("<w:displayBackgroundShape/>");
         }
+        // §17.15.1.57 mirrorMargins precedes bordersDoNotSurroundHeader.
+        if self.doc.pages.mirror_margins {
+            s.push_str("<w:mirrorMargins/>");
+        }
         // §17.15.1.18 / §17.15.1.19, between displayBackgroundShape and trackRevisions.
         if self.doc.design.borders_do_not_surround_header {
             s.push_str("<w:bordersDoNotSurroundHeader/>");
         }
         if self.doc.design.borders_do_not_surround_footer {
             s.push_str("<w:bordersDoNotSurroundFooter/>");
+        }
+        // §17.15.1.49 gutterAtTop follows them.
+        if self.doc.pages.gutter_at_top {
+            s.push_str("<w:gutterAtTop/>");
         }
         // §17.15.1.89 trackRevisions precedes documentProtection.
         if self.doc.track_revisions {
@@ -2239,6 +2289,13 @@ impl Writer<'_> {
         s.push_str(&hyphenation_xml(&self.doc.hyphenation));
         if self.doc.even_and_odd_headers {
             s.push_str("<w:evenAndOddHeaders/>");
+        }
+        // §17.15.1.13 bookFoldPrinting, §17.15.1.65 printTwoOnOne (after evenAndOddHeaders).
+        if self.doc.pages.book_fold {
+            s.push_str("<w:bookFoldPrinting/>");
+        }
+        if self.doc.pages.two_on_one {
+            s.push_str("<w:printTwoOnOne/>");
         }
         // §17.11.11 footnotePr / §17.11.4 endnotePr (document-wide), before compat.
         s.push_str(&note_pr_xml("footnotePr", &self.doc.footnote_pr));
@@ -2787,8 +2844,9 @@ fn sect_props_xml(sec: &Section) -> String {
     };
     let _ = write!(
             s,
-            "<w:pgSz w:w=\"{}\" w:h=\"{}\"{orient}/><w:pgMar w:top=\"{}\" w:right=\"{}\" w:bottom=\"{}\" w:left=\"{}\" w:header=\"{}\" w:footer=\"{}\" w:gutter=\"0\"/>",
-            p.width.0, p.height.0, p.margin_top.0, p.margin_right.0, p.margin_bottom.0, p.margin_left.0, p.header.0, p.footer.0
+            "<w:pgSz w:w=\"{}\" w:h=\"{}\"{orient}/><w:pgMar w:top=\"{}\" w:right=\"{}\" w:bottom=\"{}\" w:left=\"{}\" w:header=\"{}\" w:footer=\"{}\" w:gutter=\"{}\"/>",
+            p.width.0, p.height.0, p.margin_top.0, p.margin_right.0, p.margin_bottom.0, p.margin_left.0, p.header.0, p.footer.0,
+            sec.layout.gutter.0.max(0)
         );
     if let Some(pb) = &sec.page_borders {
         s.push_str(&page_borders_xml(pb));
@@ -2811,6 +2869,10 @@ fn sect_props_xml(sec: &Section) -> String {
     // §17.6.6 formProt (after cols, before titlePg in CT_SectPr).
     if sec.form_unprotected {
         s.push_str("<w:formProt w:val=\"0\"/>");
+    }
+    // §17.6.23 vAlign (after formProt, before noEndnote / titlePg in CT_SectPrBase).
+    if sec.layout.v_align != bo_model::PageVAlign::Top {
+        let _ = write!(s, "<w:vAlign w:val=\"{}\"/>", sec.layout.v_align.as_str());
     }
     if sec.title_page {
         s.push_str("<w:titlePg/>");
@@ -2888,14 +2950,9 @@ fn tcpr_items(p: &bo_model::CellProps) -> Vec<(String, String)> {
         x.push_str("</w:tcBorders>");
         items.push(("tcBorders".into(), x));
     }
-    if let Some(col) = p.shading {
-        items.push((
-            "shd".into(),
-            format!(
-                "<w:shd w:val=\"clear\" w:color=\"auto\" w:fill=\"{}\"/>",
-                col.to_hex()
-            ),
-        ));
+    if p.shading.is_some() || p.shading_pattern.is_some() {
+        // §17.4.32 shd: pattern (§17.18.78), pattern colour and fill.
+        items.push(("shd".into(), shd_xml(p.shading, p.shading_pattern.as_ref())));
     }
     // ECMA-376 Part 1, §17.4.72 textDirection.
     if let Some(d) = p.text_direction {
@@ -3195,12 +3252,30 @@ fn jc(a: Alignment) -> &'static str {
 }
 
 fn border_xml(tag: &str, b: &Border) -> String {
+    // §17.18.2 CT_Border: w:val, w:sz, w:space, w:color, w:shadow, w:frame.
     format!(
-        "<w:{tag} w:val=\"{}\" w:sz=\"{}\" w:space=\"{}\" w:color=\"{}\"/>",
+        "<w:{tag} w:val=\"{}\" w:sz=\"{}\" w:space=\"{}\" w:color=\"{}\"{}{}/>",
         escape(&b.style),
         b.size,
         b.space,
-        b.color.map_or("auto".to_owned(), bo_model::Color::to_hex)
+        b.color.map_or("auto".to_owned(), bo_model::Color::to_hex),
+        if b.shadow { " w:shadow=\"1\"" } else { "" },
+        if b.frame { " w:frame=\"1\"" } else { "" },
+    )
+}
+
+/// §17.3.5 CT_Shd (`w:val` §17.18.78 pattern, `w:color` pattern colour, `w:fill`) of a
+/// paragraph or cell; no pattern = `clear`.
+fn shd_xml(
+    fill: Option<bo_model::Color>,
+    pat: Option<&bo_model::run_fx::ShadingPattern>,
+) -> String {
+    let (val, color) = pat.map_or(("clear", None), |s| (s.val.as_str(), s.color));
+    format!(
+        "<w:shd w:val=\"{}\" w:color=\"{}\" w:fill=\"{}\"/>",
+        escape(val),
+        color.map_or_else(|| "auto".to_owned(), bo_model::Color::to_hex),
+        fill.map_or_else(|| "auto".to_owned(), bo_model::Color::to_hex)
     )
 }
 
@@ -3283,14 +3358,9 @@ fn ppr_children(p: &ParaProps) -> Vec<(String, String)> {
     if let Some(b) = &p.borders {
         v.push(("pBdr".into(), borders_xml("pBdr", b, true)));
     }
-    if let Some(c) = p.shading {
-        v.push((
-            "shd".into(),
-            format!(
-                "<w:shd w:val=\"clear\" w:color=\"auto\" w:fill=\"{}\"/>",
-                c.to_hex()
-            ),
-        ));
+    if p.shading.is_some() || p.shading_pattern.is_some() {
+        // §17.3.1.31 shd: pattern (§17.18.78), pattern colour and fill.
+        v.push(("shd".into(), shd_xml(p.shading, p.shading_pattern.as_ref())));
     }
     if let Some(tabs) = &p.tabs {
         let mut s = String::from("<w:tabs>");
@@ -3360,6 +3430,8 @@ fn ppr_children(p: &ParaProps) -> Vec<(String, String)> {
         v.push(("ind".into(), s));
     }
     v.extend(flag("contextualSpacing", p.contextual_spacing));
+    // §17.3.1.18 mirrorIndents (after contextualSpacing in CT_PPrBase).
+    v.extend(flag("mirrorIndents", p.mirror_indents));
     v.extend(flag("bidi", p.bidi)); // §17.3.1.6
     if let Some(a) = p.align {
         v.push(("jc".into(), format!("<w:jc w:val=\"{}\"/>", jc(a))));

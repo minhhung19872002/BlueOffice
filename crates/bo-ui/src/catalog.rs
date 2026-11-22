@@ -323,7 +323,7 @@ pub fn command(id: &str, sec: &SectionState) -> Option<Command> {
         // ECMA-376 Part 1, §17.3.1.31 shd (paragraph shading fill).
         let hex = (color != "none").then(|| color.to_owned());
         return Some(Command::FormatParagraph {
-            format: bo_edit::ParaFormat::Shading { hex },
+            format: bo_edit::ParaFormat::Shading { hex, pattern: None },
         });
     }
     if let Some(color) = id.strip_prefix("design.pageColor.") {

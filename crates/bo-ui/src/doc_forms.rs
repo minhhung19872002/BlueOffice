@@ -33,6 +33,9 @@ mod tprops11;
 
 #[path = "doc_forms12.rs"]
 pub(crate) mod r12;
+
+#[path = "doc_forms13.rs"]
+pub(crate) mod r13;
 pub(crate) use r5::{open_manage_styles, ManagedStyle};
 pub(crate) use r7::INSPECT;
 
@@ -116,6 +119,18 @@ pub(crate) enum DocFormKind {
     BordersShading,
     /// Create New Building Block (Quick Tables › Save Selection…, round 12).
     NewBlock,
+    /// Home › Paragraph dialog launcher: Indents and Spacing / Line and Page Breaks (round 13).
+    Paragraph,
+    /// Paragraph › Tabs… (round 13).
+    Tabs,
+    /// Layout › Page Setup with its Margins, Paper and Layout tabs (round 13).
+    PageSetup,
+    /// Border and Shading Options (Borders and Shading › Options…, round 13).
+    BorderOptions,
+    /// Style Pane Options (Styles pane › Options…, round 13).
+    PaneOptions,
+    /// Line Numbers (Page Setup › Layout › Line Numbers…, round 13).
+    LineNumbers,
 }
 
 /// What the owner does after an input.
@@ -172,7 +187,7 @@ pub(crate) struct DocForm {
     /// Ids behind list rows (cross-reference targets, source tags, style ids …).
     pub(crate) ids: Vec<String>,
     /// Style ids of the New Style dialog's drop-downs.
-    style_ids: Vec<String>,
+    pub(crate) style_ids: Vec<String>,
     /// Files picked for Compare (original, revised): name and base64.
     pub(crate) files: [Option<(String, String)>; 2],
     /// Preview lines of the TOC / Index dialogs and the source preview.
@@ -189,9 +204,11 @@ pub(crate) struct DocForm {
     /// Three-state check boxes of the Find … dialogs (round 11).
     tris: Vec<findfmt11::Tri>,
     /// Translated words a dialog's OK puts together (round 11).
-    words: Vec<(String, String)>,
+    pub(crate) words: Vec<(String, String)>,
     /// Borders and Shading state (round 12).
     bs: Option<Box<r12::Bs>>,
+    /// Paragraph / Tabs / Page Setup / New Style state (round 13).
+    r13: Option<Box<r13::R13>>,
 }
 
 /// Reference ids of `ST_NumberFormat` values offered for notes (§17.18.59).
@@ -395,6 +412,7 @@ impl DocForm {
             tris: Vec::new(),
             words: Vec::new(),
             bs: None,
+            r13: None,
         }
     }
 
@@ -545,7 +563,7 @@ impl DocForm {
             .map(|r| r.id)
     }
 
-    fn set_radio(&mut self, id: &str) {
+    pub(crate) fn set_radio(&mut self, id: &str) {
         let Some(group) = self.radios.iter().find(|r| r.id == id).map(|r| r.group) else {
             return;
         };
@@ -713,6 +731,7 @@ impl DocForm {
         match ev {
             Event::None => FormOut::Redraw,
             Event::Cancel => FormOut::Close,
+            Event::Canvas(id, x, y) if self.r13_canvas(id, *x, *y) => FormOut::Redraw,
             Event::Canvas(id, _, y) if self.r11_canvas(id, *y) => FormOut::Redraw,
             Event::Canvas(id, x, y) if self.r12_canvas(id, *x, *y) => FormOut::Redraw,
             Event::Canvas(id, ..) if self.kind == DocFormKind::TableProps && self.tp_canvas(id) => {
@@ -757,6 +776,11 @@ impl DocForm {
                 self.form.enable("bookmark", range);
             }
             (DocFormKind::Protect, _) => {}
+            (k, _) if r13::handles(k) => {
+                self.r11_changed(id);
+                self.r13_changed(id);
+            }
+            (DocFormKind::NewStyle, _) => self.style_describe(),
             (k, _) if findfmt11::handles(k) => self.r11_changed(id),
             (DocFormKind::TableProps, _) => self.tp_changed(id),
             (k, _) if r12::handles(k) => self.r12_changed(id),
@@ -798,6 +822,9 @@ impl DocForm {
                 FormOut::NewDocument(self.labels())
             }
             (DocFormKind::CrossRef | DocFormKind::Language, "list") => self.ok(),
+            (k, _) if r13::handles(k) => self.r13_clicked(id),
+            (DocFormKind::NewStyle, "format") => self.r13_clicked(id),
+            (DocFormKind::BordersShading, "bOptions") => self.r13_clicked(id),
             (k, _) if findfmt11::handles(k) => self.r11_clicked(id),
             (DocFormKind::TableProps, _) => self.tp_clicked(id),
             (k, _) if r5::handles(k) => self.r5_clicked(id),
@@ -899,6 +926,9 @@ impl DocForm {
     }
 
     fn ok(&mut self) -> FormOut {
+        if let Some(out) = self.r13_ok() {
+            return out;
+        }
         match self.kind {
             DocFormKind::PasteSpecial => {
                 let mode = match self.sel("as").unwrap_or(0) {
@@ -913,39 +943,11 @@ impl DocForm {
                 self.sel("between").unwrap_or(0),
                 self.sel("other").unwrap_or(0),
             ]),
-            DocFormKind::NewStyle => {
-                let name = self.text("name");
-                if name.trim().is_empty() {
-                    return FormOut::Redraw;
-                }
-                let kind =
-                    ["paragraph", "character", "paragraph"][self.sel("type").unwrap_or(0).min(2)];
-                let pick = |k: Option<usize>| -> Value {
-                    match k.filter(|k| *k > 0).and_then(|k| self.style_ids.get(k - 1)) {
-                        Some(id) => json!(id),
-                        None => Value::Null,
-                    }
-                };
-                let size = self.text("size").trim().parse::<f32>().ok();
-                let spec = json!({
-                    "name": name.trim(),
-                    "type": kind,
-                    "basedOn": pick(self.sel("basedOn")),
-                    "next": pick(self.sel("next")),
-                    "addToGallery": self.on("gallery"),
-                    "autoUpdate": self.on("auto"),
-                    "font": self.text("font"),
-                    "size": size.map(|s| (s * 2.0).round() as u32),
-                    "bold": self.on("bold"),
-                    "italic": self.on("italic"),
-                    "underline": self.on("underline"),
-                });
-                let cmd = match &self.modify {
-                    Some(id) => json!({ "cmd": "styleModify", "id": id, "spec": spec }),
-                    None => json!({ "cmd": "styleNew", "spec": spec, "fromSelection": true }),
-                };
-                FormOut::Run(vec![cmd], true)
-            }
+            // Round 13 (`r13_ok`).
+            DocFormKind::NewStyle
+            | DocFormKind::BorderOptions
+            | DocFormKind::PaneOptions
+            | DocFormKind::LineNumbers => FormOut::Close,
             DocFormKind::Toc => {
                 let levels = self.form.num("levels").clamp(1, 9);
                 let mut instr = match &self.toc_map {
@@ -1188,6 +1190,7 @@ impl DocForm {
             DocFormKind::TablePosition | DocFormKind::BordersShading | DocFormKind::NewBlock => {
                 self.r12_ok()
             }
+            DocFormKind::Paragraph | DocFormKind::Tabs | DocFormKind::PageSetup => FormOut::Close,
             DocFormKind::Zoom => {
                 let pct = match self.chosen("zoom") {
                     Some("z200") => "200".to_owned(),
@@ -1216,7 +1219,8 @@ impl DocForm {
         let files = &self.files;
         let this = self;
         let mut canvas = |id: &str, r: [f32; 4], p: &mut dyn Painter| {
-            if findfmt11::paint_canvas(this, id, r, p, &font, k)
+            if r13::paint_canvas(this, id, r, p, &font)
+                || findfmt11::paint_canvas(this, id, r, p, &font, k)
                 || tprops11::paint_canvas(this, id, r, p, k)
                 || r12::paint_canvas(this, id, r, p, &font)
             {
@@ -1647,141 +1651,8 @@ pub(crate) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
             f.ok_cancel(s);
             f
         }
-        DocFormKind::NewStyle => {
-            let mut f = DocForm::new(
-                kind,
-                &tr("docR3.newStyle", "Create New Style from Formatting"),
-                (640.0, 560.0),
-                vec![],
-            );
-            f.group(
-                "props",
-                [10.0, 46.0, 620.0, 1.0],
-                &tr("docR3.properties", "Properties"),
-            );
-            f.label(
-                "nameL",
-                [20.0, 66.0, 160.0, 18.0],
-                &tr("docR3.name", "Name:"),
-            );
-            f.edit(
-                "name",
-                [190.0, 62.0, 430.0, 24.0],
-                &tr("docR3.style1", "Style1"),
-            );
-            f.label(
-                "typeL",
-                [20.0, 98.0, 160.0, 18.0],
-                &tr("docR3.styleType", "Style type:"),
-            );
-            f.combo(
-                "type",
-                [190.0, 94.0, 430.0, 24.0],
-                vec![
-                    tr("docR3.typeLinked", "Linked (paragraph and character)"),
-                    tr("docR3.typeCharacter", "Character"),
-                    tr("docR3.typeParagraph", "Paragraph"),
-                ],
-                0,
-            );
-            let paras: Vec<&(String, String, bool)> = c.styles.iter().filter(|s| s.2).collect();
-            let mut names = vec![tr("docR3.noStyle", "(no style)")];
-            names.extend(paras.iter().map(|s| s.1.clone()));
-            f.style_ids = paras.iter().map(|s| s.0.clone()).collect();
-            let normal = paras
-                .iter()
-                .position(|s| s.0 == "Normal")
-                .map_or(0, |i| i + 1);
-            f.label(
-                "basedL",
-                [20.0, 130.0, 160.0, 18.0],
-                &tr("docR3.basedOn", "Style based on:"),
-            );
-            f.combo(
-                "basedOn",
-                [190.0, 126.0, 430.0, 24.0],
-                names.clone(),
-                normal,
-            );
-            f.label(
-                "nextL",
-                [20.0, 162.0, 170.0, 18.0],
-                &tr("docR3.following", "Style for following paragraph:"),
-            );
-            f.combo("next", [190.0, 158.0, 430.0, 24.0], names, 0);
-            f.group(
-                "fmt",
-                [10.0, 196.0, 620.0, 1.0],
-                &tr("docR3.formatting", "Formatting"),
-            );
-            let fonts = vec![
-                c.font.clone(),
-                "Times New Roman".into(),
-                "Arial".into(),
-                "Calibri".into(),
-                "Cambria".into(),
-            ];
-            f.combo("font", [20.0, 214.0, 200.0, 24.0], fonts, 0);
-            let sizes: Vec<String> = [8, 9, 10, 11, 12, 13, 14, 16, 18, 20, 24, 28, 36]
-                .iter()
-                .map(ToString::to_string)
-                .collect();
-            let cur = (c.size / 2).to_string();
-            let si = sizes.iter().position(|v| *v == cur).unwrap_or(4);
-            f.combo("size", [228.0, 214.0, 70.0, 24.0], sizes, si);
-            f.check(
-                "bold",
-                [312.0, 217.0, 70.0, 18.0],
-                &tr("docR3.bold", "Bold"),
-                false,
-            );
-            f.check(
-                "italic",
-                [384.0, 217.0, 70.0, 18.0],
-                &tr("docR3.italic", "Italic"),
-                false,
-            );
-            f.check(
-                "underline",
-                [456.0, 217.0, 110.0, 18.0],
-                &tr("docR3.underline", "Underline"),
-                false,
-            );
-            f.preview = vec![tr(
-                "docR3.sampleText",
-                "Sample Text Sample Text Sample Text",
-            )];
-            f.canvas("preview", [20.0, 250.0, 600.0, 150.0]);
-            f.check(
-                "gallery",
-                [20.0, 420.0, 260.0, 18.0],
-                &tr("docR3.addGallery", "Add to the Styles gallery"),
-                true,
-            );
-            f.check(
-                "auto",
-                [300.0, 420.0, 260.0, 18.0],
-                &tr("docR3.autoUpdate", "Automatically update"),
-                false,
-            );
-            f.radio(
-                "thisDoc",
-                "scope",
-                [20.0, 450.0, 260.0, 20.0],
-                &tr("docR3.thisDoc", "Only in this document"),
-                true,
-            );
-            f.radio(
-                "template",
-                "scope",
-                [300.0, 450.0, 320.0, 20.0],
-                &tr("docR3.newDocs", "New documents based on this template"),
-                false,
-            );
-            f.disable("template");
-            f.ok_cancel(s);
-            f
-        }
+        // Round 13: measured on the reference (669 × 703 window).
+        DocFormKind::NewStyle => r13::open_new_style(s, c),
         DocFormKind::Toc => {
             let tabs = vec![
                 tr("docR3.tabIndex", "Index"),
@@ -3142,6 +3013,12 @@ pub(crate) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
         DocFormKind::TablePosition | DocFormKind::BordersShading | DocFormKind::NewBlock => {
             r12::open(kind, s, c)
         }
+        DocFormKind::Paragraph
+        | DocFormKind::Tabs
+        | DocFormKind::PageSetup
+        | DocFormKind::BorderOptions
+        | DocFormKind::PaneOptions
+        | DocFormKind::LineNumbers => r13::open(kind, s, c),
         DocFormKind::Zoom => {
             let mut f = DocForm::new(kind, &tr("docR4.zoomTitle", "Zoom"), (381.0, 258.0), vec![]);
             f.label(

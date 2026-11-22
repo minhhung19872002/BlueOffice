@@ -38,6 +38,48 @@ pub(crate) const LINE_STYLES: [&str; 22] = [
     "outset",
 ];
 
+/// Shading patterns of the Shading tab in the reference's order: `w:val` (§17.18.78
+/// `ST_Shd`) and the name (a key of `doc13` for the named ones, else the percentage).
+pub(crate) const PATTERNS: [(&str, &str); 37] = [
+    ("clear", "doc12.clear"),
+    ("solid", "doc12.solid"),
+    ("pct5", "5%"),
+    ("pct10", "10%"),
+    ("pct12", "12.5%"),
+    ("pct15", "15%"),
+    ("pct20", "20%"),
+    ("pct25", "25%"),
+    ("pct30", "30%"),
+    ("pct35", "35%"),
+    ("pct37", "37.5%"),
+    ("pct40", "40%"),
+    ("pct45", "45%"),
+    ("pct50", "50%"),
+    ("pct55", "55%"),
+    ("pct60", "60%"),
+    ("pct62", "62.5%"),
+    ("pct65", "65%"),
+    ("pct70", "70%"),
+    ("pct75", "75%"),
+    ("pct80", "80%"),
+    ("pct85", "85%"),
+    ("pct87", "87.5%"),
+    ("pct90", "90%"),
+    ("pct95", "95%"),
+    ("horzStripe", "doc13.pat_dkHorz"),
+    ("vertStripe", "doc13.pat_dkVert"),
+    ("reverseDiagStripe", "doc13.pat_dkDown"),
+    ("diagStripe", "doc13.pat_dkUp"),
+    ("horzCross", "doc13.pat_dkGrid"),
+    ("diagCross", "doc13.pat_dkTrellis"),
+    ("thinHorzStripe", "doc13.pat_ltHorz"),
+    ("thinVertStripe", "doc13.pat_ltVert"),
+    ("thinReverseDiagStripe", "doc13.pat_ltDown"),
+    ("thinDiagStripe", "doc13.pat_ltUp"),
+    ("thinHorzCross", "doc13.pat_ltGrid"),
+    ("thinDiagCross", "doc13.pat_ltTrellis"),
+];
+
 /// Widths offered (eighths of a point) and their names.
 const WIDTHS: [(u32, &str); 9] = [
     (2, "¼ pt"),
@@ -406,7 +448,7 @@ impl DocForm {
                 self.bs_scope_changed();
             }
             (DocFormKind::BordersShading, "sStyle") => {
-                let solid = self.sel("sStyle") == Some(1);
+                let solid = self.sel("sStyle").unwrap_or(0) > 0;
                 self.form.enable("sColor", solid);
                 self.form.enable("sColorL", solid);
             }
@@ -526,7 +568,20 @@ impl DocForm {
         let mut cmds = Vec::new();
         let scope = self.bs_scope();
         let e = self.bs().edges[0].clone();
-        let pen = |i: usize| e[i].as_ref().map(Line::json);
+        // Shadow / 3-D of a paragraph or one cell: §17.18.2 w:shadow / w:frame on the edges.
+        let tabular = self.bs_tabular(scope);
+        let setting = self.bs().setting[0];
+        let (shadow, frame) = (!tabular && setting == 2, !tabular && setting == 3);
+        let pen = |i: usize| {
+            e[i].as_ref().map(|l| {
+                let mut v = l.json();
+                if i < 4 {
+                    v["shadow"] = json!(shadow);
+                    v["frame"] = json!(frame);
+                }
+                v
+            })
+        };
         match scope {
             "text" => {
                 let border = e.iter().take(4).flatten().next().map(Line::json);
@@ -549,13 +604,32 @@ impl DocForm {
                 } }));
             }
         }
-        // Shading: Clear takes the fill, Solid (100%) the pattern colour.
-        let fill = if self.sel("sStyle") == Some(1) {
+        // Shading: the fill, and the pattern in the pattern colour (§17.18.78); text has no
+        // pattern of its own here, so Solid there takes the pattern colour as before.
+        let pat_i = self.sel("sStyle").unwrap_or(0).min(PATTERNS.len() - 1);
+        let pcol = self.form.color("sColor");
+        let pcol = (!pcol.is_empty() && pcol != super::form::NO_COLOR).then_some(pcol);
+        let pattern = (pat_i > 0).then(|| json!({ "val": PATTERNS[pat_i].0, "color": pcol }));
+        let fill = if pat_i == 1
+            && self
+                .bs()
+                .scopes
+                .get(self.sel("sApply").unwrap_or(0))
+                .copied()
+                .unwrap_or(scope)
+                == "text"
+        {
             self.form.color("sColor")
         } else {
             self.form.color("sFill")
         };
         let hex = (!fill.is_empty() && fill != super::form::NO_COLOR).then_some(fill);
+        let pat_changed = self
+            .words
+            .iter()
+            .find(|w| w.0 == "shdPat")
+            .is_none_or(|w| w.1 != pat_i.to_string())
+            || pat_i > 0;
         let shading_scope = self
             .bs()
             .scopes
@@ -569,14 +643,16 @@ impl DocForm {
                 .find(|w| w.0 == "shd")
                 .map(|w| (!w.1.is_empty()).then(|| w.1.clone()))
             || shading_scope != scope
+            || pat_changed
         {
             cmds.push(match shading_scope {
                 "text" => json!({ "cmd": "formatText", "format": { "kind": "advanced",
                     "patch": { "shading": hex } } }),
                 "paragraph" => json!({ "cmd": "formatParagraph",
-                    "format": { "kind": "shading", "hex": hex } }),
+                    "format": { "kind": "shading", "hex": hex, "pattern": pattern } }),
                 s => json!({ "cmd": "tableEdit",
-                    "edit": { "kind": "shading", "hex": hex, "whole": s == "table" } }),
+                    "edit": { "kind": "shading", "hex": hex, "whole": s == "table",
+                        "pattern": pattern } }),
             });
         }
         // Page borders only when the Page Border tab was changed.
@@ -627,6 +703,18 @@ impl DocForm {
             "sides": [e[0].is_some(), e[1].is_some(), e[2].is_some(), e[3].is_some()],
             "shadow": self.bs().setting[1] == 2,
         } })
+    }
+
+    /// Distances of paragraph borders from the text (points: top, left, bottom, right).
+    pub(crate) fn bs_space(&self) -> [u32; 4] {
+        self.bs.as_ref().map_or([1, 4, 1, 4], |b| b.space)
+    }
+
+    /// Set the distances (Border and Shading Options).
+    pub(crate) fn set_bs_space(&mut self, s: [u32; 4]) {
+        if let Some(b) = self.bs.as_mut() {
+            b.space = s;
+        }
     }
 
     /// Edge `i` of tab `tab` (tests).
@@ -1068,14 +1156,21 @@ fn open_borders(s: &Strings, c: &FormContext) -> DocForm {
             bs.space[i] = v.as_u64().map_or(bs.space[i], |n| n as u32);
         }
     }
-    bs.setting[0] = setting_of(
-        &bs.edges[0],
-        match scopes.get(first).copied().unwrap_or("") {
-            "table" => true,
-            "cell" => x["multiCell"].as_bool().unwrap_or(false),
-            _ => false,
-        },
-    );
+    let tabular = match scopes.get(first).copied().unwrap_or("") {
+        "table" => true,
+        "cell" => x["multiCell"].as_bool().unwrap_or(false),
+        _ => false,
+    };
+    bs.setting[0] = setting_of(&bs.edges[0], tabular);
+    // A box whose edges carry §17.18.2 w:shadow / w:frame is the Shadow / 3-D setting.
+    if !tabular && bs.setting[0] == 1 {
+        let top = &x[key]["top"];
+        if top["shadow"].as_bool() == Some(true) {
+            bs.setting[0] = 2;
+        } else if top["frame"].as_bool() == Some(true) {
+            bs.setting[0] = 3;
+        }
+    }
     let pb = &x["pageBorders"];
     let mut page_words = Vec::new();
     if let Some(style) = pb["style"].as_str() {
@@ -1256,7 +1351,6 @@ fn open_borders(s: &Strings, c: &FormContext) -> DocForm {
     );
     f.form.enable("pArt", false);
     f.form.enable("pOptions", false);
-    f.form.enable("bOptions", false);
     // Shading.
     let shd = x[match scopes.get(first).copied().unwrap_or("paragraph") {
         "text" => "runShading",
@@ -1268,6 +1362,13 @@ fn open_borders(s: &Strings, c: &FormContext) -> DocForm {
     .unwrap_or("")
     .to_owned();
     f.words.push(("shd".into(), shd.clone()));
+    // The shading pattern of a paragraph or cell (§17.18.78), its colour.
+    let pat = &x["r13"]["shadingPattern"];
+    let pat_i = PATTERNS
+        .iter()
+        .position(|p| Some(p.0) == pat["val"].as_str())
+        .unwrap_or(0);
+    f.words.push(("shdPat".into(), pat_i.to_string()));
     f.words.extend(page_words);
     f.form.add(
         "sFillG",
@@ -1305,11 +1406,16 @@ fn open_borders(s: &Strings, c: &FormContext) -> DocForm {
         Some(2),
         [87.0, 180.0, 166.0, 27.0],
         super::Kind::Combo {
-            items: vec![
-                tr("doc12.clear", "Clear"),
-                tr("doc12.solid", "Solid (100%)"),
-            ],
-            sel: 0,
+            items: PATTERNS
+                .iter()
+                .map(|(_, name)| match *name {
+                    "doc12.clear" => tr(name, "Clear"),
+                    "doc12.solid" => tr(name, "Solid (100%)"),
+                    n if n.starts_with("doc13.") => tr(n, n),
+                    n => n.to_owned(),
+                })
+                .collect(),
+            sel: pat_i,
         },
     );
     f.label_on(
@@ -1323,12 +1429,12 @@ fn open_borders(s: &Strings, c: &FormContext) -> DocForm {
         Some(2),
         [87.0, 211.0, 166.0, 27.0],
         super::Kind::ColorPick {
-            hex: String::new(),
+            hex: pat["color"].as_str().unwrap_or("").to_owned(),
             palette,
         },
     );
-    f.form.enable("sColor", false);
-    f.form.enable("sColorL", false);
+    f.form.enable("sColor", pat_i > 0);
+    f.form.enable("sColorL", pat_i > 0);
     f.form.add(
         "sSep",
         Some(2),
@@ -1438,6 +1544,96 @@ fn word<'a>(f: &'a DocForm, key: &str) -> &'a str {
         .iter()
         .find(|w| w.0 == key)
         .map_or("", |w| w.1.as_str())
+}
+
+/// The paragraph picture of the Borders tab in `d` (white card, text lines, the edges of
+/// the Borders tab or corner marks, the shadow), on `fill` when given.
+fn paint_para_picture(
+    f: &DocForm,
+    p: &mut dyn Painter,
+    d: [f32; 4],
+    fill: Option<Rgba>,
+    k: f32,
+    t1: f32,
+) {
+    p.fill_rect(d[0], d[1], d[2], d[3], WHITE);
+    let edges = &f.bs().edges[0];
+    let m = (20.0 * k).round();
+    let (bx, by, bw, bh) = (d[0] + m, d[1] + m, d[2] - 2.0 * m, d[3] - 2.0 * m);
+    if let Some(c) = fill {
+        p.fill_rect(bx, by, bw, bh, c);
+    }
+    let n = 10;
+    for l in 0..n {
+        let short = l == 0 || l == n - 1;
+        let lx = if l == 0 { bx + bw * 0.35 } else { bx + 4.0 * k };
+        let lw = if short { bw * 0.6 } else { bw - 8.0 * k };
+        p.fill_rect(
+            lx,
+            by + 4.0 * k + l as f32 * (bh - 8.0 * k) / n as f32,
+            lw,
+            (4.0 * k).round(),
+            TEXT_GREY,
+        );
+    }
+    if edges.iter().all(Option::is_none) {
+        let c = (8.0 * k).round();
+        for (x, y, sx, sy) in [
+            (bx, by, -1.0, -1.0),
+            (bx + bw, by, 1.0, -1.0),
+            (bx, by + bh, -1.0, 1.0),
+            (bx + bw, by + bh, 1.0, 1.0),
+        ] {
+            p.fill_rect(if sx < 0.0 { x - c } else { x }, y, c, t1, MARK);
+            p.fill_rect(x, if sy < 0.0 { y - c } else { y }, t1, c, MARK);
+        }
+    }
+    let lw = |l: &Line| (l.size as f32 / 8.0 * k).max(1.0).round();
+    if let Some(l) = &edges[0] {
+        hline(p, bx, by, bw, LINE_STYLES[l.style], lw(l), rgb(&l.color));
+    }
+    if let Some(l) = &edges[2] {
+        hline(
+            p,
+            bx,
+            by + bh,
+            bw,
+            LINE_STYLES[l.style],
+            lw(l),
+            rgb(&l.color),
+        );
+    }
+    if let Some(l) = &edges[1] {
+        vline(p, bx, by, bh, LINE_STYLES[l.style], lw(l), rgb(&l.color));
+    }
+    if let Some(l) = &edges[3] {
+        vline(
+            p,
+            bx + bw,
+            by,
+            bh,
+            LINE_STYLES[l.style],
+            lw(l),
+            rgb(&l.color),
+        );
+    }
+    if f.bs().setting[0] == 2 && edges.iter().any(Option::is_some) {
+        let s = (4.0 * k).round();
+        p.fill_rect(bx + s, by + bh, bw, s, Rgba(0x80, 0x80, 0x80, 255));
+        p.fill_rect(bx + bw, by + s, s, bh, Rgba(0x80, 0x80, 0x80, 255));
+    }
+}
+
+/// `a` mixed with `b` by `t` (0 = `a`), as `RRGGBB`.
+fn mix_hex(a: &str, b: &str, t: f32) -> String {
+    let pa = u32::from_str_radix(a, 16).unwrap_or(0xFF_FF_FF);
+    let pb = u32::from_str_radix(b, 16).unwrap_or(0);
+    let ch = |s: u32| {
+        let x = ((pa >> s) & 0xFF) as f32;
+        let y = ((pb >> s) & 0xFF) as f32;
+        (x + (y - x) * t.clamp(0.0, 1.0)).round() as u32
+    };
+    format!("{:02X}{:02X}{:02X}", ch(16), ch(8), ch(0))
 }
 
 fn rgb(hex: &str) -> Rgba {
@@ -1592,21 +1788,49 @@ pub(super) fn paint_canvas(
         let scope = if tab == 0 { f.bs_scope() } else { "page" };
         let on = f.bs().setting[tab] == n;
         let icon = [r[0], r[1], (54.0 * k).round(), (50.0 * k).round()];
+        // Measured on the reference (round 13): a #828790 frame on white; the chosen setting
+        // adds a dotted focus line and a 2 px #0078D4 frame inside it, the picture stays white.
         p.fill_rect(
             icon[0],
             icon[1],
             icon[2],
             icon[3],
-            if on { SEL_EDGE } else { EDGE },
+            Rgba(0x82, 0x87, 0x90, 255),
         );
-        let inset = if on { 2.0 * t1 } else { t1 };
         p.fill_rect(
-            icon[0] + inset,
-            icon[1] + inset,
-            icon[2] - 2.0 * inset,
-            icon[3] - 2.0 * inset,
-            if on { SEL_FILL } else { WHITE },
+            icon[0] + t1,
+            icon[1] + t1,
+            icon[2] - 2.0 * t1,
+            icon[3] - 2.0 * t1,
+            WHITE,
         );
+        if on {
+            let (x0, y0, w0, h0) = (
+                icon[0] + 2.0 * t1,
+                icon[1] + 2.0 * t1,
+                icon[2] - 4.0 * t1,
+                icon[3] - 4.0 * t1,
+            );
+            let mut i = 0.0;
+            while i < w0 {
+                p.fill_rect(x0 + i, y0, t1, t1, INK);
+                p.fill_rect(x0 + i, y0 + h0 - t1, t1, t1, INK);
+                i += 2.0 * t1;
+            }
+            let mut j = 0.0;
+            while j < h0 {
+                p.fill_rect(x0, y0 + j, t1, t1, INK);
+                p.fill_rect(x0 + w0 - t1, y0 + j, t1, t1, INK);
+                j += 2.0 * t1;
+            }
+            let blue = Rgba(0x00, 0x78, 0xd4, 255);
+            let b = 2.0 * t1;
+            let (x1, y1, w1, h1) = (x0 + t1, y0 + t1, w0 - 2.0 * t1, h0 - 2.0 * t1);
+            p.fill_rect(x1, y1, w1, b, blue);
+            p.fill_rect(x1, y1 + h1 - b, w1, b, blue);
+            p.fill_rect(x1, y1, b, h1, blue);
+            p.fill_rect(x1 + w1 - b, y1, b, h1, blue);
+        }
         paint_setting_icon(p, icon, n, f.bs_tabular(scope), k);
         let name = match (n, f.bs_tabular(scope)) {
             (0, _) => word(f, "name0"),
@@ -1842,11 +2066,50 @@ pub(super) fn paint_canvas(
         return true;
     }
     if id == "sPreview" {
-        let fill = if f.sel("sStyle") == Some(1) {
-            f.form.color("sColor")
+        // The fill with the pattern colour mixed in by the pattern's share (§17.18.78).
+        let pat_i = f.sel("sStyle").unwrap_or(0).min(PATTERNS.len() - 1);
+        let base = f.form.color("sFill");
+        let pc = f.form.color("sColor");
+        let pc = if pc.is_empty() || pc == super::form::NO_COLOR {
+            "000000".to_owned()
         } else {
-            f.form.color("sFill")
+            pc
         };
+        let cover = bo_model::run_fx::ShadingPattern {
+            val: PATTERNS[pat_i].0.to_owned(),
+            color: None,
+        }
+        .coverage();
+        let fill = if pat_i == 0 {
+            base
+        } else {
+            let b = if base.is_empty() || base == super::form::NO_COLOR {
+                "FFFFFF".to_owned()
+            } else {
+                base
+            };
+            mix_hex(&b, &pc, cover)
+        };
+        // A paragraph: the reference draws the Borders tab's picture (the paragraph with
+        // its edges or corner marks, the shadow) on the fill (round 13 review).
+        let shading_scope = f
+            .bs()
+            .scopes
+            .get(f.sel("sApply").unwrap_or(0))
+            .copied()
+            .unwrap_or("paragraph");
+        if shading_scope == "paragraph" {
+            let fill = (!fill.is_empty() && fill != super::form::NO_COLOR).then(|| rgb(&fill));
+            let (dw, dh) = ((194.0 * k).round(), (155.0 * k).round());
+            let d = [
+                (r[0] + (r[2] - dw) / 2.0).round(),
+                (r[1] + (r[3] - dh) / 2.0).round(),
+                dw,
+                dh,
+            ];
+            paint_para_picture(f, p, d, fill, k, t1);
+            return true;
+        }
         if !fill.is_empty() && fill != super::form::NO_COLOR {
             let m = (30.0 * k).round();
             p.fill_rect(
@@ -1856,6 +2119,11 @@ pub(super) fn paint_canvas(
                 r[3] - 2.0 * m,
                 rgb(&fill),
             );
+        }
+        // The reference's preview stays empty without a fill or a pattern.
+        let none = f.form.color("sFill");
+        if pat_i == 0 && (none.is_empty() || none == super::form::NO_COLOR) {
+            return true;
         }
         let s = word(f, "name7");
         let w = f.form.width(s);
@@ -1881,7 +2149,7 @@ fn paint_setting_icon(p: &mut dyn Painter, r: [f32; 4], n: usize, table: bool, k
         r[2] - 18.0 * k,
         r[3] - 14.0 * k,
     );
-    let grey = Rgba(0x9a, 0x9a, 0x9a, 255);
+    let grey = Rgba(0xaa, 0xaa, 0xaa, 255);
     if table {
         // Cell text bars.
         for row in 0..3 {
@@ -1896,11 +2164,17 @@ fn paint_setting_icon(p: &mut dyn Painter, r: [f32; 4], n: usize, table: bool, k
             }
         }
     } else {
+        // Text lines: a short first line at the right, full lines, a short last line.
         for l in 0..7 {
+            let (lx, lw) = match l {
+                0 => (x + w * 0.45, w * 0.55 - 3.0 * k),
+                6 => (x + 3.0 * k, w * 0.6),
+                _ => (x + 3.0 * k, w - 6.0 * k),
+            };
             p.fill_rect(
-                x + 3.0 * k,
+                lx,
                 y + 3.0 * k + l as f32 * (h - 6.0 * k) / 7.0,
-                w - 6.0 * k,
+                lw,
                 t,
                 grey,
             );

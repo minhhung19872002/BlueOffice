@@ -415,15 +415,18 @@ fn manage_styles_lists_sorts_and_sets_the_defaults() {
     assert!(items.iter().any(|i| i.contains("Default Paragraph Font")));
     assert!(!items.iter().any(|i| i.contains("heading 1")));
     // The selected style's description.
-    assert!(
-        f.label_for_test("desc1").starts_with("Font:"),
-        "{}",
-        f.label_for_test("desc1")
-    );
+    // (round 13: drawn wrapped in the bordered box `msDesc`).
+    let desc = f
+        .words
+        .iter()
+        .find(|w| w.0 == "msDesc")
+        .map(|w| w.1.clone())
+        .unwrap_or_default();
+    assert!(desc.starts_with("Font:"), "{desc}");
     // Alphabetical order.
     f.set_sel("sort", Some(1));
     f.click_for_test("none");
-    // Set Defaults: Normal in Arial 14 pt.
+    // Set Defaults (round 13: the document defaults, which Normal inherits): Arial 14 pt.
     f.set_tab(3);
     f.set_text("font", "Arial");
     f.set_text("size", "14");
@@ -593,7 +596,8 @@ fn modify_from_manage_styles_changes_the_style() {
     let f = w.r3.form.as_mut().expect("form");
     assert_eq!(f.kind, DocFormKind::NewStyle);
     assert_eq!(f.modify.as_deref(), Some("Normal"));
-    f.set_on("bold", true);
+    // Round 13: the reference's Bold toggle of the Formatting row.
+    assert!(f.r13_canvas_for_test("sBold"));
     press_key(&mut w, Key::Enter);
     let normal = w
         .view

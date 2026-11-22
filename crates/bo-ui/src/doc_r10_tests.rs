@@ -420,7 +420,11 @@ fn find_by_format_and_the_find_next_enable_rule() {
     let fd = w.find_dialog.as_mut().expect("dialog");
     // Nothing to find yet: Find Next is off, as on the reference.
     assert!(!fd.find_next_enabled());
-    fd.toggle_format(0);
+    fd.set_format(
+        "font",
+        serde_json::json!({ "bold": true }),
+        "Font: Bold".into(),
+    );
     assert!(fd.find_next_enabled());
     assert!(w.find_dialog_action(crate::doc_find::FindAction::FindNext));
     let (a, b) = w.view.engine().session().expect("s").selection().ordered();

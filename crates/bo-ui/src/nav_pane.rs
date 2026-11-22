@@ -81,6 +81,12 @@ pub(crate) struct NavPane {
     rect: [f32; 4],
     scroll: f32,
     hover: Option<usize>,
+    /// Headings (body paragraph ids) whose subheadings are hidden (▷ instead of ◢).
+    pub(crate) collapsed: Vec<usize>,
+    /// Headings shown: levels below this (1–9; Show Heading Levels).
+    pub(crate) max_level: u8,
+    /// A heading dragged: its index and the gap (visible row) it would drop before.
+    pub(crate) drag: Option<(usize, Option<usize>)>,
 }
 
 fn inside(r: [f32; 4], x: f32, y: f32) -> bool {
@@ -103,7 +109,82 @@ impl NavPane {
             rect: [0.0; 4],
             scroll: 0.0,
             hover: None,
+            collapsed: Vec::new(),
+            max_level: 9,
+            drag: None,
         }
+    }
+
+    /// Indices (into `headings`) of the headings listed: not under a collapsed heading and
+    /// within the heading levels shown.
+    pub(crate) fn visible(&self) -> Vec<usize> {
+        let mut out = Vec::new();
+        let mut hide_below: Option<u8> = None;
+        for (i, h) in self.headings.iter().enumerate() {
+            if let Some(l) = hide_below {
+                if h.level > l {
+                    continue;
+                }
+                hide_below = None;
+            }
+            if h.level >= self.max_level {
+                continue;
+            }
+            out.push(i);
+            if self.collapsed.contains(&h.para) {
+                hide_below = Some(h.level);
+            }
+        }
+        out
+    }
+
+    /// Heading `i` has subheadings (it gets an expand / collapse triangle).
+    pub(crate) fn has_children(&self, i: usize) -> bool {
+        match (self.headings.get(i), self.headings.get(i + 1)) {
+            (Some(a), Some(b)) => b.level > a.level && b.level < self.max_level,
+            _ => false,
+        }
+    }
+
+    /// Left edge of heading `i`'s text (device px): 43 logical px for level 1 and 19 more per
+    /// level (34 / 24 device px measured at 125 %).
+    fn heading_x(&self, level: u8) -> f32 {
+        self.px(43.2 + f32::from(level) * 19.2)
+    }
+
+    /// The heading under window point (`x`, `y`) (index into `headings`).
+    pub(crate) fn heading_at(&self, x: f32, y: f32) -> Option<usize> {
+        if self.tab != NavTab::Headings {
+            return None;
+        }
+        let row = self.row_at(x, y)?;
+        self.visible().get(row).copied()
+    }
+
+    /// A dragged heading over `y`: the gap (visible row) it would drop before.
+    pub(crate) fn drag_over(&mut self, y: f32) {
+        if let Some((i, _)) = self.drag {
+            let n = self.visible().len();
+            let top = self.list_top();
+            let g = ((y - top + self.scroll) / self.row_h() + 0.5)
+                .floor()
+                .max(0.0) as usize;
+            self.drag = Some((i, Some(g.min(n))));
+        }
+    }
+
+    /// Window y of the top of visible row `row` (tests).
+    #[cfg(test)]
+    pub(crate) fn row_y_for_test(&self, row: usize) -> f32 {
+        self.list_top() + row as f32 * self.row_h() - self.scroll + 1.0
+    }
+
+    /// Body paragraph id of the heading a drop at gap `g` lands before (`None`: the end).
+    pub(crate) fn drop_before(&self, g: usize) -> Option<usize> {
+        self.visible()
+            .get(g)
+            .and_then(|&i| self.headings.get(i))
+            .map(|h| h.para)
     }
 
     fn px(&self, v: f32) -> f32 {
@@ -170,16 +251,17 @@ impl NavPane {
     }
 
     fn row_h(&self) -> f32 {
-        if self.tab == NavTab::Pages {
-            self.thumb_size().1 + self.px(30.0)
-        } else {
-            self.px(22.0)
+        match self.tab {
+            NavTab::Pages => self.thumb_size().1 + self.px(30.0),
+            // 33 device px per heading at 125 % (UI Automation on the reference's pane).
+            NavTab::Headings => self.px(26.4),
+            NavTab::Results => self.px(22.0),
         }
     }
 
     fn rows(&self) -> usize {
         match self.tab {
-            NavTab::Headings => self.headings.len(),
+            NavTab::Headings => self.visible().len(),
             NavTab::Pages => self.pages.div_ceil(THUMB_COLS),
             NavTab::Results => self.results.len(),
         }
@@ -312,6 +394,27 @@ impl NavPane {
         } else {
             self.row_at(x, y)
         };
+        if self.tab == NavTab::Headings {
+            let Some(hi) = at.and_then(|row| self.visible().get(row).copied()) else {
+                return NavAction::Redraw;
+            };
+            let h = &self.headings[hi];
+            // The triangle left of a heading with subheadings expands / collapses it.
+            let tx = self.heading_x(h.level);
+            if self.has_children(hi) && x >= tx - self.px(22.0) && x < tx - self.px(2.0) {
+                let para = h.para;
+                if let Some(k) = self.collapsed.iter().position(|&p| p == para) {
+                    self.collapsed.remove(k);
+                } else {
+                    self.collapsed.push(para);
+                }
+                self.clamp();
+                return NavAction::Redraw;
+            }
+            self.current = Some(hi);
+            self.drag = Some((hi, None));
+            return NavAction::Heading(h.para);
+        }
         match at {
             Some(i) => {
                 self.current = Some(i);
@@ -520,9 +623,61 @@ impl NavPane {
             p.pop_clip();
             return;
         }
+        let vis = if self.tab == NavTab::Headings {
+            self.visible()
+        } else {
+            Vec::new()
+        };
         for i in 0..self.rows() {
             let ry = top + i as f32 * rh - self.scroll;
             if ry + rh < top || ry > y + h {
+                continue;
+            }
+            if self.tab == NavTab::Headings {
+                let Some(&hi) = vis.get(i) else {
+                    continue;
+                };
+                let hd = &self.headings[hi];
+                // The reference's band: light blue (194, 213, 242) from the text column of a
+                // level-1 heading to near the pane's edge, no frame.
+                let (bx, bw) = (self.px(38.4), w - self.px(38.4) - self.px(29.0));
+                if self.current == Some(hi) {
+                    p.fill_rect(bx, ry, bw, rh, Rgba(194, 213, 242, 255));
+                } else if self.hover == Some(i) {
+                    p.fill_rect(bx, ry, bw, rh, Rgba(213, 225, 242, 255));
+                }
+                let tx0 = self.heading_x(hd.level);
+                if self.has_children(hi) {
+                    let open = !self.collapsed.contains(&hd.para);
+                    let (cx, cy, k) = (tx0 - self.px(12.8), ry + rh / 2.0, self.px(3.6));
+                    if open {
+                        // Solid ◢: expanded.
+                        p.path(
+                            &[
+                                PathSeg::M(cx + k, cy - k),
+                                PathSeg::L(cx + k, cy + k),
+                                PathSeg::L(cx - k, cy + k),
+                                PathSeg::Z,
+                            ],
+                            Some(Rgba(38, 38, 38, 255)),
+                            None,
+                        );
+                    } else {
+                        // Hollow ▷: collapsed.
+                        p.path(
+                            &[
+                                PathSeg::M(cx - k * 0.6, cy - k * 1.2),
+                                PathSeg::L(cx + k * 0.8, cy),
+                                PathSeg::L(cx - k * 0.6, cy + k * 1.2),
+                                PathSeg::Z,
+                            ],
+                            None,
+                            Some((Rgba(68, 68, 68, 255), self.scale.max(1.0))),
+                        );
+                    }
+                }
+                let tx = ty([0.0, ry, 0.0, rh], style);
+                p.text(&hd.text, tx0, tx, style, ROW_TEXT);
                 continue;
             }
             if self.current == Some(i) {
@@ -532,11 +687,7 @@ impl NavPane {
             }
             let tx = ty([0.0, ry, 0.0, rh], style);
             match self.tab {
-                NavTab::Headings => {
-                    let hd = &self.headings[i];
-                    let indent = self.px(18.0) + f32::from(hd.level) * self.px(16.0);
-                    p.text(&hd.text, indent, tx, style, ROW_TEXT);
-                }
+                NavTab::Headings => {}
                 NavTab::Pages => {
                     let label = strings.fmt("views.nav.page", &[("n", &(i + 1).to_string())]);
                     p.text(&label, self.px(18.0), tx, style, ROW_TEXT);
@@ -570,6 +721,17 @@ impl NavPane {
                     p.text(after, cx, tx, style, ROW_TEXT);
                 }
             }
+        }
+        // Where a dragged heading would drop: a dark line between the rows.
+        if let Some((_, Some(g))) = self.drag {
+            let ly = (top + g as f32 * rh - self.scroll).round();
+            p.fill_rect(
+                self.px(30.0),
+                ly - 1.0,
+                w - self.px(50.0),
+                self.px(2.0),
+                Rgba(38, 38, 38, 255),
+            );
         }
         p.pop_clip();
         p.pop_clip();

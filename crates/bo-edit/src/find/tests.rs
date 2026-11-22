@@ -356,3 +356,117 @@ fn match_json_shape() {
     assert_eq!(multi.last_para(), 1);
     assert!(multi.is_multi_para());
 }
+
+// Find and Replace › Format ▾ (round 11): paragraph, tab, language and frame criteria, and
+// Replace with formatting. Expected values follow the reference's Find Paragraph / Find Tabs
+// / Find Language semantics (a paragraph property matches all the text of the paragraph).
+#[test]
+fn find_by_paragraph_tab_and_language() {
+    let mut d = doc(&["left one", "centre one", "tab one"]);
+    if let Block::Paragraph(p) = &mut d.sections[0].blocks[1] {
+        p.props.align = Some(bo_model::Alignment::Center);
+        p.props.space_after = Some(bo_model::Twips(240));
+    }
+    if let Block::Paragraph(p) = &mut d.sections[0].blocks[2] {
+        p.props.tabs = Some(vec![bo_model::TabStop {
+            pos: bo_model::Twips(720),
+            align: bo_model::TabAlign::Left,
+            leader: bo_model::TabLeader::None,
+        }]);
+        p.runs[0].props.lang = Some(bo_model::Lang {
+            val: Some("vi-VN".into()),
+            ..Default::default()
+        });
+    }
+    let s = Session::new(d);
+    let centre = FindFormat {
+        align: Some("center".into()),
+        ..Default::default()
+    };
+    assert_eq!(
+        ranges(&s.find_formatted("one", &PLAIN, &centre).unwrap()),
+        [(1, 7, 10, None)]
+    );
+    // Empty query: the whole paragraph text with the format.
+    assert_eq!(
+        ranges(&s.find_formatted("", &PLAIN, &centre).unwrap()),
+        [(1, 0, 10, None)]
+    );
+    let after = FindFormat {
+        space_after: Some(240),
+        align: Some("center".into()),
+        ..Default::default()
+    };
+    assert_eq!(s.find_formatted("one", &PLAIN, &after).unwrap().len(), 1);
+    let tab = FindFormat {
+        tab: Some(720),
+        ..Default::default()
+    };
+    assert_eq!(
+        ranges(&s.find_formatted("one", &PLAIN, &tab).unwrap()),
+        [(2, 4, 7, None)]
+    );
+    let vi = FindFormat {
+        lang: Some("vi-VN".into()),
+        ..Default::default()
+    };
+    assert_eq!(
+        ranges(&s.find_formatted("one", &PLAIN, &vi).unwrap()),
+        [(2, 4, 7, None)]
+    );
+    let none = FindFormat {
+        lang: Some("none".into()),
+        ..Default::default()
+    };
+    assert_eq!(s.find_formatted("one", &PLAIN, &none).unwrap().len(), 2);
+    let frame = FindFormat {
+        frame: Some(true),
+        ..Default::default()
+    };
+    assert_eq!(s.find_formatted("one", &PLAIN, &frame).unwrap(), []);
+}
+
+#[test]
+fn replace_with_formatting() {
+    let mut s = Session::new(doc(&["a fox and a fox", "no match"]));
+    let bold = FindFormat {
+        bold: Some(true),
+        align: Some("right".into()),
+        ..Default::default()
+    };
+    // Empty "Replace with": the text found keeps its letters and takes the format.
+    assert_eq!(
+        s.replace_all_reformat("fox", &PLAIN, None, "", &bold)
+            .unwrap(),
+        2
+    );
+    assert_eq!(texts(&s)[0], "a fox and a fox");
+    let p = para_at(s.doc(), &body_paragraphs(s.doc())[0])
+        .unwrap()
+        .clone();
+    assert_eq!(p.props.align, Some(bo_model::Alignment::Right));
+    let bold_text: String = p
+        .runs
+        .iter()
+        .filter(|r| r.props.bold == Some(true))
+        .flat_map(|r| r.content.iter())
+        .filter_map(|c| match c {
+            RunContent::Text(t) => Some(t.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(bold_text, "foxfox");
+    // One undo step.
+    assert!(s.undo());
+    // New text with a format: "§" and "¶" codes too.
+    let italic = FindFormat {
+        italic: Some(true),
+        ..Default::default()
+    };
+    assert_eq!(
+        s.replace_all_reformat("match", &PLAIN, None, "^%1^v", &italic)
+            .unwrap(),
+        1
+    );
+    assert_eq!(texts(&s)[1], "no \u{a7}1\u{b6}");
+}

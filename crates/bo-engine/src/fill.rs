@@ -295,6 +295,7 @@ impl Engine {
                     },
                     with: literal(with),
                     format: None,
+                    replace_format: None,
                 })?;
                 Ok(FillOutcome {
                     op: "replaceText",

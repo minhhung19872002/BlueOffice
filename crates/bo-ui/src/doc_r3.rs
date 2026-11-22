@@ -277,6 +277,7 @@ impl DocWindow {
             zoom: self.view.zoom(),
             date_default: self.r4.date_default.unwrap_or(0),
             match_fields: self.r5.match_fields.clone(),
+            fonts: Vec::new(),
         }
     }
 
@@ -363,6 +364,7 @@ impl DocWindow {
     pub(super) fn form_out(&mut self, out: FormOut) -> bool {
         match out {
             FormOut::Inspect(cats, remove) => self.r7_inspect(&cats, remove.as_deref()),
+            FormOut::FindFormat(group, v, words) => self.r11_find_format(group, v, words),
             FormOut::None => false,
             FormOut::Redraw => true,
             FormOut::Close => {

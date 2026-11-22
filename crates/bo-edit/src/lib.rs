@@ -4357,9 +4357,68 @@ impl Session {
         Ok(n)
     }
 
+    /// Replace one match of `query` and give the new text the format `rfmt` (Replace with
+    /// formatting; an empty `with` keeps the text found and only formats it).
+    pub fn replace_match_formatted(
+        &mut self,
+        m: Match,
+        query: Option<(&str, &FindOptions)>,
+        with: &str,
+        rfmt: &find::FindFormat,
+    ) -> Result<Selection> {
+        let with = if with.is_empty() { "^&" } else { with };
+        let replacement = find::replacement_for(&self.doc, &m, query, with)?;
+        self.replace_matches_fmt(vec![(m, replacement)], Some(rfmt))
+    }
+
+    /// Replace every match of `query` (with the format `fmt`, if any) and give the new text
+    /// the format `rfmt` (one undo step); an empty `with` keeps the text found.
+    pub fn replace_all_reformat(
+        &mut self,
+        query: &str,
+        opts: &FindOptions,
+        fmt: Option<&find::FindFormat>,
+        with: &str,
+        rfmt: &find::FindFormat,
+    ) -> Result<usize> {
+        let with = if with.is_empty() { "^&" } else { with };
+        let fmt = fmt.filter(|f| !f.is_empty());
+        let items = if query.is_empty() {
+            match fmt {
+                Some(f) => find::find_formatted(&self.doc, query, opts, f)?
+                    .into_iter()
+                    .map(|m| {
+                        let r = find::replacement_for(&self.doc, &m, None, with)?;
+                        Ok((m, r))
+                    })
+                    .collect::<Result<Vec<_>>>()?,
+                None => Vec::new(),
+            }
+        } else {
+            find::replacements(&self.doc, query, opts, Some(with), fmt)?
+        };
+        let n = items.len();
+        if n > 0 {
+            self.replace_matches_fmt(items, Some(rfmt))?;
+        }
+        Ok(n)
+    }
+
     /// Replace matches by their replacement texts (`\n` = paragraph mark), last first,
     /// in one transaction.
-    fn replace_matches(&mut self, mut items: Vec<(Match, String)>) -> Result<Selection> {
+    fn replace_matches(&mut self, items: Vec<(Match, String)>) -> Result<Selection> {
+        self.replace_matches_fmt(items, None)
+    }
+
+    /// [`Self::replace_matches`], giving each new text the format `rfmt` (run properties;
+    /// paragraph properties to its paragraph).
+    fn replace_matches_fmt(
+        &mut self,
+        mut items: Vec<(Match, String)>,
+        rfmt: Option<&find::FindFormat>,
+    ) -> Result<Selection> {
+        let rfmt = rfmt.filter(|f| !f.is_empty()).cloned();
+        let kind = rfmt.as_ref().and_then(|f| f.style_kind(&self.doc));
         items.sort_by_key(|(m, _)| std::cmp::Reverse((m.para, m.start)));
         self.edit(|tx, sel| {
             let mut last = sel;
@@ -4376,7 +4435,10 @@ impl Session {
                 if m.end > text.len() || m.end < m.start || !text.is_char_boundary(m.end) {
                     return Err(EditError::Conflict);
                 }
-                let props = para::props_at(&atoms, (m.start + 1).min(m.end.max(m.start)));
+                let mut props = para::props_at(&atoms, (m.start + 1).min(m.end.max(m.start)));
+                if let Some(f) = &rfmt {
+                    f.apply_run(kind, &mut props);
+                }
                 let at = if let Some(tr) = tx.track.as_mut() {
                     let mark = tr.mark();
                     let removed = revisions::mark_deleted(&mut atoms, m.start, m.end, tr, &mark);
@@ -4387,7 +4449,11 @@ impl Session {
                 };
                 let new = tx.mark_new(&atoms, at, para::text_atoms(&replacement, &props));
                 para::insert(&mut atoms, at, new);
-                tx.replace_para(&path, para::with_atoms(&p, atoms))?;
+                let mut np = para::with_atoms(&p, atoms);
+                if let Some(f) = rfmt.as_ref().filter(|f| f.touches_para(kind)) {
+                    f.apply_para(kind, &mut np.props);
+                }
+                tx.replace_para(&path, np)?;
                 let start = if tx.track.is_some() { at } else { m.start };
                 last = Selection {
                     anchor: Pos::new(m.para, start),

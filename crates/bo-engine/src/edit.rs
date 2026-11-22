@@ -203,7 +203,7 @@ pub enum Command {
         /// Find by format: only text with this formatting (an empty query finds every
         /// stretch of text with it).
         #[serde(default)]
-        format: Option<bo_edit::find::FindFormat>,
+        format: Option<Box<bo_edit::find::FindFormat>>,
         /// Also return the highlight rectangles of every match (`highlights`).
         #[serde(default)]
         highlight: bool,
@@ -228,6 +228,10 @@ pub enum Command {
         /// Options of `query`.
         #[serde(default)]
         options: FindOptions,
+        /// Replace with formatting: the format the new text gets (an empty `with` then keeps
+        /// the text found).
+        #[serde(default)]
+        replace_format: Option<Box<bo_edit::find::FindFormat>>,
     },
     /// Replace every match of a query (the number replaced is returned in `count`).
     ReplaceAll {
@@ -240,7 +244,11 @@ pub enum Command {
         with: String,
         /// Only replace matches with this formatting (find by format); `None` = any.
         #[serde(default)]
-        format: Option<bo_edit::find::FindFormat>,
+        format: Option<Box<bo_edit::find::FindFormat>>,
+        /// Replace with formatting: the format the new text gets (an empty `with` then keeps
+        /// the text found).
+        #[serde(default)]
+        replace_format: Option<Box<bo_edit::find::FindFormat>>,
     },
     /// Copy the selection (returned in `clip`).
     Copy,
@@ -2362,18 +2370,31 @@ impl crate::Engine {
                         with,
                         query,
                         options,
+                        replace_format,
                     } => {
-                        s.replace_match(m, query.as_deref().map(|q| (q, &options)), &with)?;
+                        let q = query.as_deref().map(|q| (q, &options));
+                        match replace_format.as_ref().filter(|r| !r.is_empty()) {
+                            Some(r) => {
+                                s.replace_match_formatted(m, q, &with, r)?;
+                            }
+                            None => {
+                                s.replace_match(m, q, &with)?;
+                            }
+                        }
                     }
                     Command::ReplaceAll {
                         query,
                         options,
                         with,
                         format,
+                        replace_format,
                     } => {
-                        extra.1 = Some(match &format {
-                            Some(f) => s.replace_all_formatted(&query, &options, f, &with)?,
-                            None => s.replace_all(&query, &options, &with)?,
+                        extra.1 = Some(match (&format, &replace_format) {
+                            (f, Some(r)) if !r.is_empty() => {
+                                s.replace_all_reformat(&query, &options, f.as_deref(), &with, r)?
+                            }
+                            (Some(f), _) => s.replace_all_formatted(&query, &options, f, &with)?,
+                            (None, _) => s.replace_all(&query, &options, &with)?,
                         });
                     }
                     Command::Copy => {

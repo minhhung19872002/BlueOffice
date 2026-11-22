@@ -806,7 +806,9 @@ fn document_wide_note_properties_with_section_override() {
     let mut s2 = Section::new(vec![referencing(3)]);
     s2.footnote_pr.fmt = Some(NumFormat::LowerLetter);
     let mut d = doc(vec![s1, s2]);
-    // §17.11.11 footnotePr in settings: upper-roman numbers from 4.
+    // §17.11.11 footnotePr in settings: upper-roman numbers from 4 — which the reference
+    // word processor does not apply (notes-05 shows "1", docs/ui/REPORT.md "Dàn trang
+    // vòng 7"): the numbers follow the sections' own footnotePr only.
     d.footnote_pr = NoteProps {
         fmt: Some(NumFormat::UpperRoman),
         start: Some(4),
@@ -817,7 +819,7 @@ fn document_wide_note_properties_with_section_override() {
     }
     assert_eq!(
         note_marks(&run(&d)),
-        vec![(0, 1, "IV".into()), (0, 2, "V".into()), (1, 3, "f".into())]
+        vec![(0, 1, "1".into()), (0, 2, "2".into()), (1, 3, "c".into())]
     );
 }
 

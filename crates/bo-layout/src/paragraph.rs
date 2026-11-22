@@ -1270,8 +1270,23 @@ fn layout_uncached(
         }
     }
     let mut prev = 0;
+    // A break after a slash between letters (paths, URLs) goes before the slash instead:
+    // the reference word processor starts the next line with "/the/end…" (measured
+    // black-box, gen-20, docs/ui/REPORT.md "Dàn trang vòng 7").
     let breaks: Vec<usize> = unicode_linebreak::linebreaks(&index_text)
-        .map(|(i, _)| i)
+        .map(|(i, _)| {
+            let b = index_text.as_bytes();
+            if i >= 2
+                && i < b.len()
+                && b[i - 1] == b'/'
+                && b[i - 2].is_ascii_alphanumeric()
+                && b[i].is_ascii_alphanumeric()
+            {
+                i - 1
+            } else {
+                i
+            }
+        })
         .collect();
     let base_level = u8::from(props.bidi.unwrap_or(false));
     let levels = bidi_levels(&index_text, base_level == 1);

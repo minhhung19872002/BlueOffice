@@ -1388,6 +1388,21 @@ fn a_first_line_beside_a_wrapped_object_keeps_its_indent() {
 }
 
 #[test]
+fn a_path_breaks_before_its_slash() {
+    // gen-20: the reference word processor starts the next line with "/the/end…".
+    let url = "https://example.com/a/very/long/path/that/keeps/going/and/going/without/any/\
+               space/at/all/until/the/end/of/the/line/and/more";
+    let d = doc(vec![para(url, 0, 0, SINGLE)]);
+    let l = run(&d);
+    let ls = lines(&l, 0);
+    assert!(ls.len() > 1);
+    for line in &ls[1..] {
+        let text: String = line.fragments.iter().map(|f| f.text.as_str()).collect();
+        assert!(text.starts_with('/'), "{text:?}");
+    }
+}
+
+#[test]
 fn single_words_beside_a_picture_go_right_and_long_words_move_below_it() {
     // Round 7 (gen-16, calibration sw-a … sw-g): in a justified paragraph, a segment
     // right of a wrapped picture holding one word puts it at the segment's right end; a

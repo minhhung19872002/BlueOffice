@@ -219,6 +219,7 @@ pub fn read_docx(bytes: &[u8]) -> Result<Document> {
         track_revisions: doc.track_revisions,
         custom_xml,
         pages: doc.pages,
+        default_tab_stop: doc.default_tab_stop,
     }));
     crate::textfx::set_theme(None);
     Ok(doc)
@@ -2086,6 +2087,8 @@ fn read_ppr(r: &mut XmlReader<'_>, mut sect: Option<SectCtx<'_, '_>>) -> Result<
             b"contextualSpacing" => p.contextual_spacing = Some(on_off(e)),
             // §17.3.1.18 mirrorIndents
             b"mirrorIndents" => p.mirror_indents = Some(on_off(e)),
+            // [MS-DOCX] 2.6.1.1 w15:collapsed (Collapsed by default)
+            b"collapsed" => p.collapsed = Some(on_off(e)),
             b"bidi" => p.bidi = Some(on_off(e)), // §17.3.1.6
             // §17.3.1.35 suppressLineNumbers
             b"suppressLineNumbers" => p.suppress_line_numbers = Some(on_off(e)),

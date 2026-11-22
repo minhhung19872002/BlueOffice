@@ -165,6 +165,7 @@ pub fn write_docx(doc: &Document) -> Result<Vec<u8>> {
             || src.hyphenation != doc.hyphenation
             || src.track_revisions != doc.track_revisions
             || src.pages != doc.pages
+            || src.default_tab_stop != doc.default_tab_stop
         {
             w.patch_settings(&main)?;
         }
@@ -2198,6 +2199,27 @@ impl Writer<'_> {
                 s.insert_str(at, "<w:evenAndOddHeaders/>");
             }
         }
+        // §17.15.1.25 defaultTabStop: before the hyphenation settings in CT_Settings.
+        if src.is_none_or(|p| p.default_tab_stop != self.doc.default_tab_stop) {
+            s = remove_empty_element(&s, "w:defaultTabStop");
+            if let Some(t) = self.doc.default_tab_stop {
+                const AFTER_TAB_STOP: &[&str] = &[
+                    "autoHyphenation",
+                    "consecutiveHyphenLimit",
+                    "hyphenationZone",
+                    "doNotHyphenateCaps",
+                ];
+                let at = AFTER_TAB_STOP
+                    .iter()
+                    .chain(AFTER_HYPHENATION)
+                    .filter_map(|n| find_element(&s, &format!("w:{n}")))
+                    .min()
+                    .or_else(|| s.rfind("</w:settings>"));
+                if let Some(at) = at {
+                    s.insert_str(at, &format!("<w:defaultTabStop w:val=\"{}\"/>", t.0));
+                }
+            }
+        }
         for tag in [
             "w:autoHyphenation",
             "w:consecutiveHyphenLimit",
@@ -2568,6 +2590,8 @@ const PPR_ORDER: &[&str] = &[
     "outlineLvl",
     "divId",
     "cnfStyle",
+    // [MS-DOCX] 2.6.1.1 w15:collapsed follows CT_PPrBase (as the reference writes it).
+    "collapsed",
     "rPr",
     "sectPr",
     "pPrChange",
@@ -3440,6 +3464,14 @@ fn ppr_children(p: &ParaProps) -> Vec<(String, String)> {
         v.push((
             "outlineLvl".into(),
             format!("<w:outlineLvl w:val=\"{l}\"/>"),
+        ));
+    }
+    // [MS-DOCX] 2.6.1.1 collapsed, its namespace declared on the element.
+    if let Some(c) = p.collapsed {
+        let val = if c { "" } else { " w:val=\"0\"" };
+        v.push((
+            "collapsed".into(),
+            format!("<w15:collapsed xmlns:w15=\"{W15_NS}\"{val}/>"),
         ));
     }
     let marks = mark_revisions(p);

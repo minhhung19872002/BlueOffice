@@ -400,6 +400,22 @@ impl Session {
         Ok(())
     }
 
+    /// Default tab stop interval of the document (§17.15.1.25 defaultTabStop, Tabs ›
+    /// Default tab stops); 720 (0.5") is written as absent. Kept within 1 twip … 22".
+    pub fn set_default_tab_stop(&mut self, twips: i32) -> Result<()> {
+        let t = twips.clamp(1, 31_680);
+        let new = (t != 720).then_some(Twips(t));
+        let old = self.doc.default_tab_stop;
+        if new == old || (old == Some(Twips(720)) && new.is_none()) {
+            return Ok(());
+        }
+        self.edit(|tx, sel| {
+            tx.push(Op::DefaultTabStop { old, new })?;
+            Ok(sel)
+        })?;
+        Ok(())
+    }
+
     /// Make the first letter of the caret's paragraph a drop cap, change the drop
     /// cap of the caret's paragraph (or of the one before it), or remove it
     /// (`None`): the letter goes back to the start of the paragraph.

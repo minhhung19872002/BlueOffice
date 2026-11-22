@@ -278,6 +278,17 @@ impl DocForm {
                     }
                 }
             }
+            (DocFormKind::Paragraph, "outline") => {
+                let on = self.sel("outline").is_some_and(|i| i > 0);
+                for t in &mut self.tris {
+                    if t.id == "collapsed" {
+                        t.enabled = on;
+                        if !on {
+                            t.state = 2;
+                        }
+                    }
+                }
+            }
             (DocFormKind::PageSetup, "multi") => self.ps_multi_changed(),
             (DocFormKind::LineNumbers, "lnOn") => self.line_numbers_enable(),
             (DocFormKind::Tabs, "tabPos") => {
@@ -448,12 +459,17 @@ impl DocForm {
             DocFormKind::Paragraph => Some(self.paragraph_ok()),
             DocFormKind::Tabs => {
                 self.tabs_set();
-                Some(FormOut::Run(
-                    vec![
-                        json!({ "cmd": "formatParagraph", "format": { "kind": "tabs", "tabs": self.tabs_json() } }),
-                    ],
-                    true,
-                ))
+                let mut cmds = vec![
+                    json!({ "cmd": "formatParagraph", "format": { "kind": "tabs", "tabs": self.tabs_json() } }),
+                ];
+                // Default tab stops: the document's §17.15.1.25 defaultTabStop (round 14).
+                let was = self.r13().initial["defaultTab"].as_i64();
+                if let Some(t) = parse_len(&self.form.text("defTab"), self.len_per()) {
+                    if Some(i64::from(t)) != was && t > 0 {
+                        cmds.push(json!({ "cmd": "setDefaultTabStop", "twips": t }));
+                    }
+                }
+                Some(FormOut::Run(cmds, true))
             }
             DocFormKind::PageSetup => {
                 let v = self.ps_values();
@@ -548,7 +564,7 @@ impl DocForm {
             ("noLineNum", "suppressLineNumbers"),
             ("noHyphen", "suppressAutoHyphens"),
             ("mirror", "mirrorIndents"),
-            ("mirror", "mirrorIndents"),
+            ("collapsed", "collapsed"),
         ] {
             if let Some(v) = self.tri_value(id) {
                 m.insert(key.into(), json!(v));
@@ -1192,11 +1208,16 @@ fn open_paragraph(s: &Strings, c: &FormContext) -> DocForm {
             t.state = if v[key].as_bool() == Some(true) { 1 } else { 2 };
         }
     }
-    // Collapsed by default (w15:collapsed) is not in BlueDoc's model yet: dimmed.
+    // Collapsed by default ([MS-DOCX] 2.6.1.1 w15:collapsed): only for outline levels, as
+    // the reference.
     for t in &mut f.tris {
         if t.id == "collapsed" {
-            t.state = 2;
-            t.enabled = false;
+            t.state = if v["collapsed"].as_bool() == Some(true) {
+                1
+            } else {
+                2
+            };
+            t.enabled = lvl > 0;
         }
     }
     // Line and Page Breaks › Textbox options (text boxes only: dimmed, as the reference).
@@ -1272,12 +1293,12 @@ fn open_tabs(s: &Strings, c: &FormContext) -> DocForm {
         &tr("doc13.tabs_defaultStops", "Default tab stops:"),
     );
     let def = v["defaultTab"].as_i64().unwrap_or(720) as i32;
+    f.r13_mut().initial = json!({ "defaultTab": def });
     f.edit(
         "defTab",
         [248.0, 68.0, 142.0, 24.0],
         &show_len(def, c.inches),
     );
-    f.disable("defTab");
     f.label("clearedL", [248.0, 132.0, 150.0, 18.0], "");
     if let Some((pos, align, leader)) = f.r13().tabs.first().cloned() {
         f.form.set_text("tabPos", &show_len(pos, c.inches));

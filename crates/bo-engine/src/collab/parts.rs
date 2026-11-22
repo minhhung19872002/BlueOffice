@@ -734,10 +734,12 @@ pub(crate) struct Settings {
     pub protection: Option<DocProtection>,
     /// `pg`: Page Setup's multiple pages settings (§17.15.1.57 mirrorMargins, …).
     pub pages: bo_model::PagesSettings,
+    /// `dt`: the default tab stop interval (§17.15.1.25 defaultTabStop).
+    pub tab_stop: Option<bo_model::Twips>,
 }
 
 /// `meta` keys of [`Settings`].
-const SETTING_KEYS: [&str; 5] = ["ds", "hy", "cx", "pt", "pg"];
+const SETTING_KEYS: [&str; 6] = ["ds", "hy", "cx", "pt", "pg", "dt"];
 
 impl Settings {
     pub fn of(doc: &Document) -> Settings {
@@ -747,10 +749,11 @@ impl Settings {
             custom_xml: doc.custom_xml.clone(),
             protection: doc.protection.clone(),
             pages: doc.pages,
+            tab_stop: doc.default_tab_stop,
         }
     }
 
-    fn entries(&self) -> [(&'static str, Option<String>); 5] {
+    fn entries(&self) -> [(&'static str, Option<String>); 6] {
         [
             ("ds", serde_json::to_string(&self.design).ok()),
             ("hy", serde_json::to_string(&self.hyphenation).ok()),
@@ -762,6 +765,7 @@ impl Settings {
                     .and_then(|p| serde_json::to_string(p).ok()),
             ),
             ("pg", serde_json::to_string(&self.pages).ok()),
+            ("dt", serde_json::to_string(&self.tab_stop).ok()),
         ]
     }
 
@@ -790,6 +794,9 @@ impl Settings {
         }
         if let Some(v) = get("pg").and_then(|j| serde_json::from_str(j).ok()) {
             s.pages = v;
+        }
+        if let Some(v) = get("dt").and_then(|j| serde_json::from_str(j).ok()) {
+            s.tab_stop = v;
         }
         if all || touched.contains("pt") {
             s.protection = get("pt").and_then(|j| serde_json::from_str(j).ok());

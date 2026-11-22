@@ -36,6 +36,8 @@ mod r11;
 mod r12;
 #[path = "doc_r13.rs"]
 mod r13;
+#[path = "doc_r14.rs"]
+pub(crate) mod r14;
 #[path = "doc_r3.rs"]
 mod r3;
 #[path = "doc_r4.rs"]
@@ -277,6 +279,7 @@ pub struct DocWindow {
     r11: r11::R11,
     r12: r12::R12,
     r13: Box<r13::R13>,
+    r14: Box<r14::R14>,
 }
 
 /// Font sizes offered by the size box (points).
@@ -382,6 +385,7 @@ impl DocWindow {
         crate::doc_r4_fit::install_icons(&mut icons);
         crate::doc_tabs7::install_icons(&mut icons);
         crate::doc_tabs7::install_strings(&mut strings);
+        r14::install(&mut icons, &mut strings);
         icons.set_grey_disabled(true);
         Self {
             view,
@@ -475,6 +479,7 @@ impl DocWindow {
             r11: r11::R11::default(),
             r12: r12::R12::default(),
             r13: Box::default(),
+            r14: Box::default(),
         }
     }
 
@@ -2111,6 +2116,9 @@ impl DocWindow {
 
     /// Run interface command `id` from the ribbon, title bar, a menu or a shortcut.
     fn action(&mut self, id: &str) -> bool {
+        if let Some(r) = self.r14_action(id) {
+            return r;
+        }
         if let Some(r) = self.r13_action(id) {
             return r;
         }
@@ -2745,6 +2753,7 @@ impl DocWindow {
         self.r3_layout(text);
         self.r5_layout();
         self.r7_layout(text);
+        self.r14_layout();
         if let Some(d) = self.dialog.as_mut() {
             d.layout(text, self.size, self.scale);
         }
@@ -2981,6 +2990,9 @@ impl DocWindow {
                 }
                 _ => {}
             }
+        }
+        if let Some(redraw) = self.r14_input(&input) {
+            return redraw;
         }
         if let Some(redraw) = self.r12_input(&input) {
             return redraw;
@@ -3841,6 +3853,7 @@ impl DocWindow {
             );
         }
         self.r12_paint(p);
+        self.r14_paint(p);
         if let Some(menu) = &self.menu {
             menu.paint(p, &self.r10_menu_theme(), &self.icons);
             self.r10_paint_menu(p);

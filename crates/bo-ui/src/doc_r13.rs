@@ -606,6 +606,7 @@ fn para_json(pp: &bo_model::ParaProps) -> Value {
         // Absent widowControl reads as on in the reference's dialog ([MS-OI29500]).
         "widowControl": pp.widow_control.unwrap_or(true),
         "mirrorIndents": pp.mirror_indents.unwrap_or(false),
+        "collapsed": pp.collapsed.unwrap_or(false),
         "keepNext": pp.keep_next.unwrap_or(false),
         "keepLines": pp.keep_lines.unwrap_or(false),
         "pageBreakBefore": pp.page_break_before.unwrap_or(false),

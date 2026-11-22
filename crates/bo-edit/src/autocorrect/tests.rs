@@ -473,3 +473,13 @@ fn bulleted_and_numbered_lists_switch_separately_and_other_exceptions_hold() {
     assert_eq!(run_ctx("a teh |", ' ', Context::default(), &o), "a teh |");
     assert_eq!(run("a teh |", ' '), "a the |");
 }
+
+// source: the reference's AutoCorrect on `"hi" it's ` typed at a paragraph start leaves the
+// quoted first word alone (BlueDoc round 8 key table, re-run round 11).
+#[test]
+fn quoted_sentence_start_keeps_its_letter() {
+    let o = AutoCorrectOptions::default();
+    let mut s = Session::new(doc(""));
+    type_str(&mut s, &o, "\"hi\" it's ");
+    assert_eq!(text0(&s), "\u{201c}hi\u{201d} it\u{2019}s ");
+}

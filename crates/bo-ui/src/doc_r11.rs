@@ -316,7 +316,7 @@ impl DocWindow {
 
     /// Round-11 commands (the heading menu); `None` for other ids.
     pub(super) fn r11_action(&mut self, id: &str) -> Option<bool> {
-        if !id.starts_with("nav11.") {
+        if !id.starts_with("nav11.") && id != crate::doc_table::DIALOGS[0] {
             return None;
         }
         if let Some(n) = id.strip_prefix("nav11.level.") {
@@ -326,6 +326,9 @@ impl DocWindow {
                 nav.collapsed.clear();
             }
             return Some(true);
+        }
+        if id == crate::doc_table::DIALOGS[0] {
+            return Some(self.r11_table_properties());
         }
         if let Some(n) = id.strip_prefix("nav11.go.") {
             let what = n.parse::<usize>().unwrap_or(9);
@@ -426,6 +429,26 @@ impl DocWindow {
         .with_decor(vec![None; rows.len()], vec![4])
         .with_soft_shadow();
         self.menu = Some(menu);
+        true
+    }
+
+    /// Table Properties (Table / Row / Column / Cell / Alt Text) for the caret's table.
+    fn r11_table_properties(&mut self) -> bool {
+        let Some(table) = self.view.format().table.clone() else {
+            return false;
+        };
+        let c = FormContext {
+            table: Some(table),
+            inches: self.units.inches,
+            ..FormContext::default()
+        };
+        self.menu = None;
+        self.r3.form = Some(doc_forms::open(
+            doc_forms::DocFormKind::TableProps,
+            &self.strings,
+            &c,
+        ));
+        self.relayout_pending = true;
         true
     }
 

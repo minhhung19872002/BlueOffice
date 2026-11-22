@@ -278,6 +278,8 @@ impl DocWindow {
             date_default: self.r4.date_default.unwrap_or(0),
             match_fields: self.r5.match_fields.clone(),
             fonts: Vec::new(),
+            table: None,
+            inches: false,
         }
     }
 

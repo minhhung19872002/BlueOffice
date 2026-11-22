@@ -3518,10 +3518,33 @@ impl Session {
     }
 
     fn split_paragraph_inner(&mut self) -> Result<Selection> {
+        // An empty item of a list that comes from its paragraph style (List Bullet): the
+        // reference keeps the style and switches the numbering off (numId 0) — round 11 key
+        // table `enter_list_empty` (style List Bullet, list 0, indent kept).
+        let style_list = {
+            let at = self.selection.focus;
+            self.selection.is_collapsed()
+                && self.para_text(at.para).is_some_and(|t| t.is_empty())
+                && body_paragraphs(&self.doc)
+                    .get(at.para)
+                    .and_then(|path| para_at(&self.doc, path))
+                    .is_some_and(|p| {
+                        p.props.num.is_none()
+                            && effective_para(&self.doc, &p.props)
+                                .num
+                                .is_some_and(|n| n.num_id != 0)
+                    })
+        };
         self.edit(|tx, sel| {
             let (a, b) = sel.ordered();
             let at = tx.delete_range(a, b)?;
             let (path, p, atoms) = tx.atoms(at.para)?;
+            if para::len(&atoms) == 0 && style_list {
+                let mut q = p.clone();
+                q.props.num = Some(bo_model::NumRef { num_id: 0, ilvl: 0 });
+                tx.replace_para(&path, q)?;
+                return Ok(Selection::caret(at));
+            }
             if para::len(&atoms) == 0 && p.props.num.is_some_and(|n| n.num_id != 0) {
                 let mut q = p.clone();
                 q.props.num = None;

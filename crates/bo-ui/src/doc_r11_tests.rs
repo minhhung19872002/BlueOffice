@@ -311,3 +311,24 @@ fn search_as_you_type() {
     assert!(w.handle(Input::Key(Key::Backspace, Mods::default()), &Fixed));
     assert_eq!(w.nav.as_ref().expect("nav").query, "te");
 }
+
+// source: the reference's Table Properties (captured round 11): five tabs; Row › Repeat as
+// header row and Table › Preferred width act on the caret's table.
+#[test]
+fn table_properties_tabs_and_ok() {
+    let mut w = window();
+    w.view
+        .run_command(Command::InsertTable { rows: 2, cols: 2 });
+    assert!(w.action("table.properties"));
+    let f = w.r3.form.as_mut().expect("Table Properties");
+    assert_eq!(f.kind, DocFormKind::TableProps);
+    f.set_on("rHeader", true);
+    f.set_on("tPref", true);
+    f.set_text("tWidth", "4\"");
+    let out = f.input(&Input::Key(Key::Enter, Mods::default()));
+    assert!(matches!(out, FormOut::Run(..)), "{out:?}");
+    assert!(w.form_out(out));
+    let t = w.view.format().table.clone().expect("table");
+    assert!(t.header_row);
+    assert_eq!(t.width, 5760);
+}

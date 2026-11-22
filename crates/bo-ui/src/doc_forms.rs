@@ -27,6 +27,9 @@ pub(crate) mod autocorrect8;
 
 #[path = "doc_findfmt11.rs"]
 pub(crate) mod findfmt11;
+
+#[path = "doc_tprops11.rs"]
+mod tprops11;
 pub(crate) use r5::{open_manage_styles, ManagedStyle};
 pub(crate) use r7::INSPECT;
 
@@ -98,6 +101,8 @@ pub(crate) enum DocFormKind {
     FindFrame,
     /// Find and Replace › Format ▾ › Style….
     FindStyle,
+    /// Table Properties with its five tabs (round 11).
+    TableProps,
 }
 
 /// What the owner does after an input.
@@ -245,6 +250,10 @@ pub(crate) struct FormContext {
     pub(crate) paste_defaults: [usize; 3],
     /// Font families (Find Font, round 11).
     pub(crate) fonts: Vec<String>,
+    /// The table at the caret (Table Properties, round 11).
+    pub(crate) table: Option<bo_edit::TableState>,
+    /// Lengths in inches (else centimetres).
+    pub(crate) inches: bool,
     /// Mail merge recipients: field names and rows.
     pub(crate) recipients: (Vec<String>, Vec<Vec<String>>),
     /// Local date and time now (year, month, day, weekday 0 = Sunday, hour, minute,
@@ -683,6 +692,9 @@ impl DocForm {
             Event::None => FormOut::Redraw,
             Event::Cancel => FormOut::Close,
             Event::Canvas(id, _, y) if self.r11_canvas(id, *y) => FormOut::Redraw,
+            Event::Canvas(id, ..) if self.kind == DocFormKind::TableProps && self.tp_canvas(id) => {
+                FormOut::Redraw
+            }
             Event::Canvas(id, ..) => {
                 if self.radios.iter().any(|r| r.id == *id && r.enabled) {
                     self.set_radio(id);
@@ -723,6 +735,7 @@ impl DocForm {
             }
             (DocFormKind::Protect, _) => {}
             (k, _) if findfmt11::handles(k) => self.r11_changed(id),
+            (DocFormKind::TableProps, _) => self.tp_changed(id),
             _ => self.r5_changed(id),
         }
     }
@@ -1144,6 +1157,7 @@ impl DocForm {
             | DocFormKind::FindLanguage
             | DocFormKind::FindFrame
             | DocFormKind::FindStyle => self.r11_ok(),
+            DocFormKind::TableProps => self.tp_ok(),
             DocFormKind::Zoom => {
                 let pct = match self.chosen("zoom") {
                     Some("z200") => "200".to_owned(),
@@ -1172,7 +1186,9 @@ impl DocForm {
         let files = &self.files;
         let this = self;
         let mut canvas = |id: &str, r: [f32; 4], p: &mut dyn Painter| {
-            if findfmt11::paint_canvas(this, id, r, p, &font, k) {
+            if findfmt11::paint_canvas(this, id, r, p, &font, k)
+                || tprops11::paint_canvas(this, id, r, p, k)
+            {
                 return;
             }
             if let Some(rb) = radios.iter().find(|rb| rb.id == id) {
@@ -3089,6 +3105,7 @@ pub(crate) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
         | DocFormKind::FindLanguage
         | DocFormKind::FindFrame
         | DocFormKind::FindStyle => findfmt11::open(kind, s, c),
+        DocFormKind::TableProps => tprops11::open(s, c),
         DocFormKind::Zoom => {
             let mut f = DocForm::new(kind, &tr("docR4.zoomTitle", "Zoom"), (381.0, 258.0), vec![]);
             f.label(

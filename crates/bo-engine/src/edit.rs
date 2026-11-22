@@ -2253,7 +2253,19 @@ impl crate::Engine {
                                     .para_text(at.para)
                                     .and_then(|t| t.get(..at.offset).map(str::to_owned))
                                     .unwrap_or_default();
+                                // Not inside what may be an address, a path or an abbreviation:
+                                // the reference leaves "www.example.com" alone (round 11 key
+                                // table; "www" was corrected to "wow" at the dot).
+                                let token = head
+                                    .rsplit(char::is_whitespace)
+                                    .next()
+                                    .unwrap_or("")
+                                    .trim_end_matches(c);
+                                let addressy = matches!(c, ':' | '/' | '@' | '\\')
+                                    || token.contains(['.', ':', '/', '@', '\\'])
+                                    || token.eq_ignore_ascii_case("www");
                                 let fix = bo_edit::AutoCorrectOptions::word_before(&head, c)
+                                    .filter(|_| !addressy)
                                     .filter(|w| !speller.check(w) && !o.is_other_exception(w))
                                     .and_then(|w| {
                                         // Close candidates only: the loose similarity search of a long unknown word costs
@@ -2286,6 +2298,12 @@ impl crate::Engine {
                         s.delete_forward()?;
                     }
                     Command::DeleteWordBackward => {
+                        // With a selection the reference keeps it and deletes the word before
+                        // it (round 8 / 11 key table `cback_sel`: "Hôm [nay]" → "[nay]").
+                        if !s.selection().is_collapsed() {
+                            let (a, _) = s.selection().ordered();
+                            s.set_selection(Selection::caret(a));
+                        }
                         s.delete_word(false)?;
                     }
                     Command::DeleteWordForward => {

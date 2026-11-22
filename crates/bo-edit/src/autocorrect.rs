@@ -691,7 +691,13 @@ fn word_rules(
     let marker = matches!(typed, '.' | ')') && word.chars().count() == 1;
     // A sentence that opens with a quotation mark keeps its first letter (the reference
     // leaves `"hi" it's` alone, BlueDoc round 8).
-    let quoted = word.starts_with(['"', '\'', '\u{201c}', '\u{2018}', '\u{ab}']);
+    // A quoted word closed before the space ("“hi” it’s") stays; an opening quote alone
+    // ("“xin ") is still a sentence start.
+    let quotes = ['"', '\'', '\u{201c}', '\u{2018}', '\u{ab}'];
+    let closes = ['"', '\'', '\u{201d}', '\u{2019}', '\u{bb}'];
+    let quoted = word.starts_with(quotes)
+        || (before[..es].ends_with(quotes)
+            && before.get(we..).is_some_and(|t| t.starts_with(closes)));
     if plain
         && !marker
         && !quoted

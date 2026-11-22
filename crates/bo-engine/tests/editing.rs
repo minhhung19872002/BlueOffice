@@ -73,7 +73,8 @@ fn mouse_keyboard_undo_find_clipboard() {
         ),
     );
     assert!(r["error"].is_null());
-    assert_eq!(e.document().unwrap().plain_text(), "Dòng một\nDòng haihai");
+    // Smart cut and paste (on by default) puts a space between the two words.
+    assert_eq!(e.document().unwrap().plain_text(), "Dòng một\nDòng hai hai");
     let r = cmd(&mut e, r#"{"cmd":"find","query":"dòng"}"#);
     assert_eq!(r["matches"].as_array().unwrap().len(), 2);
     let r = cmd(

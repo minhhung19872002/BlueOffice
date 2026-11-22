@@ -369,6 +369,14 @@ export interface TableState {
   colWidth: number;
   /** Default left / right cell margins in twips. */
   cellMargin: [number, number];
+  /** Indent from the left margin in twips (§17.4.50 tblInd). */
+  indent?: number;
+  /** The caret's row may not break across pages (§17.4.6 cantSplit). */
+  cantSplit?: boolean;
+  /** The caret's row height is exact (§17.4.81 hRule="exact"). */
+  rowExact?: boolean;
+  /** Default top / bottom cell margins in twips. */
+  cellMarginV?: [number, number];
 }
 
 /** §17.18.93 ST_TextDirection (transitional names). */
@@ -435,11 +443,19 @@ export type TableEdit =
         bandedColumns?: boolean;
       };
     }
-  | { kind: 'select'; part: 'cell' | 'column' | 'row' | 'table' }
+  | {
+      kind: 'select';
+      part:
+        'cell' | 'column' | 'row' | 'table' | 'prevRow' | 'nextRow' | 'prevColumn' | 'nextColumn';
+    }
   | { kind: 'rowHeight'; twips: number | null }
   | { kind: 'columnWidth'; twips: number }
   | { kind: 'splitTable' }
   | { kind: 'cellMargins'; left: number; right: number }
+  | { kind: 'cellMarginsVertical'; top: number; bottom: number }
+  | { kind: 'indent'; twips: number }
+  | { kind: 'allowRowBreak'; on: boolean }
+  | { kind: 'rowHeightRule'; exact: boolean }
   /** Separator: "\t", ",", "\n" (one paragraph per cell) or any text. */
   | { kind: 'toText'; separator: string }
   | { kind: 'fromText'; separator: string; cols?: number | null };

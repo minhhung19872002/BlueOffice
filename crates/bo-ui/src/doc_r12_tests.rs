@@ -253,3 +253,29 @@ fn save_selection_to_quick_tables_round_trip() {
         .collect();
     assert_eq!(mine, ["Bảng mẫu của tôi"]);
 }
+
+// source: the reference's style gallery right-click menu: Update Normal to Match Selection,
+// Modify…, Select All N Instance(s), Rename…, Remove from Style Gallery.
+#[test]
+fn style_gallery_menu() {
+    let mut w = window();
+    let i = w
+        .styles
+        .iter()
+        .position(|s| s.id == "Normal")
+        .expect("Normal tile");
+    assert!(w.r12_style_menu(i, 400.0, 150.0));
+    assert!(w.menu.is_some());
+    assert_eq!(
+        w.r12_style_uses("Normal"),
+        0,
+        "no paragraph names Normal directly"
+    );
+    // Remove from Style Gallery: Normal leaves the gallery.
+    assert!(w.action("style12.remove.Normal"));
+    let spec = w
+        .view
+        .run_json(&serde_json::json!({ "cmd": "styleDetails", "id": "Normal" }))
+        .map(|v| v["styleMgr"]["spec"]["addToGallery"].clone());
+    assert_eq!(spec, Some(serde_json::json!(false)));
+}

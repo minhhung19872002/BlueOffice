@@ -20,7 +20,12 @@ const CATEGORIES: u8 = 16;
 pub(super) fn handles(kind: DocFormKind) -> bool {
     matches!(
         kind,
-        DocFormKind::Tof | DocFormKind::Toa | DocFormKind::MarkCitation | DocFormKind::Watermark
+        DocFormKind::Tof
+            | DocFormKind::Toa
+            | DocFormKind::MarkCitation
+            | DocFormKind::Watermark
+            | DocFormKind::TofOptions
+            | DocFormKind::Categories
     )
 }
 
@@ -58,8 +63,10 @@ fn category_name(s: &Strings, n: u8) -> String {
 pub(super) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
     match kind {
         DocFormKind::Tof => open_tof(s),
-        DocFormKind::Toa => open_toa(s),
+        DocFormKind::Toa => open_toa(s, c),
         DocFormKind::Watermark => open_watermark(s, c),
+        DocFormKind::TofOptions => open_tof_options(s, c),
+        DocFormKind::Categories => open_categories(s, c),
         _ => open_mark_citation(s, c),
     }
 }
@@ -215,8 +222,6 @@ fn open_tof(s: &Strings) -> DocForm {
         [629.0, 504.0, 112.0, 28.0],
         &tr("docR3.modify", "Modify..."),
     );
-    f.disable("options");
-    f.disable("modify");
     f.ok_cancel(s);
     f.tof_preview();
     f
@@ -224,7 +229,7 @@ fn open_tof(s: &Strings) -> DocForm {
 
 /// Table of Authorities: preview, passim, original formatting, leader, formats, the
 /// category list and Mark Citation….
-fn open_toa(s: &Strings) -> DocForm {
+fn open_toa(s: &Strings, c: &FormContext) -> DocForm {
     let tr = |k: &str, fb: &str| t(s, k, fb);
     let mut f = DocForm::new(
         DocFormKind::Toa,
@@ -252,7 +257,7 @@ fn open_toa(s: &Strings) -> DocForm {
         &tr("doc14.category", "Category:"),
     );
     let mut cats = vec![tr("doc14.all", "All")];
-    cats.extend((1..=CATEGORIES).map(|n| category_name(s, n)));
+    cats.extend(category_names(s, c));
     f.form.add(
         "category",
         Some(3),
@@ -319,7 +324,6 @@ fn open_toa(s: &Strings) -> DocForm {
         [629.0, 504.0, 112.0, 28.0],
         &tr("docR3.modify", "Modify..."),
     );
-    f.disable("modify");
     f.ok_cancel(s);
     f.words = vec![
         ("heading".into(), category_name(s, 1)),
@@ -357,7 +361,7 @@ fn open_mark_citation(s: &Strings, c: &FormContext) -> DocForm {
     f.combo(
         "category",
         [80.0, 135.0, 336.0, 26.0],
-        (1..=CATEGORIES).map(|n| category_name(s, n)).collect(),
+        category_names(s, c),
         0,
     );
     f.label(
@@ -418,7 +422,6 @@ fn open_mark_citation(s: &Strings, c: &FormContext) -> DocForm {
     );
     // Next Citation needs a short citation to look for; Category… (renaming categories)
     // is not in BlueDoc's model.
-    f.disable("categories");
     f.words = vec![("close".into(), tr("docR3.close", "Close"))];
     f.mark_citation_enable();
     f.form.focus("short");
@@ -528,6 +531,14 @@ impl DocForm {
                 self.mark_citation_enable();
             }
             (DocFormKind::MarkCitation, _) => self.mark_citation_enable(),
+            (DocFormKind::Categories, "cats") => {
+                if let Some(v) = self
+                    .sel("cats")
+                    .and_then(|i| self.list_items("cats").get(i).cloned())
+                {
+                    self.set_text("with", &v);
+                }
+            }
             (DocFormKind::Watermark, "wmNone" | "wmPicture" | "wmText") => self.watermark_enable(),
             _ => {}
         }
@@ -537,6 +548,28 @@ impl DocForm {
     pub(super) fn r14_clicked(&mut self, id: &str) -> Option<FormOut> {
         Some(match (self.kind, id) {
             (DocFormKind::Toa, "markCitation") => FormOut::Open(DocFormKind::MarkCitation),
+            (DocFormKind::Tof, "options") => FormOut::Stash(DocFormKind::TofOptions),
+            // Modify…: the style the table's entries take (§17.7, Modify Style).
+            (DocFormKind::Tof, "modify") => FormOut::Run(
+                vec![json!({ "cmd": "ui.action", "id": "styles.modify:TableofFigures" })],
+                true,
+            ),
+            (DocFormKind::Toa, "modify") => FormOut::Run(
+                vec![json!({ "cmd": "ui.action", "id": "styles.modify:TableofAuthorities" })],
+                true,
+            ),
+            (DocFormKind::MarkCitation, "categories") => FormOut::Stash(DocFormKind::Categories),
+            (DocFormKind::Categories, "replace") => {
+                let with = self.text("with");
+                if let Some(i) = self.sel("cats").filter(|_| !with.trim().is_empty()) {
+                    let mut items = self.list_items("cats");
+                    if let Some(it) = items.get_mut(i) {
+                        with.trim().clone_into(it);
+                    }
+                    self.form.set_items("cats", items, Some(i));
+                }
+                FormOut::Redraw
+            }
             (DocFormKind::Watermark, "apply") => {
                 FormOut::Run(vec![self.watermark_command()], false)
             }
@@ -590,7 +623,20 @@ impl DocForm {
                 if self.on("hyperlinks") {
                     instr.push_str(" \\h \\z");
                 }
+                // Options…: a style (\t "style,1") and / or table entry fields (\f X)
+                // build the table instead of the captions.
+                let opts: Vec<&str> = self.toc_map.as_deref().map_or_else(Vec::new, |m| {
+                    m.split(';').filter(|x| !x.is_empty()).collect()
+                });
+                for o in &opts {
+                    if let Some(st) = o.strip_prefix("style:") {
+                        instr.push_str(&format!(" \\t \"{st},1\""));
+                    } else if let Some(id) = o.strip_prefix("fields:") {
+                        instr.push_str(&format!(" \\f {id}"));
+                    }
+                }
                 match label {
+                    _ if !opts.is_empty() => {}
                     Some(l) if self.on("includeLabel") => {
                         instr.push_str(&format!(" \\c \"{l}\""));
                     }
@@ -636,6 +682,12 @@ impl DocForm {
                 )
             }
             DocFormKind::Watermark => FormOut::Run(vec![self.watermark_command()], true),
+            DocFormKind::TofOptions => FormOut::TocMap(self.tof_options_value()),
+            DocFormKind::Categories => FormOut::Run(
+                vec![json!({ "cmd": "ui.action",
+                    "id": format!("r14.categories:{}", json!(self.list_items("cats"))) })],
+                true,
+            ),
             DocFormKind::MarkCitation => match self.citation() {
                 Some(mark) => {
                     self.set_button_label("cancel", &self.close_word());
@@ -977,5 +1029,178 @@ impl DocForm {
                 })
             });
         json!({ "cmd": "setWatermark", "watermark": spec })
+    }
+}
+
+// ------------------------------------------------- Table of Figures Options, Edit Category
+
+/// Table identifiers of `TC \f` / `TOC \f` (§17.16.5.65, §17.16.5.68).
+const IDENTIFIERS: &str = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+/// Table of Figures Options: build the table from a style (`TOC \t "style,1"`) and / or from
+/// table entry fields with an identifier (`TOC \f X`). OK hands the choice back to Table
+/// of Figures as `style:<id>` / `fields:<X>` joined by `;`.
+pub(super) fn open_tof_options(s: &Strings, c: &FormContext) -> DocForm {
+    let tr = |k: &str, fb: &str| t(s, k, fb);
+    let mut f = DocForm::new(
+        DocFormKind::TofOptions,
+        &tr("doc14.tofOptionsTitle", "Table of Figures Options"),
+        (380.0, 250.0),
+        vec![],
+    );
+    f.label(
+        "buildL",
+        [16.0, 48.0, 300.0, 18.0],
+        &tr("doc14.tofBuildFrom", "Build table of figures from:"),
+    );
+    f.check(
+        "useStyle",
+        [28.0, 76.0, 90.0, 20.0],
+        &tr("doc14.tofStyle", "Style:"),
+        false,
+    );
+    let paras: Vec<&(String, String, bool)> = c.styles.iter().filter(|x| x.2).collect();
+    f.ids = paras.iter().map(|x| x.0.clone()).collect();
+    let caption = f.ids.iter().position(|i| i == "Caption").unwrap_or(0);
+    f.combo(
+        "style",
+        [126.0, 72.0, 236.0, 26.0],
+        paras.iter().map(|x| x.1.clone()).collect(),
+        caption,
+    );
+    f.check(
+        "useFields",
+        [28.0, 112.0, 300.0, 20.0],
+        &tr("doc14.tofFields", "Table entry fields"),
+        false,
+    );
+    f.label(
+        "idL",
+        [28.0, 150.0, 110.0, 18.0],
+        &tr("doc14.tofIdentifier", "Table identifier:"),
+    );
+    f.combo(
+        "identifier",
+        [146.0, 146.0, 70.0, 26.0],
+        IDENTIFIERS.chars().map(String::from).collect(),
+        5,
+    );
+    f.ok_cancel(s);
+    f
+}
+
+/// Edit Category (Mark Citation › Category…): rename the citation categories for this
+/// window. OK sends the sixteen names back (`r14.categories:` interface command).
+pub(super) fn open_categories(s: &Strings, c: &FormContext) -> DocForm {
+    let tr = |k: &str, fb: &str| t(s, k, fb);
+    let mut f = DocForm::new(
+        DocFormKind::Categories,
+        &tr("doc14.editCategoryTitle", "Edit Category"),
+        (420.0, 340.0),
+        vec![],
+    );
+    f.label(
+        "catL",
+        [16.0, 48.0, 200.0, 18.0],
+        &tr("doc14.categoryL", "Category:"),
+    );
+    f.list(
+        "cats",
+        [16.0, 70.0, 250.0, 200.0],
+        category_names(s, c),
+        Some(7),
+    );
+    f.label(
+        "withL",
+        [16.0, 280.0, 120.0, 18.0],
+        &tr("doc14.replaceWith", "Replace with:"),
+    );
+    f.edit("with", [130.0, 276.0, 136.0, 26.0], "8");
+    f.button(
+        "replace",
+        [282.0, 70.0, 120.0, 28.0],
+        &tr("doc14.replace", "Replace"),
+        false,
+    );
+    f.button(
+        "ok",
+        [282.0, 236.0, 120.0, 28.0],
+        &tr("common.ok", "OK"),
+        true,
+    );
+    f.button(
+        "cancel",
+        [282.0, 274.0, 120.0, 28.0],
+        &tr("common.cancel", "Cancel"),
+        false,
+    );
+    f
+}
+
+/// The sixteen category names: renamed ones (`extra["r14"]["categories"]`) or BlueDoc's.
+fn category_names(s: &Strings, c: &FormContext) -> Vec<String> {
+    let renamed: Vec<String> = c.extra["r14"]["categories"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(str::to_owned))
+                .collect()
+        })
+        .unwrap_or_default();
+    (1..=CATEGORIES)
+        .map(|n| {
+            renamed
+                .get(usize::from(n) - 1)
+                .cloned()
+                .unwrap_or_else(|| category_name(s, n))
+        })
+        .collect()
+}
+
+impl DocForm {
+    fn list_items(&self, id: &str) -> Vec<String> {
+        match self.form.get(id).map(|c| &c.kind) {
+            Some(Kind::List { items, .. } | Kind::Combo { items, .. }) => items.clone(),
+            _ => Vec::new(),
+        }
+    }
+
+    /// New category names (Edit Category OK): Mark Citation's drop-down and the Table of
+    /// Authorities list follow.
+    pub(crate) fn r14_set_categories(&mut self, names: &[String]) {
+        match self.kind {
+            DocFormKind::MarkCitation => {
+                let sel = self.sel("category");
+                self.form.set_items("category", names.to_vec(), sel);
+            }
+            DocFormKind::Toa => {
+                let mut items = vec![self
+                    .list_items("category")
+                    .first()
+                    .cloned()
+                    .unwrap_or_default()];
+                items.extend(names.iter().cloned());
+                let sel = self.sel("category");
+                self.form.set_items("category", items, sel);
+            }
+            _ => {}
+        }
+    }
+
+    /// Table of Figures Options OK: `style:<id>` and / or `fields:<X>`.
+    fn tof_options_value(&self) -> String {
+        let mut out = Vec::new();
+        if self.on("useStyle") {
+            if let Some(id) = self.sel("style").and_then(|i| self.ids.get(i)) {
+                out.push(format!("style:{id}"));
+            }
+        }
+        if self.on("useFields") {
+            let i = self.sel("identifier").unwrap_or(5);
+            if let Some(ch) = IDENTIFIERS.chars().nth(i) {
+                out.push(format!("fields:{ch}"));
+            }
+        }
+        out.join(";")
     }
 }

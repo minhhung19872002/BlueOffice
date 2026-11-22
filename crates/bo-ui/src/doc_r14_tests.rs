@@ -238,3 +238,40 @@ fn design_watermark_and_page_color_open_galleries() {
     w.handle(Input::Key(Key::Escape, Mods::default()), &Fixed);
     assert!(w.r14.pal.is_none());
 }
+
+// Table of Figures › Options…: table entry fields with identifier F build the table (TOC \f).
+#[test]
+fn table_of_figures_options_use_table_entry_fields() {
+    let mut w = window();
+    assert!(w.action("references.tableOfFigures"));
+    let out = w.r3.form.as_mut().expect("TOF").click_for_test("options");
+    assert_eq!(out, FormOut::Stash(DocFormKind::TofOptions));
+    w.form_out(out);
+    let f = w.r3.form.as_mut().expect("Options");
+    assert_eq!(f.kind, DocFormKind::TofOptions);
+    f.set_on("useFields", true);
+    let out = f.input(&Input::Key(Key::Enter, Mods::default()));
+    w.form_out(out);
+    assert_eq!(w.r3.form.as_ref().map(|f| f.kind), Some(DocFormKind::Tof));
+    enter(&mut w);
+    assert!(model_json(&w).contains(r"TOC \\h \\z \\f F"));
+}
+
+// Mark Citation › Category…: a renamed category shows in the drop-down at once.
+#[test]
+fn edit_category_renames_a_citation_category() {
+    let mut w = window();
+    assert!(w.action("references.markCitation"));
+    let out = w.r3.form.as_mut().expect("MC").click_for_test("categories");
+    w.form_out(out);
+    let f = w.r3.form.as_mut().expect("Edit Category");
+    assert_eq!(f.kind, DocFormKind::Categories);
+    f.set_sel("cats", Some(8));
+    f.set_text("with", "Án lệ");
+    f.click_for_test("replace");
+    let out = f.input(&Input::Key(Key::Enter, Mods::default()));
+    w.form_out(out);
+    let f = w.r3.form.as_ref().expect("Mark Citation");
+    assert_eq!(f.kind, DocFormKind::MarkCitation);
+    assert_eq!(f.items_for_test("category")[8], "Án lệ");
+}

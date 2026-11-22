@@ -14,7 +14,7 @@ const HOT_ROW: Rgba = Rgba(0xc5, 0xc5, 0xc5, 255);
 const WHITE: Rgba = Rgba(255, 255, 255, 255);
 const INK: Rgba = Rgba(0, 0, 0, 255);
 const DIM: Rgba = Rgba(0xa0, 0xa0, 0xa0, 255);
-const MARK: Rgba = Rgba(0xc8, 0xc8, 0xc8, 255);
+const MARK: Rgba = Rgba(0xd6, 0xd6, 0xd6, 255);
 
 /// Watermark gallery sizes (reference pixels at 125 %): panel, band, cell, page, footer row.
 const WM_W: f32 = 643.0;
@@ -89,23 +89,96 @@ pub(crate) struct WatermarkGallery {
     y: f32,
     scale: f32,
     sets: Vec<(String, Vec<WmEntry>)>,
-    /// Footer labels: Custom Watermark…, Remove Watermark.
-    footer: [String; 2],
+    /// Footer labels: Custom Watermark…, Remove Watermark, Save Selection to Watermark
+    /// Gallery… (dimmed: BlueDoc keeps no watermark gallery of its own yet).
+    footer: [String; 3],
     /// The document has a watermark (Remove is available).
     remove_on: bool,
     scroll: f32,
     hover: Option<(usize, usize)>,
     hover_row: Option<usize>,
+    /// Outlines of each design's text (em units, baseline at 0, y down) and its advance:
+    /// the text is drawn as one shape, turned for the diagonal designs.
+    outlines: Vec<(String, Vec<PathSeg>, f32)>,
+    /// The document's watermark (text, diagonal): its design is framed.
+    pub(crate) current: Option<(String, bool)>,
+}
+
+/// Outline of `text` in the face of `family` (em units, y down, baseline 0) and its
+/// advance; `None` without the face.
+pub(crate) fn text_outline(
+    fonts: &bo_text::FontManager,
+    family: &str,
+    text: &str,
+) -> Option<(Vec<PathSeg>, f32)> {
+    let id = (0..fonts.len() as u32).map(bo_text::FaceId).find(|id| {
+        let i = fonts.info(*id);
+        i.family.eq_ignore_ascii_case(family) && !i.bold && !i.italic
+    })?;
+    let face = fonts.face(id)?;
+    let em = f32::from(fonts.info(id).units_per_em.max(1));
+    let mut out = Vec::new();
+    let mut x = 0.0f32;
+    for c in text.chars() {
+        let gid = face.glyph_index(c).map_or(0, |g| g.0);
+        for cmd in fonts.outline(id, gid) {
+            use bo_text::PathCmd as P;
+            let pt = |a: f32, b: f32| ((x + a) / em, -b / em);
+            out.push(match cmd {
+                P::MoveTo(a, b) => {
+                    let (u, v) = pt(a, b);
+                    PathSeg::M(u, v)
+                }
+                P::LineTo(a, b) => {
+                    let (u, v) = pt(a, b);
+                    PathSeg::L(u, v)
+                }
+                P::QuadTo(a, b, c2, d) => {
+                    let (u1, v1) = pt(a, b);
+                    let (u, v) = pt(c2, d);
+                    PathSeg::Q(u1, v1, u, v)
+                }
+                P::CubicTo(a, b, c2, d, e, f) => {
+                    let (u1, v1) = pt(a, b);
+                    let (u2, v2) = pt(c2, d);
+                    let (u, v) = pt(e, f);
+                    PathSeg::C(u1, v1, u2, v2, u, v)
+                }
+                P::Close => PathSeg::Z,
+            });
+        }
+        x += f32::from(
+            face.glyph_hor_advance(bo_text::ttf::GlyphId(gid))
+                .unwrap_or(0),
+        );
+    }
+    Some((out, x / em))
 }
 
 impl WatermarkGallery {
+    /// Outlines of the designs' texts (see [`text_outline`]).
+    pub(crate) fn set_outlines(&mut self, outlines: Vec<(String, Vec<PathSeg>, f32)>) {
+        self.outlines = outlines;
+    }
+
+    /// The texts of the designs.
+    pub(crate) fn texts(&self) -> Vec<String> {
+        let mut v: Vec<String> = self
+            .sets
+            .iter()
+            .flat_map(|(_, e)| e.iter().map(|x| x.text.clone()))
+            .collect();
+        v.dedup();
+        v
+    }
+
     /// Open under `anchor` (the Watermark button) inside a window of `size`.
     pub(crate) fn open(
         anchor: [f32; 4],
         size: (f32, f32),
         scale: f32,
         sets: Vec<(String, Vec<WmEntry>)>,
-        footer: [String; 2],
+        footer: [String; 3],
         remove_on: bool,
     ) -> Self {
         let k = scale / 1.25;
@@ -122,6 +195,8 @@ impl WatermarkGallery {
             scroll: 0.0,
             hover: None,
             hover_row: None,
+            outlines: Vec::new(),
+            current: None,
         }
     }
 
@@ -133,8 +208,9 @@ impl WatermarkGallery {
         (v * self.k()).round()
     }
 
+    #[allow(clippy::unused_self)]
     fn height(&self) -> f32 {
-        WM_BAND + WM_LIST + 2.0 * WM_ROW
+        WM_BAND + WM_LIST + 3.0 * WM_ROW
     }
 
     /// Tops of the category bands and the list's content height (reference pixels; the
@@ -188,7 +264,7 @@ impl WatermarkGallery {
 
     fn row_at(&self, y: f32) -> Option<usize> {
         let ly = (y - self.y) / self.k() - WM_BAND - WM_LIST;
-        (0.0..2.0 * WM_ROW)
+        (0.0..3.0 * WM_ROW)
             .contains(&ly)
             .then(|| (ly / WM_ROW) as usize)
     }
@@ -231,7 +307,7 @@ impl WatermarkGallery {
         }
         match self.row_at(y) {
             Some(0) => return Some(WmPick::Custom),
-            Some(_) if self.remove_on => return Some(WmPick::Remove),
+            Some(1) if self.remove_on => return Some(WmPick::Remove),
             Some(_) => return Some(WmPick::Nothing),
             None => {}
         }
@@ -308,7 +384,7 @@ impl WatermarkGallery {
         };
         for (i, label) in self.footer.iter().enumerate() {
             let ry = fy + self.px(i as f32 * WM_ROW);
-            let on = i == 0 || self.remove_on;
+            let on = i == 0 || (i == 1 && self.remove_on);
             if on && self.hover_row == Some(i) {
                 p.fill_rect(x + 1.0, ry + 1.0, w - 2.0, self.px(WM_ROW) - 1.0, HOT_ROW);
             }
@@ -324,7 +400,7 @@ impl WatermarkGallery {
                 x + self.px(13.0),
                 ry + self.px(9.0),
                 self.px(18.0),
-                i == 1,
+                i,
                 on,
             );
         }
@@ -333,7 +409,11 @@ impl WatermarkGallery {
     /// One design: the page with its watermark, its name below; hovered: framed.
     fn paint_cell(&self, p: &mut dyn Painter, e: &WmEntry, at: [f32; 2], hot: bool) {
         let (cw, ch) = (self.px(WM_CELL_W - 10.0), self.px(WM_CELL_H - 4.0));
-        if hot {
+        let current = self
+            .current
+            .as_ref()
+            .is_some_and(|(t, d)| *t == e.text && *d == e.diagonal);
+        if hot || current {
             p.fill_rect(at[0], at[1], cw, ch, INK);
             p.fill_rect(at[0] + 2.0, at[1] + 2.0, cw - 4.0, ch - 4.0, HOT);
         }
@@ -343,7 +423,10 @@ impl WatermarkGallery {
         p.fill_rect(px, py, pw, ph, INK);
         p.fill_rect(px + 1.0, py + 1.0, pw - 2.0, ph - 2.0, WHITE);
         p.push_clip(px + 1.0, py + 1.0, pw - 2.0, ph - 2.0);
-        paint_mark(p, &e.text, e.diagonal, [px, py, pw, ph]);
+        match self.outlines.iter().find(|o| o.0 == e.text) {
+            Some((_, segs, adv)) => paint_outline(p, segs, *adv, e.diagonal, [px, py, pw, ph]),
+            None => paint_mark(p, &e.text, e.diagonal, [px, py, pw, ph]),
+        }
         p.pop_clip();
         let st = TextStyle {
             size: self.px(14.5),
@@ -360,16 +443,61 @@ impl WatermarkGallery {
     }
 }
 
+/// The watermark text as one shape (size Auto: fitted to the page, as the reference),
+/// across the middle or turned to rise along the page's diagonal.
+fn paint_outline(p: &mut dyn Painter, segs: &[PathSeg], adv: f32, diagonal: bool, r: [f32; 4]) {
+    let (cx, cy) = (r[0] + r[2] / 2.0, r[1] + r[3] / 2.0);
+    let (sin, cos, room) = if diagonal {
+        let a = (r[3] / r[2]).atan().min(0.9);
+        (a.sin(), a.cos(), (r[2] * r[2] + r[3] * r[3]).sqrt() * 0.72)
+    } else {
+        (0.0, 1.0, r[2] * 0.86)
+    };
+    let s = (room / adv.max(0.1)).min(r[2] * 0.3);
+    // Centre on the middle of the capitals (about 0.33 em above the baseline).
+    let t = |x: f32, y: f32| {
+        let (u, v) = ((x - adv / 2.0) * s, (y + 0.33) * s);
+        (cx + u * cos + v * sin, cy - u * sin + v * cos)
+    };
+    let out: Vec<PathSeg> = segs
+        .iter()
+        .map(|g| match *g {
+            PathSeg::M(x, y) => {
+                let (a, b) = t(x, y);
+                PathSeg::M(a, b)
+            }
+            PathSeg::L(x, y) => {
+                let (a, b) = t(x, y);
+                PathSeg::L(a, b)
+            }
+            PathSeg::Q(x1, y1, x, y) => {
+                let (a1, b1) = t(x1, y1);
+                let (a, b) = t(x, y);
+                PathSeg::Q(a1, b1, a, b)
+            }
+            PathSeg::C(x1, y1, x2, y2, x, y) => {
+                let (a1, b1) = t(x1, y1);
+                let (a2, b2) = t(x2, y2);
+                let (a, b) = t(x, y);
+                PathSeg::C(a1, b1, a2, b2, a, b)
+            }
+            PathSeg::Z => PathSeg::Z,
+        })
+        .collect();
+    p.path(&out, Some(MARK), None);
+}
+
 /// The watermark text on a page thumbnail: horizontal across the middle, or its letters
 /// stepping up along the rising diagonal.
 fn paint_mark(p: &mut dyn Painter, text: &str, diagonal: bool, r: [f32; 4]) {
     let n = text.chars().count().max(1) as f32;
     if diagonal {
-        let span = (r[2] * r[2] + r[3] * r[3]).sqrt() * 0.62;
-        let size = (span / n * 1.25).clamp(9.0, r[2] * 0.22);
+        // Letters about their own width apart along a 40° line, so the word reads as one.
+        let size = (r[2] * 0.95 / (n * 0.6)).clamp(9.0, r[2] * 0.2);
         let st = TextStyle { size, bold: false };
         let (cx, cy) = (r[0] + r[2] / 2.0, r[1] + r[3] / 2.0);
-        let (dx, dy) = (r[2] * 0.62 / n, -r[3] * 0.48 / n);
+        let step = size * 0.62;
+        let (dx, dy) = (step * 0.77, -step * 0.64);
         let x0 = cx - dx * n / 2.0;
         let y0 = cy - dy * n / 2.0 - size * 0.7;
         for (i, c) in text.chars().enumerate() {
@@ -384,9 +512,9 @@ fn paint_mark(p: &mut dyn Painter, text: &str, diagonal: bool, r: [f32; 4]) {
             );
         }
     } else {
-        let size = (r[2] * 0.86 / (n * 0.56)).min(r[2] * 0.18);
+        let size = (r[2] * 0.8 / (n * 0.64)).min(r[2] * 0.18);
         let st = TextStyle { size, bold: false };
-        let tw = size * 0.56 * n;
+        let tw = size * 0.64 * n;
         p.text(
             text,
             r[0] + (r[2] - tw) / 2.0,
@@ -398,7 +526,8 @@ fn paint_mark(p: &mut dyn Painter, text: &str, diagonal: bool, r: [f32; 4]) {
 }
 
 /// Footer icons: a page with a text mark (Custom), the page with a red cross (Remove).
-fn footer_icon(p: &mut dyn Painter, x: f32, y: f32, s: f32, remove: bool, on: bool) {
+fn footer_icon(p: &mut dyn Painter, x: f32, y: f32, s: f32, row: usize, on: bool) {
+    let remove = row == 1;
     let grey = if on { Rgba(0x6e, 0x6e, 0x6e, 255) } else { DIM };
     let page = [
         PathSeg::M(x + s * 0.15, y),
@@ -588,7 +717,7 @@ impl PagePalette {
         let (lx, ly) = ((x - self.x) / self.k(), (y - self.y) / self.k());
         (0..self.colors.len()).find(|&i| {
             let r = Self::cell(i);
-            lx >= r[0] && lx < r[0] + r[2] && ly >= r[1] && ly < r[1] + r[3]
+            (r[0]..r[0] + r[2]).contains(&lx) && (r[1]..r[1] + r[3]).contains(&ly)
         })
     }
 
@@ -682,7 +811,7 @@ impl PagePalette {
             let c = crate::doc_wm14::hex_rgba(hex);
             p.fill_rect(cx, cy, cw, ch, c);
             // Light cells get a grey frame (white would vanish), as the reference.
-            if i < 10 || i >= 60 {
+            if !(10..60).contains(&i) {
                 outline(p, [cx, cy, cw, ch], Rgba(0xe0, 0xe0, 0xe0, 255));
             }
             if self.hover == Some(i) {
@@ -749,7 +878,11 @@ mod tests {
             (1500.0, 1102.0),
             1.25,
             wm_sets(&t),
-            ["Custom Watermark...".into(), "Remove Watermark".into()],
+            [
+                "Custom Watermark...".into(),
+                "Remove Watermark".into(),
+                "Save Selection to Watermark Gallery...".into(),
+            ],
             false,
         )
     }

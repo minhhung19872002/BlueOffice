@@ -2955,6 +2955,7 @@ mod tests {
         crate::doc_r4_menus::install_strings(&mut strings);
         crate::doc_r4_fit::install_strings(&mut strings);
         crate::doc_tabs7::install_strings(&mut strings);
+        crate::shell::r14::install(&mut icons, &mut strings);
         for tab in &ribbon.tabs {
             assert!(!tab.groups.is_empty(), "{} is empty", tab.label);
             for g in &tab.groups {

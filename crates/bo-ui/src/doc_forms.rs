@@ -142,6 +142,10 @@ pub(crate) enum DocFormKind {
     MarkCitation,
     /// Design › Watermark › Custom Watermark… (Printed Watermark, round 14).
     Watermark,
+    /// Index and Tables › Table of Figures › Options… (round 14).
+    TofOptions,
+    /// Mark Citation › Category… (Edit Category, round 14).
+    Categories,
 }
 
 /// What the owner does after an input.
@@ -984,7 +988,9 @@ impl DocForm {
             | DocFormKind::Tof
             | DocFormKind::Toa
             | DocFormKind::MarkCitation
-            | DocFormKind::Watermark => FormOut::Close,
+            | DocFormKind::Watermark
+            | DocFormKind::TofOptions
+            | DocFormKind::Categories => FormOut::Close,
             DocFormKind::Toc => {
                 let levels = self.form.num("levels").clamp(1, 9);
                 let mut instr = match &self.toc_map {
@@ -3088,7 +3094,9 @@ pub(crate) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
         DocFormKind::Tof
         | DocFormKind::Toa
         | DocFormKind::MarkCitation
-        | DocFormKind::Watermark => r14::open(kind, s, c),
+        | DocFormKind::Watermark
+        | DocFormKind::TofOptions
+        | DocFormKind::Categories => r14::open(kind, s, c),
         DocFormKind::Zoom => {
             let mut f = DocForm::new(kind, &tr("docR4.zoomTitle", "Zoom"), (381.0, 258.0), vec![]);
             f.label(

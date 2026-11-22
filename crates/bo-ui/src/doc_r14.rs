@@ -14,6 +14,14 @@ impl DocWindow {
     /// A round-14 command; `None` when `id` is not one.
     #[inline(never)]
     pub(super) fn r14_action(&mut self, id: &str) -> Option<bool> {
+        if let Some(j) = id.strip_prefix("r14.categories:") {
+            let names: Vec<String> = serde_json::from_str(j).unwrap_or_default();
+            if let Some(f) = self.r3.form.as_mut() {
+                f.r14_set_categories(&names);
+            }
+            self.r14.categories = Some(names);
+            return Some(true);
+        }
         if let Some(q) = id.strip_prefix("r14.findNext:") {
             return Some(self.r14_select_next(q));
         }
@@ -83,7 +91,7 @@ pub(crate) const COMMANDS: [(&str, &str, &str); 4] = [
 
 /// Labels and BlueOffice's own icon drawings of the round-14 buttons (24-unit grid, the
 /// BlueDoc family: a folded page with grey outlines, coloured marks).
-pub(super) fn install(icons: &mut crate::icons::Icons, s: &mut crate::strings::Strings) {
+pub(crate) fn install(icons: &mut crate::icons::Icons, s: &mut crate::strings::Strings) {
     use bo_render::Rgba;
     for (id, key, en) in COMMANDS {
         let v = s.get(key).to_owned();
@@ -149,6 +157,8 @@ pub(super) struct R14 {
     pal: Option<Box<crate::doc_wm14::PagePalette>>,
     /// Document version and whether it then had a table of figures (TOC `\c` / `\a`).
     tof_at: Option<(u64, bool)>,
+    /// Citation category names renamed with Edit Category (this window).
+    categories: Option<Vec<String>>,
 }
 
 impl DocWindow {
@@ -176,15 +186,37 @@ impl DocWindow {
         let footer = [
             self.r14_t("doc14.wmCustom", "Custom Watermark..."),
             self.r14_t("doc14.wmRemove", "Remove Watermark"),
+            self.r14_t(
+                "doc14.wmSaveSelection",
+                "Save Selection to Watermark Gallery...",
+            ),
         ];
-        let remove_on = self
+        let current = self
             .view
             .engine()
             .session()
-            .is_some_and(|s| s.watermark().is_some());
-        self.r14.wm = Some(Box::new(crate::doc_wm14::WatermarkGallery::open(
-            anchor, self.size, self.scale, sets, footer, remove_on,
-        )));
+            .and_then(bo_edit::Session::watermark);
+        let mut g = crate::doc_wm14::WatermarkGallery::open(
+            anchor,
+            self.size,
+            self.scale,
+            sets,
+            footer,
+            current.is_some(),
+        );
+        g.current = current.and_then(|w| Some((w.text?, w.diagonal)));
+        // The texts as outlines of the body font's metric twin (one turned shape each).
+        let fonts = self.view.engine().fonts();
+        let outlines = g
+            .texts()
+            .into_iter()
+            .filter_map(|t| {
+                let (segs, adv) = crate::doc_wm14::text_outline(fonts, "Carlito", &t)?;
+                Some((t, segs, adv))
+            })
+            .collect();
+        g.set_outlines(outlines);
+        self.r14.wm = Some(Box::new(g));
         true
     }
 
@@ -194,9 +226,14 @@ impl DocWindow {
         self.r14.wm = None;
         let anchor = self.r14_anchor("design.pageColor");
         let doc = self.view.engine().document();
+        // The document's theme colours as read, else those of a theme BlueOffice authored.
         let theme = doc
-            .and_then(|d| d.design.theme_xml.clone())
-            .map(|x| bo_engine::theme_file::theme_colors(x.as_bytes()))
+            .map(|d| d.design.theme_colors.clone())
+            .filter(|t| !t.is_empty())
+            .or_else(|| {
+                doc.and_then(|d| d.design.theme_xml.clone())
+                    .map(|x| bo_engine::theme_file::theme_colors(x.as_bytes()))
+            })
             .unwrap_or_default();
         let current = doc.and_then(|d| d.design.background.map(bo_model::Color::to_hex));
         let labels = [
@@ -331,6 +368,6 @@ impl DocWindow {
             .engine()
             .session()
             .and_then(bo_edit::Session::watermark);
-        json!({ "watermark": wm })
+        json!({ "watermark": wm, "categories": self.r14.categories })
     }
 }

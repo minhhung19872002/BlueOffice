@@ -66,14 +66,14 @@ pub(super) fn palette(theme: &[(String, bo_model::Color)]) -> Vec<String> {
     let base = [
         get("lt1", "FFFFFF"),
         get("dk1", "000000"),
-        get("lt2", "EEECE1"),
-        get("dk2", "1F3A5F"),
-        get("accent1", "2E75B6"),
-        get("accent2", "C55A11"),
-        get("accent3", "7F7F7F"),
-        get("accent4", "BF9000"),
-        get("accent5", "2F5597"),
-        get("accent6", "548235"),
+        get("lt2", "E7E6E6"),
+        get("dk2", "44546A"),
+        get("accent1", "4472C4"),
+        get("accent2", "ED7D31"),
+        get("accent3", "A5A5A5"),
+        get("accent4", "FFC000"),
+        get("accent5", "5B9BD5"),
+        get("accent6", "70AD47"),
     ];
     let mut out: Vec<String> = base.to_vec();
     for row in 0..5 {
@@ -378,12 +378,15 @@ impl DocWindow {
     pub(super) fn r12_form_extra(&mut self) -> Value {
         let page_tab = std::mem::take(&mut self.r12.page_tab);
         let f = self.view.format().clone();
-        let theme = self
-            .view
-            .engine()
-            .document()
-            .and_then(|d| d.design.theme_xml.clone())
-            .map(|x| bo_engine::theme_file::theme_colors(x.as_bytes()))
+        // The document's theme colours as read (round 14), else an authored theme's.
+        let doc = self.view.engine().document();
+        let theme = doc
+            .map(|d| d.design.theme_colors.clone())
+            .filter(|t| !t.is_empty())
+            .or_else(|| {
+                doc.and_then(|d| d.design.theme_xml.clone())
+                    .map(|x| bo_engine::theme_file::theme_colors(x.as_bytes()))
+            })
             .unwrap_or_default();
         let page = self
             .view

@@ -204,7 +204,7 @@ pub(crate) struct DocForm {
     /// Three-state check boxes of the Find … dialogs (round 11).
     tris: Vec<findfmt11::Tri>,
     /// Translated words a dialog's OK puts together (round 11).
-    words: Vec<(String, String)>,
+    pub(crate) words: Vec<(String, String)>,
     /// Borders and Shading state (round 12).
     bs: Option<Box<r12::Bs>>,
     /// Paragraph / Tabs / Page Setup / New Style state (round 13).

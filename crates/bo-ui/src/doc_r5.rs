@@ -585,7 +585,22 @@ impl DocWindow {
         crate::doc_forms::ManagedStyle {
             id: s.id.clone(),
             name: ui_style_name(&s.name),
-            font: s.preview.font.clone(),
+            // A theme font previews as "+Headings" / "+Body", as the reference.
+            font: self
+                .view
+                .engine()
+                .document()
+                .map(|d| &d.theme_fonts)
+                .and_then(|t| {
+                    if t.resolve("majorHAnsi") == Some(s.preview.font.as_str()) {
+                        Some("+Headings".to_owned())
+                    } else if t.resolve("minorHAnsi") == Some(s.preview.font.as_str()) {
+                        Some("+Body".to_owned())
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or_else(|| s.preview.font.clone()),
             size: s.preview.size,
             recommended: s.recommended,
             paragraph: s.kind == "paragraph",

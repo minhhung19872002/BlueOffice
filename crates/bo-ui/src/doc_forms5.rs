@@ -689,6 +689,11 @@ impl DocForm {
             })
             .collect();
         self.form.set_items("list", items, pick);
+        // The reference scrolls the chosen style to the top of the list.
+        if let Some(super::Kind::List { top, .. }) = self.form.get_mut("list").map(|c| &mut c.kind)
+        {
+            *top = pick.unwrap_or(0);
+        }
         self.manage_show();
     }
 
@@ -706,8 +711,14 @@ impl DocForm {
         let text = |i: usize| texts.get(i).cloned().unwrap_or_default();
         let head = text(0).replace("{name}", &x.name);
         self.set_label("previewL", &head);
-        self.set_label("desc1", &x.desc[0]);
-        self.set_label("desc2", &x.desc[1]);
+        // The description wraps in the bordered box (round 13: canvas `msDesc`).
+        self.set_label("desc1", "");
+        self.set_label("desc2", "");
+        self.words.retain(|w| w.0 != "msDesc");
+        self.words.push((
+            "msDesc".into(),
+            format!("{}\n{}", x.desc[0], x.desc[1]).trim().to_owned(),
+        ));
         self.preview = vec![x.font.clone(), format!("{}", x.size), x.name.clone()];
         self.form.enable("delete", !x.builtin && !x.latent);
         self.form.enable("modify", !x.latent);

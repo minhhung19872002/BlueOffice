@@ -1546,6 +1546,84 @@ fn word<'a>(f: &'a DocForm, key: &str) -> &'a str {
         .map_or("", |w| w.1.as_str())
 }
 
+/// The paragraph picture of the Borders tab in `d` (white card, text lines, the edges of
+/// the Borders tab or corner marks, the shadow), on `fill` when given.
+fn paint_para_picture(
+    f: &DocForm,
+    p: &mut dyn Painter,
+    d: [f32; 4],
+    fill: Option<Rgba>,
+    k: f32,
+    t1: f32,
+) {
+    p.fill_rect(d[0], d[1], d[2], d[3], WHITE);
+    let edges = &f.bs().edges[0];
+    let m = (20.0 * k).round();
+    let (bx, by, bw, bh) = (d[0] + m, d[1] + m, d[2] - 2.0 * m, d[3] - 2.0 * m);
+    if let Some(c) = fill {
+        p.fill_rect(bx, by, bw, bh, c);
+    }
+    let n = 10;
+    for l in 0..n {
+        let short = l == 0 || l == n - 1;
+        let lx = if l == 0 { bx + bw * 0.35 } else { bx + 4.0 * k };
+        let lw = if short { bw * 0.6 } else { bw - 8.0 * k };
+        p.fill_rect(
+            lx,
+            by + 4.0 * k + l as f32 * (bh - 8.0 * k) / n as f32,
+            lw,
+            (4.0 * k).round(),
+            TEXT_GREY,
+        );
+    }
+    if edges.iter().all(Option::is_none) {
+        let c = (8.0 * k).round();
+        for (x, y, sx, sy) in [
+            (bx, by, -1.0, -1.0),
+            (bx + bw, by, 1.0, -1.0),
+            (bx, by + bh, -1.0, 1.0),
+            (bx + bw, by + bh, 1.0, 1.0),
+        ] {
+            p.fill_rect(if sx < 0.0 { x - c } else { x }, y, c, t1, MARK);
+            p.fill_rect(x, if sy < 0.0 { y - c } else { y }, t1, c, MARK);
+        }
+    }
+    let lw = |l: &Line| (l.size as f32 / 8.0 * k).max(1.0).round();
+    if let Some(l) = &edges[0] {
+        hline(p, bx, by, bw, LINE_STYLES[l.style], lw(l), rgb(&l.color));
+    }
+    if let Some(l) = &edges[2] {
+        hline(
+            p,
+            bx,
+            by + bh,
+            bw,
+            LINE_STYLES[l.style],
+            lw(l),
+            rgb(&l.color),
+        );
+    }
+    if let Some(l) = &edges[1] {
+        vline(p, bx, by, bh, LINE_STYLES[l.style], lw(l), rgb(&l.color));
+    }
+    if let Some(l) = &edges[3] {
+        vline(
+            p,
+            bx + bw,
+            by,
+            bh,
+            LINE_STYLES[l.style],
+            lw(l),
+            rgb(&l.color),
+        );
+    }
+    if f.bs().setting[0] == 2 && edges.iter().any(Option::is_some) {
+        let s = (4.0 * k).round();
+        p.fill_rect(bx + s, by + bh, bw, s, Rgba(0x80, 0x80, 0x80, 255));
+        p.fill_rect(bx + bw, by + s, s, bh, Rgba(0x80, 0x80, 0x80, 255));
+    }
+}
+
 /// `a` mixed with `b` by `t` (0 = `a`), as `RRGGBB`.
 fn mix_hex(a: &str, b: &str, t: f32) -> String {
     let pa = u32::from_str_radix(a, 16).unwrap_or(0xFF_FF_FF);
@@ -2012,6 +2090,26 @@ pub(super) fn paint_canvas(
             };
             mix_hex(&b, &pc, cover)
         };
+        // A paragraph: the reference draws the Borders tab's picture (the paragraph with
+        // its edges or corner marks, the shadow) on the fill (round 13 review).
+        let shading_scope = f
+            .bs()
+            .scopes
+            .get(f.sel("sApply").unwrap_or(0))
+            .copied()
+            .unwrap_or("paragraph");
+        if shading_scope == "paragraph" {
+            let fill = (!fill.is_empty() && fill != super::form::NO_COLOR).then(|| rgb(&fill));
+            let (dw, dh) = ((194.0 * k).round(), (155.0 * k).round());
+            let d = [
+                (r[0] + (r[2] - dw) / 2.0).round(),
+                (r[1] + (r[3] - dh) / 2.0).round(),
+                dw,
+                dh,
+            ];
+            paint_para_picture(f, p, d, fill, k, t1);
+            return true;
+        }
         if !fill.is_empty() && fill != super::form::NO_COLOR {
             let m = (30.0 * k).round();
             p.fill_rect(

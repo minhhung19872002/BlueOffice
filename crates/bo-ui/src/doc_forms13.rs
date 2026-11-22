@@ -1806,6 +1806,10 @@ pub(super) fn paint_canvas(
             paint_border_options(f, p, r, k);
             true
         }
+        (DocFormKind::ManageStyles, "msDesc") => {
+            paint_desc_box(f, p, r, font, k);
+            true
+        }
         (DocFormKind::PageSetup, "psPreview") => {
             paint_page_preview(f, p, r, k);
             true
@@ -2392,6 +2396,51 @@ fn align_index(v: &Value) -> Option<usize> {
     }
 }
 
+/// Manage Styles' description: a #ABADB3 framed box, the words wrapped to its width.
+fn paint_desc_box(f: &DocForm, p: &mut dyn Painter, r: [f32; 4], font: &Font<'_>, k: f32) {
+    p.fill_rect(r[0], r[1], r[2], r[3], Rgba(0xab, 0xad, 0xb3, 255));
+    p.fill_rect(
+        r[0] + 1.0,
+        r[1] + 1.0,
+        r[2] - 2.0,
+        r[3] - 2.0,
+        Rgba(0xf0, 0xf0, 0xf0, 255),
+    );
+    let text = f
+        .words
+        .iter()
+        .find(|w| w.0 == "msDesc")
+        .map_or("", |w| w.1.as_str());
+    let x = r[0] + 3.0 * k;
+    let w = r[2] - 24.0 * k;
+    let lh = (font.size * 1.36).round();
+    let mut y = r[1] + 2.0 * k;
+    p.push_clip(r[0] + 1.0, r[1] + 1.0, r[2] - 2.0, r[3] - 2.0);
+    for (n, para) in text.split('\n').enumerate() {
+        let indent = if n == 0 { 0.0 } else { 16.0 * k };
+        let mut line = String::new();
+        for word in para.split(' ') {
+            let trial = if line.is_empty() {
+                word.to_owned()
+            } else {
+                format!("{line} {word}")
+            };
+            if !line.is_empty() && f.form.width(&trial) > w - indent {
+                p.text_font(&line, x + indent, y, font, Rgba(0, 0, 0, 255));
+                y += lh;
+                line = word.to_owned();
+            } else {
+                line = trial;
+            }
+        }
+        if !line.is_empty() {
+            p.text_font(&line, x + indent, y, font, Rgba(0, 0, 0, 255));
+            y += lh;
+        }
+    }
+    p.pop_clip();
+}
+
 /// The kind mark shown before a paragraph style's name: built-in styles the reference links
 /// to a character style get "¶a", the others "¶".
 fn style_mark(id: &str) -> &'static str {
@@ -2520,6 +2569,9 @@ pub(crate) fn manage_defaults(f: &mut DocForm, s: &Strings, d: &Value) {
     if let Some(cur) = d["current"].as_str() {
         f.words.push(("msCurrent".into(), cur.to_owned()));
     }
+    // Edit page: the description in a bordered box with wrapped lines.
+    f.form
+        .add("msDesc", Some(0), [32.0, 430.0, 565.0, 72.0], Kind::Canvas);
     f.label_on(
         3,
         "dFontL",
@@ -2527,7 +2579,7 @@ pub(crate) fn manage_defaults(f: &mut DocForm, s: &Strings, d: &Value) {
         &tr("docR5.font", "Font:"),
     );
     let font = d["font"].as_str().unwrap_or("").to_owned();
-    f.edit_on(3, "font", [57.0, 108.0, 267.0, 24.0], &font);
+    f.edit_on(3, "font", [57.0, 108.0, 267.0, 24.0], "");
     let mut fonts: Vec<String> = d["fonts"]
         .as_array()
         .map(|a| {
@@ -2562,7 +2614,7 @@ pub(crate) fn manage_defaults(f: &mut DocForm, s: &Strings, d: &Value) {
         let pt = hp as f32 / 2.0;
         format!("{pt}")
     });
-    f.edit_on(3, "size", [483.0, 108.0, 114.0, 24.0], &size);
+    f.edit_on(3, "size", [483.0, 108.0, 114.0, 24.0], "");
     let sizes: Vec<String> = [8, 9, 10, 11, 12, 14, 16, 18, 20, 22, 24, 26, 28, 36, 48, 72]
         .iter()
         .map(ToString::to_string)
@@ -2790,6 +2842,10 @@ pub(crate) fn manage_defaults(f: &mut DocForm, s: &Strings, d: &Value) {
         &tr("findFmt11.atL", "At:"),
     );
     spin(f, "at", "atSp", [482.0, 450.0, 115.0, 26.0], &at);
+    // The reference leaves the boxes empty (only what is typed is set).
+    for id in ["inside", "outside", "by", "before", "after", "at"] {
+        f.form.set_text(id, "");
+    }
     let initial = f.defaults_values();
     if let Some(r) = f.r13.as_mut() {
         r.initial = Value::Object(initial);

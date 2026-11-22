@@ -2950,14 +2950,9 @@ fn tcpr_items(p: &bo_model::CellProps) -> Vec<(String, String)> {
         x.push_str("</w:tcBorders>");
         items.push(("tcBorders".into(), x));
     }
-    if let Some(col) = p.shading {
-        items.push((
-            "shd".into(),
-            format!(
-                "<w:shd w:val=\"clear\" w:color=\"auto\" w:fill=\"{}\"/>",
-                col.to_hex()
-            ),
-        ));
+    if p.shading.is_some() || p.shading_pattern.is_some() {
+        // §17.4.32 shd: pattern (§17.18.78), pattern colour and fill.
+        items.push(("shd".into(), shd_xml(p.shading, p.shading_pattern.as_ref())));
     }
     // ECMA-376 Part 1, §17.4.72 textDirection.
     if let Some(d) = p.text_direction {
@@ -3257,12 +3252,30 @@ fn jc(a: Alignment) -> &'static str {
 }
 
 fn border_xml(tag: &str, b: &Border) -> String {
+    // §17.18.2 CT_Border: w:val, w:sz, w:space, w:color, w:shadow, w:frame.
     format!(
-        "<w:{tag} w:val=\"{}\" w:sz=\"{}\" w:space=\"{}\" w:color=\"{}\"/>",
+        "<w:{tag} w:val=\"{}\" w:sz=\"{}\" w:space=\"{}\" w:color=\"{}\"{}{}/>",
         escape(&b.style),
         b.size,
         b.space,
-        b.color.map_or("auto".to_owned(), bo_model::Color::to_hex)
+        b.color.map_or("auto".to_owned(), bo_model::Color::to_hex),
+        if b.shadow { " w:shadow=\"1\"" } else { "" },
+        if b.frame { " w:frame=\"1\"" } else { "" },
+    )
+}
+
+/// §17.3.5 CT_Shd (`w:val` §17.18.78 pattern, `w:color` pattern colour, `w:fill`) of a
+/// paragraph or cell; no pattern = `clear`.
+fn shd_xml(
+    fill: Option<bo_model::Color>,
+    pat: Option<&bo_model::run_fx::ShadingPattern>,
+) -> String {
+    let (val, color) = pat.map_or(("clear", None), |s| (s.val.as_str(), s.color));
+    format!(
+        "<w:shd w:val=\"{}\" w:color=\"{}\" w:fill=\"{}\"/>",
+        escape(val),
+        color.map_or_else(|| "auto".to_owned(), bo_model::Color::to_hex),
+        fill.map_or_else(|| "auto".to_owned(), bo_model::Color::to_hex)
     )
 }
 
@@ -3345,14 +3358,9 @@ fn ppr_children(p: &ParaProps) -> Vec<(String, String)> {
     if let Some(b) = &p.borders {
         v.push(("pBdr".into(), borders_xml("pBdr", b, true)));
     }
-    if let Some(c) = p.shading {
-        v.push((
-            "shd".into(),
-            format!(
-                "<w:shd w:val=\"clear\" w:color=\"auto\" w:fill=\"{}\"/>",
-                c.to_hex()
-            ),
-        ));
+    if p.shading.is_some() || p.shading_pattern.is_some() {
+        // §17.3.1.31 shd: pattern (§17.18.78), pattern colour and fill.
+        v.push(("shd".into(), shd_xml(p.shading, p.shading_pattern.as_ref())));
     }
     if let Some(tabs) = &p.tabs {
         let mut s = String::from("<w:tabs>");

@@ -493,6 +493,8 @@ fn border_side(d: &Decls, side: &str, em: f64) -> Option<Option<Border>> {
         size,
         color,
         space: 0,
+        shadow: false,
+        frame: false,
     }))
 }
 

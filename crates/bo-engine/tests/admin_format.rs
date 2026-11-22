@@ -77,6 +77,8 @@ fn table(widths: &[i32], rows: Vec<Vec<Vec<Block>>>) -> Block {
         size: 0,
         color: None,
         space: 0,
+        shadow: false,
+        frame: false,
     };
     Block::Table(Table {
         props: TableProps {

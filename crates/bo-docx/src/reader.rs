@@ -2154,7 +2154,11 @@ fn read_ppr(r: &mut XmlReader<'_>, mut sect: Option<SectCtx<'_, '_>>) -> Result<
                 }
             }
             // §17.3.1.31 shd
-            b"shd" => p.shading = color_attr(e, b"fill"),
+            // §17.3.1.31 shd: fill, pattern (§17.18.78) and pattern colour.
+            b"shd" => {
+                p.shading = color_attr(e, b"fill");
+                p.shading_pattern = shd_pattern(e);
+            }
             // §17.3.1.24 pBdr
             b"pBdr" if s => p.borders = Some(read_borders(r)?),
             // §17.3.1.38 tabs
@@ -2281,12 +2285,22 @@ fn read_ppr(r: &mut XmlReader<'_>, mut sect: Option<SectCtx<'_, '_>>) -> Result<
     Ok(p)
 }
 
+/// Pattern of a `w:shd` (§17.3.5 CT_Shd): `None` for a plain `clear` fill.
+fn shd_pattern(e: &BytesStart<'_>) -> Option<bo_model::run_fx::ShadingPattern> {
+    let val = attr(e, b"val").unwrap_or_else(|| "clear".into());
+    let color = color_attr(e, b"color");
+    (val != "clear" || color.is_some()).then_some(bo_model::run_fx::ShadingPattern { val, color })
+}
+
 fn read_border(e: &BytesStart<'_>) -> Border {
     Border {
         style: attr(e, b"val").unwrap_or_else(|| "single".into()),
         size: int(e, b"sz").unwrap_or(4).max(0) as u32,
         color: color_attr(e, b"color"),
         space: int(e, b"space").unwrap_or(0).max(0) as u32,
+        // §17.18.2 CT_Border w:shadow / w:frame (ST_OnOff).
+        shadow: attr(e, b"shadow").is_some_and(|v| on_off_value(&v)),
+        frame: attr(e, b"frame").is_some_and(|v| on_off_value(&v)),
     }
 }
 
@@ -2869,7 +2883,11 @@ fn read_tcpr(r: &mut XmlReader<'_>) -> Result<CellProps> {
                     VMerge::Continue
                 });
             }
-            b"shd" => c.shading = color_attr(e, b"fill"),
+            // §17.4.32 shd: fill, pattern (§17.18.78) and pattern colour.
+            b"shd" => {
+                c.shading = color_attr(e, b"fill");
+                c.shading_pattern = shd_pattern(e);
+            }
             b"tcBorders" if s => {
                 let (b, d) = read_borders_diag(r)?;
                 c.diagonals = d;

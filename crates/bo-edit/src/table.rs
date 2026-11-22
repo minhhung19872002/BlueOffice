@@ -72,6 +72,8 @@ impl BorderPen {
             size: self.size.clamp(2, 96),
             color: self.color.as_deref().and_then(Color::from_hex),
             space: 0,
+            shadow: false,
+            frame: false,
         }
     }
 }
@@ -743,6 +745,8 @@ pub(crate) fn nil_border() -> Border {
         size: 0,
         color: None,
         space: 0,
+        shadow: false,
+        frame: false,
     }
 }
 

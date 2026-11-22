@@ -1278,6 +1278,13 @@ pub struct Border {
     pub color: Option<Color>,
     /// Spacing between the border and the content (`w:space`), in points.
     pub space: u32,
+    /// Shadow effect (`w:shadow`, ECMA-376 Part 1, §17.18.2 `CT_Border`): the reference
+    /// word processor thickens the right and bottom edges of a box.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub shadow: bool,
+    /// Frame (3-D) effect (`w:frame`, §17.18.2 `CT_Border`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub frame: bool,
 }
 
 impl Border {
@@ -1288,6 +1295,8 @@ impl Border {
             size,
             color: None,
             space: 0,
+            shadow: false,
+            frame: false,
         }
     }
     /// Whether the border draws anything.
@@ -1504,6 +1513,10 @@ pub struct ParaProps {
     pub tabs: Option<Vec<TabStop>>,
     /// Background fill colour (`w:shd/@w:fill`).
     pub shading: Option<Color>,
+    /// Shading pattern and pattern colour (§17.3.1.31 shd `w:val`, `w:color`); the
+    /// fill is [`ParaProps::shading`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shading_pattern: Option<crate::run_fx::ShadingPattern>,
     /// Paragraph borders (`w:pBdr`).
     pub borders: Option<Borders>,
     /// Outline level, 0-based (`w:outlineLvl`).
@@ -1564,6 +1577,10 @@ impl ParaProps {
             num: self.num.or(base.num),
             tabs: merge_tabs(base.tabs.as_ref(), self.tabs.as_ref()),
             shading: self.shading.or(base.shading),
+            shading_pattern: self
+                .shading_pattern
+                .clone()
+                .or_else(|| base.shading_pattern.clone()),
             borders: self.borders.clone().or_else(|| base.borders.clone()),
             outline_level: self.outline_level.or(base.outline_level),
             bidi: self.bidi.or(base.bidi),
@@ -2662,6 +2679,10 @@ pub struct CellProps {
     pub v_merge: Option<VMerge>,
     /// Background fill colour (`w:shd/@w:fill`).
     pub shading: Option<Color>,
+    /// Shading pattern and pattern colour (§17.4.32 shd `w:val`, `w:color`); the fill
+    /// is [`CellProps::shading`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shading_pattern: Option<crate::run_fx::ShadingPattern>,
     /// Cell borders (`w:tcBorders`).
     pub borders: Option<Borders>,
     /// Diagonal lines of the cell: ECMA-376 Part 1, §17.4.80 tl2br (top left to bottom
@@ -2700,6 +2721,7 @@ impl Default for CellProps {
             grid_span: 1,
             v_merge: None,
             shading: None,
+            shading_pattern: None,
             borders: None,
             diagonals: [None, None],
             v_align: None,

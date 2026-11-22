@@ -251,6 +251,8 @@ fn nil() -> Border {
         size: 0,
         color: None,
         space: 0,
+        shadow: false,
+        frame: false,
     }
 }
 

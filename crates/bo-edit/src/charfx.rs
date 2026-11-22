@@ -451,6 +451,8 @@ impl CharAdvancedPatch {
                 size: b.size.clamp(2, 96),
                 color: b.color.as_deref().and_then(Color::from_hex),
                 space: 0,
+                shadow: false,
+                frame: false,
             });
         }
         if let Some(s) = &self.shading {

@@ -92,6 +92,8 @@ fn line(size: u32, hex: &str) -> Border {
         size,
         color: color(hex),
         space: 4,
+        shadow: false,
+        frame: false,
     }
 }
 

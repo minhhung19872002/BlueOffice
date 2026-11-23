@@ -727,11 +727,39 @@ export interface MarkupOptions {
   /** No balloons at all: every revision and comment marked in the text (native BlueDoc). */
   inline?: boolean;
   /** Advanced Track Changes Options (native BlueDoc). */
-  insMark?: 'underline' | 'none' | 'colorOnly' | 'doubleUnderline' | 'strikethrough';
-  delMark?: 'strikethrough' | 'colorOnly' | 'doubleStrikethrough' | 'hidden' | 'underline' | 'doubleUnderline';
+  insMark?:
+    'underline' | 'none' | 'colorOnly' | 'doubleUnderline' | 'strikethrough' | 'bold' | 'italic';
+  delMark?:
+    | 'strikethrough'
+    | 'colorOnly'
+    | 'doubleStrikethrough'
+    | 'hidden'
+    | 'underline'
+    | 'doubleUnderline'
+    | 'bold'
+    | 'italic'
+    | 'caret'
+    | 'hash';
   insColor?: string;
   delColor?: string;
   changedLines?: 'outside' | 'left' | 'right' | 'none';
+  /** Formatting marks (layout round 8). */
+  fmtMark?:
+    | 'none'
+    | 'bold'
+    | 'italic'
+    | 'underline'
+    | 'doubleUnderline'
+    | 'strikethrough'
+    | 'doubleStrikethrough'
+    | 'colorOnly';
+  fmtColor?: string;
+  /** Moves: tracked as moves, their marks and colours. */
+  trackMoves?: boolean;
+  moveFromMark?: string;
+  moveToMark?: string;
+  moveFromColor?: string;
+  moveToColor?: string;
   balloonWidth?: number;
   connectors?: boolean;
   pictures?: boolean;

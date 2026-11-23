@@ -182,7 +182,7 @@ pub(crate) fn rgb_to_hsl(c: (u8, u8, u8)) -> (f32, f32, f32) {
     );
     let max = r.max(g).max(b);
     let min = r.min(g).min(b);
-    let l = (max + min) / 2.0;
+    let l = f32::midpoint(max, min);
     let d = max - min;
     if d < 1e-6 {
         return (0.0, 0.0, l);

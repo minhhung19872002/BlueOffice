@@ -66,7 +66,9 @@ fn more_colors_sets_the_page_colour_and_remembers_it() {
     // The canvas's centre is a hexagon cell (row 9 of 13, sixth cell).
     click(&mut w, "hex6");
     assert_eq!(
-        w.r3.form.as_ref().and_then(|f| f.r15_new_for_test()),
+        w.r3.form
+            .as_ref()
+            .and_then(crate::doc_forms::DocForm::r15_new_for_test),
         Some("FFCC99".to_owned())
     );
     enter(&mut w);
@@ -242,7 +244,7 @@ fn collapsing_a_heading_hides_its_content_until_the_next_heading() {
         selection: bo_edit::Selection::caret(bo_edit::Pos::new(5, 0)),
     });
     w.r15_layout();
-    assert!(w.r15.col.heads.is_empty());
+    assert_eq!(w.r15.col.heads, Vec::<usize>::new());
     assert_eq!(laid_out_ids(&w), vec![0, 1, 2, 3, 4, 5]);
 }
 

@@ -2065,6 +2065,33 @@ fn ring(cx: f32, cy: f32, r: f32) -> Vec<PathSeg> {
     ]
 }
 
+impl Form {
+    /// Minimise (dimmed) and maximise boxes left of the close button, and the size grip's
+    /// dots in the bottom-right corner, as a sizable reference window shows them.
+    fn paint_sizable(&self, p: &mut dyn Painter) {
+        let ink = Rgba(0x40, 0x40, 0x40, 255);
+        let m = self.dev([self.size.0 - 95.0, 14.0, 10.0, 10.0]);
+        let t = self.k.max(1.0).round();
+        p.fill_rect(m[0], m[1], m[2], t, ink);
+        p.fill_rect(m[0], m[1] + m[3] - t, m[2], t, ink);
+        p.fill_rect(m[0], m[1], t, m[3], ink);
+        p.fill_rect(m[0] + m[2] - t, m[1], t, m[3], ink);
+        let n = self.dev([self.size.0 - 162.0, 19.0, 10.0, 1.0]);
+        p.fill_rect(n[0], n[1], n[2], t, Rgba(0xa0, 0xa0, 0xa0, 255));
+        // Size grip: six dots in a triangle.
+        let dot = (2.0 * self.k).round().max(1.0);
+        for (dx, dy) in [(3, 1), (2, 2), (3, 2), (1, 3), (2, 3), (3, 3)] {
+            let d = self.dev([
+                self.size.0 - 4.0 - 4.0 * (4 - dx) as f32,
+                self.size.1 - 4.0 - 4.0 * (4 - dy) as f32,
+                2.0,
+                2.0,
+            ]);
+            p.fill_rect(d[0], d[1], dot, dot, Rgba(0x9a, 0x9a, 0x9a, 255));
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2161,32 +2188,5 @@ mod tests {
         let (x, y) = at(&f, 692.0 - 200.0, 636.0 - 30.0);
         assert_eq!(f.press(x, y, 1), Event::Ok);
         assert_eq!(f.key(Key::Escape, Mods::default()), Event::Cancel);
-    }
-}
-
-impl Form {
-    /// Minimise (dimmed) and maximise boxes left of the close button, and the size grip's
-    /// dots in the bottom-right corner, as a sizable reference window shows them.
-    fn paint_sizable(&self, p: &mut dyn Painter) {
-        let ink = Rgba(0x40, 0x40, 0x40, 255);
-        let m = self.dev([self.size.0 - 95.0, 14.0, 10.0, 10.0]);
-        let t = self.k.max(1.0).round();
-        p.fill_rect(m[0], m[1], m[2], t, ink);
-        p.fill_rect(m[0], m[1] + m[3] - t, m[2], t, ink);
-        p.fill_rect(m[0], m[1], t, m[3], ink);
-        p.fill_rect(m[0] + m[2] - t, m[1], t, m[3], ink);
-        let n = self.dev([self.size.0 - 162.0, 19.0, 10.0, 1.0]);
-        p.fill_rect(n[0], n[1], n[2], t, Rgba(0xa0, 0xa0, 0xa0, 255));
-        // Size grip: six dots in a triangle.
-        let dot = (2.0 * self.k).round().max(1.0);
-        for (dx, dy) in [(3, 1), (2, 2), (3, 2), (1, 3), (2, 3), (3, 3)] {
-            let d = self.dev([
-                self.size.0 - 4.0 - 4.0 * (4 - dx) as f32,
-                self.size.1 - 4.0 - 4.0 * (4 - dy) as f32,
-                2.0,
-                2.0,
-            ]);
-            p.fill_rect(d[0], d[1], dot, dot, Rgba(0x9a, 0x9a, 0x9a, 255));
-        }
     }
 }

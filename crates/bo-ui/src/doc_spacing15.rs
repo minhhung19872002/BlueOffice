@@ -304,7 +304,7 @@ fn paint_default_icon(p: &mut dyn Painter, r: [f32; 4]) {
 /// Which row matches document defaults (space before / after in twips, line spacing word):
 /// a preset, else Default when they are the style set's own (`default`).
 pub(crate) fn current_row(
-    now: (i32, i32, String),
+    now: &(i32, i32, String),
     default: Option<&(i32, i32, String)>,
 ) -> Option<usize> {
     if let Some(i) = PRESETS
@@ -313,7 +313,7 @@ pub(crate) fn current_row(
     {
         return Some(i + 1);
     }
-    (default == Some(&now)).then_some(0)
+    (default == Some(now)).then_some(0)
 }
 
 #[cfg(test)]
@@ -349,8 +349,8 @@ mod tests {
     #[test]
     fn current_row_finds_presets() {
         let d = (0, 160, "multiple:259".to_owned());
-        assert_eq!(current_row((0, 80, "single".into()), Some(&d)), Some(2));
-        assert_eq!(current_row(d.clone(), Some(&d)), Some(0));
-        assert_eq!(current_row((0, 1, "single".into()), Some(&d)), None);
+        assert_eq!(current_row(&(0, 80, "single".into()), Some(&d)), Some(2));
+        assert_eq!(current_row(&d, Some(&d)), Some(0));
+        assert_eq!(current_row(&(0, 1, "single".into()), Some(&d)), None);
     }
 }

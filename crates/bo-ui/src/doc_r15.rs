@@ -120,7 +120,11 @@ impl DocWindow {
     /// The `extra["r15"]` context of the round-15 dialogs: the colour the Colors dialog
     /// starts from and what it changes.
     pub(super) fn r15_form_extra(&mut self) -> serde_json::Value {
-        let from_form = self.r3.stash.as_ref().and_then(|f| f.r15_more_color());
+        let from_form = self
+            .r3
+            .stash
+            .as_ref()
+            .and_then(crate::doc_forms::DocForm::r15_more_color);
         let color = match from_form {
             Some(hex) if !self.r15.page => json!({ "target": "form", "current": hex }),
             _ => {
@@ -410,6 +414,7 @@ impl DocWindow {
     /// The hovered heading's triangle: ◢ grey when expanded, ▷ outlined when collapsed (own
     /// drawing; the reference shows it on hover only).
     pub(super) fn r15_paint(&self, p: &mut dyn crate::Painter) {
+        use bo_render::PathSeg as S;
         if let Some(m) = &self.r15.spacing {
             m.paint(p);
         }
@@ -421,7 +426,6 @@ impl DocWindow {
             return;
         }
         let grey = bo_render::Rgba(0x5f, 0x5f, 0x5f, 255);
-        use bo_render::PathSeg as S;
         if collapsed {
             let (x0, y0, w, h) = (r[0] + r[2] * 0.25, r[1], r[2] * 0.6, r[3]);
             p.path(
@@ -491,7 +495,10 @@ impl DocWindow {
         }
         labels.push(self.r15_t("doc15.customSpacing", "Custom Paragraph Spacing..."));
         let current = self.view.engine().document().and_then(|d| {
-            crate::doc_spacing15::current_row(default_spacing(d), self.r15.spacing_default.as_ref())
+            crate::doc_spacing15::current_row(
+                &default_spacing(d),
+                self.r15.spacing_default.as_ref(),
+            )
         });
         self.r15.spacing = Some(Box::new(crate::doc_spacing15::SpacingMenu::open(
             anchor, self.size, self.scale, labels, current,

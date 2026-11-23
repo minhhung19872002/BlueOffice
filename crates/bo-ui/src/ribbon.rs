@@ -234,6 +234,9 @@ pub struct Ribbon {
     /// The collapsed group button that holds a command (menus of that command open under
     /// the group button while the command itself is not shown).
     holder: fn(&str) -> Option<&'static str>,
+    /// Collapse steps taken at once for a tab at a width (logical px): the reference
+    /// collapses some groups before they overflow (BlueDoc's Review tab, round 16).
+    forced: fn(&str, f32) -> usize,
 }
 
 fn home() -> Tab {
@@ -729,6 +732,7 @@ impl Ribbon {
             scaling: |_| &[],
             shrink: |_, _| None,
             holder: |_| None,
+            forced: |_, _| 0,
         }
     }
 
@@ -743,6 +747,12 @@ impl Ribbon {
         self.scaling = scaling;
         self.shrink = shrink;
         self.holder = holder;
+        self
+    }
+
+    /// Collapse steps a tab takes at once at a width (see [`Ribbon::forced`]).
+    pub(crate) fn with_forced_steps(mut self, rule: fn(&str, f32) -> usize) -> Self {
+        self.forced = rule;
         self
     }
 
@@ -1155,7 +1165,7 @@ impl Ribbon {
         let mut tile_count = TILES;
         // Collapse steps taken (scaling order of the active tab).
         let order = (self.scaling)(self.tabs[self.active].label);
-        let mut steps = 0usize;
+        let mut steps = (self.forced)(self.tabs[self.active].label, width / scale).min(order.len());
         let (mut placed, content_width) = loop {
             let mut gx = self.px(8.0);
             let mut placed = Vec::new();

@@ -95,7 +95,7 @@ impl DocView {
 
     /// Merge fields (§17.16.5.35 MERGEFIELD) shaded by Highlight Merge Fields: their text
     /// rectangles.
-    fn refresh_field_marks(&mut self) {
+    pub(crate) fn refresh_field_marks(&mut self) {
         self.field_marks.clear();
         if !self.highlight_fields {
             return;

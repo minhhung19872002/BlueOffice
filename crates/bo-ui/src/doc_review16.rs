@@ -130,6 +130,16 @@ pub(crate) fn scaling(tab: &str) -> &'static [&'static str] {
     }
 }
 
+/// Collapse steps taken at once: at 1500 px (125 %) and narrower the reference shows
+/// Comments, Tracking and Protect as drop-down buttons although the tab would fit.
+pub(crate) fn forced_steps(tab: &str, width: f32) -> usize {
+    if tab == "ribbon.tabs.review" && width <= 1240.0 {
+        3
+    } else {
+        0
+    }
+}
+
 /// Group `label` collapsed (one drop-down button).
 pub(crate) fn shrink(label: &str, _stage: u8) -> Option<Group> {
     use Item::Large as L;

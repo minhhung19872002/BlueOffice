@@ -143,7 +143,7 @@ fn delete_all_comments_shown_keeps_hidden_reviewers() {
     let left: Vec<String> = w.view.comments().iter().map(|c| c.author.clone()).collect();
     assert_eq!(left, ["Bob"]);
     assert!(w.action("review.deleteAll"));
-    assert!(w.view.comments().is_empty());
+    assert_eq!(w.view.comments().len(), 0);
     // One undo step brings the shown deletion back... the last one first.
     w.action("edit.undo");
     assert_eq!(w.view.comments().len(), 1);
@@ -193,7 +193,7 @@ fn show_markup_balloons_and_people() {
     assert!(w.action(&bob));
     assert_eq!(w.view.markup().hidden_reviewers, ["Bob"]);
     assert!(w.action("review.people.all"));
-    assert!(w.view.markup().hidden_reviewers.is_empty());
+    assert_eq!(w.view.markup().hidden_reviewers.len(), 0);
     assert!(w.action("review.people.all"));
     assert_eq!(w.view.markup().hidden_reviewers, ["Ann", "Bob"]);
 }
@@ -253,6 +253,7 @@ fn finish_and_merge_opens_the_merged_document_apart() {
     ]);
     w.handle(Input::Tick, &Fixed);
     assert!(w.action("mailings.highlightFields"));
+    assert!(!w.view.field_marks.is_empty(), "the merge field is shaded");
     assert!(w.on_ids().contains(&"mailings.highlightFields"));
     assert!(w.action("mailings.finish"));
     assert_eq!(w.menu.as_ref().expect("menu").items().len(), 3);
@@ -327,7 +328,7 @@ fn read_aloud_follows_the_voice() {
     assert!(w.reading_aloud());
     // The voice says "two" (UTF-16 4..7): it is selected.
     assert!(w.speech_word(Some((4, 3))));
-    let sel = w.view.engine().session().map(|s| s.selection());
+    let sel = w.view.engine().session().map(bo_edit::Session::selection);
     assert_eq!(sel.map(|s| (s.anchor.offset, s.focus.offset)), Some((4, 7)));
     // Silent after speaking: the next paragraph.
     w.speech_word(None);

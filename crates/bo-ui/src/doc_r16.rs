@@ -842,35 +842,31 @@ impl DocWindow {
         if ra.paused {
             return false;
         }
-        match word {
-            Some((pos, len)) => {
-                ra.seen = true;
-                let a = crate::doc_speech16::byte_of_utf16(&ra.text, pos);
-                let b = crate::doc_speech16::byte_of_utf16(&ra.text, pos + len);
-                let w = (ra.from + a, ra.from + b);
-                if ra.word == Some(w) {
-                    return false;
-                }
-                ra.word = Some(w);
-                let para = ra.para;
-                self.view
-                    .run_command(bo_engine::edit::Command::SetSelection {
-                        selection: bo_edit::Selection {
-                            anchor: bo_edit::Pos::new(para, w.0),
-                            focus: bo_edit::Pos::new(para, w.1),
-                        },
-                    })
+        let Some((pos, len)) = word else {
+            ra.waiting += 1;
+            // Done with this paragraph (or the voice never started: about 3 s).
+            if ra.seen || ra.waiting > 30 {
+                let next = ra.para + 1;
+                return self.r16_ra_read(next, 0, 1);
             }
-            None => {
-                ra.waiting += 1;
-                // Done with this paragraph (or the voice never started: about 3 s).
-                if ra.seen || ra.waiting > 30 {
-                    let next = ra.para + 1;
-                    return self.r16_ra_read(next, 0, 1);
-                }
-                false
-            }
+            return false;
+        };
+        ra.seen = true;
+        let a = crate::doc_speech16::byte_of_utf16(&ra.text, pos);
+        let b = crate::doc_speech16::byte_of_utf16(&ra.text, pos + len);
+        let w = (ra.from + a, ra.from + b);
+        if ra.word == Some(w) {
+            return false;
         }
+        ra.word = Some(w);
+        let para = ra.para;
+        self.view
+            .run_command(bo_engine::edit::Command::SetSelection {
+                selection: bo_edit::Selection {
+                    anchor: bo_edit::Pos::new(para, w.0),
+                    focus: bo_edit::Pos::new(para, w.1),
+                },
+            })
     }
 
     /// Input to the Read Aloud bar.

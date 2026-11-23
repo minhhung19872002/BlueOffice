@@ -421,6 +421,7 @@ impl DocWindow {
                 .with_trailing(crate::doc_table::trailing)
                 .with_mark_on_own_line()
                 .with_row_widths(crate::doc_r4_fit::row_w)
+                .with_forced_steps(crate::doc_review16::forced_steps)
                 .with_scaling(
                     crate::doc_r4_fit::scaling,
                     crate::doc_r4_fit::shrink,

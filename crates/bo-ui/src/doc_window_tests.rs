@@ -275,6 +275,7 @@ fn every_contextual_button_has_a_label_an_icon_and_a_command() {
                 if crate::doc_tabs7::window_command(id)
                     || id.starts_with("ir.")
                     || *id == "review.readAloud"
+                    || crate::shell::r17::IDS.contains(id)
                 {
                     continue;
                 }

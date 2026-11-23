@@ -25,6 +25,12 @@ mod drawing;
 mod flow;
 mod hidden15;
 mod hyphen;
+
+/// Hyphenation points of an English word (byte offsets where it may break; BlueOffice's own
+/// rules, ADR-0011) — BlueDoc's Immersive Reader shows them as syllable breaks (round 17).
+pub fn hyphenation_points(word: &str) -> Vec<usize> {
+    hyphen::points(word)
+}
 mod incremental;
 mod markup;
 mod math;

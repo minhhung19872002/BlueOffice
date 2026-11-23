@@ -41,7 +41,17 @@ pub(super) struct R17 {
     ruler_before: Option<bool>,
     /// Shortcut keys of styles (key name, style name) set with Customize Keyboard.
     keys: Vec<(String, String)>,
+    /// Syllable breaks of the Immersive Reader for a document version: (page, x, y, h) in
+    /// page points, the dot between two letters.
+    syl: Option<(u64, Vec<SylSpot>)>,
+    /// Draw Table (`Some(false)`) or Eraser (`Some(true)`) is on, and the drag in progress
+    /// (start, current point).
+    pub(super) draw: Option<bool>,
+    drag: Option<((f32, f32), (f32, f32))>,
 }
+
+/// A syllable break: page, x, y, height in page points.
+type SylSpot = (usize, f32, f32, f32);
 
 /// View › Immersive Reader: column width (0 very narrow … 3 wide), page colour (0 none,
 /// 1 sepia, 2 inverse), line focus (0 none, 1, 3 or 5 lines), text spacing.
@@ -51,6 +61,7 @@ pub(super) struct Immersive {
     color: u8,
     focus: u8,
     spacing: bool,
+    syllables: bool,
 }
 
 /// Text column widths of the Immersive Reader in points (Wide: the whole window).
@@ -76,7 +87,11 @@ const FOCUS_MENU: [(&str, &str); 4] = [
 ];
 
 /// Commands of round 17 that are no longer dimmed: (id, `&'static` id).
-pub(crate) const IDS: [&str; 22] = [
+pub(crate) const IDS: [&str; 26] = [
+    "insert.table.draw",
+    "table.drawTable",
+    "table.eraser",
+    "ir.syllables",
     "insert.picture.online",
     "insert.models3d",
     "insert.screenshot",
@@ -233,6 +248,26 @@ impl DocWindow {
                 true
             }
             "insert.icons" => self.r3_open_form(DocFormKind::Icons),
+            // Draw Table / Eraser: the pointer draws tables and their lines (Shift erases).
+            "insert.table.draw" | "table.drawTable" => {
+                self.menu = None;
+                self.r3.tiles = None;
+                self.table_grid = None;
+                self.r17.draw = if self.r17.draw == Some(false) {
+                    None
+                } else {
+                    Some(false)
+                };
+                true
+            }
+            "table.eraser" => {
+                self.r17.draw = if self.r17.draw == Some(true) {
+                    None
+                } else {
+                    Some(true)
+                };
+                true
+            }
             // 3D Models: a glTF model from a file, drawn by BlueOffice's renderer.
             "insert.models3d" => return self.r17_action("r17.pick:model3d"),
             "insert.screenshot" => {
@@ -533,6 +568,9 @@ impl DocWindow {
     /// The View tab dims the window commands one window cannot use; choosing the tab asks
     /// the host how many BlueDoc windows are open.
     pub(super) fn r17_layout(&mut self) {
+        if self.r17.immersive.is_some_and(|m| m.syllables) {
+            self.r17_syllables();
+        }
         let view = self.ribbon.active_label() == "ribbon.tabs.view";
         if view && !self.r17.view_seen {
             self.requests.push(Request::CountWindows);
@@ -641,6 +679,7 @@ impl DocWindow {
                     color: 0,
                     focus: 0,
                     spacing: true,
+                    syllables: false,
                 });
                 self.activate_context = true;
                 self.r17_apply_immersive()
@@ -672,6 +711,15 @@ impl DocWindow {
                 m.spacing = !m.spacing;
                 self.r17.immersive = Some(m);
                 self.r17_apply_immersive()
+            }
+            // Syllables: middle dots between the syllables of English words (BlueOffice's
+            // hyphenation rules), drawn over the text; the document does not change.
+            "ir.syllables" => {
+                let mut m = im?;
+                m.syllables = !m.syllables;
+                self.r17.immersive = Some(m);
+                self.r17.syl = None;
+                true
             }
             _ => {
                 let (kind, n) = id.strip_prefix("ir.")?.split_once('.')?;
@@ -722,6 +770,14 @@ impl DocWindow {
         if self.r17.side.is_some() {
             on.push("view.sideToSide");
         }
+        if self.r17.immersive.is_some_and(|m| m.syllables) {
+            on.push("ir.syllables");
+        }
+        match self.r17.draw {
+            Some(false) => on.push("table.drawTable"),
+            Some(true) => on.push("table.eraser"),
+            None => {}
+        }
         on
     }
 
@@ -730,11 +786,97 @@ impl DocWindow {
         self.r17.side.is_some()
     }
 
+    /// The syllable breaks of the document (computed once per version, at most 20 000).
+    fn r17_syllables(&mut self) {
+        let Some(s) = self.view.engine().session() else {
+            return;
+        };
+        let version = s.version();
+        if self.r17.syl.as_ref().is_some_and(|(v, _)| *v == version) {
+            return;
+        }
+        let count = bo_model::index::body_paragraphs(s.doc()).len();
+        let mut spots = Vec::new();
+        'paras: for para in 0..count {
+            let text = s.para_text(para).unwrap_or_default();
+            let mut i = 0;
+            let b = text.as_bytes();
+            while i < b.len() {
+                if !b[i].is_ascii_alphabetic() {
+                    i += 1;
+                    continue;
+                }
+                let start = i;
+                while i < b.len() && b[i].is_ascii_alphabetic() {
+                    i += 1;
+                }
+                for at in bo_layout::hyphenation_points(&text[start..i]) {
+                    let (a, z) = (start + at - 1, start + at + 1);
+                    let r = self
+                        .view
+                        .engine()
+                        .range_text_rects(bo_edit::Pos::new(para, a), bo_edit::Pos::new(para, z));
+                    if let Some(q) = r.first() {
+                        // Between the two letters around the break.
+                        spots.push((q.page, q.x + q.w / 2.0, q.y, q.h));
+                    }
+                    if spots.len() >= 20_000 {
+                        break 'paras;
+                    }
+                }
+            }
+        }
+        self.r17.syl = Some((version, spots));
+    }
+
     /// Line Focus: everything but the 1, 3 or 5 lines around the caret is shaded.
     pub(super) fn r17_paint(&self, p: &mut dyn crate::Painter) {
+        // The Draw Table / Eraser stroke being drawn.
+        if let Some(((ax, ay), (bx, by))) = self.r17.drag {
+            let ink = if self.r17.draw == Some(true) {
+                bo_render::Rgba(0xc0, 0x39, 0x2b, 255)
+            } else {
+                bo_render::Rgba(0x40, 0x40, 0x40, 255)
+            };
+            let (dx, dy) = ((bx - ax).abs(), (by - ay).abs());
+            let in_table = self.view.format().table.is_some();
+            let segs: Vec<bo_render::PathSeg> = if in_table || self.r17.draw == Some(true) {
+                vec![bo_render::PathSeg::M(ax, ay), bo_render::PathSeg::L(bx, by)]
+            } else {
+                let _ = (dx, dy);
+                vec![
+                    bo_render::PathSeg::M(ax, ay),
+                    bo_render::PathSeg::L(bx, ay),
+                    bo_render::PathSeg::L(bx, by),
+                    bo_render::PathSeg::L(ax, by),
+                    bo_render::PathSeg::Z,
+                ]
+            };
+            p.path(&segs, None, Some((ink, self.scale.max(1.0))));
+        }
         let Some(m) = self.r17.immersive else {
             return;
         };
+        if m.syllables {
+            if let Some((_, spots)) = &self.r17.syl {
+                let k = self.view.scale();
+                let slots = self.view.slots();
+                let ink = if m.color == 2 {
+                    bo_render::Rgba(255, 255, 255, 255)
+                } else {
+                    bo_render::Rgba(0x40, 0x40, 0x40, 255)
+                };
+                for (page, x, y, h) in spots {
+                    let Some(sl) = slots.iter().find(|s| s.index == *page) else {
+                        continue;
+                    };
+                    let d = (1.6 * k).max(2.0);
+                    let cx = sl.x as f32 + x * k;
+                    let cy = sl.y as f32 + (y + h * 0.62) * k;
+                    p.fill_rect((cx - d / 2.0).round(), (cy - d / 2.0).round(), d, d, ink);
+                }
+            }
+        }
         if m.focus == 0 {
             return;
         }
@@ -770,6 +912,7 @@ pub(crate) fn immersive_tab() -> crate::ribbon::Tab {
                     Item::Large("ir.pageColor"),
                     Item::Large("ir.lineFocus"),
                     Item::Large("ir.textSpacing"),
+                    Item::Large("ir.syllables"),
                     Item::Large("review.readAloud"),
                 ],
                 rows: vec![],
@@ -832,8 +975,95 @@ impl DocWindow {
         self.r17.keys = serde_json::from_str(json).unwrap_or_default();
     }
 
+    /// Draw Table / Eraser take the pointer over the document: a drag outside a table draws
+    /// a new table, a mostly vertical stroke inside one splits the cell into two columns, a
+    /// horizontal one adds a row below, and an eraser stroke (or Shift) from one cell to the
+    /// next merges them — each one undo step.
+    fn r17_draw_input(&mut self, input: &crate::Input) -> Option<bool> {
+        use crate::Input;
+        let eraser = self.r17.draw?;
+        let (top, bottom) = (self.chrome_bottom(), self.size.1 - self.status_h());
+        let inside = |y: f32| y > top && y < bottom;
+        match *input {
+            Input::Key(crate::Key::Escape, _) => {
+                self.r17.draw = None;
+                self.r17.drag = None;
+                Some(true)
+            }
+            Input::Press { x, y, shift, .. } if inside(y) => {
+                self.r17.drag = Some(((x, y), (x, y)));
+                if shift {
+                    self.r17.draw = Some(true);
+                }
+                Some(true)
+            }
+            Input::Drag { x, y } | Input::Move { x, y } if self.r17.drag.is_some() => {
+                if let Some(d) = self.r17.drag.as_mut() {
+                    d.1 = (x, y);
+                }
+                Some(true)
+            }
+            Input::Release { x, y } => {
+                let (a, _) = self.r17.drag.take()?;
+                let done = self.r17_draw_stroke(a, (x, y), eraser || self.r17.draw == Some(true));
+                if self.r17.draw == Some(true) && !eraser {
+                    // Shift was held for this stroke only.
+                    self.r17.draw = Some(false);
+                }
+                Some(done)
+            }
+            _ => None,
+        }
+    }
+
+    fn r17_draw_stroke(&mut self, a: (f32, f32), b: (f32, f32), erase: bool) -> bool {
+        use crate::Input;
+        let (dx, dy) = ((b.0 - a.0).abs(), (b.1 - a.1).abs());
+        if dx.max(dy) < 6.0 * self.scale {
+            return true;
+        }
+        // The caret goes where the stroke starts.
+        self.view.handle(Input::Press {
+            x: a.0,
+            y: a.1,
+            count: 1,
+            shift: false,
+        });
+        self.view.handle(Input::Release { x: a.0, y: a.1 });
+        let in_table = self.view.format().table.is_some();
+        let edit = |kind: Value| json!({ "cmd": "tableEdit", "edit": kind });
+        let ok = if erase {
+            if !in_table {
+                return true;
+            }
+            // Select from the first cell to the one the stroke ends in, then merge.
+            self.view.handle(Input::Press {
+                x: b.0,
+                y: b.1,
+                count: 1,
+                shift: true,
+            });
+            self.view.handle(Input::Release { x: b.0, y: b.1 });
+            self.r3_run(vec![edit(json!({ "kind": "mergeCells" }))])
+        } else if !in_table {
+            if dx < 20.0 * self.scale || dy < 10.0 * self.scale {
+                return true;
+            }
+            self.r3_run(vec![json!({ "cmd": "insertTable", "rows": 1, "cols": 1 })])
+        } else if dy > dx {
+            self.r3_run(vec![edit(json!({ "kind": "splitCell" }))])
+        } else {
+            self.r3_run(vec![edit(json!({ "kind": "insertRow", "below": true }))])
+        };
+        self.sync_context();
+        ok
+    }
+
     /// A style shortcut key pressed in the document applies its style (`None`: not one).
     pub(super) fn r17_input(&mut self, input: &crate::Input) -> Option<bool> {
+        if let Some(r) = self.r17_draw_input(input) {
+            return Some(r);
+        }
         let crate::Input::Key(k, m) = *input else {
             return None;
         };
@@ -889,11 +1119,12 @@ pub(crate) fn video_frame() -> Option<Vec<u8>> {
 }
 
 /// Labels (id, English) of round-17 commands; translations under `doc17.cmd.<id with _>`.
-pub(crate) const LABELS: [(&str, &str); 9] = [
+pub(crate) const LABELS: [(&str, &str); 10] = [
     ("ir.columnWidth", "Column Width"),
     ("ir.pageColor", "Page Color"),
     ("ir.lineFocus", "Line Focus"),
     ("ir.textSpacing", "Text Spacing"),
+    ("ir.syllables", "Syllables"),
     ("ir.close", "Close Immersive Reader"),
     ("insert.onlineVideo", "Online Videos"),
     ("view.properties", "Properties"),
@@ -996,6 +1227,18 @@ pub(crate) fn install(icons: &mut crate::icons::Icons, s: &mut crate::strings::S
             ),
             ("M14 5h7v1.4l-5.2 6.2h5.2v1.4h-7v-1.4l5.2-6.2h-5.2Z", grey),
             ("M4 18l3-2.5v1.8h10v-1.8l3 2.5l-3 2.5v-1.8h-10v1.8Z", blue),
+        ],
+    );
+    // Syllables: a word split by a blue dot.
+    icons.add_solid(
+        "ir.syllables",
+        &[
+            (
+                "M2 15l2.6-8h1.6l2.6 8h-1.5l-0.6-2h-2.6l-0.6 2ZM4.5 11.7h1.9l-0.95-3Z",
+                grey,
+            ),
+            ("M11 11h2.2v2.2h-2.2Z", blue),
+            ("M15 7h6v1.4l-4.2 5.2h4.2v1.4h-6v-1.4l4.2-5.2h-4.2Z", grey),
         ],
     );
     // Close Immersive Reader: a red square with a white cross.

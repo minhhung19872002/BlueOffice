@@ -233,6 +233,14 @@ fn immersive_reader_tab_column_color_spacing_and_close() {
     assert!(w.action("ir.textSpacing"));
     assert!(!w.view.engine().view_layout().immersive.spacing);
     assert!(w.action("ir.focus.3"));
+    w.run_interface_command("text: understanding information", &Fixed);
+    assert!(w.action("ir.syllables"));
+    w.handle(Input::Tick, &Fixed);
+    assert!(w.r17_on_ids().contains(&"ir.syllables"));
+    assert!(
+        w.r17.syl.as_ref().is_some_and(|(_, s)| !s.is_empty()),
+        "syllable breaks"
+    );
     assert!(w.action("ir.close"));
     w.handle(Input::Tick, &Fixed);
     assert_eq!(
@@ -323,4 +331,44 @@ fn style_frame_goes_into_the_style() {
         x.contains("w:w=\"2880\"") && x.contains("w:wrap=\"around\""),
         "{x}"
     );
+}
+
+#[test]
+fn draw_table_draws_a_table_then_splits_and_erases() {
+    let mut w = window();
+    assert!(w.action("insert.table.draw"));
+    assert!(w.r17_on_ids().contains(&"table.drawTable"));
+    let stroke = |w: &mut DocWindow, a: (f32, f32), b: (f32, f32), shift: bool| {
+        w.handle(
+            Input::Press {
+                x: a.0,
+                y: a.1,
+                count: 1,
+                shift,
+            },
+            &Fixed,
+        );
+        w.handle(Input::Drag { x: b.0, y: b.1 }, &Fixed);
+        w.handle(Input::Release { x: b.0, y: b.1 }, &Fixed);
+    };
+    let caret = w.view.caret_rect().expect("caret");
+    let (x0, y0) = (caret[0] + 4.0, caret[1] + 4.0);
+    stroke(&mut w, (x0, y0), (x0 + 300.0, y0 + 80.0), false);
+    let cols = |w: &DocWindow| w.view.format().table.as_ref().map(|t| t.cols);
+    assert_eq!(cols(&w), Some(1), "a drawn rectangle is a table");
+    let cell = w.view.caret_rect().expect("caret in the cell");
+    stroke(
+        &mut w,
+        (cell[0] + 40.0, cell[1] + 2.0),
+        (cell[0] + 40.0, cell[1] + 60.0),
+        false,
+    );
+    assert_eq!(cols(&w), Some(2), "a vertical line splits the cell");
+    assert!(w.action("table.eraser"));
+    assert!(w.r17_on_ids().contains(&"table.eraser"));
+    assert!(w.handle(
+        Input::Key(crate::Key::Escape, crate::Mods::default()),
+        &Fixed
+    ));
+    assert!(!w.r17_on_ids().contains(&"table.eraser"));
 }

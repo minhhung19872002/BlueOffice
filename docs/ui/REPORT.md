@@ -801,7 +801,14 @@ cả vẽ theo dải):
    và cách nhau 2 × spacing (ngang và dọc); ô chia phần còn lại theo tỉ lệ cột lưới; mỗi ô tự vẽ đủ 4 viền và tô nền
    riêng. 6 bảng hiệu chuẩn: đường cơ sở ≤ 0,08 pt, mép ô ≤ 0,3 pt.
 
-Kiểm tra: xem "Kiểm tra vòng 7" bên dưới.
+Kiểm tra vòng 7: bo-layout (17 tệp test, gồm ảnh chụp insta — không đổi) xanh trên cây đã gộp
+`work/desktop-performance` (83cb5178, không xung đột), `cargo check --workspace --exclude bo-desktop --tests` sạch;
+bo-gpu-win (gồm `incremental`), bo-raster, bo-render, bo-pdf, bo-text, bo-docx, test thiết kế bo-edit xanh;
+`cargo test -p bo-cli` 46 / 46; clippy sạch (bo-layout, bo-render, bo-raster, bo-pdf, bo-gpu-win, bo-engine, bo-ui,
+bo-pdfread, bo-docx, bo-model, bo-edit). **Chưa chạy xong**: `cargo test --release -p bo-engine`, `pnpm build:wasm` +
+`pnpm --filter @blueoffice/platform test` — tiến trình bị dừng do máy thiếu bộ nhớ, cần chạy lại.
+Còn: gộp khung đoạn trong ô bảng / đầu trang (stack_blocks), vị trí dọc hình mờ xoay, mẫu tô nền trên canvas web,
+khoảng cách ô theo `tblPrEx` / kiểu bảng / `pct`, ô gộp dọc trong bảng có khoảng cách ô.
 
 Ảnh (đối chiếu trái, BlueDoc trước, BlueDoc sau): `scratchpad/show/docfid-46-shading-patterns-screen-100.png`,
 `docfid-46b-shading-patterns-zoom4x.png`, `docfid-46c-shading-patterns-screen-200.png`,

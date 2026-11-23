@@ -100,7 +100,9 @@ impl Bounds {
 /// Add the area `command` paints; `false` for state commands, which make the page dirty.
 fn paint_bounds(command: &Command, m: &Affine, out: &mut Bounds) -> bool {
     match command {
-        Command::FillRect { x, y, w, h, .. } => out.rect([*x, *y, x + w, y + h], m),
+        Command::FillRect { x, y, w, h, .. } | Command::FillPattern { x, y, w, h, .. } => {
+            out.rect([*x, *y, x + w, y + h], m);
+        }
         Command::Line {
             x1,
             y1,

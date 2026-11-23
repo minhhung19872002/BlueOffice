@@ -2,8 +2,8 @@
 //! control, tables split across pages, anchored pictures and footnotes.
 
 use crate::blocks::{
-    build_para, deco_items, layout_table, rewrap_para, row_band, row_notes, split_row,
-    stack_blocks, stack_note, Band, Brk, Ctx, ParaBlock, Stack, TableBox,
+    build_para, deco_items_joined, layout_table, regroup, rewrap_para, row_band, row_notes,
+    split_row, stack_blocks, stack_note, Band, Brk, Ctx, Deco, Joined, ParaBlock, Stack, TableBox,
 };
 use crate::drawing::Float;
 use crate::page::page_frame;
@@ -28,6 +28,18 @@ struct Prev {
     style: Option<String>,
     contextual: bool,
     after: f32,
+    /// The paragraph shares its box with the next one (§17.3.1.24, [`Deco::groups_with`]).
+    group: Option<OpenGroup>,
+}
+
+/// End of a paragraph whose box goes on into the next paragraph.
+#[derive(Debug, Clone, PartialEq)]
+struct OpenGroup {
+    deco: Deco,
+    /// Page index, column x and bottom of its last segment.
+    page: usize,
+    col_x: f32,
+    y: f32,
 }
 
 /// Lay paragraph `p` out again for a column of width `w` continuing it after its
@@ -1300,7 +1312,7 @@ impl Flow {
                 if k + 1 == sec.blocks.len() && p.plain_text().is_empty() {
                     mark = self.pages.last().map(|pg| pg.lines.len());
                 }
-                self.place_para(ctx, pb, 0.0, Some(p))?;
+                self.place_para(ctx, pb, 0.0, Some(p), false)?;
             }
         }
         Ok(mark)
@@ -1333,7 +1345,7 @@ impl Flow {
             self.pages.len(),
             self.pages.last().map_or(0, |p| p.lines.len()),
         );
-        self.place_para(ctx, &mark, 0.0, src)?;
+        self.place_para(ctx, &mark, 0.0, src, false)?;
         if self.pages.len() == from.0 {
             let to = self.pages.last().map_or(0, |p| p.lines.len());
             let pg = from.0.saturating_sub(1);
@@ -1797,10 +1809,21 @@ impl Flow {
         pb: &ParaBlock,
         keep_with: f32,
         src: Option<&Paragraph>,
+        joined_below: bool,
     ) -> Result<(), LayoutError> {
         if pb.page_break_before && self.page_has_content {
             self.new_page();
         }
+        // §17.3.1.24: a paragraph sharing its box with the one above and / or below.
+        let open = self
+            .prev
+            .as_ref()
+            .and_then(|p| p.group.clone())
+            .filter(|g| pb.deco.as_ref().is_some_and(|d| g.deco.groups_with(d)));
+        let joined_above = open.is_some();
+        let grouped =
+            (joined_above || joined_below).then(|| regroup(pb, joined_above, joined_below));
+        let pb = grouped.as_ref().unwrap_or(pb);
         let mut before = pb.space_before;
         if let Some(p) = &self.prev {
             let mut after = p.after;
@@ -1942,7 +1965,15 @@ impl Flow {
                         outline: z.outline.as_ref().map(|o| o.offset(cx, top)),
                     })
                     .collect();
-                rewrapped = rewrap_para(ctx, p, pb, self.col_w(), &zones)?;
+                rewrapped = if joined_above || joined_below {
+                    regroup(
+                        &rewrap_para(ctx, p, pb, self.col_w(), &zones)?,
+                        joined_above,
+                        joined_below,
+                    )
+                } else {
+                    rewrap_para(ctx, p, pb, self.col_w(), &zones)?
+                };
                 &rewrapped
             }
             _ => pb,
@@ -2027,15 +2058,39 @@ impl Flow {
             }
         }
         let pb = first;
+        let mut group = None;
         if let Some(d) = &pb.deco {
-            for (pi, cx, y0, y1) in segments {
+            let count = segments.len();
+            for (si, &(pi, cx, y0, y1)) in segments.iter().enumerate() {
+                let mut j = Joined {
+                    above: si == 0 && joined_above,
+                    from: y0,
+                    shade_from: false,
+                    below: si + 1 == count && joined_below,
+                };
+                // Sides and shading run through the spacing from the paragraph above.
+                if let Some(g) = open
+                    .as_ref()
+                    .filter(|g| j.above && g.page == pi && (g.col_x - cx).abs() < EPS && g.y <= y0)
+                {
+                    j.from = g.y;
+                    j.shade_from = g.deco.shading == d.shading && g.deco.pattern == d.pattern;
+                }
                 let mut items = Vec::new();
-                deco_items(d, y0, y1, &mut items);
+                deco_items_joined(d, y0, y1, j, &mut items);
                 if let Some(page) = self.pages.get_mut(pi) {
                     for mut it in items {
                         it.translate(cx, 0.0);
                         page.items.push(it);
                     }
+                }
+                if j.below {
+                    group = Some(OpenGroup {
+                        deco: d.clone(),
+                        page: pi,
+                        col_x: cx,
+                        y: y1,
+                    });
                 }
             }
         }
@@ -2050,6 +2105,7 @@ impl Flow {
             style: pb.style.clone(),
             contextual: pb.contextual,
             after: pb.space_after,
+            group,
         });
         Ok(())
     }
@@ -2433,6 +2489,22 @@ impl Flow {
                         next = Some(nb);
                     }
                 }
+                // §17.3.1.24: a box shared with the next paragraph (identical borders and
+                // indents) loses its bottom line.
+                let mut joined_below = false;
+                if let Built::Para(pb) = &cur {
+                    if pb.deco.is_some()
+                        && matches!(sec.blocks.get(k + 1), Some(Block::Paragraph(_)))
+                    {
+                        if next.is_none() {
+                            next = Some(self.build(ctx, si, k + 1, &sec.blocks[k + 1])?);
+                        }
+                        if let (Some(d), Some((Built::Para(n), _))) = (&pb.deco, &next) {
+                            joined_below = !n.page_break_before
+                                && n.deco.as_ref().is_some_and(|nd| d.groups_with(nd));
+                        }
+                    }
+                }
                 self.id_base = base;
                 // §17.3.1.11 framePr dropCap: the paragraph is set beside the next one.
                 let drop_next = matches!(sec.blocks.get(k + 1), Some(Block::Paragraph(_)));
@@ -2452,7 +2524,7 @@ impl Flow {
                         if k + 1 == sec.blocks.len() && continuous_next && is_mark_only(pb, src) {
                             self.place_section_mark(ctx, pb, src)?;
                         } else {
-                            self.place_para(ctx, pb, keep_with, src)?;
+                            self.place_para(ctx, pb, keep_with, src, joined_below)?;
                         }
                     }
                     Built::Table(tb) => self.place_table(ctx, tb)?,

@@ -244,6 +244,8 @@ fn vml_text_path(el: &XmlElement) -> Option<TextPath> {
     let text = tp.attr("string")?.to_owned();
     let mut t = TextPath {
         text,
+        // `trim`: the text's ink, not its line, fills the shape.
+        trim: vml_bool(tp.attr("trim"), false),
         ..TextPath::default()
     };
     for kv in tp.attr("style").unwrap_or("").split(';') {

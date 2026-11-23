@@ -190,6 +190,27 @@ pub enum Command {
     },
     /// End the group started by the matching `PushGroup`.
     PopGroup,
+    /// Shading pattern (ECMA-376 Part 1, §17.18.78) over the rectangle the preceding
+    /// `FillRect` filled with the pattern's mixed colour: screen backends tile `tile`
+    /// (8 × 8 device pixels, anchored at the page's top-left device pixel; bit 7 of a
+    /// row = left column, set bits `fg`, others `bg`); print / PDF backends skip it and
+    /// keep the mix, as the reference word processor's export reads.
+    FillPattern {
+        /// Left edge (points).
+        x: f32,
+        /// Top edge (points).
+        y: f32,
+        /// Width (points).
+        w: f32,
+        /// Height (points).
+        h: f32,
+        /// Tile rows, top to bottom.
+        tile: [u8; 8],
+        /// Pattern colour.
+        fg: Rgba,
+        /// Fill colour.
+        bg: Rgba,
+    },
 }
 
 /// Blend modes of ISO 32000-1 §11.3.5 (Table 136/137).
@@ -400,14 +421,34 @@ fn item_commands(item: &PageItem, out: &mut Vec<Command>) {
 fn item_commands_opaque(item: &PageItem, out: &mut Vec<Command>) {
     match item {
         PageItem::Rect {
-            x, y, w, h, color, ..
-        } => out.push(Command::FillRect {
-            x: *x,
-            y: *y,
-            w: *w,
-            h: *h,
-            color: (*color).into(),
-        }),
+            x,
+            y,
+            w,
+            h,
+            color,
+            pattern,
+            ..
+        } => {
+            out.push(Command::FillRect {
+                x: *x,
+                y: *y,
+                w: *w,
+                h: *h,
+                color: (*color).into(),
+            });
+            // §17.18.78: screens draw the device-pixel pattern over the mixed colour.
+            if let Some(p) = pattern {
+                out.push(Command::FillPattern {
+                    x: *x,
+                    y: *y,
+                    w: *w,
+                    h: *h,
+                    tile: p.tile,
+                    fg: p.fg.into(),
+                    bg: p.bg.into(),
+                });
+            }
+        }
         PageItem::Rule {
             x1,
             y1,

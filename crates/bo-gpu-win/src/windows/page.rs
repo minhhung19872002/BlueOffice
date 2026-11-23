@@ -39,6 +39,7 @@ use windows::Win32::Graphics::Direct2D::{
     D2D1_RADIAL_GRADIENT_BRUSH_PROPERTIES, D2D1_STROKE_STYLE_PROPERTIES1,
     D2D1_STROKE_TRANSFORM_TYPE_NORMAL,
 };
+use windows::Win32::Graphics::Direct2D::{D2D1_BITMAP_BRUSH_PROPERTIES1, D2D1_EXTEND_MODE_WRAP};
 use windows::Win32::Graphics::Direct2D::{
     D2D1_PRIMITIVE_BLEND_COPY, D2D1_PRIMITIVE_BLEND_SOURCE_OVER,
 };
@@ -637,6 +638,90 @@ impl Device {
 
     fn stroke(&self, s: &Stroke) -> Result<ID2D1StrokeStyle, String> {
         self.stroke_style(s.width, &s.dash, cap(&s.cap), join(&s.join))
+    }
+
+    /// Brush of a shading pattern (`Command::FillPattern`, ECMA-376 Part 1, §17.18.78): an
+    /// 8 × 8 device-pixel tile repeated from the page's top-left device pixel (`origin`,
+    /// in DIPs), whatever the current world transform `world` is.
+    fn pattern_brush(
+        &self,
+        (tile, fg, bg): (&[u8; 8], Rgba, Rgba),
+        alpha: f32,
+        ppp: f32,
+        origin: &Matrix3x2,
+        world: &Matrix3x2,
+    ) -> Result<ID2D1Brush, String> {
+        let mut bgra = [0u8; 8 * 8 * 4];
+        for (y, row) in tile.iter().enumerate() {
+            for x in 0..8 {
+                let c = if row & (0x80 >> x) != 0 { fg } else { bg };
+                let a = u16::from(c.3);
+                let pre = |v: u8| ((u16::from(v) * a + 127) / 255) as u8;
+                let i = (y * 8 + x) * 4;
+                bgra[i..i + 4].copy_from_slice(&[pre(c.2), pre(c.1), pre(c.0), c.3]);
+            }
+        }
+        // Brush space → user space: (page origin, device pixels) then the inverse world.
+        let det = world.M11 * world.M22 - world.M12 * world.M21;
+        if det.abs() < f32::EPSILON || !det.is_finite() {
+            return Err("singular transform".into());
+        }
+        let inv = Matrix3x2 {
+            M11: world.M22 / det,
+            M12: -world.M12 / det,
+            M21: -world.M21 / det,
+            M22: world.M11 / det,
+            M31: (world.M21 * world.M32 - world.M22 * world.M31) / det,
+            M32: (world.M12 * world.M31 - world.M11 * world.M32) / det,
+        };
+        let anchor = Matrix3x2 {
+            M31: origin.M31,
+            M32: origin.M32,
+            ..IDENTITY
+        };
+        let dpi = 96.0 * ppp;
+        let props = D2D1_BITMAP_PROPERTIES1 {
+            pixelFormat: D2D1_PIXEL_FORMAT {
+                format: DXGI_FORMAT_B8G8R8A8_UNORM,
+                alphaMode: D2D1_ALPHA_MODE_PREMULTIPLIED,
+            },
+            dpiX: dpi,
+            dpiY: dpi,
+            bitmapOptions: D2D1_BITMAP_OPTIONS_NONE,
+            ..Default::default()
+        };
+        // SAFETY: `bgra` holds 8 × 8 × 4 bytes with pitch 32 during the copy; the context owns
+        // the returned bitmap and brush.
+        unsafe {
+            let bitmap = self
+                .context
+                .CreateBitmap(
+                    D2D_SIZE_U {
+                        width: 8,
+                        height: 8,
+                    },
+                    Some(bgra.as_ptr().cast()),
+                    32,
+                    &props,
+                )
+                .map_err(|e| e.to_string())?;
+            self.context
+                .CreateBitmapBrush(
+                    &bitmap,
+                    Some(&D2D1_BITMAP_BRUSH_PROPERTIES1 {
+                        extendModeX: D2D1_EXTEND_MODE_WRAP,
+                        extendModeY: D2D1_EXTEND_MODE_WRAP,
+                        interpolationMode: D2D1_INTERPOLATION_MODE_NEAREST_NEIGHBOR,
+                    }),
+                    Some(&D2D1_BRUSH_PROPERTIES {
+                        opacity: alpha,
+                        transform: concat(&anchor, &inv),
+                    }),
+                )
+                .map_err(|e| e.to_string())?
+                .cast()
+                .map_err(|e| e.to_string())
+        }
     }
 
     #[allow(clippy::chunks_exact_to_as_chunks)] // `as_chunks` exceeds the workspace MSRV.
@@ -1892,6 +1977,43 @@ impl Device {
                             let (mut top, mut bottom) = (*y, y + h);
                             if axis_aligned(&state.transform) {
                                 // Borders, rules and shading land on whole device pixels.
+                                (left, right) = Axis::x(&state.transform, pixels_per_point)
+                                    .snap_span(left, right);
+                                (top, bottom) = Axis::y(&state.transform, pixels_per_point)
+                                    .snap_span(top, bottom);
+                            }
+                            self.context.FillRectangle(
+                                &D2D_RECT_F {
+                                    left,
+                                    top,
+                                    right,
+                                    bottom,
+                                },
+                                &brush,
+                            );
+                        }
+                        Command::FillPattern {
+                            x,
+                            y,
+                            w,
+                            h,
+                            tile,
+                            fg,
+                            bg,
+                        } => {
+                            let Ok(brush) = self.pattern_brush(
+                                (tile, *fg, *bg),
+                                alpha,
+                                pixels_per_point,
+                                &prep.base,
+                                &state.transform,
+                            ) else {
+                                // Keep the mixed colour of the preceding FillRect.
+                                continue;
+                            };
+                            let (mut left, mut right) = (*x, x + w);
+                            let (mut top, mut bottom) = (*y, y + h);
+                            if axis_aligned(&state.transform) {
                                 (left, right) = Axis::x(&state.transform, pixels_per_point)
                                     .snap_span(left, right);
                                 (top, bottom) = Axis::y(&state.transform, pixels_per_point)

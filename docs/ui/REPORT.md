@@ -755,3 +755,63 @@ bo-model, bo-render, bo-pdfread (202) xanh; clippy sạch; `pnpm build:wasm` (re
 `docfid-40-tbloverlap-never.png`, `docfid-41b-box-shadow-frame-corners.png`, `docfid-42b-shading-patterns-fixed-reader.png`,
 `docfid-42c-shading-patterns-size-rule.png`, `docfid-43-page-setup-mirror-gutter-valign.png`,
 `docfid-44-office25-cv-paragraph-boxes.png`, `docfid-45-gen16-picture-moves-paragraph.png`.
+
+## Dàn trang vòng 7 — BlueDoc so với trình soạn thảo đối chiếu (2026-11-23)
+
+Cách chấm như vòng 6 (`SCORER=3`, PDF xuất bằng COM trong instance riêng trên bản sao scratch, không in). Hiệu chuẩn
+mới: mẫu tô nền trên màn hình (36 mẫu × 4 cặp màu, cửa sổ đối chiếu ở 100 % / 200 %, PrintWindow), khung đoạn liền
+nhau (gb-a … gb-j: 3 đoạn cùng khung, `w:between`, khoảng cách đoạn, thụt lề / cỡ viền khác, chỉ tô nền, chỉ viền
+bên), một từ trong khúc dòng cạnh hình (sw-a … sw-g), hình mờ chữ do chính trình soạn thảo đối chiếu tạo
+(`AddTextEffect` trên tài liệu mới trong scratch, có / không `trim`, xoay 0° / 315°), khoảng cách ô (cs-a … cs-f).
+
+| | Tệp | Số trang khớp | Đầu dòng khớp (TB tệp) | Đầu dòng khớp (theo dòng) | Điểm ảnh lệch TB |
+|---|---|---|---|---|---|
+| Trước → sau | 96 | 96 / 96 | 98,06 → 98,17 % | 99,36 → 99,44 % | 0,01491 → 0,01486 |
+
+Theo tệp (không tệp nào lùi): layout-02 94,8 → 100 % (0,0186 → 0,0160), gen-20 96,7 → 100 %, notes-05 98,6 → 100 %,
+gen-16 0,0101 → 0,0100.
+
+Sửa (test: `crates/bo-layout/tests/borders_shading.rs`, `word_fidelity.rs`, `page_design.rs`, `table_tools.rs`,
+`features.rs`, `src/charfx.rs`, `src/hyphen.rs`; `crates/bo-raster`, `crates/bo-gpu-win` — ô mẫu đúng điểm ảnh thiết bị,
+cả vẽ theo dải):
+1. **Mẫu tô nền trên màn hình** (§17.18.78): bản đối chiếu vẽ mẫu bằng ô 8 × 8 *điểm ảnh thiết bị* neo ở góc trang,
+   không đổi theo thu phóng (100 % và 200 % giống hệt); nhiều mức dùng chung một mẫu chấm (pct10 / 12 / 15, pct35 / 37,
+   pct40 / 45, pct50 / 55, pct60 / 62 / 65, pct85 / 87, pct90 / 95); sọc chu kỳ 4 điểm ảnh. Riêng mẫu phần trăm màu
+   tự động trên nền tự động hiện thành xám phẳng (pct5 = 242, pct50 = 127). Lệnh display list mới `FillPattern` (sau
+   `FillRect` màu trộn): Direct2D (bitmap brush, nearest, neo theo gốc trang kể cả vẽ theo dải), bo-raster (pattern
+   tiny-skia); PDF / canvas web / SVG giữ màu trộn như bản xuất của đối chiếu; in xám / đen trắng đổi màu mẫu.
+2. **Đoạn liền nhau cùng khung** (§17.3.1.24): cùng viền và cùng thụt lề → một khung: chỉ một viền trên / dưới, viền
+   bên và tô nền chạy qua khoảng cách giữa đoạn; `w:between` nằm *sau* khoảng cách, cách chữ `space` ở cả hai phía
+   (đoạn trên thêm `space`, đoạn dưới thêm bề rộng nét + `space`). Thụt lề hoặc cỡ viền khác → khung riêng. Đoạn chỉ có
+   tô nền cũng nối tô nền. Tô nền rộng tới mép trong của viền (`space` + 1,4 / 1,5 pt; không viền 1,44 / 1,57 pt). 10
+   tệp hiệu chuẩn: đường cơ sở lệch ≤ 0,12 pt, viền / tô nền ≤ 0,05 pt.
+3. **Một từ trong khúc dòng đều hai bên cạnh hình** (gen-16 "nhằm"): khúc bắt đầu ở mép hình chứa một từ → từ sát
+   phải (khúc ở lề trái giữ trái). Từ rộng hơn mọi khúc cạnh hình nhưng vừa cột → xuống dưới đáy hình, không bị cắt
+   ("internationalisation" 88 pt bên khúc 85 pt).
+4. **Hình mờ chữ** (VML textpath): đo trên bản đối chiếu tự tạo — có `trim="t"` thì mực chữ lấp đúng khung (khớp
+   tuyệt đối); không `trim` (BlueOffice ghi kiểu này) thì bề rộng = advance, chiều cao em = chiều cao khung, đường cơ
+   sở cách đỉnh 0,9745 × ascent / (ascent + descent) (Calibri 0,731, TNR 0,784, Arial 0,788; lệch ≤ 1 pt với phông
+   thay thế). `TextPath::trim` đọc / ghi lại. Còn: hình mờ *xoay* của đối chiếu lệch dọc vài pt (2–12 pt tuỳ khung) so
+   với tâm lề — chưa rõ quy tắc.
+5. **3 tệp tệ tiếp theo**: layout-02 — gạch nối un-der-stand-ing, in-de-pend-ent (điểm ngắt trong tiền tố); notes-05
+   — số chú thích chân trang chỉ theo footnotePr của section (đối chiếu bỏ qua numFmt / numStart toàn văn bản: "1"
+   chứ không "III"); gen-20 — đường dẫn ngắt *trước* dấu "/". (gen-09: ký hiệu đầu dòng vùng riêng bị bộ chấm bỏ,
+   không phải lệch dàn trang; office-17 / 36 / 09 như vòng 6.)
+6. **Khoảng cách ô** (§17.4.44 tblCellSpacing, yêu cầu thêm của chủ dự án): khung viền bảng bao ngoài; ô cách khung
+   và cách nhau 2 × spacing (ngang và dọc); ô chia phần còn lại theo tỉ lệ cột lưới; mỗi ô tự vẽ đủ 4 viền và tô nền
+   riêng. 6 bảng hiệu chuẩn: đường cơ sở ≤ 0,08 pt, mép ô ≤ 0,3 pt.
+
+Kiểm tra vòng 7: bo-layout (17 tệp test, gồm ảnh chụp insta — không đổi) xanh trên cây đã gộp
+`work/desktop-performance` (83cb5178, không xung đột), `cargo check --workspace --exclude bo-desktop --tests` sạch;
+bo-gpu-win (gồm `incremental`), bo-raster, bo-render, bo-pdf, bo-text, bo-docx, test thiết kế bo-edit xanh;
+`cargo test -p bo-cli` 46 / 46; clippy sạch (bo-layout, bo-render, bo-raster, bo-pdf, bo-gpu-win, bo-engine, bo-ui,
+bo-pdfread, bo-docx, bo-model, bo-edit). **Chưa chạy xong**: `cargo test --release -p bo-engine`, `pnpm build:wasm` +
+`pnpm --filter @blueoffice/platform test` — tiến trình bị dừng do máy thiếu bộ nhớ, cần chạy lại.
+Còn: gộp khung đoạn trong ô bảng / đầu trang (stack_blocks), vị trí dọc hình mờ xoay, mẫu tô nền trên canvas web,
+khoảng cách ô theo `tblPrEx` / kiểu bảng / `pct`, ô gộp dọc trong bảng có khoảng cách ô.
+
+Ảnh (đối chiếu trái, BlueDoc trước, BlueDoc sau): `scratchpad/show/docfid-46-shading-patterns-screen-100.png`,
+`docfid-46b-shading-patterns-zoom4x.png`, `docfid-46c-shading-patterns-screen-200.png`,
+`docfid-47-grouped-boxes-between.png`, `docfid-48-grouped-boxes-shading.png`,
+`docfid-49-single-word-beside-picture.png`, `docfid-50-watermark-notrim.png`, `docfid-51-watermark-trim-rotated.png`,
+`docfid-52-cell-spacing-grid.png`, `docfid-53-cell-spacing-shaded.png`.

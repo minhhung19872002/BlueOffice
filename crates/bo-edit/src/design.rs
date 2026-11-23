@@ -869,6 +869,7 @@ pub fn text_art(
             font: font.to_owned(),
             bold,
             italic,
+            ..TextPath::default()
         }),
         opacity: if semitransparent { 500 } else { 1000 },
         watermark: true,

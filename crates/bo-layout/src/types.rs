@@ -98,6 +98,20 @@ pub enum Layer {
     Front,
 }
 
+/// Shading pattern as drawn on screen (ECMA-376 Part 1, §17.18.78 `ST_Shd`): an 8 × 8
+/// tile of device pixels anchored at the page's top-left device pixel, bit 7 of
+/// `tile[row]` being the left column; set bits take `fg` (the pattern colour), others
+/// `bg` (the fill). Print / PDF backends use the rectangle's mixed `color` instead.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct ShadePattern {
+    /// Rows of the tile, top to bottom; bit 7 = leftmost pixel.
+    pub tile: [u8; 8],
+    /// Pattern colour.
+    pub fg: Color,
+    /// Fill colour.
+    pub bg: Color,
+}
+
 /// Non-text page content.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum PageItem {
@@ -111,10 +125,13 @@ pub enum PageItem {
         w: f32,
         /// Height (points).
         h: f32,
-        /// Fill colour.
+        /// Fill colour (the pattern's mix for a patterned shading).
         color: Color,
         /// Paint order relative to text.
         layer: Layer,
+        /// Device-pixel pattern drawn on screen over `color` (§17.18.78).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pattern: Option<ShadePattern>,
     },
     /// Straight line (borders, underlines, separators).
     Rule {

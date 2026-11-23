@@ -2204,6 +2204,9 @@ pub struct TextPath {
     /// `font-style:italic`.
     #[serde(default)]
     pub italic: bool,
+    /// `trim`: the ink of the text (not its line) fills the box height.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub trim: bool,
 }
 
 /// Decorative content of a shape: a text path or a picture, with an opacity; the

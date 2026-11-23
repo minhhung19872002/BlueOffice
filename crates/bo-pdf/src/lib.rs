@@ -311,7 +311,9 @@ pub fn write_pdf_with_options(
                     use_alpha(&mut c, &mut res, (a * 255.0).round() as u8);
                 }
                 // Groups (blend modes, soft masks of read PDFs) are written as plain content.
-                Command::PushGroup { .. } | Command::PopGroup => {}
+                // §17.18.78: the export keeps a shading pattern's mixed colour (the preceding
+                // `FillRect`); the reference's 1/600" tiles read as that mix.
+                Command::PushGroup { .. } | Command::PopGroup | Command::FillPattern { .. } => {}
                 Command::BlurPath { .. } if flatten => {
                     // ISO 19005-1 §6.4: soft masks are not allowed; soft shadows and
                     // glows are left out of PDF/A-1 files.

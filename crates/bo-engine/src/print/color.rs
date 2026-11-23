@@ -75,6 +75,10 @@ pub fn grayscale(commands: &mut [Command]) {
             Command::Image { image, .. } => {
                 *image = image_with(image, |fx| fx.grayscale = true);
             }
+            Command::FillPattern { fg, bg, .. } => {
+                *fg = gray(*fg);
+                *bg = gray(*bg);
+            }
             _ => {}
         }
     }
@@ -82,7 +86,7 @@ pub fn grayscale(commands: &mut [Command]) {
 
 /// Pure black and white.
 pub fn black_white(commands: &mut Vec<Command>) {
-    commands.retain(|c| !matches!(c, Command::BlurPath { .. }));
+    commands.retain(|c| !matches!(c, Command::BlurPath { .. } | Command::FillPattern { .. }));
     for c in commands.iter_mut() {
         match c {
             Command::FillRect { color, .. } => *color = Rgba(255, 255, 255, color.3),

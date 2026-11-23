@@ -53,7 +53,10 @@ pub(crate) fn icon_of(id: &str) -> &str {
         "format.fontSettings"
         | "format.paragraphSettings"
         | "layout.pageSetup"
-        | "references.notesLauncher" => "launcher",
+        | "references.notesLauncher"
+        | "fp21.shapeStyles"
+        | "fp21.wordArt"
+        | "fp21.pictureStyles" => "launcher",
         "insert.shapes" => "insert.rect",
         "insert.dateTime" => "format.date",
         "insert.dropCap" => "format.fontGrow",
@@ -1533,6 +1536,10 @@ impl Ribbon {
                     "ribbon.groups.footnotes" => Some("references.notesLauncher"),
                     // BlueDoc Review › Markup: Change Tracking Options (round 16).
                     "doc16.groupMarkup" => Some("review.trackingOptions"),
+                    // BlueDoc round 21: the Format Shape / Format Picture pane.
+                    "docR7.g.shapeStyles" => Some("fp21.shapeStyles"),
+                    "docR7.g.wordArt" => Some("fp21.wordArt"),
+                    "docR7.g.pictureStyles" => Some("fp21.pictureStyles"),
                     _ => None,
                 };
                 if let Some(id) = launcher {

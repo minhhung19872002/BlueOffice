@@ -394,6 +394,8 @@ impl DocWindow {
             }
             // Round 21: Options › Import/Export ▾ › Import customization file.
             "ribbon21" => self.r21_file_picked(bytes),
+            // Round 21: Format Shape › Picture or texture fill › Insert….
+            "fp21pic" => self.r21_pane_picture(bytes),
             _ => false,
         }
     }

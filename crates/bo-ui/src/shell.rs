@@ -2756,6 +2756,7 @@ impl DocWindow {
             .layout(text, &self.strings, self.size.0, self.scale, top);
         self.r21_place_quick();
         self.r21_layout_bar();
+        self.r21_layout_pane();
         let mut top = self.chrome_bottom();
         if self.show_ruler {
             top += Ruler::height(self.scale);
@@ -2914,6 +2915,8 @@ impl DocWindow {
     pub fn handle(&mut self, input: Input, text: &dyn TextMeasure) -> bool {
         let redraw = self.route(input, text);
         self.sync_context();
+        // Round 21: the Format Shape / Picture pane follows the selection.
+        self.r21_sync();
         if self.relayout_pending {
             self.relayout_pending = false;
             self.relayout(text);

@@ -111,7 +111,63 @@ pub const ROTATIONS: [&str; 22] = [
     "obliqueBottomRight",
 ];
 
+/// Round 21 (the Format Shape / Format Picture panes): `custom:key=value;…` settings
+/// of an effect instead of a preset name (numbers in pt, %, degrees; colours `RRGGBB`).
+fn custom(preset: &str) -> Option<Vec<(&str, &str)>> {
+    let body = preset.strip_prefix("custom:")?;
+    Some(
+        body.split(';')
+            .filter_map(|kv| kv.split_once('='))
+            .map(|(k, v)| (k.trim(), v.trim()))
+            .collect(),
+    )
+}
+
+/// A number of `custom` settings.
+fn num(kv: &[(&str, &str)], key: &str, default: f64) -> f64 {
+    kv.iter()
+        .find(|(k, _)| *k == key)
+        .and_then(|(_, v)| v.parse::<f64>().ok())
+        .filter(|v| v.is_finite())
+        .unwrap_or(default)
+}
+
+/// A colour of `custom` settings.
+fn hex(kv: &[(&str, &str)], key: &str, default: u32) -> u32 {
+    kv.iter()
+        .find(|(k, _)| *k == key)
+        .and_then(|(_, v)| u32::from_str_radix(v, 16).ok())
+        .map_or(default, |c| c & 0xFF_FFFF)
+}
+
+/// Percent → 1/1000 %.
+#[allow(clippy::cast_possible_truncation)]
+fn pct(v: f64) -> i32 {
+    (v.clamp(0.0, 100.0) * 1000.0).round() as i32
+}
+
+/// §20.1.8.49 outerShdw / §20.1.8.40 innerShdw from `custom` settings: `inner` (0/1),
+/// `color`, `transparency` %, `size` %, `blur` pt, `angle` degrees, `distance` pt.
+#[allow(clippy::cast_possible_truncation)]
+fn custom_shadow(kv: &[(&str, &str)]) -> PicShadow {
+    let inner = num(kv, "inner", 0.0) != 0.0;
+    let size = pct(num(kv, "size", 100.0).clamp(1.0, 200.0) / 2.0) * 2;
+    PicShadow {
+        inner,
+        blur: emu(num(kv, "blur", 4.0).clamp(0.0, 100.0)),
+        dist: emu(num(kv, "distance", 3.0).clamp(0.0, 200.0)),
+        dir: (num(kv, "angle", 45.0).rem_euclid(360.0) * 60_000.0).round() as i32,
+        color: hex(kv, "color", 0),
+        alpha: pct(100.0 - num(kv, "transparency", 60.0)),
+        sx: if inner { 0 } else { size },
+        sy: if inner { 0 } else { size },
+    }
+}
+
 fn shadow(name: &str) -> Option<PicShadow> {
+    if let Some(kv) = custom(name) {
+        return Some(custom_shadow(&kv));
+    }
     let (_, inner, dir, dist, blur) = SHADOWS.iter().find(|s| s.0 == name)?;
     #[allow(clippy::cast_possible_truncation)]
     Some(PicShadow {
@@ -127,6 +183,17 @@ fn shadow(name: &str) -> Option<PicShadow> {
 }
 
 fn reflection(name: &str) -> Option<PicReflection> {
+    // Round 21: `transparency` % (of the start), `size` % (end position), `blur` pt,
+    // `distance` pt.
+    if let Some(kv) = custom(name) {
+        return Some(PicReflection {
+            blur: emu(num(&kv, "blur", 0.5).clamp(0.0, 100.0)),
+            st_a: pct(100.0 - num(&kv, "transparency", 48.0)),
+            end_a: 300,
+            end_pos: pct(num(&kv, "size", 55.0)),
+            dist: emu(num(&kv, "distance", 0.0).clamp(0.0, 100.0)),
+        });
+    }
     let (_, end, dist) = REFLECTIONS.iter().find(|r| r.0 == name)?;
     Some(PicReflection {
         blur: emu(0.5),
@@ -139,6 +206,14 @@ fn reflection(name: &str) -> Option<PicReflection> {
 
 /// `size:RRGGBB` → glow.
 fn glow(preset: &str) -> Option<PicGlow> {
+    // Round 21: `size` pt, `color`, `transparency` %.
+    if let Some(kv) = custom(preset) {
+        return Some(PicGlow {
+            rad: emu(num(&kv, "size", 8.0).clamp(0.0, 150.0)),
+            color: hex(&kv, "color", 0x44_72C4),
+            alpha: pct(100.0 - num(&kv, "transparency", 60.0)),
+        });
+    }
     let (size, color) = preset.split_once(':')?;
     Some(PicGlow {
         rad: emu(size.parse::<f64>().ok()?.clamp(0.0, 150.0)),
@@ -350,6 +425,19 @@ pub const QUICK_STYLES: [Quick; 16] = [
 ];
 
 fn bevel(name: &str) -> Option<PicBevel> {
+    // Round 21: `type` (a preset), `width` / `height` pt.
+    if let Some(kv) = custom(name) {
+        let prst = kv
+            .iter()
+            .find(|(k, _)| *k == "type")
+            .map(|(_, v)| *v)
+            .filter(|v| BEVELS.contains(v))?;
+        return Some(PicBevel {
+            prst: prst.to_owned(),
+            w: emu(num(&kv, "width", 6.0).clamp(0.0, 1584.0)),
+            h: emu(num(&kv, "height", 6.0).clamp(0.0, 1584.0)),
+        });
+    }
     BEVELS.contains(&name).then(|| PicBevel {
         prst: name.to_owned(),
         w: emu(6.0),
@@ -744,6 +832,26 @@ mod tests {
             .format
             .as_deref()
             .is_some_and(|f| f.artistic.is_none()));
+    }
+
+    #[test]
+    fn custom_effect_settings() {
+        let sh = shadow("custom:color=FF0000;transparency=25;size=110;blur=6;angle=90;distance=5")
+            .expect("shadow");
+        assert_eq!(sh.color, 0xFF_0000);
+        assert_eq!(sh.alpha, 75_000);
+        assert_eq!(sh.sx, 110_000);
+        assert_eq!(sh.dir, 90 * 60_000);
+        assert_eq!(sh.dist, emu(5.0));
+        let inner = shadow("custom:inner=1").expect("inner");
+        assert!(inner.inner);
+        let rf = reflection("custom:transparency=50;size=40;distance=2").expect("refl");
+        assert_eq!((rf.st_a, rf.end_pos, rf.dist), (50_000, 40_000, emu(2.0)));
+        let gl = glow("custom:size=10;color=00FF00;transparency=30").expect("glow");
+        assert_eq!((gl.rad, gl.color, gl.alpha), (emu(10.0), 0xFF00, 70_000));
+        let bv = bevel("custom:type=circle;width=8;height=3").expect("bevel");
+        assert_eq!((bv.w, bv.h), (emu(8.0), emu(3.0)));
+        assert!(bevel("custom:type=nope").is_none());
     }
 
     #[test]

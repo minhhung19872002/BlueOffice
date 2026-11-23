@@ -149,7 +149,7 @@ impl DocWindow {
             0.0
         };
         // Reveal Formatting / Style Inspector (round 5) sits left of them.
-        own + self.r5_pane_w() + self.r7_pane_w() + self.r16_pane_w()
+        own + self.r5_pane_w() + self.r7_pane_w() + self.r16_pane_w() + self.r21_pane_w()
     }
 
     /// The paste mode of the next paste: chosen in Paste Options / Paste Special, else the
@@ -1822,6 +1822,8 @@ impl DocWindow {
             rp.paint(p);
         }
         self.r16_paint_panes(p);
+        // Round 21: Format Shape / Format Picture.
+        self.r21_paint_pane(p);
     }
 
     /// Paint the round-3 popups and dialogs (over everything).

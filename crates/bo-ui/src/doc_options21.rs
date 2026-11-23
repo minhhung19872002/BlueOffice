@@ -127,7 +127,7 @@ impl State {
         let mut layout = p.extra.ribbon.full();
         // Round 20's hidden tabs.
         for t in &mut layout.tabs {
-            if p.extra.hidden_tabs.iter().any(|h| *h == t.id) {
+            if p.extra.hidden_tabs.contains(&t.id) {
                 t.shown = false;
             }
         }
@@ -494,9 +494,8 @@ impl State {
         }
         match sel {
             Node::SCmd(c) => {
-                let (i, j) = match self.right.sel {
-                    Some(Node::Group(i, j) | Node::Cmd(i, j, _)) => (i, j),
-                    _ => return Err(0),
+                let Some(Node::Group(i, j) | Node::Cmd(i, j, _)) = self.right.sel else {
+                    return Err(0);
                 };
                 let Some(g) = self
                     .layout

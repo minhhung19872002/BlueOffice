@@ -80,7 +80,9 @@ struct Sweep {
 
 /// The editing view of one document.
 pub struct DocView {
-    engine: Engine,
+    /// The engine, boxed: it is ~84 KiB and the window is moved by value (round 21: the window
+    /// tests ran out of their 2 MiB stack).
+    engine: Box<Engine>,
     pages: Vec<PageSize>,
     /// Top-left of the view in the window (device pixels).
     origin: (f32, f32),
@@ -157,7 +159,7 @@ impl DocView {
     pub fn new(mut engine: Engine) -> Result<Self, String> {
         let state = engine.command(Command::State).map_err(|e| e.to_string())?;
         let mut view = Self {
-            engine,
+            engine: Box::new(engine),
             pages: Vec::new(),
             origin: (0.0, 0.0),
             viewport: (800.0, 600.0),

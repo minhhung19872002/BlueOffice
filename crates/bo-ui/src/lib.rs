@@ -17,6 +17,7 @@ mod doc_borders;
 mod doc_comments;
 mod doc_design;
 mod doc_find;
+mod doc_fmtpane21;
 mod doc_fontpal16;
 mod doc_forms;
 mod doc_goto;

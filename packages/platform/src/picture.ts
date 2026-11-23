@@ -194,7 +194,17 @@ export type PictureCommand =
   /** WordArt Styles › Text Effects: shadow / reflection / glow preset, or `none`. */
   | { cmd: 'shapeTextEffect'; kind: 'shadow' | 'reflection' | 'glow' | 'none'; preset?: string }
   /** WordArt Styles gallery item. */
-  | { cmd: 'wordArtStyle'; index: number };
+  | { cmd: 'wordArtStyle'; index: number }
+  /** Text › Align Text: top, middle or bottom (§21.1.2.1.1 bodyPr anchor). */
+  | { cmd: 'shapeTextAnchor'; anchor: 't' | 'ctr' | 'b' }
+  /**
+   * Round 21, Format Shape › Text Box: text insets left, top, right, bottom in points
+   * (§21.1.2.1.1 bodyPr lIns / tIns / rIns / bIns). Effect presets of `pictureEffect` /
+   * `shapeEffect` may also be `custom:key=value;…` settings from the Format panes (shadow:
+   * inner, color, transparency, size, blur, angle, distance; reflection: transparency, size,
+   * blur, distance; glow: size, color, transparency; bevel: type, width, height).
+   */
+  | { cmd: 'shapeTextInsets'; insets: [number, number, number, number] };
 
 /** Text wrapping of a picture (Wrap Text menu). */
 export type PictureWrap =

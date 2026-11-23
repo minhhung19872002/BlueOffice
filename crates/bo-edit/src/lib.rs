@@ -25,6 +25,7 @@ pub mod find;
 pub mod forms;
 pub mod html;
 mod inspect;
+mod labels16;
 pub mod lists;
 pub mod merge;
 mod moves;

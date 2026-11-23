@@ -275,7 +275,7 @@ fn finish_and_merge_opens_the_merged_document_apart() {
     assert!(w.take_new_document_actions().is_none());
     // Print Documents: the new window opens on its Print page.
     assert!(w.action("r16.merge:print:all"));
-    assert_eq!(w.take_new_document_actions().as_deref(), Some("file.print"));
+    assert_eq!(w.take_new_document_actions().as_deref(), Some("file:print"));
 }
 
 // source: the reference's Thesaurus pane (Review › Thesaurus, captured round 16).
@@ -429,4 +429,56 @@ fn font_color_split_button() {
     assert!(w.action("format.color"), "applies the last colour");
     assert_eq!(w.view.format().color.as_deref(), Some("00B050"));
     assert!(w.action("r16.gradient:light:right"));
+}
+
+// source: the reference's Step-by-Step Mail Merge Wizard (six steps), Update Labels and
+// Send Email Messages.
+#[test]
+fn wizard_steps_run_mailings_commands() {
+    let mut w = window();
+    assert!(w.action("mailings.wizard"));
+    w.handle(Input::Tick, &Fixed);
+    assert_eq!(w.r16.wiz.as_ref().map(|z| z.step), Some(1));
+    assert!(w.action("r16.wiz.choose:4"));
+    assert_eq!(w.r3.merge_type, "directory");
+    for _ in 0..2 {
+        assert!(w.action("r16.wiz.next"));
+    }
+    assert_eq!(w.r16.wiz.as_ref().map(|z| z.step), Some(3));
+    assert!(w.action("r16.wiz.choose:1"));
+    w.handle(Input::Tick, &Fixed);
+    // Step 3 › Create… opens New Address List.
+    let link = w.r16.wiz.as_ref().map(|z| z.recipients).expect("wizard");
+    assert_eq!(link, 1);
+    assert!(w.action("mailings.recipients.new"));
+    assert!(w.r3.form.is_some());
+    w.r3.form = None;
+    assert!(w.action("r16.wiz.prev"));
+    assert_eq!(w.r16.wiz.as_ref().map(|z| z.step), Some(2));
+}
+
+#[test]
+fn send_email_hands_messages_to_the_mail_program() {
+    let mut w = window();
+    w.run_interface_command("text:Dear ", &Fixed);
+    w.r3_run(vec![
+        json!({ "cmd": "mergeTable", "name": "list", "fields": ["Name", "Email"],
+            "rows": [["Ann", "ann@example.com"], ["Bob", "bob@example.com"]] }),
+        json!({ "cmd": "mergeInsertField", "name": "Name" }),
+    ]);
+    w.take_requests();
+    let spec = json!({ "to": "Email", "subject": "Hi", "format": "html", "range": "all" });
+    assert!(w.action(&format!("r16.email:{spec}")));
+    let mails: Vec<super::super::OutMail> = w
+        .take_requests()
+        .into_iter()
+        .filter_map(|r| match r {
+            super::super::Request::SendMails(m) => Some(m),
+            _ => None,
+        })
+        .flatten()
+        .collect();
+    assert_eq!(mails.len(), 2);
+    assert_eq!(mails[1].to, "bob@example.com");
+    assert!(mails[0].text.contains("Dear Ann"), "{}", mails[0].text);
 }

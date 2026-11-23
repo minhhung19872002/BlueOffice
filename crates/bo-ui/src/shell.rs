@@ -158,6 +158,24 @@ pub enum Request {
     },
     /// Read Aloud: 0 stop, 1 pause, 2 resume, 10 + n: rate n.
     SpeechControl(i32),
+    /// Finish & Merge › Send Email Messages (round 16): hand each message to the system's
+    /// mail program (the Windows host writes `.eml` drafts and opens them).
+    SendMails(Vec<OutMail>),
+}
+
+/// A merged e-mail for the system's mail program.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OutMail {
+    /// Recipient address.
+    pub to: String,
+    /// Subject line.
+    pub subject: String,
+    /// HTML body (empty when the merged document is attached).
+    pub html: String,
+    /// Plain-text body.
+    pub text: String,
+    /// Attachment: file name, MIME type, base64 bytes.
+    pub attachment: Option<(String, String, String)>,
 }
 
 /// Window contents of BlueDoc.

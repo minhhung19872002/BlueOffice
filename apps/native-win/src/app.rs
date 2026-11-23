@@ -24,6 +24,62 @@ thread_local! {
         std::cell::RefCell::new(doc_speech::Speech::default());
 }
 
+/// Send Email Messages (round 16): each merged message as an unsent `.eml` draft (RFC 5322 /
+/// RFC 2045 MIME, `X-Unsent: 1`) in the temporary folder, opened with the system's mail
+/// program. `BLUEOFFICE_MAIL_DIR` keeps them in that folder without opening them (tests).
+fn send_mails(mails: &[bo_ui::OutMail]) {
+    let keep = std::env::var_os("BLUEOFFICE_MAIL_DIR").map(std::path::PathBuf::from);
+    let dir = keep.clone().unwrap_or_else(std::env::temp_dir);
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis());
+    for (i, m) in mails.iter().enumerate() {
+        let path = dir.join(format!("BlueDoc-mail-{stamp}-{}.eml", i + 1));
+        if std::fs::write(&path, eml(m)).is_ok() && keep.is_none() {
+            let _ = win32::shell_open(&path, "open");
+        }
+    }
+}
+
+/// The MIME text of a message.
+fn eml(m: &bo_ui::OutMail) -> String {
+    use base64::Engine as _;
+    let b64 = |s: &str| base64::engine::general_purpose::STANDARD.encode(s.as_bytes());
+    let wrap = |s: &str| {
+        s.as_bytes()
+            .chunks(76)
+            .map(|c| String::from_utf8_lossy(c).into_owned())
+            .collect::<Vec<_>>()
+            .join("\r\n")
+    };
+    let subject = format!("=?UTF-8?B?{}?=", b64(&m.subject));
+    let mut out = format!(
+        "X-Unsent: 1\r\nTo: {}\r\nSubject: {subject}\r\nMIME-Version: 1.0\r\n",
+        m.to
+    );
+    let boundary = "BlueDoc-merge-boundary";
+    out.push_str(&format!(
+        "Content-Type: multipart/mixed; boundary=\"{boundary}\"\r\n\r\n"
+    ));
+    let (kind, body) = if m.html.is_empty() {
+        ("text/plain", &m.text)
+    } else {
+        ("text/html", &m.html)
+    };
+    out.push_str(&format!(
+        "--{boundary}\r\nContent-Type: {kind}; charset=utf-8\r\nContent-Transfer-Encoding: base64\r\n\r\n{}\r\n",
+        wrap(&b64(body))
+    ));
+    if let Some((name, mime, data)) = &m.attachment {
+        out.push_str(&format!(
+            "--{boundary}\r\nContent-Type: {mime}; name=\"{name}\"\r\nContent-Disposition: attachment; filename=\"{name}\"\r\nContent-Transfer-Encoding: base64\r\n\r\n{}\r\n",
+            wrap(data)
+        ));
+    }
+    out.push_str(&format!("--{boundary}--\r\n"));
+    out
+}
+
 /// `BLUEOFFICE_SPEECH=0` (scripted captures): Read Aloud shows its bar but stays silent.
 fn speech_muted() -> bool {
     std::env::var_os("BLUEOFFICE_SPEECH").is_some_and(|v| v == "0")
@@ -573,6 +629,7 @@ impl Shell {
                     }
                 }
                 Request::SpeechControl(what) => VOICE.with(|v| v.borrow_mut().control(what)),
+                Request::SendMails(mails) => send_mails(&mails),
                 Request::PrintJob(job) => self.print_job(&job),
                 Request::SavePrefs => {
                     if let Some(text) = self.view.take_prefs() {

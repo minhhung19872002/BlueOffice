@@ -2974,7 +2974,8 @@ mod tests {
                                 "format.fontSettings"
                                 | "format.paragraphSettings"
                                 | "layout.pageSetup"
-                                | "references.notesLauncher",
+                                | "references.notesLauncher"
+                                | "review.trackingOptions",
                             ),
                             _,
                         ) = placed

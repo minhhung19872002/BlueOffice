@@ -522,6 +522,9 @@ pub enum Command {
         /// Comment id.
         id: i32,
     },
+    /// Mailings › Update Labels: every label of the label sheet (the first table) gets the
+    /// first label's content led by a NEXT field (one undo step).
+    MergeUpdateLabels,
     /// Delete comments and their replies in one undo step (Review › Delete All Comments
     /// Shown / in Document).
     DeleteComments {
@@ -2602,6 +2605,9 @@ impl crate::Engine {
                     Command::ResolveComment { id, done } => s.resolve_comment(id, done)?,
                     Command::DeleteComment { id } => s.delete_comment(id)?,
                     Command::DeleteComments { ids } => s.delete_comments(&ids)?,
+                    Command::MergeUpdateLabels => {
+                        s.update_labels()?;
+                    }
                     Command::SelectComment { id } => {
                         extra.1 = Some(usize::from(s.select_comment(id)));
                     }

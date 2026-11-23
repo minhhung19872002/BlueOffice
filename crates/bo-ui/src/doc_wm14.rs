@@ -660,6 +660,8 @@ pub(crate) struct PagePalette {
     pub(crate) recent: Vec<String>,
     /// Caption of the recent colours.
     pub(crate) recent_label: String,
+    /// The last row is live (Font Color's Gradient ▸, round 16).
+    pub(crate) last_row_on: bool,
 }
 
 /// Rows of the palette (reference px): top of the first theme row, the tints, the standard
@@ -696,6 +698,7 @@ impl PagePalette {
             hover_row: None,
             recent: Vec::new(),
             recent_label: String::from("Recent Colors"),
+            last_row_on: false,
         }
     }
 
@@ -876,7 +879,7 @@ impl PagePalette {
         for (i, label) in self.labels[3..].iter().enumerate() {
             let ry = y + self.px(PC_ROWS_Y + ex + i as f32 * PC_ROW);
             // More Colors… and Fill Effects… are live since round 15.
-            let on = i < 2;
+            let on = i < 2 || self.last_row_on;
             if self.hover_row == Some(i)
                 || (i == 0 && self.hover_row.is_none() && self.current.is_none())
             {

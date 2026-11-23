@@ -21,6 +21,7 @@ pub(super) fn handles(kind: DocFormKind) -> bool {
             | DocFormKind::CheckErrors
             | DocFormKind::MergeReport
             | DocFormKind::NewList
+            | DocFormKind::MergeEmail
     )
 }
 
@@ -152,6 +153,9 @@ pub(super) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
     }
     if kind == DocFormKind::NewList {
         return open_new_list(s);
+    }
+    if kind == DocFormKind::MergeEmail {
+        return open_merge_email(s, c);
     }
     if kind == DocFormKind::MergeReport {
         let text = c.extra["r16"]["report"].as_str().unwrap_or_default();
@@ -524,6 +528,103 @@ impl DocForm {
     }
 }
 
+/// Merge to E-mail: To (a field), Subject line, Mail format (HTML / Plain text / Attachment),
+/// Send records All / Current record / From–To.
+fn open_merge_email(s: &Strings, c: &FormContext) -> DocForm {
+    let tr = |k: &str, fb: &str| t(s, k, fb);
+    let mut f = DocForm::new(
+        DocFormKind::MergeEmail,
+        &tr("doc16.mergeEmailTitle", "Merge to E-mail"),
+        (420.0, 330.0),
+        vec![],
+    );
+    let fields: Vec<String> = c.extra["r16"]["fields"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(str::to_owned))
+                .collect()
+        })
+        .unwrap_or_default();
+    let mail = fields
+        .iter()
+        .position(|f| {
+            let l = f.to_lowercase();
+            l.contains("mail")
+        })
+        .unwrap_or(0);
+    f.group(
+        "msgG",
+        [8.0, 46.0, 404.0, 140.0],
+        &tr("doc16.messageOptions", "Message options"),
+    );
+    f.label("toL", [20.0, 76.0, 100.0, 21.0], &tr("doc16.mailTo", "To:"));
+    f.combo("to", [140.0, 72.0, 260.0, 28.0], fields, mail);
+    f.label(
+        "subjL",
+        [20.0, 112.0, 120.0, 21.0],
+        &tr("doc16.subjectLine", "Subject line:"),
+    );
+    f.edit("subject", [140.0, 108.0, 260.0, 28.0], "");
+    f.label(
+        "fmtL",
+        [20.0, 148.0, 120.0, 21.0],
+        &tr("doc16.mailFormat", "Mail format:"),
+    );
+    f.combo(
+        "format",
+        [140.0, 144.0, 260.0, 28.0],
+        vec![
+            tr("doc16.formatHtml", "HTML"),
+            tr("doc16.formatText", "Plain text"),
+            tr("doc16.formatAttachment", "Attachment"),
+        ],
+        0,
+    );
+    f.group(
+        "sendG",
+        [8.0, 194.0, 404.0, 82.0],
+        &tr("doc16.sendRecords", "Send records"),
+    );
+    f.radio(
+        "all",
+        "range",
+        [20.0, 218.0, 80.0, 24.0],
+        &tr("doc16.all", "All"),
+        true,
+    );
+    f.radio(
+        "current",
+        "range",
+        [110.0, 218.0, 180.0, 24.0],
+        &tr("doc16.currentRecord", "Current record"),
+        false,
+    );
+    f.radio(
+        "from",
+        "range",
+        [20.0, 246.0, 72.0, 24.0],
+        &tr("doc16.from", "From:"),
+        false,
+    );
+    f.edit("fromN", [94.0, 244.0, 70.0, 26.0], "");
+    f.label("toNL", [176.0, 248.0, 30.0, 21.0], &tr("doc16.to", "To:"));
+    f.edit("toN", [210.0, 244.0, 70.0, 26.0], "");
+    f.button(
+        "ok",
+        [182.0, 288.0, 106.0, 32.0],
+        &tr("common.ok", "OK"),
+        true,
+    );
+    f.button(
+        "cancel",
+        [300.0, 288.0, 106.0, 32.0],
+        &tr("common.cancel", "Cancel"),
+        false,
+    );
+    f
+}
+
 /// Checking and Reporting Errors: simulate the merge, complete it pausing on each error, or
 /// complete it and report the errors (the reference's three choices).
 fn open_check(s: &Strings) -> DocForm {
@@ -531,48 +632,45 @@ fn open_check(s: &Strings) -> DocForm {
     let mut f = DocForm::new(
         DocFormKind::CheckErrors,
         &tr("doc16.checkTitle", "Checking and Reporting Errors"),
-        (470.0, 250.0),
+        (358.0, 221.0),
         vec![],
     );
-    f.radio(
-        "sim",
-        "mode",
-        [20.0, 52.0, 430.0, 44.0],
-        &tr(
+    // The reference's dialog: 358 x 221 at 125 %, "pause" chosen when it opens.
+    let rows: [(&'static str, &str, &str, f32, bool); 3] = [
+        (
+            "sim",
             "doc16.checkSimulate",
             "Simulate the merge and report errors in a new document.",
+            46.0,
+            false,
         ),
-        true,
-    );
-    f.radio(
-        "pause",
-        "mode",
-        [20.0, 100.0, 430.0, 44.0],
-        &tr(
+        (
+            "pause",
             "doc16.checkPause",
             "Complete the merge, pausing to report each error as it occurs.",
+            87.0,
+            true,
         ),
-        false,
-    );
-    f.radio(
-        "report",
-        "mode",
-        [20.0, 148.0, 430.0, 44.0],
-        &tr(
+        (
+            "report",
             "doc16.checkReport",
             "Complete the merge without pausing. Report errors in a new document.",
+            129.0,
+            false,
         ),
-        false,
-    );
+    ];
+    for (id, k, en, y, on) in rows {
+        f.radio(id, "mode", [10.0, y, 340.0, 38.0], &tr(k, en), on);
+    }
     f.button(
         "ok",
-        [226.0, 204.0, 106.0, 32.0],
+        [107.0, 173.0, 112.0, 30.0],
         &tr("common.ok", "OK"),
         true,
     );
     f.button(
         "cancel",
-        [344.0, 204.0, 106.0, 32.0],
+        [233.0, 173.0, 112.0, 30.0],
         &tr("common.cancel", "Cancel"),
         false,
     );
@@ -813,6 +911,28 @@ impl DocForm {
                 ))
             }
             DocFormKind::MergeReport => Some(FormOut::Close),
+            DocFormKind::MergeEmail => {
+                let range = match self.chosen("range") {
+                    Some("current") => "cur".to_owned(),
+                    Some("from") => {
+                        let n = |id: &str, d: usize| {
+                            self.text(id).trim().parse::<usize>().unwrap_or(d).max(1)
+                        };
+                        let from = n("fromN", 1);
+                        format!("{from}-{}", n("toN", usize::MAX).max(from))
+                    }
+                    _ => "all".to_owned(),
+                };
+                let format = ["html", "text", "attach"][self.sel("format").unwrap_or(0).min(2)];
+                let spec = json!({
+                    "to": self.text("to"), "subject": self.text("subject"),
+                    "format": format, "range": range,
+                });
+                Some(FormOut::Run(
+                    vec![json!({ "cmd": "ui.action", "id": format!("r16.email:{spec}") })],
+                    true,
+                ))
+            }
             DocFormKind::NewList => {
                 let rows: Vec<Vec<String>> = self
                     .nl_save_entry()

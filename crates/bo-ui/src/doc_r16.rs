@@ -28,6 +28,9 @@ pub(super) struct R16 {
     /// other panes at the right; one opened later closes it).
     pub(super) thes: Option<crate::doc_thes16::ThesPane>,
     thes_fresh: bool,
+    /// The Step-by-Step Mail Merge Wizard pane, and whether it opened since the last layout.
+    pub(super) wiz: Option<crate::doc_wizard16::WizardPane>,
+    wiz_fresh: bool,
     /// The word whose Insert / Copy menu is open in the Thesaurus pane.
     thes_word: Option<String>,
     /// Actions for the window the last merge opens.
@@ -42,7 +45,7 @@ pub(super) struct R16 {
     pub(super) record_edit: Option<String>,
     /// Home › Font Color: the open palette, the colour the button applies (`RRGGBB`, empty
     /// until one is picked: red), More Colors… asked from it.
-    pub(super) font_pal: Option<Box<crate::doc_wm14::PagePalette>>,
+    pub(super) font_pal: Option<Box<crate::doc_fontpal16::FontPalette>>,
     pub(super) font_color: String,
     pub(super) font_more: bool,
 }
@@ -81,6 +84,18 @@ impl DocWindow {
             self.requests.push(super::Request::SpeechControl(10 + rate));
             return Some(true);
         }
+        if let Some(i) = id.strip_prefix("r16.wiz.choose:") {
+            let i = i.parse::<usize>().unwrap_or(0);
+            let kind = self.r16.wiz.as_mut().and_then(|w| w.choose(i));
+            if let Some(k) = kind {
+                self.action(&format!("mailings.type.{k}"));
+            }
+            self.relayout_pending = true;
+            return Some(true);
+        }
+        if let Some(spec) = id.strip_prefix("r16.email:") {
+            return Some(self.r16_send_mails(spec));
+        }
         if let Some(mode) = id.strip_prefix("r16.checkErrors:") {
             return Some(self.r16_check_errors(mode));
         }
@@ -101,6 +116,40 @@ impl DocWindow {
         }
         Some(match id {
             "review.thesaurus" => self.r16_toggle_thesaurus(),
+            "mailings.wizard" => {
+                let mut w = crate::doc_wizard16::WizardPane::new();
+                w.records = self.merge_fields().1;
+                self.r16.wiz = Some(w);
+                self.r16.wiz_fresh = true;
+                self.r16.thes = None;
+                self.relayout_pending = true;
+                true
+            }
+            "r16.wiz.next" | "r16.wiz.prev" => {
+                let Some(w) = self.r16.wiz.as_mut() else {
+                    return Some(false);
+                };
+                let leaving = w.step;
+                let start = w.start;
+                w.step = if id == "r16.wiz.next" {
+                    (w.step + 1).min(6)
+                } else {
+                    w.step.saturating_sub(1).max(1)
+                };
+                // Step 2 › Start from a template / existing document: the File screen's New
+                // page, or Open.
+                if id == "r16.wiz.next" && leaving == 2 {
+                    match start {
+                        1 => {
+                            self.action("file:new");
+                        }
+                        2 => self.requests.push(super::Request::Open),
+                        _ => {}
+                    }
+                }
+                self.relayout_pending = true;
+                true
+            }
             "r16.thes.size" => {
                 if let Some(t) = self.r16.thes.as_mut() {
                     t.sizing = true;
@@ -120,6 +169,7 @@ impl DocWindow {
             }
             "mailings.finish" => self.r16_finish_menu(),
             "review.deleteMenu" => self.r16_delete_menu(),
+            "mailings.updateLabels" => self.r3_run(vec![json!({ "cmd": "mergeUpdateLabels" })]),
             // The Font Color button applies the last colour picked (red at first).
             "format.color" => {
                 let hex = if self.r16.font_color.is_empty() {
@@ -143,6 +193,7 @@ impl DocWindow {
             "mailings.recipients.new" => self.r3_open_form(crate::doc_forms::DocFormKind::NewList),
             "mailings.checkErrors" => self.r3_open_form(crate::doc_forms::DocFormKind::CheckErrors),
             "mailings.finish.edit" => self.r3_open_form(crate::doc_forms::DocFormKind::MergeNew),
+            "mailings.finish.email" => self.r3_open_form(crate::doc_forms::DocFormKind::MergeEmail),
             "mailings.finish.print" => self.r3_open_form(crate::doc_forms::DocFormKind::MergePrint),
             "review.trackingOptions" => {
                 self.r3_open_form(crate::doc_forms::DocFormKind::TrackOptions)
@@ -246,10 +297,19 @@ impl DocWindow {
             .thes
             .as_ref()
             .map_or(0.0, |t| t.pane_width(self.scale))
+            + if self.r16.wiz.is_some() {
+                crate::doc_wizard16::WizardPane::width(self.scale)
+            } else {
+                0.0
+            }
     }
 
     /// Paint the Thesaurus pane (with the other panes at the right).
     pub(super) fn r16_paint_panes(&self, p: &mut dyn Painter) {
+        if let Some(w) = &self.r16.wiz {
+            let tr = |k: &str, en: &str| self.t(k, en);
+            w.paint(p, &tr);
+        }
         if let Some(t) = &self.r16.thes {
             let labels = [
                 self.t("doc16.thesaurus", "Thesaurus"),
@@ -354,6 +414,7 @@ impl DocWindow {
             "markup": serde_json::to_value(self.view.markup()).unwrap_or_default(),
             "pane": pane,
             "records": self.merge_fields().1,
+            "fields": self.merge_fields().0,
             "report": self.r16.report,
         })
     }
@@ -467,7 +528,7 @@ impl DocWindow {
                 "mailings.finish.email",
                 "doc16.sendEmail",
                 "Send Email Messages...",
-                true,
+                false,
             ),
         ];
         let items = rows
@@ -508,7 +569,7 @@ impl DocWindow {
             return false;
         };
         self.r3.new_document = Some(bytes);
-        self.r16.new_actions = (what == "print").then(|| "file.print".to_owned());
+        self.r16.new_actions = (what == "print").then(|| "file:print".to_owned());
         self.requests.push(super::Request::OpenNewDocument);
         true
     }
@@ -574,6 +635,74 @@ impl DocWindow {
         if mode == "sim" || !errors.is_empty() {
             return self.r3_open_form(crate::doc_forms::DocFormKind::MergeReport);
         }
+        true
+    }
+
+    /// Send Email Messages: one message per record of the range with an address, handed to the
+    /// system's mail program (`Request::SendMails`).
+    fn r16_send_mails(&mut self, spec: &str) -> bool {
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(spec) else {
+            return false;
+        };
+        let s = |k: &str| v[k].as_str().unwrap_or_default().to_owned();
+        let format = s("format");
+        let attach = if format == "attach" { "docx" } else { "none" };
+        let r = self.view.run_json(&json!({
+            "cmd": "mergeToEmails", "to": s("to"), "subject": s("subject"),
+            "attach": attach, "attachmentName": "«Name».docx",
+        }));
+        let mails = r
+            .as_ref()
+            .and_then(|r| find_key(r, "mails"))
+            .and_then(serde_json::Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let count = mails.len();
+        let range: (usize, usize) = match s("range").as_str() {
+            "all" => (1, usize::MAX),
+            "cur" => {
+                let n = self.merge_record.unwrap_or(0) + 1;
+                (n, n)
+            }
+            x => x
+                .split_once('-')
+                .and_then(|(a, b)| Some((a.parse().ok()?, b.parse().ok()?)))
+                .unwrap_or((1, usize::MAX)),
+        };
+        let out: Vec<super::OutMail> = mails
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| *i + 1 >= range.0 && *i < range.1 && *i < count)
+            .map(|(_, m)| {
+                let html = m["html"].as_str().unwrap_or_default().to_owned();
+                let text = strip_tags(&html);
+                let attachment = m.get("attachment").filter(|a| !a.is_null()).map(|a| {
+                    (
+                        a["name"].as_str().unwrap_or("document.docx").to_owned(),
+                        a["contentType"]
+                            .as_str()
+                            .unwrap_or("application/octet-stream")
+                            .to_owned(),
+                        a["base64"].as_str().unwrap_or_default().to_owned(),
+                    )
+                });
+                super::OutMail {
+                    to: m["to"].as_str().unwrap_or_default().to_owned(),
+                    subject: m["subject"].as_str().unwrap_or_default().to_owned(),
+                    html: if format == "html" {
+                        html
+                    } else {
+                        String::new()
+                    },
+                    text,
+                    attachment,
+                }
+            })
+            .collect();
+        if out.is_empty() {
+            return false;
+        }
+        self.requests.push(super::Request::SendMails(out));
         true
     }
 
@@ -850,6 +979,43 @@ impl DocWindow {
         if let Some(ra) = self.r16.ra.as_mut() {
             ra.layout(frame, scale);
         }
+        // The wizard shares the right side like the other panes (the newest one wins).
+        if self.r16.wiz.is_some() {
+            let others = self.spell_pane.is_some()
+                || self.comments_pane.is_some()
+                || self.r3.styles_pane.is_some()
+                || self.r3.restrict.is_some()
+                || self.r16.thes.is_some();
+            if self.r16.wiz_fresh {
+                self.r16.wiz_fresh = false;
+                if others {
+                    self.spell_pane = None;
+                    self.comments_pane = None;
+                    self.r3.styles_pane = None;
+                    self.r3.restrict = None;
+                    self.r16.thes = None;
+                    self.relayout_pending = true;
+                }
+            } else if others {
+                self.r16.wiz = None;
+                self.relayout_pending = true;
+            }
+        }
+        let (records, record) = (self.merge_fields().1, self.merge_record.unwrap_or(0));
+        let strings = &self.strings;
+        let tr = |k: &str, en: &str| {
+            let v = strings.get(k);
+            if v == k {
+                en.to_owned()
+            } else {
+                v.to_owned()
+            }
+        };
+        if let Some(w) = self.r16.wiz.as_mut() {
+            w.records = records;
+            w.record = record;
+            w.layout(right, top, bottom, scale, &tr);
+        }
     }
 
     /// Review › Read Aloud: start reading from the caret, or stop.
@@ -1045,23 +1211,26 @@ impl DocWindow {
             .unwrap_or_default();
         let labels = [
             self.t("doc14.pcHighContrast", "High-contrast only"),
+            self.t("doc16.automatic", "Automatic"),
             self.t("doc14.pcTheme", "Theme Colors"),
             self.t("doc14.pcStandard", "Standard Colors"),
-            self.t("doc16.automatic", "Automatic"),
+            self.t("doc16.additionalColors", "Additional Colors"),
+            self.t("doc15.recentColors", "Recent Colors"),
             self.t("doc14.pcMore", "More Colors..."),
             self.t("doc16.gradient", "Gradient"),
         ];
         let current = Some(self.r16.font_color.clone()).filter(|c| !c.is_empty());
-        let mut pal = crate::doc_wm14::PagePalette::open(
+        let page = doc.and_then(|d| d.design.background.map(bo_model::Color::to_hex));
+        let mut pal = crate::doc_fontpal16::FontPalette::open(
             anchor,
             self.size,
             self.scale,
             super::r12::palette(&theme),
             labels,
             current,
+            page,
         );
         pal.recent.clone_from(&self.r15.recent);
-        pal.recent_label = self.t("doc15.recentColors", "Recent Colors");
         self.r16.font_pal = Some(Box::new(pal));
         true
     }
@@ -1119,7 +1288,7 @@ impl DocWindow {
     /// Input to the Font Color palette (`None`: not open / not for it), and the press on
     /// the Font Color button's arrow part that opens it.
     fn r16_font_input(&mut self, input: &Input) -> Option<bool> {
-        use crate::doc_wm14::PcPick;
+        use crate::doc_fontpal16::FpPick;
         if self.r16.font_pal.is_none() {
             if let Input::Press { x, y, .. } = *input {
                 let r = self.ribbon.rect_of(RibbonHit::Command("format.color"))?;
@@ -1135,23 +1304,23 @@ impl DocWindow {
         Some(match *input {
             Input::Move { x, y } | Input::Drag { x, y } => p.hover(x, y),
             Input::Press { x, y, .. } => match p.press(x, y) {
-                Some(PcPick::Nothing) => true,
-                Some(PcPick::Color(hex)) => {
+                Some(FpPick::Nothing) => true,
+                Some(FpPick::Color(hex)) => {
                     self.r16.font_pal = None;
                     self.r16_font_color(Some(&hex))
                 }
-                Some(PcPick::None) => {
+                Some(FpPick::Automatic) => {
                     self.r16.font_pal = None;
                     self.r16_font_color(None)
                 }
-                Some(PcPick::More) => {
+                Some(FpPick::More) => {
                     self.r16.font_pal = None;
                     self.r16.font_more = true;
                     self.r3_open_form(crate::doc_forms::DocFormKind::Colors)
                 }
-                Some(PcPick::Fill) => {
+                Some(FpPick::Gradient(at)) => {
                     self.r16.font_pal = None;
-                    self.r16_gradient_menu([x, y, 1.0, 0.0])
+                    self.r16_gradient_menu(at)
                 }
                 None => {
                     self.r16.font_pal = None;
@@ -1165,6 +1334,30 @@ impl DocWindow {
             Input::Text(_) | Input::Key(..) | Input::Release { .. } | Input::Wheel(_) => true,
             _ => return None,
         })
+    }
+
+    /// Input to the wizard pane.
+    fn r16_wiz_input(&mut self, input: &Input) -> Option<bool> {
+        use crate::doc_wizard16::WizAction;
+        let w = self.r16.wiz.as_mut()?;
+        match *input {
+            Input::Move { x, y } if w.contains(x, y) => Some(w.hover(x, y)),
+            Input::Release { x, y } | Input::Drag { x, y } if w.contains(x, y) => Some(false),
+            Input::Press { x, y, .. } if w.contains(x, y) => Some(match w.press(x, y) {
+                WizAction::None => false,
+                WizAction::Close => {
+                    self.r16.wiz = None;
+                    self.relayout_pending = true;
+                    true
+                }
+                WizAction::Run(id) => {
+                    self.action(&id);
+                    self.relayout_pending = true;
+                    true
+                }
+            }),
+            _ => None,
+        }
     }
 
     /// Input to the Read Aloud bar.
@@ -1249,6 +1442,9 @@ impl DocWindow {
             return Some(r);
         }
         if let Some(r) = self.r16_font_input(input) {
+            return Some(r);
+        }
+        if let Some(r) = self.r16_wiz_input(input) {
             return Some(r);
         }
         if self.r16.pop.is_none() {
@@ -1461,5 +1657,45 @@ impl DocWindow {
             self.theme.text,
         );
         p.pop_clip();
+    }
+}
+
+/// The text of an HTML body (tags left out, paragraphs on their own lines).
+fn strip_tags(html: &str) -> String {
+    let mut out = String::new();
+    let mut in_tag = false;
+    let mut tag = String::new();
+    for c in html.chars() {
+        match c {
+            '<' => {
+                in_tag = true;
+                tag.clear();
+            }
+            '>' if in_tag => {
+                in_tag = false;
+                let t = tag.to_ascii_lowercase();
+                if t.starts_with("/p") || t.starts_with("br") || t.starts_with("/h") {
+                    out.push('\n');
+                }
+            }
+            _ if in_tag => tag.push(c),
+            _ => out.push(c),
+        }
+    }
+    out.replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&nbsp;", " ")
+}
+
+/// The first value under key `k` anywhere in `v` (results nest their outputs).
+fn find_key<'a>(v: &'a serde_json::Value, k: &str) -> Option<&'a serde_json::Value> {
+    match v {
+        serde_json::Value::Object(m) => m
+            .get(k)
+            .filter(|x| !x.is_null())
+            .or_else(|| m.values().find_map(|x| find_key(x, k))),
+        serde_json::Value::Array(a) => a.iter().find_map(|x| find_key(x, k)),
+        _ => None,
     }
 }

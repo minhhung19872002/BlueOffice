@@ -1086,6 +1086,8 @@ impl DocWindow {
         }
         if let Some(t) = id.strip_prefix("mailings.type.") {
             if t == "labels" {
+                // A labels main document: Update Labels comes on (round 16).
+                self.r3.merge_type = t.to_owned();
                 return Some(self.r3_action("mailings.labels").unwrap_or(false));
             }
             if t == "envelopes" {

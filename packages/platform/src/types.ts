@@ -1042,6 +1042,7 @@ export type EditCommand =
   | { cmd: 'resolveComment'; id: number; done: boolean }
   | { cmd: 'deleteComment' | 'selectComment'; id: number }
   | { cmd: 'deleteComments'; ids: number[] }
+  | { cmd: 'mergeUpdateLabels' }
   | { cmd: 'nextComment'; forward: boolean }
   | { cmd: 'insertToc' | 'crossReferenceTargets' }
   /** References › Table of Contents › Remove Table of Contents. */

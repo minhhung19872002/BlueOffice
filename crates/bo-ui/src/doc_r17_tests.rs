@@ -241,3 +241,22 @@ fn immersive_reader_tab_column_color_spacing_and_close() {
     );
     assert!(!w.ribbon.contextual_labels().contains(&"doc17.tabImmersive"));
 }
+
+#[test]
+fn style_format_numbering_gives_the_new_style_a_list() {
+    let mut w = window();
+    assert!(w.action("styles.newStyle"));
+    assert!(w.action("r13.styleFmt.numbering"));
+    assert_eq!(
+        w.r3.form.as_ref().map(|f| f.kind),
+        Some(DocFormKind::StyleNumbering)
+    );
+    let f = w.r3.form.as_mut().expect("numbering");
+    f.set_sel("formats", Some(1));
+    let out = f.r17_ok();
+    w.form_out(out);
+    let f = w.r3.form.as_ref().expect("style dialog back");
+    assert_eq!(f.kind, DocFormKind::NewStyle);
+    let spec = f.style_spec();
+    assert!(spec["numId"].as_i64().unwrap_or(0) > 0, "{spec}");
+}

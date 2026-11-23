@@ -163,6 +163,16 @@ impl DocForm {
         self.r13.get_or_insert_with(Box::default)
     }
 
+    /// Set field `k` of the style spec New / Modify Style edits (round 17: Format ▾ ›
+    /// Numbering… sets `numId` / `numLevel`).
+    pub(crate) fn style_set_spec_field(&mut self, k: &str, v: Value) {
+        let spec = &mut self.r13_mut().spec;
+        if !spec.is_object() {
+            *spec = serde_json::json!({});
+        }
+        spec[k] = v;
+    }
+
     fn len_per(&self) -> f64 {
         if self.r13().inches {
             1440.0

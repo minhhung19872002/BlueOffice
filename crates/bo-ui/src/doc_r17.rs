@@ -145,6 +145,9 @@ impl DocWindow {
             }
             return Some(true);
         }
+        if let Some(i) = id.strip_prefix("r17.styleNum:") {
+            return Some(self.r17_style_numbering(i.parse().unwrap_or(0)));
+        }
         if let Some(list) = id.strip_prefix("r17.icons:") {
             return Some(self.r17_insert_icons(list));
         }
@@ -333,6 +336,33 @@ impl DocWindow {
             .paste(Some(c.internal), Some(c.html), Some(c.text));
         self.relayout_pending = true;
         ok
+    }
+
+    /// Format ▾ › Numbering… of the style dialog (back on top): a new list definition of
+    /// the chosen format (§17.9.1 abstractNum through `defineList`, not applied to the text)
+    /// whose instance the style refers to (§17.3.1.19 numPr); None removes numbering.
+    fn r17_style_numbering(&mut self, i: usize) -> bool {
+        let Some(&(_, fmt, text)) = crate::doc_forms::r17::STYLE_NUMBERS.get(i) else {
+            return false;
+        };
+        let num = if fmt.is_empty() {
+            0
+        } else {
+            let lvl = json!({ "format": fmt, "text": text, "indent": 720, "hanging": 360 });
+            self.r3_run(vec![
+                json!({ "cmd": "defineList", "levels": [lvl], "apply": false }),
+            ]);
+            self.view
+                .engine()
+                .document()
+                .and_then(|d| d.numbering.nums.iter().map(|n| n.id).max())
+                .unwrap_or(0)
+        };
+        if let Some(f) = self.r3.form.as_mut() {
+            f.style_set_spec_field("numId", json!(num));
+            f.style_set_spec_field("numLevel", json!(0));
+        }
+        true
     }
 
     /// Insert Icons › Insert: each chosen icon of the library as an SVG picture.

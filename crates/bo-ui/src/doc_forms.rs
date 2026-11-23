@@ -192,6 +192,8 @@ pub(crate) enum DocFormKind {
     MacroSource,
     /// Insert › Icons: BlueOffice's own icon library (round 17).
     Icons,
+    /// New / Modify Style › Format ▾ › Numbering… (round 17).
+    StyleNumbering,
 }
 
 /// What the owner does after an input.
@@ -1114,7 +1116,8 @@ impl DocForm {
             | DocFormKind::Macros
             | DocFormKind::OnlineVideo
             | DocFormKind::MacroSource
-            | DocFormKind::Icons => FormOut::Close,
+            | DocFormKind::Icons
+            | DocFormKind::StyleNumbering => FormOut::Close,
             DocFormKind::Toc => {
                 let levels = self.form.num("levels").clamp(1, 9);
                 let mut instr = match &self.toc_map {
@@ -3241,7 +3244,8 @@ pub(crate) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
         | DocFormKind::Macros
         | DocFormKind::OnlineVideo
         | DocFormKind::MacroSource
-        | DocFormKind::Icons => r17::open(kind, s, c),
+        | DocFormKind::Icons
+        | DocFormKind::StyleNumbering => r17::open(kind, s, c),
         DocFormKind::Zoom => {
             let mut f = DocForm::new(kind, &tr("docR4.zoomTitle", "Zoom"), (381.0, 258.0), vec![]);
             f.label(

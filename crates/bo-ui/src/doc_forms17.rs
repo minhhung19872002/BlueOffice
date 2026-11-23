@@ -19,8 +19,25 @@ pub(super) fn handles(kind: DocFormKind) -> bool {
             | DocFormKind::OnlineVideo
             | DocFormKind::MacroSource
             | DocFormKind::Icons
+            | DocFormKind::StyleNumbering
     )
 }
+
+/// Number formats Format ▾ › Numbering… offers a style: (label, §17.18.59 numFmt, lvlText).
+pub(crate) const STYLE_NUMBERS: [(&str, &str, &str); 12] = [
+    ("None", "", ""),
+    ("1. 2. 3.", "decimal", "%1."),
+    ("1) 2) 3)", "decimal", "%1)"),
+    ("I. II. III.", "upperRoman", "%1."),
+    ("A. B. C.", "upperLetter", "%1."),
+    ("a) b) c)", "lowerLetter", "%1)"),
+    ("a. b. c.", "lowerLetter", "%1."),
+    ("i. ii. iii.", "lowerRoman", "%1."),
+    ("\u{2022}  Bullet", "bullet", "\u{2022}"),
+    ("\u{25CB}  Hollow bullet", "bullet", "\u{25CB}"),
+    ("\u{25A0}  Square bullet", "bullet", "\u{25A0}"),
+    ("\u{2713}  Check mark", "bullet", "\u{2713}"),
+];
 
 /// Open dialog `kind` with the state in `c.extra["r17"]`.
 pub(super) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
@@ -30,6 +47,7 @@ pub(super) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
         DocFormKind::OnlineVideo => open_video(s),
         DocFormKind::MacroSource => open_source(s, c),
         DocFormKind::Icons => open_icons(s),
+        DocFormKind::StyleNumbering => open_style_numbering(s),
         _ => open_bookmark(s, c),
     }
 }
@@ -367,6 +385,11 @@ impl DocForm {
                     true,
                 )
             }
+            DocFormKind::StyleNumbering => FormOut::Run(
+                vec![json!({ "cmd": "ui.action",
+                    "id": format!("r17.styleNum:{}", self.sel("formats").unwrap_or(0)) })],
+                true,
+            ),
             DocFormKind::OnlineVideo => match video_url(&self.text("url")) {
                 Some(u) => FormOut::Run(
                     vec![json!({ "cmd": "ui.action", "id": format!("r17.video:{u}") })],
@@ -701,6 +724,50 @@ fn open_video(s: &Strings) -> DocForm {
     );
     f.disable("ok");
     f.form.focus("url");
+    f
+}
+
+/// Format ▾ › Numbering… of New / Modify Style: the numbering the style's paragraphs get.
+fn open_style_numbering(s: &Strings) -> DocForm {
+    let tr = |k: &str, fb: &str| t(s, k, fb);
+    let mut f = DocForm::new(
+        DocFormKind::StyleNumbering,
+        &tr("doc17.snTitle", "Numbering and Bullets"),
+        (380.0, 420.0),
+        vec![],
+    );
+    f.label(
+        "fmtL",
+        [18.0, 47.0, 300.0, 18.0],
+        &tr("doc17.snFormat", "Number or bullet format:"),
+    );
+    f.list(
+        "formats",
+        [18.0, 68.0, 344.0, 290.0],
+        STYLE_NUMBERS
+            .iter()
+            .map(|(l, ..)| {
+                if l.starts_with('N') {
+                    tr("doc17.snNone", "None")
+                } else {
+                    (*l).to_owned()
+                }
+            })
+            .collect(),
+        Some(1),
+    );
+    f.button(
+        "ok",
+        [124.0, 374.0, 111.0, 30.0],
+        &tr("common.ok", "OK"),
+        true,
+    );
+    f.button(
+        "cancel",
+        [251.0, 374.0, 111.0, 30.0],
+        &tr("common.cancel", "Cancel"),
+        false,
+    );
     f
 }
 

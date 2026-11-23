@@ -29,7 +29,7 @@ const STYLE_FORMAT: [(&str, &str, &str, bool); 9] = [
     ("border", "doc13.ns_fmtBorder", "Border...", true),
     ("language", "doc13.ns_fmtLanguage", "Language...", true),
     ("frame", "doc13.ns_fmtFrame", "Frame...", false),
-    ("numbering", "doc13.ns_fmtNumbering", "Numbering...", false),
+    ("numbering", "doc13.ns_fmtNumbering", "Numbering...", true),
     ("shortcut", "doc13.ns_fmtShortcut", "Shortcut key...", false),
     ("effects", "doc13.ns_fmtEffects", "Text Effects...", false),
 ];
@@ -382,6 +382,14 @@ impl DocWindow {
     /// A Format ▾ entry: the matching dialog over the style dialog, in style mode.
     fn r13_style_format(&mut self, which: &str) -> bool {
         self.menu = None;
+        // Numbering… (round 17): its own list of formats over the style dialog.
+        if which == "numbering" {
+            let Some(style) = self.r3.form.take() else {
+                return false;
+            };
+            self.r3.stash = Some(style);
+            return self.r3_open_form(DocFormKind::StyleNumbering);
+        }
         let kind = match which {
             "font" => DocFormKind::FindFont,
             "paragraph" => DocFormKind::Paragraph,

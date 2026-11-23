@@ -54,6 +54,11 @@ pub(crate) struct DesignGallery {
     pub(crate) current: Option<String>,
     /// Widths of the font-pair names, measured.
     widths: Vec<f32>,
+    /// Command rows under the entries (round 15): Themes › Reset to Theme from Template,
+    /// Browse for Themes…, Save Current Theme…; Colors › Customize Colors…; Fonts ›
+    /// Customize Fonts….
+    pub(crate) footer: Vec<String>,
+    footer_hover: Option<usize>,
 }
 
 impl DesignGallery {
@@ -74,6 +79,8 @@ impl DesignGallery {
             title,
             current: None,
             widths: Vec::new(),
+            footer: Vec::new(),
+            footer_hover: None,
         }
     }
 
@@ -124,7 +131,7 @@ impl DesignGallery {
         let rows = self.count().div_ceil(self.cols());
         (
             self.cols() as f32 * cw + self.px(12.0),
-            self.title_h() + self.px(10.0) + rows as f32 * ch,
+            self.title_h() + self.px(10.0) + rows as f32 * ch + self.footer_h(),
         )
     }
 
@@ -149,13 +156,57 @@ impl DesignGallery {
 
     pub(crate) fn hover(&mut self, x: f32, y: f32) -> bool {
         let h = self.index_at(x, y);
-        let changed = h != self.hover;
+        let f = self.footer_at(x, y);
+        let changed = h != self.hover || f != self.footer_hover;
         self.hover = h;
+        self.footer_hover = f;
         changed
+    }
+
+    /// Height of a command row under the entries (36 px at 125 %, as the reference).
+    fn footer_row(&self) -> f32 {
+        self.px(28.8)
+    }
+
+    fn footer_h(&self) -> f32 {
+        if self.footer.is_empty() {
+            0.0
+        } else {
+            self.footer.len() as f32 * self.footer_row() + self.px(4.0)
+        }
+    }
+
+    /// Top of the command rows (below a rule).
+    fn footer_top(&self) -> f32 {
+        let (_, h) = self.size();
+        self.y + h - self.footer_h() + self.px(3.0)
+    }
+
+    /// The command row under (x, y).
+    fn footer_at(&self, x: f32, y: f32) -> Option<usize> {
+        let (w, _) = self.size();
+        if self.footer.is_empty() || x < self.x || x >= self.x + w {
+            return None;
+        }
+        let top = self.footer_top();
+        (y >= top)
+            .then(|| ((y - top) / self.footer_row()) as usize)
+            .filter(|i| *i < self.footer.len())
     }
 
     /// The engine command a press picks (JSON), if any.
     pub(crate) fn press(&self, x: f32, y: f32) -> Option<serde_json::Value> {
+        if let Some(i) = self.footer_at(x, y) {
+            let menu = match self.menu {
+                DesignMenu::Themes => "themes",
+                DesignMenu::Colors => "colors",
+                DesignMenu::Fonts => "fonts",
+                _ => "other",
+            };
+            return Some(
+                serde_json::json!({ "cmd": "ui.action", "id": format!("design.footer.{menu}.{i}") }),
+            );
+        }
         let i = self.index_at(x, y)?;
         Some(match self.menu {
             DesignMenu::Spacing => {
@@ -307,6 +358,24 @@ impl DesignGallery {
                         t.text,
                     );
                 }
+            }
+        }
+        // Command rows under a rule (round 15).
+        if !self.footer.is_empty() {
+            let top = self.footer_top();
+            p.fill_rect(self.x + 1.0, top - self.px(2.0), w - 2.0, 1.0, CELL_EDGE);
+            for (i, label) in self.footer.iter().enumerate() {
+                let ry = top + i as f32 * self.footer_row();
+                if self.footer_hover == Some(i) {
+                    p.fill_rect(self.x + 2.0, ry, w - 4.0, self.footer_row(), t.hover);
+                }
+                p.text(
+                    label,
+                    self.x + self.px(36.0),
+                    ry + (self.footer_row() - ui.size * 1.33) / 2.0,
+                    ui,
+                    t.text,
+                );
             }
         }
     }

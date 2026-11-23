@@ -391,6 +391,7 @@ impl Engine {
                 | Command::ApplyTheme { .. }
                 | Command::ApplyThemeFile { .. }
                 | Command::ApplyThemeEffects { .. }
+                | Command::ApplyThemeParts { .. }
                 | Command::ApplyStyleSet { .. }
                 | Command::ApplyDocumentStyleSet { .. }
         );
@@ -408,6 +409,23 @@ impl Engine {
             }
             Command::ApplyThemeEffects { id } => self.document().and_then(|d| {
                 let x = effects_theme(d, id)?;
+                let fonts = crate::theme_file::theme_fonts(x.as_bytes())?;
+                let colors = crate::theme_file::theme_colors(x.as_bytes());
+                Some((x, fonts, colors))
+            }),
+            Command::ApplyThemeParts {
+                colors,
+                major,
+                minor,
+                name,
+            } => self.document().and_then(|d| {
+                let x = crate::theme_parts15::parts_theme(
+                    d,
+                    colors.as_deref(),
+                    major.as_deref(),
+                    minor.as_deref(),
+                    name.as_deref(),
+                )?;
                 let fonts = crate::theme_file::theme_fonts(x.as_bytes())?;
                 let colors = crate::theme_file::theme_colors(x.as_bytes());
                 Some((x, fonts, colors))
@@ -450,7 +468,9 @@ impl Engine {
                     }
                 }
                 Command::ApplyTheme { id } => s.apply_theme(id),
-                Command::ApplyThemeFile { .. } | Command::ApplyThemeEffects { .. } => {
+                Command::ApplyThemeFile { .. }
+                | Command::ApplyThemeEffects { .. }
+                | Command::ApplyThemeParts { .. } => {
                     if let Some((xml, fonts, colors)) = theme_in {
                         s.apply_theme_xml(&xml, fonts, colors)
                     } else {

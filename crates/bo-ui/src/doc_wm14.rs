@@ -636,6 +636,10 @@ pub(crate) enum PcPick {
     Color(String),
     /// No Color.
     None,
+    /// More Colors… (round 15).
+    More,
+    /// Fill Effects… (round 15).
+    Fill,
 }
 
 /// The open Page Color palette.
@@ -652,6 +656,10 @@ pub(crate) struct PagePalette {
     current: Option<String>,
     hover: Option<usize>,
     hover_row: Option<usize>,
+    /// Colours picked with More Colors… (newest first, at most 10; round 15).
+    pub(crate) recent: Vec<String>,
+    /// Caption of the recent colours.
+    pub(crate) recent_label: String,
 }
 
 /// Rows of the palette (reference px): top of the first theme row, the tints, the standard
@@ -662,6 +670,8 @@ const PC_STD_Y: f32 = 393.0;
 const PC_ROWS_Y: f32 = 447.0;
 const PC_ROW: f32 = 36.0;
 const PC_H: f32 = 561.0;
+/// Recent Colors: caption and one row of cells (round 15, spaced as Standard Colors).
+const PC_RECENT: f32 = 82.0;
 
 impl PagePalette {
     pub(crate) fn open(
@@ -684,6 +694,17 @@ impl PagePalette {
             current,
             hover: None,
             hover_row: None,
+            recent: Vec::new(),
+            recent_label: String::from("Recent Colors"),
+        }
+    }
+
+    /// Height added by the Recent Colors caption and row (reference px).
+    fn extra(&self) -> f32 {
+        if self.recent.is_empty() {
+            0.0
+        } else {
+            PC_RECENT
         }
     }
 
@@ -696,7 +717,10 @@ impl PagePalette {
     }
 
     pub(crate) fn contains(&self, x: f32, y: f32) -> bool {
-        x >= self.x && x < self.x + self.px(PC_W) && y >= self.y && y < self.y + self.px(PC_H)
+        x >= self.x
+            && x < self.x + self.px(PC_W)
+            && y >= self.y
+            && y < self.y + self.px(PC_H + self.extra())
     }
 
     /// Cell rectangle of colour `i` (reference px from the panel's corner).
@@ -709,20 +733,21 @@ impl PagePalette {
                 let row = ((i - 10) / 10) as f32;
                 [x, PC_TINT_Y + row * 36.0, PC_CELL, 36.0]
             }
-            _ => [x, PC_STD_Y, PC_CELL, PC_CELL],
+            60..=69 => [x, PC_STD_Y, PC_CELL, PC_CELL],
+            _ => [x, PC_STD_Y + PC_RECENT, PC_CELL, PC_CELL],
         }
     }
 
     fn color_at(&self, x: f32, y: f32) -> Option<usize> {
         let (lx, ly) = ((x - self.x) / self.k(), (y - self.y) / self.k());
-        (0..self.colors.len()).find(|&i| {
+        (0..self.colors.len() + self.recent.len().min(10)).find(|&i| {
             let r = Self::cell(i);
             (r[0]..r[0] + r[2]).contains(&lx) && (r[1]..r[1] + r[3]).contains(&ly)
         })
     }
 
     fn row_at(&self, y: f32) -> Option<usize> {
-        let ly = (y - self.y) / self.k() - PC_ROWS_Y;
+        let ly = (y - self.y) / self.k() - PC_ROWS_Y - self.extra();
         (0.0..3.0 * PC_ROW)
             .contains(&ly)
             .then(|| (ly / PC_ROW) as usize)
@@ -746,16 +771,23 @@ impl PagePalette {
             return None;
         }
         if let Some(i) = self.color_at(x, y) {
-            return Some(PcPick::Color(self.colors[i].clone()));
+            let hex = self
+                .colors
+                .get(i)
+                .or_else(|| self.recent.get(i - self.colors.len()));
+            return Some(hex.map_or(PcPick::Nothing, |h| PcPick::Color(h.clone())));
         }
         Some(match self.row_at(y) {
             Some(0) => PcPick::None,
+            Some(1) => PcPick::More,
+            Some(2) => PcPick::Fill,
             _ => PcPick::Nothing,
         })
     }
 
     pub(crate) fn paint(&self, p: &mut dyn Painter) {
-        let (x, y, w, h) = (self.x, self.y, self.px(PC_W), self.px(PC_H));
+        let ex = self.extra();
+        let (x, y, w, h) = (self.x, self.y, self.px(PC_W), self.px(PC_H + ex));
         shadow(p, [x, y, w, h], self.k());
         p.fill_rect(x, y, w, h, EDGE);
         p.fill_rect(x + 1.0, y + 1.0, w - 2.0, h - 2.0, WHITE);
@@ -800,7 +832,17 @@ impl PagePalette {
             bold,
             NAME_INK,
         );
-        for (i, hex) in self.colors.iter().enumerate() {
+        if ex > 0.0 {
+            p.text(
+                &self.recent_label,
+                x + self.px(16.0),
+                y + self.px(369.0 + PC_RECENT) - lh / 2.0,
+                bold,
+                NAME_INK,
+            );
+        }
+        let recent = self.recent.iter().take(10);
+        for (i, hex) in self.colors.iter().chain(recent).enumerate() {
             let r = Self::cell(i);
             let (cx, cy, cw, ch) = (
                 x + self.px(r[0]),
@@ -830,11 +872,14 @@ impl PagePalette {
                 outline(p, [cx, cy, cw, ch], INK);
             }
         }
-        p.fill_rect(x + 1.0, y + self.px(437.0), w - 2.0, 1.0, BAND_BG);
+        p.fill_rect(x + 1.0, y + self.px(437.0 + ex), w - 2.0, 1.0, BAND_BG);
         for (i, label) in self.labels[3..].iter().enumerate() {
-            let ry = y + self.px(PC_ROWS_Y + i as f32 * PC_ROW);
-            let on = i == 0;
-            if on && (self.hover_row == Some(0) || self.current.is_none()) {
+            let ry = y + self.px(PC_ROWS_Y + ex + i as f32 * PC_ROW);
+            // More Colors… and Fill Effects… are live since round 15.
+            let on = i < 2;
+            if self.hover_row == Some(i)
+                || (i == 0 && self.hover_row.is_none() && self.current.is_none())
+            {
                 p.fill_rect(x + 2.0, ry, w - 4.0, self.px(PC_ROW), HOT_ROW);
             }
             if i == 0 {

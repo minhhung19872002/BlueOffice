@@ -284,6 +284,7 @@ impl DocWindow {
                 let mut e = self.r12_form_extra();
                 e["r13"] = self.r13_form_extra();
                 e["r14"] = self.r14_form_extra();
+                e["r15"] = self.r15_form_extra();
                 e
             },
         }
@@ -384,13 +385,17 @@ impl DocWindow {
             FormOut::Redraw => true,
             FormOut::Close => {
                 // Back to a dialog kept under this one (TOC Options), else closed.
+                let closed = self.r3.form.as_ref().map(|f| f.kind);
                 self.r3.form = self.r3.stash.take();
+                self.r15_restore_stash(closed);
                 true
             }
             FormOut::Run(cmds, close) => {
                 if close {
                     // Back to a dialog kept under this one (Table Properties › Options…).
+                    let closed = self.r3.form.as_ref().map(|f| f.kind);
                     self.r3.form = self.r3.stash.take();
+                    self.r15_restore_stash(closed);
                 }
                 // Interface commands of round-4 dialogs (View › Zoom).
                 let (ui, cmds): (Vec<Value>, Vec<Value>) =
@@ -432,6 +437,7 @@ impl DocWindow {
                 self.r3_open_form(kind)
             }
             FormOut::Stash(kind) => {
+                self.r15_keep_stash(kind);
                 self.r3.stash = self.r3.form.take();
                 self.r3_open_form(kind)
             }

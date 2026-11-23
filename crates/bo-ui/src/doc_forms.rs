@@ -39,6 +39,9 @@ pub(crate) mod r13;
 
 #[path = "doc_forms14.rs"]
 pub(crate) mod r14;
+
+#[path = "doc_forms15.rs"]
+pub(crate) mod r15;
 pub(crate) use r5::{open_manage_styles, ManagedStyle};
 pub(crate) use r7::INSPECT;
 
@@ -146,6 +149,12 @@ pub(crate) enum DocFormKind {
     TofOptions,
     /// Mark Citation › Category… (Edit Category, round 14).
     Categories,
+    /// More Colors… of a colour picker (Colors, round 15).
+    Colors,
+    /// Design › Colors › Customize Colors… (Create New Theme Colors, round 15).
+    ThemeColors,
+    /// Design › Fonts › Customize Fonts… (Create New Theme Fonts, round 15).
+    ThemeFonts,
 }
 
 /// What the owner does after an input.
@@ -224,6 +233,8 @@ pub(crate) struct DocForm {
     bs: Option<Box<r12::Bs>>,
     /// Paragraph / Tabs / Page Setup / New Style state (round 13).
     r13: Option<Box<r13::R13>>,
+    /// Colors dialog state (round 15).
+    r15: Option<Box<r15::ColorsState>>,
 }
 
 /// Reference ids of `ST_NumberFormat` values offered for notes (§17.18.59).
@@ -432,6 +443,7 @@ impl DocForm {
             words: Vec::new(),
             bs: None,
             r13: None,
+            r15: None,
         }
     }
 
@@ -761,6 +773,7 @@ impl DocForm {
         match ev {
             Event::None => FormOut::Redraw,
             Event::Cancel => FormOut::Close,
+            Event::Canvas(id, x, y) if self.r15_canvas(id, *x, *y) => FormOut::Redraw,
             Event::Canvas(id, x, y) if self.r13_canvas(id, *x, *y) => FormOut::Redraw,
             Event::Canvas(id, _, y) if self.r11_canvas(id, *y) => FormOut::Redraw,
             Event::Canvas(id, x, y) if self.r12_canvas(id, *x, *y) => FormOut::Redraw,
@@ -806,6 +819,7 @@ impl DocForm {
                 self.form.enable("bookmark", range);
             }
             (DocFormKind::Protect, _) => {}
+            (k, _) if r15::handles(k) => self.r15_changed(id),
             (k, _) if r14::handles(k) => self.r14_changed(id),
             (k, _) if r13::handles(k) => {
                 self.r11_changed(id);
@@ -826,6 +840,9 @@ impl DocForm {
     }
 
     fn clicked(&mut self, id: &str) -> FormOut {
+        if let Some(out) = self.r15_clicked(id) {
+            return out;
+        }
         if let Some(out) = self.r14_clicked(id) {
             return out;
         }
@@ -960,6 +977,9 @@ impl DocForm {
     }
 
     fn ok(&mut self) -> FormOut {
+        if let Some(out) = self.r15_ok() {
+            return out;
+        }
         if let Some(out) = self.r13_ok() {
             return out;
         }
@@ -990,7 +1010,10 @@ impl DocForm {
             | DocFormKind::MarkCitation
             | DocFormKind::Watermark
             | DocFormKind::TofOptions
-            | DocFormKind::Categories => FormOut::Close,
+            | DocFormKind::Categories
+            | DocFormKind::Colors
+            | DocFormKind::ThemeColors
+            | DocFormKind::ThemeFonts => FormOut::Close,
             DocFormKind::Toc => {
                 let levels = self.form.num("levels").clamp(1, 9);
                 let mut instr = match &self.toc_map {
@@ -1262,7 +1285,8 @@ impl DocForm {
         let files = &self.files;
         let this = self;
         let mut canvas = |id: &str, r: [f32; 4], p: &mut dyn Painter| {
-            if r13::paint_canvas(this, id, r, p, &font)
+            if r15::paint_canvas(this, id, r, p, &font)
+                || r13::paint_canvas(this, id, r, p, &font)
                 || r14::paint_canvas(this, id, r, p, &font)
                 || findfmt11::paint_canvas(this, id, r, p, &font, k)
                 || tprops11::paint_canvas(this, id, r, p, k)
@@ -3097,6 +3121,9 @@ pub(crate) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
         | DocFormKind::Watermark
         | DocFormKind::TofOptions
         | DocFormKind::Categories => r14::open(kind, s, c),
+        DocFormKind::Colors | DocFormKind::ThemeColors | DocFormKind::ThemeFonts => {
+            r15::open(kind, s, c)
+        }
         DocFormKind::Zoom => {
             let mut f = DocForm::new(kind, &tr("docR4.zoomTitle", "Zoom"), (381.0, 258.0), vec![]);
             f.label(

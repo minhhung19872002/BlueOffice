@@ -23,6 +23,7 @@ mod blocks;
 mod charfx;
 mod drawing;
 mod flow;
+mod hidden15;
 mod hyphen;
 mod incremental;
 mod markup;
@@ -36,6 +37,7 @@ mod types;
 
 pub use blocks::{set_table_grid, TableMeasure, GRID_STYLE};
 pub use charfx::{FxPaint, FxReflection, FxRgba, FxShadow, TextFx};
+pub use hidden15::{hidden_blocks, set_hidden_blocks};
 pub use incremental::{measure_table, IncrementalLayout, UpdateKind};
 pub use markup::{
     balloon_height, page_markup, stack_balloons, Balloon, ChangeBar, Mark, MarkFilter, MarkKind,

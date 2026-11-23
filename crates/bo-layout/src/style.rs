@@ -448,10 +448,11 @@ fn apply_del_mark(st: &mut RunStyle, code: u8) {
     st.strike = false;
     st.double_strike = false;
     match code {
-        1 | 6 | 7 => {}
         2 => st.double_strike = true,
-        // Hidden; caret / hash marks leave the deleted text out of the line too.
-        3 | 8 | 9 => st.hidden = true,
+        3 => st.hidden = true,
+        // Colour only, bold / italic (the face, [`revision_props`]), caret / hash (one symbol,
+        // [`deletion_symbol`]).
+        1 | 6..=9 => {}
         4 => st.underline = Underline::Single,
         5 => st.underline = Underline::Double,
         _ => st.strike = true,
@@ -471,6 +472,33 @@ fn apply_ins_mark(st: &mut RunStyle, code: u8, own: Color) {
         3 => st.underline = Underline::Double,
         4 => st.strike = true,
         _ => st.underline = Underline::Single,
+    }
+}
+
+/// The symbol a deleted run shows instead of its text in the markup view when deletions are
+/// marked with a caret (`^`) or a hash (`#`) (Advanced Track Changes Options).
+#[must_use]
+pub fn deletion_symbol(
+    rp: &RunProps,
+    view: crate::RevisionView,
+    marks: &crate::MarkFilter,
+) -> Option<&'static str> {
+    if view != crate::RevisionView::Markup || marks.hide_ins_del || marks.deletions_in_balloons {
+        return None;
+    }
+    let d = rp.del.as_ref()?;
+    if marks.hides(&d.info.author) {
+        return None;
+    }
+    let code = if d.moved && !marks.no_moves {
+        marks.move_from_mark.unwrap_or(2)
+    } else {
+        marks.del_mark
+    };
+    match code {
+        8 => Some("^"),
+        9 => Some("#"),
+        _ => None,
     }
 }
 

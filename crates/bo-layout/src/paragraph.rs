@@ -1065,6 +1065,8 @@ fn layout_uncached(
     // showingPlcHdr), and the grey variants of the run styles placeholder text is shown in.
     let mut controls: Vec<bool> = Vec::new();
     let mut placeholder_styles: HashMap<usize, usize> = HashMap::new();
+    // A deletion shown as a caret / hash: one symbol per run of deleted text.
+    let mut in_symbol = false;
     for sp in &spans {
         let run = &inp.para.runs[sp.run];
         let mut style = run_style_idx[sp.run];
@@ -1163,6 +1165,26 @@ fn layout_uncached(
                 continue;
             }
         }
+        if let Some(sym) = (sp.start != sp.end)
+            .then(|| crate::style::deletion_symbol(&run_rps[sp.run], inp.view, &inp.marks))
+            .flatten()
+        {
+            if !std::mem::replace(&mut in_symbol, true) {
+                atoms.push(Atom {
+                    start: sp.start,
+                    end: sp.end,
+                    style,
+                    text: sym.to_owned(),
+                    object: true,
+                    image: None,
+                    drawing: None,
+                    note: None,
+                    obj_d: 0.0,
+                });
+            }
+            continue;
+        }
+        in_symbol = false;
         if styles[style].hidden || sp.start == sp.end {
             continue;
         }

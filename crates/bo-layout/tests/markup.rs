@@ -277,7 +277,7 @@ fn advanced_options_bold_italic_moves_and_formatting_marks() {
     assert_ne!(ins.face, del.face);
     assert_eq!(ins.underline, Underline::None);
     assert!(!del.strike && !del.double_strike);
-    // Caret / hash: the deleted text leaves the line.
+    // Caret / hash: the deleted text shows as one symbol in the deletion colour.
     let l = lay(
         &d,
         RevisionView::Markup,
@@ -286,7 +286,16 @@ fn advanced_options_bold_italic_moves_and_formatting_marks() {
             ..MarkFilter::default()
         },
     );
-    assert_eq!(l.page_text(0), "Giữ chèn");
+    assert_eq!(l.page_text(0), "Giữ chèn^");
+    let l = lay(
+        &d,
+        RevisionView::Markup,
+        MarkFilter {
+            del_mark: 9,
+            ..MarkFilter::default()
+        },
+    );
+    assert_eq!(l.page_text(0), "Giữ chèn#");
     // Moves: double strikethrough / underline in the move colour, or (moves not tracked)
     // the insertion / deletion marks.
     if let Block::Paragraph(p) = &mut d.sections[0].blocks[0] {

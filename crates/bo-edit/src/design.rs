@@ -549,10 +549,48 @@ impl Session {
         let old = (self.doc.design.clone(), self.doc.theme_fonts.clone());
         let mut new = old.clone();
         new.0.background = color;
+        new.0.background_fill = None;
         if color.is_some() {
             new.0.display_background_shape = true;
         }
         self.design_op(old, new)
+    }
+
+    /// Set the page colour with a fill effect (gradient, texture, pattern, picture: the VML
+    /// page background, ECMA-376 Part 4 §19.1.2.5) and, for a picture, add its media part
+    /// (one undo step). `fill: None` keeps the plain colour. A page colour without a fill
+    /// effect ([`Self::set_page_color`]) removes the effect.
+    pub fn set_page_fill(
+        &mut self,
+        color: Option<Color>,
+        fill: Option<bo_model::PageFill>,
+        media: Option<&(String, std::sync::Arc<Vec<u8>>)>,
+    ) -> Result<()> {
+        let old = (self.doc.design.clone(), self.doc.theme_fonts.clone());
+        let mut new = old.clone();
+        new.0.background = color.or(Some(Color::WHITE));
+        new.0.background_fill = fill;
+        new.0.display_background_shape = true;
+        if old == new && media.is_none() {
+            return Ok(());
+        }
+        self.edit(|tx, sel| {
+            if let Some((name, bytes)) = media {
+                if !tx.doc.media.contains_key(name) {
+                    tx.push(Op::Media {
+                        name: name.clone(),
+                        old: None,
+                        new: Some(bytes.clone()),
+                    })?;
+                }
+            }
+            tx.push(Op::Design {
+                old: Box::new(old),
+                new: Box::new(new),
+            })?;
+            Ok(sel)
+        })?;
+        Ok(())
     }
 
     /// Apply a theme part read from a theme file (`.thmx`) or another document

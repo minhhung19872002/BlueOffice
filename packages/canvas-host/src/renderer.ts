@@ -51,7 +51,9 @@ export interface CanvasLike {
   globalCompositeOperation?: string;
   /** CSS filter (blurred shadows). */
   filter?: string;
-  getTransform?(): { a: number; b: number };
+  getTransform?(): { a: number; b: number; c?: number; d?: number; e?: number; f?: number };
+  /** Repeating image fill (screen shading patterns). */
+  createPattern?(image: unknown, repetition: string): PatternLike | null;
   drawImage?(
     img: unknown,
     sx: number,
@@ -63,6 +65,41 @@ export interface CanvasLike {
     dw: number,
     dh: number,
   ): void;
+}
+
+/** A canvas pattern (`setTransform` anchors its tiles). */
+export interface PatternLike {
+  setTransform?(m: { a: number; b: number; c: number; d: number; e: number; f: number }): void;
+}
+
+/** 8 × 8 tiles of shading patterns by tile bits and colours. */
+const patternTiles = new Map<string, unknown>();
+
+/** The tile of a `fillPattern` (bit 7 of a row = left column, set bits `fg`), or `null`
+ * where no offscreen canvas exists (the mixed colour of the preceding `fillRect` stays). */
+function patternTile(tile: number[], fg: Rgba, bg: Rgba): unknown {
+  const key = `${tile.join(',')}|${fg.join(',')}|${bg.join(',')}`;
+  const hit = patternTiles.get(key);
+  if (hit) return hit;
+  if (typeof OffscreenCanvas === 'undefined') return null;
+  const canvas = new OffscreenCanvas(8, 8);
+  const c = canvas.getContext('2d');
+  if (!c) return null;
+  const img = c.createImageData(8, 8);
+  for (let y = 0; y < 8; y++) {
+    for (let x = 0; x < 8; x++) {
+      const on = ((tile[y] ?? 0) >> (7 - x)) & 1;
+      const col = on ? fg : bg;
+      const i = (y * 8 + x) * 4;
+      img.data[i] = col[0];
+      img.data[i + 1] = col[1];
+      img.data[i + 2] = col[2];
+      img.data[i + 3] = col[3];
+    }
+  }
+  c.putImageData(img, 0, 0);
+  patternTiles.set(key, canvas);
+  return canvas;
 }
 
 /** A decoded picture. */
@@ -299,9 +336,29 @@ function drawCommand(
       ctx.fillStyle = rgba(cmd.color);
       ctx.fillRect(cmd.x, cmd.y, cmd.w, cmd.h);
       break;
-    case 'fillPattern':
-      // The canvas keeps the mixed colour of the preceding fillRect.
+    case 'fillPattern': {
+      // ECMA-376 Part 1, §17.18.78 on screen: 8 × 8 device-pixel tiles anchored at the
+      // page's top-left device pixel, over the mixed colour of the preceding fillRect
+      // (kept where patterns cannot be drawn).
+      const m = ctx.getTransform?.();
+      const tile = patternTile(cmd.tile, cmd.fg, cmd.bg);
+      const pattern = tile && ctx.createPattern ? ctx.createPattern(tile, 'repeat') : null;
+      if (!m || !pattern || (m.c ?? 0) !== 0 || (m.b ?? 0) !== 0) break;
+      const d = m.d ?? m.a;
+      const e = m.e ?? 0;
+      const f = m.f ?? 0;
+      const x0 = Math.round(m.a * cmd.x + e);
+      const y0 = Math.round(d * cmd.y + f);
+      const x1 = Math.round(m.a * (cmd.x + cmd.w) + e);
+      const y1 = Math.round(d * (cmd.y + cmd.h) + f);
+      pattern.setTransform?.({ a: 1, b: 0, c: 0, d: 1, e: Math.round(e), f: Math.round(f) });
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.fillStyle = pattern;
+      ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
+      ctx.restore();
       break;
+    }
     case 'line':
       ctx.strokeStyle = rgba(cmd.color);
       ctx.lineWidth = cmd.width;

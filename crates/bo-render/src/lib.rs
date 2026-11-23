@@ -11,6 +11,7 @@
 pub mod diff;
 pub mod image;
 pub mod metafile;
+mod page_fill;
 mod textfx;
 
 pub use diff::{changed_region, Change};
@@ -854,6 +855,10 @@ fn page_list(
             color: c.into(),
         });
     }
+    // Fill effect over it (Part 4, §19.1.2.5 fill of the VML page background).
+    if let Some(fill) = &page.decor.fill {
+        page_fill::commands(fill, page.width, page.height, &mut commands);
+    }
     // Page borders behind the text (§17.6.10 pgBorders zOrder="back").
     if page.decor.borders_behind {
         for item in &page.decor.borders {
@@ -954,6 +959,7 @@ mod tests {
                 background: bo_model::Color::from_hex("FDF6E3"),
                 borders: vec![rule],
                 borders_behind: true,
+                fill: None,
             },
         };
         let fm = FontManager::new();
@@ -996,6 +1002,7 @@ mod tests {
                     style: "double".into(),
                 }],
                 borders_behind: true,
+                fill: None,
             },
         };
         let lines: Vec<(f32, f32)> = build_page_list(&page, &FontManager::new())

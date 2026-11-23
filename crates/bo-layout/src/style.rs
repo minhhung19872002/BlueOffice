@@ -374,70 +374,56 @@ pub fn revision_style(
             let plain = |author: &str| marks.hide_ins_del || marks.hides(author);
             // A deletion wins over the insertion it removes (inserted, then deleted).
             if let Some(d) = &rp.del {
+                let moved = d.moved && !marks.no_moves;
                 if plain(&d.info.author) || marks.deletions_in_balloons {
                     st.hidden = true;
-                } else if d.moved {
-                    // Moved away: double strikethrough in the move colour.
-                    st.double_strike = true;
-                    st.strike = false;
-                    st.color = MOVE_COLOR;
-                    st.revision = Some((MOVE_COLOR, true));
+                } else if moved {
+                    // Moved away: double strikethrough in the move colour (Advanced Track
+                    // Changes Options › Moves).
+                    let color = marks.move_from_color.unwrap_or(MOVE_COLOR);
+                    st.color = color;
+                    st.revision = Some((color, true));
+                    apply_del_mark(&mut st, marks.move_from_mark.unwrap_or(2));
                 } else {
-                    st.strike = true;
                     st.color = marks
                         .del_color
                         .unwrap_or_else(|| author_color(&d.info.author));
                     st.revision = Some((st.color, true));
-                    // Advanced Track Changes Options › Deletions (round 16).
-                    match marks.del_mark {
-                        1 => st.strike = false,
-                        2 => {
-                            st.strike = false;
-                            st.double_strike = true;
-                        }
-                        3 => st.hidden = true,
-                        4 => {
-                            st.strike = false;
-                            st.underline = Underline::Single;
-                        }
-                        5 => {
-                            st.strike = false;
-                            st.underline = Underline::Double;
-                        }
-                        _ => {}
-                    }
+                    // Advanced Track Changes Options › Deletions.
+                    apply_del_mark(&mut st, marks.del_mark);
                 }
             } else if let Some(i) = rp.ins.as_ref().filter(|i| !plain(&i.info.author)) {
-                // Moved here: double underline in the move colour.
+                let moved = i.moved && !marks.no_moves;
                 let own = st.color;
-                let color = if i.moved {
-                    MOVE_COLOR
+                let color = if moved {
+                    marks.move_to_color.unwrap_or(MOVE_COLOR)
                 } else {
                     marks
                         .ins_color
                         .unwrap_or_else(|| author_color(&i.info.author))
                 };
                 st.revision = Some((color, false));
-                st.underline = if i.moved {
-                    Underline::Double
-                } else {
-                    Underline::Single
-                };
                 st.color = color;
-                // Advanced Track Changes Options › Insertions (round 16).
-                if !i.moved {
-                    match marks.ins_mark {
-                        1 => {
-                            st.underline = Underline::None;
-                            st.revision = None;
-                            st.color = own;
-                        }
-                        2 => st.underline = Underline::None,
-                        3 => st.underline = Underline::Double,
-                        4 => {
-                            st.underline = Underline::None;
-                            st.strike = true;
-                        }
+                // Advanced Track Changes Options › Insertions / Moves (moved here: double
+                // underline by default).
+                let code = if moved {
+                    marks.move_to_mark.unwrap_or(3)
+                } else {
+                    marks.ins_mark
+                };
+                apply_ins_mark(&mut st, code, own);
+            } else if let Some(c) = rp.change.as_ref().filter(|_| marks.fmt_mark != 0) {
+                // Advanced Track Changes Options › Formatting (§17.13.5.31 rPrChange).
+                if !plain(&c.info.author) {
+                    let color = marks
+                        .fmt_color
+                        .unwrap_or_else(|| author_color(&c.info.author));
+                    st.color = color;
+                    match marks.fmt_mark {
+                        3 => st.underline = Underline::Single,
+                        4 => st.underline = Underline::Double,
+                        5 => st.strike = true,
+                        6 => st.double_strike = true,
                         _ => {}
                     }
                 }
@@ -457,6 +443,119 @@ pub fn revision_style(
     st
 }
 
+/// Deletion mark `code` of [`crate::MarkFilter::del_mark`] on a deleted run's style.
+fn apply_del_mark(st: &mut RunStyle, code: u8) {
+    st.strike = false;
+    st.double_strike = false;
+    match code {
+        2 => st.double_strike = true,
+        3 => st.hidden = true,
+        // Colour only, bold / italic (the face, [`revision_props`]), caret / hash (one symbol,
+        // [`deletion_symbol`]).
+        1 | 6..=9 => {}
+        4 => st.underline = Underline::Single,
+        5 => st.underline = Underline::Double,
+        _ => st.strike = true,
+    }
+}
+
+/// Insertion mark `code` of [`crate::MarkFilter::ins_mark`] on an inserted run's style
+/// (`own` = the run's colour, kept when insertions are not marked).
+fn apply_ins_mark(st: &mut RunStyle, code: u8, own: Color) {
+    st.underline = Underline::None;
+    match code {
+        1 => {
+            st.revision = None;
+            st.color = own;
+        }
+        2 | 5 | 6 => {}
+        3 => st.underline = Underline::Double,
+        4 => st.strike = true,
+        _ => st.underline = Underline::Single,
+    }
+}
+
+/// The symbol a deleted run shows instead of its text in the markup view when deletions are
+/// marked with a caret (`^`) or a hash (`#`) (Advanced Track Changes Options).
+#[must_use]
+pub fn deletion_symbol(
+    rp: &RunProps,
+    view: crate::RevisionView,
+    marks: &crate::MarkFilter,
+) -> Option<&'static str> {
+    if view != crate::RevisionView::Markup || marks.hide_ins_del || marks.deletions_in_balloons {
+        return None;
+    }
+    let d = rp.del.as_ref()?;
+    if marks.hides(&d.info.author) {
+        return None;
+    }
+    let code = if d.moved && !marks.no_moves {
+        marks.move_from_mark.unwrap_or(2)
+    } else {
+        marks.del_mark
+    };
+    match code {
+        8 => Some("^"),
+        9 => Some("#"),
+        _ => None,
+    }
+}
+
+/// Run properties as the markup shows them: insertions, deletions, moves or formatting
+/// changes marked bold / italic by the Advanced Track Changes Options make the run bold /
+/// italic (the face changes, so this goes before [`run_style`]); `None` = unchanged.
+#[must_use]
+pub fn revision_props(
+    rp: &RunProps,
+    view: crate::RevisionView,
+    marks: &crate::MarkFilter,
+) -> Option<RunProps> {
+    if view != crate::RevisionView::Markup || marks.hide_ins_del {
+        return None;
+    }
+    let code = if let Some(d) = &rp.del {
+        if marks.hides(&d.info.author) || marks.deletions_in_balloons {
+            return None;
+        }
+        match (
+            d.moved && !marks.no_moves,
+            marks.move_from_mark,
+            marks.del_mark,
+        ) {
+            (true, Some(6), _) | (false, _, 6) => 1,
+            (true, Some(7), _) | (false, _, 7) => 2,
+            _ => 0,
+        }
+    } else if let Some(i) = &rp.ins {
+        if marks.hides(&i.info.author) {
+            return None;
+        }
+        match (
+            i.moved && !marks.no_moves,
+            marks.move_to_mark,
+            marks.ins_mark,
+        ) {
+            (true, Some(5), _) | (false, _, 5) => 1,
+            (true, Some(6), _) | (false, _, 6) => 2,
+            _ => 0,
+        }
+    } else if let Some(c) = &rp.change {
+        if marks.hides(&c.info.author) {
+            return None;
+        }
+        marks.fmt_mark.min(3)
+    } else {
+        0
+    };
+    let mut out = rp.clone();
+    match code {
+        1 => out.bold = Some(true),
+        2 => out.italic = Some(true),
+        _ => return None,
+    }
+    Some(out)
+}
 /// List counters (ECMA-376 Part 1, §17.9 — numbering continues per abstract definition).
 #[derive(Default, Debug, Clone, PartialEq)]
 pub struct ListCounters {

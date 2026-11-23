@@ -678,10 +678,16 @@ fn draw_image(
     let (sx, sy) = (w / vis_w, h / vis_h);
     // Image pixel (u, v) → user space.
     let pattern_t = Transform::from_row(sx, 0.0, 0.0, sy, x - cl * iw * sx, y - ct * ih * sy);
+    // Enlarged pictures are resampled smoothly (bicubic), as the screen backends draw them
+    // (Direct2D high-quality cubic) and the reference shows picture fills.
     let shader = Pattern::new(
         img.as_ref(),
         SpreadMode::Pad,
-        FilterQuality::Bilinear,
+        if sx > 1.0 || sy > 1.0 {
+            FilterQuality::Bicubic
+        } else {
+            FilterQuality::Bilinear
+        },
         opacity.clamp(0.0, 1.0),
         pattern_t,
     );

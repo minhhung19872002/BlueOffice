@@ -219,6 +219,9 @@ pub struct ThemeEntry {
 pub struct DesignState {
     /// Page colour `RRGGBB`.
     pub page_color: Option<String>,
+    /// Fill effect over the page colour (Fill Effects: gradient, texture, pattern, picture).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub page_fill: Option<bo_model::PageFill>,
     /// Page borders of the caret's section.
     pub borders: Option<BordersState>,
     /// The document's watermark.
@@ -267,6 +270,7 @@ impl Engine {
         });
         Some(DesignState {
             page_color: d.background.map(Color::to_hex),
+            page_fill: d.background_fill.clone(),
             borders,
             watermark: s.watermark(),
             theme: d.theme_id.clone(),
@@ -290,6 +294,43 @@ impl Engine {
     }
 
     /// Size and content of a requested watermark.
+    /// The media part of a page fill picture (base64; drawn as PNG / JPEG). A pattern's
+    /// bitmap (only its bits are used) keeps its own format (BMP / GIF).
+    fn page_fill_media(&self, b64: &str, pattern: bool) -> Result<(String, Arc<Vec<u8>>)> {
+        let s = self.session.as_ref().ok_or(EngineError::NoDocument)?;
+        let bytes = crate::merge::base64_decode(b64)
+            .ok_or_else(|| EngineError::BadCommand("page fill picture".into()))?;
+        if pattern {
+            bo_layout::pattern_tile(&bytes)
+                .ok_or_else(|| EngineError::Unsupported("page fill pattern".into()))?;
+        }
+        let bytes = if pattern || crate::edit::image_size(&bytes).is_some() {
+            bytes
+        } else {
+            bo_raster::transcode_to_png(&bytes).unwrap_or(bytes)
+        };
+        if !pattern {
+            crate::edit::image_size(&bytes)
+                .ok_or_else(|| EngineError::Unsupported("page fill picture".into()))?;
+        }
+        let ext = match bo_render::image::sniff(&bytes) {
+            bo_render::image::Format::Jpeg => "jpeg",
+            _ if bytes.starts_with(b"GIF8") => "gif",
+            _ if bytes.starts_with(b"BM") => "bmp",
+            _ => "png",
+        };
+        let doc = s.doc();
+        let mut n = s.part_number_start(doc.media.len() + 1);
+        let name = loop {
+            let cand = format!("/word/media/background{n}.{ext}");
+            if !doc.media.contains_key(&cand) {
+                break cand;
+            }
+            n += 1;
+        };
+        Ok((name, Arc::new(bytes)))
+    }
+
     fn build_watermark(&mut self, spec: &WatermarkSpec) -> Result<Watermark> {
         let s = self.session.as_ref().ok_or(EngineError::NoDocument)?;
         let sec = s.doc().sections.first().cloned().unwrap_or_default();
@@ -386,6 +427,7 @@ impl Engine {
         let edit = matches!(
             cmd,
             Command::SetPageColor { .. }
+                | Command::SetPageFill { .. }
                 | Command::SetPageBorders { .. }
                 | Command::SetWatermark { .. }
                 | Command::ApplyTheme { .. }
@@ -452,10 +494,47 @@ impl Engine {
                 },
                 _ => None,
             };
+            let fill_media = match cmd {
+                Command::SetPageFill {
+                    picture: Some(b64),
+                    fill,
+                    ..
+                } => match self.page_fill_media(
+                    b64,
+                    fill.as_ref()
+                        .is_some_and(|f| f.kind == bo_model::PageFillKind::Pattern),
+                ) {
+                    Ok(m) => Some(m),
+                    Err(e) => {
+                        error = Some(e.to_string());
+                        None
+                    }
+                },
+                _ => None,
+            };
             let s = self.session.as_mut().ok_or(EngineError::NoDocument)?;
             let res = match cmd {
                 Command::SetPageColor { color } => {
                     s.set_page_color(color.as_deref().and_then(Color::from_hex))
+                }
+                Command::SetPageFill {
+                    color,
+                    fill,
+                    picture,
+                } => {
+                    if picture.is_some() && fill_media.is_none() {
+                        Ok(())
+                    } else {
+                        let mut fill = fill.as_deref().cloned();
+                        if let (Some(f), Some((name, _))) = (fill.as_mut(), &fill_media) {
+                            f.image = Some(name.clone());
+                        }
+                        s.set_page_fill(
+                            color.as_deref().and_then(Color::from_hex),
+                            fill,
+                            fill_media.as_ref(),
+                        )
+                    }
                 }
                 Command::SetPageBorders { borders, scope } => {
                     s.set_page_borders(borders.as_ref(), *scope)

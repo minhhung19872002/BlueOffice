@@ -63,6 +63,21 @@ pub struct MarkupOptions {
     pub pictures: bool,
     /// Comment colour (`RRGGBB`); empty = by author.
     pub comment_color: String,
+    /// Formatting marks (`none`, `bold`, `italic`, `underline`, `doubleUnderline`,
+    /// `strikethrough`, `doubleStrikethrough`, `colorOnly`).
+    pub fmt_mark: String,
+    /// Formatting colour (`RRGGBB`); empty = by author.
+    pub fmt_color: String,
+    /// Track moves (moved text marked as moves, else as insertions and deletions).
+    pub track_moves: bool,
+    /// Moved-from marks (deletion values; default `doubleStrikethrough`).
+    pub move_from_mark: String,
+    /// Moved-to marks (insertion values; default `doubleUnderline`).
+    pub move_to_mark: String,
+    /// Moved-from colour (`RRGGBB`); empty = the move colour.
+    pub move_from_color: String,
+    /// Moved-to colour (`RRGGBB`); empty = the move colour.
+    pub move_to_color: String,
 }
 
 impl Default for MarkupOptions {
@@ -84,7 +99,43 @@ impl Default for MarkupOptions {
             connectors: true,
             pictures: true,
             comment_color: String::new(),
+            fmt_mark: "none".to_owned(),
+            fmt_color: String::new(),
+            track_moves: true,
+            move_from_mark: "doubleStrikethrough".to_owned(),
+            move_to_mark: "doubleUnderline".to_owned(),
+            move_from_color: String::new(),
+            move_to_color: String::new(),
         }
+    }
+}
+
+/// Code of an insertion mark name ([`bo_layout::MarkFilter::ins_mark`]).
+fn ins_code(v: &str) -> u8 {
+    match v {
+        "none" => 1,
+        "colorOnly" => 2,
+        "doubleUnderline" => 3,
+        "strikethrough" => 4,
+        "bold" => 5,
+        "italic" => 6,
+        _ => 0,
+    }
+}
+
+/// Code of a deletion mark name ([`bo_layout::MarkFilter::del_mark`]).
+fn del_code(v: &str) -> u8 {
+    match v {
+        "colorOnly" => 1,
+        "doubleStrikethrough" => 2,
+        "hidden" => 3,
+        "underline" => 4,
+        "doubleUnderline" => 5,
+        "bold" => 6,
+        "italic" => 7,
+        "caret" => 8,
+        "hash" => 9,
+        _ => 0,
     }
 }
 
@@ -187,23 +238,26 @@ impl MarkupOptions {
         let mut f = MarkFilter {
             hide_ins_del: !self.insertions_deletions,
             deletions_in_balloons: self.deletion_balloons,
-            ins_mark: match self.ins_mark.as_str() {
-                "none" => 1,
-                "colorOnly" => 2,
-                "doubleUnderline" => 3,
-                "strikethrough" => 4,
-                _ => 0,
-            },
-            del_mark: match self.del_mark.as_str() {
-                "colorOnly" => 1,
-                "doubleStrikethrough" => 2,
-                "hidden" => 3,
-                "underline" => 4,
-                "doubleUnderline" => 5,
-                _ => 0,
-            },
+            ins_mark: ins_code(&self.ins_mark),
+            del_mark: del_code(&self.del_mark),
             ins_color: hex(&self.ins_color),
             del_color: hex(&self.del_color),
+            fmt_mark: match self.fmt_mark.as_str() {
+                "bold" => 1,
+                "italic" => 2,
+                "underline" => 3,
+                "doubleUnderline" => 4,
+                "strikethrough" => 5,
+                "doubleStrikethrough" => 6,
+                "colorOnly" => 7,
+                _ => 0,
+            },
+            fmt_color: hex(&self.fmt_color),
+            no_moves: !self.track_moves,
+            move_from_mark: Some(del_code(&self.move_from_mark)),
+            move_to_mark: Some(ins_code(&self.move_to_mark)),
+            move_from_color: hex(&self.move_from_color),
+            move_to_color: hex(&self.move_to_color),
             ..MarkFilter::default()
         };
         f.hide_reviewers(self.hidden_reviewers.iter().map(String::as_str));
@@ -293,6 +347,7 @@ impl MarkupOptions {
                 area_width: area,
                 bar_color: bars(BAR_ALL),
                 icons: false,
+                bars_right: self.changed_lines == "right",
             },
             // Simple markup keeps the comments' balloons (only comments have one here), as
             // the reference shows them beside the clean text.
@@ -300,11 +355,13 @@ impl MarkupOptions {
                 area_width: area,
                 bar_color: bars(BAR_SIMPLE),
                 icons: false,
+                bars_right: self.changed_lines == "right",
             },
             MarkupMode::None | MarkupMode::Original => MarkupStyle {
                 area_width: 0.0,
                 bar_color: None,
                 icons: false,
+                bars_right: false,
             },
         }
     }
@@ -363,6 +420,27 @@ pub struct MarkupUpdate {
     /// Comment colour (`""` = by author).
     #[serde(default)]
     pub comment_color: Option<String>,
+    /// Formatting marks.
+    #[serde(default)]
+    pub fmt_mark: Option<String>,
+    /// Formatting colour (empty = by author).
+    #[serde(default)]
+    pub fmt_color: Option<String>,
+    /// Track moves.
+    #[serde(default)]
+    pub track_moves: Option<bool>,
+    /// Moved-from marks.
+    #[serde(default)]
+    pub move_from_mark: Option<String>,
+    /// Moved-to marks.
+    #[serde(default)]
+    pub move_to_mark: Option<String>,
+    /// Moved-from colour.
+    #[serde(default)]
+    pub move_from_color: Option<String>,
+    /// Moved-to colour.
+    #[serde(default)]
+    pub move_to_color: Option<String>,
 }
 
 impl MarkupOptions {
@@ -406,6 +484,27 @@ impl MarkupOptions {
         }
         if let Some(v) = u.changed_lines {
             self.changed_lines = v;
+        }
+        if let Some(v) = u.fmt_mark {
+            self.fmt_mark = v;
+        }
+        if let Some(v) = u.fmt_color {
+            self.fmt_color = v;
+        }
+        if let Some(v) = u.track_moves {
+            self.track_moves = v;
+        }
+        if let Some(v) = u.move_from_mark {
+            self.move_from_mark = v;
+        }
+        if let Some(v) = u.move_to_mark {
+            self.move_to_mark = v;
+        }
+        if let Some(v) = u.move_from_color {
+            self.move_from_color = v;
+        }
+        if let Some(v) = u.move_to_color {
+            self.move_to_color = v;
         }
         if let Some(v) = u.balloon_width.filter(|w| w.is_finite() && *w > 0.0) {
             self.balloon_width = v;

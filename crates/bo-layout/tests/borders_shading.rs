@@ -389,3 +389,35 @@ fn consecutive_paragraphs_with_the_same_box_form_one_box() {
     let two = run(vec![p("One", boxed(None)), p("Two", moved)]);
     assert_eq!(horizontal(&two).len(), 4);
 }
+
+/// Round 8: paragraphs sharing a box inside a table cell (and in headers, also stacked)
+/// form one box too — one top and one bottom line, no box room between them.
+#[test]
+fn boxes_group_inside_table_cells() {
+    let boxed = ParaProps {
+        borders: Some(Borders {
+            top: Some(Border::single(4)),
+            left: Some(Border::single(4)),
+            bottom: Some(Border::single(4)),
+            right: Some(Border::single(4)),
+            ..Borders::default()
+        }),
+        ..ParaProps::default()
+    };
+    let mut t = Table::simple(1, 1, Twips(6000));
+    t.rows[0].cells[0].blocks = vec![
+        p("One", boxed.clone()),
+        p("Two", boxed.clone()),
+        p("Three", boxed),
+    ];
+    let l = run(vec![Block::Table(t), p("x", ParaProps::default())]);
+    // The box's horizontal rules (inside the table's own border frame).
+    let frame_left = rules(&l).iter().map(|r| r.0).fold(f32::MAX, f32::min);
+    let horizontal = rules(&l)
+        .iter()
+        .filter(|r| (r.1 - r.3).abs() < 0.01 && r.0 > frame_left + 1.0)
+        .count();
+    assert_eq!(horizontal, 2, "{:?}", rules(&l));
+    let bl = baselines(&l);
+    assert!(((bl[1] - bl[0]) - (bl[2] - bl[1])).abs() < 0.01, "{bl:?}");
+}

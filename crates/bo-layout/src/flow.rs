@@ -127,6 +127,22 @@ pub(crate) struct Snap {
     cols_top: f32,
     cols_low: f32,
     line_no: u32,
+    drop_lines: DropLines,
+}
+
+/// Drop cap lines waiting for the end of the page (compared by place for resyncing).
+#[derive(Debug, Clone, Default)]
+pub(crate) struct DropLines(Vec<Line>);
+
+impl PartialEq for DropLines {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.len() == other.0.len()
+            && self
+                .0
+                .iter()
+                .zip(&other.0)
+                .all(|(a, b)| a.top == b.top && a.start == b.start && a.end == b.end)
+    }
 }
 
 /// Where the flow stood before a top-level block (incremental layout, prompt §5.4).
@@ -163,6 +179,9 @@ pub(crate) struct Resync {
 /// Pagination state.
 pub(crate) struct Flow {
     pub pages: Vec<Page>,
+    /// Lines of drop caps placed on the current page: written after the page's text, as
+    /// the reference word processor's export orders them (frames after the body).
+    drop_lines: DropLines,
     setup: PageSetup,
     section: usize,
     number: u32,
@@ -755,6 +774,7 @@ impl Flow {
             notice: None,
             excl: Vec::new(),
             sides: Vec::new(),
+            drop_lines: DropLines::default(),
             float_tables: Vec::new(),
             page_dx: 0.0,
             v_align: bo_model::PageVAlign::Top,
@@ -820,6 +840,7 @@ impl Flow {
                 cols_top: self.cols_top,
                 cols_low: self.cols_low,
                 line_no: self.line_no,
+                drop_lines: self.drop_lines.clone(),
             },
             number: self.number,
             page: self.pages.len().saturating_sub(1),
@@ -856,6 +877,7 @@ impl Flow {
         self.cols_top = s.cols_top;
         self.cols_low = s.cols_low;
         self.line_no = s.line_no;
+        self.drop_lines.clone_from(&s.drop_lines);
         if let Some(sec) = ctx.doc.sections.get(s.section) {
             self.separator = sec.columns.separator;
             self.line_numbers = sec.line_numbers;
@@ -972,6 +994,7 @@ impl Flow {
     /// §17.11.1 continuationSeparator; the continuation notice, §17.18.33
     /// `continuationNotice`, ends the part shown here).
     fn finish_page(&mut self) {
+        self.flush_drops();
         self.close_columns();
         self.place_page_notes();
         self.align_page();
@@ -1026,6 +1049,7 @@ impl Flow {
     /// shading and borders move with their lines. Pages with tables or floating objects
     /// in the columns keep their layout.
     fn balance_columns(&mut self) {
+        self.flush_drops();
         let n = self.cols.len();
         if n < 2 || self.vertical.is_some() || std::mem::take(&mut self.col_break) {
             return;
@@ -1668,44 +1692,50 @@ impl Flow {
         Ok(())
     }
 
+    /// Write the drop cap lines waiting for the end of the page's text.
+    fn flush_drops(&mut self) {
+        let lines = std::mem::take(&mut self.drop_lines).0;
+        if let Some(page) = self.pages.last_mut() {
+            page.lines.extend(lines);
+        }
+    }
+
     /// Place a waiting drop cap beside paragraph `pb` starting at the current
-    /// position (ECMA-376 Part 1, §17.3.1.11 framePr): `lines` lines of `pb` tall,
-    /// its baseline on the last of them; `drop` keeps those lines `hSpace` clear of
-    /// it, `margin` puts it in the left margin.
+    /// position (ECMA-376 Part 1, §17.3.1.11 framePr): its own line from the paragraph's
+    /// top, at least `lines` lines of `pb` tall; `drop` (and `margin` anchored to the
+    /// text) keeps those lines `hSpace` clear of it, `margin` puts it in the left margin.
     fn place_drop(&mut self, d: &PendingDrop, pb: &ParaBlock) {
         let Some(first) = pb.lines.first() else {
             return;
         };
         let lh = first.h.max(1.0);
         let n = f32::from(d.frame.lines.max(1));
-        let first_base = first
-            .lines
-            .iter()
-            .find(|l| matches!(l.source, LineSource::Body(_)))
-            .map_or(lh * 0.8, |l| l.baseline);
-        let cap_base = d
-            .band
-            .lines
-            .iter()
-            .find(|l| matches!(l.source, LineSource::Body(_)))
-            .map_or(d.band.h, |l| l.baseline);
         let gap = d.frame.h_space.to_pt().max(0.0);
-        let x = match d.frame.drop_cap {
-            DropCap::Drop => self.col_x(),
-            DropCap::Margin => self.col_x() - d.width - gap,
+        // A margin drop cap anchored to the text stands at the text's edge like a dropped one.
+        let dropped = d.frame.drop_cap == DropCap::Drop || d.frame.text_anchor;
+        let x = if dropped {
+            self.col_x()
+        } else {
+            self.col_x() - d.width - gap
         };
-        let dy = self.y + (n - 1.0) * lh + first_base - cap_base;
+        // The letter's own line (its exact spacing, its §17.3.2.24 position) starts at the
+        // frame top, the top of the paragraph it drops into (measured in the reference
+        // export: gen-14 T / B / V with lowered letters, layout-01 N / T of a natural
+        // height) — not on the lines-th baseline.
+        let dy = self.y;
         let b = d.band.translated_ids(x, dy, d.base);
+        self.drop_lines.0.extend(b.lines);
         if let Some(page) = self.pages.last_mut() {
-            page.lines.extend(b.lines);
             page.items.extend(b.items);
         }
         self.page_has_content = true;
-        if d.frame.drop_cap == DropCap::Drop {
+        if dropped {
             let cx = self.col_x();
             self.sides.push(SideZone {
                 y0: self.y,
-                y1: self.y + n * lh - 0.5,
+                // A letter taller than its lines lines (no exact spacing) keeps the text
+                // beside it down to its own line's bottom.
+                y1: self.y + (n * lh).max(d.band.h) - 0.5,
                 x0: cx - 1.0,
                 x1: cx + d.width + gap,
                 side: WrapText::Right,
@@ -1990,7 +2020,10 @@ impl Flow {
         let mut segments: Vec<(usize, f32, f32, f32)> = Vec::new(); // (page, col x, y0, y1)
         let mut ends_on_break = false;
         while i < n {
-            if (self.col_w() - part_w).abs() > 0.01 && self.sides.is_empty() {
+            // Wrap zones above the line placed next (a drop cap of an earlier section on the
+            // page) do not stop the re-wrap.
+            let clear = self.sides.iter().all(|z| z.y1 <= self.y + 0.01);
+            if (self.col_w() - part_w).abs() > 0.01 && clear {
                 if let Some(p) = src {
                     let cur = owned.as_ref().unwrap_or(first);
                     let from: f32 = cur.lines[..i].iter().map(|b| b.h).sum();
@@ -2124,6 +2157,33 @@ impl Flow {
         self.put(ctx, &band, y)
     }
 
+    /// `row` (row `idx` of `tb`, about to be placed at the current position) with each
+    /// vertically merged cell (§17.4.85 vMerge) that runs on past this page measured over
+    /// the rows that still fit here: its content is aligned (§17.4.83 vAlign) within the
+    /// part on this page, as the reference word processor's export shows (office-32,
+    /// docs/ui/REPORT.md "Dàn trang vòng 8").
+    fn merged_part_on_page(
+        &self,
+        tb: &TableBox,
+        idx: usize,
+        mut row: crate::blocks::RowBox,
+    ) -> crate::blocks::RowBox {
+        for c in &mut row.cells {
+            if c.rows_spanned < 2 || c.span_below <= 0.0 {
+                continue;
+            }
+            let mut below = 0.0f32;
+            for r in tb.rows.iter().skip(idx + 1).take(c.rows_spanned - 1) {
+                if !self.fits(self.y + row.h + below, r.h, 0.0, 0.0) {
+                    break;
+                }
+                below += r.h;
+            }
+            c.span_below = c.span_below.min(below);
+        }
+        row
+    }
+
     /// Place a table row by row; rows split across pages unless `cantSplit`, and
     /// `tblHeader` rows repeat at the top of each page (§17.4.49 tblHeader).
     fn place_table(&mut self, ctx: &mut Ctx<'_>, tb: &TableBox) -> Result<(), LayoutError> {
@@ -2140,6 +2200,7 @@ impl Flow {
                 let (add, slack) = self.notes_need(ctx, &notes)?;
                 self.y = self.skip_excl(self.y, row.h);
                 if self.fits(self.y, row.h, add, slack) {
+                    let row = self.merged_part_on_page(tb, idx, row);
                     self.place_row(ctx, row_band(&row, row.h, tb.x, continuation, false), false)?;
                     break;
                 }
@@ -2635,6 +2696,7 @@ fn pending_drop(pb: &ParaBlock, base: u32) -> PendingDrop {
             drop_cap: DropCap::Drop,
             lines: 3,
             h_space: Twips(0),
+            text_anchor: false,
         }),
     }
 }

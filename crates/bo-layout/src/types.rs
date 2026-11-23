@@ -209,6 +209,8 @@ pub enum PageItem {
 pub struct PageDecor {
     /// Page colour, painted first over the whole page.
     pub background: Option<Color>,
+    /// Fill effect over the page colour (gradient, texture, pattern, picture).
+    pub fill: Option<crate::page_fill::PageFillPaint>,
     /// Page border lines and art motifs.
     pub borders: Vec<PageItem>,
     /// The borders go behind the text (§17.18.65 `ST_PageBorderZOrder` back).

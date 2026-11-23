@@ -12,6 +12,7 @@ mod forms;
 mod group;
 mod mentions;
 mod ole;
+mod page_fill;
 mod picture;
 mod reader;
 mod shape;

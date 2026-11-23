@@ -9,6 +9,10 @@ use serde_json::json;
 #[path = "doc_r15_tests.rs"]
 mod tests;
 
+#[cfg(test)]
+#[path = "doc_fill18_tests.rs"]
+mod fill18_tests;
+
 /// Round-15 state of the window.
 #[derive(Default)]
 pub(super) struct R15 {
@@ -77,6 +81,12 @@ impl DocWindow {
             }
             return Some(true);
         }
+        // Fill Effects › Other Texture… / Select Picture…: the host's picture goes to the
+        // dialog (layout round 8).
+        if id == "r18.pickPicture" {
+            self.requests.push(super::Request::PickPicture);
+            return Some(true);
+        }
         Some(match id {
             "design.paragraphSpacing" => self.r15_open_spacing(),
             // Design › Themes / Colors / Fonts command rows.
@@ -113,6 +123,7 @@ impl DocWindow {
                 self.r15.page = true;
                 self.r3_open_form(DocFormKind::Colors)
             }
+            "design.pageColor.fill" => self.r3_open_form(DocFormKind::FillEffects),
             _ => return None,
         })
     }

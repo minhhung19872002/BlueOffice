@@ -831,3 +831,70 @@ khoảng cách ô theo `tblPrEx` / kiểu bảng / `pct`, ô gộp dọc trong b
 `docfid-47-grouped-boxes-between.png`, `docfid-48-grouped-boxes-shading.png`,
 `docfid-49-single-word-beside-picture.png`, `docfid-50-watermark-notrim.png`, `docfid-51-watermark-trim-rotated.png`,
 `docfid-52-cell-spacing-grid.png`, `docfid-53-cell-spacing-shaded.png`.
+
+## Dàn trang vòng 8 — BlueDoc so với trình soạn thảo đối chiếu (2026-11-23)
+
+Cách chấm như vòng 7 (`SCORER=3`, PDF tham chiếu của vòng 7, 96 tệp). **Không xuất được PDF đối chiếu mới** trong
+vòng này: từ ~14:00 trình soạn thảo đối chiếu (instance COM riêng, ẩn hay hiện thu nhỏ) treo ở `SaveAs2` /
+`ExportAsFixedFormat` dù tệp nằm ở scratch hay ổ E:, dù máy in mặc định là máy mạng (không phân giải được tên) hay
+"Microsoft Print to PDF" (chủ dự án cho đổi tạm); `Documents.Add`, tô nền và `WordOpenXML` vẫn chạy — nên XML tô nền
+trang lấy từ chính trình đối chiếu (`WordOpenXML`), còn ảnh đối chiếu của hiệu ứng tô nền để vòng sau.
+
+| | Tệp | Số trang khớp | Đầu dòng khớp (TB tệp) | Đầu dòng khớp (theo dòng) | Điểm ảnh lệch TB |
+|---|---|---|---|---|---|
+| Trước → sau | 96 | 96 / 96 | 98,17 → 98,31 % | 99,44 → 99,6 % | 0,01486 → 0,01480 |
+
+Theo tệp (không tệp nào lùi): gen-14 (drop cap) 90,0 → 100 % (điểm ảnh 0,0108 → 0,0088), layout-01 (drop cap + cột)
+96,5 → 99,1 % (0,0156 → 0,0112), office-32 (ô gộp dọc qua trang) 98,8 → 100 %.
+
+Sửa (test: `crates/bo-docx/tests/page_fill.rs`, `src/page_fill.rs`, `crates/bo-layout/src/page_fill.rs`,
+`tests/markup.rs`, `borders_shading.rs`, `page_layout.rs`, `features.rs`, `crates/bo-render/src/page_fill.rs`,
+`crates/bo-engine/tests/page_fill.rs`, `crates/bo-ui/src/doc_fill18.rs`, `doc_fill18_tests.rs`):
+1. **Hiệu ứng tô nền trang** (Design › Page Color › Fill Effects; §17.2.1 background + VML `v:background` / `v:fill`,
+   Part 4 §19.1.2.2, §19.1.2.5): model `DocDesign::background_fill` (`PageFill`: kiểu gradient / gradientRadial /
+   tile / pattern / frame, `color2` hay công thức `fill darken(n)` / `fill lighten(n)`, góc, `focus`, `focusposition`,
+   `colors` của mẫu sẵn, ảnh, `o:title`, khoá tỉ lệ); đọc / ghi khứ hồi (giữ nguyên văn khi không đổi; khi sửa ghi
+   lại VML với quan hệ ảnh); dàn trang `PageDecor::fill`; display list: chuyển màu tuyến tính theo góc VML (0 = trên
+   xuống, −90 = trái sang) trải hết trang theo hướng đó, `focus` đặt màu 2 (100 % cuối, 0 % đầu, giữa thì đối xứng, âm
+   thì đổi màu), chuyển màu "radial" là hình chữ nhật đồng tâm quanh điểm focus (96 dải), kết cấu = ảnh lát theo độ
+   phân giải của ảnh (pHYs / JFIF / BMP, mặc định 96 dpi; ảnh quá nhỏ gộp ô để ≤ 4 096 ô mỗi trang), hoa văn = ảnh
+   GIF / BMP 8 × 8 hai màu (giải mã LZW / BMP tự viết) → hoa văn điểm ảnh thiết bị trên màn hình như tô nền đoạn, màu
+   trộn trong PDF, ảnh = kéo giãn cả trang. Engine `setPageFill` (một bước hoàn tác, ảnh thêm vào media; ảnh hoa văn
+   giữ định dạng). Hộp thoại **Hiệu ứng tô nền** (`doc_fill18.rs`) bốn thẻ Chuyển màu / Kết cấu / Hoa văn / Ảnh: một
+   màu (tối ↔ sáng), hai màu, mẫu sẵn của BlueOffice; 6 kiểu chuyển màu × 4 biến thể vẽ thật; 25 kết cấu tự sinh của
+   BlueOffice; 48 hoa văn với màu hoa văn / nền; Chọn ảnh… / Kết cấu khác… qua hộp chọn tệp của host; ô Mẫu; mở lại
+   đúng thẻ của hiệu ứng đang có. Trước đây tài liệu có hiệu ứng tô nền mất cả màu trang (`v:background` lồng bên trong
+   ghi đè). Ảnh PNG phóng to lấy mẫu bicubic (màn hình vốn là Direct2D cubic); PDF giữ `/Interpolate false` như mọi
+   ảnh trong 12 / 12 PDF đối chiếu có ảnh.
+2. **Tuỳ chọn Theo dõi thay đổi nâng cao** (phần cần dàn trang): chèn / xoá đậm, nghiêng (đổi mặt chữ trước khi định
+   hình); xoá dạng dấu mũ / dấu #: đoạn bị xoá thay bằng một ký hiệu ^ / # màu xoá; định dạng (gạch chân, gạch kép, gạch ngang,
+   gạch ngang kép, đậm, nghiêng, chỉ màu) với màu riêng; di chuyển (theo dõi hay không, kiểu và màu từ / tới); vạch
+   thay đổi bên phải. `setMarkup` nhận `fmtMark`, `fmtColor`, `trackMoves`, `moveFromMark`, `moveToMark`,
+   `moveFromColor`, `moveToColor`, các giá trị `bold` / `italic` / `caret` / `hash`, `changedLines: "right"`.
+   Chưa làm: màu tô ô bảng chèn / xoá / gộp / tách theo tuỳ chọn (cần đo bản đối chiếu).
+3. **Khung đoạn gộp trong ô bảng, đầu / chân trang, chú thích** (`stack_blocks`): như thân văn bản vòng 7 — một khung,
+   đường `between`, viền bên và tô nền chạy qua khoảng cách đoạn.
+4. **Hoa văn tô nền trên canvas web** (§17.18.78): ô 8 × 8 điểm ảnh thiết bị neo ở góc trang (`createPattern` trên
+   OffscreenCanvas), giữ màu trộn khi không vẽ được.
+5. **3 tệp tệ tiếp theo**: gen-14 / layout-01 — chữ thả (§17.3.1.11) đặt dòng riêng của nó (giãn dòng chính xác,
+   `w:position`) từ đỉnh đoạn mà nó thả vào, không phải đường cơ sở dòng thứ `lines`; chữ cao hơn `lines` dòng giữ
+   chữ bên cạnh tới đáy dòng của nó; chữ thả lề neo theo văn bản (`hAnchor="text"`, `FrameProps::text_anchor` mới)
+   đứng ở mép chữ như chữ thả thường; dòng chữ thả ghi sau chữ của trang (thứ tự nội dung như bản đối chiếu); đoạn
+   chảy sang cột rộng hơn được ngắt dòng lại kể cả khi vùng bao của chữ thả phía trên còn trên trang. office-32 — ô gộp
+   dọc căn giữa kéo sang trang sau: nội dung căn trong phần ô ở trang này (trước: căn trên cả chiều cao ô gộp, rơi
+   xuống dưới đáy trang, không thấy).
+
+Còn: vị trí dọc hình mờ xoay — dữ liệu vòng 7 cho thấy với `trim` hộp mực đúng cỡ nhưng dịch (a, −a) trong khung hình
+(tức lên trên 1,41·a: 2,2 / 5,9 / 12,1 pt cho wm-a / c / d), không `trim` thì không — cần thêm mẫu từ trình đối chiếu;
+ảnh đối chiếu cho hiệu ứng tô nền và đo màu / dải chuyển màu (sigma) thật; kiểm vị trí ký hiệu ^ / # với bản đối chiếu;
+màu tô ô theo dõi thay đổi trong bảng.
+
+Kiểm tra vòng 8: bo-layout (gồm ảnh chụp insta, không đổi), bo-docx, bo-model, bo-render, bo-raster, bo-gpu-win (`incremental`),
+`cargo test -p bo-cli` 46 / 46, test Hiệu ứng tô nền của bo-ui, test bo-engine `page_fill` / `page_design` / `markup` / `print_job` / `collab_objects` (debug, 41 test),
+canvas-host 57 / 57 + `tsc`; clippy sạch (bo-layout, bo-render, bo-raster, bo-docx, bo-model, bo-edit, bo-engine, bo-ui).
+`cargo test --release -p bo-engine`, `pnpm build:wasm` (release) + `pnpm --filter @blueoffice/platform test`: chạy trên cây
+đã gộp vào `main` (một lần build release chung, theo kế hoạch của main). Xuất PDF đối chiếu ngừng được cả vòng (xem đầu mục).
+
+Ảnh (đối chiếu trái, BlueDoc trước, BlueDoc sau; tô nền: trước | sau, chưa có cột đối chiếu):
+`scratchpad/show/docfid-54-page-fill-effects-gallery.png`, `docfid-55-picture-fill-smoothing.png`,
+`docfid-56-drop-caps-layout01.png`, `docfid-57-drop-caps-gen14.png`, `docfid-58-merged-cell-across-pages-office32.png`.

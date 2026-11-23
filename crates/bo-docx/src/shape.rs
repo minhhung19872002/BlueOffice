@@ -160,7 +160,7 @@ pub(crate) fn css_len(v: &str) -> Option<i64> {
 }
 
 /// VML colour (`#RRGGBB`, `#RGB` or a colour name; a trailing `[n]` index is ignored).
-fn vml_color(v: &str) -> Option<Color> {
+pub(crate) fn vml_color(v: &str) -> Option<Color> {
     let v = v.split_whitespace().next()?;
     if let Some(h) = v.strip_prefix('#') {
         if h.len() == 3 {
@@ -223,7 +223,7 @@ pub(crate) fn signature_line(el: &XmlElement) -> SignatureLine {
 
 /// A VML fraction (ECMA-376 Part 4, §19.1.2.5 fill@opacity, §19.1.2.11 imagedata
 /// gain / blacklevel): `0.5`, `.5`, `50%` or a 16.16 fixed value `32768f`.
-fn vml_fraction(v: &str) -> Option<f64> {
+pub(crate) fn vml_fraction(v: &str) -> Option<f64> {
     let v = v.trim();
     if let Some(f) = v.strip_suffix('f') {
         return f.trim().parse::<f64>().ok().map(|n| n / 65_536.0);

@@ -290,7 +290,7 @@ pub enum Command {
         view: RevisionView,
     },
     /// Review display mode and markup options (absent fields are kept).
-    SetMarkup(crate::markup::MarkupUpdate),
+    SetMarkup(Box<crate::markup::MarkupUpdate>),
     /// Accept one revision by id, or those at the selection when `id` is absent.
     AcceptRevision {
         /// Revision id.
@@ -1062,6 +1062,21 @@ pub enum Command {
         #[serde(default)]
         color: Option<String>,
     },
+    /// Page colour with a fill effect (Design › Page Color › Fill Effects: the VML page
+    /// background, ECMA-376 Part 4 §19.1.2.5): `color` `RRGGBB` (the first colour), `fill`
+    /// the effect (`None`: keep the plain colour), `picture` base64 bytes of a texture /
+    /// pattern / picture added as the fill's media part.
+    SetPageFill {
+        /// Page colour.
+        #[serde(default)]
+        color: Option<String>,
+        /// Fill effect.
+        #[serde(default)]
+        fill: Option<Box<bo_model::PageFill>>,
+        /// Picture bytes (base64).
+        #[serde(default)]
+        picture: Option<String>,
+    },
     /// Set (`None`: remove) the page borders (§17.6.10 pgBorders).
     SetPageBorders {
         /// New borders.
@@ -1769,7 +1784,7 @@ impl crate::Engine {
             });
         }
         if let Command::SetMarkup(u) = &cmd {
-            relayout = self.set_markup(u.clone());
+            relayout = self.set_markup((**u).clone());
         }
         if let Command::ShowFieldCodes { on } = cmd {
             relayout |= self.field_codes != on;
@@ -2022,6 +2037,7 @@ impl crate::Engine {
                     | Command::StyleList
                     | Command::Design
                     | Command::SetPageColor { .. }
+                    | Command::SetPageFill { .. }
                     | Command::SetPageBorders { .. }
                     | Command::SetWatermark { .. }
                     | Command::ApplyTheme { .. }

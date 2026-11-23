@@ -560,11 +560,6 @@ pub(crate) struct Joined {
     pub below: bool,
 }
 
-/// Shading and border items of a paragraph segment spanning `y0..y1`.
-pub(crate) fn deco_items(d: &Deco, y0: f32, y1: f32, out: &mut Vec<PageItem>) {
-    deco_items_joined(d, y0, y1, Joined::default(), out);
-}
-
 /// Shading and border items of a paragraph segment spanning `y0..y1` in a group of
 /// paragraphs sharing a box.
 pub(crate) fn deco_items_joined(d: &Deco, y0: f32, y1: f32, j: Joined, out: &mut Vec<PageItem>) {
@@ -790,13 +785,36 @@ pub(crate) fn stack_blocks(
     let mut y = 0.0f32;
     let mut prev: Option<(Option<String>, bool, f32)> = None;
     let mut first_para = true;
-    for b in blocks {
+    // §17.3.1.24: the paragraph built ahead (to know whether it shares the box of the one
+    // before) and the box left open by the previous paragraph (its deco, its bottom).
+    let mut ahead: Option<ParaBlock> = None;
+    let mut open: Option<(Deco, f32)> = None;
+    for (k, b) in blocks.iter().enumerate() {
         match b {
             Block::Paragraph(p) => {
                 // The note number mark belongs to the first paragraph of a note only.
                 let mark = if first_para { note_mark } else { None };
                 first_para = false;
-                let pb = build_para(ctx, p, width, body, mark)?;
+                let pb = match ahead.take() {
+                    Some(pb) => pb,
+                    None => build_para(ctx, p, width, body, mark)?,
+                };
+                let joined_above = open
+                    .as_ref()
+                    .filter(|(g, _)| pb.deco.as_ref().is_some_and(|d| g.groups_with(d)))
+                    .cloned();
+                let mut joined_below = false;
+                if let (Some(d), Some(Block::Paragraph(np))) = (&pb.deco, blocks.get(k + 1)) {
+                    let n = build_para(ctx, np, width, body, None)?;
+                    joined_below =
+                        !n.page_break_before && n.deco.as_ref().is_some_and(|nd| d.groups_with(nd));
+                    ahead = Some(n);
+                }
+                let pb = if joined_above.is_some() || joined_below {
+                    regroup(&pb, joined_above.is_some(), joined_below)
+                } else {
+                    pb
+                };
                 let mut before = pb.space_before;
                 if let Some((ps, pc, pa)) = &prev {
                     let mut after = *pa;
@@ -820,14 +838,29 @@ pub(crate) fn stack_blocks(
                     st.bands.push((y, band));
                     y += h;
                 }
+                open = None;
                 if let Some(d) = &pb.deco {
                     if let Some((top, band)) = st.bands.get_mut(first_idx) {
+                        let mut j = Joined {
+                            above: joined_above.is_some(),
+                            from: 0.0,
+                            shade_from: false,
+                            below: joined_below,
+                        };
+                        // Sides and shading run through the spacing from the paragraph above.
+                        if let Some((g, end)) = &joined_above {
+                            j.from = (end - *top).min(0.0);
+                            j.shade_from = g.shading == d.shading && g.pattern == d.pattern;
+                        }
                         let mut items = Vec::new();
-                        deco_items(d, 0.0, y - *top, &mut items);
-                        let _ = y0;
+                        deco_items_joined(d, 0.0, y - *top, j, &mut items);
                         band.items.extend(items);
                     }
+                    if joined_below {
+                        open = Some((d.clone(), y));
+                    }
                 }
+                let _ = y0;
                 for f in pb.floats {
                     st.floats.push((y0, f));
                 }
@@ -843,6 +876,7 @@ pub(crate) fn stack_blocks(
                     y += h;
                 }
                 prev = None;
+                open = None;
             }
             Block::Opaque(_) => {}
         }

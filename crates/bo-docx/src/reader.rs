@@ -209,6 +209,7 @@ pub fn read_docx(bytes: &[u8]) -> Result<Document> {
         notes_fingerprint: crate::writer::notes_fingerprint(&doc),
         even_and_odd_headers: doc.even_and_odd_headers,
         background: doc.design.background,
+        background_fill: doc.design.background_fill.clone(),
         display_background_shape: doc.design.display_background_shape,
         borders_do_not_surround: (
             doc.design.borders_do_not_surround_header,
@@ -732,10 +733,31 @@ fn read_body(
 ) -> Result<(String, String)> {
     let mut r = XmlReader::new(data, &ctx.part);
     loop {
+        let at = r.pos();
         match r.read()? {
             // §17.2.1 background (before the body): the page colour.
-            Event::Start(e) | Event::Empty(e) if name(&e) == b"background" => {
+            Event::Empty(e) if name(&e) == b"background" => {
                 doc.design.background = color_attr(&e, b"color");
+            }
+            // A fill effect (gradient, texture, pattern, picture) is a VML `v:background`
+            // inside (ECMA-376 Part 4, §19.1.2.2 background, §19.1.2.5 fill).
+            Event::Start(e) if name(&e) == b"background" => {
+                doc.design.background = color_attr(&e, b"color");
+                let raw = capture(&mut r, true, at)?;
+                let dom = bo_drawingml::dom::parse(raw.xml.as_bytes(), &ctx.part).ok();
+                if let Some((fill, color)) = dom.as_ref().and_then(|d| {
+                    crate::page_fill::read(d, doc.design.background, |id| ctx.target(id))
+                }) {
+                    if let Some(img) = &fill.image {
+                        if !media.contains_key(img) {
+                            if let Some(p) = ctx.pkg.part(img) {
+                                media.insert(img.clone(), Arc::new(p.data.clone()));
+                            }
+                        }
+                    }
+                    doc.design.background = doc.design.background.or(color);
+                    doc.design.background_fill = Some(fill);
+                }
             }
             Event::Start(e) if name(&e) == b"body" => {
                 let prefix = r.slice(0, r.pos());
@@ -2105,6 +2127,8 @@ fn read_ppr(r: &mut XmlReader<'_>, mut sect: Option<SectCtx<'_, '_>>) -> Result<
                     },
                     lines: int(e, b"lines").unwrap_or(1).clamp(1, 10) as u8,
                     h_space: twips(e, b"hSpace").unwrap_or(Twips(0)),
+                    text_anchor: attr(e, b"dropCap").as_deref() == Some("margin")
+                        && attr(e, b"hAnchor").as_deref() == Some("text"),
                 });
                 if s {
                     r.skip_element()?;

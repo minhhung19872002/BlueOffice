@@ -425,6 +425,7 @@ impl Session {
             drop_cap: s.position,
             lines: s.lines.clamp(1, 10),
             h_space: Twips(s.distance.clamp(0, 31_680)),
+            text_anchor: false,
         });
         let font = spec
             .and_then(|s| s.font.clone())
@@ -631,7 +632,8 @@ mod tests {
             Some(FrameProps {
                 drop_cap: DropCap::Drop,
                 lines: 3,
-                h_space: Twips(72)
+                h_space: Twips(72),
+                text_anchor: false,
             })
         );
         // 11 pt × 3 lines × 1.1 = 36.5 pt (73 half-points).

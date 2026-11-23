@@ -1421,7 +1421,14 @@ fn read_run(
             b"drawing" if s => {
                 let img = read_drawing(r, ctx, media)?;
                 let raw = Raw::new(r.slice(before, r.pos()), 0);
+                // Round 20: a shape with a picture fill (wps:wsp with a blipFill) is a shape.
+                let shape_first = raw
+                    .xml
+                    .contains(":wsp")
+                    .then(|| drawing_shape(&raw.xml, ctx, media))
+                    .flatten();
                 match drawing_group(&raw.xml, ctx, media)
+                    .or(shape_first)
                     .or(img)
                     .or_else(|| drawing_shape(&raw.xml, ctx, media))
                 {

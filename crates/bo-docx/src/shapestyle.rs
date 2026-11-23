@@ -9,6 +9,14 @@ use bo_drawingml::dom::attr_int;
 use bo_model::shape_style::{ShapeGradient, ShapePicture, ShapeStop, ShapeStyle};
 use bo_model::slide::{Fill, GradientShade, XmlElement};
 
+/// The exact :alpha (1/1000 %) of the colour in fill element ill (a child of parent).
+fn xml_alpha(parent: Option<&XmlElement>, fill: &str) -> Option<i32> {
+    let f = parent?.elements().find(|e| e.local() == fill)?;
+    let c = f.elements().next()?;
+    let a = c.elements().find(|e| e.local() == "alpha")?;
+    attr_int::<i32>(a, "val")
+}
+
 /// Opacity (1/1000 %) of an 8-bit alpha.
 fn alpha_of(a: u8) -> i32 {
     (i32::from(a) * 100_000 + 127) / 255
@@ -27,7 +35,7 @@ pub(crate) fn read(
         Some(Fill::Solid(c)) => {
             let a = resolve(c, ctx).to_u8()[3];
             if a < 255 {
-                s.fill_alpha = Some(alpha_of(a));
+                s.fill_alpha = Some(xml_alpha(sp, "solidFill").unwrap_or_else(|| alpha_of(a)));
             }
         }
         Some(Fill::Gradient(g)) if g.stops.len() >= 2 => {
@@ -83,7 +91,8 @@ pub(crate) fn read(
     if let Some(Fill::Solid(c)) = line_fill {
         let a = resolve(c, ctx).to_u8()[3];
         if a < 255 {
-            s.line_alpha = Some(alpha_of(a));
+            let ln = sp.and_then(|sp| sp.elements().find(|e| e.local() == "ln"));
+            s.line_alpha = Some(xml_alpha(ln, "solidFill").unwrap_or_else(|| alpha_of(a)));
         }
     }
     s.effects = sp.and_then(crate::picstyle::read_shape_effects);

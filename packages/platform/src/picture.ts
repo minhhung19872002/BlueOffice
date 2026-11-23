@@ -163,7 +163,38 @@ export type PictureCommand =
   /** Artistic Effects (a14 imgEffect name, or `none`) (BlueDoc). */
   | { cmd: 'pictureArtistic'; name: string }
   /** Picture Quick Styles gallery item (BlueDoc). */
-  | { cmd: 'pictureQuickStyle'; index: number };
+  | { cmd: 'pictureQuickStyle'; index: number }
+  /**
+   * Shape Fill › Gradient (round 20, BlueDoc): a gallery variation (`light` / `dark`, index
+   * 0–8), `none`, or explicit stops (§20.1.8.33 gradFill).
+   */
+  | {
+      cmd: 'shapeGradient';
+      variation?: 'light' | 'dark' | 'none';
+      index?: number;
+      kind?: 'linear' | 'circle' | 'rect' | 'shape';
+      angle?: number;
+      focus?: [number, number, number, number];
+      stops?: { pos: number; color: string; alpha?: number }[];
+    }
+  /** Shape Fill › Picture / Texture: base64 picture, tiled or stretched (§20.1.8.14 blipFill). */
+  | { cmd: 'shapePictureFill'; data: string; tile?: boolean; scale?: number; alpha?: number }
+  /** Transparency of the fill and the line in percent (§20.1.2.3.1 alpha). */
+  | { cmd: 'shapeTransparency'; fill?: number; line?: number }
+  /** Shape Effects: as `pictureEffect`, on a shape. */
+  | {
+      cmd: 'shapeEffect';
+      kind: 'shadow' | 'reflection' | 'glow' | 'softEdge' | 'bevel' | 'rotation' | 'preset';
+      preset: string;
+    }
+  /** WordArt Styles › Text Fill: colour, `none`, or a two-colour gradient [from, to, angle]. */
+  | { cmd: 'shapeTextFill'; color?: string; gradient?: [string, string, number] }
+  /** WordArt Styles › Text Outline: colour or `none`, weight in points ([MS-DOCX] w14). */
+  | { cmd: 'shapeTextOutline'; color?: string; weight?: number }
+  /** WordArt Styles › Text Effects: shadow / reflection / glow preset, or `none`. */
+  | { cmd: 'shapeTextEffect'; kind: 'shadow' | 'reflection' | 'glow' | 'none'; preset?: string }
+  /** WordArt Styles gallery item. */
+  | { cmd: 'wordArtStyle'; index: number };
 
 /** Text wrapping of a picture (Wrap Text menu). */
 export type PictureWrap =

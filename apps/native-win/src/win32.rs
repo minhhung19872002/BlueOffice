@@ -1691,25 +1691,6 @@ pub fn activate_window(hwnd: isize) {
     }
 }
 
-#[cfg(test)]
-mod doc_key_tests {
-    use super::*;
-
-    #[test]
-    fn doc_control_punctuation_reaches_the_window() {
-        enable_doc_keys();
-        let mods = Mods {
-            ctrl: true,
-            shift: true,
-            ..Mods::default()
-        };
-        assert_eq!(key(0xBE, mods), Some(Key::Letter('.')));
-        assert_eq!(key(0xBC, mods), Some(Key::Letter(',')));
-        assert_eq!(key(0xDD, mods), Some(Key::Letter(']')));
-        assert_eq!(key(0xDB, mods), Some(Key::Letter('[')));
-    }
-}
-
 /// Insert › Screenshot (BlueDoc round 17): the visible top-level windows of other programs
 /// that have a title and are not minimised (handle, title).
 pub fn screenshot_windows(own: isize) -> Vec<(isize, String)> {
@@ -1776,10 +1757,29 @@ pub fn capture_window(h: isize) -> Option<(u32, u32, Vec<u8>)> {
         if !ok || lines == 0 {
             return None;
         }
-        for p in px.chunks_exact_mut(4) {
+        for p in px.as_chunks_mut::<4>().0 {
             p.swap(0, 2);
             p[3] = 255;
         }
         Some((w as u32, hgt as u32, px))
+    }
+}
+
+#[cfg(test)]
+mod doc_key_tests {
+    use super::*;
+
+    #[test]
+    fn doc_control_punctuation_reaches_the_window() {
+        enable_doc_keys();
+        let mods = Mods {
+            ctrl: true,
+            shift: true,
+            ..Mods::default()
+        };
+        assert_eq!(key(0xBE, mods), Some(Key::Letter('.')));
+        assert_eq!(key(0xBC, mods), Some(Key::Letter(',')));
+        assert_eq!(key(0xDD, mods), Some(Key::Letter(']')));
+        assert_eq!(key(0xDB, mods), Some(Key::Letter('[')));
     }
 }

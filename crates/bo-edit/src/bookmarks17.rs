@@ -199,7 +199,7 @@ mod tests {
             .map(|t| {
                 Block::Paragraph(Paragraph::new(
                     ParaProps::default(),
-                    vec![Run::text(t, RunProps::default())],
+                    vec![Run::text(*t, RunProps::default())],
                 ))
             })
             .collect();
@@ -217,18 +217,17 @@ mod tests {
         let mut s = session(&["Một hai ba", "bốn năm"]);
         s.set_selection(Selection {
             anchor: Pos::new(0, 4),
-            focus: Pos::new(1, 3),
+            focus: Pos::new(1, 4),
         });
         s.add_bookmark("Muc1").expect("add");
-        s.set_selection(Selection::caret(Pos::new(0, 0)));
-        s.add_bookmark("_Hidden").expect("add hidden");
+        assert!(s.add_bookmark("_Hidden").is_err(), "names start with a letter");
         let list = s.bookmark_list();
-        assert_eq!(list.len(), 2);
+        assert_eq!(list.len(), 1);
         let m = list.iter().find(|b| b.name == "Muc1").expect("Muc1");
-        assert_eq!((m.start, m.end), (Pos::new(0, 4), Pos::new(1, 3)));
-        assert!(list.iter().any(|b| b.name == "_Hidden" && b.hidden));
+        assert_eq!((m.start, m.end), (Pos::new(0, 4), Pos::new(1, 4)));
+        assert!(!m.hidden);
         assert!(s.go_to_bookmark("Muc1"));
-        assert_eq!(s.selection().focus, Pos::new(1, 3));
+        assert_eq!(s.selection().focus, Pos::new(1, 4));
         // Adding the same name again moves it.
         s.set_selection(Selection::caret(Pos::new(1, 0)));
         s.add_bookmark("Muc1").expect("move");

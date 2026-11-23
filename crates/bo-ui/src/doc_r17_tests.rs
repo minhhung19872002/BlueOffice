@@ -62,7 +62,7 @@ fn bookmark_dialog_adds_goes_to_and_deletes() {
     let sel = w.view.engine().session().expect("s").selection();
     assert_eq!((sel.anchor.offset, sel.focus.offset), (6, 10));
     click(&mut w, "delete");
-    assert!(w.view.engine().doc_bookmarks().is_empty());
+    assert_eq!(w.view.engine().doc_bookmarks(), Vec::new());
 }
 
 #[test]
@@ -131,7 +131,7 @@ fn macros_dialog_lists_nothing_without_a_project_and_never_runs() {
     assert!(w.action("view.macros.view"));
     let f = w.r3.form.as_ref().expect("macros");
     assert_eq!(f.kind, DocFormKind::Macros);
-    assert!(f.items_for_test("macros").is_empty());
+    assert_eq!(f.items_for_test("macros"), Vec::<String>::new());
 }
 
 #[test]

@@ -204,7 +204,7 @@ impl DocForm {
     /// Add needs a valid name; Delete and Go To an existing bookmark.
     fn bm_enable(&mut self) {
         let name = self.text("name");
-        let exists = self.ids.iter().any(|n| *n == name);
+        let exists = self.ids.contains(&name);
         self.form.enable(
             "add",
             bo_edit::bookmarks17::valid_bookmark_name(name.trim()),
@@ -491,10 +491,9 @@ pub(crate) fn macro_names(source: &str) -> Vec<String> {
             let lower = l.to_ascii_lowercase();
             let rest = if let Some(r) = lower.strip_prefix("public sub ") {
                 &l[l.len() - r.len()..]
-            } else if let Some(r) = lower.strip_prefix("sub ") {
-                &l[l.len() - r.len()..]
             } else {
-                return None;
+                let r = lower.strip_prefix("sub ")?;
+                &l[l.len() - r.len()..]
             };
             let name: String = rest
                 .chars()

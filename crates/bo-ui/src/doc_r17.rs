@@ -377,7 +377,7 @@ impl DocWindow {
 
     /// Insert › Screenshot: the Available Windows the host listed, as a menu under the
     /// button (a choice captures that window into the document).
-    pub fn show_screenshot_windows(&mut self, windows: Vec<(isize, String)>) -> bool {
+    pub fn show_screenshot_windows(&mut self, windows: &[(isize, String)]) -> bool {
         let anchor = self
             .ribbon
             .rect_of(RibbonHit::Command("insert.screenshot"))

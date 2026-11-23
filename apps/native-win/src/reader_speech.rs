@@ -13,6 +13,7 @@ use windows::Win32::System::Com::{
 pub struct Speech {
     voice: Option<ISpVoice>,
     /// The installed voices (BlueDoc Read Aloud › Settings, round 17).
+    #[allow(dead_code)] // BlueDoc only (BlueReader shares this module).
     tokens: Vec<windows::Win32::Media::Speech::ISpObjectToken>,
 }
 
@@ -69,6 +70,7 @@ impl Speech {
     }
 
     /// The installed voices' names and the index of the one in use (round 17).
+    #[allow(dead_code)] // BlueDoc only (BlueReader shares this module).
     pub fn voices(&mut self) -> (Vec<String>, usize) {
         use windows::Win32::Media::Speech::{ISpObjectTokenCategory, SpObjectTokenCategory};
         use windows::Win32::System::Com::CoTaskMemFree;
@@ -127,6 +129,7 @@ impl Speech {
     }
 
     /// Speak with voice `i` of [`Speech::voices`] from now on.
+    #[allow(dead_code)] // BlueDoc only (BlueReader shares this module).
     pub fn set_voice(&mut self, i: usize) {
         let Some(t) = self.tokens.get(i).cloned() else {
             return;

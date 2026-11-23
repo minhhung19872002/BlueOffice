@@ -816,7 +816,7 @@ impl Shell {
                 // Insert › Screenshot: the other programs' windows, then the chosen one.
                 Request::ListScreenshotWindows => {
                     let list = win32::screenshot_windows(self.hwnd);
-                    redraw |= self.view.show_screenshot_windows(list);
+                    redraw |= self.view.show_screenshot_windows(&list);
                 }
                 Request::CaptureWindow(h) => {
                     if let Some(png) = win32::capture_window(h).and_then(|(w, hh, px)| {

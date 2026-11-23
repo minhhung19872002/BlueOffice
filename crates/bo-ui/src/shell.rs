@@ -163,18 +163,18 @@ pub enum Request {
     /// Finish & Merge › Send Email Messages (round 16): hand each message to the system's
     /// mail program (the Windows host writes `.eml` drafts and opens them).
     SendMails(Vec<OutMail>),
-    /// Let the user pick a file for purpose (round 17: 	extFromFile, object,
-    /// watermark) among ilter (documents, workbooks, pictures, ll), then call
-    /// [DocWindow::file_picked].
+    /// Let the user pick a file for `purpose` (round 17: `textFromFile`, `object`,
+    /// `watermark`) among `filter` (`documents`, `workbooks`, `pictures`, `all`), then call
+    /// [`DocWindow::file_picked`].
     PickFile {
         /// What the file is for.
         purpose: String,
         /// Kind of files offered.
         filter: String,
     },
-    /// View › Switch Windows: list the BlueDoc windows with [DocWindow::show_windows].
+    /// View › Switch Windows: list the BlueDoc windows with [`DocWindow::show_windows`].
     ListWindows,
-    /// Count the BlueDoc windows and call [DocWindow::set_window_count].
+    /// Count the BlueDoc windows and call [`DocWindow::set_window_count`].
     CountWindows,
     /// Bring this BlueDoc window (a handle the host listed) to the front.
     ActivateWindow(isize),

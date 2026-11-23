@@ -117,6 +117,6 @@ mod tests {
             name: "Beta".into(),
         })
         .expect("delete");
-        assert!(back.doc_bookmarks().is_empty());
+        assert_eq!(back.doc_bookmarks(), Vec::new());
     }
 }

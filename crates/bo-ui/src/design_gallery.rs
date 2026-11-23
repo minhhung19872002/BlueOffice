@@ -376,6 +376,38 @@ impl DesignGallery {
                     ui,
                     t.text,
                 );
+                if self.menu == DesignMenu::Themes && i > 0 {
+                    let s = self.px(16.0);
+                    footer_icon(
+                        p,
+                        [
+                            self.x + self.px(10.0),
+                            ry + (self.footer_row() - s) / 2.0,
+                            s,
+                            s,
+                        ],
+                        i == 2,
+                    );
+                }
+            }
+            // Size grip in the bottom-right corner, as the reference's galleries.
+            let (gx, gy) = (self.x + w - self.px(3.0), self.y + h - self.px(3.0));
+            let dot = self.px(1.6).max(1.0);
+            for (dx, dy) in [
+                (1.0, 3.0),
+                (2.0, 2.0),
+                (2.0, 3.0),
+                (3.0, 1.0),
+                (3.0, 2.0),
+                (3.0, 3.0),
+            ] {
+                p.fill_rect(
+                    gx - (4.0 - dx) * self.px(3.0) - dot,
+                    gy - (4.0 - dy) * self.px(3.0) - dot,
+                    dot,
+                    dot,
+                    Rgba(0x9a, 0x9a, 0x9a, 255),
+                );
             }
         }
     }
@@ -431,5 +463,45 @@ impl DesignGallery {
             ui,
             t.text,
         );
+    }
+}
+
+/// Icons of Browse for Themes… (an open folder with a theme page) and Save Current Theme…
+/// (a theme page over a disk), BlueOffice's own drawings.
+fn footer_icon(p: &mut dyn Painter, r: [f32; 4], save: bool) {
+    let k = r[2] / 16.0;
+    let grey = Rgba(0x6e, 0x6e, 0x6e, 255);
+    let page = |p: &mut dyn Painter, x: f32, y: f32| {
+        p.fill_rect(x, y, 9.0 * k, 11.0 * k, grey);
+        p.fill_rect(x + k, y + k, 7.0 * k, 9.0 * k, Rgba(255, 255, 255, 255));
+        for (j, c) in [Rgba(0x2f, 0x6f, 0xba, 255), Rgba(0xd0, 0x6a, 0x2a, 255)]
+            .into_iter()
+            .enumerate()
+        {
+            p.fill_rect(
+                x + (2.0 + 3.0 * j as f32) * k,
+                y + 7.0 * k,
+                2.0 * k,
+                2.0 * k,
+                c,
+            );
+        }
+    };
+    if save {
+        page(p, r[0] + 6.0 * k, r[1]);
+        let blue = Rgba(0x2f, 0x6f, 0xba, 255);
+        p.fill_rect(r[0], r[1] + 7.0 * k, 9.0 * k, 9.0 * k, blue);
+        p.fill_rect(
+            r[0] + 2.0 * k,
+            r[1] + 8.0 * k,
+            5.0 * k,
+            3.0 * k,
+            Rgba(255, 255, 255, 255),
+        );
+    } else {
+        let tan = Rgba(0xe8, 0xb8, 0x4a, 255);
+        p.fill_rect(r[0], r[1] + 6.0 * k, 14.0 * k, 9.0 * k, tan);
+        p.fill_rect(r[0], r[1] + 4.0 * k, 6.0 * k, 3.0 * k, tan);
+        page(p, r[0] + 6.0 * k, r[1]);
     }
 }

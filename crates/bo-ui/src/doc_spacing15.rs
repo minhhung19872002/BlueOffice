@@ -16,6 +16,7 @@ const RULE: Rgba = Rgba(0xe2, 0xe4, 0xe7, 255);
 const WHITE: Rgba = Rgba(255, 255, 255, 255);
 const LINE: Rgba = Rgba(0x80, 0x80, 0x80, 255);
 const ACCENT: Rgba = Rgba(0x2f, 0x6f, 0xba, 255);
+const GAP_TINT: Rgba = Rgba(0xdc, 0xe8, 0xf5, 255);
 
 /// Menu size and rows (reference px).
 const W: f32 = 311.0;
@@ -230,16 +231,21 @@ fn paint_preset_icon(p: &mut dyn Painter, r: [f32; 4], i: usize) {
     let k = r[2] / 42.0;
     p.fill_rect(r[0], r[1], r[2], r[3], LINE);
     p.fill_rect(r[0] + 1.0, r[1] + 1.0, r[2] - 2.0, r[3] - 2.0, WHITE);
-    // Line pitch and the gap after each two-line paragraph grow with the preset.
-    let pitch = [3.0, 3.0, 3.5, 3.5, 4.5, 6.0][i.min(5)] * k;
-    let gap = [0.0, 2.5, 4.0, 7.0, 4.0, 5.5][i.min(5)] * k;
+    // Line pitch and the gap after each two-line paragraph grow with the preset; the gaps
+    // are tinted so the spacing reads at a glance.
+    let pitch = [2.5, 2.5, 3.0, 3.0, 4.5, 6.0][i.min(5)] * k;
+    let gap = [0.0, 3.0, 5.0, 9.0, 6.0, 9.0][i.min(5)] * k;
     let mut ly = r[1] + 5.0 * k;
     let mut n = 0;
     while ly < r[1] + r[3] - 4.0 * k {
         let lw = if n % 2 == 1 { 16.0 } else { 24.0 } * k;
         p.fill_rect(r[0] + 5.0 * k, ly.round(), lw.round(), k.max(1.0), LINE);
         ly += pitch;
-        if n % 2 == 1 {
+        if n % 2 == 1 && gap > 0.0 {
+            let band = (r[1] + r[3] - 3.0 * k - ly).min(gap - k);
+            if band > 0.0 {
+                p.fill_rect(r[0] + 4.0 * k, ly.round(), 26.0 * k, band.round(), GAP_TINT);
+            }
             ly += gap;
         }
         n += 1;

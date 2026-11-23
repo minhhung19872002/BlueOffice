@@ -155,6 +155,8 @@ pub(crate) struct ColorsState {
     /// What OK changes: `page` (Page Color) or `form` (the colour drop-down of the dialog
     /// kept under this one).
     pub(crate) target: String,
+    /// Create New Theme Fonts: the sample scrolled down by this many lines.
+    pub(crate) scroll: u8,
 }
 
 /// `RRGGBB` → (r, g, b).
@@ -365,6 +367,7 @@ fn open_colors(s: &Strings, c: &FormContext) -> DocForm {
         current,
         new: None,
         target,
+        scroll: 0,
     }));
     f.form.enable("ok", false);
     f
@@ -415,6 +418,16 @@ impl DocForm {
             return false;
         }
         match id {
+            "tfUp" | "tfDown" => {
+                if let Some(st) = self.r15.as_mut() {
+                    st.scroll = if id == "tfUp" {
+                        st.scroll.saturating_sub(1)
+                    } else {
+                        (st.scroll + 1).min(2)
+                    };
+                }
+                true
+            }
             "hex6" => {
                 let (lx, ly) = (HEX_CANVAS[0] + x, HEX_CANVAS[1] + y);
                 let hit = cells().into_iter().find(|c| {
@@ -636,6 +649,10 @@ pub(super) fn paint_canvas(
         }
         "tfSample" => {
             paint_theme_fonts_sample(f, r, p, font);
+            return true;
+        }
+        "tfUp" | "tfDown" => {
+            paint_scroll_button(r, p, id == "tfUp");
             return true;
         }
         _ => {}
@@ -1000,7 +1017,11 @@ fn open_theme_fonts(s: &Strings, c: &FormContext) -> DocForm {
         [322.0, 60.0, 100.0, 18.0],
         &tr("doc15.sample", "Sample"),
     );
-    f.canvas("tfSample", [321.0, 83.0, 311.0, 107.0]);
+    f.canvas("tfSample", [321.0, 83.0, 313.0, 107.0]);
+    // The sample's up / down buttons (scroll it, as the reference's).
+    f.canvas("tfUp", [636.0, 85.0, 25.0, 50.0]);
+    f.canvas("tfDown", [636.0, 139.0, 25.0, 50.0]);
+    f.r15 = Some(Box::default());
     f.label(
         "nameL",
         [29.0, 207.0, 60.0, 18.0],
@@ -1121,6 +1142,36 @@ fn paint_theme_colors_sample(f: &DocForm, r: [f32; 4], p: &mut dyn Painter, font
             &bold,
             ink,
         );
+        // A ring in the accent over a rectangle shading from accent 1 to the panel (own
+        // shape, standing for the reference's shape sample).
+        let (rx, ry, rw, rh) = (x0 + 52.0 * k, r[1] + 44.0 * k, 34.0 * k, 22.0 * k);
+        let a1 = col(4);
+        let steps = 12;
+        for st in 0..steps {
+            let t = st as f32 / (steps - 1) as f32;
+            let mix = |a: u8, b: u8| (f32::from(a) + (f32::from(b) - f32::from(a)) * t) as u8;
+            let c = Rgba(mix(a1.0, 255), mix(a1.1, 255), mix(a1.2, 255), 255);
+            p.fill_rect(
+                rx + rw * st as f32 / steps as f32,
+                ry,
+                rw / steps as f32 + 0.5,
+                rh,
+                c,
+            );
+        }
+        let (cx, cy, cr) = (x0 + 46.0 * k, r[1] + 70.0 * k, 12.0 * k);
+        let ring: Vec<PathSeg> = (0..=24)
+            .map(|j| {
+                let a = j as f32 / 24.0 * std::f32::consts::TAU;
+                let (px, py) = (cx + cr * a.cos(), cy + cr * a.sin());
+                if j == 0 {
+                    PathSeg::M(px, py)
+                } else {
+                    PathSeg::L(px, py)
+                }
+            })
+            .collect();
+        p.path(&ring, Some(Rgba(255, 255, 255, 255)), Some((a1, 1.5 * k)));
         // Bars in the six accents on a base line.
         let base = r[1] + 136.0 * k;
         let heights = [14.0, 24.0, 36.0, 30.0, 22.0, 10.0];
@@ -1188,15 +1239,43 @@ fn paint_theme_fonts_sample(f: &DocForm, r: [f32; 4], p: &mut dyn Painter, font:
     };
     p.push_clip(r[0] + 1.0, r[1] + 1.0, r[2] - 2.0, r[3] - 2.0);
     let ink = Rgba(0, 0, 0, 255);
-    p.text_font(&word("heading"), r[0] + 14.0, r[1] + 8.0, &heading, ink);
-    p.text_font(
-        &word("body"),
-        r[0] + 14.0,
-        r[1] + 8.0 + heading.size * 1.4,
-        &body,
-        ink,
-    );
+    let up = f32::from(f.r15.as_ref().map_or(0, |s| s.scroll)) * body.size * 1.4;
+    let top = r[1] + 8.0 - up;
+    p.text_font(&word("heading"), r[0] + 14.0, top, &heading, ink);
+    for i in 0..4 {
+        p.text_font(
+            &word("body"),
+            r[0] + 14.0,
+            top + heading.size * 1.4 + i as f32 * body.size * 1.4,
+            &body,
+            ink,
+        );
+    }
     p.pop_clip();
+}
+
+/// An up / down scroll button: white face framed grey, a chevron (own drawing).
+fn paint_scroll_button(r: [f32; 4], p: &mut dyn Painter, up: bool) {
+    p.fill_rect(r[0], r[1], r[2], r[3], Rgba(0xad, 0xad, 0xad, 255));
+    p.fill_rect(
+        r[0] + 1.0,
+        r[1] + 1.0,
+        r[2] - 2.0,
+        r[3] - 2.0,
+        Rgba(0xfd, 0xfd, 0xfd, 255),
+    );
+    let (cx, cy) = (r[0] + r[2] / 2.0, r[1] + r[3] / 2.0);
+    let a = r[2] * 0.22;
+    let s = if up { -1.0 } else { 1.0 };
+    p.path(
+        &[
+            PathSeg::M(cx - a, cy - s * a / 2.0),
+            PathSeg::L(cx, cy + s * a / 2.0),
+            PathSeg::L(cx + a, cy - s * a / 2.0),
+        ],
+        None,
+        Some((Rgba(0x20, 0x20, 0x20, 255), 1.6)),
+    );
 }
 
 #[cfg(test)]

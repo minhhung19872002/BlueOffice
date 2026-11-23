@@ -175,6 +175,21 @@ fn every_tab_fits_without_scrolling_from_1500_to_600_px() {
             assert!(w.run_interface_command(&format!("tab:{tab}"), &Fixed));
             w.handle(Input::Tick, &Fixed);
             w.refresh(&Fixed);
+            // Tab labels shrink (clipped) instead of the tab strip scrolling.
+            assert!(!w.ribbon.tabs_scroll(), "tab strip scrolls at {width} px");
+            // A gallery never shows as a sliver: Styles is its drop-down button then.
+            if tab == "home"
+                && w.ribbon
+                    .shown_rect(crate::ribbon::RibbonHit::StylesMore)
+                    .is_some()
+            {
+                assert!(
+                    w.ribbon
+                        .shown_rect(crate::ribbon::RibbonHit::Style(0))
+                        .is_some(),
+                    "Styles gallery without a whole tile at {width} px"
+                );
+            }
             if !w.ribbon.overflows() {
                 continue;
             }

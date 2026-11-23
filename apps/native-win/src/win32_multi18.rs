@@ -430,11 +430,13 @@ fn pick_region(v: [i32; 4], px: &[u8]) -> Option<(u32, u32, Vec<u8>)> {
                 let _ = TranslateMessage(&msg);
                 DispatchMessageW(&msg);
             }
+            // Read before the overlay goes: its WM_DESTROY counts as a cancel.
+            let chosen = CLIP.with(|c| c.borrow().as_ref().and_then(|c| c.done).flatten());
             let _ = DestroyWindow(overlay);
             if quit {
                 PostQuitMessage(0);
             }
-            CLIP.with(|c| c.borrow().as_ref().and_then(|c| c.done).flatten())
+            chosen
         } else {
             None
         };
@@ -474,10 +476,11 @@ fn lparam_point(lparam: LPARAM) -> (i32, i32) {
 
 /// Window procedure of the Screen Clipping overlay.
 extern "system" fn clip_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    // The first outcome stays (a later close of the overlay does not cancel a choice).
     let finish = |done: Option<[i32; 4]>| {
         CLIP.with(|c| {
             if let Some(c) = c.borrow_mut().as_mut() {
-                c.done = Some(done);
+                c.done.get_or_insert(done);
             }
         });
     };

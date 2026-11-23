@@ -496,6 +496,7 @@ impl DocWindow {
                 .with_mark_on_own_line()
                 .with_row_widths(crate::doc_r4_fit::row_w)
                 .with_forced_steps(crate::doc_review16::forced_steps)
+                .with_tab_shrinking()
                 .with_scaling(
                     crate::doc_scale18::scaling,
                     crate::doc_scale18::shrink,

@@ -259,6 +259,9 @@ impl Host {
         for s in &mut self.shells {
             s.dirty = true;
         }
+        if std::env::var_os("BLUEOFFICE_NATIVE_DEBUG").is_some() {
+            eprintln!("screen clip: {:?}", clip.as_ref().map(|c| (c.0, c.1)));
+        }
         let Some((w, h, px)) = clip else { return };
         let png = bo_raster::rgba_to_png(bo_raster::codecs::Rgba {
             width: w,
@@ -268,7 +271,10 @@ impl Host {
         if let Some(png) = png {
             self.acquire(i);
             let s = &mut self.shells[i];
-            s.view.insert_picture(png, "Screen Clipping.png");
+            let ok = s.view.insert_picture(png, "Screen Clipping.png");
+            if std::env::var_os("BLUEOFFICE_NATIVE_DEBUG").is_some() {
+                eprintln!("screen clip inserted: {ok}");
+            }
             let m = Measure(s.gpu.as_ref().map(|g| &g.device));
             s.view.refresh(&m);
             self.note_version();

@@ -1049,3 +1049,45 @@ fn table_edge_outdented_by_the_cell_margin_before_mode_15() {
     let (body, cell14) = first_line_x(Some(14));
     assert!((cell14 - body).abs() < 0.2, "{body} {cell14}");
 }
+
+/// Layout round 8 (office-32, the reference's export): a vertically merged, centred cell
+/// that runs on past the page shows its content centred in the part on the first page.
+#[test]
+fn merged_cell_across_a_page_centres_in_its_part_on_the_page() {
+    let rows = 12;
+    let mut t = Table::simple(rows, 2, Twips(6000));
+    for r in 0..rows {
+        t.rows[r].cells[0].props.v_merge = Some(if r == 0 {
+            VMerge::Restart
+        } else {
+            VMerge::Continue
+        });
+        t.rows[r].cells[0].props.v_align = Some(bo_model::CellVAlign::Center);
+        t.rows[r].cells[1].blocks = (0..4).map(|i| p(&format!("R{r}.{i}"))).collect();
+    }
+    t.rows[0].cells[0].blocks = vec![p("Gộp")];
+    let mut blocks: Vec<Block> = (0..30).map(|i| p(&format!("Đoạn {i}"))).collect();
+    blocks.push(Block::Table(t));
+    let l = run(&doc(vec![Section::new(blocks)]));
+    assert!(l.pages.len() >= 2);
+    let page = &l.pages[0];
+    let merged = page
+        .lines
+        .iter()
+        .find(|l| l.fragments.first().is_some_and(|f| f.text == "Gộp"))
+        .expect("merged cell text on the first page");
+    // Inside the page, between the table's first and last row on it.
+    let rows_here: Vec<f32> = page
+        .lines
+        .iter()
+        .filter(|l| l.fragments.first().is_some_and(|f| f.text.starts_with('R')))
+        .map(|l| l.top)
+        .collect();
+    let (top, bottom) = (rows_here[0], rows_here[rows_here.len() - 1]);
+    assert!(
+        merged.top > top && merged.top < bottom,
+        "{} not in {top}..{bottom}",
+        merged.top
+    );
+    assert!(merged.top + merged.height < page.height);
+}

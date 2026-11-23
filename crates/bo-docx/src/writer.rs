@@ -3425,7 +3425,7 @@ fn ppr_children(p: &ParaProps) -> Vec<(String, String)> {
                 "<w:framePr w:dropCap=\"{}\" w:lines=\"{}\"{hs} w:wrap=\"around\" w:vAnchor=\"text\" w:hAnchor=\"{}\"/>",
                 f.drop_cap.as_str(),
                 f.lines.clamp(1, 10),
-                if f.drop_cap == bo_model::DropCap::Margin {
+                if f.drop_cap == bo_model::DropCap::Margin && !f.text_anchor {
                     "page"
                 } else {
                     "text"

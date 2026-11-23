@@ -2127,6 +2127,8 @@ fn read_ppr(r: &mut XmlReader<'_>, mut sect: Option<SectCtx<'_, '_>>) -> Result<
                     },
                     lines: int(e, b"lines").unwrap_or(1).clamp(1, 10) as u8,
                     h_space: twips(e, b"hSpace").unwrap_or(Twips(0)),
+                    text_anchor: attr(e, b"dropCap").as_deref() == Some("margin")
+                        && attr(e, b"hAnchor").as_deref() == Some("text"),
                 });
                 if s {
                     r.skip_element()?;

@@ -92,6 +92,7 @@ fn reads_layout_settings() {
             drop_cap: DropCap::Drop,
             lines: 3,
             h_space: Twips(113),
+            text_anchor: false,
         })
     );
     assert_eq!(props(&doc, 1).suppress_line_numbers, Some(true));
@@ -215,6 +216,7 @@ fn edited_sections_and_paragraphs_round_trip() {
             drop_cap: DropCap::Margin,
             lines: 2,
             h_space: Twips(0),
+            text_anchor: false,
         });
     }
     let out = write_docx(&doc).unwrap();
@@ -247,6 +249,7 @@ fn new_document_writes_everything() {
                     drop_cap: DropCap::Drop,
                     lines: 3,
                     h_space: Twips(0),
+                    text_anchor: false,
                 }),
                 ..ParaProps::default()
             },

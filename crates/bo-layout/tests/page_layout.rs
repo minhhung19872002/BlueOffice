@@ -109,6 +109,7 @@ fn drop_cap_doc(kind: DropCap, h_space: i32) -> Document {
                 drop_cap: kind,
                 lines: 3,
                 h_space: Twips(h_space),
+                text_anchor: false,
             }),
             ..props()
         },
@@ -131,18 +132,30 @@ fn drop_cap_spans_three_lines_and_the_text_wraps_beside_it() {
     assert_eq!(text(cap[0]), "B");
     let lines = body(&l, 1);
     assert!(lines.len() >= 5, "{}", lines.len());
-    // The cap sits at the left edge of the text, its baseline on the third line's.
+    // The cap sits at the left edge of the text, its own line from the paragraph's top
+    // (layout round 8: the reference's export, a letter of natural height).
     assert!((x0(cap[0]) - 72.0).abs() < 0.01, "{}", x0(cap[0]));
-    assert!((cap[0].baseline - lines[2].baseline).abs() < 0.01);
-    // The frame is three lines tall: the first three lines start hSpace (6 pt)
-    // right of the cap, the fourth line at the margin.
+    assert!(
+        (cap[0].top - lines[0].top).abs() < 0.01,
+        "{} {}",
+        cap[0].top,
+        lines[0].top
+    );
+    // The frame is at least three lines tall and as tall as the letter's line: the lines
+    // beside it start hSpace (6 pt) right of the cap, the next one at the margin.
     let indent = x1(cap[0]) + 6.0;
-    for line in &lines[..3] {
+    let bottom =
+        (cap[0].top + cap[0].height).max(lines[0].top + 3.0 * (lines[1].top - lines[0].top));
+    let beside = lines.iter().take_while(|l| l.top < bottom - 0.5).count();
+    assert!(beside >= 3, "{beside}");
+    for line in &lines[..beside] {
         assert!((x0(line) - indent).abs() < 0.01, "{} vs {indent}", x0(line));
     }
-    assert!((x0(lines[3]) - 72.0).abs() < 0.01, "{}", x0(lines[3]));
-    let lh = lines[1].top - lines[0].top;
-    assert!((lines[3].top - lines[0].top - 3.0 * lh).abs() < 0.01);
+    assert!(
+        (x0(lines[beside]) - 72.0).abs() < 0.01,
+        "{}",
+        x0(lines[beside])
+    );
     // The cap takes no room of its own: the paragraph starts at the top margin.
     assert!((lines[0].top - 72.0).abs() < 0.01, "{}", lines[0].top);
 }
@@ -157,7 +170,7 @@ fn margin_drop_cap_sits_left_of_the_text() {
     for line in &lines[..4] {
         assert!((x0(line) - 72.0).abs() < 0.01);
     }
-    assert!((cap.baseline - lines[2].baseline).abs() < 0.01);
+    assert!((cap.top - lines[0].top).abs() < 0.01);
 }
 
 #[test]
@@ -497,4 +510,25 @@ fn continuous_section_columns_start_below_the_previous_section() {
         })
         .unwrap();
     assert!(y1 >= bottom - 0.01, "{y1} {bottom}");
+}
+
+/// Layout round 8 (layout-01, the reference's export): a margin drop cap anchored to the
+/// text (`w:hAnchor="text"`) stands at the text's left edge with the text beside it.
+#[test]
+fn margin_drop_cap_anchored_to_the_text_is_dropped() {
+    let mut d = drop_cap_doc(DropCap::Margin, 120);
+    if let Block::Paragraph(p) = &mut d.sections[0].blocks[0] {
+        if let Some(f) = p.props.frame.as_mut() {
+            f.text_anchor = true;
+        }
+    }
+    let l = run(&d);
+    let cap = body(&l, 0)[0];
+    let lines = body(&l, 1);
+    assert!((x0(cap) - 72.0).abs() < 0.01, "{}", x0(cap));
+    assert!(
+        (x0(lines[0]) - (x1(cap) + 6.0)).abs() < 0.01,
+        "{}",
+        x0(lines[0])
+    );
 }

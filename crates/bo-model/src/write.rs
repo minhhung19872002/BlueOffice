@@ -813,6 +813,11 @@ pub struct FrameProps {
     pub lines: u8,
     /// `w:hSpace`: distance from the text.
     pub h_space: Twips,
+    /// A margin drop cap anchored to the text (`w:hAnchor="text"`): the reference word
+    /// processor sets it at the text's left edge with the text beside it, as a dropped
+    /// letter (measured, docs/ui/REPORT.md "Dàn trang vòng 8").
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub text_anchor: bool,
 }
 
 /// Header or footer variants (§17.10.5 headerReference).

@@ -148,6 +148,16 @@ pub enum Request {
         /// Body (where the document is saved).
         body: String,
     },
+    /// Review › Read Aloud (round 16): speak this text at this rate (−10…10), replacing
+    /// what is being read.
+    Speak {
+        /// Text to speak.
+        text: String,
+        /// Voice rate.
+        rate: i32,
+    },
+    /// Read Aloud: 0 stop, 1 pause, 2 resume, 10 + n: rate n.
+    SpeechControl(i32),
 }
 
 /// Window contents of BlueDoc.

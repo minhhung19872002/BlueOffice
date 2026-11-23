@@ -13,6 +13,21 @@ use std::time::Instant;
 
 #[path = "doc_host6.rs"]
 mod host6;
+// Review › Read Aloud (round 16): BlueReader's Windows speech voice module (SAPI calls
+// confined to it), one voice per UI thread.
+#[path = "reader_speech.rs"]
+#[allow(unsafe_code)]
+mod doc_speech;
+
+thread_local! {
+    static VOICE: std::cell::RefCell<doc_speech::Speech> =
+        std::cell::RefCell::new(doc_speech::Speech::default());
+}
+
+/// `BLUEOFFICE_SPEECH=0` (scripted captures): Read Aloud shows its bar but stays silent.
+fn speech_muted() -> bool {
+    std::env::var_os("BLUEOFFICE_SPEECH").is_some_and(|v| v == "0")
+}
 // Printer status (Win32 calls confined to this child module, like win32.rs).
 #[path = "doc_printers6.rs"]
 #[allow(unsafe_code)]
@@ -548,6 +563,16 @@ impl Shell {
                     let _ = host6::print::properties(self.hwnd, &name, None);
                 }
                 Request::Email { subject, body } => host6::email(&subject, &body),
+                Request::Speak { text, rate } => {
+                    if !speech_muted() {
+                        VOICE.with(|v| {
+                            if let Err(e) = v.borrow_mut().speak(&text, rate) {
+                                eprintln!("speech: {e}");
+                            }
+                        });
+                    }
+                }
+                Request::SpeechControl(what) => VOICE.with(|v| v.borrow_mut().control(what)),
                 Request::PrintJob(job) => self.print_job(&job),
                 Request::SavePrefs => {
                     if let Some(text) = self.view.take_prefs() {
@@ -898,6 +923,15 @@ impl Handler for Shell {
         }
         let m = Measure(self.gpu.as_ref().map(|g| &g.device));
         let mut redraw = self.view.handle(input, &m);
+        // Read Aloud follows the voice: the word being spoken is selected (round 16).
+        if kind == "tick" && self.view.reading_aloud() {
+            let word = if speech_muted() {
+                None
+            } else {
+                VOICE.with(|v| v.borrow().word())
+            };
+            redraw |= self.view.speech_word(word);
+        }
         let t_view = start.elapsed();
         redraw |= self.handle_requests();
         let t_req = start.elapsed();

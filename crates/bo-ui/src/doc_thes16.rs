@@ -36,6 +36,8 @@ pub(crate) enum ThesAction {
     Close,
     /// Open the Insert / Copy menu of a word under rectangle.
     Menu(String, [f32; 4]),
+    /// Open the pane's options menu (Size / Close) under rectangle.
+    PaneMenu([f32; 4]),
 }
 
 /// The Thesaurus pane.
@@ -51,6 +53,10 @@ pub(crate) struct ThesPane {
     hover: Option<usize>,
     /// The search box has the keyboard.
     pub(crate) typing: bool,
+    /// Width chosen with the pane menu's Size (logical px), else the default.
+    pub(crate) width_px: Option<f32>,
+    /// Size is following the pointer.
+    pub(crate) sizing: bool,
     rect: [f32; 4],
     scale: f32,
     /// Placed rows: rectangle and row.
@@ -63,6 +69,27 @@ impl ThesPane {
     /// Pane width at `scale` (250 px at 125 % on the reference).
     pub(crate) fn width(scale: f32) -> f32 {
         (200.0 * scale).round()
+    }
+
+    /// This pane's width at `scale` (Size changes it).
+    pub(crate) fn pane_width(&self, scale: f32) -> f32 {
+        self.width_px
+            .map_or_else(|| Self::width(scale), |w| (w * scale).round())
+    }
+
+    /// Size: the pane's left edge follows the pointer at window x `x` (right edge `right`).
+    pub(crate) fn size_to(&mut self, right: f32, x: f32, scale: f32) {
+        self.width_px = Some(((right - x) / scale).clamp(160.0, 480.0));
+    }
+
+    fn options_rect(&self) -> [f32; 4] {
+        let s = self.px(22.0);
+        [
+            self.left() + self.px(104.0),
+            self.rect[1] + self.px(14.0),
+            s,
+            s,
+        ]
     }
 
     pub(crate) fn new(word: &str, target: Option<(usize, usize, usize)>) -> Self {
@@ -115,7 +142,7 @@ impl ThesPane {
     /// Place the pane at the right of the window (`right`), between `top` and `bottom`.
     pub(crate) fn layout(&mut self, right: f32, top: f32, bottom: f32, scale: f32) {
         self.scale = scale;
-        let w = Self::width(scale);
+        let w = self.pane_width(scale);
         self.rect = [right - w, top, w, bottom - top];
         let list = self.list_rect();
         let row = self.px(21.6);
@@ -227,6 +254,10 @@ impl ThesPane {
         if inside(self.close_rect(), x, y) {
             return ThesAction::Close;
         }
+        let o = self.options_rect();
+        if inside(o, x, y) {
+            return ThesAction::PaneMenu(o);
+        }
         self.typing = inside(self.search_rect(), x, y);
         if self.typing {
             return ThesAction::Redraw;
@@ -308,6 +339,18 @@ impl ThesPane {
             bold: false,
         };
         p.text(&labels[0], self.left(), y + self.px(12.0), title, INK);
+        // The pane's options chevron after the title, as the reference's.
+        let o = self.options_rect();
+        let (ox, oy, ok) = (o[0] + o[2] / 2.0, o[1] + o[3] / 2.0, self.px(5.0));
+        p.path(
+            &[
+                PathSeg::M(ox - ok, oy - ok / 2.0),
+                PathSeg::L(ox, oy + ok / 2.0),
+                PathSeg::L(ox + ok, oy - ok / 2.0),
+            ],
+            None,
+            Some((INK, self.scale.max(1.0).round())),
+        );
         let c = self.close_rect();
         let (cx, cy, k) = (c[0] + c[2] / 2.0, c[1] + c[3] / 2.0, self.px(5.0));
         p.path(

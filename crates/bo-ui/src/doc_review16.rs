@@ -15,7 +15,11 @@ const fn e(id: &'static str, label: &'static str) -> Entry {
 }
 
 /// Collapsed group buttons of the Review tab.
-pub(crate) const GROUP_IDS: [&str; 2] = ["review.commentsGroup", "review.trackingGroup"];
+pub(crate) const GROUP_IDS: [&str; 3] = [
+    "review.commentsGroup",
+    "review.trackingGroup",
+    "review.protectGroup",
+];
 
 fn comments_group() -> Group {
     use Item::Large as L;
@@ -50,6 +54,11 @@ pub(crate) fn full_group(id: &str) -> Option<Group> {
     match id {
         "review.commentsGroup" => Some(comments_group()),
         "review.trackingGroup" => Some(tracking_group()),
+        "review.protectGroup" => Some(Group {
+            label: "docR3.groupProtect",
+            large: vec![Item::Large("review.restrictEditing")],
+            rows: vec![],
+        }),
         _ => None,
     }
 }
@@ -64,6 +73,12 @@ pub(crate) fn review_tab() -> Tab {
                 label: "ribbon.groups.proofing",
                 large: vec![L("review.spellingDialog")],
                 rows: vec![vec![S("review.thesaurus")], vec![S("review.wordCount")]],
+            },
+            // Speech › Read Aloud (the platform's voice, round 16).
+            Group {
+                label: "doc16.groupSpeech",
+                large: vec![L("review.readAloud")],
+                rows: vec![],
             },
             // Check Accessibility opens the Accessibility pane (round 7).
             Group {
@@ -106,7 +121,11 @@ pub(crate) fn review_tab() -> Tab {
 /// Collapse steps of the Review tab, in the reference's order.
 pub(crate) fn scaling(tab: &str) -> &'static [&'static str] {
     match tab {
-        "ribbon.tabs.review" => &["ribbon.groups.comments", "ribbon.groups.tracking"],
+        "ribbon.tabs.review" => &[
+            "ribbon.groups.comments",
+            "ribbon.groups.tracking",
+            "docR3.groupProtect",
+        ],
         _ => &[],
     }
 }
@@ -122,6 +141,7 @@ pub(crate) fn shrink(label: &str, _stage: u8) -> Option<Group> {
     match label {
         "ribbon.groups.comments" => Some(one("ribbon.groups.comments", "review.commentsGroup")),
         "ribbon.groups.tracking" => Some(one("ribbon.groups.tracking", "review.trackingGroup")),
+        "docR3.groupProtect" => Some(one("docR3.groupProtect", "review.protectGroup")),
         _ => None,
     }
 }
@@ -163,12 +183,18 @@ pub(crate) fn menu(id: &str) -> Vec<Entry> {
             e("review.trackChanges", "commands.review.trackChanges"),
             e("review.acceptMenu", "commands.review.acceptMenu"),
         ],
+        "review.protectGroup" => vec![e(
+            "review.restrictEditing",
+            "commands.review.restrictEditing",
+        )],
         _ => Vec::new(),
     }
 }
 
 /// Labels (id → English) of round-16 commands; translations under `doc16.cmd.<id with _>`.
-pub(crate) const LABELS: [(&str, &str); 16] = [
+pub(crate) const LABELS: [(&str, &str); 18] = [
+    ("review.readAloud", "Read Aloud"),
+    ("review.protectGroup", "Protect"),
     ("review.thesaurus", "Thesaurus"),
     ("review.commentsGroup", "Comments"),
     ("review.trackingGroup", "Tracking"),
@@ -188,7 +214,9 @@ pub(crate) const LABELS: [(&str, &str); 16] = [
 ];
 
 /// Ids of this module (`&'static` for the ribbon and menus).
-pub(crate) const IDS: [&str; 8] = [
+pub(crate) const IDS: [&str; 10] = [
+    "review.readAloud",
+    "review.protectGroup",
     "review.thesaurus",
     "review.commentsGroup",
     "review.trackingGroup",
@@ -239,10 +267,29 @@ pub(crate) fn install_icons(icons: &mut Icons) {
     );
     icons.alias("review.commentsGroup", "review.newComment");
     icons.alias("review.trackingGroup", "review.trackChanges");
+    icons.alias("review.protectGroup", "review.protectMenu");
+    // Read Aloud: a speaker with sound waves (own drawing).
+    icons.add_solid(
+        "review.readAloud",
+        &[
+            ("M4 9h4l5-4v14l-5-4h-4Z", grey),
+            ("M15.5 8.5a5 5 0 0 1 0 7l-1-1a3.6 3.6 0 0 0 0-5Z", blue),
+            ("M18 6a8.5 8.5 0 0 1 0 12l-1-1a7 7 0 0 0 0-10Z", blue),
+        ],
+    );
     icons.alias("review.deleteMenu", "review.resolveComment");
     icons.alias("review.deleteShown", "review.resolveComment");
     icons.alias("review.deleteAll", "review.resolveComment");
     icons.alias("review.trackingOptions", "launcher");
+    // Finish & Merge › Send Email Messages: an envelope (own drawing).
+    icons.add_solid(
+        "mailings.finish.email",
+        &[
+            ("M3 7h18v11h-18Z", white),
+            ("M3 7h18v11h-18ZM4 8.4v8.6h16v-8.6l-8 5Z", grey),
+            ("M4.5 8h15l-7.5 4.7Z", blue),
+        ],
+    );
 }
 
 #[cfg(test)]

@@ -32,6 +32,12 @@ pub(super) struct R16 {
     thes_word: Option<String>,
     /// Actions for the window the last merge opens.
     new_actions: Option<String>,
+    /// Where a menu opened from the group drop-down goes (its button there).
+    pop_anchor: Option<[f32; 4]>,
+    /// The text of the last Check for Errors report.
+    report: String,
+    /// Read Aloud in progress (its bar shown).
+    pub(super) ra: Option<crate::doc_speech16::ReadAloud>,
 }
 
 /// Border of the markup display box (#646464), its arrow separator (#949494) and arrow
@@ -54,6 +60,17 @@ impl DocWindow {
         if let Some(spec) = id.strip_prefix("r16.merge:") {
             return Some(self.r16_merge(spec));
         }
+        if let Some(n) = id.strip_prefix("r16.ra.speed:") {
+            let rate = n.parse::<i32>().unwrap_or(0).clamp(-10, 10);
+            if let Some(ra) = self.r16.ra.as_mut() {
+                ra.rate = rate;
+            }
+            self.requests.push(super::Request::SpeechControl(10 + rate));
+            return Some(true);
+        }
+        if let Some(mode) = id.strip_prefix("r16.checkErrors:") {
+            return Some(self.r16_check_errors(mode));
+        }
         // Track Changes Options › Reviewing Pane: Off / Vertical / Horizontal.
         if let Some(pane) = id.strip_prefix("r16.pane:") {
             let now = self.r6.review.as_ref().map(|p| p.horizontal);
@@ -71,12 +88,26 @@ impl DocWindow {
         }
         Some(match id {
             "review.thesaurus" => self.r16_toggle_thesaurus(),
+            "r16.thes.size" => {
+                if let Some(t) = self.r16.thes.as_mut() {
+                    t.sizing = true;
+                }
+                true
+            }
+            "r16.thes.close" => {
+                self.r16.thes = None;
+                self.relayout_pending = true;
+                true
+            }
+            "review.readAloud" => self.r16_toggle_read_aloud(),
             "mailings.highlightFields" => {
                 self.view.highlight_fields = !self.view.highlight_fields;
                 self.view.refresh_comment_marks();
                 true
             }
             "mailings.finish" => self.r16_finish_menu(),
+            "review.deleteMenu" => self.r16_delete_menu(),
+            "mailings.checkErrors" => self.r3_open_form(crate::doc_forms::DocFormKind::CheckErrors),
             "mailings.finish.edit" => self.r3_open_form(crate::doc_forms::DocFormKind::MergeNew),
             "mailings.finish.print" => self.r3_open_form(crate::doc_forms::DocFormKind::MergePrint),
             "review.trackingOptions" => {
@@ -177,11 +208,10 @@ impl DocWindow {
 
     /// Width the round-16 pane takes at the right.
     pub(super) fn r16_pane_w(&self) -> f32 {
-        if self.r16.thes.is_some() {
-            crate::doc_thes16::ThesPane::width(self.scale)
-        } else {
-            0.0
-        }
+        self.r16
+            .thes
+            .as_ref()
+            .map_or(0.0, |t| t.pane_width(self.scale))
     }
 
     /// Paint the Thesaurus pane (with the other panes at the right).
@@ -204,9 +234,25 @@ impl DocWindow {
             }
         }
         let pointer = self.pointer;
+        let (right, scale) = (self.size.0, self.scale);
         let t = self.r16.thes.as_mut()?;
         if t.key(input) {
             return Some(true);
+        }
+        // Size: the left edge follows the pointer until a press.
+        if t.sizing {
+            match *input {
+                Input::Move { x, .. } | Input::Drag { x, .. } => {
+                    t.size_to(right, x, scale);
+                    self.relayout_pending = true;
+                    return Some(true);
+                }
+                Input::Press { .. } | Input::Key(crate::Key::Escape, _) => {
+                    t.sizing = false;
+                    return Some(true);
+                }
+                _ => {}
+            }
         }
         match *input {
             Input::Move { x, y } if t.contains(x, y) => Some(t.hover(x, y)),
@@ -221,6 +267,22 @@ impl DocWindow {
                 crate::doc_thes16::ThesAction::Close => {
                     self.r16.thes = None;
                     self.relayout_pending = true;
+                    true
+                }
+                crate::doc_thes16::ThesAction::PaneMenu(r) => {
+                    let items = [
+                        ("r16.thes.size", "doc16.size", "Size"),
+                        ("r16.thes.close", "doc16.close", "Close"),
+                    ]
+                    .iter()
+                    .map(|(id, k, en)| MenuItem {
+                        label: self.t(k, en),
+                        choice: Choice::Command((*id).to_owned()),
+                        checked: false,
+                        dim: false,
+                    })
+                    .collect();
+                    self.menu = Some(Menu::open(items, r, self.size, self.scale));
                     true
                 }
                 crate::doc_thes16::ThesAction::Menu(word, r) => {
@@ -258,7 +320,47 @@ impl DocWindow {
             "markup": serde_json::to_value(self.view.markup()).unwrap_or_default(),
             "pane": pane,
             "records": self.merge_fields().1,
+            "report": self.r16.report,
         })
+    }
+
+    /// Delete ▾: Delete / Delete All Comments Shown / Delete All Comments in Document (the
+    /// first dim without a comment at the caret, the others without comments).
+    fn r16_delete_menu(&mut self) -> bool {
+        let anchor = self
+            .r16
+            .pop_anchor
+            .take()
+            .or_else(|| self.ribbon.rect_of(RibbonHit::Command("review.deleteMenu")))
+            .unwrap_or([0.0, self.ribbon.bottom(), 1.0, 0.0]);
+        let at_caret = self.view.comment_at_caret().is_some();
+        let any = !self.view.comments().is_empty();
+        let rows = [
+            ("review.deleteComment", "doc16.delete", "Delete", !at_caret),
+            (
+                "review.deleteShown",
+                "doc16.deleteShown",
+                "Delete All Comments Shown",
+                !any,
+            ),
+            (
+                "review.deleteAll",
+                "doc16.deleteAll",
+                "Delete All Comments in Document",
+                !any,
+            ),
+        ];
+        let items = rows
+            .iter()
+            .map(|(id, k, en, dim)| MenuItem {
+                label: self.t(k, en),
+                choice: Choice::Command((*id).to_owned()),
+                checked: false,
+                dim: *dim,
+            })
+            .collect();
+        self.menu = Some(Menu::open(items, anchor, self.size, self.scale));
+        true
     }
 
     /// Finish & Merge ▾: Edit Individual Documents… / Print Documents… / Send Email
@@ -297,7 +399,14 @@ impl DocWindow {
                 dim: *dim,
             })
             .collect();
-        self.menu = Some(Menu::open(items, anchor, self.size, self.scale));
+        // With their icons, as the reference's menu.
+        let icons = vec![
+            Some("mailings.mergeDocument"),
+            Some("file.print"),
+            Some("mailings.finish.email"),
+        ];
+        self.menu =
+            Some(Menu::open(items, anchor, self.size, self.scale).with_decor(icons, Vec::new()));
         true
     }
 
@@ -324,19 +433,86 @@ impl DocWindow {
         true
     }
 
+    /// Merge fields (§17.16.5.35 MERGEFIELD) of the document whose names are not fields of
+    /// the data source.
+    fn r16_merge_errors(&mut self) -> Vec<String> {
+        let fields = self.merge_fields().0;
+        let Some(doc) = self.view.engine().document() else {
+            return Vec::new();
+        };
+        let mut out: Vec<String> = Vec::new();
+        for path in bo_model::index::body_paragraphs(doc) {
+            let Some(p) = bo_model::index::para_at(doc, &path) else {
+                continue;
+            };
+            for (_, c) in bo_edit::para::flatten(p) {
+                if let bo_model::RunContent::Field { instr, .. } = &c {
+                    if bo_edit::fields::field_kind(instr) != "MERGEFIELD" {
+                        continue;
+                    }
+                    // The first argument after the field's kind, without quotes.
+                    let name = bo_edit::fields::field_args(instr)
+                        .into_iter()
+                        .find(|a| !a.eq_ignore_ascii_case("MERGEFIELD") && !a.starts_with('\\'))
+                        .unwrap_or_default()
+                        .trim_matches('"')
+                        .to_owned();
+                    let known = fields.iter().any(|f| f.eq_ignore_ascii_case(&name));
+                    if !known && !out.contains(&name) {
+                        out.push(name);
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// Check for Errors: `sim` reports only; `pause` / `report` also complete the merge into a
+    /// new window (`pause` stops at the first error, as the reference pauses on it).
+    fn r16_check_errors(&mut self, mode: &str) -> bool {
+        let errors = self.r16_merge_errors();
+        self.r16.report = if errors.is_empty() {
+            self.t("doc16.noErrors", "No mail merge errors have been found.")
+        } else {
+            let head = self.t(
+                "doc16.errorsFound",
+                "These merge fields are not in the data source:",
+            );
+            std::iter::once(head)
+                .chain(errors.iter().map(|e| format!("  «{e}»")))
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        let merge = match mode {
+            "pause" => errors.is_empty(),
+            "report" => true,
+            _ => false,
+        };
+        if merge {
+            self.r16_merge("edit:all");
+        }
+        if mode == "sim" || !errors.is_empty() {
+            return self.r3_open_form(crate::doc_forms::DocFormKind::MergeReport);
+        }
+        true
+    }
+
     /// Interface commands the new window of the last merge runs first (Print Documents opens
     /// the Print page there).
     pub fn take_new_document_actions(&mut self) -> Option<String> {
         self.r16.new_actions.take()
     }
 
-    /// Ribbon ids drawn as on (Highlight Merge Fields).
+    /// Ribbon ids drawn as on (Highlight Merge Fields, Read Aloud).
     pub(super) fn r16_on_ids(&self) -> Vec<&'static str> {
+        let mut on = Vec::new();
         if self.view.highlight_fields {
-            vec!["mailings.highlightFields"]
-        } else {
-            Vec::new()
+            on.push("mailings.highlightFields");
         }
+        if self.r16.ra.is_some() {
+            on.push("review.readAloud");
+        }
+        on
     }
 
     fn r16_set_markup(&mut self, cmd: serde_json::Value) -> bool {
@@ -433,11 +609,28 @@ impl DocWindow {
         }
     }
 
+    /// A sub-menu beside Show Markup's row `row`: right of it, or left when it would not fit
+    /// (as the reference's cascading menus flip).
+    fn r16_open_sub(&mut self, items: Vec<MenuItem>, row: usize) {
+        let a = self.r16_sub_anchor(row);
+        let m = Menu::open(items.clone(), a, self.size, self.scale);
+        let r = m.rect();
+        let row_rect = self.r16.markup_rows.get(row).copied();
+        self.menu = Some(match row_rect {
+            Some(rr) if r[0] < a[0] - 1.0 => Menu::open(
+                items,
+                [rr[0] - r[2] + 2.0 * self.scale, rr[1], 1.0, 0.0],
+                self.size,
+                self.scale,
+            ),
+            _ => m,
+        });
+    }
+
     /// Balloons ▸: Show Revisions in Balloons / Show All Revisions Inline / Show Only
     /// Comments and Formatting in Balloons.
     fn r16_balloons_menu(&mut self) -> bool {
         let m = self.view.markup().clone();
-        let anchor = self.r16_sub_anchor(3);
         let rows = [
             (
                 "review.balloons.revisions",
@@ -467,7 +660,7 @@ impl DocWindow {
                 dim: false,
             })
             .collect();
-        self.menu = Some(Menu::open(items, anchor, self.size, self.scale));
+        self.r16_open_sub(items, 3);
         true
     }
 
@@ -492,7 +685,6 @@ impl DocWindow {
     fn r16_people_menu(&mut self) -> bool {
         let m = self.view.markup().clone();
         let people = self.r16_reviewers();
-        let anchor = self.r16_sub_anchor(4);
         let mut items = vec![MenuItem {
             label: self.t("doc16.allReviewers", "All Reviewers"),
             choice: Choice::Command("review.people.all".to_owned()),
@@ -508,7 +700,7 @@ impl DocWindow {
             });
         }
         self.r16.people = people;
-        self.menu = Some(Menu::open(items, anchor, self.size, self.scale));
+        self.r16_open_sub(items, 4);
         true
     }
 
@@ -574,6 +766,180 @@ impl DocWindow {
         if let Some(t) = self.r16.thes.as_mut() {
             t.layout(right, top, bottom, scale);
         }
+        let frame = self.view.frame_rect();
+        if let Some(ra) = self.r16.ra.as_mut() {
+            ra.layout(frame, scale);
+        }
+    }
+
+    /// Review › Read Aloud: start reading from the caret, or stop.
+    fn r16_toggle_read_aloud(&mut self) -> bool {
+        if self.r16.ra.take().is_some() {
+            self.requests.push(super::Request::SpeechControl(0));
+            return true;
+        }
+        let Some(s) = self.view.engine().session() else {
+            return false;
+        };
+        let at = s.selection().ordered().0;
+        self.r16.ra = Some(crate::doc_speech16::ReadAloud::default());
+        self.r16_ra_read(at.para, at.offset, 1)
+    }
+
+    /// Hand paragraph `para` (from byte `from`) to the voice, or the next paragraph with text
+    /// in direction `dir` (1 / −1); past the end Read Aloud stops.
+    fn r16_ra_read(&mut self, para: usize, from: usize, dir: i64) -> bool {
+        let Some(s) = self.view.engine().session() else {
+            return false;
+        };
+        let count = bo_model::index::body_paragraphs(s.doc()).len();
+        let mut p = para as i64;
+        let mut from = from;
+        while p >= 0 && (p as usize) < count {
+            let text = s.para_text(p as usize).unwrap_or_default();
+            let rest = text.get(from.min(text.len())..).unwrap_or_default();
+            if !rest.trim().is_empty() {
+                let rate = self.r16.ra.as_ref().map_or(0, |r| r.rate);
+                if let Some(ra) = self.r16.ra.as_mut() {
+                    ra.para = p as usize;
+                    ra.from = from.min(text.len());
+                    ra.text = rest.to_owned();
+                    ra.paused = false;
+                    ra.waiting = 0;
+                    ra.seen = false;
+                    ra.word = None;
+                }
+                self.requests.push(super::Request::Speak {
+                    text: rest.to_owned(),
+                    rate,
+                });
+                return true;
+            }
+            p += dir;
+            from = 0;
+        }
+        // Nothing more to read.
+        self.requests.push(super::Request::SpeechControl(0));
+        if let Some(ra) = self.r16.ra.as_mut() {
+            ra.paused = true;
+            ra.seen = false;
+        }
+        true
+    }
+
+    /// Read Aloud is on (the host polls the voice each tick).
+    pub fn reading_aloud(&self) -> bool {
+        self.r16.ra.as_ref().is_some_and(|r| !r.paused)
+    }
+
+    /// The word the voice is speaking (UTF-16 offset and length in the text handed over), or
+    /// `None` when it is silent: the word is selected; a finished paragraph moves on to the
+    /// next one. `true` when the window changed.
+    pub fn speech_word(&mut self, word: Option<(usize, usize)>) -> bool {
+        let Some(ra) = self.r16.ra.as_mut() else {
+            return false;
+        };
+        if ra.paused {
+            return false;
+        }
+        match word {
+            Some((pos, len)) => {
+                ra.seen = true;
+                let a = crate::doc_speech16::byte_of_utf16(&ra.text, pos);
+                let b = crate::doc_speech16::byte_of_utf16(&ra.text, pos + len);
+                let w = (ra.from + a, ra.from + b);
+                if ra.word == Some(w) {
+                    return false;
+                }
+                ra.word = Some(w);
+                let para = ra.para;
+                self.view
+                    .run_command(bo_engine::edit::Command::SetSelection {
+                        selection: bo_edit::Selection {
+                            anchor: bo_edit::Pos::new(para, w.0),
+                            focus: bo_edit::Pos::new(para, w.1),
+                        },
+                    })
+            }
+            None => {
+                ra.waiting += 1;
+                // Done with this paragraph (or the voice never started: about 3 s).
+                if ra.seen || ra.waiting > 30 {
+                    let next = ra.para + 1;
+                    return self.r16_ra_read(next, 0, 1);
+                }
+                false
+            }
+        }
+    }
+
+    /// Input to the Read Aloud bar.
+    fn r16_ra_input(&mut self, input: &Input) -> Option<bool> {
+        use crate::doc_speech16::RaButton;
+        let ra = self.r16.ra.as_mut()?;
+        match *input {
+            Input::Move { x, y } => {
+                let h = ra.contains(x, y).then(|| ra.hit(x, y)).flatten();
+                let changed = h != ra.hover;
+                ra.hover = h;
+                if ra.contains(x, y) {
+                    Some(changed)
+                } else if changed {
+                    Some(true)
+                } else {
+                    None
+                }
+            }
+            Input::Release { x, y } | Input::Drag { x, y } if ra.contains(x, y) => Some(false),
+            Input::Press { x, y, .. } if ra.contains(x, y) => {
+                let b = ra.hit(x, y)?;
+                let (para, paused) = (ra.para, ra.paused);
+                Some(match b {
+                    RaButton::Play => {
+                        if paused {
+                            if ra.seen || ra.word.is_some() {
+                                ra.paused = false;
+                                self.requests.push(super::Request::SpeechControl(2));
+                                true
+                            } else {
+                                let from = ra.from;
+                                self.r16_ra_read(para, from, 1)
+                            }
+                        } else {
+                            ra.paused = true;
+                            self.requests.push(super::Request::SpeechControl(1));
+                            true
+                        }
+                    }
+                    RaButton::Next => self.r16_ra_read(para + 1, 0, 1),
+                    RaButton::Prev => {
+                        let back = if para == 0 { 0 } else { para - 1 };
+                        self.r16_ra_read(back, 0, -1)
+                    }
+                    RaButton::Settings => {
+                        let anchor = ra.settings_rect();
+                        let rate = ra.rate;
+                        let items = crate::doc_speech16::SPEEDS
+                            .iter()
+                            .map(|(k, en, r)| MenuItem {
+                                label: self.t(k, en),
+                                choice: Choice::Command(format!("r16.ra.speed:{r}")),
+                                checked: *r == rate,
+                                dim: false,
+                            })
+                            .collect();
+                        self.menu = Some(Menu::open(items, anchor, self.size, self.scale));
+                        true
+                    }
+                    RaButton::Close => {
+                        self.r16.ra = None;
+                        self.requests.push(super::Request::SpeechControl(0));
+                        true
+                    }
+                })
+            }
+            _ => None,
+        }
     }
 
     /// Input to the open group drop-down (`None`: not open or not for it).
@@ -581,6 +947,9 @@ impl DocWindow {
         // A menu opened from the drop-down takes the input first.
         if self.menu.is_some() {
             return None;
+        }
+        if let Some(r) = self.r16_ra_input(input) {
+            return Some(r);
         }
         if self.r16.pop.is_none() {
             return self.r16_thes_input(input);
@@ -624,6 +993,10 @@ impl DocWindow {
                 self.r16.pop = None;
                 if crate::catalog::is_menu(id) && id != "review.trackChanges" {
                     if let Some(a) = anchor {
+                        if id == "review.deleteMenu" {
+                            self.r16.pop_anchor = Some(a);
+                            return Some(self.r16_delete_menu());
+                        }
                         self.open_command_menu(id, a);
                         return Some(true);
                     }
@@ -642,6 +1015,9 @@ impl DocWindow {
     /// Ribbon overlays of round 16: the markup display box, the open group drop-down.
     pub(super) fn r16_paint(&self, p: &mut dyn Painter) {
         self.r16_paint_markup_box(p);
+        if let Some(ra) = &self.r16.ra {
+            ra.paint(p);
+        }
         if let Some(pop) = &self.r16.pop {
             let on = self.on_ids();
             pop.paint(

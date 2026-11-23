@@ -28,6 +28,7 @@ mod doc_r4_menus;
 mod doc_reveal;
 mod doc_review16;
 mod doc_spacing15;
+mod doc_speech16;
 mod doc_table;
 mod doc_tabs7;
 mod doc_templates6;

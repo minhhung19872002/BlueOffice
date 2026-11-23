@@ -18,6 +18,8 @@ pub(super) fn handles(kind: DocFormKind) -> bool {
             | DocFormKind::AdvTrackOptions
             | DocFormKind::MergeNew
             | DocFormKind::MergePrint
+            | DocFormKind::CheckErrors
+            | DocFormKind::MergeReport
     )
 }
 
@@ -144,6 +146,33 @@ pub(super) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
     if matches!(kind, DocFormKind::MergeNew | DocFormKind::MergePrint) {
         return open_merge(kind, s, c);
     }
+    if kind == DocFormKind::CheckErrors {
+        return open_check(s);
+    }
+    if kind == DocFormKind::MergeReport {
+        let text = c.extra["r16"]["report"].as_str().unwrap_or_default();
+        let lines: Vec<&str> = text.lines().collect();
+        let h = 120.0 + 24.0 * lines.len().min(12) as f32;
+        let mut f = DocForm::new(
+            kind,
+            &tr("doc16.checkTitle", "Checking and Reporting Errors"),
+            (420.0, h),
+            vec![],
+        );
+        for (i, l) in lines.iter().take(12).enumerate() {
+            let id = [
+                "r0", "r1", "r2", "r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r11",
+            ][i];
+            f.label(id, [20.0, 52.0 + 24.0 * i as f32, 380.0, 21.0], l);
+        }
+        f.button(
+            "ok",
+            [294.0, h - 48.0, 106.0, 32.0],
+            &tr("common.ok", "OK"),
+            true,
+        );
+        return f;
+    }
     let mut f = DocForm::new(
         kind,
         &tr("doc16.toTitle", "Track Changes Options"),
@@ -242,46 +271,102 @@ fn open_merge(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
     } else {
         tr("doc16.mergePrintTitle", "Merge to Printer")
     };
-    let mut f = DocForm::new(kind, &title, (300.0, 236.0), vec![]);
-    let count = c.extra["r16"]["records"].as_u64().unwrap_or(1).max(1);
+    // The reference's dialog: 333 × 210 at 125 %, From / To boxes empty.
+    let mut f = DocForm::new(kind, &title, (333.0, 210.0), vec![]);
+    let _ = c;
     f.group(
         "recordsG",
-        [12.0, 46.0, 276.0, 132.0],
+        [8.0, 46.0, 317.0, 110.0],
         &tr("doc16.mergeRecords", "Merge records"),
     );
     f.radio(
         "all",
         "range",
-        [24.0, 72.0, 120.0, 26.0],
+        [25.0, 72.0, 90.0, 24.0],
         &tr("doc16.all", "All"),
         true,
     );
     f.radio(
         "current",
         "range",
-        [24.0, 104.0, 200.0, 26.0],
+        [25.0, 98.0, 200.0, 24.0],
         &tr("doc16.currentRecord", "Current record"),
         false,
     );
     f.radio(
         "from",
         "range",
-        [24.0, 136.0, 70.0, 26.0],
+        [25.0, 124.0, 72.0, 24.0],
         &tr("doc16.from", "From:"),
         false,
     );
-    f.edit("fromN", [96.0, 136.0, 60.0, 26.0], "1");
-    f.label("toL", [168.0, 140.0, 30.0, 21.0], &tr("doc16.to", "To:"));
-    f.edit("toN", [202.0, 136.0, 60.0, 26.0], &count.to_string());
+    f.edit("fromN", [99.0, 121.0, 86.0, 26.0], "");
+    f.label("toL", [199.0, 126.0, 30.0, 21.0], &tr("doc16.to", "To:"));
+    f.edit("toN", [235.0, 121.0, 86.0, 26.0], "");
     f.button(
         "ok",
-        [64.0, 190.0, 106.0, 32.0],
+        [83.0, 168.0, 106.0, 32.0],
         &tr("common.ok", "OK"),
         true,
     );
     f.button(
         "cancel",
-        [182.0, 190.0, 106.0, 32.0],
+        [210.0, 168.0, 112.0, 32.0],
+        &tr("common.cancel", "Cancel"),
+        false,
+    );
+    f
+}
+
+/// Checking and Reporting Errors: simulate the merge, complete it pausing on each error, or
+/// complete it and report the errors (the reference's three choices).
+fn open_check(s: &Strings) -> DocForm {
+    let tr = |k: &str, fb: &str| t(s, k, fb);
+    let mut f = DocForm::new(
+        DocFormKind::CheckErrors,
+        &tr("doc16.checkTitle", "Checking and Reporting Errors"),
+        (470.0, 250.0),
+        vec![],
+    );
+    f.radio(
+        "sim",
+        "mode",
+        [20.0, 52.0, 430.0, 44.0],
+        &tr(
+            "doc16.checkSimulate",
+            "Simulate the merge and report errors in a new document.",
+        ),
+        true,
+    );
+    f.radio(
+        "pause",
+        "mode",
+        [20.0, 100.0, 430.0, 44.0],
+        &tr(
+            "doc16.checkPause",
+            "Complete the merge, pausing to report each error as it occurs.",
+        ),
+        false,
+    );
+    f.radio(
+        "report",
+        "mode",
+        [20.0, 148.0, 430.0, 44.0],
+        &tr(
+            "doc16.checkReport",
+            "Complete the merge without pausing. Report errors in a new document.",
+        ),
+        false,
+    );
+    f.button(
+        "ok",
+        [226.0, 204.0, 106.0, 32.0],
+        &tr("common.ok", "OK"),
+        true,
+    );
+    f.button(
+        "cancel",
+        [344.0, 204.0, 106.0, 32.0],
         &tr("common.cancel", "Cancel"),
         false,
     );
@@ -508,6 +593,14 @@ impl DocForm {
     /// OK of a round-16 dialog: the review display options (and the Reviewing Pane).
     pub(super) fn r16_ok(&mut self) -> Option<FormOut> {
         match self.kind {
+            DocFormKind::CheckErrors => {
+                let mode = self.chosen("mode").unwrap_or("sim");
+                Some(FormOut::Run(
+                    vec![json!({ "cmd": "ui.action", "id": format!("r16.checkErrors:{mode}") })],
+                    true,
+                ))
+            }
+            DocFormKind::MergeReport => Some(FormOut::Close),
             DocFormKind::MergeNew | DocFormKind::MergePrint => {
                 let what = if self.kind == DocFormKind::MergeNew {
                     "edit"

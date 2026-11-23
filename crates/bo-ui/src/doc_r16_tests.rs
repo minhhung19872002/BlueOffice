@@ -158,7 +158,14 @@ fn show_markup_balloons_and_people() {
     assert!(w.action("review.showMarkup"));
     let n = w.menu.as_ref().expect("menu").items().len();
     assert_eq!(n, 5);
+    let row3 = w.menu.as_ref().expect("menu").row_rect(3);
     assert!(w.action("review.markup.balloonsSub"));
+    let sub = w.menu.as_ref().expect("Balloons").rect();
+    assert!(
+        ((sub[0] - (row3[0] + row3[2])).abs() < 8.0 || (sub[0] + sub[2] - row3[0]).abs() < 8.0)
+            && (sub[1] - row3[1]).abs() < 8.0,
+        "beside its row: {sub:?} {row3:?}"
+    );
     let rows = w.menu.as_ref().expect("Balloons").items();
     assert_eq!(rows.len(), 3);
     assert!(
@@ -291,4 +298,69 @@ fn thesaurus_pane_inserts_a_synonym() {
     assert_eq!(text.as_deref(), Some("The fast fox"));
     assert!(w.action("review.thesaurus"), "toggles closed");
     assert!(w.r16.thes.is_none());
+}
+
+// source: the reference's Review › Speech › Read Aloud: reads from the caret, the word being
+// spoken selected, paragraph after paragraph; its bar pauses and closes.
+#[test]
+fn read_aloud_follows_the_voice() {
+    let mut w = window();
+    w.run_interface_command("text:One two", &Fixed);
+    w.handle(
+        Input::Key(crate::Key::Enter, crate::Mods::default()),
+        &Fixed,
+    );
+    w.run_interface_command("text:Three", &Fixed);
+    w.r3_run(vec![json!({ "cmd": "setSelection", "selection": {
+        "anchor": { "p": 0, "o": 0 }, "focus": { "p": 0, "o": 0 } } })]);
+    w.take_requests();
+    assert!(w.action("review.readAloud"));
+    let spoken: Vec<String> = w
+        .take_requests()
+        .into_iter()
+        .filter_map(|r| match r {
+            super::super::Request::Speak { text, .. } => Some(text),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(spoken, ["One two"]);
+    assert!(w.reading_aloud());
+    // The voice says "two" (UTF-16 4..7): it is selected.
+    assert!(w.speech_word(Some((4, 3))));
+    let sel = w.view.engine().session().map(|s| s.selection());
+    assert_eq!(sel.map(|s| (s.anchor.offset, s.focus.offset)), Some((4, 7)));
+    // Silent after speaking: the next paragraph.
+    w.speech_word(None);
+    let next: Vec<String> = w
+        .take_requests()
+        .into_iter()
+        .filter_map(|r| match r {
+            super::super::Request::Speak { text, .. } => Some(text),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(next, ["Three"]);
+    assert!(w.on_ids().contains(&"review.readAloud"));
+    assert!(w.action("review.readAloud"), "stops");
+    assert!(!w.reading_aloud());
+}
+
+// source: the reference's Check for Errors (Checking and Reporting Errors).
+#[test]
+fn check_for_errors_reports_unknown_fields() {
+    let mut w = window();
+    w.r3_run(vec![
+        json!({ "cmd": "mergeTable", "name": "list", "fields": ["Name"], "rows": [["Ann"]] }),
+        json!({ "cmd": "mergeInsertField", "name": "Name" }),
+    ]);
+    assert!(w.action("r16.checkErrors:sim"));
+    assert!(
+        w.r16.report.contains("No mail merge errors"),
+        "{}",
+        w.r16.report
+    );
+    w.r3.form = None;
+    w.r3_run(vec![json!({ "cmd": "mergeInsertField", "name": "City" })]);
+    assert!(w.action("r16.checkErrors:sim"));
+    assert!(w.r16.report.contains("«City»"), "{}", w.r16.report);
 }

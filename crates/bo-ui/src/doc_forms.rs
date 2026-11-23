@@ -45,6 +45,9 @@ pub(crate) mod r15;
 
 #[path = "doc_forms16.rs"]
 pub(crate) mod r16;
+
+#[path = "doc_fill18.rs"]
+pub(crate) mod r18;
 pub(crate) use r5::{open_manage_styles, ManagedStyle};
 pub(crate) use r7::INSPECT;
 
@@ -178,6 +181,8 @@ pub(crate) enum DocFormKind {
     NlFind,
     /// New Address List › Customize Columns… (Customize Address List, round 16).
     NlColumns,
+    /// Design › Page Color › Fill Effects… (layout round 8).
+    FillEffects,
 }
 
 /// What the owner does after an input.
@@ -258,6 +263,8 @@ pub(crate) struct DocForm {
     r13: Option<Box<r13::R13>>,
     /// Colors dialog state (round 15).
     r15: Option<Box<r15::ColorsState>>,
+    /// Fill Effects state (layout round 8).
+    r18: Option<Box<r18::Fill18>>,
 }
 
 /// Reference ids of `ST_NumberFormat` values offered for notes (§17.18.59).
@@ -467,6 +474,7 @@ impl DocForm {
             bs: None,
             r13: None,
             r15: None,
+            r18: None,
         }
     }
 
@@ -796,6 +804,7 @@ impl DocForm {
         match ev {
             Event::None => FormOut::Redraw,
             Event::Cancel => FormOut::Close,
+            Event::Canvas(id, x, y) if self.r18_canvas(id, *x, *y) => FormOut::Redraw,
             Event::Canvas(id, x, y) if self.r15_canvas(id, *x, *y) => FormOut::Redraw,
             Event::Canvas(id, x, y) if self.r13_canvas(id, *x, *y) => FormOut::Redraw,
             Event::Canvas(id, _, y) if self.r11_canvas(id, *y) => FormOut::Redraw,
@@ -842,6 +851,7 @@ impl DocForm {
                 self.form.enable("bookmark", range);
             }
             (DocFormKind::Protect, _) => {}
+            (k, _) if r18::handles(k) => self.r18_changed(id),
             (k, _) if r15::handles(k) => self.r15_changed(id),
             (k, _) if r16::handles(k) => self.r16_changed(id),
             (k, _) if r14::handles(k) => self.r14_changed(id),
@@ -864,6 +874,9 @@ impl DocForm {
     }
 
     fn clicked(&mut self, id: &str) -> FormOut {
+        if let Some(out) = self.r18_clicked(id) {
+            return out;
+        }
         if let Some(out) = self.r16_clicked(id) {
             return out;
         }
@@ -1004,6 +1017,9 @@ impl DocForm {
     }
 
     fn ok(&mut self) -> FormOut {
+        if let Some(out) = self.r18_ok() {
+            return out;
+        }
         if let Some(out) = self.r16_ok() {
             return out;
         }
@@ -1044,6 +1060,7 @@ impl DocForm {
             | DocFormKind::Colors
             | DocFormKind::ThemeColors
             | DocFormKind::ThemeFonts
+            | DocFormKind::FillEffects
             | DocFormKind::TrackOptions
             | DocFormKind::AdvTrackOptions
             | DocFormKind::MergeNew
@@ -1325,7 +1342,8 @@ impl DocForm {
         let files = &self.files;
         let this = self;
         let mut canvas = |id: &str, r: [f32; 4], p: &mut dyn Painter| {
-            if r15::paint_canvas(this, id, r, p, &font)
+            if r18::paint_canvas(this, id, r, p, &font)
+                || r15::paint_canvas(this, id, r, p, &font)
                 || r13::paint_canvas(this, id, r, p, &font)
                 || r14::paint_canvas(this, id, r, p, &font)
                 || findfmt11::paint_canvas(this, id, r, p, &font, k)
@@ -3174,6 +3192,7 @@ pub(crate) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
         | DocFormKind::MergeEmail
         | DocFormKind::NlFind
         | DocFormKind::NlColumns => r16::open(kind, s, c),
+        DocFormKind::FillEffects => r18::open(s, c),
         DocFormKind::Zoom => {
             let mut f = DocForm::new(kind, &tr("docR4.zoomTitle", "Zoom"), (381.0, 258.0), vec![]);
             f.label(

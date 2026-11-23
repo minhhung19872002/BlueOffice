@@ -1094,6 +1094,10 @@ impl DocWindow {
 
     /// Insert a picture file the host read (`name` with its extension).
     pub fn insert_picture(&mut self, bytes: Vec<u8>, name: &str) -> bool {
+        // Fill Effects › Other Texture… / Select Picture… (layout round 8).
+        if let Some(done) = self.r18_take_picture(name, &bytes) {
+            return done;
+        }
         // Picture Format › Change Picture: the picked file replaces the selected picture.
         if std::mem::take(&mut self.r7.change_pending) {
             use base64::Engine as _;

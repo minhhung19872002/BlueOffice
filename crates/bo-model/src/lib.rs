@@ -46,4 +46,4 @@ pub use write::{
     TableGeometry, TableProps, TablePropsChange, TableView, TableWidth, TextAnchor, TextDirection,
     TextPath, ThemeFonts, Underline, VMerge, VertAlign, Wrap, WrapText,
 };
-pub use write::{PageVAlign, PagesSettings, SectionLayout};
+pub use write::{PageFill, PageFillKind, PageVAlign, PagesSettings, SectionLayout};

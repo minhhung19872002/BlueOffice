@@ -1031,8 +1031,10 @@ fn layout_uncached(
         };
         let rp = run_props(doc, &base_run, &direct);
         run_rps.push(rp.clone());
+        // Bold / italic revision marks change the face.
+        let marked = crate::style::revision_props(&rp, inp.view, &inp.marks);
         styles.push(revision_style(
-            run_style(doc, fonts, &rp).ok_or(LayoutError::NoFonts)?,
+            run_style(doc, fonts, marked.as_ref().unwrap_or(&rp)).ok_or(LayoutError::NoFonts)?,
             &rp,
             inp.view,
             &inp.marks,

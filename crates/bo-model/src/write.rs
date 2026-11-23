@@ -175,6 +175,9 @@ pub struct SourcePackage {
     /// Page colour as read (changed ⇒ `document.xml`'s §17.2.1 background is patched).
     #[serde(default)]
     pub background: Option<Color>,
+    /// Page background fill effect as read (changed ⇒ the §17.2.1 background is rewritten).
+    #[serde(default)]
+    pub background_fill: Option<PageFill>,
     /// §17.15.1.32 displayBackgroundShape as read (changed ⇒ settings patched).
     #[serde(default)]
     pub display_background_shape: bool,
@@ -319,6 +322,82 @@ pub struct DocDesign {
     /// Id of the paragraph-spacing style set applied last.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub style_set: Option<String>,
+    /// Fill effect of the page background (gradient, texture, pattern, picture: the VML
+    /// `v:background` / `v:fill` inside §17.2.1 background, ECMA-376 Part 4 §19.1.2.2,
+    /// §19.1.2.5); `None` = the plain page colour `background`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub background_fill: Option<PageFill>,
+}
+
+/// Kind of a page background fill effect (ECMA-376 Part 4, §19.1.2.5 fill `type`,
+/// `ST_FillType`: `gradient`, `gradientRadial`, `tile`, `pattern`, `frame`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PageFillKind {
+    /// Linear gradient along `angle` (`type="gradient"`).
+    #[default]
+    Gradient,
+    /// Rectangular gradient around the focus position (`type="gradientRadial"`).
+    GradientRadial,
+    /// Texture: the picture tiled at its own size (`type="tile"`).
+    Tile,
+    /// Two-colour pattern: the bitmap's set pixels in the fill colour, the others in
+    /// `color2` (`type="pattern"`).
+    Pattern,
+    /// Picture stretched over the page (`type="frame"`).
+    Frame,
+}
+
+/// Page background fill effect (Design › Page Color › Fill Effects): the attributes of
+/// the VML `v:fill` of the page background (ECMA-376 Part 4, §19.1.2.5); the first
+/// colour is the page colour ([`DocDesign::background`], `v:background@fillcolor`).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PageFill {
+    /// Fill type.
+    pub kind: PageFillKind,
+    /// Second colour (`color2`) resolved (a one-colour gradient's `fill darken(n)` /
+    /// `fill lighten(n)` included); `None` = white.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color2: Option<Color>,
+    /// `color2` as written when it is a formula on the fill colour (`fill darken(118)`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color2_expr: Option<String>,
+    /// Gradient angle in degrees (`angle`; 0 = top to bottom, -90 = left to right).
+    #[serde(default)]
+    pub angle: i32,
+    /// Gradient focus in percent (`focus`: where `color2` sits; negative swaps the colours).
+    #[serde(default)]
+    pub focus: i32,
+    /// Focus position of a rectangular gradient in thousandths of the page (`focusposition`).
+    #[serde(default)]
+    pub focus_position: (i32, i32),
+    /// Focus size in thousandths of the page (`focussize`).
+    #[serde(default)]
+    pub focus_size: (i32, i32),
+    /// Preset gradient colours (`colors`: position in thousandths, colour).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub stops: Vec<(u32, Color)>,
+    /// Gradient colour interpolation (`method`, e.g. `linear sigma`, `none`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub method: Option<String>,
+    /// Picture of a texture / pattern / picture fill: a media part (`/word/media/image1.jpeg`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image: Option<String>,
+    /// Name shown for the picture, texture or preset (`o:title`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    /// Keep the picture's aspect ratio (`aspect="atLeast"`) for a picture fill.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub lock_aspect: bool,
+}
+
+impl PageFill {
+    /// The second colour as drawn: `color2`, else white (Part 4 §19.1.2.5 default).
+    #[must_use]
+    pub fn second(&self) -> Color {
+        self.color2.unwrap_or(Color::WHITE)
+    }
 }
 
 /// Major/minor typefaces of a theme font scheme (§20.1.4.1.24 majorFont,

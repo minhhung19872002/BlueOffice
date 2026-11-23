@@ -549,9 +549,26 @@ impl Writer<'_> {
             }
         }
         let bg = self.doc.design.background;
+        let fill = self.doc.design.background_fill.as_ref();
         let prefix = match &self.doc.source {
-            Some(s) if s.background == bg => prefix,
-            _ => with_background(&prefix, bg),
+            Some(s) if s.background == bg && s.background_fill.as_ref() == fill => prefix,
+            _ => match fill {
+                // Fill effect: a VML background (ECMA-376 Part 4, §19.1.2.2, §19.1.2.5).
+                Some(f) => {
+                    let rid = f
+                        .image
+                        .as_deref()
+                        .filter(|p| self.doc.media.contains_key(*p))
+                        .map(|p| self.rels.id_for(REL_IMAGE, p, false));
+                    let mut s = remove_empty_element(&prefix, "w:background");
+                    if let Some(at) = find_element(&s, "w:body") {
+                        let c = bg.unwrap_or(bo_model::Color::WHITE);
+                        s.insert_str(at, &crate::page_fill::write(c, f, rid.as_deref()));
+                    }
+                    s
+                }
+                None => with_background(&prefix, bg),
+            },
         };
         let prefix = ignorable_w15(&prefix, "w:document", &body);
         let xml = format!("{prefix}{body}{suffix}");

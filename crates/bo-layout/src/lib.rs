@@ -29,6 +29,7 @@ mod incremental;
 mod markup;
 mod math;
 mod page;
+mod page_fill;
 mod paragraph;
 mod ruby;
 mod sigline;
@@ -48,6 +49,7 @@ pub use page::{
     border_items, border_items_around, border_lines, border_lines_around, border_width, ArtMotif,
     Surround,
 };
+pub use page_fill::{gradient_stops, image_points, page_fill_paint, pattern_tile, PageFillPaint};
 pub use paragraph::equation_geometry;
 pub use paragraph::{FieldContext, LayoutCache};
 pub use sigline::signature_line_page;

@@ -28,11 +28,31 @@ pub struct MarkFilter {
     /// dotted underline, as word processors show it (never set for printing).
     pub show_hidden: bool,
     /// How insertions are marked (BlueDoc's Advanced Track Changes Options): `0` underline
-    /// (default), `1` nothing, `2` colour only, `3` double underline, `4` strikethrough.
+    /// (default), `1` nothing, `2` colour only, `3` double underline, `4` strikethrough,
+    /// `5` bold, `6` italic.
     pub ins_mark: u8,
     /// How deletions are marked: `0` strikethrough (default), `1` colour only, `2` double
-    /// strikethrough, `3` hidden, `4` underline, `5` double underline.
+    /// strikethrough, `3` hidden, `4` underline, `5` double underline, `6` bold, `7` italic,
+    /// `8` caret, `9` hash (both: the deleted text leaves the line).
     pub del_mark: u8,
+    /// How formatted text (§17.13.5.31 rPrChange) is marked: `0` nothing (default), `1` bold,
+    /// `2` italic, `3` underline, `4` double underline, `5` strikethrough, `6` double
+    /// strikethrough, `7` colour only.
+    pub fmt_mark: u8,
+    /// Colour of formatted text (`None`: by author).
+    pub fmt_color: Option<Color>,
+    /// Moves are not tracked as moves: moved text is marked as an insertion / deletion.
+    pub no_moves: bool,
+    /// How moved-away text is marked (deletion codes; `None`: double strikethrough).
+    pub move_from_mark: Option<u8>,
+    /// How moved-here text is marked (insertion codes; `None`: double underline).
+    pub move_to_mark: Option<u8>,
+    /// Colour of moved-away text (`None`: the move colour).
+    pub move_from_color: Option<Color>,
+    /// Colour of moved-here text (`None`: the move colour).
+    pub move_to_color: Option<Color>,
+    /// Table cell highlighting: inserted, deleted, merged, split cells (`None`: defaults).
+    pub cell_colors: [Option<Color>; 4],
     /// Colour of insertions instead of the author's (`None`: by author).
     pub ins_color: Option<Color>,
     /// Colour of deletions instead of the author's (`None`: by author).
@@ -105,6 +125,9 @@ pub struct MarkupStyle {
     pub bar_color: Option<Color>,
     /// Balloons are collapsed into small icons (opened by the host on demand).
     pub icons: bool,
+    /// Change bars right of the text (Advanced Track Changes Options › Changed lines ›
+    /// Right border) instead of left of it.
+    pub bars_right: bool,
 }
 
 /// A vertical change bar in the left margin.
@@ -289,9 +312,23 @@ fn text_left(page: &Page) -> f32 {
         .unwrap_or(72.0)
 }
 
+/// Right edge of the text of a page (for change bars on the right).
+fn text_right(page: &Page) -> f32 {
+    page.lines
+        .iter()
+        .filter(|l| body(l).is_some())
+        .filter_map(|l| l.carets.iter().map(|c| c.1).reduce(f32::max))
+        .reduce(f32::max)
+        .unwrap_or(page.width - 72.0)
+}
+
 /// Change bars of a page: one per run of consecutive marked lines.
-fn bars(page: &Page, ranges: &Ranges, color: Color) -> Vec<ChangeBar> {
-    let x = (text_left(page) - 12.0).max(4.0);
+fn bars(page: &Page, ranges: &Ranges, color: Color, right: bool) -> Vec<ChangeBar> {
+    let x = if right {
+        (text_right(page) + 12.0).min(page.width - 4.0)
+    } else {
+        (text_left(page) - 12.0).max(4.0)
+    };
     let mut spans: Vec<(f32, f32)> = page
         .lines
         .iter()
@@ -354,7 +391,7 @@ pub fn page_markup(
             width: style.area_width,
             bars: style
                 .bar_color
-                .map(|c| bars(p, &ranges, c))
+                .map(|c| bars(p, &ranges, c, style.bars_right))
                 .unwrap_or_default(),
             balloons: Vec::new(),
         })

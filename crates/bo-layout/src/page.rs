@@ -187,6 +187,7 @@ pub fn border_lines_around(pb: &PageBorders, setup: &PageSetup, around: Surround
 /// returns the indexes of the pages whose decoration changed.
 pub(crate) fn decorate_pages(doc: &Document, pages: &mut [Page]) -> Vec<usize> {
     let mut changed = Vec::new();
+    let fill = crate::page_fill::page_fill_paint(doc);
     let mut first_of = vec![usize::MAX; doc.sections.len()];
     for (pi, p) in pages.iter().enumerate() {
         if let Some(f) = first_of.get_mut(p.section) {
@@ -198,6 +199,7 @@ pub(crate) fn decorate_pages(doc: &Document, pages: &mut [Page]) -> Vec<usize> {
     for (pi, p) in pages.iter_mut().enumerate() {
         let mut decor = PageDecor {
             background: doc.design.background,
+            fill: fill.clone(),
             ..PageDecor::default()
         };
         if let Some(sec) = doc.sections.get(p.section) {

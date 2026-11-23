@@ -173,6 +173,7 @@ fn markup_area_bars_and_balloons() {
         area_width: 180.0,
         bar_color: Some(Color { r: 0, g: 0, b: 0 }),
         icons: false,
+        bars_right: false,
     };
     let pm = page_markup(&l, &marks, &style);
     assert_eq!(pm.len(), l.pages.len());
@@ -198,6 +199,7 @@ fn markup_area_bars_and_balloons() {
             area_width: 0.0,
             bar_color: None,
             icons: false,
+            bars_right: false,
         },
     );
     assert!(none[0].is_empty());
@@ -218,6 +220,7 @@ fn balloons_on_one_line_are_stacked_without_overlap() {
             area_width: 180.0,
             bar_color: None,
             icons: false,
+            bars_right: false,
         },
     );
     let b = &pm[0].balloons;
@@ -233,6 +236,7 @@ fn balloons_on_one_line_are_stacked_without_overlap() {
             area_width: 24.0,
             bar_color: Some(Color { r: 200, g: 0, b: 0 }),
             icons: true,
+            bars_right: false,
         },
     );
     let i = &icons[0].balloons;
@@ -242,4 +246,120 @@ fn balloons_on_one_line_are_stacked_without_overlap() {
     }
     // Comments never draw change bars.
     assert_eq!(icons[0].bars.len(), 0);
+}
+
+fn frag<'a>(l: &'a LayoutDocument, text: &str) -> &'a bo_layout::Fragment {
+    l.pages[0].lines[0]
+        .fragments
+        .iter()
+        .find(|f| f.text.contains(text))
+        .unwrap()
+}
+
+#[test]
+fn advanced_options_bold_italic_moves_and_formatting_marks() {
+    let mut d = tracked(0);
+    let plain = lay(&d, RevisionView::Markup, MarkFilter::default());
+    let regular = frag(&plain, "Giữ").face;
+    // Insertions bold, deletions italic: other faces, no underline / strikethrough.
+    let l = lay(
+        &d,
+        RevisionView::Markup,
+        MarkFilter {
+            ins_mark: 5,
+            del_mark: 7,
+            ..MarkFilter::default()
+        },
+    );
+    let (ins, del) = (frag(&l, "chèn"), frag(&l, "xoá"));
+    assert_ne!(ins.face, regular);
+    assert_ne!(del.face, regular);
+    assert_ne!(ins.face, del.face);
+    assert_eq!(ins.underline, Underline::None);
+    assert!(!del.strike && !del.double_strike);
+    // Caret / hash: the deleted text leaves the line.
+    let l = lay(
+        &d,
+        RevisionView::Markup,
+        MarkFilter {
+            del_mark: 8,
+            ..MarkFilter::default()
+        },
+    );
+    assert_eq!(l.page_text(0), "Giữ chèn");
+    // Moves: double strikethrough / underline in the move colour, or (moves not tracked)
+    // the insertion / deletion marks.
+    if let Block::Paragraph(p) = &mut d.sections[0].blocks[0] {
+        for r in &mut p.runs {
+            for m in [r.props.ins.as_mut(), r.props.del.as_mut()]
+                .into_iter()
+                .flatten()
+            {
+                m.moved = true;
+            }
+        }
+    }
+    let green = Color::from_hex("00B050").unwrap();
+    let l = lay(
+        &d,
+        RevisionView::Markup,
+        MarkFilter {
+            move_to_color: Some(green),
+            ..MarkFilter::default()
+        },
+    );
+    assert_eq!(frag(&l, "chèn").underline, Underline::Double);
+    assert_eq!(frag(&l, "chèn").color, green);
+    assert!(frag(&l, "xoá").double_strike);
+    let l = lay(
+        &d,
+        RevisionView::Markup,
+        MarkFilter {
+            no_moves: true,
+            ..MarkFilter::default()
+        },
+    );
+    assert_eq!(frag(&l, "chèn").underline, Underline::Single);
+    assert!(frag(&l, "xoá").strike);
+    // Formatting changes (rPrChange): unmarked by default, underlined in red when asked.
+    let mut d = tracked(0);
+    if let Block::Paragraph(p) = &mut d.sections[0].blocks[0] {
+        p.runs[0].props.bold = Some(true);
+        p.runs[0].props.change = Some(Box::new(bo_model::RunPropsChange {
+            info: rev(3, "An").info,
+            old: RunProps::default(),
+        }));
+    }
+    let l = lay(&d, RevisionView::Markup, MarkFilter::default());
+    assert_eq!(frag(&l, "Giữ").underline, Underline::None);
+    let red = Color::from_hex("FF0000").unwrap();
+    let l = lay(
+        &d,
+        RevisionView::Markup,
+        MarkFilter {
+            fmt_mark: 3,
+            fmt_color: Some(red),
+            ..MarkFilter::default()
+        },
+    );
+    assert_eq!(frag(&l, "Giữ").underline, Underline::Single);
+    assert_eq!(frag(&l, "Giữ").color, red);
+}
+
+#[test]
+fn change_bars_on_the_right() {
+    let d = tracked(0);
+    let l = lay(&d, RevisionView::Markup, MarkFilter::default());
+    let marks = vec![mark(1, MarkKind::Insert, (0, 7), (0, 13), "chèn")];
+    let style = |right| MarkupStyle {
+        area_width: 0.0,
+        bar_color: Some(Color::BLACK),
+        icons: false,
+        bars_right: right,
+    };
+    let left = page_markup(&l, &marks, &style(false))[0].bars[0].x;
+    let right = page_markup(&l, &marks, &style(true))[0].bars[0].x;
+    // Left of the text / right of the (short) line, inside the page.
+    assert!(left > 4.0 && left + 60.0 < right, "{left} {right}");
+    assert!(right < l.pages[0].width, "{right}");
 }

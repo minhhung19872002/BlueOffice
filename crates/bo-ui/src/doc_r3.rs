@@ -286,6 +286,13 @@ impl DocWindow {
                 e["r14"] = self.r14_form_extra();
                 e["r15"] = self.r15_form_extra();
                 e["r16"] = self.r16_form_extra();
+                // Fill Effects (layout round 8): the page colour and fill effect.
+                e["r18"] = self.view.engine().document().map_or(Value::Null, |d| {
+                    json!({
+                        "color": d.design.background.map(bo_model::Color::to_hex),
+                        "fill": d.design.background_fill,
+                    })
+                });
                 e
             },
         }
@@ -303,6 +310,15 @@ impl DocWindow {
         self.r3.form = Some(f);
         self.relayout_pending = true;
         true
+    }
+
+    /// A picture the host read for Fill Effects › Other Texture… / Select Picture… (layout
+    /// round 8); `None` when the dialog is not waiting for one.
+    pub(super) fn r18_take_picture(&mut self, name: &str, bytes: &[u8]) -> Option<bool> {
+        use base64::Engine as _;
+        let f = self.r3.form.as_mut().filter(|f| f.r18_awaiting())?;
+        let data = base64::engine::general_purpose::STANDARD.encode(bytes);
+        Some(f.r18_picture(name, &data))
     }
 
     /// A file the host read for Compare.

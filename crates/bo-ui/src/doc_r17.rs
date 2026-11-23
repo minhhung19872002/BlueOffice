@@ -796,6 +796,11 @@ impl DocWindow {
             return;
         }
         let count = bo_model::index::body_paragraphs(s.doc()).len();
+        let gap = if self.r17.immersive.is_some_and(|m| m.spacing) {
+            2.0
+        } else {
+            0.0
+        };
         let mut spots = Vec::new();
         'paras: for para in 0..count {
             let text = s.para_text(para).unwrap_or_default();
@@ -811,14 +816,15 @@ impl DocWindow {
                     i += 1;
                 }
                 for at in bo_layout::hyphenation_points(&text[start..i]) {
-                    let (a, z) = (start + at - 1, start + at + 1);
+                    let (a, z) = (start + at - 1, start + at);
                     let r = self
                         .view
                         .engine()
                         .range_text_rects(bo_edit::Pos::new(para, a), bo_edit::Pos::new(para, z));
                     if let Some(q) = r.first() {
-                        // Between the two letters around the break.
-                        spots.push((q.page, q.x + q.w / 2.0, q.y, q.h));
+                        // In the gap after the letter before the break (Text Spacing adds
+                        // 4 pt after each letter).
+                        spots.push((q.page, q.x + q.w - gap, q.y, q.h));
                     }
                     if spots.len() >= 20_000 {
                         break 'paras;
@@ -872,7 +878,9 @@ impl DocWindow {
                     };
                     let d = (1.6 * k).max(2.0);
                     let cx = sl.x as f32 + x * k;
-                    let cy = sl.y as f32 + (y + h * 0.62) * k;
+                    // The text sits in the first part of a line widened by Text Spacing.
+                    let text_h = if m.spacing { h / 2.125 } else { *h };
+                    let cy = sl.y as f32 + (y + text_h * 0.55) * k;
                     p.fill_rect((cx - d / 2.0).round(), (cy - d / 2.0).round(), d, d, ink);
                 }
             }

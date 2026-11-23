@@ -1047,7 +1047,17 @@ impl Writer<'_> {
             });
             self.drawing_id += 1;
             let id = self.drawing_id;
-            let graphic = crate::shape::shape_graphic(img, s, id, txbx.as_deref());
+            // Round 20: a picture fill's media part.
+            let rid = s
+                .style
+                .as_deref()
+                .and_then(|st| st.picture.as_ref())
+                .filter(|p| self.doc.media.contains_key(&p.media))
+                .map(|p| {
+                    self.picture_media.insert(p.media.clone());
+                    self.rels.id_for(REL_IMAGE, &p.media, false)
+                });
+            let graphic = crate::shape::shape_graphic(img, s, id, txbx.as_deref(), rid.as_deref());
             return Self::frame(img, id, "Shape", &graphic);
         }
         if bo_model::diagram::is_group_name(&img.media) {

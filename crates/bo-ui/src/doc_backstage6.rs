@@ -21,6 +21,9 @@ use crate::theme::Theme;
 use crate::{Font, Painter, TextMeasure, TextStyle};
 use bo_render::{PathSeg, Rgba};
 
+#[path = "doc_account20.rs"]
+mod account20;
+
 /// Pages of the File screen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum BsPage {
@@ -32,6 +35,8 @@ pub(crate) enum BsPage {
     Print,
     Share,
     Export,
+    /// Account (round 20): the user, BlueDoc's product information.
+    Account,
 }
 
 /// Navigation rows: (entry, label key, fallback).
@@ -258,6 +263,8 @@ pub(crate) struct DocBackstage {
     pub(crate) zoom: f32,
     /// Show All Properties.
     pub(crate) all_props: bool,
+    /// Account page: user name and initials (File › Options › General; round 20).
+    pub(crate) account: (String, String),
 
     hits: Vec<(Hit, [f32; 4])>,
 }
@@ -300,6 +307,7 @@ impl DocBackstage {
             button_w: [0.0; 3],
             zoom: 1.0,
             all_props: false,
+            account: (String::new(), String::new()),
             hits: Vec::new(),
         }
     }
@@ -368,6 +376,13 @@ impl DocBackstage {
             y += self.px(ROW_H);
         }
         let oy = self.size.1 - self.px(23.0 + ROW_H);
+        // Account above Options (round 20), as the reference's File column.
+        out.push((
+            Nav::Page(BsPage::Account),
+            [0.0, oy - self.px(ROW_H), w, self.px(ROW_H)],
+            "doc20.account",
+            "Account",
+        ));
         out.push((
             Nav::Options,
             [0.0, oy, w, self.px(ROW_H)],
@@ -494,6 +509,8 @@ impl DocBackstage {
                 }
                 r.push((Hit::Link(0), self.show_all_rect()));
             }
+            // Account: text only (round 20).
+            BsPage::Account => {}
             BsPage::Share => {
                 let y = self.top + self.px(84.0);
                 r.push((Hit::ExportItem(0), [cx, y, self.px(375.0), self.px(62.0)]));
@@ -967,6 +984,7 @@ impl DocBackstage {
             BsPage::Print => tr(s, "backstage.nav.print", "Print"),
             BsPage::Export => tr(s, "docR6.bs.export", "Export"),
             BsPage::Share => tr(s, "docR6.bs.share", "Share"),
+            BsPage::Account => tr(s, "doc20.account", "Account"),
         };
         let light = Font {
             family: "Segoe UI Light",
@@ -984,6 +1002,7 @@ impl DocBackstage {
             BsPage::Print => self.paint_print(p, t, s),
             BsPage::Export => self.paint_export(p, t, s),
             BsPage::Share => self.paint_share(p, t, s),
+            BsPage::Account => account20::paint(self, p, t, s),
         }
     }
 
@@ -1065,7 +1084,8 @@ impl DocBackstage {
                 sep,
             );
         }
-        if let Some((_, r, _, _)) = rows.last() {
+        // Above Account (round 20), which stands over Options.
+        if let Some((_, r, _, _)) = rows.iter().rev().nth(1) {
             p.fill_rect(
                 self.px(27.0),
                 (r[1] - self.px(8.0)).round(),

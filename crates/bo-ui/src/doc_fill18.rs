@@ -577,6 +577,11 @@ impl DocForm {
         self.form.tab
     }
 
+    /// Show tab `tab` (Shape Fill › More Gradients… / More Textures…, round 20).
+    pub(crate) fn select_tab_for_r20(&mut self, tab: usize) {
+        self.form.tab = tab.min(3);
+    }
+
     /// The dialog waits for a picture from the host (Other Texture… / Select Picture…).
     pub(crate) fn r18_awaiting(&self) -> bool {
         self.fill18().is_some_and(|s| s.awaiting)

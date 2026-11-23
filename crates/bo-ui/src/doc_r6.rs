@@ -108,6 +108,10 @@ impl DocWindow {
         b.print.printer = self.r6.printers.1;
         b.print.states.clone_from(&self.r6.printer_states);
         b.preview = self.view.current_page();
+        b.account = (
+            self.r6.prefs.user_name.clone(),
+            self.r6.prefs.initials.clone(),
+        );
         b.layout(self.title.height(), self.size, self.scale);
         self.r6.bs = Some(b);
         true
@@ -784,6 +788,7 @@ impl DocWindow {
             "print" => BsPage::Print,
             "export" => BsPage::Export,
             "share" => BsPage::Share,
+            "account" => BsPage::Account,
             _ => BsPage::Info,
         };
         self.r6_open_backstage(p)
@@ -799,6 +804,7 @@ impl DocWindow {
         let p = DocPrefs::from_text(text);
         self.r6_apply_prefs(&p);
         self.r6_set_quick(&p.quick);
+        self.r20_apply_ribbon(&p.extra.hidden_tabs);
         self.r6.prefs = p;
     }
 
@@ -868,6 +874,7 @@ impl DocWindow {
             options::OptOut::Apply(p) => {
                 self.r6.options = None;
                 self.r6_set_quick(&p.quick);
+                self.r20_apply_ribbon(&p.extra.hidden_tabs);
                 self.r6_store_prefs(p);
                 self.relayout(text);
                 true

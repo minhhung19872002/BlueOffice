@@ -2271,6 +2271,9 @@ pub struct Shape {
     /// WordArt text path, picture fill and opacity (VML watermarks).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub art: Option<Box<ShapeArt>>,
+    /// Gradient / picture fill, transparency and Shape Effects (BlueDoc round 20).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub style: Option<Box<crate::shape_style::ShapeStyle>>,
 }
 
 /// Text drawn along a shape (ECMA-376 Part 4, §19.1.2.23 textpath), stretched to

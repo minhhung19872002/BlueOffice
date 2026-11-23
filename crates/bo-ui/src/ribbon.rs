@@ -712,6 +712,21 @@ pub(crate) fn doc_group(tab: &str, label: &str) -> Option<Group> {
     .find(|g| g.label == label)
 }
 
+/// BlueDoc's permanent tabs, as [`Ribbon::new`] shows them (round 20: File › Options ›
+/// Customize Ribbon hides some of them).
+pub(crate) fn doc_tabs() -> Vec<Tab> {
+    vec![
+        home(),
+        insert_tab(),
+        design_tab(),
+        layout_tab(),
+        references_tab(),
+        mailings_tab(),
+        crate::doc_review16::review_tab(),
+        view_tab(),
+    ]
+}
+
 impl Default for Ribbon {
     fn default() -> Self {
         Self::new()
@@ -1038,6 +1053,33 @@ impl Ribbon {
             self.scroll = 0.0;
             self.placed.clear();
         }
+    }
+
+    /// Replace the permanent tabs (round 20, Customize Ribbon); the contextual tabs stay
+    /// after them and the active tab stays when it is still shown.
+    pub(crate) fn set_fixed_tabs(&mut self, tabs: Vec<Tab>) {
+        let active = self.tabs.get(self.active).map(|t| t.label);
+        let contextual: Vec<Tab> = self
+            .tabs
+            .drain(self.fixed_tabs.min(self.tabs.len())..)
+            .collect();
+        self.fixed_tabs = tabs.len();
+        self.tabs = tabs;
+        self.tabs.extend(contextual);
+        self.active = active
+            .and_then(|l| self.tabs.iter().position(|t| t.label == l))
+            .unwrap_or(0);
+        self.before_context = self.before_context.min(self.fixed_tabs.saturating_sub(1));
+        self.scroll = 0.0;
+        self.placed.clear();
+    }
+
+    /// Labels (i18n keys) of the permanent tabs shown.
+    pub(crate) fn fixed_labels(&self) -> Vec<&'static str> {
+        self.tabs[..self.fixed_tabs.min(self.tabs.len())]
+            .iter()
+            .map(|t| t.label)
+            .collect()
     }
 
     /// Make the tab labelled `label` (i18n key) active; `false` when there is none.

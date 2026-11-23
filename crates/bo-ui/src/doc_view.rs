@@ -353,6 +353,9 @@ impl DocView {
             self.engine.doc_style_command(c).ok()?
         } else if let Some(c) = bo_engine::picture_tools::PictureCommand::parse(v) {
             self.engine.doc_picture_command(c).ok()?
+        } else if let Some(c) = bo_engine::doc_shapestyle::ShapeStyleCommand::parse(v) {
+            // Shape Format fills from Fill Effects (round 20).
+            self.engine.doc_shape_style(&c).ok()?
         } else if let Some(c) = bo_engine::doc_bookmarks17::BookmarkCommand::parse(v) {
             // Insert › Bookmark (round 17).
             self.engine.doc_bookmark_command(c).ok()?
@@ -531,6 +534,17 @@ impl DocView {
 
     /// Run a picture tools command (`{"cmd": "picture…"}`) on the selected picture.
     pub fn picture_command(&mut self, v: &serde_json::Value) -> bool {
+        // Round 20: Shape Format fills, Shape Effects, WordArt Styles.
+        if let Some(sc) = bo_engine::doc_shapestyle::ShapeStyleCommand::parse(v) {
+            return match self.engine.doc_shape_style(&sc) {
+                Ok(r) => {
+                    let ok = r.error.is_none();
+                    self.apply(&r);
+                    ok
+                }
+                Err(_) => false,
+            };
+        }
         let Some(cmd) = bo_engine::picture_tools::PictureCommand::parse(v) else {
             // Round 19: Picture Styles.
             let Some(ps) = bo_engine::doc_picstyle::PicStyleCommand::parse(v) else {

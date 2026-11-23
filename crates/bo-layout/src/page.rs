@@ -442,11 +442,13 @@ fn motif_paths(
         segs,
         fill: Some(color),
         stroke: None,
+        style: None,
     };
     let line = |segs: Vec<PathCmd>, w: f32| ShapePath {
         segs,
         fill: None,
         stroke: Some((w, color, None)),
+        style: None,
     };
     let (a, s) = (along / 2.0, across / 2.0);
     let r = s.min(a);

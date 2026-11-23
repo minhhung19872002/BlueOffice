@@ -121,6 +121,17 @@ pub(crate) fn shape_from_wsp(wsp: &XmlElement, theme: Option<&Theme>) -> Shape {
             })
         }),
     };
+    // Round 20: gradient / picture fill, transparency, Shape Effects.
+    s.style = crate::shapestyle::read(
+        child_local(wsp, "spPr"),
+        sp.fill.as_ref(),
+        sp.line.as_ref().and_then(|l| l.fill.as_ref()),
+        &ctx,
+    )
+    .map(Box::new);
+    if s.style.as_ref().is_some_and(|st| st.picture.is_some()) && s.fill.is_none() {
+        s.fill = Some(Color::WHITE);
+    }
     // §21.1.2.1.1 bodyPr: insets and vertical anchoring.
     if let Some(b) = child_local(wsp, "bodyPr") {
         for (i, k) in ["lIns", "tIns", "rIns", "bIns"].iter().enumerate() {
@@ -421,8 +432,15 @@ fn xml_escape(s: &str) -> String {
 
 /// `a:graphic` of a shape (`wps:wsp`) with the text box content `txbx` (already
 /// serialized blocks; `None` = no text box).
-pub(crate) fn shape_graphic(img: &Image, s: &Shape, id: u32, txbx: Option<&str>) -> String {
+pub(crate) fn shape_graphic(
+    img: &Image,
+    s: &Shape,
+    id: u32,
+    txbx: Option<&str>,
+    blip_rid: Option<&str>,
+) -> String {
     const A_NS: &str = "http://schemas.openxmlformats.org/drawingml/2006/main";
+    let style = s.style.as_deref();
     let (cx, cy) = (img.width.0, img.height.0);
     let mut x = String::new();
     // [MS-ODRAWXML] §2.3.10 wsp: cNvPr?, cNvSpPr, spPr, style?, txbx?, bodyPr.
@@ -456,20 +474,23 @@ pub(crate) fn shape_graphic(img: &Image, s: &Shape, id: u32, txbx: Option<&str>)
             xml_escape(n)
         ));
     }
-    let fill = match s.fill {
+    let styled_fill = style.and_then(|st| crate::shapestyle::fill_xml(st, s.fill, blip_rid));
+    let fill = match (styled_fill, s.fill) {
+        // Round 20: §20.1.8.33 gradFill / §20.1.8.14 blipFill / translucent solidFill.
+        (Some(f), _) => f,
         // §20.1.8.54 solidFill / §20.1.8.44 noFill
-        Some(c) => format!(
+        (None, Some(c)) => format!(
             "<a:solidFill><a:srgbClr val=\"{}\"/></a:solidFill>",
             c.to_hex()
         ),
-        None => "<a:noFill/>".to_owned(),
+        (None, None) => "<a:noFill/>".to_owned(),
     };
     let line = match &s.line {
         // §20.1.2.2.24 ln, §20.1.8.48 prstDash
         Some(l) => format!(
-            "<a:ln w=\"{}\"><a:solidFill><a:srgbClr val=\"{}\"/></a:solidFill>{}</a:ln>",
+            "<a:ln w=\"{}\"><a:solidFill>{}</a:solidFill>{}</a:ln>",
             l.width.0,
-            l.color.to_hex(),
+            crate::shapestyle::line_color_xml(style, l.color),
             l.dash.as_ref().map_or(String::new(), |d| format!(
                 "<a:prstDash val=\"{}\"/>",
                 xml_escape(d)
@@ -478,8 +499,9 @@ pub(crate) fn shape_graphic(img: &Image, s: &Shape, id: u32, txbx: Option<&str>)
         None => "<a:ln><a:noFill/></a:ln>".to_owned(),
     };
     x.push_str(&format!(
-        "<wps:spPr>{xf}<a:prstGeom prst=\"{}\"><a:avLst>{av}</a:avLst></a:prstGeom>{fill}{line}</wps:spPr>",
-        xml_escape(&s.preset)
+        "<wps:spPr>{xf}<a:prstGeom prst=\"{}\"><a:avLst>{av}</a:avLst></a:prstGeom>{fill}{line}{}</wps:spPr>",
+        xml_escape(&s.preset),
+        crate::shapestyle::effects_xml(style)
     ));
     if let Some(t) = txbx {
         x.push_str(&format!(

@@ -191,7 +191,7 @@ impl DocWindow {
         ok
     }
 
-    fn form_context(&mut self) -> FormContext {
+    pub(super) fn form_context(&mut self) -> FormContext {
         let f = self.view.format().clone();
         let styles = self
             .view
@@ -409,6 +409,8 @@ impl DocWindow {
                 true
             }
             FormOut::Run(cmds, close) => {
+                // Fill Effects opened for a shape fills the shape (round 20).
+                let cmds = self.r20_translate(cmds);
                 if close {
                     // Back to a dialog kept under this one (Table Properties › Options…).
                     let closed = self.r3.form.as_ref().map(|f| f.kind);

@@ -1421,7 +1421,14 @@ fn read_run(
             b"drawing" if s => {
                 let img = read_drawing(r, ctx, media)?;
                 let raw = Raw::new(r.slice(before, r.pos()), 0);
+                // Round 20: a shape with a picture fill (wps:wsp with a blipFill) is a shape.
+                let shape_first = raw
+                    .xml
+                    .contains(":wsp")
+                    .then(|| drawing_shape(&raw.xml, ctx, media))
+                    .flatten();
                 match drawing_group(&raw.xml, ctx, media)
+                    .or(shape_first)
                     .or(img)
                     .or_else(|| drawing_shape(&raw.xml, ctx, media))
                 {
@@ -1793,7 +1800,30 @@ fn drawing_shape(
             }
         }
         let mut img = img?;
-        img.shape = Some(Box::new(shape_from_wsp(wsp, ctx.theme.as_deref())));
+        let mut shape = shape_from_wsp(wsp, ctx.theme.as_deref());
+        // Round 20: a picture fill names its media by relationship id.
+        if let Some(st) = shape.style.as_deref_mut() {
+            if let Some(p) = st.picture.as_mut() {
+                let part = ctx
+                    .target(&p.media)
+                    .filter(|name| media.contains_key(name) || ctx.pkg.part(name).is_some());
+                match part {
+                    Some(name) => {
+                        if !media.contains_key(&name) {
+                            if let Some(data) = ctx.pkg.part(&name).map(|p| p.data.clone()) {
+                                media.insert(name.clone(), Arc::new(data));
+                            }
+                        }
+                        p.media = name;
+                    }
+                    None => st.picture = None,
+                }
+            }
+            if st.is_empty() {
+                shape.style = None;
+            }
+        }
+        img.shape = Some(Box::new(shape));
         img
     } else {
         let pict = find_local(&dom, "pict")?;

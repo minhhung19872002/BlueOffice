@@ -281,6 +281,14 @@ impl crate::Engine {
                         run(s.update_shape(|img| {
                             if let Some(sh) = img.shape.as_mut() {
                                 sh.fill = fill;
+                                // Round 20: a colour replaces a gradient / picture fill.
+                                if let Some(st) = sh.style.as_deref_mut() {
+                                    st.gradient = None;
+                                    st.picture = None;
+                                    if st.is_empty() {
+                                        sh.style = None;
+                                    }
+                                }
                             }
                         }))
                     }),

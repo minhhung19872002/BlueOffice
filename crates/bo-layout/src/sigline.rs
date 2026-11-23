@@ -107,6 +107,7 @@ fn stroke(segs: Vec<PathCmd>, width: f32, color: Color) -> ShapePath {
         segs,
         fill: None,
         stroke: Some((width, color, None)),
+        style: None,
     }
 }
 
@@ -115,6 +116,7 @@ fn filled(segs: Vec<PathCmd>, color: Color) -> Option<ShapePath> {
         segs,
         fill: Some(color),
         stroke: None,
+        style: None,
     })
 }
 

@@ -23,6 +23,7 @@ pub mod ole;
 pub mod picture;
 pub mod picture_style;
 pub mod run_fx;
+pub mod shape_style;
 pub mod sheet;
 pub mod sigline;
 pub mod slide;

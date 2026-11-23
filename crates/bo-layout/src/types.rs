@@ -241,6 +241,89 @@ pub struct ShapePath {
     pub fill: Option<Color>,
     /// (width in points, colour, `ST_PresetLineDashVal` dash name).
     pub stroke: Option<(f32, Color, Option<String>)>,
+    /// Gradient / picture paint, transparency, blur and clip of the path (Shape Format
+    /// fills and effects, BlueDoc round 20); `None` = plain solid fill and stroke.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub style: Option<Box<PathStyle>>,
+}
+
+/// How a [`ShapePath`] is painted beyond a solid colour (coordinates relative to the shape
+/// box, like the path).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct PathStyle {
+    /// Paint of the fill instead of the solid `fill` colour.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub paint: Option<PathPaint>,
+    /// Opacity of the fill (0..=1).
+    pub fill_alpha: f32,
+    /// Opacity of the stroke (0..=1).
+    pub line_alpha: f32,
+    /// The path is a soft silhouette in the fill colour: (blur radius, growth) in points
+    /// (§20.1.8.49 outerShdw, §20.1.8.32 glow).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub blur: Option<(f32, f32)>,
+    /// Drawn clipped to this outline (soft edge steps, reflection fade).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub clip: Option<Vec<PathCmd>>,
+    /// Opacity of the whole path (0..=1).
+    pub opacity: f32,
+}
+
+impl Default for PathStyle {
+    fn default() -> Self {
+        PathStyle {
+            paint: None,
+            fill_alpha: 1.0,
+            line_alpha: 1.0,
+            blur: None,
+            clip: None,
+            opacity: 1.0,
+        }
+    }
+}
+
+/// A gradient stop of a [`PathPaint`]: position 0..=1, colour, opacity 0..=1.
+pub type PaintStop = (f32, Color, f32);
+
+/// Fill paint of a shape path (§20.1.8.33 gradFill, §20.1.8.14 blipFill).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub enum PathPaint {
+    /// Linear gradient from (x1, y1) to (x2, y2).
+    Linear {
+        /// Start x.
+        x1: f32,
+        /// Start y.
+        y1: f32,
+        /// End x.
+        x2: f32,
+        /// End y.
+        y2: f32,
+        /// Stops.
+        stops: Vec<PaintStop>,
+    },
+    /// Radial gradient about (cx, cy).
+    Radial {
+        /// Centre x.
+        cx: f32,
+        /// Centre y.
+        cy: f32,
+        /// Radius.
+        r: f32,
+        /// Stops from the centre outwards.
+        stops: Vec<PaintStop>,
+    },
+    /// A picture stretched over `rect` (x, y, w, h), or tiled from its corner in tiles of
+    /// `tile` (w, h) points.
+    Picture {
+        /// Image id (document media part).
+        media: String,
+        /// Box the picture fills.
+        rect: [f32; 4],
+        /// Tile size, when tiled.
+        tile: Option<(f32, f32)>,
+        /// Opacity (0..=1).
+        alpha: f32,
+    },
 }
 
 /// One page (points).

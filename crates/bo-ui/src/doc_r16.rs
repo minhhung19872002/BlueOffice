@@ -38,6 +38,13 @@ pub(super) struct R16 {
     report: String,
     /// Read Aloud in progress (its bar shown).
     pub(super) ra: Option<crate::doc_speech16::ReadAloud>,
+    /// The Preview Results record box being typed in (its text).
+    pub(super) record_edit: Option<String>,
+    /// Home › Font Color: the open palette, the colour the button applies (`RRGGBB`, empty
+    /// until one is picked: red), More Colors… asked from it.
+    pub(super) font_pal: Option<Box<crate::doc_wm14::PagePalette>>,
+    pub(super) font_color: String,
+    pub(super) font_more: bool,
 }
 
 /// Border of the markup display box (#646464), its arrow separator (#949494) and arrow
@@ -59,6 +66,12 @@ impl DocWindow {
         }
         if let Some(spec) = id.strip_prefix("r16.merge:") {
             return Some(self.r16_merge(spec));
+        }
+        if let Some(hex) = id.strip_prefix("r16.fontColor:") {
+            return Some(self.r16_font_color(Some(hex)));
+        }
+        if let Some(g) = id.strip_prefix("r16.gradient:") {
+            return Some(self.r16_gradient(g));
         }
         if let Some(n) = id.strip_prefix("r16.ra.speed:") {
             let rate = n.parse::<i32>().unwrap_or(0).clamp(-10, 10);
@@ -107,6 +120,27 @@ impl DocWindow {
             }
             "mailings.finish" => self.r16_finish_menu(),
             "review.deleteMenu" => self.r16_delete_menu(),
+            // The Font Color button applies the last colour picked (red at first).
+            "format.color" => {
+                let hex = if self.r16.font_color.is_empty() {
+                    "FF0000".to_owned()
+                } else {
+                    self.r16.font_color.clone()
+                };
+                self.r16_font_color(Some(&hex))
+            }
+            "format.colorMenu" => self.r16_open_font_palette(),
+            // The record box takes a typed record number (Enter goes to it).
+            "mailings.recordBox" => {
+                if self.merge_fields().1 == 0 {
+                    return Some(false);
+                }
+                let n = self.merge_record.or(self.r5.record_box).unwrap_or(0) + 1;
+                self.r16.record_edit = Some(n.to_string());
+                true
+            }
+            "mailings.recipients" => self.r16_recipients_menu(),
+            "mailings.recipients.new" => self.r3_open_form(crate::doc_forms::DocFormKind::NewList),
             "mailings.checkErrors" => self.r3_open_form(crate::doc_forms::DocFormKind::CheckErrors),
             "mailings.finish.edit" => self.r3_open_form(crate::doc_forms::DocFormKind::MergeNew),
             "mailings.finish.print" => self.r3_open_form(crate::doc_forms::DocFormKind::MergePrint),
@@ -360,6 +394,52 @@ impl DocWindow {
             })
             .collect();
         self.menu = Some(Menu::open(items, anchor, self.size, self.scale));
+        true
+    }
+
+    /// Select Recipients ▾: Type a New List… / Use an Existing List… / Choose from Outlook
+    /// Contacts… (dim: no Outlook address book on this machine's BlueDoc).
+    fn r16_recipients_menu(&mut self) -> bool {
+        let anchor = self
+            .ribbon
+            .rect_of(RibbonHit::Command("mailings.recipients"))
+            .unwrap_or([0.0, self.ribbon.bottom(), 1.0, 0.0]);
+        let rows = [
+            (
+                "mailings.recipients.new",
+                "docR5.typeNewList",
+                "Type a New List...",
+                false,
+            ),
+            (
+                "mailings.recipients.existing",
+                "docR5.useExistingList",
+                "Use an Existing List...",
+                false,
+            ),
+            (
+                "mailings.recipients.contacts",
+                "docR5.contactsList",
+                "Choose from Outlook Contacts...",
+                true,
+            ),
+        ];
+        let items = rows
+            .iter()
+            .map(|(id, k, en, dim)| MenuItem {
+                label: self.t(k, en),
+                choice: Choice::Command((*id).to_owned()),
+                checked: false,
+                dim: *dim,
+            })
+            .collect();
+        let icons = vec![
+            Some("mailings.recipients.new"),
+            Some("mailings.recipients.existing"),
+            Some("mailings.recipients.contacts"),
+        ];
+        self.menu =
+            Some(Menu::open(items, anchor, self.size, self.scale).with_decor(icons, Vec::new()));
         true
     }
 
@@ -869,6 +949,224 @@ impl DocWindow {
             })
     }
 
+    /// Keys typed into the record box: digits, Backspace, Enter (go to that record), Escape;
+    /// a press elsewhere leaves it.
+    fn r16_record_input(&mut self, input: &Input) -> Option<bool> {
+        let text = self.r16.record_edit.as_mut()?;
+        match input {
+            Input::Text(t) => {
+                text.extend(t.chars().filter(char::is_ascii_digit));
+                Some(true)
+            }
+            Input::Key(crate::Key::Backspace, _) => {
+                text.pop();
+                Some(true)
+            }
+            Input::Key(crate::Key::Escape, _) => {
+                self.r16.record_edit = None;
+                Some(true)
+            }
+            Input::Key(crate::Key::Enter, _) => {
+                let n = text.parse::<usize>().unwrap_or(1).max(1);
+                self.r16.record_edit = None;
+                let count = self.merge_fields().1;
+                let record = (n - 1).min(count.saturating_sub(1));
+                self.merge_record = Some(record);
+                Some(self.r3_run(vec![json!({ "cmd": "mergePreview", "record": record })]))
+            }
+            Input::Press { .. } => {
+                self.r16.record_edit = None;
+                None
+            }
+            _ => None,
+        }
+    }
+
+    /// Font colour `hex` (`None`: Automatic) on the selection; it becomes the button's colour.
+    fn r16_font_color(&mut self, hex: Option<&str>) -> bool {
+        if let Some(h) = hex {
+            self.r16.font_color = h.to_ascii_uppercase();
+        }
+        self.r3_run(vec![
+            json!({ "cmd": "formatText", "format": { "kind": "color", "hex": hex } }),
+        ])
+    }
+
+    /// Gradient ▸ of the Font Color palette: `none`, or `light|dark:right|down|left|up` — a
+    /// w14 gradient fill from a tint (light) or shade (dark) of the button's colour to it.
+    fn r16_gradient(&mut self, g: &str) -> bool {
+        if g == "none" {
+            return self.r3_run(vec![json!({ "cmd": "formatText",
+                "format": { "kind": "advanced", "patch": { "gradient": null } } })]);
+        }
+        let base = if self.r16.font_color.is_empty() {
+            "4472C4".to_owned()
+        } else {
+            self.r16.font_color.clone()
+        };
+        let (tone, dir) = g.split_once(':').unwrap_or(("light", "right"));
+        let rgb = u32::from_str_radix(&base, 16).unwrap_or(0x0044_72C4);
+        let mix = |c: u32, k: f32, to: f32| ((c as f32) * (1.0 - k) + to * k).round() as u32;
+        let (r, gg, b) = ((rgb >> 16) & 255, (rgb >> 8) & 255, rgb & 255);
+        let other = if tone == "dark" {
+            (mix(r, 0.5, 0.0), mix(gg, 0.5, 0.0), mix(b, 0.5, 0.0))
+        } else {
+            (mix(r, 0.6, 255.0), mix(gg, 0.6, 255.0), mix(b, 0.6, 255.0))
+        };
+        let other = format!("{:02X}{:02X}{:02X}", other.0, other.1, other.2);
+        let angle = match dir {
+            "down" => 90.0,
+            "left" => 180.0,
+            "up" => 270.0,
+            _ => 0.0,
+        };
+        self.r3_run(vec![
+            json!({ "cmd": "formatText", "format": { "kind": "advanced",
+            "patch": { "gradient": { "from": other, "to": base, "angle": angle } } } }),
+        ])
+    }
+
+    /// Home › Font Color ▾: Automatic, theme / standard / recent colours, More Colors…,
+    /// Gradient ▸ (the Page Color palette's look).
+    fn r16_open_font_palette(&mut self) -> bool {
+        self.menu = None;
+        let anchor = self
+            .ribbon
+            .rect_of(RibbonHit::Command("format.color"))
+            .unwrap_or([self.size.0 / 3.0, 120.0, 28.0, 28.0]);
+        let doc = self.view.engine().document();
+        let theme = doc
+            .map(|d| d.design.theme_colors.clone())
+            .filter(|t| !t.is_empty())
+            .or_else(|| {
+                doc.and_then(|d| d.design.theme_xml.clone())
+                    .map(|x| bo_engine::theme_file::theme_colors(x.as_bytes()))
+            })
+            .unwrap_or_default();
+        let labels = [
+            self.t("doc14.pcHighContrast", "High-contrast only"),
+            self.t("doc14.pcTheme", "Theme Colors"),
+            self.t("doc14.pcStandard", "Standard Colors"),
+            self.t("doc16.automatic", "Automatic"),
+            self.t("doc14.pcMore", "More Colors..."),
+            self.t("doc16.gradient", "Gradient"),
+        ];
+        let current = Some(self.r16.font_color.clone()).filter(|c| !c.is_empty());
+        let mut pal = crate::doc_wm14::PagePalette::open(
+            anchor,
+            self.size,
+            self.scale,
+            super::r12::palette(&theme),
+            labels,
+            current,
+        );
+        pal.recent.clone_from(&self.r15.recent);
+        pal.recent_label = self.t("doc15.recentColors", "Recent Colors");
+        self.r16.font_pal = Some(Box::new(pal));
+        true
+    }
+
+    /// Gradient ▸ beside the palette's last row.
+    fn r16_gradient_menu(&mut self, at: [f32; 4]) -> bool {
+        let rows = [
+            ("none", "doc16.noGradient", "No Gradient"),
+            (
+                "light:right",
+                "doc16.lightRight",
+                "Light Variations: Linear Right",
+            ),
+            (
+                "light:down",
+                "doc16.lightDown",
+                "Light Variations: Linear Down",
+            ),
+            (
+                "light:left",
+                "doc16.lightLeft",
+                "Light Variations: Linear Left",
+            ),
+            ("light:up", "doc16.lightUp", "Light Variations: Linear Up"),
+            (
+                "dark:right",
+                "doc16.darkRight",
+                "Dark Variations: Linear Right",
+            ),
+            (
+                "dark:down",
+                "doc16.darkDown",
+                "Dark Variations: Linear Down",
+            ),
+            (
+                "dark:left",
+                "doc16.darkLeft",
+                "Dark Variations: Linear Left",
+            ),
+            ("dark:up", "doc16.darkUp", "Dark Variations: Linear Up"),
+        ];
+        let items = rows
+            .iter()
+            .map(|(id, k, en)| MenuItem {
+                label: self.t(k, en),
+                choice: Choice::Command(format!("r16.gradient:{id}")),
+                checked: false,
+                dim: false,
+            })
+            .collect();
+        self.menu = Some(Menu::open(items, at, self.size, self.scale));
+        true
+    }
+
+    /// Input to the Font Color palette (`None`: not open / not for it), and the press on
+    /// the Font Color button's arrow part that opens it.
+    fn r16_font_input(&mut self, input: &Input) -> Option<bool> {
+        use crate::doc_wm14::PcPick;
+        if self.r16.font_pal.is_none() {
+            if let Input::Press { x, y, .. } = *input {
+                let r = self.ribbon.rect_of(RibbonHit::Command("format.color"))?;
+                let arrow =
+                    x >= r[0] + r[2] * 0.62 && x < r[0] + r[2] && y >= r[1] && y < r[1] + r[3];
+                if arrow && self.ribbon.active_label() == "ribbon.tabs.home" {
+                    return Some(self.r16_open_font_palette());
+                }
+            }
+            return None;
+        }
+        let p = self.r16.font_pal.as_mut()?;
+        Some(match *input {
+            Input::Move { x, y } | Input::Drag { x, y } => p.hover(x, y),
+            Input::Press { x, y, .. } => match p.press(x, y) {
+                Some(PcPick::Nothing) => true,
+                Some(PcPick::Color(hex)) => {
+                    self.r16.font_pal = None;
+                    self.r16_font_color(Some(&hex))
+                }
+                Some(PcPick::None) => {
+                    self.r16.font_pal = None;
+                    self.r16_font_color(None)
+                }
+                Some(PcPick::More) => {
+                    self.r16.font_pal = None;
+                    self.r16.font_more = true;
+                    self.r3_open_form(crate::doc_forms::DocFormKind::Colors)
+                }
+                Some(PcPick::Fill) => {
+                    self.r16.font_pal = None;
+                    self.r16_gradient_menu([x, y, 1.0, 0.0])
+                }
+                None => {
+                    self.r16.font_pal = None;
+                    true
+                }
+            },
+            Input::Key(crate::Key::Escape, _) => {
+                self.r16.font_pal = None;
+                true
+            }
+            Input::Text(_) | Input::Key(..) | Input::Release { .. } | Input::Wheel(_) => true,
+            _ => return None,
+        })
+    }
+
     /// Input to the Read Aloud bar.
     fn r16_ra_input(&mut self, input: &Input) -> Option<bool> {
         use crate::doc_speech16::RaButton;
@@ -947,6 +1245,12 @@ impl DocWindow {
         if let Some(r) = self.r16_ra_input(input) {
             return Some(r);
         }
+        if let Some(r) = self.r16_record_input(input) {
+            return Some(r);
+        }
+        if let Some(r) = self.r16_font_input(input) {
+            return Some(r);
+        }
         if self.r16.pop.is_none() {
             return self.r16_thes_input(input);
         }
@@ -1011,6 +1315,62 @@ impl DocWindow {
     /// Ribbon overlays of round 16: the markup display box, the open group drop-down.
     pub(super) fn r16_paint(&self, p: &mut dyn Painter) {
         self.r16_paint_markup_box(p);
+        // The Font Color button's arrow part (split button, as the reference).
+        if self.ribbon.active_label() == "ribbon.tabs.home" {
+            if let Some(r) = self.ribbon.rect_of(RibbonHit::Command("format.color")) {
+                let k = self.scale / 1.25;
+                let (cx, cy, a) = (r[0] + r[2] - 5.0 * k, r[1] + r[3] / 2.0, 2.5 * k);
+                p.path(
+                    &[
+                        bo_render::PathSeg::M(cx - a, cy - a / 2.0),
+                        bo_render::PathSeg::L(cx + a, cy - a / 2.0),
+                        bo_render::PathSeg::L(cx, cy + a / 2.0),
+                        bo_render::PathSeg::Z,
+                    ],
+                    Some(self.theme.text),
+                    None,
+                );
+            }
+        }
+        if let Some(fp) = &self.r16.font_pal {
+            fp.paint(p);
+        }
+        if let (Some(t), Some(r)) = (
+            &self.r16.record_edit,
+            self.ribbon
+                .rect_of(RibbonHit::Command("mailings.recordBox")),
+        ) {
+            // The box being typed in: a blue frame, the digits and a caret.
+            let px = |v: f32| (v * self.scale).round();
+            let b = [
+                r[0] + px(2.0),
+                r[1] + px(3.0),
+                r[2] - px(4.0),
+                r[3] - px(6.0),
+            ];
+            p.fill_rect(b[0], b[1], b[2], b[3], self.theme.accent);
+            p.fill_rect(
+                b[0] + 1.0,
+                b[1] + 1.0,
+                b[2] - 2.0,
+                b[3] - 2.0,
+                Rgba(255, 255, 255, 255),
+            );
+            let style = TextStyle {
+                size: px(12.0),
+                bold: false,
+            };
+            let y = (b[1] + (b[3] - style.size * 1.33) / 2.0).round();
+            p.text(t, b[0] + px(6.0), y, style, self.theme.text);
+            let cx = b[0] + px(6.0) + t.chars().count() as f32 * style.size * 0.55;
+            p.fill_rect(
+                cx.round(),
+                b[1] + px(3.0),
+                1.0,
+                b[3] - px(6.0),
+                self.theme.text,
+            );
+        }
         if let Some(ra) = &self.r16.ra {
             ra.paint(p);
         }

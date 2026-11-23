@@ -170,6 +170,8 @@ pub(crate) enum DocFormKind {
     CheckErrors,
     /// The result of Check for Errors (round 16).
     MergeReport,
+    /// Mailings › Select Recipients › Type a New List… (New Address List, round 16).
+    NewList,
 }
 
 /// What the owner does after an input.
@@ -1041,7 +1043,8 @@ impl DocForm {
             | DocFormKind::MergeNew
             | DocFormKind::MergePrint
             | DocFormKind::CheckErrors
-            | DocFormKind::MergeReport => FormOut::Close,
+            | DocFormKind::MergeReport
+            | DocFormKind::NewList => FormOut::Close,
             DocFormKind::Toc => {
                 let levels = self.form.num("levels").clamp(1, 9);
                 let mut instr = match &self.toc_map {
@@ -3157,7 +3160,8 @@ pub(crate) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
         | DocFormKind::MergeNew
         | DocFormKind::MergePrint
         | DocFormKind::CheckErrors
-        | DocFormKind::MergeReport => r16::open(kind, s, c),
+        | DocFormKind::MergeReport
+        | DocFormKind::NewList => r16::open(kind, s, c),
         DocFormKind::Zoom => {
             let mut f = DocForm::new(kind, &tr("docR4.zoomTitle", "Zoom"), (381.0, 258.0), vec![]);
             f.label(

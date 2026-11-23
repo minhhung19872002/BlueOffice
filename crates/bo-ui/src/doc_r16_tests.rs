@@ -365,3 +365,68 @@ fn check_for_errors_reports_unknown_fields() {
     assert!(w.action("r16.checkErrors:sim"));
     assert!(w.r16.report.contains("«City»"), "{}", w.r16.report);
 }
+
+// source: the reference's Select Recipients › Type a New List… (New Address List) and the
+// Preview Results record box.
+#[test]
+fn type_a_new_list_becomes_the_data_source() {
+    use crate::doc_forms::DocFormKind;
+    let mut w = window();
+    assert!(w.action("mailings.recipients"));
+    assert!(
+        !w.menu.as_ref().expect("menu").items()[0].dim,
+        "Type a New List is on"
+    );
+    assert!(w.action("mailings.recipients.new"));
+    let f = w.r3.form.as_mut().expect("New Address List");
+    assert_eq!(f.kind, DocFormKind::NewList);
+    f.set_text("f1", "Ann");
+    f.set_text("f6", "Hanoi");
+    let out = f.click_for_test("newEntry");
+    w.form_out(out);
+    let f = w.r3.form.as_mut().expect("still open");
+    f.set_text("f1", "Bob");
+    let rows = f.nl_rows_for_test();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0][1], "Ann");
+    enter(&mut w);
+    assert!(w.r3.form.is_none());
+    let (fields, count) = w.merge_fields();
+    assert_eq!(count, 2);
+    assert!(fields.iter().any(|f| f == "First Name"));
+    // The record box: type 2, Enter shows the second record.
+    w.r3_run(vec![
+        json!({ "cmd": "mergeInsertField", "name": "First Name" }),
+    ]);
+    assert!(w.action("mailings.recordBox"));
+    w.handle(
+        Input::Key(crate::Key::Backspace, crate::Mods::default()),
+        &Fixed,
+    );
+    w.handle(Input::Text("2".into()), &Fixed);
+    w.handle(
+        Input::Key(crate::Key::Enter, crate::Mods::default()),
+        &Fixed,
+    );
+    assert_eq!(w.merge_record, Some(1));
+}
+
+// source: the reference's Home › Font Color split button: the palette picks a colour that
+// the button then applies; Gradient ▸ fills the text with a gradient.
+#[test]
+fn font_color_split_button() {
+    let mut w = window();
+    w.run_interface_command("text:Hello", &Fixed);
+    w.r3_run(vec![json!({ "cmd": "selectAll" })]);
+    assert!(w.action("format.colorMenu"));
+    assert!(w.r16.font_pal.is_some());
+    w.r16.font_pal = None;
+    assert!(w.action("r16.fontColor:00B050"));
+    assert_eq!(w.view.format().color.as_deref(), Some("00B050"));
+    w.r3_run(vec![
+        json!({ "cmd": "formatText", "format": { "kind": "color", "hex": null } }),
+    ]);
+    assert!(w.action("format.color"), "applies the last colour");
+    assert_eq!(w.view.format().color.as_deref(), Some("00B050"));
+    assert!(w.action("r16.gradient:light:right"));
+}

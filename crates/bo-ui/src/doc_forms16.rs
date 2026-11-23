@@ -20,6 +20,7 @@ pub(super) fn handles(kind: DocFormKind) -> bool {
             | DocFormKind::MergePrint
             | DocFormKind::CheckErrors
             | DocFormKind::MergeReport
+            | DocFormKind::NewList
     )
 }
 
@@ -148,6 +149,9 @@ pub(super) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
     }
     if kind == DocFormKind::CheckErrors {
         return open_check(s);
+    }
+    if kind == DocFormKind::NewList {
+        return open_new_list(s);
     }
     if kind == DocFormKind::MergeReport {
         let text = c.extra["r16"]["report"].as_str().unwrap_or_default();
@@ -316,6 +320,208 @@ fn open_merge(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
         false,
     );
     f
+}
+
+/// The columns of a new address list (the reference's default columns).
+pub(crate) const LIST_FIELDS: [&str; 13] = [
+    "Title",
+    "First Name",
+    "Last Name",
+    "Company Name",
+    "Address Line 1",
+    "Address Line 2",
+    "City",
+    "State",
+    "ZIP Code",
+    "Country or Region",
+    "Home Phone",
+    "Work Phone",
+    "E-mail Address",
+];
+
+/// Edit boxes of the entry being typed (one per column).
+const FIELD_IDS: [&str; 13] = [
+    "f0", "f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8", "f9", "f10", "f11", "f12",
+];
+const LABEL_IDS: [&str; 13] = [
+    "l0", "l1", "l2", "l3", "l4", "l5", "l6", "l7", "l8", "l9", "l10", "l11", "l12",
+];
+
+/// New Address List: the entries (one per row, columns joined), the columns of the selected
+/// entry to type in, New Entry / Delete Entry; OK makes the list the merge's data source.
+fn open_new_list(s: &Strings) -> DocForm {
+    let tr = |k: &str, fb: &str| t(s, k, fb);
+    let mut f = DocForm::new(
+        DocFormKind::NewList,
+        &tr("doc16.newListTitle", "New Address List"),
+        (790.0, 520.0),
+        vec![],
+    );
+    f.label(
+        "intro",
+        [12.0, 46.0, 766.0, 21.0],
+        &tr(
+            "doc16.newListIntro",
+            "Type recipient information in the table. To add more entries, click New Entry.",
+        ),
+    );
+    f.list(
+        "entries",
+        [12.0, 72.0, 766.0, 150.0],
+        vec![String::new()],
+        Some(0),
+    );
+    for (i, name) in LIST_FIELDS.iter().enumerate() {
+        let (col, row) = (i / 7, i % 7);
+        let (lx, ex, ew) = if col == 0 {
+            (12.0, 150.0, 230.0)
+        } else {
+            (400.0, 548.0, 230.0)
+        };
+        let y = 234.0 + 32.0 * row as f32;
+        f.label(LABEL_IDS[i], [lx, y + 4.0, 134.0, 21.0], name);
+        f.edit(FIELD_IDS[i], [ex, y, ew, 26.0], "");
+    }
+    f.button(
+        "newEntry",
+        [12.0, 470.0, 128.0, 32.0],
+        &tr("doc16.newEntry", "New Entry"),
+        false,
+    );
+    f.button(
+        "deleteEntry",
+        [148.0, 470.0, 128.0, 32.0],
+        &tr("doc16.deleteEntry", "Delete Entry"),
+        false,
+    );
+    f.button(
+        "ok",
+        [560.0, 476.0, 106.0, 32.0],
+        &tr("common.ok", "OK"),
+        true,
+    );
+    f.button(
+        "cancel",
+        [672.0, 476.0, 106.0, 32.0],
+        &tr("common.cancel", "Cancel"),
+        false,
+    );
+    f.words = vec![
+        ("records".into(), "[[]]".into()),
+        ("cur".into(), "0".into()),
+    ];
+    f.form.focus("f0");
+    f
+}
+
+impl DocForm {
+    fn nl_records(&self) -> (Vec<Vec<String>>, usize) {
+        let get = |k: &str| {
+            self.words
+                .iter()
+                .find(|(a, _)| a == k)
+                .map(|(_, v)| v.clone())
+                .unwrap_or_default()
+        };
+        let recs: Vec<Vec<String>> = serde_json::from_str(&get("records")).unwrap_or_default();
+        let cur = get("cur").parse().unwrap_or(0);
+        (recs, cur)
+    }
+
+    fn nl_store(&mut self, recs: &[Vec<String>], cur: usize) {
+        let text = serde_json::to_string(recs).unwrap_or_default();
+        for (k, v) in &mut self.words {
+            if k == "records" {
+                v.clone_from(&text);
+            } else if k == "cur" {
+                *v = cur.to_string();
+            }
+        }
+        let items: Vec<String> = recs
+            .iter()
+            .map(|r| {
+                r.iter()
+                    .filter(|c| !c.is_empty())
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join("  |  ")
+            })
+            .collect();
+        self.form.set_items("entries", items, Some(cur));
+    }
+
+    /// The edit boxes into the selected entry.
+    fn nl_save_entry(&mut self) -> (Vec<Vec<String>>, usize) {
+        let (mut recs, cur) = self.nl_records();
+        if recs.is_empty() {
+            recs.push(Vec::new());
+        }
+        let row: Vec<String> = FIELD_IDS.iter().map(|id| self.text(id)).collect();
+        let cur = cur.min(recs.len() - 1);
+        recs[cur] = row;
+        (recs, cur)
+    }
+
+    fn nl_load_entry(&mut self, recs: &[Vec<String>], cur: usize) {
+        for (i, id) in FIELD_IDS.iter().enumerate() {
+            let v = recs
+                .get(cur)
+                .and_then(|r| r.get(i))
+                .cloned()
+                .unwrap_or_default();
+            self.set_text(id, &v);
+        }
+    }
+
+    /// New Address List: a typed column, another entry chosen, New / Delete Entry.
+    fn nl_event(&mut self, id: &str) -> bool {
+        if self.kind != DocFormKind::NewList {
+            return false;
+        }
+        match id {
+            "entries" => {
+                let (recs, _) = self.nl_records();
+                let cur = self
+                    .sel("entries")
+                    .unwrap_or(0)
+                    .min(recs.len().saturating_sub(1));
+                self.nl_store(&recs, cur);
+                self.nl_load_entry(&recs, cur);
+            }
+            "newEntry" => {
+                let (mut recs, _) = self.nl_save_entry();
+                recs.push(Vec::new());
+                let cur = recs.len() - 1;
+                self.nl_store(&recs, cur);
+                self.nl_load_entry(&recs, cur);
+                self.form.focus("f0");
+            }
+            "deleteEntry" => {
+                let (mut recs, cur) = self.nl_records();
+                if cur < recs.len() {
+                    recs.remove(cur);
+                }
+                if recs.is_empty() {
+                    recs.push(Vec::new());
+                }
+                let cur = cur.min(recs.len() - 1);
+                self.nl_store(&recs, cur);
+                self.nl_load_entry(&recs, cur);
+            }
+            _ if FIELD_IDS.contains(&id) => {
+                let (recs, cur) = self.nl_save_entry();
+                self.nl_store(&recs, cur);
+            }
+            _ => return false,
+        }
+        true
+    }
+
+    /// New Address List typed entries (empty ones left out), for tests.
+    #[cfg(test)]
+    pub(crate) fn nl_rows_for_test(&mut self) -> Vec<Vec<String>> {
+        self.nl_save_entry().0
+    }
 }
 
 /// Checking and Reporting Errors: simulate the merge, complete it pausing on each error, or
@@ -544,6 +750,9 @@ impl DocForm {
         if !handles(self.kind) {
             return None;
         }
+        if self.nl_event(id) {
+            return Some(FormOut::Redraw);
+        }
         match id {
             "advanced" => Some(FormOut::Stash(DocFormKind::AdvTrackOptions)),
             "userName" => Some(FormOut::Run(
@@ -556,6 +765,9 @@ impl DocForm {
 
     /// Measure in changed: the width box shows the width in the new unit.
     pub(super) fn r16_changed(&mut self, id: &str) {
+        if self.nl_event(id) {
+            return;
+        }
         if self.kind == DocFormKind::AdvTrackOptions && id == "unit" {
             let pts = self.r16_width_points();
             let u = UNITS[self.sel("unit").unwrap_or(0).min(2)];
@@ -601,6 +813,24 @@ impl DocForm {
                 ))
             }
             DocFormKind::MergeReport => Some(FormOut::Close),
+            DocFormKind::NewList => {
+                let rows: Vec<Vec<String>> = self
+                    .nl_save_entry()
+                    .0
+                    .into_iter()
+                    .filter(|r| r.iter().any(|c| !c.trim().is_empty()))
+                    .collect();
+                if rows.is_empty() {
+                    return Some(FormOut::Close);
+                }
+                Some(FormOut::Run(
+                    vec![json!({
+                        "cmd": "mergeTable", "name": "Address List",
+                        "fields": LIST_FIELDS, "rows": rows,
+                    })],
+                    true,
+                ))
+            }
             DocFormKind::MergeNew | DocFormKind::MergePrint => {
                 let what = if self.kind == DocFormKind::MergeNew {
                     "edit"

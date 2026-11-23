@@ -125,7 +125,10 @@ impl DocWindow {
             .stash
             .as_ref()
             .and_then(crate::doc_forms::DocForm::r15_more_color);
+        let font = std::mem::take(&mut self.r16.font_more);
         let color = match from_form {
+            // Home › Font Color › More Colors… (round 16).
+            _ if font => json!({ "target": "font", "current": self.r16.font_color }),
             Some(hex) if !self.r15.page => json!({ "target": "form", "current": hex }),
             _ => {
                 let page = self

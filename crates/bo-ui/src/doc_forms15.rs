@@ -575,6 +575,14 @@ impl DocForm {
                 ],
                 true,
             ),
+            // Home › Font Color (round 16).
+            "font" => FormOut::Run(
+                vec![
+                    recent,
+                    json!({ "cmd": "ui.action", "id": format!("r16.fontColor:{hex}") }),
+                ],
+                true,
+            ),
             _ => FormOut::Run(
                 vec![recent, json!({ "cmd": "setPageColor", "color": hex })],
                 true,

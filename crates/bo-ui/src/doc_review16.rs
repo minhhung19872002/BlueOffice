@@ -291,6 +291,37 @@ pub(crate) fn install_icons(icons: &mut Icons) {
     icons.alias("review.deleteShown", "review.resolveComment");
     icons.alias("review.deleteAll", "review.resolveComment");
     icons.alias("review.trackingOptions", "launcher");
+    // Select Recipients rows: a table with a pen, a grid, an address card (own drawings).
+    icons.add_solid(
+        "mailings.recipients.new",
+        &[
+            ("M3 5h16v12h-16Z", white),
+            ("M3 5h16v12h-16ZM4 6v2h14v-2ZM4 9v7h14v-7Z", grey),
+            ("M14 18l6-6l1.5 1.5l-6 6h-1.5Z", blue),
+        ],
+    );
+    icons.add_solid(
+        "mailings.recipients.existing",
+        &[
+            ("M3 5h18v14h-18Z", white),
+            (
+                "M3 5h18v14h-18ZM4 6v3h16v-3ZM4 10v8h5v-8ZM10 10v8h4v-8ZM15 10v8h5v-8Z",
+                grey,
+            ),
+        ],
+    );
+    icons.add_solid(
+        "mailings.recipients.contacts",
+        &[
+            ("M3 5h18v14h-18Z", white),
+            ("M3 5h18v14h-18ZM4 6v12h16v-12Z", grey),
+            (
+                "M8.5 9a2 2 0 1 1 0 4a2 2 0 1 1 0-4ZM5.5 16.5a3 3 0 0 1 6 0Z",
+                blue,
+            ),
+            ("M13 10h5v1h-5ZM13 13h5v1h-5Z", grey),
+        ],
+    );
     // Finish & Merge › Send Email Messages: an envelope (own drawing).
     icons.add_solid(
         "mailings.finish.email",

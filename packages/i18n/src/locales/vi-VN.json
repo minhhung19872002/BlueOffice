@@ -16597,7 +16597,11 @@
     "movedTo": "Chuyển đến:",
     "formattingGroup": "Định dạng",
     "trackFormatting": "Theo dõi định dạng",
-    "formattingLabel": "Định dạng:"
+    "formattingLabel": "Định dạng:",
+    "downloading": "Đang tải ảnh xuống...",
+    "downloadFailed": "Không tải được ảnh",
+    "close": "Đóng",
+    "cancel": "Hủy"
   },
   "doc17": {
     "bmAdd": "Thêm",

@@ -22,6 +22,36 @@ pub(super) struct R18 {
     sync: bool,
     /// Insert › Screenshot's gallery while it is open.
     shots: Option<Shots>,
+    /// Online Pictures › Insert: the download in progress (a worker thread).
+    pub(super) download: Option<Download>,
+}
+
+/// An Online Pictures download: the address, when it started, the worker's answer
+/// (picture bytes and name, or `None` when it failed).
+pub(super) struct Download {
+    url: String,
+    started: std::time::Instant,
+    rx: std::sync::mpsc::Receiver<Option<(Vec<u8>, String)>>,
+    /// The download failed: the panel says so until closed.
+    failed: bool,
+}
+
+/// Fetch `url` (HTTPS through the transport of time-stamping, 16 MB / 30 s at most); the
+/// picture bytes and a file name when it is a picture.
+fn fetch_picture(url: &str) -> Option<(Vec<u8>, String)> {
+    use bo_sign::http::HttpTransport as _;
+    let t = bo_sign::http::UreqTransport::new(std::time::Duration::from_secs(30));
+    let r = t.get(url).ok()?;
+    if !(200..300).contains(&r.status) || bo_raster::transcode_to_png(&r.body).is_none() {
+        return None;
+    }
+    let name = url
+        .rsplit('/')
+        .next()
+        .filter(|n| n.contains('.'))
+        .unwrap_or("Online picture.png")
+        .to_owned();
+    Some((r.body, name))
 }
 
 /// Insert › Screenshot: the Available Windows gallery.
@@ -100,6 +130,12 @@ impl DocWindow {
                 true
             }
             _ if crate::doc_scale18::is_group(id) => self.r18_open_group(id),
+            // Online Pictures › Insert: the download runs on a worker thread while a panel
+            // shows its progress (Cancel stops waiting for it).
+            _ if id.starts_with("r17.picUrl:") => {
+                let url = id.trim_start_matches("r17.picUrl:").to_owned();
+                self.r18_start_download(url, fetch_picture)
+            }
             _ => return None,
         })
     }
@@ -239,6 +275,9 @@ impl DocWindow {
 
     /// Pointer and keys while the Screenshot gallery is open.
     pub(super) fn r18_input(&mut self, input: &Input) -> Option<bool> {
+        if self.r18.download.is_some() {
+            return self.r18_download_input(input);
+        }
         let g = self.r18.shots.as_ref()?;
         match *input {
             Input::Move { x, y } => {
@@ -284,8 +323,149 @@ impl DocWindow {
         }
     }
 
+    /// Start downloading `url` with `fetch` on a worker thread.
+    pub(super) fn r18_start_download(
+        &mut self,
+        url: String,
+        fetch: fn(&str) -> Option<(Vec<u8>, String)>,
+    ) -> bool {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let job = url.clone();
+        let spawned = std::thread::Builder::new()
+            .name("online-picture".into())
+            .spawn(move || {
+                let _ = tx.send(fetch(&job));
+            });
+        if spawned.is_err() {
+            return false;
+        }
+        self.r18.download = Some(Download {
+            url,
+            started: std::time::Instant::now(),
+            rx,
+            failed: false,
+        });
+        true
+    }
+
+    /// The download panel's rectangle and its Cancel (or Close) button's.
+    fn r18_download_rects(&self) -> ([f32; 4], [f32; 4]) {
+        let s = self.scale / 1.25;
+        let (w, h) = (420.0 * s, 150.0 * s);
+        let x = ((self.size.0 - w) / 2.0).round();
+        let y = ((self.size.1 - h) / 2.0).round();
+        let b = [x + w - 112.0 * s, y + h - 46.0 * s, 100.0 * s, 32.0 * s];
+        ([x, y, w, h], b)
+    }
+
+    /// Input while an Online Pictures download runs: ticks look for its end, Cancel / Esc
+    /// stop waiting, everything else waits (the panel is modal like the reference's).
+    fn r18_download_input(&mut self, input: &Input) -> Option<bool> {
+        let (_, b) = self.r18_download_rects();
+        match *input {
+            Input::Tick | Input::Blink => {
+                let d = self.r18.download.as_mut()?;
+                if d.failed {
+                    return None;
+                }
+                match d.rx.try_recv() {
+                    Ok(Some((bytes, name))) => {
+                        self.r18.download = None;
+                        self.view.insert_picture(bytes, &name);
+                        self.sync_context();
+                        Some(true)
+                    }
+                    Ok(None) | Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                        d.failed = true;
+                        Some(true)
+                    }
+                    // Still downloading: the bar moves.
+                    Err(std::sync::mpsc::TryRecvError::Empty) => Some(true),
+                }
+            }
+            Input::Press { x, y, .. } => {
+                if x >= b[0] && x < b[0] + b[2] && y >= b[1] && y < b[1] + b[3] {
+                    self.r18.download = None;
+                }
+                Some(true)
+            }
+            Input::Key(Key::Escape, _) => {
+                self.r18.download = None;
+                Some(true)
+            }
+            Input::Key(..)
+            | Input::Text(_)
+            | Input::Release { .. }
+            | Input::Drag { .. }
+            | Input::Wheel(_)
+            | Input::Context { .. } => Some(false),
+            _ => None,
+        }
+    }
+
+    /// Whether an Online Pictures download is in progress (or its failure is shown).
+    pub fn downloading(&self) -> bool {
+        self.r18.download.is_some()
+    }
+
+    fn r18_paint_download(&self, p: &mut dyn Painter) {
+        let Some(d) = &self.r18.download else { return };
+        let s = self.scale / 1.25;
+        let ([x, y, w, h], b) = self.r18_download_rects();
+        let px = s.max(1.0).round();
+        p.fill_rect(x, y, w, h, PANEL_EDGE);
+        p.fill_rect(x + px, y + px, w - 2.0 * px, h - 2.0 * px, PANEL_BG);
+        let bold = TextStyle {
+            size: (15.0 * s).round(),
+            bold: true,
+        };
+        let plain = TextStyle {
+            size: (14.0 * s).round(),
+            bold: false,
+        };
+        let title = if d.failed {
+            self.r18_t(
+                "doc18.downloadFailed",
+                "The picture could not be downloaded",
+            )
+        } else {
+            self.r18_t("doc18.downloading", "Downloading picture...")
+        };
+        p.text(&title, x + 16.0 * s, y + 14.0 * s, bold, TEXT);
+        let url: String = d.url.chars().take(56).collect();
+        p.text(&url, x + 16.0 * s, y + 42.0 * s, plain, TEXT);
+        if !d.failed {
+            // An indeterminate bar: a block sliding along the track.
+            let (tx, ty, tw, th) = (x + 16.0 * s, y + 70.0 * s, w - 32.0 * s, 8.0 * s);
+            p.fill_rect(tx, ty, tw, th, Rgba(0xE6, 0xE6, 0xE6, 255));
+            let t = d.started.elapsed().as_secs_f32();
+            let k = (t * 0.6).fract();
+            let bw = tw * 0.25;
+            let bx = tx + (tw + bw) * k - bw;
+            let (l, r) = (bx.max(tx), (bx + bw).min(tx + tw));
+            if r > l {
+                p.fill_rect(l, ty, r - l, th, Rgba(0x00, 0x5F, 0xB8, 255));
+            }
+        }
+        p.fill_rect(b[0], b[1], b[2], b[3], Rgba(0xC6, 0xC6, 0xC6, 255));
+        p.fill_rect(
+            b[0] + px,
+            b[1] + px,
+            b[2] - 2.0 * px,
+            b[3] - 2.0 * px,
+            Rgba(0xFD, 0xFD, 0xFD, 255),
+        );
+        let label = if d.failed {
+            self.r18_t("doc18.close", "Close")
+        } else {
+            self.r18_t("doc18.cancel", "Cancel")
+        };
+        p.text(&label, b[0] + 26.0 * s, b[1] + 7.0 * s, plain, TEXT);
+    }
+
     /// Draw the Screenshot gallery over the window.
     pub(super) fn r18_paint(&self, p: &mut dyn Painter) {
+        self.r18_paint_download(p);
         let Some(g) = &self.r18.shots else { return };
         let s = self.scale / 1.25;
         let [x, y, w, h] = g.rect;

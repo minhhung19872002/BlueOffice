@@ -234,3 +234,51 @@ fn a_collapsed_group_opens_its_panel() {
     assert!(w.action("r18g.paragraph"));
     assert!(w.r16.pop.is_none());
 }
+
+fn tiny_png(_: &str) -> Option<(Vec<u8>, String)> {
+    let png = bo_raster::rgba_to_png(bo_raster::codecs::Rgba {
+        width: 2,
+        height: 2,
+        pixels: vec![200; 16],
+    })?;
+    Some((png, "p.png".into()))
+}
+
+fn nothing(_: &str) -> Option<(Vec<u8>, String)> {
+    None
+}
+
+#[test]
+fn online_pictures_download_in_the_background_with_cancel() {
+    let mut w = window();
+    let before = w.view.engine().document().map_or(0, |d| d.media.len());
+    assert!(w.r18_start_download("https://example.test/p.png".into(), tiny_png));
+    assert!(w.downloading());
+    // Typing waits while the panel shows.
+    assert!(!w.handle(Input::Text("x".into()), &Fixed));
+    for _ in 0..200 {
+        w.handle(Input::Tick, &Fixed);
+        if !w.downloading() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert!(!w.downloading(), "the picture arrived");
+    let after = w.view.engine().document().map_or(0, |d| d.media.len());
+    assert_eq!(after, before + 1, "inserted");
+    // A failed download says so until closed; Cancel / Esc stop waiting.
+    assert!(w.r18_start_download("https://example.test/x".into(), nothing));
+    for _ in 0..200 {
+        w.handle(Input::Tick, &Fixed);
+        if w.r18.download.as_ref().is_some_and(|d| d.failed) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert!(w.downloading());
+    w.handle(
+        Input::Key(crate::Key::Escape, crate::Mods::default()),
+        &Fixed,
+    );
+    assert!(!w.downloading());
+}

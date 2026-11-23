@@ -987,8 +987,20 @@ fn open_advanced(s: &Strings, m: &Value) -> DocForm {
         ("toL", "moveTo", "moveToColorL", "moveToColor"),
     ];
     for ((lid, id, clid, cid), (key, en, y, list, def)) in move_rows.into_iter().zip([
-        ("doc18.movedFrom", "Moved from:", 343.0, &DEL[..], "doubleStrikethrough"),
-        ("doc18.movedTo", "Moved to:", 375.0, &INS[..], "doubleUnderline"),
+        (
+            "doc18.movedFrom",
+            "Moved from:",
+            343.0,
+            &DEL[..],
+            "doubleStrikethrough",
+        ),
+        (
+            "doc18.movedTo",
+            "Moved to:",
+            375.0,
+            &INS[..],
+            "doubleUnderline",
+        ),
     ]) {
         f.label(lid, [18.0, y + 6.0, 110.0, 21.0], &tr(key, en));
         let v = text(&format!("{id}Mark"), def);

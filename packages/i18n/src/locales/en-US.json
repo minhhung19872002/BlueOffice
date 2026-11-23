@@ -16597,7 +16597,11 @@
     "movedTo": "Moved to:",
     "formattingGroup": "Formatting",
     "trackFormatting": "Track formatting",
-    "formattingLabel": "Formatting:"
+    "formattingLabel": "Formatting:",
+    "downloading": "Downloading picture...",
+    "downloadFailed": "The picture could not be downloaded",
+    "close": "Close",
+    "cancel": "Cancel"
   },
   "doc17": {
     "bmAdd": "Add",

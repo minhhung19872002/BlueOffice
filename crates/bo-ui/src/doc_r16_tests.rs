@@ -239,7 +239,10 @@ fn track_changes_options_change_the_display() {
     assert!(!m.track_moves);
     assert_eq!(m.move_from_mark, "caret");
     assert_eq!(m.move_to_color, "008000");
-    assert_eq!((m.fmt_mark.as_str(), m.fmt_color.as_str()), ("italic", "0000FF"));
+    assert_eq!(
+        (m.fmt_mark.as_str(), m.fmt_color.as_str()),
+        ("italic", "0000FF")
+    );
     assert_eq!(m.del_mark, "doubleStrikethrough");
     assert_eq!(m.del_color, "FF0000");
     assert!(!m.connectors);

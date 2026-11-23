@@ -58,25 +58,44 @@ fn eml(m: &bo_ui::OutMail) -> String {
         m.to
     );
     let boundary = "BlueDoc-merge-boundary";
-    out.push_str(&format!(
-        "Content-Type: multipart/mixed; boundary=\"{boundary}\"\r\n\r\n"
-    ));
+    out += &[
+        "Content-Type: multipart/mixed; boundary=\"",
+        boundary,
+        "\"\r\n\r\n",
+    ]
+    .concat();
     let (kind, body) = if m.html.is_empty() {
         ("text/plain", &m.text)
     } else {
         ("text/html", &m.html)
     };
-    out.push_str(&format!(
-        "--{boundary}\r\nContent-Type: {kind}; charset=utf-8\r\nContent-Transfer-Encoding: base64\r\n\r\n{}\r\n",
-        wrap(&b64(body))
-    ));
+    out += &[
+        "--",
+        boundary,
+        "\r\nContent-Type: ",
+        kind,
+        "; charset=utf-8\r\nContent-Transfer-Encoding: base64\r\n\r\n",
+        &wrap(&b64(body)),
+        "\r\n",
+    ]
+    .concat();
     if let Some((name, mime, data)) = &m.attachment {
-        out.push_str(&format!(
-            "--{boundary}\r\nContent-Type: {mime}; name=\"{name}\"\r\nContent-Disposition: attachment; filename=\"{name}\"\r\nContent-Transfer-Encoding: base64\r\n\r\n{}\r\n",
-            wrap(data)
-        ));
+        out += &[
+            "--",
+            boundary,
+            "\r\nContent-Type: ",
+            mime,
+            "; name=\"",
+            name,
+            "\"\r\nContent-Disposition: attachment; filename=\"",
+            name,
+            "\"\r\nContent-Transfer-Encoding: base64\r\n\r\n",
+            &wrap(data),
+            "\r\n",
+        ]
+        .concat();
     }
-    out.push_str(&format!("--{boundary}--\r\n"));
+    out += &["--", boundary, "--\r\n"].concat();
     out
 }
 

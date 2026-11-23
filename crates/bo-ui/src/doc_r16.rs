@@ -31,8 +31,12 @@ pub(super) struct R16 {
     /// The Step-by-Step Mail Merge Wizard pane, and whether it opened since the last layout.
     pub(super) wiz: Option<crate::doc_wizard16::WizardPane>,
     wiz_fresh: bool,
+    /// New Address List (Type a New List…), open over the document.
+    pub(super) grid: Option<crate::doc_addrgrid16::AddressGrid>,
     /// The word whose Insert / Copy menu is open in the Thesaurus pane.
     thes_word: Option<String>,
+    /// The next dialog needs the merge data source in its context.
+    need_merge: bool,
     /// Actions for the window the last merge opens.
     new_actions: Option<String>,
     /// Where a menu opened from the group drop-down goes (its button there).
@@ -64,6 +68,15 @@ impl DocWindow {
             // Dimmed for the merge state (round 5 answers).
             return None;
         }
+        if let Some(r) = self.r16_action_prefixed(id) {
+            return Some(r);
+        }
+        self.r16_action_main(id)
+    }
+
+    /// Round-16 commands with an argument after their prefix.
+    #[inline(never)]
+    fn r16_action_prefixed(&mut self, id: &str) -> Option<bool> {
         if let Some(i) = id.strip_prefix("review.people.") {
             return Some(self.r16_toggle_person(i));
         }
@@ -83,6 +96,9 @@ impl DocWindow {
             }
             self.requests.push(super::Request::SpeechControl(10 + rate));
             return Some(true);
+        }
+        if let Some(r) = self.r16_grid_action(id) {
+            return Some(r);
         }
         if let Some(i) = id.strip_prefix("r16.wiz.choose:") {
             let i = i.parse::<usize>().unwrap_or(0);
@@ -114,6 +130,12 @@ impl DocWindow {
                 (None, None) => false,
             });
         }
+        None
+    }
+
+    /// Round-16 commands without a prefix (first half; split to keep stack frames small).
+    #[inline(never)]
+    fn r16_action_main(&mut self, id: &str) -> Option<bool> {
         Some(match id {
             "review.thesaurus" => self.r16_toggle_thesaurus(),
             "mailings.wizard" => {
@@ -190,11 +212,50 @@ impl DocWindow {
                 true
             }
             "mailings.recipients" => self.r16_recipients_menu(),
-            "mailings.recipients.new" => self.r3_open_form(crate::doc_forms::DocFormKind::NewList),
+            "mailings.recipients.new" => {
+                let labels = [
+                    self.t("doc16.newListTitle", "New Address List"),
+                    self.t(
+                        "doc16.newListIntro",
+                        "Type recipient information in the table. To add more entries, click New Entry.",
+                    ),
+                    self.t("doc16.newEntry", "New Entry"),
+                    self.t("doc16.find", "Find..."),
+                    self.t("doc16.deleteEntry", "Delete Entry"),
+                    self.t("doc16.customizeColumns", "Customize Columns..."),
+                    self.t("common.ok", "OK"),
+                    self.t("common.cancel", "Cancel"),
+                ];
+                let cols = crate::doc_forms::r16::LIST_FIELDS
+                    .iter()
+                    .map(|s| (*s).to_owned())
+                    .collect();
+                let mut g = crate::doc_addrgrid16::AddressGrid::new(cols, labels);
+                g.layout(self.size, self.scale);
+                self.r16.grid = Some(g);
+                true
+            }
             "mailings.checkErrors" => self.r3_open_form(crate::doc_forms::DocFormKind::CheckErrors),
-            "mailings.finish.edit" => self.r3_open_form(crate::doc_forms::DocFormKind::MergeNew),
-            "mailings.finish.email" => self.r3_open_form(crate::doc_forms::DocFormKind::MergeEmail),
-            "mailings.finish.print" => self.r3_open_form(crate::doc_forms::DocFormKind::MergePrint),
+            "mailings.finish.edit" => {
+                self.r16.need_merge = true;
+                self.r3_open_form(crate::doc_forms::DocFormKind::MergeNew)
+            }
+            "mailings.finish.email" => {
+                self.r16.need_merge = true;
+                self.r3_open_form(crate::doc_forms::DocFormKind::MergeEmail)
+            }
+            "mailings.finish.print" => {
+                self.r16.need_merge = true;
+                self.r3_open_form(crate::doc_forms::DocFormKind::MergePrint)
+            }
+            _ => return self.r16_action_more(id),
+        })
+    }
+
+    /// Round-16 commands without a prefix (second half).
+    #[inline(never)]
+    fn r16_action_more(&mut self, id: &str) -> Option<bool> {
+        Some(match id {
             "review.trackingOptions" => {
                 self.r3_open_form(crate::doc_forms::DocFormKind::TrackOptions)
             }
@@ -410,11 +471,18 @@ impl DocWindow {
             Some(false) => "vertical",
             Some(true) => "horizontal",
         };
+        // The data source only for the merge dialogs (asking the engine for it is deep).
+        let (fields, records) = if std::mem::take(&mut self.r16.need_merge) {
+            self.merge_fields()
+        } else {
+            (Vec::new(), 0)
+        };
         json!({
             "markup": serde_json::to_value(self.view.markup()).unwrap_or_default(),
             "pane": pane,
-            "records": self.merge_fields().1,
-            "fields": self.merge_fields().0,
+            "records": records,
+            "fields": fields,
+            "columns": self.r16.grid.as_ref().map(|g| g.columns.clone()).unwrap_or_default(),
             "report": self.r16.report,
         })
     }
@@ -975,6 +1043,9 @@ impl DocWindow {
         if let Some(t) = self.r16.thes.as_mut() {
             t.layout(right, top, bottom, scale);
         }
+        if let Some(g) = self.r16.grid.as_mut() {
+            g.layout(self.size, scale);
+        }
         let frame = self.view.frame_rect();
         if let Some(ra) = self.r16.ra.as_mut() {
             ra.layout(frame, scale);
@@ -1336,6 +1407,107 @@ impl DocWindow {
         })
     }
 
+    /// New Address List commands from its menus and dialogs.
+    fn r16_grid_action(&mut self, id: &str) -> Option<bool> {
+        let g = self.r16.grid.as_mut()?;
+        if let Some(rest) = id.strip_prefix("r16.nl.sort:") {
+            let (c, asc) = rest.split_once(':')?;
+            g.sort(c.parse().ok()?, asc == "1");
+            return Some(true);
+        }
+        if let Some(rest) = id.strip_prefix("r16.nl.filter:") {
+            let (c, v) = rest.split_once(':')?;
+            g.filter = (!v.is_empty()).then(|| (c.parse().unwrap_or(0), v.to_owned()));
+            return Some(true);
+        }
+        if let Some(rest) = id.strip_prefix("r16.nl.find:") {
+            let (this, what) = rest.split_once('\u{1f}')?;
+            g.find(what, this == "1");
+            return Some(true);
+        }
+        if let Some(rest) = id.strip_prefix("r16.nl.cols:") {
+            let st: Vec<(i64, String)> = serde_json::from_str(rest).ok()?;
+            let cols: Vec<(Option<usize>, String)> = st
+                .into_iter()
+                .map(|(i, n)| (usize::try_from(i).ok(), n))
+                .collect();
+            if !cols.is_empty() {
+                g.set_columns(&cols);
+            }
+            return Some(true);
+        }
+        None
+    }
+
+    /// Input to New Address List (modal over the window).
+    fn r16_grid_input(&mut self, input: &Input) -> bool {
+        use crate::doc_addrgrid16::GridOut;
+        let Some(g) = self.r16.grid.as_mut() else {
+            return false;
+        };
+        if matches!(input, Input::Tick | Input::Blink) {
+            return false;
+        }
+        let out = g.input(input);
+        match out {
+            GridOut::None => false,
+            GridOut::Redraw => true,
+            GridOut::Cancel => {
+                self.r16.grid = None;
+                true
+            }
+            GridOut::Ok(fields, rows) => {
+                self.r16.grid = None;
+                if rows.is_empty() {
+                    return true;
+                }
+                self.r3_run(vec![json!({
+                    "cmd": "mergeTable", "name": "Address List", "fields": fields, "rows": rows,
+                })])
+            }
+            GridOut::ColumnMenu(c, r) => {
+                let (current, values) = self
+                    .r16
+                    .grid
+                    .as_ref()
+                    .map(|g| (g.filter.clone(), g.values(c)))
+                    .unwrap_or_default();
+                let mut items = vec![
+                    MenuItem {
+                        label: self.t("doc16.sortAsc", "Sort Ascending"),
+                        choice: Choice::Command(format!("r16.nl.sort:{c}:1")),
+                        checked: false,
+                        dim: false,
+                    },
+                    MenuItem {
+                        label: self.t("doc16.sortDesc", "Sort Descending"),
+                        choice: Choice::Command(format!("r16.nl.sort:{c}:0")),
+                        checked: false,
+                        dim: false,
+                    },
+                    MenuItem {
+                        label: self.t("doc16.filterAll", "(All)"),
+                        choice: Choice::Command(format!("r16.nl.filter:{c}:")),
+                        checked: current.is_none(),
+                        dim: false,
+                    },
+                ];
+                for v in values {
+                    items.push(MenuItem {
+                        checked: current.as_ref() == Some(&(c, v.clone())),
+                        label: v.clone(),
+                        choice: Choice::Command(format!("r16.nl.filter:{c}:{v}")),
+                        dim: false,
+                    });
+                }
+                self.menu = Some(Menu::open(items, r, self.size, self.scale));
+                true
+            }
+            GridOut::Find => self.r3_open_form(crate::doc_forms::DocFormKind::NlFind),
+            GridOut::Customize => self.r3_open_form(crate::doc_forms::DocFormKind::NlColumns),
+        }
+    }
+
     /// Input to the wizard pane.
     fn r16_wiz_input(&mut self, input: &Input) -> Option<bool> {
         use crate::doc_wizard16::WizAction;
@@ -1435,6 +1607,9 @@ impl DocWindow {
         if self.menu.is_some() {
             return None;
         }
+        if self.r16.grid.is_some() && self.r3.form.is_none() {
+            return Some(self.r16_grid_input(input));
+        }
         if let Some(r) = self.r16_ra_input(input) {
             return Some(r);
         }
@@ -1487,6 +1662,15 @@ impl DocWindow {
                 };
                 let anchor = pop.rect_of(id);
                 self.r16.pop = None;
+                // Track Changes split button: its lower part (label and ▾) opens its menu.
+                if id == "review.trackChanges" {
+                    let lower = anchor.is_some_and(|a| y >= a[1] + a[3] * 0.52);
+                    return Some(self.action(if lower {
+                        "review.trackChangesMenu"
+                    } else {
+                        "review.trackChanges"
+                    }));
+                }
                 if crate::catalog::is_menu(id) && id != "review.trackChanges" {
                     if let Some(a) = anchor {
                         if id == "review.deleteMenu" {
@@ -1569,6 +1753,9 @@ impl DocWindow {
         }
         if let Some(ra) = &self.r16.ra {
             ra.paint(p);
+        }
+        if let Some(g) = &self.r16.grid {
+            g.paint(p);
         }
         if let Some(pop) = &self.r16.pop {
             let on = self.on_ids();

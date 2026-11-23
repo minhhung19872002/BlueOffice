@@ -341,8 +341,19 @@ fn outline_view_promotes_demotes_and_filters() {
         .contains(&crate::doc_tools::OUTLINING));
 }
 
+// Run on a thread with the UI thread's larger stack: the envelope is laid out by a second
+// engine deep inside the window's input handling (debug frames are large).
 #[test]
 fn restrict_editing_language_effects_and_envelopes() {
+    std::thread::Builder::new()
+        .stack_size(8 << 20)
+        .spawn(restrict_editing_language_effects_and_envelopes_body)
+        .expect("thread")
+        .join()
+        .expect("test body");
+}
+
+fn restrict_editing_language_effects_and_envelopes_body() {
     let mut w = typed("Hello");
     act(&mut w, "review.restrictEditing");
     let rp = w.r3.restrict.as_mut().expect("pane");

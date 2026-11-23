@@ -110,9 +110,15 @@ fn track_changes_split_button_and_lock_tracking() {
     let mut w = window();
     assert!(crate::catalog::is_menu("review.trackChanges"));
     run(&mut w, "tab:review");
+    // At 1500 px the Tracking group is one drop-down (round 16): Track Changes is in it.
+    run(&mut w, "review.trackingGroup");
+    w.handle(Input::Tick, &Fixed);
     let r = w
-        .ribbon
-        .rect_of(RibbonHit::Command("review.trackChanges"))
+        .r16
+        .pop
+        .as_ref()
+        .and_then(|p| p.rect_of("review.trackChanges"))
+        .or_else(|| w.ribbon.rect_of(RibbonHit::Command("review.trackChanges")))
         .expect("button");
     // Lower part: the menu (Track Changes / Lock Tracking).
     let (x, y) = (r[0] + r[2] / 2.0, r[1] + r[3] * 0.85);

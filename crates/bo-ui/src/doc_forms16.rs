@@ -22,6 +22,8 @@ pub(super) fn handles(kind: DocFormKind) -> bool {
             | DocFormKind::MergeReport
             | DocFormKind::NewList
             | DocFormKind::MergeEmail
+            | DocFormKind::NlFind
+            | DocFormKind::NlColumns
     )
 }
 
@@ -156,6 +158,56 @@ pub(super) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
     }
     if kind == DocFormKind::MergeEmail {
         return open_merge_email(s, c);
+    }
+    if kind == DocFormKind::NlFind {
+        let mut f = DocForm::new(
+            kind,
+            &tr("doc16.findEntryTitle", "Find Entry"),
+            (380.0, 200.0),
+            vec![],
+        );
+        f.label(
+            "whatL",
+            [14.0, 52.0, 60.0, 21.0],
+            &tr("doc16.findWhat", "Find:"),
+        );
+        f.edit("what", [80.0, 48.0, 286.0, 28.0], "");
+        f.label(
+            "inL",
+            [14.0, 88.0, 100.0, 21.0],
+            &tr("doc16.lookIn", "Look in:"),
+        );
+        f.radio(
+            "allFields",
+            "in",
+            [30.0, 112.0, 160.0, 24.0],
+            &tr("doc16.allFields", "All fields"),
+            true,
+        );
+        f.radio(
+            "thisField",
+            "in",
+            [196.0, 112.0, 170.0, 24.0],
+            &tr("doc16.thisField", "This field"),
+            false,
+        );
+        f.button(
+            "ok",
+            [140.0, 156.0, 106.0, 32.0],
+            &tr("doc16.findNext", "Find Next"),
+            true,
+        );
+        f.button(
+            "cancel",
+            [260.0, 156.0, 106.0, 32.0],
+            &tr("common.cancel", "Cancel"),
+            false,
+        );
+        f.form.focus("what");
+        return f;
+    }
+    if kind == DocFormKind::NlColumns {
+        return open_nl_columns(s, c);
     }
     if kind == DocFormKind::MergeReport {
         let text = c.extra["r16"]["report"].as_str().unwrap_or_default();
@@ -520,12 +572,6 @@ impl DocForm {
         }
         true
     }
-
-    /// New Address List typed entries (empty ones left out), for tests.
-    #[cfg(test)]
-    pub(crate) fn nl_rows_for_test(&mut self) -> Vec<Vec<String>> {
-        self.nl_save_entry().0
-    }
 }
 
 /// Merge to E-mail: To (a field), Subject line, Mail format (HTML / Plain text / Attachment),
@@ -623,6 +669,127 @@ fn open_merge_email(s: &Strings, c: &FormContext) -> DocForm {
         false,
     );
     f
+}
+
+/// Customize Address List: the columns (Add / Delete / Rename with the name box, Move Up /
+/// Move Down); OK gives the new columns back to New Address List.
+fn open_nl_columns(s: &Strings, c: &FormContext) -> DocForm {
+    let tr = |k: &str, fb: &str| t(s, k, fb);
+    let mut f = DocForm::new(
+        DocFormKind::NlColumns,
+        &tr("doc16.customizeTitle", "Customize Address List"),
+        (460.0, 380.0),
+        vec![],
+    );
+    let cols: Vec<String> = c.extra["r16"]["columns"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(str::to_owned))
+                .collect()
+        })
+        .unwrap_or_default();
+    f.label(
+        "namesL",
+        [14.0, 46.0, 200.0, 21.0],
+        &tr("doc16.fieldNames", "Field Names"),
+    );
+    f.list("cols", [14.0, 70.0, 300.0, 220.0], cols.clone(), Some(0));
+    f.edit("name", [14.0, 300.0, 300.0, 28.0], "");
+    let btn = |f: &mut DocForm, id: &'static str, y: f32, k: &str, en: &str| {
+        f.button(id, [328.0, y, 118.0, 30.0], &tr(k, en), false);
+    };
+    btn(&mut f, "add", 70.0, "doc16.colAdd", "Add...");
+    btn(&mut f, "del", 106.0, "doc16.colDelete", "Delete");
+    btn(&mut f, "rename", 142.0, "doc16.colRename", "Rename...");
+    btn(&mut f, "up", 200.0, "doc16.colUp", "Move Up");
+    btn(&mut f, "down", 236.0, "doc16.colDown", "Move Down");
+    f.button(
+        "ok",
+        [222.0, 340.0, 106.0, 32.0],
+        &tr("common.ok", "OK"),
+        true,
+    );
+    f.button(
+        "cancel",
+        [340.0, 340.0, 106.0, 32.0],
+        &tr("common.cancel", "Cancel"),
+        false,
+    );
+    // The columns with where each came from (-1: added).
+    let state: Vec<(i64, String)> = cols
+        .iter()
+        .enumerate()
+        .map(|(i, n)| (i as i64, n.clone()))
+        .collect();
+    f.words = vec![(
+        "cols".into(),
+        serde_json::to_string(&state).unwrap_or_default(),
+    )];
+    f
+}
+
+impl DocForm {
+    fn nc_state(&self) -> Vec<(i64, String)> {
+        self.words
+            .iter()
+            .find(|(k, _)| k == "cols")
+            .and_then(|(_, v)| serde_json::from_str(v).ok())
+            .unwrap_or_default()
+    }
+
+    fn nc_store(&mut self, st: &[(i64, String)], sel: usize) {
+        let text = serde_json::to_string(st).unwrap_or_default();
+        for (k, v) in &mut self.words {
+            if k == "cols" {
+                v.clone_from(&text);
+            }
+        }
+        let names = st.iter().map(|(_, n)| n.clone()).collect();
+        self.form
+            .set_items("cols", names, Some(sel.min(st.len().saturating_sub(1))));
+    }
+
+    /// Customize Address List buttons.
+    fn nc_clicked(&mut self, id: &str) -> bool {
+        if self.kind != DocFormKind::NlColumns {
+            return false;
+        }
+        let mut st = self.nc_state();
+        let sel = self
+            .sel("cols")
+            .unwrap_or(0)
+            .min(st.len().saturating_sub(1));
+        let name = self.text("name").trim().to_owned();
+        let sel = match id {
+            "add" if !name.is_empty() => {
+                st.insert((sel + 1).min(st.len()), (-1, name));
+                self.set_text("name", "");
+                (sel + 1).min(st.len() - 1)
+            }
+            "del" if !st.is_empty() => {
+                st.remove(sel);
+                sel
+            }
+            "rename" if !name.is_empty() && sel < st.len() => {
+                st[sel].1 = name;
+                self.set_text("name", "");
+                sel
+            }
+            "up" if sel > 0 => {
+                st.swap(sel, sel - 1);
+                sel - 1
+            }
+            "down" if sel + 1 < st.len() => {
+                st.swap(sel, sel + 1);
+                sel + 1
+            }
+            "add" | "del" | "rename" | "up" | "down" => return true,
+            _ => return false,
+        };
+        self.nc_store(&st, sel);
+        true
+    }
 }
 
 /// Checking and Reporting Errors: simulate the merge, complete it pausing on each error, or
@@ -848,7 +1015,7 @@ impl DocForm {
         if !handles(self.kind) {
             return None;
         }
-        if self.nl_event(id) {
+        if self.nl_event(id) || self.nc_clicked(id) {
             return Some(FormOut::Redraw);
         }
         match id {
@@ -911,6 +1078,22 @@ impl DocForm {
                 ))
             }
             DocFormKind::MergeReport => Some(FormOut::Close),
+            DocFormKind::NlFind => {
+                let this = u8::from(self.chosen("in") == Some("thisField"));
+                Some(FormOut::Run(
+                    vec![json!({ "cmd": "ui.action",
+                        "id": format!("r16.nl.find:{this}\u{1f}{}", self.text("what")) })],
+                    false,
+                ))
+            }
+            DocFormKind::NlColumns => {
+                let st = self.nc_state();
+                Some(FormOut::Run(
+                    vec![json!({ "cmd": "ui.action",
+                        "id": format!("r16.nl.cols:{}", serde_json::to_string(&st).unwrap_or_default()) })],
+                    true,
+                ))
+            }
             DocFormKind::MergeEmail => {
                 let range = match self.chosen("range") {
                     Some("current") => "cur".to_owned(),

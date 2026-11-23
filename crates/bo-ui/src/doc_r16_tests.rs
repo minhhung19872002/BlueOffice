@@ -377,23 +377,51 @@ fn type_a_new_list_becomes_the_data_source() {
         !w.menu.as_ref().expect("menu").items()[0].dim,
         "Type a New List is on"
     );
+    w.menu = None;
     assert!(w.action("mailings.recipients.new"));
-    let f = w.r3.form.as_mut().expect("New Address List");
-    assert_eq!(f.kind, DocFormKind::NewList);
-    f.set_text("f1", "Ann");
-    f.set_text("f6", "Hanoi");
-    let out = f.click_for_test("newEntry");
-    w.form_out(out);
-    let f = w.r3.form.as_mut().expect("still open");
-    f.set_text("f1", "Bob");
-    let rows = f.nl_rows_for_test();
-    assert_eq!(rows.len(), 2);
-    assert_eq!(rows[0][1], "Ann");
-    enter(&mut w);
-    assert!(w.r3.form.is_none());
+    assert!(w.r16.grid.is_some(), "New Address List grid");
+    // Typed into the selected cell: Title, then First Name.
+    let tab =
+        |w: &mut DocWindow| w.handle(Input::Key(crate::Key::Tab, crate::Mods::default()), &Fixed);
+    tab(&mut w);
+    w.handle(Input::Text("Bob".into()), &Fixed);
+    if let Some(g) = w.r16.grid.as_mut() {
+        g.new_entry();
+    }
+    tab(&mut w);
+    w.handle(Input::Text("Ann".into()), &Fixed);
+    // A column's menu sorts.
+    assert!(w.action("r16.nl.sort:1:1"));
+    assert_eq!(
+        w.r16.grid.as_ref().map(|g| g.rows[0][1].clone()).as_deref(),
+        Some("Ann")
+    );
+    // Customize Columns adds one.
+    assert!(w.action("r16.nl.cols:[[0,\"Title\"],[1,\"First Name\"],[-1,\"Nickname\"]]"));
+    assert_eq!(w.r16.grid.as_ref().map(|g| g.columns.len()), Some(3));
+    // Find… opens its dialog.
+    if let Some(g) = w.r16.grid.as_mut() {
+        g.cur = (0, 0);
+    }
+    assert!(w.action("r16.nl.find:0\u{1f}bob"));
+    assert_eq!(w.r16.grid.as_ref().map(|g| g.cur), Some((1, 1)));
+    let ok = w
+        .r16
+        .grid
+        .as_mut()
+        .map(|g| g.input(&Input::Key(crate::Key::Enter, crate::Mods::default())));
+    let Some(crate::doc_addrgrid16::GridOut::Ok(fields, rows)) = ok else {
+        panic!("OK on the last row");
+    };
+    w.r16.grid = None;
+    assert!(
+        w.r3_run(vec![json!({ "cmd": "mergeTable", "name": "Address List",
+        "fields": fields, "rows": rows })])
+    );
     let (fields, count) = w.merge_fields();
     assert_eq!(count, 2);
-    assert!(fields.iter().any(|f| f == "First Name"));
+    assert!(fields.iter().any(|f| f == "Nickname"));
+    let _ = DocFormKind::NlFind;
     // The record box: type 2, Enter shows the second record.
     w.r3_run(vec![
         json!({ "cmd": "mergeInsertField", "name": "First Name" }),
@@ -451,8 +479,8 @@ fn wizard_steps_run_mailings_commands() {
     let link = w.r16.wiz.as_ref().map(|z| z.recipients).expect("wizard");
     assert_eq!(link, 1);
     assert!(w.action("mailings.recipients.new"));
-    assert!(w.r3.form.is_some());
-    w.r3.form = None;
+    assert!(w.r16.grid.is_some());
+    w.r16.grid = None;
     assert!(w.action("r16.wiz.prev"));
     assert_eq!(w.r16.wiz.as_ref().map(|z| z.step), Some(2));
 }

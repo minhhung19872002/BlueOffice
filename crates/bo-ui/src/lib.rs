@@ -11,6 +11,7 @@ mod catalog;
 mod commands;
 mod design_gallery;
 mod dialog;
+mod doc_addrgrid16;
 mod doc_backstage6;
 mod doc_borders;
 mod doc_comments;

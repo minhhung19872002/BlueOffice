@@ -291,6 +291,8 @@ pub fn print_document(
 pub fn export_as(engine: &mut Engine, ext: &str) -> Result<Vec<u8>, String> {
     match ext {
         "pdf" => engine.export_pdf().map_err(|e| e.to_string()),
+        // Design › Themes › Save Current Theme… (round 15).
+        "thmx" => engine.theme_file().map_err(|e| e.to_string()),
         "dotx" | "docx" => {
             engine.set_save_format(ext).map_err(|e| e.to_string())?;
             let bytes = engine.save_docx().map_err(|e| e.to_string());
@@ -311,6 +313,7 @@ pub fn filter_of(ext: &str) -> (&'static str, &'static str) {
         "mht" => ("Single File Web Page (*.mht)", "*.mht"),
         "xml" => ("XML Document (*.xml)", "*.xml"),
         "epub" => ("EPUB (*.epub)", "*.epub"),
+        "thmx" => ("Theme (*.thmx)", "*.thmx"),
         _ => ("Document (*.docx)", "*.docx"),
     }
 }

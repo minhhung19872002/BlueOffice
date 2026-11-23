@@ -25,6 +25,7 @@ mod doc_r3_ui;
 mod doc_r4_fit;
 mod doc_r4_menus;
 mod doc_reveal;
+mod doc_spacing15;
 mod doc_table;
 mod doc_tabs7;
 mod doc_templates6;

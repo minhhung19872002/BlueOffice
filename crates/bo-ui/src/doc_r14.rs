@@ -244,14 +244,18 @@ impl DocWindow {
             self.r14_t("doc14.pcMore", "More Colors..."),
             self.r14_t("doc14.pcFill", "Fill Effects..."),
         ];
-        self.r14.pal = Some(Box::new(crate::doc_wm14::PagePalette::open(
+        let mut pal = crate::doc_wm14::PagePalette::open(
             anchor,
             self.size,
             self.scale,
             super::r12::palette(&theme),
             labels,
             current,
-        )));
+        );
+        // Colours picked with More Colors… (round 15).
+        pal.recent.clone_from(&self.r15.recent);
+        pal.recent_label = self.r14_t("doc15.recentColors", "Recent Colors");
+        self.r14.pal = Some(Box::new(pal));
         true
     }
 
@@ -337,6 +341,14 @@ impl DocWindow {
                 Some(PcPick::None) => {
                     self.r14.pal = None;
                     self.r3_run(vec![json!({ "cmd": "setPageColor", "color": null })])
+                }
+                Some(PcPick::More) => {
+                    self.r14.pal = None;
+                    self.action("design.pageColor.more")
+                }
+                Some(PcPick::Fill) => {
+                    self.r14.pal = None;
+                    self.action("design.pageColor.fill")
                 }
                 None => {
                     self.r14.pal = None;

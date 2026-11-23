@@ -16313,5 +16313,32 @@
     "wmVietnamese": "Vietnamese office markings",
     "wmVietnamese2": "Vietnamese",
     "wmWashout": "Washout"
+  },
+  "doc15": {
+    "blue": "Blue:",
+    "builtIn": "Built-In",
+    "colorModel": "Color model:",
+    "colorsL": "Colors:",
+    "colorsTitle": "Colors",
+    "current": "Current",
+    "custom": "Custom",
+    "customSpacing": "Custom Paragraph Spacing...",
+    "green": "Green:",
+    "hex": "Hex:",
+    "hue": "Hue:",
+    "lum": "Lum:",
+    "new": "New",
+    "recentColors": "Recent Colors",
+    "red": "Red:",
+    "sat": "Sat:",
+    "spacingDefault": "Default",
+    "spacing_compact": "Compact",
+    "spacing_double": "Double",
+    "spacing_noSpace": "No Paragraph Space",
+    "spacing_open": "Open",
+    "spacing_relaxed": "Relaxed",
+    "spacing_tight": "Tight",
+    "standard": "Standard",
+    "styleSet": "Style Set"
   }
 }

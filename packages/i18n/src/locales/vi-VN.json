@@ -16313,5 +16313,32 @@
     "wmVietnamese": "Văn bản hành chính",
     "wmVietnamese2": "Tiếng Việt",
     "wmWashout": "Làm nhạt"
+  },
+  "doc15": {
+    "blue": "Lam:",
+    "builtIn": "Dựng sẵn",
+    "colorModel": "Mô hình màu:",
+    "colorsL": "Màu:",
+    "colorsTitle": "Màu",
+    "current": "Hiện tại",
+    "custom": "Tùy chỉnh",
+    "customSpacing": "Khoảng cách đoạn tùy chỉnh...",
+    "green": "Lục:",
+    "hex": "Hex:",
+    "hue": "Sắc độ:",
+    "lum": "Độ sáng:",
+    "new": "Mới",
+    "recentColors": "Màu gần đây",
+    "red": "Đỏ:",
+    "sat": "Bão hòa:",
+    "spacingDefault": "Mặc định",
+    "spacing_compact": "Gọn",
+    "spacing_double": "Kép",
+    "spacing_noSpace": "Không giãn đoạn",
+    "spacing_open": "Thoáng",
+    "spacing_relaxed": "Rộng",
+    "spacing_tight": "Sát",
+    "standard": "Chuẩn",
+    "styleSet": "Bộ kiểu"
   }
 }

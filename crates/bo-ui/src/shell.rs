@@ -38,6 +38,8 @@ mod r12;
 mod r13;
 #[path = "doc_r14.rs"]
 pub(crate) mod r14;
+#[path = "doc_r15.rs"]
+mod r15;
 #[path = "doc_r3.rs"]
 mod r3;
 #[path = "doc_r4.rs"]
@@ -124,6 +126,9 @@ pub enum Request {
     NewFromTemplate(String),
     /// Pick a name and save a copy as this type (`dotx`, `pdf`, `html`, `mht`, `xml`, `epub`).
     SaveAsType(String),
+    /// Design › Themes › Browse for Themes…: pick a theme file and call
+    /// [`DocWindow::apply_theme_file`] (round 15; `SaveAsType("thmx")` saves the theme).
+    PickThemeFile,
     /// Show this file in the system file manager (File › Info).
     OpenLocation(String),
     /// Open this web or e-mail address (http(s):, mailto:) with the system's handler.
@@ -280,6 +285,7 @@ pub struct DocWindow {
     r12: r12::R12,
     r13: Box<r13::R13>,
     r14: Box<r14::R14>,
+    r15: Box<r15::R15>,
 }
 
 /// Font sizes offered by the size box (points).
@@ -480,6 +486,7 @@ impl DocWindow {
             r12: r12::R12::default(),
             r13: Box::default(),
             r14: Box::default(),
+            r15: Box::default(),
         }
     }
 
@@ -553,6 +560,7 @@ impl DocWindow {
         self.menu = None;
         let mut g = DesignGallery::open(menu, anchor, title, spacing, self.scale);
         g.current.clone_from(&self.design_theme);
+        g.footer = self.r15_design_footer(menu);
         self.design_gallery = Some(g);
         true
     }
@@ -572,6 +580,11 @@ impl DocWindow {
                     }
                     if v["cmd"] == "applyDocumentStyleSet" {
                         self.design_style_set = v["id"].as_str().map(str::to_owned);
+                    }
+                    // Command rows of the drop-down (round 15).
+                    if v["cmd"] == "ui.action" {
+                        let id = v["id"].as_str().unwrap_or_default().to_owned();
+                        return Some(self.action(&id));
                     }
                     if let Some(c) = catalog::from_json(v) {
                         self.view.run_command(c);
@@ -2116,6 +2129,9 @@ impl DocWindow {
 
     /// Run interface command `id` from the ribbon, title bar, a menu or a shortcut.
     fn action(&mut self, id: &str) -> bool {
+        if let Some(r) = self.r15_action(id) {
+            return r;
+        }
         if let Some(r) = self.r14_action(id) {
             return r;
         }
@@ -2754,6 +2770,7 @@ impl DocWindow {
         self.r5_layout();
         self.r7_layout(text);
         self.r14_layout();
+        self.r15_layout();
         if let Some(d) = self.dialog.as_mut() {
             d.layout(text, self.size, self.scale);
         }
@@ -2992,6 +3009,9 @@ impl DocWindow {
             }
         }
         if let Some(redraw) = self.r14_input(&input) {
+            return redraw;
+        }
+        if let Some(redraw) = self.r15_input(&input) {
             return redraw;
         }
         if let Some(redraw) = self.r12_input(&input) {
@@ -3345,7 +3365,8 @@ impl DocWindow {
             Input::Move { x, y } => {
                 self.r10.pointer = (x, y);
                 let a = self.title.hover(x, y);
-                self.ribbon.hover(x, y) || a
+                let b = self.r15_hover(x, y);
+                self.ribbon.hover(x, y) || a || b
             }
             Input::Press { x, y, .. } if in_title(self, y) => {
                 self.doc_press = false;
@@ -3854,6 +3875,7 @@ impl DocWindow {
         }
         self.r12_paint(p);
         self.r14_paint(p);
+        self.r15_paint(p);
         if let Some(menu) = &self.menu {
             menu.paint(p, &self.r10_menu_theme(), &self.icons);
             self.r10_paint_menu(p);

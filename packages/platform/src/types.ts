@@ -1133,6 +1133,8 @@ export type EditCommand =
   | { cmd: 'applyTheme' | 'applyStyleSet' | 'applyDocumentStyleSet'; id: string }
   /** Design › Effects: BlueOffice's theme effect sets (`flat`, `soft`, `lifted`, `glow`, `inset`, `gloss`, `outline`, `deep`). */
   | { cmd: 'applyThemeEffects'; id: string }
+  /** Design › Customize Colors / Fonts: twelve clrScheme colours (RRGGBB) and / or major / minor Latin fonts, named. */
+  | { cmd: 'applyThemeParts'; colors?: string[]; major?: string; minor?: string; name?: string }
   /** File › Info document properties (CORE-UI-002) → `docProperties`. */
   | import('./docProperties').DocPropertiesCommand
   /** Check document (CORE-INSPECT-001): `inspect`, `inspectRemove`, `inspectKeep` → `inspection`. */

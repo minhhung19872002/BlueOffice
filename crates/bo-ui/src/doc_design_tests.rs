@@ -66,14 +66,11 @@ fn design_tab_has_the_document_formatting_drop_downs() {
     assert!(w.design_gallery.is_none());
     assert_eq!(w.design_theme.as_deref(), Some("bamboo"));
     assert!(w.view.format().can_undo, "theme applied as one step");
+    // Paragraph Spacing is its own menu since round 15 (doc_spacing15).
     w.action("design.paragraphSpacing");
-    let at = w
-        .design_gallery
-        .as_ref()
-        .map(|g| g.center(3))
-        .expect("open");
-    press(&mut w, at);
-    assert!(w.design_gallery.is_none());
+    assert!(w.r15.spacing.is_some(), "open");
+    w.handle(Input::Key(Key::Escape, Mods::default()), &Fixed);
+    assert!(w.r15.spacing.is_none());
     w.action("design.colors");
     w.handle(Input::Key(Key::Escape, Mods::default()), &Fixed);
     assert!(w.design_gallery.is_none());

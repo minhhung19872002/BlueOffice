@@ -155,8 +155,17 @@ pub(crate) fn shape_drawing(
             None
         };
         if fill.is_some() || stroke.is_some() {
-            paths.push(ShapePath { segs, fill, stroke });
+            paths.push(ShapePath {
+                segs,
+                fill,
+                stroke,
+                style: None,
+            });
         }
+    }
+    // Round 20: gradient / picture fills, transparency and Shape Effects.
+    if let Some(st) = shape.style.as_deref().filter(|s| !s.is_empty()) {
+        paths = crate::shapestyle::styled(ctx.doc, st, paths, w as f32, h as f32);
     }
     let mut out = Drawing::default();
     if !paths.is_empty() {
@@ -253,6 +262,7 @@ fn art_drawing(
             segs,
             fill: Some(fill),
             stroke: None,
+            style: None,
         }],
         source: LineSource::TextBox {
             para: 0,

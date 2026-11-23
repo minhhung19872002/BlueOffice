@@ -46,6 +46,8 @@ pub(crate) mod r15;
 #[path = "doc_forms16.rs"]
 pub(crate) mod r16;
 
+#[path = "doc_options20.rs"]
+pub(crate) mod options20;
 #[path = "doc_forms17.rs"]
 pub(crate) mod r17;
 #[path = "doc_fill18.rs"]

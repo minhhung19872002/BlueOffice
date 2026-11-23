@@ -1550,6 +1550,11 @@ impl crate::Engine {
             let r = self.doc_picture_style(&pc)?;
             return Ok(serde_json::to_string(&r).unwrap_or_default());
         }
+        // Round 20: Shape Format fills, transparency, Shape Effects, WordArt Styles.
+        if let Some(sc) = crate::doc_shapestyle::ShapeStyleCommand::parse(&v) {
+            let r = self.doc_shape_style(&sc)?;
+            return Ok(serde_json::to_string(&r).unwrap_or_default());
+        }
         if let Some(pc) = crate::picture_tools::PictureCommand::parse(&v) {
             let r = self.doc_picture_command(pc)?;
             return Ok(serde_json::to_string(&r).unwrap_or_default());

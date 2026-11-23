@@ -799,6 +799,7 @@ impl DocWindow {
         let p = DocPrefs::from_text(text);
         self.r6_apply_prefs(&p);
         self.r6_set_quick(&p.quick);
+        self.r20_apply_ribbon(&p.extra.hidden_tabs);
         self.r6.prefs = p;
     }
 
@@ -868,6 +869,7 @@ impl DocWindow {
             options::OptOut::Apply(p) => {
                 self.r6.options = None;
                 self.r6_set_quick(&p.quick);
+                self.r20_apply_ribbon(&p.extra.hidden_tabs);
                 self.r6_store_prefs(p);
                 self.relayout(text);
                 true

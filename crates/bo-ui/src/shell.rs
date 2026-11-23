@@ -48,6 +48,8 @@ pub(crate) mod r17;
 pub(crate) mod r18;
 #[path = "doc_r19.rs"]
 pub(crate) mod r19;
+#[path = "doc_r20.rs"]
+pub(crate) mod r20;
 #[path = "doc_r3.rs"]
 mod r3;
 #[path = "doc_r4.rs"]
@@ -372,6 +374,7 @@ pub struct DocWindow {
     r16: Box<r16::R16>,
     r17: Box<r17::R17>,
     r18: Box<r18::R18>,
+    r20: Box<r20::R20>,
 }
 
 /// Font sizes offered by the size box (points).
@@ -483,6 +486,7 @@ impl DocWindow {
         crate::doc_tabs7::install_strings(&mut strings);
         r14::install(&mut icons, &mut strings);
         r17::install(&mut icons, &mut strings);
+        r20::install(&mut icons, &mut strings);
         icons.set_grey_disabled(true);
         Self {
             view,
@@ -583,6 +587,7 @@ impl DocWindow {
             r16: Box::default(),
             r17: Box::default(),
             r18: Box::default(),
+            r20: Box::default(),
         }
     }
 
@@ -1155,6 +1160,10 @@ impl DocWindow {
 
     /// Insert a picture file the host read (`name` with its extension).
     pub fn insert_picture(&mut self, bytes: Vec<u8>, name: &str) -> bool {
+        // Shape Fill › Picture… (round 20).
+        if let Some(done) = self.r20_take_picture(&bytes) {
+            return done;
+        }
         // Fill Effects › Other Texture… / Select Picture… (layout round 8).
         if let Some(done) = self.r18_take_picture(name, &bytes) {
             return done;
@@ -2237,6 +2246,9 @@ impl DocWindow {
 
     /// Run interface command `id` from the ribbon, title bar, a menu or a shortcut.
     fn action(&mut self, id: &str) -> bool {
+        if let Some(r) = self.r20_action(id) {
+            return r;
+        }
         if let Some(r) = self.r19_action(id) {
             return r;
         }

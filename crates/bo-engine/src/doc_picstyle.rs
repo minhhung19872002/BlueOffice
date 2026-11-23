@@ -532,6 +532,23 @@ fn apply(cmd: &PicStyleCommand, f: &mut PictureFormat) -> std::result::Result<()
     Ok(())
 }
 
+/// Shape Effects (round 20): Picture Effects `kind` = `preset` applied to a shape's effects.
+pub(crate) fn apply_effect(
+    kind: &str,
+    preset: &str,
+    fx: Option<PicEffects>,
+) -> std::result::Result<Option<PicEffects>, String> {
+    let mut f = PictureFormat {
+        effects: fx.map(Box::new),
+        ..PictureFormat::default()
+    };
+    apply(
+        &PicStyleCommand::Effect(kind.to_owned(), preset.to_owned()),
+        &mut f,
+    )?;
+    Ok(f.effects.map(|b| *b).filter(|e| !e.is_empty()))
+}
+
 /// The artistic effect names, in the gallery's order.
 pub fn artistic_names() -> impl Iterator<Item = &'static str> {
     ARTISTIC.iter().map(|a| a.0)

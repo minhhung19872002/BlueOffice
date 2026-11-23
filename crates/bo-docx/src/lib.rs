@@ -17,6 +17,7 @@ mod picstyle;
 mod picture;
 mod reader;
 mod shape;
+mod shapestyle;
 pub mod sigline;
 pub(crate) mod textfx;
 mod writer;

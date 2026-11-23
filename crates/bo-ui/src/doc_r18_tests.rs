@@ -314,9 +314,10 @@ fn shape_format_fill_outline_styles_and_change_shape() {
         extend: true,
     });
     w.handle(Input::Tick, &Fixed);
-    // Shape Fill ▾ lists No Fill and the colours; a colour fills the shape.
+    // Shape Fill ▾ lists No Fill, the colours and (round 20) More Fill Colors…, Picture…,
+    // Gradient ▸ and Texture ▸; a colour fills the shape.
     assert!(w.action("shape.fill"));
-    assert_eq!(w.menu.as_ref().map(|m| m.items().len()), Some(11));
+    assert_eq!(w.menu.as_ref().map(|m| m.items().len()), Some(17));
     assert!(w.action("r18.fill:FF0000"));
     let s = shape(&w).expect("shape");
     assert_eq!(s.fill.map(|c| (c.r, c.g, c.b)), Some((255, 0, 0)));

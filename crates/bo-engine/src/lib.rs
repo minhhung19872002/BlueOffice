@@ -35,6 +35,7 @@ pub mod doc_chart;
 mod doc_ole;
 pub mod doc_picstyle;
 mod doc_picture;
+pub mod doc_shapestyle;
 pub mod doc_smartart;
 pub mod doc_styles;
 pub mod edit;

@@ -173,6 +173,37 @@ impl Session {
         })
     }
 
+    /// Change the shape Shape Format acts on and add media parts `parts` (a picture or
+    /// texture fill) in the same undo step (round 20).
+    pub fn update_shape_parts(
+        &mut self,
+        parts: Vec<(String, Arc<Vec<u8>>)>,
+        f: impl FnOnce(&mut Image),
+    ) -> Result<Selection> {
+        let (id, k) = self
+            .shape_target()
+            .ok_or_else(|| EditError::Unsupported("no shape here".into()))?;
+        self.edit(move |tx, sel| {
+            let (path, p, mut atoms) = tx.atoms(id)?;
+            let (props, item) = atoms[k].clone();
+            let RunContent::Image(img) = item else {
+                return Err(EditError::BadPosition);
+            };
+            for (name, bytes) in parts {
+                tx.push(Op::Media {
+                    name,
+                    old: None,
+                    new: Some(bytes),
+                })?;
+            }
+            let mut img = *img;
+            f(&mut img);
+            atoms[k] = (props, RunContent::Image(Box::new(img)));
+            tx.replace_para(&path, para::with_atoms(&p, atoms))?;
+            Ok(sel)
+        })
+    }
+
     /// Change the picture the tools act on (one undo step). With `media`, the
     /// picture's media part becomes the new bytes under that name; the old part is
     /// removed when no other drawing uses it.

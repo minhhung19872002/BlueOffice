@@ -47,6 +47,8 @@ pub(crate) struct DocPrefs {
     pub(crate) recent_count: u32,
     /// Quick access commands of the title bar.
     pub(crate) quick: Vec<String>,
+    /// Round 20: Customize Ribbon, Trust Center ([`super::options20::Extra`]).
+    pub(crate) extra: super::options20::Extra,
 }
 
 impl Default for DocPrefs {
@@ -64,6 +66,7 @@ impl Default for DocPrefs {
             units: 2,
             recent_count: 50,
             quick: QUICK_DEFAULT.iter().map(|s| (*s).to_owned()).collect(),
+            extra: super::options20::Extra::default(),
         }
     }
 }
@@ -129,7 +132,7 @@ impl DocPrefs {
                         .map(str::to_owned)
                         .collect();
                 }
-                _ => {}
+                k => p.extra.read(k, v),
             }
         }
         p
@@ -153,7 +156,7 @@ impl DocPrefs {
             self.units,
             self.recent_count,
             self.quick.join(","),
-        )
+        ) + &self.extra.to_text()
     }
 
     /// Initials from a user name when none are given ("An Nguyen" → "AN").
@@ -1082,23 +1085,8 @@ impl OptionsDialog {
                 default: false,
             },
         );
-        // Pages without options BlueDoc supports yet.
-        for page in [7_usize, 9, 10] {
-            let id = match page {
-                7 => "na7",
-                9 => "na9",
-                _ => "na10",
-            };
-            f.add(
-                id,
-                Some(page),
-                [257.0, 70.0, 700.0, 24.0],
-                Kind::Note(t(
-                    "docR6.opt.notYet",
-                    "These options are not available in BlueDoc yet.",
-                )),
-            );
-        }
+        // Round 20: Customize Ribbon, Add-ins and Trust Center (`doc_options20`).
+        super::options20::add_pages(&mut f, s, p);
         f.ok_cancel(&t("common.ok", "OK"), &t("common.cancel", "Cancel"));
         if let Some(c) = f.get_mut("ok") {
             c.rect = [790.0, 804.0, 115.0, 33.0];
@@ -1206,6 +1194,10 @@ impl OptionsDialog {
                 OptOut::Redraw
             }
             Event::Clicked("pAutoB") => OptOut::AutoCorrect,
+            Event::Clicked(id) if super::options20::handles(id) => {
+                super::options20::clicked(&mut self.form, id);
+                OptOut::Redraw
+            }
             Event::Ok | Event::Clicked("ok") => OptOut::Apply(self.collect()),
             _ => OptOut::Redraw,
         }
@@ -1256,6 +1248,7 @@ impl OptionsDialog {
         };
         p.units = f.sel("vUnits").unwrap_or(2).min(2) as u8;
         p.recent_count = u32::try_from(f.num("vRecent").clamp(0, 50)).unwrap_or(50);
+        super::options20::collect(f, &mut p);
         p
     }
 
@@ -1529,6 +1522,7 @@ mod tests {
             units: 1,
             recent_count: 7,
             quick: vec!["file.save".into(), "file.print".into()],
+            extra: super::super::options20::Extra::default(),
         };
         assert_eq!(DocPrefs::from_text(&p.to_text()), p);
         assert_eq!(p.initials_or_default(), "AN");

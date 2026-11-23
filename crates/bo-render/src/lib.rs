@@ -538,19 +538,12 @@ fn item_commands_opaque(item: &PageItem, out: &mut Vec<Command>) {
         }),
         PageItem::Shape { x, y, paths, .. } => {
             for p in paths {
-                let segs = p
-                    .segs
-                    .iter()
-                    .map(|s| match *s {
-                        PathCmd::M(a, b) => PathSeg::M(x + a, y + b),
-                        PathCmd::L(a, b) => PathSeg::L(x + a, y + b),
-                        PathCmd::Q(a, b, c, d) => PathSeg::Q(x + a, y + b, x + c, y + d),
-                        PathCmd::C(a, b, c, d, e, f) => {
-                            PathSeg::C(x + a, y + b, x + c, y + d, x + e, y + f)
-                        }
-                        PathCmd::Z => PathSeg::Z,
-                    })
-                    .collect();
+                let segs = shape_segs(&p.segs, *x, *y);
+                // Round 20: gradient / picture paint, transparency, blur and clip.
+                if let Some(st) = p.style.as_deref() {
+                    styled_path_commands(p, st, segs, *x, *y, out);
+                    continue;
+                }
                 out.push(Command::Path {
                     segs,
                     fill: p.fill.map(|c| Paint::Solid { color: c.into() }),
@@ -564,6 +557,176 @@ fn item_commands_opaque(item: &PageItem, out: &mut Vec<Command>) {
                 });
             }
         }
+    }
+}
+
+/// Shape path segments moved to the shape box at (`x`, `y`).
+fn shape_segs(segs: &[PathCmd], x: f32, y: f32) -> Vec<PathSeg> {
+    segs.iter()
+        .map(|s| match *s {
+            PathCmd::M(a, b) => PathSeg::M(x + a, y + b),
+            PathCmd::L(a, b) => PathSeg::L(x + a, y + b),
+            PathCmd::Q(a, b, c, d) => PathSeg::Q(x + a, y + b, x + c, y + d),
+            PathCmd::C(a, b, c, d, e, f) => PathSeg::C(x + a, y + b, x + c, y + d, x + e, y + f),
+            PathCmd::Z => PathSeg::Z,
+        })
+        .collect()
+}
+
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn with_alpha(c: bo_model::Color, a: f32) -> Rgba {
+    Rgba(c.r, c.g, c.b, (a.clamp(0.0, 1.0) * 255.0).round() as u8)
+}
+
+/// A shape path with a [`bo_layout::PathStyle`] (Shape Format fills and effects, BlueDoc
+/// round 20): clipped, faded, drawn as a blurred silhouette or with a gradient / picture
+/// paint, then stroked.
+fn styled_path_commands(
+    p: &bo_layout::ShapePath,
+    st: &bo_layout::PathStyle,
+    segs: Vec<PathSeg>,
+    x: f32,
+    y: f32,
+    out: &mut Vec<Command>,
+) {
+    use bo_layout::PathPaint;
+    if let Some(clip) = &st.clip {
+        out.push(Command::PushClipPath {
+            segs: shape_segs(clip, x, y),
+        });
+    }
+    let faded = st.opacity < 0.999;
+    if faded {
+        out.push(Command::PushOpacity {
+            alpha: st.opacity.clamp(0.0, 1.0),
+        });
+    }
+    let stroke = p
+        .stroke
+        .as_ref()
+        .filter(|_| st.line_alpha > 0.001)
+        .map(|(w, c, dash)| Stroke {
+            width: *w,
+            color: with_alpha(*c, st.line_alpha),
+            dash: shape_dash(dash.as_deref(), *w),
+            cap: "butt".into(),
+            join: "miter".into(),
+        });
+    if let (Some((radius, spread)), Some(c)) = (st.blur, p.fill) {
+        out.push(Command::BlurPath {
+            segs,
+            color: with_alpha(c, st.fill_alpha),
+            radius,
+            spread,
+        });
+    } else {
+        let stops = |v: &[bo_layout::PaintStop]| -> Vec<GradientStop> {
+            v.iter()
+                .map(|(o, c, a)| GradientStop {
+                    offset: o.clamp(0.0, 1.0),
+                    color: with_alpha(*c, a * st.fill_alpha),
+                })
+                .collect()
+        };
+        let fill = p.fill.and_then(|c| match &st.paint {
+            None => Some(Paint::Solid {
+                color: with_alpha(c, st.fill_alpha),
+            }),
+            Some(PathPaint::Linear {
+                x1,
+                y1,
+                x2,
+                y2,
+                stops: s,
+            }) => Some(Paint::Linear {
+                x1: x + x1,
+                y1: y + y1,
+                x2: x + x2,
+                y2: y + y2,
+                stops: stops(s),
+            }),
+            Some(PathPaint::Radial {
+                cx,
+                cy,
+                r,
+                stops: s,
+            }) => Some(Paint::Radial {
+                cx: x + cx,
+                cy: y + cy,
+                r: *r,
+                stops: stops(s),
+            }),
+            Some(PathPaint::Picture { .. }) => None,
+        });
+        if let (
+            Some(PathPaint::Picture {
+                media,
+                rect,
+                tile,
+                alpha,
+            }),
+            Some(_),
+        ) = (&st.paint, p.fill)
+        {
+            // §20.1.8.14 blipFill: the picture inside the outline, stretched or tiled.
+            out.push(Command::PushClipPath { segs: segs.clone() });
+            let a = (alpha * st.fill_alpha).clamp(0.0, 1.0);
+            if a < 0.999 {
+                out.push(Command::PushOpacity { alpha: a });
+            }
+            let [rx, ry, rw, rh] = *rect;
+            match tile {
+                Some((tw, th)) if *tw > 0.5 && *th > 0.5 => {
+                    // At most 40 × 40 tiles.
+                    let (tw, th) = (&tw.max(rw / 40.0), &th.max(rh / 40.0));
+                    let mut ty = 0.0;
+                    while ty < rh {
+                        let mut tx = 0.0;
+                        while tx < rw {
+                            out.push(Command::Image {
+                                x: x + rx + tx,
+                                y: y + ry + ty,
+                                w: *tw,
+                                h: *th,
+                                image: media.clone(),
+                                crop: None,
+                                rotation: 0.0,
+                            });
+                            tx += tw;
+                        }
+                        ty += th;
+                    }
+                }
+                _ => out.push(Command::Image {
+                    x: x + rx,
+                    y: y + ry,
+                    w: rw,
+                    h: rh,
+                    image: media.clone(),
+                    crop: None,
+                    rotation: 0.0,
+                }),
+            }
+            if a < 0.999 {
+                out.push(Command::PopOpacity);
+            }
+            out.push(Command::PopClip);
+            if stroke.is_some() {
+                out.push(Command::Path {
+                    segs,
+                    fill: None,
+                    stroke,
+                });
+            }
+        } else if fill.is_some() || stroke.is_some() {
+            out.push(Command::Path { segs, fill, stroke });
+        }
+    }
+    if faded {
+        out.push(Command::PopOpacity);
+    }
+    if st.clip.is_some() {
+        out.push(Command::PopClip);
     }
 }
 

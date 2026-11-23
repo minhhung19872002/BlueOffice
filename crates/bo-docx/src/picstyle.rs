@@ -245,6 +245,20 @@ fn sp3d_el(b: &PicBevel) -> XmlElement {
         .done()
 }
 
+/// The effects of a shape's `spPr` (BlueDoc round 20: Shape Effects use the Picture Effects
+/// model).
+pub(crate) fn read_shape_effects(sp: &XmlElement) -> Option<PicEffects> {
+    read_effects(sp)
+}
+
+/// `effectLst`, `scene3d` and `sp3d` of Shape Effects `fx` (written after `ln`).
+pub(crate) fn effects_xml(fx: &PicEffects) -> String {
+    sp_pr_xml(&PictureFormat {
+        effects: Some(Box::new(fx.clone())),
+        ..PictureFormat::default()
+    })
+}
+
 /// `spPr` children of a new picture after its geometry.
 pub(crate) fn sp_pr_xml(format: &PictureFormat) -> String {
     let mut out = String::new();

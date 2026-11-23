@@ -39,6 +39,7 @@ mod page_fill;
 mod paragraph;
 mod picstyle;
 mod ruby;
+mod shapestyle;
 mod sigline;
 mod style;
 mod types;
@@ -63,7 +64,8 @@ pub use sigline::signature_line_page;
 pub use style::{author_color, para_props, ListCounters};
 pub use types::{
     stacked, Carets, Fragment, GlyphPos, Layer, LayoutDocument, Line, LineRotation, LineSource,
-    NoteKey, Page, PageDecor, PageItem, PathCmd, ShadePattern, ShapePath, SharedStr,
+    NoteKey, Page, PageDecor, PageItem, PaintStop, PathCmd, PathPaint, PathStyle, ShadePattern,
+    ShapePath, SharedStr,
 };
 
 use bo_model::change::BlockChanges;

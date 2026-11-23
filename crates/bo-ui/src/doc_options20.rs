@@ -54,7 +54,7 @@ const ADDIN_ROWS: [(&str, &str, &str, &str); 5] = [
     ),
     (
         "doc20.aiWeb",
-        "Web add-ins of your organisation (BlueOffice server)",
+        "Organisation web add-ins",
         "doc20.aiWebType",
         "Web add-in",
     ),

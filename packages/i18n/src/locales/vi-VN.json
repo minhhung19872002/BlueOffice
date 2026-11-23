@@ -16843,7 +16843,7 @@
     "aiProofing": "Công cụ soát lỗi (tiếng Việt, tiếng Anh)",
     "aiPdf": "Xuất PDF và PDF/A",
     "aiSign": "Chữ ký số (PAdES / OOXML)",
-    "aiWeb": "Phần bổ trợ web của tổ chức (máy chủ BlueOffice)",
+    "aiWeb": "Phần bổ trợ web của tổ chức",
     "aiBuiltIn": "Có sẵn",
     "aiWebType": "Phần bổ trợ web",
     "addinsNote": "BlueDoc không nạp phần bổ trợ COM và không chạy macro; phần bổ trợ web chạy cách ly với quyền chúng xin.",

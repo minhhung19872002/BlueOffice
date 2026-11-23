@@ -16843,7 +16843,7 @@
     "aiProofing": "Proofing tools (Vietnamese, English)",
     "aiPdf": "PDF and PDF/A export",
     "aiSign": "Digital signatures (PAdES / OOXML)",
-    "aiWeb": "Web add-ins of your organisation (BlueOffice server)",
+    "aiWeb": "Organisation web add-ins",
     "aiBuiltIn": "Built-in",
     "aiWebType": "Web add-in",
     "addinsNote": "BlueDoc loads no COM add-ins and runs no macros; web add-ins run in a sandbox with the permissions they ask for.",

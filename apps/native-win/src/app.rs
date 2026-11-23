@@ -210,6 +210,8 @@ pub fn run() -> Result<(), String> {
     if let Some(p) = &file {
         view.set_file_info(Some(&p.to_string_lossy()), host6::file_size(p));
         view.set_file_details(host6::file_details(p));
+        // Round 21: Protected View for files from the Internet (Mark of the Web).
+        view.set_download_zone(download_zone(p));
     }
     let (printers, default_printer) = host6::printers();
     // Read-only spooler state (status bits, jobs waiting) for the status line.
@@ -683,6 +685,25 @@ impl Shell {
                 Request::SetVoice(i) => VOICE.with(|v| v.borrow_mut().set_voice(i)),
                 Request::SendMails(mails) => send_mails(&mails),
                 Request::PrintJob(job) => self.print_job(&job),
+                // Round 21: Options › Import/Export ▾ › Export all customizations.
+                Request::SaveText { name, filter, text } => {
+                    let filters: &[(&str, &str)] = match filter.as_str() {
+                        "customization" => &[
+                            ("BlueOffice customizations (*.bocustom)", "*.bocustom"),
+                            ("All files (*.*)", "*.*"),
+                        ],
+                        _ => &[("All files (*.*)", "*.*")],
+                    };
+                    // BLUEOFFICE_SAVE_TEXT (a path) skips the dialog, for scripted checks.
+                    let path = std::env::var_os("BLUEOFFICE_SAVE_TEXT")
+                        .map(std::path::PathBuf::from)
+                        .or_else(|| win32::file_dialog(true, filters, &name));
+                    if let Some(p) = path {
+                        if let Err(e) = std::fs::write(&p, text.as_bytes()) {
+                            eprintln!("export: {e}");
+                        }
+                    }
+                }
                 Request::SavePrefs => {
                     if let Some(text) = self.view.take_prefs() {
                         host6::write_prefs(&text);
@@ -806,6 +827,11 @@ impl Shell {
                             "*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.tif;*.tiff",
                         )],
                         "models" => &[("3D Models (*.glb;*.gltf)", "*.glb;*.gltf")],
+                        // Round 21: BlueOffice's own customisation files.
+                        "customization" => &[
+                            ("BlueOffice customizations (*.bocustom)", "*.bocustom"),
+                            ("All files (*.*)", "*.*"),
+                        ],
                         _ => &[("All files (*.*)", "*.*")],
                     };
                     // BLUEOFFICE_PICK (a path) skips the dialog, for scripted comparisons.
@@ -1316,4 +1342,28 @@ impl Handler for Shell {
             );
         }
     }
+}
+
+/// The security zone of a file's Mark of the Web: `ZoneId` of its `Zone.Identifier`
+/// alternate data stream (3 Internet, 4 Restricted sites), 0 when it has none. Round 21:
+/// such files open in Protected View. `BLUEOFFICE_ZONE` overrides it for scripted checks.
+fn download_zone(path: &std::path::Path) -> u32 {
+    if let Some(z) = std::env::var("BLUEOFFICE_ZONE")
+        .ok()
+        .and_then(|v| v.parse().ok())
+    {
+        return z;
+    }
+    let mut stream = path.as_os_str().to_owned();
+    stream.push(":Zone.Identifier");
+    std::fs::read_to_string(std::path::PathBuf::from(stream))
+        .ok()
+        .and_then(|t| {
+            t.lines().find_map(|l| {
+                l.trim()
+                    .strip_prefix("ZoneId=")
+                    .and_then(|v| v.trim().parse().ok())
+            })
+        })
+        .unwrap_or(0)
 }

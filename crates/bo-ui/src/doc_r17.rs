@@ -392,6 +392,8 @@ impl DocWindow {
                 }
                 true
             }
+            // Round 21: Options › Import/Export ▾ › Import customization file.
+            "ribbon21" => self.r21_file_picked(bytes),
             _ => false,
         }
     }

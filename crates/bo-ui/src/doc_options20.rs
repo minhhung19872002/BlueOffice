@@ -71,6 +71,10 @@ pub(crate) struct Extra {
     pub(crate) protect_internet: bool,
     /// Open e-mail attachments read-only (Protected View).
     pub(crate) protect_attachments: bool,
+    /// Round 21: the ribbon customisation (empty: the default ribbon).
+    pub(crate) ribbon: crate::doc_ribbon21::Layout,
+    /// Round 21: the Quick Access Toolbar below the ribbon.
+    pub(crate) qat_below: bool,
 }
 
 impl Default for Extra {
@@ -80,6 +84,8 @@ impl Default for Extra {
             macro_message: true,
             protect_internet: true,
             protect_attachments: true,
+            ribbon: crate::doc_ribbon21::Layout::default(),
+            qat_below: false,
         }
     }
 }
@@ -99,6 +105,10 @@ impl Extra {
             "macroMessage" => self.macro_message = v != "0",
             "protectInternet" => self.protect_internet = v != "0",
             "protectAttachments" => self.protect_attachments = v != "0",
+            "ribbon21" => {
+                self.ribbon = crate::doc_ribbon21::Layout::from_json(v).unwrap_or_default();
+            }
+            "qatBelow" => self.qat_below = v == "1",
             _ => {}
         }
     }
@@ -112,6 +122,16 @@ impl Extra {
             b(self.macro_message),
             b(self.protect_internet),
             b(self.protect_attachments),
+        ) + &format!(
+            "ribbon21={}
+qatBelow={}
+",
+            if self.ribbon.tabs.is_empty() {
+                String::new()
+            } else {
+                serde_json::to_string(&self.ribbon).unwrap_or_default()
+            },
+            b(self.qat_below),
         )
     }
 

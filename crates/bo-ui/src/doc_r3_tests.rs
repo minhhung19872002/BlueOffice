@@ -311,6 +311,16 @@ fn table_of_contents_gallery_and_citations() {
 
 #[test]
 fn outline_view_promotes_demotes_and_filters() {
+    // The UI thread's larger stack (debug frames of the window's input handling are large).
+    std::thread::Builder::new()
+        .stack_size(8 << 20)
+        .spawn(outline_view_body)
+        .expect("thread")
+        .join()
+        .expect("test body");
+}
+
+fn outline_view_body() {
     let mut w = typed("Part A");
     w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
     w.handle(Input::Text("Body".into()), &Fixed);

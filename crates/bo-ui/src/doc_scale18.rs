@@ -174,6 +174,14 @@ pub(crate) const GROUPS2: [(&str, &str, &str, &str); 6] = [
 
 fn all() -> impl Iterator<Item = &'static (&'static str, &'static str, &'static str, &'static str)>
 {
+    builtin()
+        // Round 21: collapsed buttons of custom groups.
+        .chain(crate::doc_ribbon21::group_buttons().iter())
+}
+
+/// BlueDoc's own collapsed-group buttons.
+fn builtin(
+) -> impl Iterator<Item = &'static (&'static str, &'static str, &'static str, &'static str)> {
     // Round 19: the contextual tabs' buttons too.
     GROUPS
         .iter()
@@ -432,7 +440,7 @@ fn holders() -> &'static std::collections::HashMap<&'static str, &'static str> {
         #[cfg(test)]
         BUILDS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let mut map = std::collections::HashMap::new();
-        for g in all() {
+        for g in builtin() {
             let Some(grp) = crate::ribbon::doc_group(g.1, g.2) else {
                 continue;
             };

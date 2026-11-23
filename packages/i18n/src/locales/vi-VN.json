@@ -16583,7 +16583,10 @@
     "title": "Hiệu ứng tô nền",
     "twoColors": "Hai màu",
     "variants": "Biến thể",
-    "vertical": "Dọc"
+    "vertical": "Dọc",
+    "availableWindows": "Cửa sổ hiện có",
+    "noWindows": "Không có cửa sổ nào",
+    "screenClipping": "Cắt màn hình"
   },
   "doc17": {
     "bmAdd": "Thêm",

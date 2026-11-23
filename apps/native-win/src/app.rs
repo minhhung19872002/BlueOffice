@@ -13,6 +13,9 @@ use std::time::Instant;
 
 #[path = "doc_host6.rs"]
 mod host6;
+// Round 18: several windows of one document in this process, Screen Clipping.
+#[path = "doc_host18.rs"]
+mod host18;
 // Review › Read Aloud (round 16): BlueReader's Windows speech voice module (SAPI calls
 // confined to it), one voice per UI thread.
 #[path = "reader_speech.rs"]
@@ -254,26 +257,35 @@ pub fn run() -> Result<(), String> {
             .open(p)
             .ok()
     });
+    let setup = host18::Setup {
+        locale: locale.clone(),
+        name: name.clone(),
+    };
     win32::run(
         &format!("{name} — BlueDoc"),
-        Box::new(Shell {
-            view,
-            gpu: None,
-            perf,
-            file,
-            pending: Vec::new(),
-            dirty: true,
-            pending_input: None,
-            last_frame: [std::time::Duration::ZERO; 3],
-            clock: Instant::now(),
-            hwnd: 0,
-        }),
+        host18::Host::boxed(
+            setup,
+            Shell {
+                view,
+                gpu: None,
+                perf,
+                file,
+                pending: Vec::new(),
+                dirty: true,
+                pending_input: None,
+                last_frame: [std::time::Duration::ZERO; 3],
+                clock: Instant::now(),
+                hwnd: 0,
+            },
+        ),
     )
 }
 
 /// GPU page images, one bitmap per page index.
 struct Pages {
     bitmaps: HashMap<usize, PageBitmap>,
+    /// Interface pictures by id (round 18: Insert › Screenshot thumbnails).
+    images: HashMap<u64, PageBitmap>,
 }
 
 struct Gpu {
@@ -336,6 +348,7 @@ impl PageStore for Store<'_> {
 struct WinPainter<'a, 'f> {
     frame: &'a Frame<'f>,
     pages: &'a HashMap<usize, PageBitmap>,
+    images: &'a HashMap<u64, PageBitmap>,
 }
 
 impl Painter for WinPainter<'_, '_> {
@@ -380,6 +393,12 @@ impl Painter for WinPainter<'_, '_> {
     }
     fn layer_end(&mut self, id: usize) {
         self.frame.layer_end(id);
+    }
+    fn image(&mut self, id: u64, dest: [f32; 4]) {
+        if let Some(b) = self.images.get(&id) {
+            let src = [0.0, 0.0, b.width as f32, b.height as f32];
+            self.frame.draw_page_part(b, src, dest, 1.0);
+        }
     }
 }
 
@@ -819,10 +838,7 @@ impl Shell {
                 }
                 Request::ActivateWindow(h) => win32::activate_window(h),
                 // Insert › Screenshot: the other programs' windows, then the chosen one.
-                Request::ListScreenshotWindows => {
-                    let list = win32::screenshot_windows(self.hwnd);
-                    redraw |= self.view.show_screenshot_windows(&list);
-                }
+                Request::ListScreenshotWindows => redraw |= self.screenshot_gallery(),
                 Request::CaptureWindow(h) => {
                     if let Some(png) = win32::capture_window(h).and_then(|(w, hh, px)| {
                         bo_raster::rgba_to_png(bo_raster::codecs::Rgba {
@@ -885,11 +901,15 @@ impl Shell {
             pages: &mut gpu.pages,
         })?;
         let t1 = Instant::now();
-        let (view, pages) = (&self.view, &gpu.pages.bitmaps);
+        let (view, pages, images) = (&self.view, &gpu.pages.bitmaps, &gpu.pages.images);
         let mut painted = std::time::Duration::ZERO;
         let r = gpu.surface.frame(&gpu.device, |frame| {
             let p0 = Instant::now();
-            view.paint(&mut WinPainter { frame, pages });
+            view.paint(&mut WinPainter {
+                frame,
+                pages,
+                images,
+            });
             painted = p0.elapsed();
         });
         // Performance log: page re-render, interface paint, the rest of the frame (end of
@@ -1048,6 +1068,7 @@ impl Handler for Shell {
             surface,
             pages: Pages {
                 bitmaps: HashMap::new(),
+                images: HashMap::new(),
             },
         });
         self.view.set_ole_drag(true);

@@ -16583,7 +16583,10 @@
     "title": "Fill Effects",
     "twoColors": "Two colors",
     "variants": "Variants",
-    "vertical": "Vertical"
+    "vertical": "Vertical",
+    "availableWindows": "Available Windows",
+    "noWindows": "No windows are available",
+    "screenClipping": "Screen Clipping"
   },
   "doc17": {
     "bmAdd": "Add",

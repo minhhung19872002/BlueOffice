@@ -1588,6 +1588,8 @@ impl DocView {
 mod marks7;
 #[path = "doc_markup6.rs"]
 mod markup6;
+#[path = "doc_multi18.rs"]
+mod multi18;
 #[path = "doc_view15.rs"]
 mod view15;
 #[cfg(test)]

@@ -1,0 +1,350 @@
+//! BlueDoc parity round 18 (docs/ui/REPORT.md "Vòng 108"): the window commands of the View
+//! tab that need several windows in one process — New Window, View Side by Side with
+//! Synchronous Scrolling, Reset Window Position — and Insert › Screenshot's gallery of
+//! Available Windows (thumbnails the host draws) with Screen Clipping. A child module of the
+//! shell.
+use super::{DocWindow, Request};
+use crate::input::Key;
+use crate::ribbon::RibbonHit;
+use crate::{Input, Painter, TextStyle};
+use bo_render::{PathSeg, Rgba};
+
+#[cfg(test)]
+#[path = "doc_r18_tests.rs"]
+mod tests;
+
+/// Round-18 state of the window.
+#[derive(Default)]
+pub(super) struct R18 {
+    /// View › View Side by Side is on.
+    side: bool,
+    /// Synchronous Scrolling is on (turned on with View Side by Side, as the reference).
+    sync: bool,
+    /// Insert › Screenshot's gallery while it is open.
+    shots: Option<Shots>,
+}
+
+/// Insert › Screenshot: the Available Windows gallery.
+pub(super) struct Shots {
+    /// Window handle, title, thumbnail size in pixels (the host's picture `id` is the handle).
+    items: Vec<(isize, String, (u32, u32))>,
+    /// Panel rectangle (x, y, width, height) in device pixels.
+    rect: [f32; 4],
+    /// Item under the pointer: thumbnail index, or `items.len()` for Screen Clipping.
+    hover: Option<usize>,
+}
+
+/// Commands of round 18 that are not dimmed.
+pub(crate) const IDS: [&str; 3] = ["view.newWindow", "view.syncScroll", "r18.screenClip"];
+
+// Sizes in device pixels at 125 %, measured on the reference's gallery (653 × 246 with
+// four windows): square cells of 157 px edge to edge under a 35 px heading band, the
+// Screen Clipping row below them, room for the size grip at the bottom.
+const CELL: f32 = 157.0;
+const PANEL_W: f32 = 653.0;
+const HEADER_H: f32 = 35.0;
+const CLIP_TOP: f32 = 3.0;
+const CLIP_H: f32 = 36.0;
+const BOTTOM: f32 = 14.0;
+const PER_ROW: usize = 4;
+/// Margin between a cell's edge and its thumbnail.
+const INSET: f32 = 9.0;
+
+const PANEL_BG: Rgba = Rgba(0xFF, 0xFF, 0xFF, 255);
+const PANEL_EDGE: Rgba = Rgba(0x94, 0x94, 0x94, 255);
+const HEADER_BG: Rgba = Rgba(0xEB, 0xEB, 0xEB, 255);
+const TEXT: Rgba = Rgba(0x26, 0x26, 0x26, 255);
+const HOVER_BG: Rgba = Rgba(0xE1, 0xDF, 0xDD, 255);
+const HOVER_EDGE: Rgba = Rgba(0x00, 0x00, 0x00, 255);
+
+impl DocWindow {
+    fn r18_t(&self, key: &str, fallback: &str) -> String {
+        let v = self.strings.get(key);
+        if v == key {
+            fallback.to_owned()
+        } else {
+            v.to_owned()
+        }
+    }
+
+    /// A round-18 command; `None` when `id` is not one.
+    pub(super) fn r18_action(&mut self, id: &str) -> Option<bool> {
+        Some(match id {
+            "view.newWindow" => {
+                self.requests.push(Request::NewWindow);
+                false
+            }
+            "view.sideBySide" => {
+                self.r18.side = !self.r18.side;
+                self.r18.sync = self.r18.side;
+                self.r18_link();
+                true
+            }
+            "view.syncScroll" => {
+                if !self.r18.side {
+                    return Some(false);
+                }
+                self.r18.sync = !self.r18.sync;
+                self.r18_link();
+                true
+            }
+            // Reset Window Position: the two windows share the screen equally again.
+            "view.resetWindow" => {
+                self.requests.push(Request::SideBySide);
+                false
+            }
+            "r18.screenClip" => {
+                self.menu = None;
+                self.r18.shots = None;
+                self.requests.push(Request::ScreenClip);
+                true
+            }
+            _ => return None,
+        })
+    }
+
+    fn r18_link(&mut self) {
+        self.requests.push(Request::SideBySideLink {
+            side: self.r18.side,
+            sync: self.r18.sync,
+        });
+    }
+
+    /// The host ended View Side by Side (the other window closed, or the user turned it off
+    /// there): the buttons come up again.
+    pub fn set_side_by_side(&mut self, side: bool, sync: bool) {
+        self.r18.side = side;
+        self.r18.sync = side && sync;
+    }
+
+    /// Whether View Side by Side and Synchronous Scrolling are on.
+    pub fn side_by_side(&self) -> (bool, bool) {
+        (self.r18.side, self.r18.sync)
+    }
+
+    pub(super) fn r18_on_ids(&self) -> Vec<&'static str> {
+        let mut on = Vec::new();
+        if self.r18.side {
+            on.push("view.sideBySide");
+        }
+        if self.r18.sync {
+            on.push("view.syncScroll");
+        }
+        on
+    }
+
+    /// View tab: View Side by Side needs two windows; Synchronous Scrolling and Reset Window
+    /// Position only work while it is on (as the reference).
+    pub(super) fn r18_layout(&mut self) {
+        if self.ribbon.active_label() != "ribbon.tabs.view" {
+            return;
+        }
+        let dim = if self.r17.count < 2 {
+            vec!["view.sideBySide", "view.resetWindow", "view.syncScroll"]
+        } else if self.r18.side {
+            Vec::new()
+        } else {
+            vec!["view.resetWindow", "view.syncScroll"]
+        };
+        self.ribbon.set_extra_dim(dim);
+    }
+
+    /// Insert › Screenshot: show the Available Windows the host listed as a gallery of
+    /// thumbnails (pictures `handle` the host registered for the painter) with Screen
+    /// Clipping below.
+    pub fn show_screenshot_gallery(&mut self, items: Vec<(isize, String, (u32, u32))>) -> bool {
+        let s = self.scale / 1.25;
+        let anchor = self
+            .ribbon
+            .rect_of(RibbonHit::Command("insert.screenshot"))
+            .unwrap_or([self.size.0 / 2.0, 120.0, 60.0, 90.0]);
+        let rows = items.len().div_ceil(PER_ROW).max(1) as f32;
+        let w = (PANEL_W * s).round();
+        let h = ((HEADER_H + 1.0 + rows * CELL + CLIP_TOP + CLIP_H + BOTTOM) * s).round();
+        let x = anchor[0].min(self.size.0 - w).max(0.0);
+        let y = (anchor[1] + anchor[3]).min(self.size.1 - h).max(0.0);
+        self.menu = None;
+        self.r18.shots = Some(Shots {
+            items,
+            rect: [x, y, w, h],
+            hover: None,
+        });
+        true
+    }
+
+    /// Whether the Screenshot gallery is open.
+    pub fn screenshot_gallery_open(&self) -> bool {
+        self.r18.shots.is_some()
+    }
+
+    /// Rectangles of the gallery's thumbnail cells and of the Screen Clipping row.
+    fn r18_cells(&self, g: &Shots) -> (Vec<[f32; 4]>, [f32; 4]) {
+        let s = self.scale / 1.25;
+        let [x, y, w, h] = g.rect;
+        let cells = (0..g.items.len())
+            .map(|i| {
+                let (c, r) = ((i % PER_ROW) as f32, (i / PER_ROW) as f32);
+                [
+                    x + (2.0 + c * CELL) * s,
+                    y + (HEADER_H + 1.0 + r * CELL) * s,
+                    CELL * s,
+                    CELL * s,
+                ]
+            })
+            .collect();
+        let clip = [
+            x + s,
+            y + h - (CLIP_H + BOTTOM) * s,
+            w - 2.0 * s,
+            CLIP_H * s,
+        ];
+        (cells, clip)
+    }
+
+    fn r18_hit(&self, g: &Shots, px: f32, py: f32) -> Option<usize> {
+        let inside =
+            |r: &[f32; 4]| px >= r[0] && px < r[0] + r[2] && py >= r[1] && py < r[1] + r[3];
+        let (cells, clip) = self.r18_cells(g);
+        if inside(&clip) {
+            return Some(g.items.len());
+        }
+        cells.iter().position(inside)
+    }
+
+    /// Pointer and keys while the Screenshot gallery is open.
+    pub(super) fn r18_input(&mut self, input: &Input) -> Option<bool> {
+        let g = self.r18.shots.as_ref()?;
+        match *input {
+            Input::Move { x, y } => {
+                let hover = self.r18_hit(g, x, y);
+                let g = self.r18.shots.as_mut()?;
+                let changed = g.hover != hover;
+                g.hover = hover;
+                Some(changed)
+            }
+            Input::Press { x, y, .. } => {
+                let [gx, gy, gw, gh] = g.rect;
+                let hit = self.r18_hit(g, x, y);
+                let n = g.items.len();
+                let chosen = hit.map(|i| g.items.get(i).map(|w| w.0));
+                if x < gx || x >= gx + gw || y < gy || y >= gy + gh {
+                    // A click outside closes the gallery (and does nothing else).
+                    self.r18.shots = None;
+                    return Some(true);
+                }
+                match (hit, chosen) {
+                    (Some(i), _) if i == n => {
+                        self.r18_action("r18.screenClip");
+                    }
+                    (Some(_), Some(Some(h))) => {
+                        self.r18.shots = None;
+                        self.requests.push(Request::CaptureWindow(h));
+                    }
+                    _ => {}
+                }
+                Some(true)
+            }
+            Input::Key(Key::Escape, _) => {
+                self.r18.shots = None;
+                Some(true)
+            }
+            Input::Release { .. }
+            | Input::Drag { .. }
+            | Input::Wheel(_)
+            | Input::Context { .. }
+            | Input::Key(..)
+            | Input::Text(_) => Some(false),
+            _ => None,
+        }
+    }
+
+    /// Draw the Screenshot gallery over the window.
+    pub(super) fn r18_paint(&self, p: &mut dyn Painter) {
+        let Some(g) = &self.r18.shots else { return };
+        let s = self.scale / 1.25;
+        let [x, y, w, h] = g.rect;
+        let px = s.max(1.0).round();
+        p.fill_rect(x, y, w, h, PANEL_EDGE);
+        p.fill_rect(x + px, y + px, w - 2.0 * px, h - 2.0 * px, PANEL_BG);
+        // Heading band.
+        p.fill_rect(x + px, y + px, w - 2.0 * px, HEADER_H * s - px, HEADER_BG);
+        let style = TextStyle {
+            size: (15.0 * s).round(),
+            bold: true,
+        };
+        let head = self.r18_t("doc18.availableWindows", "Available Windows");
+        p.text(&head, x + 13.0 * s, y + 8.0 * s, style, TEXT);
+        let (cells, clip) = self.r18_cells(g);
+        let plain = TextStyle {
+            size: (15.0 * s).round(),
+            bold: false,
+        };
+        if g.items.is_empty() {
+            let none = self.r18_t("doc18.noWindows", "No windows are available");
+            p.text(&none, x + 10.0 * s, y + (HEADER_H + 10.0) * s, plain, TEXT);
+        }
+        for (i, (cell, (h, _, (tw, th)))) in cells.iter().zip(&g.items).enumerate() {
+            if g.hover == Some(i) {
+                let b = 2.0 * px;
+                p.fill_rect(cell[0], cell[1], cell[2], cell[3], HOVER_EDGE);
+                p.fill_rect(
+                    cell[0] + b,
+                    cell[1] + b,
+                    cell[2] - 2.0 * b,
+                    cell[3] - 2.0 * b,
+                    HOVER_BG,
+                );
+            }
+            // The thumbnail fits the cell inside the margin, keeping its shape.
+            let (aw, ah) = (cell[2] - 2.0 * INSET * s, cell[3] - 2.0 * INSET * s);
+            let k = (aw / *tw as f32).min(ah / *th as f32);
+            let (dw, dh) = ((*tw as f32 * k).round(), (*th as f32 * k).round());
+            let dx = (cell[0] + (cell[2] - dw) / 2.0).round();
+            let dy = (cell[1] + (cell[3] - dh) / 2.0).round();
+            p.image(*h as u64, [dx, dy, dw, dh]);
+        }
+        // Screen Clipping with its icon, then the size grip's dots.
+        if g.hover == Some(g.items.len()) {
+            p.fill_rect(clip[0], clip[1], clip[2], clip[3], HOVER_BG);
+        }
+        paint_clip_icon(p, clip[0] + 7.0 * s, clip[1] + 9.0 * s, 20.0 * s);
+        let label = self.r18_t("doc18.screenClipping", "Screen Clipping");
+        p.text(&label, clip[0] + 45.0 * s, clip[1] + 7.0 * s, plain, TEXT);
+        let grip = Rgba(0xA0, 0xA0, 0xA0, 255);
+        for (gx, gy) in [(1.0, 0.0), (0.0, 1.0), (1.0, 1.0)] {
+            p.fill_rect(
+                x + w - (10.0 - 4.0 * gx) * s,
+                y + h - (10.0 - 4.0 * gy) * s,
+                2.0 * s,
+                2.0 * s,
+                grip,
+            );
+        }
+    }
+}
+
+/// Screen Clipping's icon (BlueOffice's own drawing): a dashed frame with a cross-hair at
+/// its corner, `size` px square.
+fn paint_clip_icon(p: &mut dyn Painter, x: f32, y: f32, size: f32) {
+    let k = size / 16.0;
+    let dash = Rgba(0x44, 0x44, 0x44, 255);
+    let blue = Rgba(0x2B, 0x57, 0x9A, 255);
+    for i in 0..4 {
+        let t = i as f32 * 3.5 * k;
+        p.fill_rect(x + t, y + k, 2.0 * k, k, dash);
+        p.fill_rect(x + t, y + 12.0 * k, 2.0 * k, k, dash);
+        p.fill_rect(x, y + k + t, k, 2.0 * k, dash);
+        p.fill_rect(x + 13.0 * k, y + k + t, k, 2.0 * k, dash);
+    }
+    let (cx, cy) = (x + 13.5 * k, y + 12.5 * k);
+    p.path(
+        &[
+            PathSeg::M(cx - 4.0 * k, cy),
+            PathSeg::L(cx + 2.5 * k, cy),
+            PathSeg::M(cx, cy - 4.0 * k),
+            PathSeg::L(cx, cy + 2.5 * k),
+        ],
+        None,
+        Some((blue, 1.5 * k)),
+    );
+}

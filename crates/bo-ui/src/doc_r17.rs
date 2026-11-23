@@ -23,7 +23,7 @@ pub(super) struct R17 {
     /// The VBA project of the document (read once per document version).
     vba: Option<(u64, Value)>,
     /// BlueDoc windows open, as the host counted them (0: not asked yet = one).
-    count: usize,
+    pub(super) count: usize,
     /// Watermark texts the user saved with Save Selection to Watermark Gallery… (newest
     /// last), kept by the host in BlueOffice's own gallery file.
     saved_wm: Vec<String>,

@@ -44,6 +44,8 @@ mod r15;
 mod r16;
 #[path = "doc_r17.rs"]
 pub(crate) mod r17;
+#[path = "doc_r18.rs"]
+pub(crate) mod r18;
 #[path = "doc_r3.rs"]
 mod r3;
 #[path = "doc_r4.rs"]
@@ -197,6 +199,19 @@ pub enum Request {
     /// Store the user's style shortcut keys (JSON; round 17) and give them back with
     /// [`DocWindow::load_key_bindings`] in later sessions.
     SaveKeys(String),
+    /// View › New Window: show this document in another window (round 18).
+    NewWindow,
+    /// View › View Side by Side (on: this window and the next one side by side) and
+    /// Synchronous Scrolling (scroll them together) changed (round 18).
+    SideBySideLink {
+        /// View Side by Side is on.
+        side: bool,
+        /// Synchronous Scrolling is on.
+        sync: bool,
+    },
+    /// Insert › Screenshot › Screen Clipping: freeze the screen, let the user drag a region
+    /// and insert it with [`DocWindow::insert_picture`] (round 18).
+    ScreenClip,
 }
 
 /// A merged e-mail for the system's mail program.
@@ -354,6 +369,7 @@ pub struct DocWindow {
     r15: Box<r15::R15>,
     r16: Box<r16::R16>,
     r17: Box<r17::R17>,
+    r18: Box<r18::R18>,
 }
 
 /// Font sizes offered by the size box (points).
@@ -561,6 +577,7 @@ impl DocWindow {
             r15: Box::default(),
             r16: Box::default(),
             r17: Box::default(),
+            r18: Box::default(),
         }
     }
 
@@ -2175,6 +2192,7 @@ impl DocWindow {
         on.extend(self.r7_on_ids());
         on.extend(self.r16_on_ids());
         on.extend(self.r17_on_ids());
+        on.extend(self.r18_on_ids());
         if self.r17_side_to_side() {
             on.retain(|i| *i != "view.vertical");
         }
@@ -2214,6 +2232,9 @@ impl DocWindow {
 
     /// Run interface command `id` from the ribbon, title bar, a menu or a shortcut.
     fn action(&mut self, id: &str) -> bool {
+        if let Some(r) = self.r18_action(id) {
+            return r;
+        }
         if let Some(r) = self.r17_action(id) {
             return r;
         }
@@ -2864,6 +2885,7 @@ impl DocWindow {
         self.r15_layout();
         self.r16_layout(text);
         self.r17_layout();
+        self.r18_layout();
         if let Some(d) = self.dialog.as_mut() {
             d.layout(text, self.size, self.scale);
         }
@@ -3100,6 +3122,9 @@ impl DocWindow {
                 }
                 _ => {}
             }
+        }
+        if let Some(redraw) = self.r18_input(&input) {
+            return redraw;
         }
         if let Some(redraw) = self.r17_input(&input) {
             return redraw;
@@ -3977,6 +4002,7 @@ impl DocWindow {
         self.r15_paint(p);
         self.r16_paint(p);
         self.r17_paint(p);
+        self.r18_paint(p);
         if let Some(menu) = &self.menu {
             menu.paint(p, &self.r10_menu_theme(), &self.icons);
             self.r10_paint_menu(p);

@@ -128,9 +128,11 @@ impl FontPalette {
         (v * self.k()).round()
     }
 
-    /// A colour is offered (High-contrast only leaves out those under 4:1 against the page).
-    fn shown(&self, hex: &str) -> bool {
-        !self.high_contrast || contrast(hex, &self.page) >= 4.0
+    /// Cell `i` (colour `hex`) is offered: High-contrast only leaves out theme and standard
+    /// colours under 3.5:1 against the page (the reference keeps #7F7F7F at 4:1 and drops
+    /// #5B9BD5 at 3:1); Additional and Recent Colors always show.
+    fn shown(&self, i: usize, hex: &str) -> bool {
+        !self.high_contrast || i >= self.colors.len() || contrast(hex, &self.page) >= 3.5
     }
 
     /// Sections from the top (reference px): theme row, tints, standard row, additional
@@ -216,8 +218,9 @@ impl FontPalette {
         }
         self.cells()
             .iter()
-            .position(|(c, r)| {
-                self.shown(c)
+            .enumerate()
+            .position(|(i, (c, r))| {
+                self.shown(i, c)
                     && (r[0]..r[0] + r[2]).contains(&lx)
                     && (r[1]..r[1] + r[3]).contains(&ly)
             })
@@ -369,7 +372,7 @@ impl FontPalette {
                 self.px(r[2]),
                 self.px(r[3]),
             );
-            if !self.shown(c) {
+            if !self.shown(i, c) {
                 // Left out by High-contrast only: an empty cell, as the reference.
                 p.fill_rect(cx, cy, cw, 1.0, Rgba(0xE0, 0xE0, 0xE0, 255));
                 p.fill_rect(cx, cy + ch - 1.0, cw, 1.0, Rgba(0xE0, 0xE0, 0xE0, 255));

@@ -1072,6 +1072,11 @@ impl DocWindow {
                 self.relayout_pending = true;
             }
         }
+        // Only with the wizard open: asking the engine for the data source on every input
+        // would cost typing time.
+        if self.r16.wiz.is_none() {
+            return;
+        }
         let (records, record) = (self.merge_fields().1, self.merge_record.unwrap_or(0));
         let strings = &self.strings;
         let tr = |k: &str, en: &str| {

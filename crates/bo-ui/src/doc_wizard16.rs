@@ -357,7 +357,20 @@ impl WizardPane {
                         .collect();
                     p.path(&ring, Some(Rgba(255, 255, 255, 255)), Some((INK, 1.0)));
                     if i == chosen {
-                        p.fill_rect(cx - r / 2.0, cy - r / 2.0, r, r, INK);
+                        // A round dot inside the ring.
+                        let d = r * 0.5;
+                        let dot: Vec<PathSeg> = (0..=n)
+                            .map(|j| {
+                                let a = std::f32::consts::TAU * j as f32 / n as f32;
+                                let (px, py) = (cx + d * a.cos(), cy + d * a.sin());
+                                if j == 0 {
+                                    PathSeg::M(px, py)
+                                } else {
+                                    PathSeg::L(px, py)
+                                }
+                            })
+                            .collect();
+                        p.path(&dot, Some(INK), None);
                     }
                     p.text(&s, x + self.px(20.0), y + (row - lh) / 2.0, body, INK);
                     y += row;

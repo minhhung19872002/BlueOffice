@@ -46,6 +46,9 @@ pub(crate) struct AddressGrid {
     pub(crate) size: (f32, f32),
     resizing: Option<(f32, f32, (f32, f32))>,
     labels: [String; 8],
+    /// Maximized (the caption's maximize box), with the size to come back to.
+    maximized: Option<(f32, f32)>,
+    window: (f32, f32),
 }
 
 impl AddressGrid {
@@ -63,6 +66,8 @@ impl AddressGrid {
             size: (808.0, 465.0),
             resizing: None,
             labels,
+            maximized: None,
+            window: (1500.0, 1100.0),
         }
     }
 
@@ -76,6 +81,7 @@ impl AddressGrid {
 
     pub(crate) fn layout(&mut self, window: (f32, f32), scale: f32) {
         self.scale = scale;
+        self.window = window;
         let (w, h) = (self.px(self.size.0), self.px(self.size.1));
         self.rect = [
             ((window.0 - w) / 2.0).round().max(0.0),
@@ -364,6 +370,21 @@ impl AddressGrid {
         ) {
             return GridOut::Cancel;
         }
+        // The maximize box left of it.
+        if inside(
+            [rx + rw - self.px(92.0), ry, self.px(46.0), self.px(36.0)],
+            x,
+            y,
+        ) {
+            if let Some(back) = self.maximized.take() {
+                self.size = back;
+            } else {
+                self.maximized = Some(self.size);
+                let k = self.k();
+                self.size = (self.window.0 / k, self.window.1 / k);
+            }
+            return GridOut::Redraw;
+        }
         for (r, i) in self.buttons() {
             if inside(r, x, y) {
                 return match i {
@@ -466,6 +487,25 @@ impl AddressGrid {
             st,
             INK,
         );
+        // Maximize box (a square; two when maximized).
+        let (mx, my, m) = (x + w - self.px(69.0), y + self.px(18.0), self.px(5.0));
+        let sq = |p: &mut dyn Painter, ox: f32, oy: f32| {
+            p.path(
+                &[
+                    PathSeg::M(ox - m, oy - m),
+                    PathSeg::L(ox + m, oy - m),
+                    PathSeg::L(ox + m, oy + m),
+                    PathSeg::L(ox - m, oy + m),
+                    PathSeg::Z,
+                ],
+                Some(WHITE),
+                Some((INK, 1.0)),
+            );
+        };
+        if self.maximized.is_some() {
+            sq(p, mx + self.px(2.0), my - self.px(2.0));
+        }
+        sq(p, mx, my);
         // The grid.
         let g = self.grid_rect();
         p.fill_rect(g[0], g[1], g[2], g[3], FRAME);

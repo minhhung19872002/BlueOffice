@@ -108,6 +108,10 @@ impl DocWindow {
         b.print.printer = self.r6.printers.1;
         b.print.states.clone_from(&self.r6.printer_states);
         b.preview = self.view.current_page();
+        b.account = (
+            self.r6.prefs.user_name.clone(),
+            self.r6.prefs.initials.clone(),
+        );
         b.layout(self.title.height(), self.size, self.scale);
         self.r6.bs = Some(b);
         true

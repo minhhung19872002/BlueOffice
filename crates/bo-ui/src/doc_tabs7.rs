@@ -464,6 +464,12 @@ pub(crate) fn shape_tab() -> Tab {
                     vec![B("shape.textEffects")],
                 ],
             },
+            // Round 20: the Text group (Align Text).
+            Group {
+                label: "doc20.groupText",
+                large: vec![],
+                rows: vec![vec![S("shape.alignText")]],
+            },
             accessibility_group(),
             arrange_group(),
             Group {

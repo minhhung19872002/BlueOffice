@@ -278,7 +278,21 @@ pub(crate) fn styled(
                 f64::from(w),
                 f64::from(h),
             );
+            // A translucent fill: the copies stack up to the fill's opacity in the middle,
+            // not to full cover (each copy's opacity a becomes 1 - (1 - a)^k).
+            let rest: f64 = steps.iter().map(|s| 1.0 - s.2.min(0.999)).product();
+            let translucent = fill_alpha < 0.999 && rest > 0.0 && rest < 1.0;
+            let k = if translucent {
+                (1.0 - f64::from(fill_alpha)).max(1e-6).ln() / rest.ln()
+            } else {
+                1.0
+            };
             for (_, m, alpha) in steps {
+                let alpha = if translucent {
+                    1.0 - (1.0 - alpha.min(0.999)).powf(k)
+                } else {
+                    alpha
+                };
                 let clip = map_segs(&outline, &|x, y| {
                     let (x, y) = (f64::from(x), f64::from(y));
                     (
@@ -291,6 +305,9 @@ pub(crate) fn styled(
                     let mut st = p.style.take().map_or_else(PathStyle::default, |b| *b);
                     st.clip = Some(clip.clone());
                     st.opacity = alpha as f32;
+                    if translucent {
+                        st.fill_alpha = 1.0;
+                    }
                     p.style = Some(Box::new(st));
                     out.push(p);
                 }
@@ -336,11 +353,15 @@ pub(crate) fn styled(
                 y1: 0.0,
                 x2: 0.0,
                 y2: h,
+                // A narrow rounded profile lit from the top left (lightRig dir t): a bright
+                // rim inside the top edge, a dark rim inside the bottom edge.
                 stops: vec![
-                    (0.0, white, 0.55),
+                    (0.0, white, 0.15),
+                    (fy * 0.35, white, 0.85),
                     (fy, white, 0.0),
                     (1.0 - fy, black, 0.0),
-                    (1.0, black, 0.35),
+                    (1.0 - fy * 0.35, black, 0.45),
+                    (1.0, black, 0.2),
                 ],
             }));
             out.push(overlay(PathPaint::Linear {
@@ -349,10 +370,12 @@ pub(crate) fn styled(
                 x2: w,
                 y2: 0.0,
                 stops: vec![
-                    (0.0, white, 0.3),
+                    (0.0, white, 0.1),
+                    (fx2 * 0.35, white, 0.6),
                     (fx2, white, 0.0),
                     (1.0 - fx2, black, 0.0),
-                    (1.0, black, 0.25),
+                    (1.0 - fx2 * 0.35, black, 0.35),
+                    (1.0, black, 0.15),
                 ],
             }));
         }
@@ -360,6 +383,84 @@ pub(crate) fn styled(
     out
 }
 
+/// The reflection of a shape's text (§20.1.8.50 reflection): the glyph outlines of `lines`
+/// (box-relative) mirrored below the `w` × `h` box, fading like the shape's reflection.
+#[allow(clippy::cast_possible_truncation)]
+pub(crate) fn text_reflection(
+    fonts: &bo_text::FontManager,
+    style: &ShapeStyle,
+    lines: &[crate::types::Line],
+    w: f32,
+    h: f32,
+) -> Vec<ShapePath> {
+    use bo_text::PathCmd as O;
+    let Some(r) = style.effects.as_ref().and_then(|e| e.reflection.as_ref()) else {
+        return Vec::new();
+    };
+    let top = h + pt(r.dist);
+    let span = (h * (r.end_pos.clamp(1, 100_000) as f32) / 100_000.0).max(1.0);
+    let (st, end) = (opacity(r.st_a), opacity(r.end_a));
+    let mut out = Vec::new();
+    for l in lines {
+        for f in &l.fragments {
+            let upem = f32::from(fonts.info(f.face).units_per_em.max(1));
+            let k = f.size / upem;
+            let mut segs = Vec::new();
+            for g in f.glyphs.iter() {
+                let (ox, oy) = (f.x + g.x, f.y + g.y);
+                // Font units (y up) → box points, mirrored about the reflection line.
+                let p = |x: f32, y: f32| (ox + x * k, top + (h - (oy - y * k)));
+                for c in fonts.outline(f.face, g.id) {
+                    segs.push(match c {
+                        O::MoveTo(x, y) => {
+                            let (x, y) = p(x, y);
+                            PathCmd::M(x, y)
+                        }
+                        O::LineTo(x, y) => {
+                            let (x, y) = p(x, y);
+                            PathCmd::L(x, y)
+                        }
+                        O::QuadTo(a, b, x, y) => {
+                            let ((a, b), (x, y)) = (p(a, b), p(x, y));
+                            PathCmd::Q(a, b, x, y)
+                        }
+                        O::CubicTo(a, b, c2, d, x, y) => {
+                            let ((a, b), (c2, d), (x, y)) = (p(a, b), p(c2, d), p(x, y));
+                            PathCmd::C(a, b, c2, d, x, y)
+                        }
+                        O::Close => PathCmd::Z,
+                    });
+                }
+            }
+            if segs.is_empty() {
+                continue;
+            }
+            out.push(ShapePath {
+                segs,
+                fill: Some(f.color),
+                stroke: None,
+                style: Some(Box::new(PathStyle {
+                    paint: Some(PathPaint::Linear {
+                        x1: 0.0,
+                        y1: top,
+                        x2: 0.0,
+                        y2: top + span,
+                        stops: vec![(0.0, f.color, st), (1.0, f.color, end)],
+                    }),
+                    clip: Some(vec![
+                        PathCmd::M(-w, top),
+                        PathCmd::L(2.0 * w, top),
+                        PathCmd::L(2.0 * w, top + span),
+                        PathCmd::L(-w, top + span),
+                        PathCmd::Z,
+                    ]),
+                    ..PathStyle::default()
+                })),
+            });
+        }
+    }
+    out
+}
 #[cfg(test)]
 mod tests {
     use super::*;

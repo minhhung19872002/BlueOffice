@@ -209,6 +209,28 @@ pub(crate) fn shape_drawing(
         out.lines.extend(band.lines);
         out.items.extend(band.items);
     }
+    // Round 20: a reflection shows the shape's text too (mirrored glyph outlines).
+    if let Some(st) = shape.style.as_deref() {
+        let paths =
+            crate::shapestyle::text_reflection(ctx.fonts, st, &out.lines, w as f32, h as f32);
+        if !paths.is_empty() {
+            out.items.push(PageItem::Shape {
+                x: 0.0,
+                y: 0.0,
+                w: w as f32,
+                h: h as f32,
+                paths,
+                source: LineSource::TextBox {
+                    para: 0,
+                    at,
+                    sub: 0,
+                },
+                layer: layer_of(img),
+                alpha: 1.0,
+                z: 0,
+            });
+        }
+    }
     Ok(out)
 }
 

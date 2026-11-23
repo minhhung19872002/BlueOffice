@@ -83,7 +83,8 @@ const KINDS: [(&str, &str, &str); 7] = [
 ];
 
 /// Commands of round 20 (they work on a selected shape).
-pub(crate) const IDS: [&str; 7] = [
+pub(crate) const IDS: [&str; 8] = [
+    "shape.alignText",
     "shape.fill",
     "shape.outline",
     "shape.effects",
@@ -283,6 +284,9 @@ impl DocWindow {
                 let (kind, preset) = rest.split_once('=').unwrap_or((rest, "none"));
                 self.r20_run(&json!({ "cmd": "shapeEffect", "kind": kind, "preset": preset }))
             }
+            _ if id.starts_with("r20.anchor:") => self.r20_run(&json!({
+                "cmd": "shapeTextAnchor", "anchor": &id["r20.anchor:".len()..]
+            })),
             _ if id.starts_with("r20.wa:") => {
                 let i: u64 = id["r20.wa:".len()..].parse().unwrap_or(0);
                 self.r20_run(&json!({ "cmd": "wordArtStyle", "index": i }))
@@ -689,6 +693,31 @@ impl DocWindow {
                     false,
                 ));
             }
+            ("shape.alignText", _) => {
+                let a = shape.map(|s| s.anchor);
+                for (v, key, en, on) in [
+                    (
+                        "t",
+                        "doc20.top",
+                        "Top",
+                        a == Some(bo_model::TextAnchor::Top),
+                    ),
+                    (
+                        "ctr",
+                        "doc20.middle",
+                        "Middle",
+                        a == Some(bo_model::TextAnchor::Center),
+                    ),
+                    (
+                        "b",
+                        "doc20.bottom",
+                        "Bottom",
+                        a == Some(bo_model::TextAnchor::Bottom),
+                    ),
+                ] {
+                    items.push(item(self.r20_t(key, en), format!("r20.anchor:{v}"), on));
+                }
+            }
             ("shape.textEffects", Some(k)) => {
                 let none = match k {
                     "shadow" => self.r20_t("doc19.noShadow", "No Shadow"),
@@ -744,6 +773,7 @@ pub(crate) fn install(icons: &mut crate::icons::Icons, s: &mut crate::strings::S
         ("shape.textOutline", "doc20.textOutline", "Text Outline"),
         ("shape.textEffects", "doc20.textEffects", "Text Effects"),
         ("shape.wordArt", "doc20.quickStyles", "Quick Styles"),
+        ("shape.alignText", "doc20.alignText", "Align Text"),
     ] {
         let v = s.get(key).to_owned();
         s.set(
@@ -751,7 +781,24 @@ pub(crate) fn install(icons: &mut crate::icons::Icons, s: &mut crate::strings::S
             if v == key { en } else { v.as_str() },
         );
     }
+    if s.get("doc20.groupText") == "doc20.groupText" {
+        s.set("doc20.groupText", "Text");
+    }
     let rgb = |r, g, b| Some(Rgba(r, g, b, 255));
+    // Align Text: three lines over a two-headed vertical arrow.
+    icons.add_solid(
+        "shape.alignText",
+        &[
+            (
+                "M9 4h12v2h-12ZM9 11h12v2h-12ZM9 18h12v2h-12Z",
+                rgb(0x26, 0x26, 0x26),
+            ),
+            (
+                "M4 3l3 4h-2v10h2l-3 4l-3-4h2v-10h-2Z",
+                rgb(0x2f, 0x6f, 0xba),
+            ),
+        ],
+    );
     let ink = rgb(0x26, 0x26, 0x26);
     let white = rgb(255, 255, 255);
     // Text Fill: a solid A over a colour bar.

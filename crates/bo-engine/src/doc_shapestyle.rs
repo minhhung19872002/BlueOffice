@@ -48,6 +48,8 @@ pub enum ShapeStyleCommand {
     TextEffect(String, String),
     /// WordArt quick style.
     WordArt(usize),
+    /// Text › Align Text: "t", "ctr" or "b" (§21.1.2.1.1 bodyPr anchor).
+    Anchor(String),
 }
 
 impl ShapeStyleCommand {
@@ -89,6 +91,7 @@ impl ShapeStyleCommand {
                 s("kind")?,
                 s("preset").unwrap_or_else(|| "none".into()),
             ),
+            "shapeTextAnchor" => ShapeStyleCommand::Anchor(s("anchor")?),
             "wordArtStyle" => {
                 ShapeStyleCommand::WordArt(usize::try_from(v.get("index")?.as_u64()?).ok()?)
             }
@@ -536,6 +539,14 @@ fn apply(
             if let Some(l) = line {
                 st.line_alpha = Some(pct(*l)).filter(|a| *a < 100_000);
             }
+        }
+        ShapeStyleCommand::Anchor(a) => {
+            sh.anchor = match a.as_str() {
+                "t" => bo_model::TextAnchor::Top,
+                "ctr" => bo_model::TextAnchor::Center,
+                "b" => bo_model::TextAnchor::Bottom,
+                _ => return Err("badAnchor".into()),
+            };
         }
         ShapeStyleCommand::Effect(kind, preset) => {
             st.effects = crate::doc_picstyle::apply_effect(kind, preset, st.effects.take())?;

@@ -139,6 +139,11 @@ fn shape_effects_and_outline_colours() {
     assert!(fx.shadow.is_some() && fx.glow.is_some() && fx.bevel.is_some());
     assert_eq!(fx.camera.as_deref(), Some("isometricLeftDown"));
     assert!(w.action("r20.fx:preset=none"));
+    // Text › Align Text.
+    assert!(w.action("shape.alignText"));
+    assert_eq!(menu_len(&w), Some(3));
+    assert!(w.action("r20.anchor:b"));
+    assert_eq!(shape(&w).anchor, bo_model::TextAnchor::Bottom);
     assert!(style(&w).effects.is_none());
     // More Outline Colors… answers through the Colors dialog.
     assert!(w.action("shape.outline"));

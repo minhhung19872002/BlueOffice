@@ -225,7 +225,6 @@ pub(crate) fn menu(id: &str) -> Vec<Entry> {
         ],
         "insert.picture" => vec![
             e("insert.picture.device", "This Device..."),
-            e("insert.picture.stock", "Stock Images..."),
             e("insert.picture.online", "Online Pictures..."),
         ],
         "layout.bringForward" => vec![
@@ -243,16 +242,10 @@ pub(crate) fn menu(id: &str) -> Vec<Entry> {
 }
 
 /// Menu entries shown dimmed: features BlueDoc does not have.
-pub(crate) const UNAVAILABLE: [&str; 9] = [
-    "view.syncScroll",
-    "view.resetWindow",
-    "view.switchWindows.current",
-    "view.macros.view",
+pub(crate) const UNAVAILABLE: [&str; 3] = [
     "view.macros.record",
     "view.macros.pause",
-    "insert.picture.stock",
     "insert.picture.online",
-    "insert.bookmarkDialog",
 ];
 
 /// Ids of this module that are buttons or menus (`&'static` for the ribbon).

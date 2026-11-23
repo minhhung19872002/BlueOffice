@@ -286,6 +286,7 @@ impl DocWindow {
                 e["r14"] = self.r14_form_extra();
                 e["r15"] = self.r15_form_extra();
                 e["r16"] = self.r16_form_extra();
+                e["r17"] = self.r17_form_extra();
                 e
             },
         }
@@ -1429,12 +1430,7 @@ impl DocWindow {
         if let Some(f) = self.r3.form.as_mut() {
             if matches!(
                 input,
-                Input::Leave
-                    | Input::Drag { .. }
-                    | Input::Release { .. }
-                    | Input::Context { .. }
-                    | Input::Preedit(_)
-                    | Input::Zoom(_)
+                Input::Leave | Input::Context { .. } | Input::Preedit(_) | Input::Zoom(_)
             ) {
                 return Some(false);
             }

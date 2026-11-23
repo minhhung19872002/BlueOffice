@@ -354,6 +354,13 @@ fn insert_tab() -> Tab {
                     vec![S("insert.models3d"), S("insert.screenshot")],
                 ],
             },
+            // Media › Online Videos (round 17), between Illustrations and Links as the
+            // reference.
+            Group {
+                label: "doc17.groupMedia",
+                large: vec![L("insert.onlineVideo")],
+                rows: vec![],
+            },
             Group {
                 label: "ribbon.groups.links",
                 large: vec![L("insert.link")],
@@ -621,7 +628,7 @@ fn view_tab() -> Tab {
             },
             Group {
                 label: "docR4.groupImmersive",
-                large: vec![L("view.focus"), L("view.immersiveReader")],
+                large: vec![L("view.immersiveReader")],
                 rows: vec![],
             },
             Group {
@@ -661,6 +668,12 @@ fn view_tab() -> Tab {
             Group {
                 label: "docR4.groupMacros",
                 large: vec![L("view.macros")],
+                rows: vec![],
+            },
+            // The document's properties (round 17; the reference's last group).
+            Group {
+                label: "doc17.groupProperties",
+                large: vec![L("view.properties")],
                 rows: vec![],
             },
         ],
@@ -2057,12 +2070,33 @@ impl Ribbon {
                     } else if on_ids.contains(id) {
                         toggled_rect(p, r);
                     }
-                    let size = self.px(32.0);
+                    let mut size = self.px(32.0);
+                    let mut icon_y = r.y + self.px(4.0);
+                    // A collapsed group's button shows the group's icon in a framed white
+                    // box (measured on the reference at 125 %: 49 × 47 px, #808080 edge, the
+                    // icon about 24 px; round 17).
+                    if crate::doc_r4_fit::GROUP_MENUS.contains(id)
+                        || crate::doc_review16::GROUP_IDS.contains(id)
+                    {
+                        let (bw, bh) = (self.px(39.2).round(), self.px(37.6).round());
+                        let bx = (r.x + (r.w - bw) / 2.0).round();
+                        let by = (r.y + self.px(1.6)).round();
+                        p.fill_rect(bx, by, bw, bh, Rgba(0x80, 0x80, 0x80, 255));
+                        p.fill_rect(
+                            bx + 1.0,
+                            by + 1.0,
+                            bw - 2.0,
+                            bh - 2.0,
+                            Rgba(255, 255, 255, 255),
+                        );
+                        size = self.px(24.0).round();
+                        icon_y = (by + (bh - size) / 2.0).round();
+                    }
                     icons.draw(
                         p,
                         icon_of(id),
                         r.x + (r.w - size) / 2.0,
-                        r.y + self.px(4.0),
+                        icon_y,
                         size,
                         IconColors {
                             ink,
@@ -2924,6 +2958,7 @@ mod tests {
         crate::doc_tabs7::install_strings(&mut strings);
         crate::doc_review16::install_strings(&mut strings);
         crate::shell::r14::install(&mut icons, &mut strings);
+        crate::shell::r17::install(&mut icons, &mut strings);
         for tab in &ribbon.tabs {
             assert!(!tab.groups.is_empty(), "{} is empty", tab.label);
             for g in &tab.groups {

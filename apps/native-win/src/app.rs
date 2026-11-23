@@ -228,6 +228,10 @@ pub fn run() -> Result<(), String> {
         use base64::Engine as _;
         view.load_block_store(&base64::engine::general_purpose::STANDARD.encode(bytes));
     }
+    // The user's watermark gallery (Save Selection to Watermark Gallery…, round 17).
+    if let Some(text) = watermarks_path().and_then(|p| std::fs::read_to_string(p).ok()) {
+        view.load_watermarks(&text);
+    }
     // Sizes in the region's unit and decimal separator, as the reference shows them
     // (iMeasure 1: US system, inches). BLUEOFFICE_UNITS=cm|in overrides.
     let inches = match std::env::var("BLUEOFFICE_UNITS").as_deref() {
@@ -648,6 +652,12 @@ impl Shell {
                     }
                 }
                 Request::SpeechControl(what) => VOICE.with(|v| v.borrow_mut().control(what)),
+                // Round 17: Read Aloud › Settings lists the system's voices.
+                Request::ListVoices => {
+                    let (list, current) = VOICE.with(|v| v.borrow_mut().voices());
+                    self.view.set_voices(list, current);
+                }
+                Request::SetVoice(i) => VOICE.with(|v| v.borrow_mut().set_voice(i)),
                 Request::SendMails(mails) => send_mails(&mails),
                 Request::PrintJob(job) => self.print_job(&job),
                 Request::SavePrefs => {
@@ -758,6 +768,82 @@ impl Shell {
                         redraw |= self.view.apply_theme_file(&b64);
                     }
                 }
+                // Round 17: Text from File, Object › Create from File, picture watermark.
+                Request::PickFile { purpose, filter } => {
+                    let filters: &[(&str, &str)] = match filter.as_str() {
+                        "documents" => &[(
+                            "Documents (*.docx;*.docm;*.dotx;*.doc;*.odt;*.rtf;*.txt;*.htm;*.html)",
+                            "*.docx;*.docm;*.dotx;*.doc;*.odt;*.rtf;*.txt;*.htm;*.html",
+                        )],
+                        "workbooks" => {
+                            &[("Workbooks (*.xlsx;*.xlsm;*.xls)", "*.xlsx;*.xlsm;*.xls")]
+                        }
+                        "pictures" => &[(
+                            "Pictures (*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.tif;*.tiff)",
+                            "*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.tif;*.tiff",
+                        )],
+                        _ => &[("All files (*.*)", "*.*")],
+                    };
+                    // BLUEOFFICE_PICK (a path) skips the dialog, for scripted comparisons.
+                    let path = std::env::var_os("BLUEOFFICE_PICK")
+                        .map(std::path::PathBuf::from)
+                        .or_else(|| win32::file_dialog(false, filters, ""));
+                    if let Some(p) = path {
+                        if let Ok(bytes) = std::fs::read(&p) {
+                            redraw |= self
+                                .view
+                                .file_picked(&purpose, &p.to_string_lossy(), &bytes);
+                        }
+                    }
+                }
+                w @ (Request::ListWindows | Request::CountWindows) => {
+                    let wins = win32::app_windows(" \u{2014} BlueDoc");
+                    if w == Request::ListWindows {
+                        let list = wins
+                            .into_iter()
+                            .map(|(h, t)| {
+                                let title = t.trim_end_matches(" \u{2014} BlueDoc").to_owned();
+                                (h, title, h == self.hwnd)
+                            })
+                            .collect();
+                        redraw |= self.view.show_windows(list);
+                    } else {
+                        self.view.set_window_count(wins.len());
+                        redraw = true;
+                    }
+                }
+                Request::ActivateWindow(h) => win32::activate_window(h),
+                // Insert › Screenshot: the other programs' windows, then the chosen one.
+                Request::ListScreenshotWindows => {
+                    let list = win32::screenshot_windows(self.hwnd);
+                    redraw |= self.view.show_screenshot_windows(list);
+                }
+                Request::CaptureWindow(h) => {
+                    if let Some(png) = win32::capture_window(h).and_then(|(w, hh, px)| {
+                        bo_raster::rgba_to_png(bo_raster::codecs::Rgba {
+                            width: w,
+                            height: hh,
+                            pixels: px,
+                        })
+                    }) {
+                        redraw |= self.view.insert_picture(png, "Screenshot.png");
+                    }
+                }
+                Request::SaveWatermarks(json) => {
+                    if let Some(path) = watermarks_path() {
+                        if let Some(dir) = path.parent() {
+                            let _ = std::fs::create_dir_all(dir);
+                        }
+                        let _ = std::fs::write(path, json);
+                    }
+                }
+                Request::SideBySide => {
+                    // This window on the left, the next BlueDoc window on the right.
+                    let wins = win32::app_windows(" \u{2014} BlueDoc");
+                    if let Some(other) = wins.iter().map(|w| w.0).find(|h| *h != self.hwnd) {
+                        win32::arrange_windows(&[self.hwnd, other], false);
+                    }
+                }
                 Request::ArrangeAll => {
                     // Every BlueDoc window (one process each), stacked like the reference.
                     let wins: Vec<isize> = win32::app_windows(" \u{2014} BlueDoc")
@@ -802,6 +888,18 @@ impl Shell {
 
 /// Where Design › Set as Default keeps the defaults of new documents.
 /// The user's building blocks file (round 12); `BLUEOFFICE_BLOCKS` names another one.
+/// BlueOffice's own watermark gallery file (round 17).
+fn watermarks_path() -> Option<std::path::PathBuf> {
+    if let Some(p) = std::env::var_os("BLUEOFFICE_WATERMARKS") {
+        return Some(std::path::PathBuf::from(p));
+    }
+    std::env::var_os("APPDATA").map(|d| {
+        std::path::PathBuf::from(d)
+            .join("BlueOffice")
+            .join("bluedoc-watermarks.json")
+    })
+}
+
 fn blocks_path() -> Option<std::path::PathBuf> {
     if let Some(p) = std::env::var_os("BLUEOFFICE_BLOCKS") {
         return Some(std::path::PathBuf::from(p));

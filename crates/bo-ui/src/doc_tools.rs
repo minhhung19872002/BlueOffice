@@ -53,6 +53,8 @@ pub(crate) struct Context {
     pub(crate) shape: bool,
     /// An equation is selected or edited (Equation).
     pub(crate) equation: bool,
+    /// View › Immersive Reader is on (round 17).
+    pub(crate) immersive: bool,
 }
 
 impl Context {
@@ -69,6 +71,7 @@ impl Context {
             outline: false,
             shape: false,
             equation: false,
+            immersive: false,
         }
     }
 }
@@ -76,6 +79,9 @@ impl Context {
 /// Contextual tabs for `c`, in the reference's order.
 pub(crate) fn tabs(c: Context) -> Vec<Tab> {
     let mut out = Vec::new();
+    if c.immersive {
+        out.push(crate::shell::r17::immersive_tab());
+    }
     if c.outline {
         out.push(outlining_tab());
     }
@@ -453,6 +459,7 @@ pub(crate) fn enabled(id: &str, f: &FormatState) -> Option<bool> {
         | "references.updateToa"
         | "references.updateIndex" => true,
         _ if id.starts_with("design.styleSet.") => true,
+        _ if crate::shell::r17::IDS.contains(&id) => true,
         _ if crate::doc_design::UNAVAILABLE.contains(&id) => false,
         _ if crate::doc_r3_menus::static_id(id).is_some() => true,
         // Arrange acts on the selected picture or shape (round 4, as the reference).

@@ -45,6 +45,8 @@ pub(crate) mod r15;
 
 #[path = "doc_forms16.rs"]
 pub(crate) mod r16;
+#[path = "doc_forms17.rs"]
+pub(crate) mod r17;
 pub(crate) use r5::{open_manage_styles, ManagedStyle};
 pub(crate) use r7::INSPECT;
 
@@ -178,6 +180,18 @@ pub(crate) enum DocFormKind {
     NlFind,
     /// New Address List › Customize Columns… (Customize Address List, round 16).
     NlColumns,
+    /// Insert › Links › Bookmark (round 17).
+    Bookmark,
+    /// Insert › Text › Object › Object… (round 17).
+    InsertObject,
+    /// View › Macros › View Macros (round 17, view only).
+    Macros,
+    /// Insert › Media › Online Videos (round 17).
+    OnlineVideo,
+    /// Macros › Edit: a module's source, read only (round 17).
+    MacroSource,
+    /// Insert › Icons: BlueOffice's own icon library (round 17).
+    Icons,
 }
 
 /// What the owner does after an input.
@@ -258,6 +272,10 @@ pub(crate) struct DocForm {
     r13: Option<Box<r13::R13>>,
     /// Colors dialog state (round 15).
     r15: Option<Box<r15::ColorsState>>,
+    /// Bookmark / Object / Macros state (round 17).
+    r17: Option<Box<r17::R17>>,
+    /// The canvas a press started a drag on (Colors › Custom field / bar, round 17).
+    drag: Option<&'static str>,
 }
 
 /// Reference ids of `ST_NumberFormat` values offered for notes (§17.18.59).
@@ -467,6 +485,8 @@ impl DocForm {
             bs: None,
             r13: None,
             r15: None,
+            r17: None,
+            drag: None,
         }
     }
 
@@ -772,8 +792,35 @@ impl DocForm {
             }
             Input::Press { x, y, count, .. } => {
                 self.pointer = (*x, *y);
-                self.form.press(*x, *y, *count)
+                let ev = self.form.press(*x, *y, *count);
+                // Colors › Custom: a press on the field or the luminance bar keeps picking
+                // while the pointer drags (round 17).
+                self.drag = match &ev {
+                    Event::Canvas(id @ ("spectrum" | "lum"), ..) => Some(id),
+                    _ => None,
+                };
+                ev
             }
+            Input::Drag { x, y } => {
+                let Some(id) = self.drag else {
+                    return FormOut::None;
+                };
+                let (lx, ly) = self.form.to_local(*x, *y);
+                let Some(r) = self.form.get(id).map(|c| c.rect) else {
+                    return FormOut::None;
+                };
+                let (cx, cy) = ((lx - r[0]).clamp(0.0, r[2]), (ly - r[1]).clamp(0.0, r[3]));
+                return if self.r15_canvas(id, cx, cy) {
+                    FormOut::Redraw
+                } else {
+                    FormOut::None
+                };
+            }
+            Input::Release { .. } => {
+                self.drag = None;
+                return FormOut::None;
+            }
+            Input::Wheel(d) if self.r17_wheel(*d) => return FormOut::Redraw,
             Input::Wheel(d) => {
                 let (x, y) = self.pointer;
                 return if self.form.wheel(x, y, *d) {
@@ -796,6 +843,7 @@ impl DocForm {
         match ev {
             Event::None => FormOut::Redraw,
             Event::Cancel => FormOut::Close,
+            Event::Canvas(id, x, y) if self.r17_canvas(id, *x, *y) => FormOut::Redraw,
             Event::Canvas(id, x, y) if self.r15_canvas(id, *x, *y) => FormOut::Redraw,
             Event::Canvas(id, x, y) if self.r13_canvas(id, *x, *y) => FormOut::Redraw,
             Event::Canvas(id, _, y) if self.r11_canvas(id, *y) => FormOut::Redraw,
@@ -843,6 +891,7 @@ impl DocForm {
             }
             (DocFormKind::Protect, _) => {}
             (k, _) if r15::handles(k) => self.r15_changed(id),
+            (k, _) if r17::handles(k) => self.r17_changed(id),
             (k, _) if r16::handles(k) => self.r16_changed(id),
             (k, _) if r14::handles(k) => self.r14_changed(id),
             (k, _) if r13::handles(k) => {
@@ -864,6 +913,9 @@ impl DocForm {
     }
 
     fn clicked(&mut self, id: &str) -> FormOut {
+        if let Some(out) = self.r17_clicked(id) {
+            return out;
+        }
         if let Some(out) = self.r16_clicked(id) {
             return out;
         }
@@ -1004,6 +1056,9 @@ impl DocForm {
     }
 
     fn ok(&mut self) -> FormOut {
+        if r17::handles(self.kind) {
+            return self.r17_ok();
+        }
         if let Some(out) = self.r16_ok() {
             return out;
         }
@@ -1053,7 +1108,13 @@ impl DocForm {
             | DocFormKind::NewList
             | DocFormKind::MergeEmail
             | DocFormKind::NlFind
-            | DocFormKind::NlColumns => FormOut::Close,
+            | DocFormKind::NlColumns
+            | DocFormKind::Bookmark
+            | DocFormKind::InsertObject
+            | DocFormKind::Macros
+            | DocFormKind::OnlineVideo
+            | DocFormKind::MacroSource
+            | DocFormKind::Icons => FormOut::Close,
             DocFormKind::Toc => {
                 let levels = self.form.num("levels").clamp(1, 9);
                 let mut instr = match &self.toc_map {
@@ -1325,7 +1386,8 @@ impl DocForm {
         let files = &self.files;
         let this = self;
         let mut canvas = |id: &str, r: [f32; 4], p: &mut dyn Painter| {
-            if r15::paint_canvas(this, id, r, p, &font)
+            if r17::paint_canvas(this, id, r, p, &font)
+                || r15::paint_canvas(this, id, r, p, &font)
                 || r13::paint_canvas(this, id, r, p, &font)
                 || r14::paint_canvas(this, id, r, p, &font)
                 || findfmt11::paint_canvas(this, id, r, p, &font, k)
@@ -3174,6 +3236,12 @@ pub(crate) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
         | DocFormKind::MergeEmail
         | DocFormKind::NlFind
         | DocFormKind::NlColumns => r16::open(kind, s, c),
+        DocFormKind::Bookmark
+        | DocFormKind::InsertObject
+        | DocFormKind::Macros
+        | DocFormKind::OnlineVideo
+        | DocFormKind::MacroSource
+        | DocFormKind::Icons => r17::open(kind, s, c),
         DocFormKind::Zoom => {
             let mut f = DocForm::new(kind, &tr("docR4.zoomTitle", "Zoom"), (381.0, 258.0), vec![]);
             f.label(

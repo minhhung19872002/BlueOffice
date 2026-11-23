@@ -182,7 +182,11 @@ impl DocWindow {
         self.menu = None;
         self.r14.pal = None;
         let anchor = self.r14_anchor("design.watermark");
-        let sets = crate::doc_wm14::wm_sets(&|k, en| self.r14_t(k, en));
+        let mut sets = crate::doc_wm14::wm_sets(&|k, en| self.r14_t(k, en));
+        // Watermarks the user saved (round 17) come first, under General.
+        if let Some(own) = self.r17_wm_set() {
+            sets.insert(0, own);
+        }
         let footer = [
             self.r14_t("doc14.wmCustom", "Custom Watermark..."),
             self.r14_t("doc14.wmRemove", "Remove Watermark"),
@@ -205,6 +209,7 @@ impl DocWindow {
             current.is_some(),
         );
         g.current = current.and_then(|w| Some((w.text?, w.diagonal)));
+        g.save_on = self.view.has_selection();
         // The texts as outlines of the body font's metric twin (one turned shape each).
         let fonts = self.view.engine().fonts();
         let outlines = g
@@ -311,6 +316,10 @@ impl DocWindow {
                     Some(WmPick::Custom) => {
                         self.r14.wm = None;
                         self.r3_open_form(DocFormKind::Watermark)
+                    }
+                    Some(WmPick::Save) => {
+                        self.r14.wm = None;
+                        self.r17_save_watermark()
                     }
                     Some(WmPick::Remove) => {
                         self.r14.wm = None;

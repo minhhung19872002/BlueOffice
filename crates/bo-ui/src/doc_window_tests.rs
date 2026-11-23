@@ -243,6 +243,7 @@ fn every_contextual_button_has_a_label_an_icon_and_a_command() {
         outline: true,
         shape: true,
         equation: true,
+        immersive: true,
     });
     for tab in &all {
         assert_ne!(w.strings.get(tab.label), tab.label, "{}", tab.label);
@@ -271,7 +272,10 @@ fn every_contextual_button_has_a_label_an_icon_and_a_command() {
                     "icon of {id}"
                 );
                 // Round-7 commands run in the window (doc_r7, tested there).
-                if crate::doc_tabs7::window_command(id) {
+                if crate::doc_tabs7::window_command(id)
+                    || id.starts_with("ir.")
+                    || *id == "review.readAloud"
+                {
                     continue;
                 }
                 assert!(
@@ -290,8 +294,10 @@ fn every_contextual_button_has_a_label_an_icon_and_a_command() {
                         || catalog::command(id, &format.section).is_some(),
                     "{id} does nothing"
                 );
-                // Round-3 menus run in the window (doc_r3, tested there).
-                if crate::doc_r3_menus::static_id(id).is_some()
+                // Round-3 menus run in the window (doc_r3, tested there); so do the Immersive
+                // Reader menus (round 17, doc_r17_tests).
+                if id.starts_with("ir.")
+                    || crate::doc_r3_menus::static_id(id).is_some()
                     || crate::doc_r3_menus::OUTLINE.contains(id)
                 {
                     continue;

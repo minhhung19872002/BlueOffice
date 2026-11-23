@@ -1709,3 +1709,77 @@ mod doc_key_tests {
         assert_eq!(key(0xDB, mods), Some(Key::Letter('[')));
     }
 }
+
+/// Insert › Screenshot (BlueDoc round 17): the visible top-level windows of other programs
+/// that have a title and are not minimised (handle, title).
+pub fn screenshot_windows(own: isize) -> Vec<(isize, String)> {
+    use windows::Win32::UI::WindowsAndMessaging::IsIconic;
+    let mut all = app_windows("");
+    all.retain(|(h, t)| {
+        // SAFETY: plain query on a handle from the enumeration.
+        let iconic = unsafe { IsIconic(HWND(*h as *mut _)) }.as_bool();
+        *h != own && !iconic && !t.trim().is_empty() && t != "Program Manager"
+    });
+    all
+}
+
+/// The picture of window `h` (PrintWindow with the full content) as RGBA pixels.
+pub fn capture_window(h: isize) -> Option<(u32, u32, Vec<u8>)> {
+    use windows::Win32::Graphics::Gdi::{
+        CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject, GetDC, GetDIBits,
+        ReleaseDC, SelectObject, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS,
+    };
+    use windows::Win32::Storage::Xps::{PrintWindow, PRINT_WINDOW_FLAGS};
+    use windows::Win32::UI::WindowsAndMessaging::GetWindowRect;
+    let hwnd = HWND(h as *mut _);
+    let mut r = RECT::default();
+    // SAFETY: GDI objects are created, used and released within this block; the pixel
+    // buffer is as large as the bitmap info says.
+    unsafe {
+        GetWindowRect(hwnd, &raw mut r).ok()?;
+        let (w, hgt) = (r.right - r.left, r.bottom - r.top);
+        if w <= 0 || hgt <= 0 || w > 16_384 || hgt > 16_384 {
+            return None;
+        }
+        let screen = GetDC(None);
+        let dc = CreateCompatibleDC(Some(screen));
+        let bmp = CreateCompatibleBitmap(screen, w, hgt);
+        let old = SelectObject(dc, bmp.into());
+        // PW_RENDERFULLCONTENT (2): windows drawn by DirectComposition too.
+        let ok = PrintWindow(hwnd, dc, PRINT_WINDOW_FLAGS(2)).as_bool();
+        let mut info = BITMAPINFO {
+            bmiHeader: BITMAPINFOHEADER {
+                biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+                biWidth: w,
+                biHeight: -hgt,
+                biPlanes: 1,
+                biBitCount: 32,
+                biCompression: BI_RGB.0,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let mut px = vec![0u8; (w * hgt * 4) as usize];
+        let lines = GetDIBits(
+            dc,
+            bmp,
+            0,
+            hgt as u32,
+            Some(px.as_mut_ptr().cast()),
+            &raw mut info,
+            DIB_RGB_COLORS,
+        );
+        SelectObject(dc, old);
+        let _ = DeleteObject(bmp.into());
+        let _ = DeleteDC(dc);
+        ReleaseDC(None, screen);
+        if !ok || lines == 0 {
+            return None;
+        }
+        for p in px.chunks_exact_mut(4) {
+            p.swap(0, 2);
+            p[3] = 255;
+        }
+        Some((w as u32, hgt as u32, px))
+    }
+}

@@ -570,6 +570,10 @@ impl DocForm {
                 }
                 FormOut::Redraw
             }
+            (DocFormKind::Watermark, "selPicture") => FormOut::Run(
+                vec![json!({ "cmd": "ui.action", "id": "r17.pick:watermark" })],
+                false,
+            ),
             (DocFormKind::Watermark, "apply") => {
                 FormOut::Run(vec![self.watermark_command()], false)
             }
@@ -843,6 +847,7 @@ pub(super) fn open_watermark(s: &Strings, c: &FormContext) -> DocForm {
         &tr("doc14.wmSelectPicture", "Select Picture..."),
         false,
     );
+    f.label("picName", [156.0, 102.0, 300.0, 18.0], "");
     f.label(
         "scaleL",
         [34.0, 135.0, 70.0, 18.0],
@@ -970,8 +975,7 @@ pub(super) fn open_watermark(s: &Strings, c: &FormContext) -> DocForm {
 }
 
 impl DocForm {
-    /// The picture or text controls follow the kind of watermark chosen. A picture needs a
-    /// file BlueDoc's dialog cannot pick yet: its controls stay dimmed.
+    /// The picture or text controls follow the kind of watermark chosen.
     fn watermark_enable(&mut self) {
         let text = self.chosen("wm") == Some("wmText");
         for id in [
@@ -995,16 +999,47 @@ impl DocForm {
                 r.enabled = text;
             }
         }
-        for id in ["selPicture", "scaleL", "scale", "washout"] {
-            self.form.enable(id, false);
+        let picture = self.chosen("wm") == Some("wmPicture");
+        for id in ["selPicture", "scaleL", "scale", "washout", "picName"] {
+            self.form.enable(id, picture);
         }
         if text && self.text("wmTextBox").trim().is_empty() {
             self.set_text("wmTextBox", "CONFIDENTIAL");
         }
     }
 
+    /// The picture picked with Select Picture… (round 17): its path shown beside the
+    /// button, its bytes kept for OK.
+    pub(crate) fn wm_set_picture(&mut self, path: &str, b64: &str) {
+        self.files[0] = Some((path.to_owned(), b64.to_owned()));
+        self.set_label("picName", path);
+        self.set_radio("wmPicture");
+        self.watermark_enable();
+    }
+
     /// The watermark chosen (`setWatermark` command).
     fn watermark_command(&self) -> serde_json::Value {
+        if self.chosen("wm") == Some("wmPicture") {
+            let Some((_, b64)) = &self.files[0] else {
+                // The document's picture stays (nothing picked) — no change.
+                return json!({ "cmd": "ui.action", "id": "r17.none" });
+            };
+            // Scale: Auto, 500 %, 200 %, 150 %, 100 %, 50 % (§19.1.2.11 imagedata size).
+            let scale = [
+                None,
+                Some(500.0),
+                Some(200.0),
+                Some(150.0),
+                Some(100.0),
+                Some(50.0),
+            ]
+            .get(self.sel("scale").unwrap_or(0))
+            .copied()
+            .flatten();
+            return json!({ "cmd": "setWatermark", "watermark": {
+                "picture": b64, "scale": scale, "washout": self.on("washout"),
+            } });
+        }
         let spec = (self.chosen("wm") == Some("wmText"))
             .then(|| self.text("wmTextBox"))
             .filter(|t| !t.trim().is_empty())

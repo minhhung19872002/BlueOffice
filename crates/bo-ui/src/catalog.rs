@@ -216,6 +216,7 @@ pub fn menu(id: &str) -> Vec<Entry> {
             e("view.layout.web", "Web Layout"),
             e("view.layout.draft", "Draft"),
         ],
+        _ if id.starts_with("ir.") || id == "insert.screenshot" => crate::shell::r17::menu(id),
         _ => crate::doc_tools::menu(id),
     }
 }

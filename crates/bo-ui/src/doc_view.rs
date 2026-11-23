@@ -353,6 +353,9 @@ impl DocView {
             self.engine.doc_style_command(c).ok()?
         } else if let Some(c) = bo_engine::picture_tools::PictureCommand::parse(v) {
             self.engine.doc_picture_command(c).ok()?
+        } else if let Some(c) = bo_engine::doc_bookmarks17::BookmarkCommand::parse(v) {
+            // Insert › Bookmark (round 17).
+            self.engine.doc_bookmark_command(c).ok()?
         } else if let Some(c) = bo_engine::security::SecurityCommand::parse(v) {
             // File-level protection (File › Info › Protect Document, round 7).
             self.engine.doc_security(c).ok()?
@@ -360,6 +363,8 @@ impl DocView {
             || bo_engine::doc_smartart::DocSmartArtCommand::parse(v).is_some()
             // Building blocks (Quick Tables, round 12).
             || bo_engine::blocks::BlockCommand::parse(v).is_some()
+            // Embedded workbooks (Insert › Object, Table › Excel Spreadsheet; round 17).
+            || bo_engine::ole::OleCommand::parse(v).is_some()
         {
             // Charts and SmartArt answer JSON of their own: take the view's state after them
             // and draw every page again.

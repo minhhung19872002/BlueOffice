@@ -145,7 +145,25 @@ export type PictureCommand =
   /** Turn the picture clockwise by `degrees` (§20.1.7.6 xfrm rot). */
   | { cmd: 'pictureRotate'; degrees: number }
   | { cmd: 'pictureOrder'; order: 'forward' | 'front' | 'backward' | 'back' }
-  | { cmd: 'pictureFlip'; axis: 'horizontal' | 'vertical' };
+  | { cmd: 'pictureFlip'; axis: 'horizontal' | 'vertical' }
+  /** Shape Format › Shape Fill: `RRGGBB` (§20.1.8.54 solidFill) or `none` (BlueDoc). */
+  | { cmd: 'pictureShapeFill'; color: string }
+  /** Shape Format › Shape Outline (§20.1.2.2.24 ln); what is left out stays (BlueDoc). */
+  | { cmd: 'pictureShapeOutline'; color?: string; weight?: number; dash?: string }
+  /** Shape Format › Change Shape: preset geometry (§20.1.9.18 prstGeom) (BlueDoc). */
+  | { cmd: 'pictureShapePreset'; preset: string }
+  /** Picture Border: `RRGGBB` or `none`, weight in points, preset dash (BlueDoc). */
+  | { cmd: 'pictureBorder'; color?: string; weight?: number; dash?: string }
+  /** Picture Effects: one effect kind set to a preset, or `none` to remove it (BlueDoc). */
+  | {
+      cmd: 'pictureEffect';
+      kind: 'shadow' | 'reflection' | 'glow' | 'softEdge' | 'bevel' | 'rotation' | 'preset';
+      preset: string;
+    }
+  /** Artistic Effects (a14 imgEffect name, or `none`) (BlueDoc). */
+  | { cmd: 'pictureArtistic'; name: string }
+  /** Picture Quick Styles gallery item (BlueDoc). */
+  | { cmd: 'pictureQuickStyle'; index: number };
 
 /** Text wrapping of a picture (Wrap Text menu). */
 export type PictureWrap =

@@ -356,6 +356,19 @@ fn draw_table_draws_a_table_then_splits_and_erases() {
     stroke(&mut w, (x0, y0), (x0 + 300.0, y0 + 80.0), false);
     let cols = |w: &DocWindow| w.view.format().table.as_ref().map(|t| t.cols);
     assert_eq!(cols(&w), Some(1), "a drawn rectangle is a table");
+    let width = w
+        .view
+        .engine()
+        .document()
+        .and_then(|d| {
+            d.sections[0].blocks.iter().find_map(|b| match b {
+                bo_model::Block::Table(t) => t.grid.first().copied(),
+                _ => None,
+            })
+        })
+        .unwrap_or_default();
+    let want = (300.0 / w.view.scale() * 20.0).round() as i32;
+    assert!((width.0 - want).abs() <= 20, "{width:?} vs {want}");
     let cell = w.view.caret_rect().expect("caret in the cell");
     stroke(
         &mut w,

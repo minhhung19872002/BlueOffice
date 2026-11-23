@@ -1057,7 +1057,12 @@ impl DocWindow {
             if dx < 20.0 * self.scale || dy < 10.0 * self.scale {
                 return true;
             }
-            self.r3_run(vec![json!({ "cmd": "insertTable", "rows": 1, "cols": 1 })])
+            // As wide as the stroke (§17.4.75 tcW of the one column).
+            let twips = (dx / self.view.scale() * 20.0).round() as i32;
+            self.r3_run(vec![
+                json!({ "cmd": "insertTable", "rows": 1, "cols": 1 }),
+                edit(json!({ "kind": "columnWidth", "twips": twips.max(360) })),
+            ])
         } else if dy > dx {
             self.r3_run(vec![edit(json!({ "kind": "splitCell" }))])
         } else {

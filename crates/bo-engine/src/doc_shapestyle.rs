@@ -350,13 +350,13 @@ fn each_run(blocks: &mut [Block], f: &dyn Fn(&mut bo_model::RunProps)) {
                     }
                 }
             }
-            _ => {}
+            Block::Opaque(_) => {}
         }
     }
 }
 
 /// The run patch of a text command.
-#[allow(clippy::cast_possible_truncation)]
+#[allow(clippy::cast_possible_truncation, clippy::option_option)]
 fn text_patch(
     cmd: &ShapeStyleCommand,
 ) -> std::result::Result<(CharAdvancedPatch, Option<Option<Color>>), String> {
@@ -460,7 +460,7 @@ fn text_patch(
                 radius: 5.0,
                 transparency: 40,
             }));
-            p.reflection = Some(refl.then(|| ReflectionSpec {
+            p.reflection = Some(refl.then_some(ReflectionSpec {
                 size: 25,
                 transparency: 50,
                 distance: 0.0,
@@ -592,17 +592,16 @@ impl crate::Engine {
             let name = parts.first().map(|p| p.0.clone());
             // Check first so that a failed command leaves no undo step.
             let mut probe = s.tools_shape().ok_or(EngineError::NoDocument)?;
-            match apply(cmd, &mut probe, name.clone()) {
-                Err(e) => Some(e),
-                Ok(()) => {
-                    let mut failed = None;
-                    let r = s.update_shape_parts(parts, |img| {
-                        if let Err(e) = apply(cmd, img, name) {
-                            failed = Some(e);
-                        }
-                    });
-                    failed.or_else(|| r.err().map(|e| e.to_string()))
-                }
+            if let Err(e) = apply(cmd, &mut probe, name.clone()) {
+                Some(e)
+            } else {
+                let mut failed = None;
+                let r = s.update_shape_parts(parts, |img| {
+                    if let Err(e) = apply(cmd, img, name) {
+                        failed = Some(e);
+                    }
+                });
+                failed.or_else(|| r.err().map(|e| e.to_string()))
             }
         };
         let mut r = self.doc_picture_command(PictureCommand::PictureInfo)?;
@@ -721,6 +720,7 @@ mod tests {
 
     #[test]
     fn picture_and_texture_fills_add_media() {
+        use base64::Engine as _;
         let mut e = engine_with_shape();
         assert!(shape(&e).is_some(), "the shape is selected");
         let png = bo_raster::rgba_to_png(bo_raster::codecs::Rgba {
@@ -729,7 +729,6 @@ mod tests {
             pixels: vec![255; 16],
         })
         .expect("png");
-        use base64::Engine as _;
         let data = base64::engine::general_purpose::STANDARD.encode(&png);
         run(
             &mut e,

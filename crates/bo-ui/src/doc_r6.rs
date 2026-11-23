@@ -788,6 +788,7 @@ impl DocWindow {
             "print" => BsPage::Print,
             "export" => BsPage::Export,
             "share" => BsPage::Share,
+            "account" => BsPage::Account,
             _ => BsPage::Info,
         };
         self.r6_open_backstage(p)

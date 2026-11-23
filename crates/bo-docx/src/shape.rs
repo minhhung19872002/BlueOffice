@@ -439,8 +439,8 @@ pub(crate) fn shape_graphic(
     txbx: Option<&str>,
     blip_rid: Option<&str>,
 ) -> String {
-    let style = s.style.as_deref();
     const A_NS: &str = "http://schemas.openxmlformats.org/drawingml/2006/main";
+    let style = s.style.as_deref();
     let (cx, cy) = (img.width.0, img.height.0);
     let mut x = String::new();
     // [MS-ODRAWXML] §2.3.10 wsp: cNvPr?, cNvSpPr, spPr, style?, txbx?, bodyPr.

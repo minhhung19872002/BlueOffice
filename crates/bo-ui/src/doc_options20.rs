@@ -116,7 +116,9 @@ impl Extra {
     }
 
     /// Whether a file opened from `zone` (the Windows security zone of its download mark:
-    /// 3 Internet, 4 Restricted) or as an e-mail attachment opens in Protected View.
+    /// 3 Internet, 4 Restricted) or as an e-mail attachment opens in Protected View (the host
+    /// does not ask yet: see docs/ui/REPORT.md "Vòng 110").
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn protected(&self, zone: u32, attachment: bool) -> bool {
         (zone >= 3 && self.protect_internet) || (attachment && self.protect_attachments)
     }
@@ -198,23 +200,44 @@ pub(super) fn add_pages(f: &mut Form, s: &Strings, p: &super::options6::DocPrefs
         ),
     );
     heading(f, "aHead", ADDINS, 130.0, t("doc20.addinsHead", "Add-ins"));
+    // The reference's table: Name / Location / Type, active and inactive groups.
     f.add(
-        "aList",
+        "aTable",
         Some(ADDINS),
-        [257.0, 166.0, 740.0, 300.0],
-        Kind::List {
-            items: ADDIN_ROWS
-                .iter()
-                .map(|(k, en, tk, ten)| format!("{}    —    {}", t(k, en), t(tk, ten)))
-                .collect(),
-            sel: Some(0),
-            top: 0,
+        [257.0, 120.0, 740.0, 380.0],
+        Kind::Canvas,
+    );
+    f.add(
+        "aManageL",
+        Some(ADDINS),
+        [257.0, 726.0, 90.0, 24.0],
+        Kind::Label(t("doc20.manage", "Manage:")),
+    );
+    f.add(
+        "aManage",
+        Some(ADDINS),
+        [350.0, 720.0, 260.0, 30.0],
+        Kind::Combo {
+            items: vec![
+                t("doc20.manageWeb", "Web Add-ins"),
+                t("doc20.manageScripts", "BlueScript scripts"),
+            ],
+            sel: 0,
+        },
+    );
+    f.add(
+        "aGo",
+        Some(ADDINS),
+        [624.0, 719.0, 90.0, 32.0],
+        Kind::Button {
+            label: t("doc20.go", "Go..."),
+            default: false,
         },
     );
     f.add(
         "aNote",
         Some(ADDINS),
-        [257.0, 486.0, 740.0, 24.0],
+        [257.0, 520.0, 740.0, 24.0],
         Kind::Note(t(
             "doc20.addinsNote",
             "BlueDoc loads no COM add-ins and runs no macros; web add-ins run in a sandbox with the permissions they ask for.",
@@ -313,7 +336,7 @@ pub(super) fn add_pages(f: &mut Form, s: &Strings, p: &super::options6::DocPrefs
 
 /// Buttons of the round-20 pages.
 pub(crate) fn handles(id: &str) -> bool {
-    id == "rReset"
+    id == "rReset" || id == "aGo"
 }
 
 /// A button of the round-20 pages was pressed.
@@ -339,6 +362,102 @@ pub(super) fn collect(f: &Form, p: &mut super::options6::DocPrefs) {
     p.extra.macro_message = f.on("tMacroMsg");
     p.extra.protect_internet = f.on("tInternet");
     p.extra.protect_attachments = f.on("tAttach");
+}
+
+/// Text of the Add-ins table.
+pub(super) struct AddinTable {
+    heads: [String; 3],
+    groups: [String; 2],
+    active: Vec<[String; 3]>,
+    inactive: Vec<[String; 3]>,
+}
+
+impl AddinTable {
+    /// The table in the interface language.
+    pub(super) fn new(s: &Strings) -> Self {
+        let (active, inactive) = addin_rows(s);
+        AddinTable {
+            heads: [
+                tr(s, "doc20.colName", "Name"),
+                tr(s, "doc20.colLocation", "Location"),
+                tr(s, "doc20.colType", "Type"),
+            ],
+            groups: [
+                tr(s, "doc20.active", "Active Application Add-ins"),
+                tr(s, "doc20.inactive", "Inactive Application Add-ins"),
+            ],
+            active,
+            inactive,
+        }
+    }
+}
+
+/// Rows of the Add-ins table: (name, location, type), active ones first.
+pub(super) fn addin_rows(s: &Strings) -> (Vec<[String; 3]>, Vec<[String; 3]>) {
+    let built_in = tr(s, "doc20.aiLocation", "Built into BlueDoc");
+    let mut active = Vec::new();
+    let mut inactive = Vec::new();
+    for (k, en, tk, ten) in ADDIN_ROWS {
+        let row = [tr(s, k, en), built_in.clone(), tr(s, tk, ten)];
+        if k == "doc20.aiWeb" {
+            inactive.push([
+                row[0].clone(),
+                tr(s, "doc20.aiServer", "Organisation catalog (not connected)"),
+                row[2].clone(),
+            ]);
+        } else {
+            active.push(row);
+        }
+    }
+    (active, inactive)
+}
+
+/// Paint the Add-ins table into `r` (device pixels; `k` device px per reference px, `base`
+/// the form's text size).
+pub(super) fn paint_addins(
+    p: &mut dyn crate::Painter,
+    r: [f32; 4],
+    k: f32,
+    base: f32,
+    t: &AddinTable,
+) {
+    use bo_render::Rgba;
+    let size = (base * 1.3).round();
+    let st = crate::TextStyle { size, bold: false };
+    let bold = crate::TextStyle { size, bold: true };
+    let row_h = (size * 1.6).round();
+    let cols = [r[0] + 6.0 * k, r[0] + 330.0 * k, r[0] + 590.0 * k];
+    let ink = Rgba(0x26, 0x26, 0x26, 255);
+    let grey = Rgba(0x60, 0x60, 0x60, 255);
+    let mut y = r[1];
+    for (i, h) in t.heads.iter().enumerate() {
+        p.text(h, cols[i], y, bold, ink);
+    }
+    y += row_h;
+    p.fill_rect(
+        r[0],
+        y - 4.0 * k,
+        r[2],
+        k.max(1.0),
+        Rgba(0xC8, 0xC8, 0xC8, 255),
+    );
+    for (title, rows) in [(&t.groups[0], &t.active), (&t.groups[1], &t.inactive)] {
+        y += 4.0 * k;
+        p.text(title, cols[0], y, bold, ink);
+        y += row_h;
+        for row in rows {
+            for (i, cell) in row.iter().enumerate() {
+                p.text(
+                    cell,
+                    cols[i] + if i == 0 { 14.0 * k } else { 0.0 },
+                    y,
+                    st,
+                    grey,
+                );
+            }
+            y += row_h;
+        }
+    }
 }
 
 #[cfg(test)]

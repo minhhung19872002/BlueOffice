@@ -71,7 +71,7 @@ pub(crate) fn gradient_paint(g: &ShapeGradient, w: f32, h: f32) -> PathPaint {
         // box's extent along it.
         let a = (f64::from(g.angle) / 60_000.0).to_radians();
         let (s, c) = (a.sin() as f32, a.cos() as f32);
-        let half = ((w * c).abs() + (h * s).abs()) / 2.0;
+        let half = f32::midpoint((w * c).abs(), (h * s).abs());
         let (cx, cy) = (w / 2.0, h / 2.0);
         PathPaint::Linear {
             x1: cx - half * c,
@@ -86,7 +86,7 @@ pub(crate) fn gradient_paint(g: &ShapeGradient, w: f32, h: f32) -> PathPaint {
         let [l, t, r, b] = g
             .focus
             .map(|v| (v.clamp(-100_000, 200_000) as f32) / 100_000.0);
-        let (fx, fy) = ((l + (1.0 - r)) / 2.0 * w, (t + (1.0 - b)) / 2.0 * h);
+        let (fx, fy) = (f32::midpoint(l, 1.0 - r) * w, f32::midpoint(t, 1.0 - b) * h);
         let far = [(0.0, 0.0), (w, 0.0), (0.0, h), (w, h)]
             .iter()
             .map(|(x, y)| (x - fx).hypot(y - fy))
@@ -272,6 +272,18 @@ pub(crate) fn styled(
         .collect();
     // §20.1.8.53 softEdge: copies clipped to inset outlines, each faint.
     match fx.and_then(|e| e.soft_edge).filter(|r| *r > 0) {
+        // A solid fill: the silhouette shrunk by half the radius and blurred by it, so the
+        // whole rim fades out to the outline with fuzzy corners, as the reference draws it.
+        Some(rad) if paint.is_none() && base_color.is_some() => {
+            let r = pt(rad).min(w.min(h) / 2.0 * 0.95);
+            let (kx, ky) = ((w - r) / w.max(1.0), (h - r) / h.max(1.0));
+            let segs = map_segs(&outline, &|x, y| {
+                (w / 2.0 + (x - w / 2.0) * kx, h / 2.0 + (y - h / 2.0) * ky)
+            });
+            if let Some(c) = base_color {
+                out.push(silhouette(segs, c, fill_alpha, Some((r / 2.0, 0.0))));
+            }
+        }
         Some(rad) if filled => {
             let steps = bo_drawingml::effects::soft_edge_steps(
                 f64::from(pt(rad)),
@@ -330,7 +342,7 @@ pub(crate) fn styled(
         if let Some(s) = e.shadow.as_ref().filter(|s| s.inner) {
             let a = (f64::from(s.dir) / 60_000.0).to_radians();
             let (sin, cos) = (a.sin() as f32, a.cos() as f32);
-            let half = ((w * cos).abs() + (h * sin).abs()) / 2.0;
+            let half = f32::midpoint((w * cos).abs(), (h * sin).abs());
             let reach = (pt(s.blur) + pt(s.dist)).max(1.0);
             let f = (reach / (2.0 * half).max(1.0)).min(0.5);
             let c = rgb(s.color);
@@ -356,8 +368,8 @@ pub(crate) fn styled(
                 // A narrow rounded profile lit from the top left (lightRig dir t): a bright
                 // rim inside the top edge, a dark rim inside the bottom edge.
                 stops: vec![
-                    (0.0, white, 0.15),
-                    (fy * 0.35, white, 0.85),
+                    (0.0, white, 0.9),
+                    (fy * 0.3, white, 0.8),
                     (fy, white, 0.0),
                     (1.0 - fy, black, 0.0),
                     (1.0 - fy * 0.35, black, 0.45),
@@ -370,8 +382,8 @@ pub(crate) fn styled(
                 x2: w,
                 y2: 0.0,
                 stops: vec![
-                    (0.0, white, 0.1),
-                    (fx2 * 0.35, white, 0.6),
+                    (0.0, white, 0.6),
+                    (fx2 * 0.3, white, 0.55),
                     (fx2, white, 0.0),
                     (1.0 - fx2, black, 0.0),
                     (1.0 - fx2 * 0.35, black, 0.35),
@@ -558,8 +570,9 @@ mod tests {
             .iter()
             .filter(|p| p.style.as_ref().is_some_and(|s| s.blur.is_some()))
             .count();
-        assert_eq!(blurred, 2);
-        assert!(out.len() > 6, "{}", out.len());
+        // Shadow, glow and the soft-edged fill.
+        assert_eq!(blurred, 3);
+        assert!(out.len() >= 6, "{}", out.len());
         // The reflection lies below the shape.
         let refl = &out[2];
         let PathCmd::M(_, y) = refl.segs[0] else {

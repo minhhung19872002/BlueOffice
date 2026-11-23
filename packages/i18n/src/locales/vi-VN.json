@@ -16860,6 +16860,17 @@
     "alignText": "Căn chữ",
     "top": "Trên",
     "middle": "Giữa",
-    "bottom": "Dưới"
+    "bottom": "Dưới",
+    "manage": "Quản lý:",
+    "manageWeb": "Phần bổ trợ web",
+    "manageScripts": "Tập lệnh BlueScript",
+    "go": "Đi...",
+    "aiLocation": "Có sẵn trong BlueDoc",
+    "aiServer": "Danh mục của tổ chức (chưa kết nối)",
+    "colName": "Tên",
+    "colLocation": "Vị trí",
+    "colType": "Loại",
+    "active": "Phần bổ trợ đang hoạt động",
+    "inactive": "Phần bổ trợ không hoạt động"
   }
 }

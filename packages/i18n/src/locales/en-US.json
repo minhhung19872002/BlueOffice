@@ -16860,6 +16860,17 @@
     "alignText": "Align Text",
     "top": "Top",
     "middle": "Middle",
-    "bottom": "Bottom"
+    "bottom": "Bottom",
+    "manage": "Manage:",
+    "manageWeb": "Web Add-ins",
+    "manageScripts": "BlueScript scripts",
+    "go": "Go...",
+    "aiLocation": "Built into BlueDoc",
+    "aiServer": "Organisation catalog (not connected)",
+    "colName": "Name",
+    "colLocation": "Location",
+    "colType": "Type",
+    "active": "Active Application Add-ins",
+    "inactive": "Inactive Application Add-ins"
   }
 }

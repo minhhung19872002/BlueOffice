@@ -217,6 +217,8 @@ pub(crate) struct OptionsDialog {
     pointer: (f32, f32),
     /// Labels of the categories (translated).
     cats: Vec<String>,
+    /// The Add-ins page's table (round 20).
+    addins: super::options20::AddinTable,
 }
 
 /// Translated text of `key`, or `fallback`.
@@ -1101,6 +1103,7 @@ impl OptionsDialog {
             prefs: p.clone(),
             pointer: (0.0, 0.0),
             cats: CATS.iter().map(|(k, fb)| t(k, fb)).collect(),
+            addins: super::options20::AddinTable::new(s),
         }
     }
 
@@ -1258,12 +1261,14 @@ impl OptionsDialog {
         let base = self.form.font().size;
         let page = self.page;
         let cats = &self.cats;
+        let addins = &self.addins;
         let mut canvas = |id: &str, r: [f32; 4], p: &mut dyn Painter| match id {
             "bg" => p.fill_rect(r[0], r[1], r[2], r[3], Rgba(255, 255, 255, 255)),
             "cats" => paint_cats(p, r, k, base, page, cats),
             "mTab" | "mSpace" | "mPara" | "mHidden" | "mHyphen" | "mAnchor" => {
                 paint_mark(p, id, r, k, base);
             }
+            "aTable" => super::options20::paint_addins(p, r, k, base, addins),
             _ if id.starts_with("icon") => paint_page_icon(p, id, r, k),
             _ => {}
         };

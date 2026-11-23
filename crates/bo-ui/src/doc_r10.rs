@@ -33,6 +33,8 @@ pub mod pointer {
     pub const ARROW: u8 = 3;
     /// Text (I-beam).
     pub const TEXT: u8 = 4;
+    /// Pencil (Draw Table, round 18).
+    pub const PEN: u8 = 8;
 }
 
 impl DocWindow {
@@ -165,6 +167,10 @@ impl DocWindow {
             if self.r10_in_selection(page, px, py) {
                 return pointer::ARROW;
             }
+        }
+        // Draw Table / Eraser: the pencil over the pages, as the reference.
+        if self.r17.draw.is_some() {
+            return pointer::PEN;
         }
         pointer::TEXT
     }

@@ -474,6 +474,8 @@ impl DocWindow {
         crate::doc_r4_fit::install_strings(&mut strings);
         crate::doc_r4_fit::install_icons(&mut icons);
         crate::doc_review16::install_strings(&mut strings);
+        crate::doc_scale18::install_strings(&mut strings);
+        crate::doc_scale18::install_icons(&mut icons);
         crate::doc_review16::install_icons(&mut icons);
         crate::doc_tabs7::install_icons(&mut icons);
         crate::doc_tabs7::install_strings(&mut strings);
@@ -495,9 +497,9 @@ impl DocWindow {
                 .with_row_widths(crate::doc_r4_fit::row_w)
                 .with_forced_steps(crate::doc_review16::forced_steps)
                 .with_scaling(
-                    crate::doc_r4_fit::scaling,
-                    crate::doc_r4_fit::shrink,
-                    crate::doc_r4_fit::group_of,
+                    crate::doc_scale18::scaling,
+                    crate::doc_scale18::shrink,
+                    crate::doc_scale18::group_of,
                 ),
             theme: Theme::light("doc"),
             icons,

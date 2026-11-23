@@ -680,6 +680,32 @@ fn view_tab() -> Tab {
     }
 }
 
+/// Whether `id` is the drop-down button of a collapsed BlueDoc group.
+fn is_group_button(id: &str) -> bool {
+    crate::doc_r4_fit::GROUP_MENUS.contains(&id)
+        || crate::doc_review16::GROUP_IDS.contains(&id)
+        || crate::doc_scale18::is_group(id)
+}
+
+/// BlueDoc's full (uncollapsed) group `label` of tab `tab` (round 18: the drop-down of a
+/// collapsed group shows it).
+pub(crate) fn doc_group(tab: &str, label: &str) -> Option<Group> {
+    [
+        home(),
+        insert_tab(),
+        design_tab(),
+        layout_tab(),
+        references_tab(),
+        mailings_tab(),
+        crate::doc_review16::review_tab(),
+        view_tab(),
+    ]
+    .into_iter()
+    .filter(|t| t.label == tab)
+    .flat_map(|t| t.groups)
+    .find(|g| g.label == label)
+}
+
 impl Default for Ribbon {
     fn default() -> Self {
         Self::new()
@@ -1336,7 +1362,11 @@ impl Ribbon {
                         group_w = group_w.max(x - gap - gx + self.px(4.0));
                     }
                 }
-                let label = strings.get(g.label);
+                // A group collapsed to its drop-down button shows no group name under it (the
+                // button carries the name), as the reference (round 18).
+                let collapsed = g.rows.is_empty()
+                    && matches!(g.large.as_slice(), [Item::Large(id)] if is_group_button(id));
+                let label = if collapsed { "" } else { strings.get(g.label) };
                 let (lw, _) = text.measure(
                     label,
                     TextStyle {
@@ -1348,6 +1378,7 @@ impl Ribbon {
                 // Settings button in the label row's right corner (Font, Paragraph), as on a
                 // desktop word processor's ribbon.
                 let launcher = match g.label {
+                    _ if collapsed => None,
                     "ribbon.groups.font" => Some("format.fontSettings"),
                     "ribbon.groups.paragraph" => Some("format.paragraphSettings"),
                     "ribbon.groups.pageSetup" => Some("layout.pageSetup"),
@@ -1371,16 +1402,18 @@ impl Ribbon {
                         },
                     ));
                 }
-                placed.push(Placed::GroupLabel(
-                    g.label,
-                    Rect {
-                        x: gx,
-                        y: bottom - label_h,
-                        w: group_w,
-                        h: label_h,
-                    },
-                    lw,
-                ));
+                if !collapsed {
+                    placed.push(Placed::GroupLabel(
+                        g.label,
+                        Rect {
+                            x: gx,
+                            y: bottom - label_h,
+                            w: group_w,
+                            h: label_h,
+                        },
+                        lw,
+                    ));
+                }
                 gx += group_w;
                 placed.push(Placed::Divider(Rect {
                     x: gx,
@@ -1596,6 +1629,12 @@ impl Ribbon {
             }
             _ => None,
         })
+    }
+
+    /// Where `hit` is drawn now, without falling back to the collapsed group holding it
+    /// (for things the window draws over the ribbon: boxes, check marks; round 18).
+    pub(crate) fn shown_rect(&self, hit: RibbonHit) -> Option<[f32; 4]> {
+        self.placed_rect(hit)
     }
 
     fn placed_rect(&self, hit: RibbonHit) -> Option<[f32; 4]> {
@@ -2077,6 +2116,7 @@ impl Ribbon {
                     // icon about 24 px; round 17).
                     if crate::doc_r4_fit::GROUP_MENUS.contains(id)
                         || crate::doc_review16::GROUP_IDS.contains(id)
+                        || crate::doc_scale18::is_group(id)
                     {
                         let (bw, bh) = (self.px(39.2).round(), self.px(37.6).round());
                         let bx = (r.x + (r.w - bw) / 2.0).round();

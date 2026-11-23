@@ -322,7 +322,7 @@ pub(crate) fn paint_spins(
 ) {
     let px = |v: f32| (v * scale).round();
     for (i, id) in SPINS.iter().enumerate() {
-        let Some(r) = ribbon.rect_of(RibbonHit::Command(id)) else {
+        let Some(r) = ribbon.shown_rect(RibbonHit::Command(id)) else {
             continue;
         };
         p.fill_rect(r[0], r[1], r[2], r[3], t.ribbon);
@@ -417,7 +417,7 @@ pub(crate) fn paint_para_spins(
     ];
     // Column headings over the boxes (Indent, Spacing), as the reference.
     for id in crate::doc_r4_fit::HEADINGS {
-        let Some(r) = ribbon.rect_of(RibbonHit::Command(id)) else {
+        let Some(r) = ribbon.shown_rect(RibbonHit::Command(id)) else {
             continue;
         };
         p.fill_rect(r[0], r[1], r[2], r[3], t.ribbon);
@@ -434,7 +434,7 @@ pub(crate) fn paint_para_spins(
         );
     }
     for (i, id) in PARA_SPINS.iter().enumerate() {
-        let Some(r) = ribbon.rect_of(RibbonHit::Command(id)) else {
+        let Some(r) = ribbon.shown_rect(RibbonHit::Command(id)) else {
             continue;
         };
         p.fill_rect(r[0], r[1], r[2], r[3], t.ribbon);
@@ -782,7 +782,7 @@ pub(crate) fn paint_checks(
     let px = |v: f32| (v * scale).round();
     let hovered = ribbon.hovered();
     for &(id, on) in items {
-        let Some(r) = ribbon.rect_of(RibbonHit::Command(id)) else {
+        let Some(r) = ribbon.shown_rect(RibbonHit::Command(id)) else {
             continue;
         };
         // Cover what the ribbon drew for the placeholder (toggled fill).
@@ -816,7 +816,7 @@ fn hex(s: &str) -> Rgba {
 /// The quick looks as small tables in one white gallery box (reference: frame 210,
 /// selected tile framed 136).
 fn paint_gallery(p: &mut dyn Painter, ribbon: &Ribbon, look: &TableLook, t: &Theme, scale: f32) {
-    let rect = |id: &'static str| ribbon.rect_of(RibbonHit::Command(id));
+    let rect = |id: &'static str| ribbon.shown_rect(RibbonHit::Command(id));
     let (Some(first), Some(last)) = (rect(LOOK_TILES[0].0), rect(LOOK_TILES[5].0)) else {
         return;
     };

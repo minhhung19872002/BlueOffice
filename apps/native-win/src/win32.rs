@@ -975,6 +975,8 @@ fn wndproc_inner(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESUL
                 return LRESULT(1);
             }
             let id = match shape {
+                // IDC_PEN (MAKEINTRESOURCE(32631), WinUser.h): BlueDoc's Draw Table pencil.
+                8 => PCWSTR(32631 as *const u16),
                 1 => IDC_SIZEWE,
                 2 => IDC_SIZENS,
                 3 => IDC_ARROW,

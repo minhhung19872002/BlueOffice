@@ -147,3 +147,75 @@ fn screenshot_gallery_shows_thumbnails_and_screen_clipping() {
     assert!(!w.screenshot_gallery_open());
     assert_eq!(w.take_requests(), Vec::new());
 }
+
+#[test]
+fn every_tab_fits_without_scrolling_from_1500_to_600_px() {
+    let tabs = [
+        "home",
+        "insert",
+        "design",
+        "layout",
+        "references",
+        "mailings",
+        "review",
+        "view",
+    ];
+    // Down to 1000 px every tab fits; narrower, the reference scrolls a tab only once all
+    // its groups are drop-down buttons (Insert and Review at 800 px), and so does BlueDoc.
+    for width in [1500.0, 1200.0, 1000.0, 800.0, 600.0] {
+        let mut w = window();
+        w.handle(
+            Input::Resize {
+                width,
+                height: 1102.0,
+            },
+            &Fixed,
+        );
+        for tab in tabs {
+            assert!(w.run_interface_command(&format!("tab:{tab}"), &Fixed));
+            w.handle(Input::Tick, &Fixed);
+            w.refresh(&Fixed);
+            if !w.ribbon.overflows() {
+                continue;
+            }
+            assert!(width < 1000.0, "{tab} scrolls at {width} px");
+            let label = format!("ribbon.tabs.{tab}");
+            for g in crate::doc_scale18::GROUPS
+                .iter()
+                .chain(crate::doc_scale18::GROUPS2.iter())
+                .filter(|g| g.1 == label)
+            {
+                assert!(
+                    w.ribbon
+                        .shown_rect(crate::ribbon::RibbonHit::Command(g.0))
+                        .is_some(),
+                    "{tab} scrolls at {width} px with {} not collapsed",
+                    g.2
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn a_collapsed_group_opens_its_panel() {
+    let mut w = window();
+    w.handle(
+        Input::Resize {
+            width: 700.0,
+            height: 1102.0,
+        },
+        &Fixed,
+    );
+    assert!(w.run_interface_command("tab:home", &Fixed));
+    w.handle(Input::Tick, &Fixed);
+    w.refresh(&Fixed);
+    assert!(w
+        .ribbon
+        .rect_of(crate::ribbon::RibbonHit::Command("r18g.paragraph"))
+        .is_some());
+    assert!(w.action("r18g.paragraph"));
+    assert_eq!(w.r16.pop.as_ref().map(|p| p.id), Some("r18g.paragraph"));
+    assert!(w.action("r18g.paragraph"));
+    assert!(w.r16.pop.is_none());
+}

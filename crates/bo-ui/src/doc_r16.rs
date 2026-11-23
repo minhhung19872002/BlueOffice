@@ -1732,7 +1732,7 @@ impl DocWindow {
         self.r16_paint_markup_box(p);
         // The Font Color button's arrow part (split button, as the reference).
         if self.ribbon.active_label() == "ribbon.tabs.home" {
-            if let Some(r) = self.ribbon.rect_of(RibbonHit::Command("format.color")) {
+            if let Some(r) = self.ribbon.shown_rect(RibbonHit::Command("format.color")) {
                 let k = self.scale / 1.25;
                 let (cx, cy, a) = (r[0] + r[2] - 5.0 * k, r[1] + r[3] / 2.0, 2.5 * k);
                 p.path(
@@ -1753,7 +1753,7 @@ impl DocWindow {
         if let (Some(t), Some(r)) = (
             &self.r16.record_edit,
             self.ribbon
-                .rect_of(RibbonHit::Command("mailings.recordBox")),
+                .shown_rect(RibbonHit::Command("mailings.recordBox")),
         ) {
             // The box being typed in: a blue frame, the digits and a caret.
             let px = |v: f32| (v * self.scale).round();
@@ -1809,7 +1809,10 @@ impl DocWindow {
     /// the reference's: its icon, a box with a 1 px #646464 frame on the ribbon grey, the
     /// mode's name and an arrow part behind a #949494 rule.
     fn r16_paint_markup_box(&self, p: &mut dyn Painter) {
-        let Some(r) = self.ribbon.rect_of(RibbonHit::Command("review.markupMode")) else {
+        let Some(r) = self
+            .ribbon
+            .shown_rect(RibbonHit::Command("review.markupMode"))
+        else {
             return;
         };
         let k = self.scale / 1.25;

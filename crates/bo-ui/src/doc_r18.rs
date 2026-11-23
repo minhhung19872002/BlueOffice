@@ -99,8 +99,34 @@ impl DocWindow {
                 self.requests.push(Request::ScreenClip);
                 true
             }
+            _ if crate::doc_scale18::is_group(id) => self.r18_open_group(id),
             _ => return None,
         })
+    }
+
+    /// Open (or close) the drop-down panel of a group collapsed by round 18's scaling.
+    fn r18_open_group(&mut self, id: &str) -> bool {
+        let Some((sid, tab, label)) = crate::doc_scale18::group(id) else {
+            return false;
+        };
+        if self.r16.pop.as_ref().is_some_and(|p| p.id == sid) {
+            self.r16.pop = None;
+            return true;
+        }
+        let Some(group) = crate::ribbon::doc_group(tab, label) else {
+            return false;
+        };
+        let anchor = self.ribbon.rect_of(RibbonHit::Command(sid)).unwrap_or([
+            0.0,
+            self.ribbon.bottom(),
+            1.0,
+            0.0,
+        ]);
+        self.menu = None;
+        self.r16.pop = Some(crate::doc_grouppop16::GroupPopup::new(
+            sid, tab, group, anchor,
+        ));
+        true
     }
 
     fn r18_link(&mut self) {

@@ -206,6 +206,32 @@ pub enum PictureCommand {
         /// Axis.
         axis: String,
     },
+    /// Shape Format › Shape Fill of the selected shape (BlueDoc round 18): a solid
+    /// colour `RRGGBB` (§20.1.8.54 solidFill), or `none` (§20.1.8.44 noFill).
+    PictureShapeFill {
+        /// Colour or `none`.
+        color: String,
+    },
+    /// Shape Format › Shape Outline of the selected shape (§20.1.2.2.24 ln): colour
+    /// `RRGGBB` or `none` (no line), weight in points, dash (§20.1.10.48
+    /// ST_PresetLineDashVal, `solid` for none); what is left out stays.
+    PictureShapeOutline {
+        /// Colour or `none`.
+        #[serde(default)]
+        color: Option<String>,
+        /// Weight in points.
+        #[serde(default)]
+        weight: Option<f32>,
+        /// Dash.
+        #[serde(default)]
+        dash: Option<String>,
+    },
+    /// Shape Format › Edit Shape › Change Shape: another preset geometry (§20.1.9.18
+    /// prstGeom) for the selected shape.
+    PictureShapePreset {
+        /// Preset name.
+        preset: String,
+    },
     /// Insert an SVG picture (with a PNG fallback).
     PictureInsertSvg {
         /// SVG document, base64.

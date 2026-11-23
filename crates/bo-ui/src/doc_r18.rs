@@ -5,6 +5,7 @@
 //! shell.
 use super::{DocWindow, Request};
 use crate::input::Key;
+use crate::popup::{Choice, Menu, MenuItem};
 use crate::ribbon::RibbonHit;
 use crate::{Input, Painter, TextStyle};
 use bo_render::{PathSeg, Rgba};
@@ -25,6 +26,9 @@ pub(super) struct R18 {
     /// Online Pictures › Insert: the download in progress (a worker thread).
     pub(super) download: Option<Download>,
 }
+
+/// A picture fetcher: the bytes and a file name of an address, None when it fails.
+pub(super) type Fetch = fn(&str) -> Option<(Vec<u8>, String)>;
 
 /// An Online Pictures download: the address, when it started, the worker's answer
 /// (picture bytes and name, or `None` when it failed).
@@ -63,6 +67,54 @@ pub(super) struct Shots {
     /// Item under the pointer: thumbnail index, or `items.len()` for Screen Clipping.
     hover: Option<usize>,
 }
+
+/// Shape Styles gallery entries: (fill, outline) — BlueOffice's own blue, orange and grey
+/// with a darker outline of the same hue.
+const SHAPE_STYLES: [(&str, &str); 3] = [
+    ("4472C4", "2F528F"),
+    ("ED7D31", "AE5A21"),
+    ("A5A5A5", "787878"),
+];
+
+/// Colours of Shape Fill / Shape Outline (standard colours): (hex, key, English).
+const SHAPE_COLORS: [(&str, &str, &str); 10] = [
+    ("C00000", "doc18.cDarkRed", "Dark Red"),
+    ("FF0000", "doc18.cRed", "Red"),
+    ("FFC000", "doc18.cOrange", "Orange"),
+    ("FFFF00", "doc18.cYellow", "Yellow"),
+    ("92D050", "doc18.cLightGreen", "Light Green"),
+    ("00B050", "doc18.cGreen", "Green"),
+    ("00B0F0", "doc18.cLightBlue", "Light Blue"),
+    ("0070C0", "doc18.cBlue", "Blue"),
+    ("002060", "doc18.cDarkBlue", "Dark Blue"),
+    ("7030A0", "doc18.cPurple", "Purple"),
+];
+
+/// Outline dashes (§20.1.10.48): (value, key, English).
+const DASHES: [(&str, &str, &str); 6] = [
+    ("solid", "doc18.dSolid", "Solid"),
+    ("sysDot", "doc18.dRoundDot", "Round Dot"),
+    ("sysDash", "doc18.dSquareDot", "Square Dot"),
+    ("dash", "doc18.dDash", "Dash"),
+    ("dashDot", "doc18.dDashDot", "Dash Dot"),
+    ("lgDash", "doc18.dLongDash", "Long Dash"),
+];
+
+/// Edit Shape › Change Shape presets (§20.1.9.18): (preset, key, English).
+const PRESETS: [(&str, &str, &str); 8] = [
+    ("rect", "doc18.pRect", "Rectangle"),
+    ("roundRect", "doc18.pRoundRect", "Rounded Rectangle"),
+    ("ellipse", "doc18.pOval", "Oval"),
+    ("triangle", "doc18.pTriangle", "Isosceles Triangle"),
+    ("rightArrow", "doc18.pRightArrow", "Right Arrow"),
+    ("hexagon", "doc18.pHexagon", "Hexagon"),
+    ("star5", "doc18.pStar", "Star: 5 Points"),
+    (
+        "wedgeRectCallout",
+        "doc18.pCallout",
+        "Speech Bubble: Rectangle",
+    ),
+];
 
 /// Commands of round 18 that are not dimmed.
 pub(crate) const IDS: [&str; 3] = ["view.newWindow", "view.syncScroll", "r18.screenClip"];
@@ -130,6 +182,33 @@ impl DocWindow {
                 true
             }
             _ if crate::doc_scale18::is_group(id) => self.r18_open_group(id),
+            "shape.fill" => self.r18_shape_menu("shape.fill"),
+            "shape.outline" => self.r18_shape_menu("shape.outline"),
+            "shape.edit" => self.r18_shape_menu("shape.edit"),
+            _ if id.starts_with("shape.style.") => {
+                let i: usize = id.trim_start_matches("shape.style.").parse().unwrap_or(0);
+                let (fill, line) = SHAPE_STYLES[i.min(SHAPE_STYLES.len() - 1)];
+                self.r18_shape(&serde_json::json!({ "cmd": "pictureShapeFill", "color": fill }))
+                    && self.r18_shape(&serde_json::json!({
+                        "cmd": "pictureShapeOutline", "color": line, "weight": 1.0
+                    }))
+            }
+            _ if id.starts_with("r18.fill:") => self.r18_shape(&serde_json::json!({
+                "cmd": "pictureShapeFill", "color": &id["r18.fill:".len()..]
+            })),
+            _ if id.starts_with("r18.olc:") => self.r18_shape(&serde_json::json!({
+                "cmd": "pictureShapeOutline", "color": &id["r18.olc:".len()..]
+            })),
+            _ if id.starts_with("r18.olw:") => {
+                let w: f32 = id["r18.olw:".len()..].parse().unwrap_or(1.0);
+                self.r18_shape(&serde_json::json!({ "cmd": "pictureShapeOutline", "weight": w }))
+            }
+            _ if id.starts_with("r18.old:") => self.r18_shape(&serde_json::json!({
+                "cmd": "pictureShapeOutline", "dash": &id["r18.old:".len()..]
+            })),
+            _ if id.starts_with("r18.preset:") => self.r18_shape(&serde_json::json!({
+                "cmd": "pictureShapePreset", "preset": &id["r18.preset:".len()..]
+            })),
             // Online Pictures › Insert: the download runs on a worker thread while a panel
             // shows its progress (Cancel stops waiting for it).
             _ if id.starts_with("r17.picUrl:") => {
@@ -162,6 +241,64 @@ impl DocWindow {
         self.r16.pop = Some(crate::doc_grouppop16::GroupPopup::new(
             sid, tab, group, anchor,
         ));
+        true
+    }
+
+    /// Run a Shape Format command on the selected shape.
+    fn r18_shape(&mut self, v: &serde_json::Value) -> bool {
+        self.menu = None;
+        let ok = self.view.picture_command(v);
+        self.sync_context();
+        ok
+    }
+
+    /// Shape Fill ▾, Shape Outline ▾, Edit Shape ▾ (Change Shape) of the Shape Format tab.
+    fn r18_shape_menu(&mut self, id: &'static str) -> bool {
+        let item = |label: String, cmd: String| MenuItem {
+            label,
+            choice: Choice::Command(cmd),
+            checked: false,
+            dim: false,
+        };
+        let mut items = Vec::new();
+        match id {
+            "shape.fill" => {
+                items.push(item(
+                    self.r18_t("doc18.noFill", "No Fill"),
+                    "r18.fill:none".into(),
+                ));
+                for (hex, key, en) in SHAPE_COLORS {
+                    items.push(item(self.r18_t(key, en), format!("r18.fill:{hex}")));
+                }
+            }
+            "shape.outline" => {
+                items.push(item(
+                    self.r18_t("doc18.noOutline", "No Outline"),
+                    "r18.olc:none".into(),
+                ));
+                for (hex, key, en) in SHAPE_COLORS {
+                    items.push(item(self.r18_t(key, en), format!("r18.olc:{hex}")));
+                }
+                for w in ["0.25", "0.5", "0.75", "1", "1.5", "2.25", "3", "4.5", "6"] {
+                    items.push(item(format!("{w} pt"), format!("r18.olw:{w}")));
+                }
+                for (dash, key, en) in DASHES {
+                    items.push(item(self.r18_t(key, en), format!("r18.old:{dash}")));
+                }
+            }
+            _ => {
+                for (preset, key, en) in PRESETS {
+                    items.push(item(self.r18_t(key, en), format!("r18.preset:{preset}")));
+                }
+            }
+        }
+        let anchor = self.ribbon.rect_of(RibbonHit::Command(id)).unwrap_or([
+            self.size.0 / 2.0,
+            120.0,
+            60.0,
+            30.0,
+        ]);
+        self.menu = Some(Menu::open(items, anchor, self.size, self.scale));
         true
     }
 
@@ -324,11 +461,7 @@ impl DocWindow {
     }
 
     /// Start downloading `url` with `fetch` on a worker thread.
-    pub(super) fn r18_start_download(
-        &mut self,
-        url: String,
-        fetch: fn(&str) -> Option<(Vec<u8>, String)>,
-    ) -> bool {
+    pub(super) fn r18_start_download(&mut self, url: String, fetch: Fetch) -> bool {
         let (tx, rx) = std::sync::mpsc::channel();
         let job = url.clone();
         let spawned = std::thread::Builder::new()

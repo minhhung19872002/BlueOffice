@@ -282,3 +282,59 @@ fn online_pictures_download_in_the_background_with_cancel() {
     );
     assert!(!w.downloading());
 }
+
+#[test]
+fn shape_format_fill_outline_styles_and_change_shape() {
+    let mut w = window();
+    w.run_interface_command("text:Shape here", &Fixed);
+    w.r3_run(vec![serde_json::json!({
+        "cmd": "insertShape", "preset": "rect", "width": 120.0, "height": 60.0
+    })]);
+    let shape = |w: &DocWindow| -> Option<bo_model::Shape> {
+        fn find(blocks: &[bo_model::Block]) -> Option<bo_model::Shape> {
+            blocks.iter().find_map(|b| match b {
+                bo_model::Block::Paragraph(p) => p.runs.iter().find_map(|r| {
+                    r.content.iter().find_map(|c| match c {
+                        bo_model::RunContent::Image(img) => img.shape.as_deref().cloned(),
+                        _ => None,
+                    })
+                }),
+                _ => None,
+            })
+        }
+        w.view
+            .engine()
+            .document()
+            .and_then(|d| d.sections.iter().find_map(|s| find(&s.blocks)))
+    };
+    assert!(shape(&w).is_some(), "a shape was inserted");
+    // The shape is selected (as a click on it selects it).
+    w.view.exec(bo_engine::edit::Command::Move {
+        motion: bo_engine::nav::Motion::Left,
+        extend: true,
+    });
+    w.handle(Input::Tick, &Fixed);
+    // Shape Fill ▾ lists No Fill and the colours; a colour fills the shape.
+    assert!(w.action("shape.fill"));
+    assert_eq!(w.menu.as_ref().map(|m| m.items().len()), Some(11));
+    assert!(w.action("r18.fill:FF0000"));
+    let s = shape(&w).expect("shape");
+    assert_eq!(s.fill.map(|c| (c.r, c.g, c.b)), Some((255, 0, 0)));
+    // Shape Outline: weight and dash; No Outline removes it.
+    assert!(w.action("r18.olw:3"));
+    assert!(w.action("r18.old:dash"));
+    let l = shape(&w).and_then(|s| s.line).expect("line");
+    assert_eq!((l.width.0, l.dash.as_deref()), (38_100, Some("dash")));
+    assert!(w.action("r18.olc:none"));
+    assert!(shape(&w).expect("shape").line.is_none());
+    // A Shape Styles entry sets fill and outline; Change Shape keeps the formatting.
+    assert!(w.action("shape.style.1"));
+    let s = shape(&w).expect("shape");
+    assert_eq!(s.fill.map(|c| (c.r, c.g, c.b)), Some((0xED, 0x7D, 0x31)));
+    assert!(s.line.is_some());
+    assert!(w.action("r18.preset:ellipse"));
+    assert_eq!(shape(&w).expect("shape").preset, "ellipse");
+    // No Fill.
+    assert!(w.action("r18.fill:none"));
+    assert!(shape(&w).expect("shape").fill.is_none());
+}

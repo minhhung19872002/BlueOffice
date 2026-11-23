@@ -448,6 +448,22 @@ pub(crate) fn install_icons(icons: &mut crate::icons::Icons) {
     for (id, _, _, of) in all() {
         icons.alias(id, of);
     }
+    // Spelling & Grammar (round 18): a bolder own drawing — a solid letter A with a check
+    // mark, as heavy as the reference's ribbon icon (the thin outline read too light).
+    let ink = Some(bo_render::Rgba(0x44, 0x44, 0x44, 255));
+    let blue = Some(bo_render::Rgba(0x2B, 0x57, 0x9A, 255));
+    icons.add_solid(
+        "review.spellingDialog",
+        &[
+            (
+                "M3 16L8 3h2.6l5 13h-2.7l-1.2-3.3H7l-1.2 3.3ZM7.8 10.4h3.6L9.6 5.4Z",
+                ink,
+            ),
+            ("M9.5 18.2l2.1-2.1l2.4 2.4l5.9-5.9l2.1 2.1l-8 8Z", blue),
+        ],
+    );
+    // The group button of a collapsed Proofing group shows the same picture.
+    icons.alias("r18g.proofing", "review.spellingDialog");
 }
 
 #[cfg(test)]

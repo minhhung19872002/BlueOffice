@@ -598,12 +598,8 @@ fn open_macros(s: &Strings, c: &FormContext) -> DocForm {
         [18.0, 340.0, 200.0, 18.0],
         &tr("doc17.macDescription", "Description:"),
     );
-    f.form.add(
-        "descG",
-        None,
-        [18.0, 360.0, 646.0, 55.0],
-        super::form::Kind::Group(String::new()),
-    );
+    // A white framed box, as the reference's description field.
+    f.canvas("descBox", [18.0, 360.0, 646.0, 55.0]);
     f.label("desc", [26.0, 368.0, 630.0, 40.0], "");
     f.button(
         "cancel",
@@ -917,6 +913,17 @@ pub(super) fn paint_canvas(
     font: &crate::Font<'_>,
 ) -> bool {
     use bo_render::Rgba;
+    if id == "descBox" && f.kind == DocFormKind::Macros {
+        p.fill_rect(r[0], r[1], r[2], r[3], Rgba(0xab, 0xad, 0xb3, 255));
+        p.fill_rect(
+            r[0] + 1.0,
+            r[1] + 1.0,
+            r[2] - 2.0,
+            r[3] - 2.0,
+            Rgba(255, 255, 255, 255),
+        );
+        return true;
+    }
     if id != "iconGrid" || f.kind != DocFormKind::Icons {
         return false;
     }

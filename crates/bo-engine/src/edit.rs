@@ -1096,6 +1096,23 @@ pub enum Command {
         /// `deep`).
         id: String,
     },
+    /// Design › Colors › Customize Colors… / Fonts › Customize Fonts… (round 15): the
+    /// theme with these §20.1.6.2 clrScheme slots (dk1 lt1 dk2 lt2 accent1–6 hlink folHlink,
+    /// RRGGBB) and / or §20.1.4.1.24 / .25 major / minor Latin fonts, named `name`.
+    ApplyThemeParts {
+        /// Twelve scheme colours in schema order.
+        #[serde(default)]
+        colors: Option<Vec<String>>,
+        /// Heading font.
+        #[serde(default)]
+        major: Option<String>,
+        /// Body font.
+        #[serde(default)]
+        minor: Option<String>,
+        /// Name of the colour or font scheme.
+        #[serde(default)]
+        name: Option<String>,
+    },
     /// Apply a paragraph-spacing style set.
     ApplyStyleSet {
         /// Style set id (`compact`, `balanced`, `airy`, `double`).
@@ -1198,6 +1215,11 @@ pub enum Command {
     SetDocDefaults {
         /// The defaults to set.
         format: Box<bo_edit::find::FindFormat>,
+    },
+    /// Default tab stop interval in twips (§17.15.1.25 defaultTabStop; Tabs dialog).
+    SetDefaultTabStop {
+        /// New interval (twips).
+        twips: i32,
     },
     /// Hyphenation settings of the document (§17.15.1.10 autoHyphenation, …).
     SetHyphenation {
@@ -1996,6 +2018,7 @@ impl crate::Engine {
                     | Command::ApplyTheme { .. }
                     | Command::ApplyThemeFile { .. }
                     | Command::ApplyThemeEffects { .. }
+                    | Command::ApplyThemeParts { .. }
                     | Command::SaveThemeFile
                     | Command::ApplyStyleSet { .. }
                     | Command::ApplyDocumentStyleSet { .. }
@@ -2022,6 +2045,7 @@ impl crate::Engine {
                     | Command::SetLineNumbering { .. }
                     | Command::SetSectionTextDirection { .. }
                     | Command::SetHyphenation { .. }
+                    | Command::SetDefaultTabStop { .. }
                     | Command::SetDocDefaults { .. }
                     | Command::SetDropCap { .. } => {}
                     Command::Tab { back } => {

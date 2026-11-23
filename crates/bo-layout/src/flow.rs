@@ -2294,6 +2294,11 @@ impl Flow {
         ctx.fields.page = self.number;
         let base = ctx.next_id;
         ctx.id_origin = base;
+        // A view's collapsed heading content (round 15): no room, the body ids still count.
+        if crate::hidden15::is_hidden(ctx.doc, si, k) {
+            ctx.next_id += crate::hidden15::para_count(b);
+            return Ok((Built::Skip, base));
+        }
         let width = self.col_w();
         let built = match b {
             Block::Paragraph(p) => {

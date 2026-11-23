@@ -464,3 +464,34 @@ fn paste_special_modes() {
     select(&mut s, (0, 0), (0, 2));
     assert!(s.format_state().bold);
 }
+
+#[test]
+fn default_tab_stop_and_collapsed_heading_round14() {
+    let mut s = Session::new(doc(&["một", "hai"]));
+    let original = s.doc().clone();
+    // §17.15.1.25 defaultTabStop: set, one undo step, 720 is the default (absent).
+    s.set_default_tab_stop(576).unwrap();
+    assert_eq!(s.doc().default_tab_stop, Some(Twips(576)));
+    s.set_default_tab_stop(720).unwrap();
+    assert_eq!(s.doc().default_tab_stop, None);
+    assert!(s.undo());
+    assert_eq!(s.doc().default_tab_stop, Some(Twips(576)));
+    assert!(s.undo());
+    assert_eq!(s.doc(), &original);
+    // Paragraph › Collapsed by default ([MS-DOCX] w15:collapsed) through the props format.
+    caret(&mut s, 0, 0);
+    let format = find::FindFormat {
+        outline_level: Some(1),
+        collapsed: Some(true),
+        ..find::FindFormat::default()
+    };
+    s.format_paragraphs(&ParaFormat::Props {
+        format: Box::new(format),
+    })
+    .unwrap();
+    let Block::Paragraph(p) = &s.doc().sections[0].blocks[0] else {
+        panic!("not a paragraph")
+    };
+    assert_eq!(p.props.collapsed, Some(true));
+    undo_all(&mut s, &original);
+}

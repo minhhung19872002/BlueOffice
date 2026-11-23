@@ -244,6 +244,14 @@ pub(super) struct Form {
     /// Top of the tabs (reference pixels) when they are not right under the title bar
     /// (Value Field Settings has a name box above them).
     pub tab_top: Option<f32>,
+    /// Width of the tab page frame (reference pixels) when it does not span the form (the
+    /// Colors dialog keeps its OK / Cancel to the page's right).
+    pub page_w: Option<f32>,
+    /// No help (?) button in the title bar.
+    pub no_help: bool,
+    /// A sizable window's caption: minimise (dimmed) and maximise boxes, a size grip in the
+    /// bottom-right corner (the Colors dialog).
+    pub sizable: bool,
     /// The edit box (control index) whose whole text is selected: typing replaces it
     /// (opened with the text selected, or reached by Tab, as Windows dialogs do).
     all: Option<usize>,
@@ -372,6 +380,9 @@ impl Form {
             masked: Vec::new(),
             page_h: None,
             tab_top: None,
+            page_w: None,
+            no_help: false,
+            sizable: false,
             all: None,
         }
     }
@@ -1327,6 +1338,9 @@ impl Form {
             None,
             Some((Rgba(0x40, 0x40, 0x40, 255), 1.0)),
         );
+        if self.sizable {
+            self.paint_sizable(p);
+        }
         // Help (?) left of the close button, as the reference's dialogs show it (its centre
         // 96 px from the right edge at 125 %).
         let q = self.dev([self.size.0 - 101.0, 0.0, 10.0, TITLE_H]);
@@ -1334,17 +1348,19 @@ impl Form {
             size: (font.size * 1.2).round(),
             ..font
         };
-        p.text_font(
-            "?",
-            q[0],
-            (q[1] + (q[3] - qfont.size * 1.33) / 2.0).round(),
-            &qfont,
-            Rgba(0x40, 0x40, 0x40, 255),
-        );
+        if !self.no_help {
+            p.text_font(
+                "?",
+                q[0],
+                (q[1] + (q[3] - qfont.size * 1.33) / 2.0).round(),
+                &qfont,
+                Rgba(0x40, 0x40, 0x40, 255),
+            );
+        }
         if !self.tabs.is_empty() {
             let top = self.tab_top.map_or(74.0, |t| t + 24.0);
             let ph = self.page_h.unwrap_or(self.size.1 - top - 61.0);
-            let pg = self.dev([18.0, top, self.size.0 - 36.0, ph]);
+            let pg = self.dev([18.0, top, self.page_w.unwrap_or(self.size.0 - 36.0), ph]);
             p.fill_rect(pg[0], pg[1], pg[2], pg[3], PAGE_EDGE);
             p.fill_rect(pg[0] + 1.0, pg[1] + 1.0, pg[2] - 2.0, pg[3] - 2.0, PAGE);
             for (i, (label, r)) in self.tabs.iter().zip(&self.tab_rects).enumerate() {
@@ -2047,6 +2063,33 @@ fn ring(cx: f32, cy: f32, r: f32) -> Vec<PathSeg> {
         PathSeg::C(cx + k, cy - r, cx + r, cy - k, cx + r, cy),
         PathSeg::Z,
     ]
+}
+
+impl Form {
+    /// Minimise (dimmed) and maximise boxes left of the close button, and the size grip's
+    /// dots in the bottom-right corner, as a sizable reference window shows them.
+    fn paint_sizable(&self, p: &mut dyn Painter) {
+        let ink = Rgba(0x40, 0x40, 0x40, 255);
+        let m = self.dev([self.size.0 - 95.0, 14.0, 10.0, 10.0]);
+        let t = self.k.max(1.0).round();
+        p.fill_rect(m[0], m[1], m[2], t, ink);
+        p.fill_rect(m[0], m[1] + m[3] - t, m[2], t, ink);
+        p.fill_rect(m[0], m[1], t, m[3], ink);
+        p.fill_rect(m[0] + m[2] - t, m[1], t, m[3], ink);
+        let n = self.dev([self.size.0 - 162.0, 19.0, 10.0, 1.0]);
+        p.fill_rect(n[0], n[1], n[2], t, Rgba(0xa0, 0xa0, 0xa0, 255));
+        // Size grip: six dots in a triangle.
+        let dot = (2.0 * self.k).round().max(1.0);
+        for (dx, dy) in [(3, 1), (2, 2), (3, 2), (1, 3), (2, 3), (3, 3)] {
+            let d = self.dev([
+                self.size.0 - 4.0 - 4.0 * (4 - dx) as f32,
+                self.size.1 - 4.0 - 4.0 * (4 - dy) as f32,
+                2.0,
+                2.0,
+            ]);
+            p.fill_rect(d[0], d[1], dot, dot, Rgba(0x9a, 0x9a, 0x9a, 255));
+        }
+    }
 }
 
 #[cfg(test)]

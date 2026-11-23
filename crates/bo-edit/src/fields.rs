@@ -1991,6 +1991,17 @@ pub(crate) fn bookmark_caption(doc: &Document, p: &Paragraph, salt: usize) -> (V
     (atoms, name)
 }
 
+/// Instructions of the TOC / INDEX / TOA / BIBLIOGRAPHY fields in the body of `doc` (the
+/// References tab dims Update Table without a table of figures).
+#[must_use]
+pub fn block_field_instrs(doc: &Document) -> Vec<String> {
+    doc.sections
+        .iter()
+        .flat_map(|s| toc_ranges(&s.blocks))
+        .map(|r| r.instr().to_owned())
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

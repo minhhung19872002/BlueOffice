@@ -197,6 +197,9 @@ pub struct SourcePackage {
     /// Multiple pages settings as read (changed ⇒ settings patched).
     #[serde(default)]
     pub pages: PagesSettings,
+    /// §17.15.1.25 defaultTabStop as read (changed ⇒ settings patched).
+    #[serde(default)]
+    pub default_tab_stop: Option<Twips>,
 }
 
 /// A whole word-processing document.
@@ -1536,6 +1539,10 @@ pub struct ParaProps {
     /// §17.3.1.18 mirrorIndents: left / right indents become inside / outside.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mirror_indents: Option<bool>,
+    /// [MS-DOCX] 2.6.1.1 w15:collapsed: the heading opens collapsed (Paragraph › Collapsed
+    /// by default).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub collapsed: Option<bool>,
     /// Tracked insertion / deletion of the paragraph mark (§17.13.5.16 / §17.13.5.15,
     /// children of `w:pPr/w:rPr`). Never inherited.
     pub mark_ins: Option<RevMark>,
@@ -1591,6 +1598,7 @@ impl ParaProps {
             suppress_line_numbers: self.suppress_line_numbers.or(base.suppress_line_numbers),
             suppress_auto_hyphens: self.suppress_auto_hyphens.or(base.suppress_auto_hyphens),
             mirror_indents: self.mirror_indents.or(base.mirror_indents),
+            collapsed: self.collapsed.or(base.collapsed),
             mark_ins: self.mark_ins.clone(),
             mark_del: self.mark_del.clone(),
             mark_lang: self.mark_lang.clone(),

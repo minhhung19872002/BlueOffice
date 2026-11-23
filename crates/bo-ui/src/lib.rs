@@ -25,6 +25,7 @@ mod doc_r3_ui;
 mod doc_r4_fit;
 mod doc_r4_menus;
 mod doc_reveal;
+mod doc_spacing15;
 mod doc_table;
 mod doc_tabs7;
 mod doc_templates6;
@@ -32,6 +33,7 @@ mod doc_tiles;
 mod doc_tips;
 mod doc_tools;
 mod doc_view;
+mod doc_wm14;
 mod editor_actions;
 #[cfg(test)]
 mod editor_actions_tests;

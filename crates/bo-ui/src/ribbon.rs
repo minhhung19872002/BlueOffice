@@ -481,7 +481,7 @@ fn layout_tab() -> Tab {
 
 fn references_tab() -> Tab {
     #[allow(unused_imports)]
-    use Item::{Labeled as S, Large as L};
+    use Item::{Button as B, Labeled as S, Large as L};
     Tab {
         label: "ribbon.tabs.references",
         // The reference's References tab: Table of Contents, Footnotes, Citations &
@@ -525,7 +525,20 @@ fn references_tab() -> Tab {
             Group {
                 label: "docR3.groupIndex",
                 large: vec![L("references.markEntry")],
-                rows: vec![vec![S("references.insertIndex")]],
+                // Icons only, as the reference at this width (round 14).
+                rows: vec![
+                    vec![B("references.insertIndex")],
+                    vec![B("references.updateIndex")],
+                ],
+            },
+            // Round 14: the reference's Table of Authorities group.
+            Group {
+                label: "doc14.groupAuthorities",
+                large: vec![L("references.markCitation")],
+                rows: vec![
+                    vec![B("references.insertToa")],
+                    vec![B("references.updateToa")],
+                ],
             },
         ],
     }
@@ -2942,6 +2955,7 @@ mod tests {
         crate::doc_r4_menus::install_strings(&mut strings);
         crate::doc_r4_fit::install_strings(&mut strings);
         crate::doc_tabs7::install_strings(&mut strings);
+        crate::shell::r14::install(&mut icons, &mut strings);
         for tab in &ribbon.tabs {
             assert!(!tab.groups.is_empty(), "{} is empty", tab.label);
             for g in &tab.groups {

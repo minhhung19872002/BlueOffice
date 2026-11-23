@@ -36,6 +36,12 @@ pub(crate) mod r12;
 
 #[path = "doc_forms13.rs"]
 pub(crate) mod r13;
+
+#[path = "doc_forms14.rs"]
+pub(crate) mod r14;
+
+#[path = "doc_forms15.rs"]
+pub(crate) mod r15;
 pub(crate) use r5::{open_manage_styles, ManagedStyle};
 pub(crate) use r7::INSPECT;
 
@@ -131,6 +137,24 @@ pub(crate) enum DocFormKind {
     PaneOptions,
     /// Line Numbers (Page Setup › Layout › Line Numbers…, round 13).
     LineNumbers,
+    /// Index and Tables › Table of Figures (round 14).
+    Tof,
+    /// Index and Tables › Table of Authorities (round 14).
+    Toa,
+    /// References › Mark Citation (round 14).
+    MarkCitation,
+    /// Design › Watermark › Custom Watermark… (Printed Watermark, round 14).
+    Watermark,
+    /// Index and Tables › Table of Figures › Options… (round 14).
+    TofOptions,
+    /// Mark Citation › Category… (Edit Category, round 14).
+    Categories,
+    /// More Colors… of a colour picker (Colors, round 15).
+    Colors,
+    /// Design › Colors › Customize Colors… (Create New Theme Colors, round 15).
+    ThemeColors,
+    /// Design › Fonts › Customize Fonts… (Create New Theme Fonts, round 15).
+    ThemeFonts,
 }
 
 /// What the owner does after an input.
@@ -209,6 +233,8 @@ pub(crate) struct DocForm {
     bs: Option<Box<r12::Bs>>,
     /// Paragraph / Tabs / Page Setup / New Style state (round 13).
     r13: Option<Box<r13::R13>>,
+    /// Colors dialog state (round 15).
+    r15: Option<Box<r15::ColorsState>>,
 }
 
 /// Reference ids of `ST_NumberFormat` values offered for notes (§17.18.59).
@@ -395,9 +421,13 @@ pub(crate) fn format_date(pic: &str, now: [i32; 7]) -> String {
 
 impl DocForm {
     fn new(kind: DocFormKind, title: &str, size: (f32, f32), tabs: Vec<String>) -> Self {
+        // Checked boxes and option buttons in the reference dialogs' blue (#005FB8 measured
+        // at 125 %, round 14), not BlueSheet's green.
+        let mut form = Form::new(title, size, tabs);
+        form.set_accent(Rgba(0x00, 0x5f, 0xb8, 255), Rgba(0x00, 0x4c, 0x93, 255));
         Self {
             kind,
-            form: Form::new(title, size, tabs),
+            form,
             radios: Vec::new(),
             pointer: (0.0, 0.0),
             ids: Vec::new(),
@@ -413,6 +443,7 @@ impl DocForm {
             words: Vec::new(),
             bs: None,
             r13: None,
+            r15: None,
         }
     }
 
@@ -678,8 +709,15 @@ impl DocForm {
         strings.extend(self.preview.iter().cloned());
         strings.extend(self.words.iter().map(|w| w.1.clone()));
         self.form.measure(m, &strings);
-        // Entry text before the page number, for the preview's leaders.
-        let font = self.form.font();
+        // Entry text before the page number, for the preview's leaders (Index and Tables
+        // previews use the body font, round 14).
+        let mut font = self.form.font();
+        if matches!(
+            self.kind,
+            DocFormKind::Toc | DocFormKind::Index | DocFormKind::Tof
+        ) {
+            font.family = "Calibri";
+        }
         self.label_w = self
             .preview
             .iter()
@@ -724,6 +762,10 @@ impl DocForm {
             Input::Blink => return FormOut::Redraw,
             _ => return FormOut::None,
         };
+        // Index and Tables: each tab is its own dialog of the same size (round 14).
+        if let Some(out) = self.r14_tab_switch() {
+            return out;
+        }
         self.event(&ev)
     }
 
@@ -731,6 +773,7 @@ impl DocForm {
         match ev {
             Event::None => FormOut::Redraw,
             Event::Cancel => FormOut::Close,
+            Event::Canvas(id, x, y) if self.r15_canvas(id, *x, *y) => FormOut::Redraw,
             Event::Canvas(id, x, y) if self.r13_canvas(id, *x, *y) => FormOut::Redraw,
             Event::Canvas(id, _, y) if self.r11_canvas(id, *y) => FormOut::Redraw,
             Event::Canvas(id, x, y) if self.r12_canvas(id, *x, *y) => FormOut::Redraw,
@@ -776,6 +819,8 @@ impl DocForm {
                 self.form.enable("bookmark", range);
             }
             (DocFormKind::Protect, _) => {}
+            (k, _) if r15::handles(k) => self.r15_changed(id),
+            (k, _) if r14::handles(k) => self.r14_changed(id),
             (k, _) if r13::handles(k) => {
                 self.r11_changed(id);
                 self.r13_changed(id);
@@ -795,6 +840,12 @@ impl DocForm {
     }
 
     fn clicked(&mut self, id: &str) -> FormOut {
+        if let Some(out) = self.r15_clicked(id) {
+            return out;
+        }
+        if let Some(out) = self.r14_clicked(id) {
+            return out;
+        }
         match (self.kind, id) {
             (DocFormKind::Sources, "new") => FormOut::Open(DocFormKind::NewSource),
             (DocFormKind::Sources, "delete") => match self.sel("current") {
@@ -926,7 +977,13 @@ impl DocForm {
     }
 
     fn ok(&mut self) -> FormOut {
+        if let Some(out) = self.r15_ok() {
+            return out;
+        }
         if let Some(out) = self.r13_ok() {
+            return out;
+        }
+        if let Some(out) = self.r14_ok() {
             return out;
         }
         match self.kind {
@@ -947,7 +1004,16 @@ impl DocForm {
             DocFormKind::NewStyle
             | DocFormKind::BorderOptions
             | DocFormKind::PaneOptions
-            | DocFormKind::LineNumbers => FormOut::Close,
+            | DocFormKind::LineNumbers
+            | DocFormKind::Tof
+            | DocFormKind::Toa
+            | DocFormKind::MarkCitation
+            | DocFormKind::Watermark
+            | DocFormKind::TofOptions
+            | DocFormKind::Categories
+            | DocFormKind::Colors
+            | DocFormKind::ThemeColors
+            | DocFormKind::ThemeFonts => FormOut::Close,
             DocFormKind::Toc => {
                 let levels = self.form.num("levels").clamp(1, 9);
                 let mut instr = match &self.toc_map {
@@ -1219,7 +1285,9 @@ impl DocForm {
         let files = &self.files;
         let this = self;
         let mut canvas = |id: &str, r: [f32; 4], p: &mut dyn Painter| {
-            if r13::paint_canvas(this, id, r, p, &font)
+            if r15::paint_canvas(this, id, r, p, &font)
+                || r13::paint_canvas(this, id, r, p, &font)
+                || r14::paint_canvas(this, id, r, p, &font)
                 || findfmt11::paint_canvas(this, id, r, p, &font, k)
                 || tprops11::paint_canvas(this, id, r, p, k)
                 || r12::paint_canvas(this, id, r, p, &font)
@@ -1389,19 +1457,25 @@ fn paint_preview(
         return;
     }
     p.push_clip(r[0] + 1.0, r[1] + 1.0, r[2] - 2.0, r[3] - 2.0);
+    // Index and Tables previews: the body font, one entry every 2.2 lines (round 14, as
+    // the reference draws its samples).
+    let tables = matches!(
+        kind,
+        DocFormKind::Toc | DocFormKind::Index | DocFormKind::Tof
+    );
     let big = Font {
-        family: "Times New Roman",
+        family: if tables { "Calibri" } else { "Times New Roman" },
         size: (font.size * 1.75).round(),
         weight: 400,
         italic: false,
         underline: web,
     };
-    let line = (big.size * 1.3).round();
+    let line = (big.size * if tables { 2.2 } else { 1.3 }).round();
     let blue = Rgba(0x05, 0x63, 0xc1, 255);
     for (i, text) in lines.iter().enumerate() {
         let y = r[1] + 4.0 + i as f32 * line;
         let indent = if kind == DocFormKind::Toc {
-            i as f32 * big.size * 1.2
+            i as f32 * big.size * if tables { 1.05 } else { 1.2 }
         } else {
             0.0
         };
@@ -1429,14 +1503,41 @@ fn paint_preview(
                 .map_or(big.size * 0.5 * label.chars().count() as f32, |w| {
                     w * big.size / font.size
                 });
-            let mut x = r[0] + 4.0 + indent + text_w + 2.0;
-            while x < r[0] + r[2] - big.size * 1.4 {
-                p.fill_rect(x.round(), y + big.size * 1.05, 1.5, 1.5, Rgba(0, 0, 0, 255));
-                x += big.size * 0.3;
+            // Index and Tables: period-sized dots on the baseline, from the text right up
+            // to the number (round 14, as the reference's "Text.......1").
+            let (start, dy, step, stop) = if tables {
+                (text_w * 0.96, 0.93, 0.255, 1.18)
+            } else {
+                (text_w + 2.0, 1.05, 0.3, 1.4)
+            };
+            let dot = if tables { big.size * 0.09 } else { 1.5 };
+            let mut x = r[0] + 4.0 + indent + start;
+            while x < r[0] + r[2] - big.size * stop {
+                p.fill_rect(x.round(), y + big.size * dy, dot, dot, Rgba(0, 0, 0, 255));
+                x += big.size * step;
             }
         }
     }
     p.pop_clip();
+    if tables {
+        // The reference's preview scrolls: a bar beside the box, its thumb at the top.
+        let k = font.size / 13.5;
+        let bx = r[0] + r[2];
+        p.fill_rect(
+            bx,
+            r[1],
+            (20.0 * k).round(),
+            r[3],
+            Rgba(0xf0, 0xf0, 0xf0, 255),
+        );
+        p.fill_rect(
+            bx + (8.0 * k).round(),
+            r[1] + (20.0 * k).round(),
+            (3.0 * k).max(2.0).round(),
+            (20.0 * k).round(),
+            Rgba(0x60, 0x60, 0x60, 255),
+        );
+    }
 }
 
 /// A drop-down box drawn on a canvas (white, grey frame, ▾ column).
@@ -1660,12 +1761,7 @@ pub(crate) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
                 tr("docR3.tabFigures", "Table of Figures"),
                 tr("docR3.tabAuthorities", "Table of Authorities"),
             ];
-            let mut f = DocForm::new(
-                kind,
-                &tr("docR3.tabToc", "Table of Contents"),
-                (766.0, 598.0),
-                tabs,
-            );
+            let mut f = DocForm::new(kind, &r14::index_and_tables_title(s), (766.0, 598.0), tabs);
             f.form.tab = 1;
             f.label_on(
                 1,
@@ -1793,7 +1889,7 @@ pub(crate) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
                 tr("docR3.tabFigures", "Table of Figures"),
                 tr("docR3.tabAuthorities", "Table of Authorities"),
             ];
-            let mut f = DocForm::new(kind, &tr("docR3.tabIndex", "Index"), (766.0, 598.0), tabs);
+            let mut f = DocForm::new(kind, &r14::index_and_tables_title(s), (766.0, 598.0), tabs);
             f.label_on(
                 0,
                 "pp",
@@ -3019,6 +3115,15 @@ pub(crate) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
         | DocFormKind::BorderOptions
         | DocFormKind::PaneOptions
         | DocFormKind::LineNumbers => r13::open(kind, s, c),
+        DocFormKind::Tof
+        | DocFormKind::Toa
+        | DocFormKind::MarkCitation
+        | DocFormKind::Watermark
+        | DocFormKind::TofOptions
+        | DocFormKind::Categories => r14::open(kind, s, c),
+        DocFormKind::Colors | DocFormKind::ThemeColors | DocFormKind::ThemeFonts => {
+            r15::open(kind, s, c)
+        }
         DocFormKind::Zoom => {
             let mut f = DocForm::new(kind, &tr("docR4.zoomTitle", "Zoom"), (381.0, 258.0), vec![]);
             f.label(

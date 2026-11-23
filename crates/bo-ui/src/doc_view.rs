@@ -390,6 +390,8 @@ impl DocView {
     /// tables of contents), as the reference word processor does before it prints or exports
     /// (`updateFields` with `print: true`). Keeps the scroll position.
     pub fn update_print_fields(&mut self) {
+        // Collapsed headings are a view state: prints and exports show their content.
+        self.set_hidden_blocks(Vec::new());
         if let Ok(r) = self.engine.command(Command::UpdateFields {
             answers: std::collections::BTreeMap::new(),
             selection: false,
@@ -1571,6 +1573,8 @@ impl DocView {
 mod marks7;
 #[path = "doc_markup6.rs"]
 mod markup6;
+#[path = "doc_view15.rs"]
+mod view15;
 #[cfg(test)]
 mod tests {
     use super::*;

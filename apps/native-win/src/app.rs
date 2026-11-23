@@ -642,6 +642,20 @@ impl Shell {
                     }
                 }
                 Request::PickPicture => redraw |= self.pick_picture(),
+                // Design › Themes › Browse for Themes… (round 15).
+                Request::PickThemeFile => {
+                    let filters = [(
+                        "Themes and documents (*.thmx;*.docx;*.xlsx;*.pptx)",
+                        "*.thmx;*.docx;*.xlsx;*.pptx",
+                    )];
+                    if let Some(bytes) =
+                        win32::file_dialog(false, &filters, "").and_then(|p| std::fs::read(p).ok())
+                    {
+                        use base64::Engine as _;
+                        let b64 = base64::engine::general_purpose::STANDARD.encode(bytes);
+                        redraw |= self.view.apply_theme_file(&b64);
+                    }
+                }
                 Request::ArrangeAll => {
                     // Every BlueDoc window (one process each), stacked like the reference.
                     let wins: Vec<isize> = win32::app_windows(" \u{2014} BlueDoc")

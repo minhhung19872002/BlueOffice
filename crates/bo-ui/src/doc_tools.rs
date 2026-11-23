@@ -459,6 +459,7 @@ pub(crate) fn enabled(id: &str, f: &FormatState) -> Option<bool> {
         _ if crate::doc_r4_fit::ARRANGE.contains(&id) => f.picture.is_some() || f.picture_tools,
         _ if crate::doc_r4_fit::UNAVAILABLE.contains(&id) => false,
         _ if crate::doc_r4_fit::static_id(id).is_some() => true,
+        _ if crate::doc_review16::static_id(id).is_some() => true,
         _ if crate::doc_r4_menus::enabled(id).is_some() => {
             crate::doc_r4_menus::enabled(id).unwrap_or(false)
         }

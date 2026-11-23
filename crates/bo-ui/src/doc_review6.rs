@@ -362,7 +362,7 @@ impl DocWindow {
     }
 
     /// Show or hide the Reviewing Pane (`horizontal`: below the document).
-    pub(super) fn r6_toggle_review(&mut self, horizontal: Option<bool>) -> bool {
+    pub(crate) fn r6_toggle_review(&mut self, horizontal: Option<bool>) -> bool {
         match (self.r6.review.as_ref(), horizontal) {
             (Some(p), Some(h)) if p.horizontal != h => {}
             (Some(_), _) => {

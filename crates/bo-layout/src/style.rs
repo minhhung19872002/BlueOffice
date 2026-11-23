@@ -384,15 +384,38 @@ pub fn revision_style(
                     st.revision = Some((MOVE_COLOR, true));
                 } else {
                     st.strike = true;
-                    st.color = author_color(&d.info.author);
+                    st.color = marks
+                        .del_color
+                        .unwrap_or_else(|| author_color(&d.info.author));
                     st.revision = Some((st.color, true));
+                    // Advanced Track Changes Options › Deletions (round 16).
+                    match marks.del_mark {
+                        1 => st.strike = false,
+                        2 => {
+                            st.strike = false;
+                            st.double_strike = true;
+                        }
+                        3 => st.hidden = true,
+                        4 => {
+                            st.strike = false;
+                            st.underline = Underline::Single;
+                        }
+                        5 => {
+                            st.strike = false;
+                            st.underline = Underline::Double;
+                        }
+                        _ => {}
+                    }
                 }
             } else if let Some(i) = rp.ins.as_ref().filter(|i| !plain(&i.info.author)) {
                 // Moved here: double underline in the move colour.
+                let own = st.color;
                 let color = if i.moved {
                     MOVE_COLOR
                 } else {
-                    author_color(&i.info.author)
+                    marks
+                        .ins_color
+                        .unwrap_or_else(|| author_color(&i.info.author))
                 };
                 st.revision = Some((color, false));
                 st.underline = if i.moved {
@@ -401,6 +424,23 @@ pub fn revision_style(
                     Underline::Single
                 };
                 st.color = color;
+                // Advanced Track Changes Options › Insertions (round 16).
+                if !i.moved {
+                    match marks.ins_mark {
+                        1 => {
+                            st.underline = Underline::None;
+                            st.revision = None;
+                            st.color = own;
+                        }
+                        2 => st.underline = Underline::None,
+                        3 => st.underline = Underline::Double,
+                        4 => {
+                            st.underline = Underline::None;
+                            st.strike = true;
+                        }
+                        _ => {}
+                    }
+                }
             }
         }
         V::Final => {

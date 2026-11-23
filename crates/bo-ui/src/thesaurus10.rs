@@ -128,6 +128,56 @@ pub(crate) fn synonyms(word: &str, max: usize) -> Vec<String> {
     out
 }
 
+/// One sense of a word for the Thesaurus pane (round 16): part of speech (`n`, `v`, `a`,
+/// `s`, `r`), its synonyms (the word itself left out) and antonyms.
+pub(crate) struct Sense16 {
+    pub(crate) pos: String,
+    pub(crate) synonyms: Vec<String>,
+    pub(crate) antonyms: Vec<String>,
+}
+
+/// Up to `max` senses of `word`, those of its first headword that has any.
+pub(crate) fn senses(word: &str, max: usize) -> Vec<Sense16> {
+    let Some(d) = data() else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for lemma in lemmas(d, word) {
+        for sense in d.entries.get(&lemma).into_iter().flatten() {
+            let Some((pos, _, words)) = d.synsets.get(sense.synset()) else {
+                continue;
+            };
+            let synonyms: Vec<String> = words
+                .iter()
+                .filter_map(|i| d.words.get(*i))
+                .filter(|s| s.to_lowercase() != lemma)
+                .cloned()
+                .collect();
+            let antonyms = match sense {
+                Sense::WithAntonyms((_, a)) => {
+                    a.iter().filter_map(|i| d.words.get(*i)).cloned().collect()
+                }
+                Sense::Plain(_) => Vec::new(),
+            };
+            if synonyms.is_empty() && antonyms.is_empty() {
+                continue;
+            }
+            out.push(Sense16 {
+                pos: pos.clone(),
+                synonyms,
+                antonyms,
+            });
+            if out.len() >= max {
+                return out;
+            }
+        }
+        if !out.is_empty() {
+            break;
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     #[test]

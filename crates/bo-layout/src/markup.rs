@@ -27,6 +27,16 @@ pub struct MarkFilter {
     /// Formatting marks are shown: hidden text (§17.3.2.41 vanish) is laid out with a
     /// dotted underline, as word processors show it (never set for printing).
     pub show_hidden: bool,
+    /// How insertions are marked (BlueDoc's Advanced Track Changes Options): `0` underline
+    /// (default), `1` nothing, `2` colour only, `3` double underline, `4` strikethrough.
+    pub ins_mark: u8,
+    /// How deletions are marked: `0` strikethrough (default), `1` colour only, `2` double
+    /// strikethrough, `3` hidden, `4` underline, `5` double underline.
+    pub del_mark: u8,
+    /// Colour of insertions instead of the author's (`None`: by author).
+    pub ins_color: Option<Color>,
+    /// Colour of deletions instead of the author's (`None`: by author).
+    pub del_color: Option<Color>,
 }
 
 /// Stable non-zero key of an author name.

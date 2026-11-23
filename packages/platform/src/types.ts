@@ -724,6 +724,18 @@ export interface MarkupOptions {
   hiddenReviewers: string[];
   /** All markup: deletions and formatting changes in balloons instead of inline. */
   deletionBalloons: boolean;
+  /** No balloons at all: every revision and comment marked in the text (native BlueDoc). */
+  inline?: boolean;
+  /** Advanced Track Changes Options (native BlueDoc). */
+  insMark?: 'underline' | 'none' | 'colorOnly' | 'doubleUnderline' | 'strikethrough';
+  delMark?: 'strikethrough' | 'colorOnly' | 'doubleStrikethrough' | 'hidden' | 'underline' | 'doubleUnderline';
+  insColor?: string;
+  delColor?: string;
+  changedLines?: 'outside' | 'left' | 'right' | 'none';
+  balloonWidth?: number;
+  connectors?: boolean;
+  pictures?: boolean;
+  commentColor?: string;
 }
 
 export type RevisionKind =
@@ -1044,6 +1056,8 @@ export type EditCommand =
     }
   | { cmd: 'resolveComment'; id: number; done: boolean }
   | { cmd: 'deleteComment' | 'selectComment'; id: number }
+  | { cmd: 'deleteComments'; ids: number[] }
+  | { cmd: 'mergeUpdateLabels' }
   | { cmd: 'nextComment'; forward: boolean }
   | { cmd: 'insertToc' | 'crossReferenceTargets' }
   /** References › Table of Contents › Remove Table of Contents. */

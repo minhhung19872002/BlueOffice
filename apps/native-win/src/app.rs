@@ -13,6 +13,96 @@ use std::time::Instant;
 
 #[path = "doc_host6.rs"]
 mod host6;
+// Review › Read Aloud (round 16): BlueReader's Windows speech voice module (SAPI calls
+// confined to it), one voice per UI thread.
+#[path = "reader_speech.rs"]
+#[allow(unsafe_code)]
+mod doc_speech;
+
+thread_local! {
+    static VOICE: std::cell::RefCell<doc_speech::Speech> =
+        std::cell::RefCell::new(doc_speech::Speech::default());
+}
+
+/// Send Email Messages (round 16): each merged message as an unsent `.eml` draft (RFC 5322 /
+/// RFC 2045 MIME, `X-Unsent: 1`) in the temporary folder, opened with the system's mail
+/// program. `BLUEOFFICE_MAIL_DIR` keeps them in that folder without opening them (tests).
+fn send_mails(mails: &[bo_ui::OutMail]) {
+    let keep = std::env::var_os("BLUEOFFICE_MAIL_DIR").map(std::path::PathBuf::from);
+    let dir = keep.clone().unwrap_or_else(std::env::temp_dir);
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis());
+    for (i, m) in mails.iter().enumerate() {
+        let path = dir.join(format!("BlueDoc-mail-{stamp}-{}.eml", i + 1));
+        if std::fs::write(&path, eml(m)).is_ok() && keep.is_none() {
+            let _ = win32::shell_open(&path, "open");
+        }
+    }
+}
+
+/// The MIME text of a message.
+fn eml(m: &bo_ui::OutMail) -> String {
+    use base64::Engine as _;
+    let b64 = |s: &str| base64::engine::general_purpose::STANDARD.encode(s.as_bytes());
+    let wrap = |s: &str| {
+        s.as_bytes()
+            .chunks(76)
+            .map(|c| String::from_utf8_lossy(c).into_owned())
+            .collect::<Vec<_>>()
+            .join("\r\n")
+    };
+    let subject = format!("=?UTF-8?B?{}?=", b64(&m.subject));
+    let mut out = format!(
+        "X-Unsent: 1\r\nTo: {}\r\nSubject: {subject}\r\nMIME-Version: 1.0\r\n",
+        m.to
+    );
+    let boundary = "BlueDoc-merge-boundary";
+    out += &[
+        "Content-Type: multipart/mixed; boundary=\"",
+        boundary,
+        "\"\r\n\r\n",
+    ]
+    .concat();
+    let (kind, body) = if m.html.is_empty() {
+        ("text/plain", &m.text)
+    } else {
+        ("text/html", &m.html)
+    };
+    out += &[
+        "--",
+        boundary,
+        "\r\nContent-Type: ",
+        kind,
+        "; charset=utf-8\r\nContent-Transfer-Encoding: base64\r\n\r\n",
+        &wrap(&b64(body)),
+        "\r\n",
+    ]
+    .concat();
+    if let Some((name, mime, data)) = &m.attachment {
+        out += &[
+            "--",
+            boundary,
+            "\r\nContent-Type: ",
+            mime,
+            "; name=\"",
+            name,
+            "\"\r\nContent-Disposition: attachment; filename=\"",
+            name,
+            "\"\r\nContent-Transfer-Encoding: base64\r\n\r\n",
+            &wrap(data),
+            "\r\n",
+        ]
+        .concat();
+    }
+    out += &["--", boundary, "--\r\n"].concat();
+    out
+}
+
+/// `BLUEOFFICE_SPEECH=0` (scripted captures): Read Aloud shows its bar but stays silent.
+fn speech_muted() -> bool {
+    std::env::var_os("BLUEOFFICE_SPEECH").is_some_and(|v| v == "0")
+}
 // Printer status (Win32 calls confined to this child module, like win32.rs).
 #[path = "doc_printers6.rs"]
 #[allow(unsafe_code)]
@@ -467,8 +557,9 @@ impl Shell {
                         .duration_since(std::time::UNIX_EPOCH)
                         .map_or(0, |d| d.as_millis());
                     let path = std::env::temp_dir().join(format!("BlueDoc-{stamp}.docx"));
+                    let actions = self.view.take_new_document_actions();
                     if std::fs::write(&path, bytes).is_ok() {
-                        spawn_self(Some(&path));
+                        spawn_self_with(Some(&path), actions.as_deref());
                     }
                 }
             }
@@ -547,6 +638,17 @@ impl Shell {
                     let _ = host6::print::properties(self.hwnd, &name, None);
                 }
                 Request::Email { subject, body } => host6::email(&subject, &body),
+                Request::Speak { text, rate } => {
+                    if !speech_muted() {
+                        VOICE.with(|v| {
+                            if let Err(e) = v.borrow_mut().speak(&text, rate) {
+                                eprintln!("speech: {e}");
+                            }
+                        });
+                    }
+                }
+                Request::SpeechControl(what) => VOICE.with(|v| v.borrow_mut().control(what)),
+                Request::SendMails(mails) => send_mails(&mails),
                 Request::PrintJob(job) => self.print_job(&job),
                 Request::SavePrefs => {
                     if let Some(text) = self.view.take_prefs() {
@@ -770,6 +872,23 @@ fn print_tool(args: &[std::ffi::OsString], mut engine: Engine) -> Result<(), Str
     Ok(())
 }
 
+/// [`spawn_self`] with interface commands the new window runs first (`BLUEOFFICE_ACTIONS`,
+/// e.g. Print Documents of a mail merge opens the Print page there).
+fn spawn_self_with(file: Option<&std::path::Path>, actions: Option<&str>) {
+    let Some(actions) = actions else {
+        spawn_self(file);
+        return;
+    };
+    if let Ok(exe) = std::env::current_exe() {
+        let mut cmd = std::process::Command::new(exe);
+        if let Some(f) = file {
+            cmd.arg(f);
+        }
+        cmd.env("BLUEOFFICE_ACTIONS", actions);
+        let _ = cmd.spawn();
+    }
+}
+
 fn spawn_self(file: Option<&std::path::Path>) {
     if let Ok(exe) = std::env::current_exe() {
         let mut cmd = std::process::Command::new(exe);
@@ -880,6 +999,15 @@ impl Handler for Shell {
         }
         let m = Measure(self.gpu.as_ref().map(|g| &g.device));
         let mut redraw = self.view.handle(input, &m);
+        // Read Aloud follows the voice: the word being spoken is selected (round 16).
+        if kind == "tick" && self.view.reading_aloud() {
+            let word = if speech_muted() {
+                None
+            } else {
+                VOICE.with(|v| v.borrow().word())
+            };
+            redraw |= self.view.speech_word(word);
+        }
         let t_view = start.elapsed();
         redraw |= self.handle_requests();
         let t_req = start.elapsed();

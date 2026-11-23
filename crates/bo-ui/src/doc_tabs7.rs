@@ -680,7 +680,7 @@ pub(crate) fn menu(id: &str) -> Vec<Entry> {
             e("eq.convert.professional", "docR7.m.professional"),
             e("eq.convert.linear", "docR7.m.linear"),
         ],
-        _ => Vec::new(),
+        _ => crate::doc_review16::menu(id),
     }
 }
 

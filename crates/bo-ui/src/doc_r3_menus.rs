@@ -213,9 +213,12 @@ pub(crate) fn menu(id: &str) -> Vec<Entry> {
         ],
         "mailings.startMerge" => vec![
             e("mailings.type.letters", "docR3.mergeLetters"),
+            e("mailings.type.email", "doc16.mergeEmail"),
+            e("mailings.type.envelopes", "doc16.mergeEnvelopes"),
             e("mailings.type.labels", "docR3.mergeLabels"),
             e("mailings.type.directory", "docR3.mergeDirectory"),
             e("mailings.type.normal", "docR3.mergeNormal"),
+            e("mailings.wizard", "doc16.wizardMenu"),
         ],
         // Fields come from the data source at open time (see the window).
         "mailings.insertField" => vec![e("mailings.field.none", "docR3.noRecipients")],

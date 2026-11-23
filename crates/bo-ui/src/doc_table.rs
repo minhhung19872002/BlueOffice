@@ -515,6 +515,9 @@ pub(crate) fn labeled_w(id: &str) -> Option<f32> {
     if let Some(w) = crate::doc_r3_menus::labeled_w(id) {
         return Some(w);
     }
+    if let Some(w) = crate::doc_review16::labeled_w(id) {
+        return Some(w);
+    }
     // Header & Footer options are check boxes too (reference: 224 px at 125 % for
     // "Different Odd & Even Pages").
     if HF_CHECKS.contains(&id) {

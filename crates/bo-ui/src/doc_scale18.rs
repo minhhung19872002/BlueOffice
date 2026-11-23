@@ -408,17 +408,35 @@ fn custom(label: &str, stage: u8) -> Option<Group> {
 
 /// The collapsed group button holding command `id` (its menus open under that button).
 pub(crate) fn group_of(id: &str) -> Option<&'static str> {
-    crate::doc_r4_fit::group_of(id).or_else(|| {
-        all()
-            .find(|g| crate::ribbon::doc_group(g.1, g.2).is_some_and(|grp| has(&grp, id)))
-            .map(|g| g.0)
-    })
+    crate::doc_r4_fit::group_of(id).or_else(|| holders().get(id).copied())
 }
 
-fn has(g: &Group, id: &str) -> bool {
-    let is =
-        |i: &Item| matches!(i, Item::Large(x) | Item::Labeled(x) | Item::Button(x) if *x == id);
-    g.large.iter().any(is) || g.rows.iter().flatten().any(is)
+/// Times the holder map was built (tests: once per process).
+#[cfg(test)]
+static BUILDS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// Command id → first collapsed-group button holding it, built once. Round 19: `group_of`
+/// runs for every ribbon rectangle looked up while painting; building all eight tabs per
+/// lookup cost 3–5 ms a frame (typing guard, docs/ui/REPORT.md "Vòng 109").
+fn holders() -> &'static std::collections::HashMap<&'static str, &'static str> {
+    static MAP: std::sync::OnceLock<std::collections::HashMap<&'static str, &'static str>> =
+        std::sync::OnceLock::new();
+    MAP.get_or_init(|| {
+        #[cfg(test)]
+        BUILDS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let mut map = std::collections::HashMap::new();
+        for g in all() {
+            let Some(grp) = crate::ribbon::doc_group(g.1, g.2) else {
+                continue;
+            };
+            for i in grp.large.iter().chain(grp.rows.iter().flatten()) {
+                if let Item::Large(x) | Item::Labeled(x) | Item::Button(x) = i {
+                    map.entry(*x).or_insert(g.0);
+                }
+            }
+        }
+        map
+    })
 }
 
 /// A collapsed-group button is a drop-down (its label carries the mark); the panel shows
@@ -481,5 +499,35 @@ mod tests {
         }
         assert_eq!(group_of("format.bold"), Some("r18g.font"));
         assert_eq!(group_of("insert.coverPage"), Some("insert.pagesGroup"));
+    }
+
+    /// Round 19 typing guard: painting looks up holders of every off-tab ribbon rectangle;
+    /// the lookup must not rebuild the tabs each call.
+    #[test]
+    fn holder_lookup_is_built_once() {
+        for _ in 0..1000 {
+            assert_eq!(group_of("design.colors"), group_of("design.colors"));
+            let _ = group_of("no.such.command");
+        }
+        assert_eq!(BUILDS.load(std::sync::atomic::Ordering::Relaxed), 1);
+        // Same answers as a scan of every group in order (first group wins).
+        for (id, tab, label, _) in all() {
+            let grp = crate::ribbon::doc_group(tab, label).expect("group");
+            for i in grp.large.iter().chain(grp.rows.iter().flatten()) {
+                if let Item::Large(x) | Item::Labeled(x) | Item::Button(x) = i {
+                    let first = all()
+                        .find(|g| {
+                            crate::ribbon::doc_group(g.1, g.2).is_some_and(|g2| {
+                                g2.large
+                                    .iter()
+                                    .chain(g2.rows.iter().flatten())
+                                    .any(|j| j == i)
+                            })
+                        })
+                        .map(|g| g.0);
+                    assert!(holders().get(x).copied() == first, "{id} {x}");
+                }
+            }
+        }
     }
 }

@@ -2801,13 +2801,18 @@ fn word_pieces(
                     kind: Kind::Object,
                     text: "\u{FFFC}".into(),
                     glyphs: Arc::from(Vec::new()),
-                    width: img.width.to_pt(),
+                    // Round 19: with the room its effects take (§20.4.2.6).
+                    width: img.width.to_pt()
+                        + crate::picstyle::extent_pt(img)[0]
+                        + crate::picstyle::extent_pt(img)[2],
                     offsets: vec![at.start as u32, at.end as u32],
                     virtual_: false,
                     image: Some(Box::new(img.clone())),
                     drawing: at.drawing.clone(),
                     level: 0,
-                    obj_h: img.height.to_pt(),
+                    obj_h: img.height.to_pt()
+                        + crate::picstyle::extent_pt(img)[1]
+                        + crate::picstyle::extent_pt(img)[3],
                     obj_d: at.obj_d,
                     note: None,
                 });

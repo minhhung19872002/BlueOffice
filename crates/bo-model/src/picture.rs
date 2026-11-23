@@ -230,6 +230,10 @@ pub struct PictureFormat {
     /// Artistic effect ([MS-ODRAWXML] `a14:imgEffect`; round 19).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub artistic: Option<crate::picture_style::PicArtistic>,
+    /// Room the effects take around the picture (§20.4.2.6 `wp:effectExtent` l, t, r, b in
+    /// EMU): an inline picture's line makes room for it (round 19).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effect_extent: Option<[i64; 4]>,
 }
 
 impl PictureFormat {
@@ -247,6 +251,7 @@ impl PictureFormat {
                 .as_deref()
                 .is_none_or(crate::picture_style::PicEffects::is_empty)
             && self.artistic.is_none()
+            && self.effect_extent.is_none_or(|e| e == [0; 4])
     }
 }
 

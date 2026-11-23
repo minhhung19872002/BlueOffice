@@ -128,6 +128,35 @@ impl DocWindow {
         })
     }
 
+    /// The window's view: `print`, `web`, `draft` or `read`.
+    pub fn view_mode_name(&self) -> &'static str {
+        self.view_mode
+    }
+
+    /// Take the view of another window (View › New Window starts in it, round 19).
+    pub fn set_view_mode_name(&mut self, mode: &'static str) {
+        self.view_mode = mode;
+    }
+
+    /// View › New Window: each window keeps its own view (Print Layout / Web Layout /
+    /// Draft), as the reference. When the document's engine comes to this window, its view
+    /// goes back on the engine; `true` when the view changed.
+    pub fn restore_view_mode(&mut self) -> bool {
+        use bo_engine::views::ViewMode;
+        let want = match self.view_mode {
+            "web" => ViewMode::Web,
+            "draft" => ViewMode::Draft,
+            "print" => ViewMode::Print,
+            _ => return false,
+        };
+        let now = self.view.engine().view_layout().mode;
+        if now == want || !matches!(now, ViewMode::Print | ViewMode::Web | ViewMode::Draft) {
+            return false;
+        }
+        let id = format!("view.layout.{}", self.view_mode);
+        self.action(&id)
+    }
+
     /// Run a picture style command on the selected picture.
     fn r19_run(&mut self, v: &serde_json::Value) -> bool {
         self.menu = None;

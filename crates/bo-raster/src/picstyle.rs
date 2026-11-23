@@ -7,6 +7,9 @@
 //! artistic effects): box blurs (three passes ≈ Gaussian), max filters, Sobel edges,
 //! posterising, a hashed grain and a projective warp.
 
+// Pixel loops index several planes / channels in step.
+#![allow(clippy::needless_range_loop)]
+
 use crate::codecs::Rgba;
 use bo_model::picture_style::{style_ops, StyleOp};
 
@@ -382,10 +385,32 @@ fn artistic(img: &mut Rgba, name: &str, amount: i32) {
     }
 }
 
+/// Every pixel is opaque (a plain rectangular picture).
+fn opaque(img: &Rgba) -> bool {
+    img.pixels.chunks_exact(4).all(|p| p[3] == 255)
+}
+
 /// Soft edges: the alpha fades to nothing over the radius inside the outline.
 fn soft(img: &mut Rgba, rx: f64, ry: f64) {
     let (w, h) = dims(img);
     let (rx, ry) = (rx * w as f64, ry * h as f64);
+    if opaque(img) {
+        // A plain rectangle: each side fades over the radius, the corners as the product of
+        // the two sides (square-ish, as the reference draws a picture's soft edges).
+        let ramp = |d: f64, r: f64| {
+            let t = ((d + 0.5) / r.max(0.5)).clamp(0.0, 1.0);
+            t * t * (3.0 - 2.0 * t)
+        };
+        for y in 0..h {
+            let fy = ramp(y.min(h - 1 - y) as f64, ry);
+            for x in 0..w {
+                let k = ramp(x.min(w - 1 - x) as f64, rx) * fy;
+                let o = (y * w + x) * 4 + 3;
+                img.pixels[o] = to_u8(f64::from(img.pixels[o]) * k);
+            }
+        }
+        return;
+    }
     // Pad so that the canvas edge counts as outside.
     let (pw, ph) = (px(rx) + 1, px(ry) + 1);
     let (ow, oh) = (w + 2 * pw, h + 2 * ph);
@@ -395,7 +420,7 @@ fn soft(img: &mut Rgba, rx: f64, ry: f64) {
             plane[(y + ph) * ow + x + pw] = f32::from(img.pixels[(y * w + x) * 4 + 3]) / 255.0;
         }
     }
-    blur_plane(&mut plane, ow, oh, rx * 1.4, ry * 1.4);
+    blur_plane(&mut plane, ow, oh, rx * 2.0, ry * 2.0);
     for y in 0..h {
         for x in 0..w {
             let m = f64::from(plane[(y + ph) * ow + x + pw]);
@@ -410,6 +435,39 @@ fn soft(img: &mut Rgba, rx: f64, ry: f64) {
 fn bevel(img: &mut Rgba, bx: f64, by: f64) {
     let (w, h) = dims(img);
     let (rx, ry) = ((bx * w as f64).max(1.0), (by * h as f64).max(1.0));
+    if opaque(img) {
+        // A plain rectangle: a narrow, hard bevel of the markup's width — lit from the top
+        // (lightRig dir t): light along the top, darker along the sides and the bottom, strongest at the edge (circle
+        // profile).
+        for y in 0..h {
+            for x in 0..w {
+                let sides = [
+                    (x as f64 / rx, -0.5),
+                    (y as f64 / ry, 1.0),
+                    ((w - 1 - x) as f64 / rx, -1.0),
+                    ((h - 1 - y) as f64 / ry, -1.0),
+                ];
+                let Some(&(d, sign)) = sides
+                    .iter()
+                    .filter(|s| s.0 < 1.0)
+                    .min_by(|a, b| a.0.total_cmp(&b.0))
+                else {
+                    continue;
+                };
+                let k = (1.0 - d * d).sqrt() * sign;
+                let o = (y * w + x) * 4;
+                for c in 0..3 {
+                    let v = f64::from(img.pixels[o + c]);
+                    img.pixels[o + c] = to_u8(if k > 0.0 {
+                        v + (255.0 - v) * k * 0.55
+                    } else {
+                        v * (1.0 + k * 0.6)
+                    });
+                }
+            }
+        }
+        return;
+    }
     let (pw, ph) = (px(rx) + 1, px(ry) + 1);
     let (ow, oh) = (w + 2 * pw, h + 2 * ph);
     let mut plane = vec![0f32; ow * oh];
@@ -418,7 +476,7 @@ fn bevel(img: &mut Rgba, bx: f64, by: f64) {
             plane[(y + ph) * ow + x + pw] = f32::from(img.pixels[(y * w + x) * 4 + 3]) / 255.0;
         }
     }
-    blur_plane(&mut plane, ow, oh, rx * 2.0, ry * 2.0);
+    blur_plane(&mut plane, ow, oh, rx, ry);
     let at = |x: usize, y: usize| f64::from(plane[y * ow + x]);
     for y in 0..h {
         for x in 0..w {
@@ -431,9 +489,9 @@ fn bevel(img: &mut Rgba, bx: f64, by: f64) {
             for c in 0..3 {
                 let v = f64::from(img.pixels[o + c]);
                 img.pixels[o + c] = to_u8(if shade > 0.0 {
-                    v + (255.0 - v) * shade * 0.7
+                    v + (255.0 - v) * shade * 0.6
                 } else {
-                    v * (1.0 + shade * 0.6)
+                    v * (1.0 + shade * 0.35)
                 });
             }
         }
@@ -477,7 +535,7 @@ fn inner_shadow(img: &mut Rgba, color: u32, a: f64, bx: f64, by: f64, dx: f64, d
 /// §20.1.10.47 camera preset — BlueOffice's own values for the families of names.
 pub fn camera_angles(name: &str) -> (f64, f64, f64, f64) {
     let persp = if name.starts_with("perspective") {
-        0.35
+        0.15
     } else {
         0.0
     };
@@ -791,7 +849,8 @@ mod tests {
         assert_eq!((g.width, g.height), (24, 24));
         assert!(g.pixels[3] < g.pixels[(12 * 24 + 12) * 4 + 3]);
         let b = apply_style(square(30), "m#fx:bevel=10000,10000");
-        assert!(b.pixels[(2 * 30 + 2) * 4] > 200, "lit top left");
+        assert!(b.pixels[(30 + 15) * 4] > 200, "lit top");
+        assert!(b.pixels[(28 * 30 + 15) * 4] < 150, "dark bottom");
         let i = apply_style(square(30), "m#fx:ish=000000,80000,10000,10000,5000,5000");
         assert!(i.pixels[(2 * 30 + 2) * 4] < 150, "shaded top left");
     }

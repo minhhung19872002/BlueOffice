@@ -553,14 +553,53 @@ impl crate::Engine {
                 Some(img) if img.shape.is_some() => Some("notPicture".to_owned()),
                 Some(img) => {
                     let mut f = img.format.as_deref().cloned().unwrap_or_default();
-                    match apply(cmd, &mut f) {
-                        Err(e) => Some(e),
-                        Ok(()) => s
-                            .update_picture(None, |img: &mut Image| {
+                    let applied = apply(cmd, &mut f).map(|()| {
+                        // §20.4.2.6 effectExtent: the room the effects now take.
+                        f.effect_extent = f
+                            .effects
+                            .as_deref()
+                            .map(|e| {
+                                bo_model::picture_style::effect_extent(e, img.width.0, img.height.0)
+                            })
+                            .filter(|e| *e != [0; 4]);
+                    });
+                    // An artistic effect keeps a copy drawn with it (written as the blip with
+                    // the original in a14:imgLayer, as the reference does).
+                    let new_art = matches!(cmd, PicStyleCommand::Artistic(_));
+                    let rendered = f.artistic.as_ref().filter(|_| new_art).and_then(|a| {
+                        let bytes = s.doc().media.get(&img.media)?;
+                        let id = format!(
+                            "{}{}art={}@{}",
+                            img.media,
+                            bo_model::picture::FX_MARK,
+                            a.name,
+                            a.amount()
+                        );
+                        bo_raster::picfx::derive_id_png(bytes, &id)
+                    });
+                    let original = img.media.clone();
+                    if let Err(e) = applied {
+                        Some(e)
+                    } else {
+                        {
+                            let parts: Vec<(String, std::sync::Arc<Vec<u8>>)> = rendered
+                                .map(|png| (s.new_media_name("png"), std::sync::Arc::new(png)))
+                                .into_iter()
+                                .collect();
+                            if new_art {
+                                let name = parts.first().map(|p| p.0.clone());
+                                if let Some(a) = f.artistic.as_mut() {
+                                    a.rendered = name;
+                                }
+                            }
+                            s.update_picture_parts(parts, |img: &mut Image| {
+                                // The picture stays the original.
+                                img.media = original;
                                 img.format = (!f.is_plain()).then(|| Box::new(f));
                             })
                             .err()
-                            .map(|e| e.to_string()),
+                            .map(|e| e.to_string())
+                        }
                     }
                 }
             }
@@ -643,7 +682,21 @@ mod tests {
         let bf = b.format.as_deref().expect("format back");
         assert_eq!(bf.line, f.line);
         assert_eq!(bf.effects, f.effects);
-        assert_eq!(bf.artistic, f.artistic);
+        let art = |a: Option<&PicArtistic>| a.map(|a| (a.name.clone(), a.attrs.clone()));
+        assert_eq!(art(bf.artistic.as_ref()), art(f.artistic.as_ref()));
+        // The reference's way: the blip is the copy drawn with the effect, the picture
+        // (a14:imgLayer) the original — read back as the original with its copy.
+        assert!(bf
+            .artistic
+            .as_ref()
+            .and_then(|a| a.rendered.as_ref())
+            .is_some());
+        assert_ne!(
+            bf.artistic.as_ref().and_then(|a| a.rendered.clone()),
+            Some(b.media.clone())
+        );
+        assert_eq!(bf.effect_extent, f.effect_extent);
+        assert!(f.effect_extent.is_some_and(|e| e[3] > 0));
         // The page shows the effect images (shadow, glow, reflection) and the border.
         let pages = &back.layout().expect("layout").pages;
         let ids: Vec<String> = pages[0]

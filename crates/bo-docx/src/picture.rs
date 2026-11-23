@@ -111,7 +111,19 @@ fn props_of(pic: &XmlElement) -> PicProps {
 /// Picture properties of a `w:drawing` holding a `pic:pic`.
 pub(crate) fn read(xml: &str) -> Option<PicProps> {
     let root = parse(xml.as_bytes(), "drawing").ok()?;
-    find(&root, "pic").map(props_of)
+    let mut p = find(&root, "pic").map(props_of)?;
+    // Round 19: §20.4.2.6 effectExtent of the inline / anchor.
+    p.format.effect_extent = find(&root, "effectExtent")
+        .map(|e| {
+            ["l", "t", "r", "b"].map(|k| {
+                e.attr(k)
+                    .and_then(|v| v.trim().parse::<i64>().ok())
+                    .unwrap_or(0)
+                    .max(0)
+            })
+        })
+        .filter(|e| *e != [0; 4]);
+    Some(p)
 }
 
 /// What [`patch`] does with the background removal of a picture (CORE-PIC-002).
@@ -135,6 +147,7 @@ pub(crate) fn patch(
     crop: Option<[i32; 4]>,
     layer: Layer<'_>,
     svg: Option<&str>,
+    art_layer: Option<&str>,
 ) -> Option<String> {
     let mut root = parse(xml.as_bytes(), "drawing").ok()?;
     let pic = find_mut(&mut root, "pic")?;
@@ -205,7 +218,16 @@ pub(crate) fn patch(
         }
     }
     // Round 19: Picture Border, Picture Effects, artistic effect.
-    crate::picstyle::patch(pic, format);
+    crate::picstyle::patch(pic, format, art_layer);
+    // §20.4.2.6 effectExtent follows the effects.
+    if let Some(e) = find_mut(&mut root, "effectExtent") {
+        let v = format.effect_extent.unwrap_or([0; 4]);
+        e.attrs
+            .retain(|(k, _)| !["l", "t", "r", "b"].contains(&k.as_str()));
+        for (k, x) in ["l", "t", "r", "b"].iter().zip(v) {
+            e.attrs.push(((*k).to_owned(), x.to_string()));
+        }
+    }
     let _ = prefix;
     let mut out = String::new();
     write_element(&root, &mut out);
@@ -218,6 +240,7 @@ pub(crate) fn blip_children_xml(
     format: &PictureFormat,
     layer: Option<&str>,
     svg: Option<&str>,
+    art_layer: Option<&str>,
 ) -> String {
     let mut kids = Vec::new();
     write_fx(&mut kids, &format.fx);
@@ -229,7 +252,7 @@ pub(crate) fn blip_children_xml(
     );
     write_svg_blip(&mut kids, svg);
     // Round 19: the artistic effect ([MS-ODRAWXML] a14:imgEffect).
-    crate::picstyle::add_artistic(&mut kids, format.artistic.as_ref());
+    crate::picstyle::add_artistic(&mut kids, format.artistic.as_ref(), art_layer);
     let mut out = String::new();
     for k in &kids {
         write_element(k, &mut out);
@@ -262,6 +285,7 @@ mod tests {
             Some([10_000, 0, 10_000, 0]),
             Layer::Clear,
             None,
+            None,
         )
         .unwrap();
         assert!(
@@ -284,6 +308,7 @@ mod tests {
             None,
             Layer::Clear,
             None,
+            None,
         )
         .unwrap();
         // CORE-PIC-002: a removal BlueOffice set is written, read back, and kept as it is when
@@ -298,7 +323,7 @@ mod tests {
             })),
             ..PictureFormat::default()
         };
-        let with = patch(XML, None, &removed, None, Layer::Set("rId8"), None).unwrap();
+        let with = patch(XML, None, &removed, None, Layer::Set("rId8"), None, None).unwrap();
         assert!(with.contains(r#"<a14:imgLayer r:embed="rId8"><a14:imgEffect><a14:backgroundRemoval t="2000" b="98000" l="1000" r="99000"/>"#), "{with}");
         let r = read(&with).unwrap().format.removal.unwrap();
         assert_eq!(
@@ -312,6 +337,7 @@ mod tests {
             Some([5000, 0, 0, 0]),
             Layer::Keep,
             None,
+            None,
         )
         .unwrap();
         assert!(kept.contains("a14:backgroundRemoval") && kept.contains("srcRect"));
@@ -321,6 +347,7 @@ mod tests {
             &PictureFormat::default(),
             None,
             Layer::Clear,
+            None,
             None,
         )
         .unwrap();
@@ -334,7 +361,7 @@ mod tests {
             svg: Some("rId4".into()),
             ..PictureFormat::default()
         };
-        let out = patch(XML, None, &f, None, Layer::Clear, Some("rId4")).unwrap();
+        let out = patch(XML, None, &f, None, Layer::Clear, Some("rId4"), None).unwrap();
         assert!(out.contains(r"<asvg:svgBlip xmlns:asvg="), "{out}");
         assert!(
             out.contains("a14:useLocalDpi"),
@@ -348,10 +375,11 @@ mod tests {
             None,
             Layer::Clear,
             None,
+            None,
         )
         .unwrap();
         assert!(!gone.contains("svgBlip"), "{gone}");
-        let fresh = blip_children_xml(&f, None, Some("rId6"));
+        let fresh = blip_children_xml(&f, None, Some("rId6"), None);
         assert!(fresh.contains(r#"r:embed="rId6""#), "{fresh}");
         assert!(
             fresh.contains("{96DAC541-7B7A-43D3-8B79-37D633B846F1}"),

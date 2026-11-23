@@ -126,6 +126,7 @@ fn read_artistic(blip: &XmlElement) -> Option<PicArtistic> {
         .map(|e| PicArtistic {
             name: e.local().to_owned(),
             attrs: e.attrs.clone(),
+            rendered: None,
         })
 }
 
@@ -324,7 +325,7 @@ fn child_mut<'a>(el: &'a mut XmlElement, local: &str) -> Option<&'a mut XmlEleme
 }
 
 /// Write the picture style of `format` into `pic` where it differs from what is there.
-pub(crate) fn patch(pic: &mut XmlElement, format: &PictureFormat) {
+pub(crate) fn patch(pic: &mut XmlElement, format: &PictureFormat, layer_embed: Option<&str>) {
     let mut was = PictureFormat::default();
     read(pic, &mut was);
     if let Some(sp) = child_mut(pic, "spPr") {
@@ -359,21 +360,32 @@ pub(crate) fn patch(pic: &mut XmlElement, format: &PictureFormat) {
             replace(sp, "sp3d", bev(new).as_ref().map(sp3d_el));
         }
     }
-    if was.artistic != format.artistic {
+    // The rendered copy is not in the markup's effect: compare without it.
+    let bare = |a: Option<&PicArtistic>| {
+        a.map(|a| PicArtistic {
+            rendered: None,
+            ..a.clone()
+        })
+    };
+    if bare(was.artistic.as_ref()) != bare(format.artistic.as_ref()) || layer_embed.is_some() {
         if let Some(blip) = child_mut(pic, "blipFill").and_then(|f| child_mut(f, "blip")) {
-            write_artistic(blip, format.artistic.as_ref());
+            write_artistic(blip, format.artistic.as_ref(), layer_embed);
         }
     }
 }
 
 /// Add the artistic effect to the children of a new picture's blip.
-pub(crate) fn add_artistic(kids: &mut Vec<XmlElement>, a: Option<&PicArtistic>) {
+pub(crate) fn add_artistic(
+    kids: &mut Vec<XmlElement>,
+    a: Option<&PicArtistic>,
+    layer_embed: Option<&str>,
+) {
     if a.is_none() {
         return;
     }
     let mut blip = XmlElement::new("a:blip");
     blip.children = kids.drain(..).map(XmlNode::Element).collect();
-    write_artistic(&mut blip, a);
+    write_artistic(&mut blip, a, layer_embed);
     kids.extend(blip.children.into_iter().filter_map(|n| match n {
         XmlNode::Element(e) => Some(e),
         XmlNode::Text(_) => None,
@@ -385,7 +397,7 @@ pub(crate) fn add_artistic(kids: &mut Vec<XmlElement>, a: Option<&PicArtistic>) 
 pub(crate) fn artistic_xml(a: Option<&PicArtistic>) -> String {
     let Some(a) = a else { return String::new() };
     let mut blip = XmlElement::new("a:blip");
-    write_artistic(&mut blip, Some(a));
+    write_artistic(&mut blip, Some(a), None);
     let mut out = String::new();
     for c in blip.elements() {
         bo_drawingml::dom::write_element(c, &mut out);
@@ -394,7 +406,9 @@ pub(crate) fn artistic_xml(a: Option<&PicArtistic>) -> String {
 }
 
 /// Replace the artistic effect of a blip (one per picture, the first effect of its layer).
-fn write_artistic(blip: &mut XmlElement, a: Option<&PicArtistic>) {
+/// `layer_embed`: relationship id of the original picture when the blip shows the rendered
+/// copy ([MS-ODRAWXML] `a14:imgLayer@r:embed`).
+fn write_artistic(blip: &mut XmlElement, a: Option<&PicArtistic>, layer_embed: Option<&str>) {
     let is_art = |n: &XmlNode| {
         matches!(n, XmlNode::Element(e) if e.local() == "imgEffect"
             && e.elements().next().is_some_and(|c| ARTISTIC.iter().any(|a| a.0 == c.local())))
@@ -418,6 +432,10 @@ fn write_artistic(blip: &mut XmlElement, a: Option<&PicArtistic>) {
                 for layer in &mut props.children {
                     if let XmlNode::Element(layer) = layer {
                         layer.children.retain(|n| !is_art(n));
+                        // Without an effect the layer's original is no longer the picture's.
+                        if a.is_none() && layer.elements().next().is_none() {
+                            layer.attrs.retain(|(k, _)| !k.ends_with("embed"));
+                        }
                     }
                 }
             }
@@ -478,6 +496,10 @@ fn write_artistic(blip: &mut XmlElement, a: Option<&PicArtistic>) {
             .done();
         // [MS-ODRAWXML]: the artistic effect comes first in the layer.
         layer.children.insert(0, XmlNode::Element(effect));
+        if let Some(rid) = layer_embed {
+            layer.attrs.retain(|(k, _)| !k.ends_with("embed"));
+            layer.attrs.push(("r:embed".into(), rid.to_owned()));
+        }
     }
 }
 
@@ -535,7 +557,7 @@ mod tests {
     fn style_round_trips_and_keeps_order() {
         let mut pic = parse(PIC.as_bytes(), "pic").expect("xml");
         let f = styled();
-        patch(&mut pic, &f);
+        patch(&mut pic, &f, None);
         let mut back = PictureFormat::default();
         read(&pic, &mut back);
         assert_eq!(back.line, f.line);
@@ -553,7 +575,7 @@ mod tests {
             "{xml}"
         );
         // Clearing removes everything again.
-        patch(&mut pic, &PictureFormat::default());
+        patch(&mut pic, &PictureFormat::default(), None);
         let mut xml = String::new();
         write_element(&pic, &mut xml);
         for n in ["a:ln", "effectLst", "scene3d", "sp3d", "imgEffect"] {

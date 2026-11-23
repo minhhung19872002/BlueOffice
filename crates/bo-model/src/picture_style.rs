@@ -126,6 +126,35 @@ impl PicEffects {
     }
 }
 
+/// Room effects `e` take around a `w` × `h` EMU picture (§20.4.2.6 effectExtent l, t, r, b,
+/// EMU): an outer shadow's blur moved by its offset, a glow's radius, a reflection below the
+/// picture (its distance and the faded part of the height).
+#[allow(clippy::cast_possible_truncation)]
+pub fn effect_extent(e: &PicEffects, w: i64, h: i64) -> [i64; 4] {
+    let _ = w;
+    let mut out = [0i64; 4];
+    let mut grow = |l: f64, t: f64, r: f64, b: f64| {
+        for (o, v) in out.iter_mut().zip([l, t, r, b]) {
+            *o = (*o).max(v.round().max(0.0) as i64);
+        }
+    };
+    if let Some(s) = e.shadow.as_ref().filter(|s| !s.inner) {
+        let (sin, cos) = (f64::from(s.dir) / 60_000.0).to_radians().sin_cos();
+        let (dx, dy) = (s.dist as f64 * cos, s.dist as f64 * sin);
+        let b = s.blur as f64;
+        grow(b - dx, b - dy, b + dx, b + dy);
+    }
+    if let Some(g) = &e.glow {
+        let r = g.rad as f64;
+        grow(r, r, r, r);
+    }
+    if let Some(r) = &e.reflection {
+        let below = r.dist as f64 + h as f64 * f64::from(r.end_pos) / 100_000.0;
+        grow(0.0, 0.0, 0.0, below);
+    }
+    out
+}
+
 /// Artistic effect ([MS-ODRAWXML] `a14:imgEffect` child, e.g. `artisticBlur`): the element
 /// name without prefix and its attributes, kept as written.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
@@ -135,6 +164,11 @@ pub struct PicArtistic {
     pub name: String,
     /// Attributes (name, value).
     pub attrs: Vec<(String, String)>,
+    /// Media part of the picture drawn with the effect, written as the blip with the
+    /// original in `a14:imgLayer@r:embed` as the reference does (round 19), so readers that
+    /// do not apply the effect show it too.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rendered: Option<String>,
 }
 
 /// The artistic effects of [MS-ODRAWXML] 2.3.1 with their main amount attribute and
@@ -171,6 +205,7 @@ impl PicArtistic {
         Some(PicArtistic {
             name: (*n).to_owned(),
             attrs: vec![((*a).to_owned(), v.to_string())],
+            rendered: None,
         })
     }
 
@@ -328,9 +363,9 @@ mod tests {
         assert_eq!(ops[2], StyleOp::Soft(0.05, 0.025));
         assert_eq!(ops[4], StyleOp::Camera("perspectiveRelaxed".into()));
         assert_eq!(ops[6], StyleOp::Silhouette(0, 0.4, 0.02, 0.03, 0.04, 0.05));
-        assert_eq!(ops[7], StyleOp::Glow(0x00FF00, 0.6, 0.07, 0.08));
+        assert_eq!(ops[7], StyleOp::Glow(0x00_FF00, 0.6, 0.07, 0.08));
         assert_eq!(ops[8], StyleOp::Reflection(0.5, 0.0, 0.9, 0.001, 0.002));
-        assert!(style_ops("/word/media/a.png").is_empty());
+        assert_eq!(style_ops("/word/media/a.png").len(), 0);
     }
 
     #[test]

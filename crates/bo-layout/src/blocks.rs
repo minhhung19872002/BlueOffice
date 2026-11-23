@@ -256,12 +256,14 @@ fn rel_line_band(rl: &RelLine, source: LineSource) -> Band {
             boxed.extend(lines);
         } else {
             // Round 19: with its picture style (border, effects).
+            // Inside the room its effects take (§20.4.2.6 effectExtent).
+            let [el, et, er, eb] = crate::picstyle::extent_pt(&o.image);
             items.extend(crate::picstyle::picture_items(
                 &o.image,
-                o.x,
-                y,
-                o.w,
-                o.h,
+                o.x + el,
+                y + et,
+                (o.w - el - er).max(0.1),
+                (o.h - et - eb).max(0.1),
                 Layer::Front,
                 1.0,
                 0,

@@ -28,6 +28,16 @@ fn hex(c: u32) -> String {
     format!("{:06X}", c & 0xFF_FFFF)
 }
 
+/// §20.4.2.6 effectExtent of a picture in points (l, t, r, b): an inline picture's line
+/// makes room for its effects (round 19).
+pub(crate) fn extent_pt(img: &Image) -> [f32; 4] {
+    #[allow(clippy::cast_possible_truncation)]
+    img.format
+        .as_deref()
+        .and_then(|f| f.effect_extent)
+        .map_or([0.0; 4], |e| e.map(|v| pt(v) as f32))
+}
+
 /// The items of picture `img` drawn into the box (`x`, `y`, `w`, `h`) points.
 #[allow(clippy::too_many_arguments, clippy::cast_possible_truncation)]
 pub(crate) fn picture_items(
@@ -156,7 +166,7 @@ pub(crate) fn picture_items(
             main_tokens.push(format!(
                 "bevel={},{}",
                 frac(pt(b.w) / wf),
-                frac(pt(b.h.max(b.w)) / hf)
+                frac(pt(b.w) / hf)
             ));
         }
         if let Some(r) = e.soft_edge.filter(|r| *r > 0) {

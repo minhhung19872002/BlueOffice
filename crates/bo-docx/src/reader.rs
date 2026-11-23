@@ -1643,7 +1643,15 @@ fn with_src(mut img: Image, raw: Raw) -> Image {
         let read_format = img.format.take();
         let svg = read_format.as_ref().and_then(|f| f.svg.clone());
         let original = read_format.and_then(|f| f.removal).map(|r| r.original);
+        let layer_original = original.clone();
         if let Some(mut p) = crate::picture::read(&raw.xml) {
+            // Round 19: with an artistic effect (and no background removal) the blip is the
+            // rendered copy and a14:imgLayer holds the original: the picture is the original.
+            if p.format.removal.is_none() {
+                if let (Some(a), Some(o)) = (p.format.artistic.as_mut(), layer_original) {
+                    a.rendered = Some(std::mem::replace(&mut img.media, o));
+                }
+            }
             // The original picture of a removed background, resolved while reading.
             p.format.removal = p.format.removal.zip(original).map(|(mut r, original)| {
                 r.original = original;

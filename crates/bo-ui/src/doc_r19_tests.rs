@@ -111,3 +111,17 @@ fn border_effects_artistic_and_quick_styles_run_from_the_menus() {
     let f = format(&w);
     assert!(f.effects.is_none() && f.line.is_none());
 }
+
+#[test]
+fn each_window_puts_its_own_view_back_on_the_shared_engine() {
+    use bo_engine::views::ViewMode;
+    let mut w = window_with_picture();
+    assert!(w.action("view.layout.web"));
+    assert_eq!(w.view.engine().view_layout().mode, ViewMode::Web);
+    // Another window (print layout) used the engine meanwhile: this one is still Web.
+    assert!(!w.restore_view_mode(), "same view: nothing to do");
+    w.set_view_mode_name("print");
+    assert!(w.restore_view_mode());
+    assert_eq!(w.view.engine().view_layout().mode, ViewMode::Print);
+    assert_eq!(w.view_mode_name(), "print");
+}

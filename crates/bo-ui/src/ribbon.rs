@@ -599,67 +599,6 @@ fn mailings_tab() -> Tab {
     }
 }
 
-fn review_tab() -> Tab {
-    #[allow(unused_imports)]
-    use Item::{Labeled as S, Large as L};
-    Tab {
-        label: "ribbon.tabs.review",
-        groups: vec![
-            Group {
-                label: "ribbon.groups.proofing",
-                large: vec![L("review.spellingDialog")],
-                rows: vec![vec![S("review.wordCount")]],
-            },
-            // Check Accessibility opens the Accessibility pane (round 7).
-            Group {
-                label: "docR7.g.accessibility",
-                large: vec![L("review.checkAccessibility")],
-                rows: vec![],
-            },
-            Group {
-                label: "docR3.groupLanguage",
-                large: vec![L("review.languageMenu")],
-                rows: vec![],
-            },
-            Group {
-                label: "ribbon.groups.comments",
-                large: vec![L("review.newComment"), L("review.showComments")],
-                rows: vec![
-                    vec![S("review.deleteComment")],
-                    vec![S("review.previousComment")],
-                    vec![S("review.nextComment")],
-                ],
-            },
-            // Markup: how changes appear and which marks show, as the reference's
-            // Markup group (Simple / All / No Markup / Original).
-            Group {
-                label: "ribbon.groups.tracking",
-                large: vec![L("review.trackChanges")],
-                rows: vec![
-                    vec![S("review.markupMode")],
-                    vec![S("review.showMarkup")],
-                    vec![S("review.reviewingPane")],
-                ],
-            },
-            Group {
-                label: "ribbon.groups.changes",
-                large: vec![L("review.acceptMenu"), L("review.rejectMenu")],
-                rows: vec![vec![S("review.previous")], vec![S("review.next")]],
-            },
-            Group {
-                label: "docR3.groupCompare",
-                large: vec![L("review.compareMenu")],
-                rows: vec![],
-            },
-            Group {
-                label: "docR3.groupProtect",
-                large: vec![L("review.protectMenu")],
-                rows: vec![],
-            },
-        ],
-    }
-}
-
 fn view_tab() -> Tab {
     #[allow(unused_imports)]
     use Item::{Labeled as S, Large as L};
@@ -741,7 +680,7 @@ impl Ribbon {
             layout_tab(),
             references_tab(),
             mailings_tab(),
-            review_tab(),
+            crate::doc_review16::review_tab(),
             view_tab(),
         ])
     }
@@ -1392,6 +1331,8 @@ impl Ribbon {
                     // BlueSlide View > Show: Grid and Guides.
                     "slideNative.showGroup" => Some("view.gridSettings"),
                     "ribbon.groups.footnotes" => Some("references.notesLauncher"),
+                    // BlueDoc Review › Markup: Change Tracking Options (round 16).
+                    "doc16.groupMarkup" => Some("review.trackingOptions"),
                     _ => None,
                 };
                 if let Some(id) = launcher {
@@ -1506,6 +1447,21 @@ impl Ribbon {
     /// Window y just below the ribbon.
     pub fn bottom(&self) -> f32 {
         self.top + self.height()
+    }
+
+    /// The active tab's groups below the tab strip (x, y, w, h), up to the last divider: a
+    /// group drawn in a drop-down (BlueDoc round 16).
+    pub(crate) fn groups_box(&self) -> [f32; 4] {
+        let right = self
+            .placed
+            .iter()
+            .filter_map(|p| match p {
+                Placed::Divider(r) => Some(r.x),
+                _ => None,
+            })
+            .fold(0.0_f32, f32::max);
+        let y = self.top + self.strip_h();
+        [0.0, y, right, self.height() - self.strip_h()]
     }
 
     /// Window y of the ribbon's top edge.
@@ -2936,6 +2892,7 @@ mod tests {
         crate::doc_r4_menus::install_icons(&mut icons);
         crate::doc_r4_fit::install_icons(&mut icons);
         crate::doc_tabs7::install_icons(&mut icons);
+        crate::doc_review16::install_icons(&mut icons);
         let format = FormatState {
             section: bo_edit::SectionState {
                 width: 11906,
@@ -2955,6 +2912,7 @@ mod tests {
         crate::doc_r4_menus::install_strings(&mut strings);
         crate::doc_r4_fit::install_strings(&mut strings);
         crate::doc_tabs7::install_strings(&mut strings);
+        crate::doc_review16::install_strings(&mut strings);
         crate::shell::r14::install(&mut icons, &mut strings);
         for tab in &ribbon.tabs {
             assert!(!tab.groups.is_empty(), "{} is empty", tab.label);

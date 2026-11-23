@@ -42,6 +42,9 @@ pub(crate) mod r14;
 
 #[path = "doc_forms15.rs"]
 pub(crate) mod r15;
+
+#[path = "doc_forms16.rs"]
+pub(crate) mod r16;
 pub(crate) use r5::{open_manage_styles, ManagedStyle};
 pub(crate) use r7::INSPECT;
 
@@ -155,6 +158,14 @@ pub(crate) enum DocFormKind {
     ThemeColors,
     /// Design › Fonts › Customize Fonts… (Create New Theme Fonts, round 15).
     ThemeFonts,
+    /// Review › Markup launcher: Track Changes Options (round 16).
+    TrackOptions,
+    /// Track Changes Options › Advanced Options… (round 16).
+    AdvTrackOptions,
+    /// Mailings › Finish & Merge › Edit Individual Documents… (round 16).
+    MergeNew,
+    /// Mailings › Finish & Merge › Print Documents… (round 16).
+    MergePrint,
 }
 
 /// What the owner does after an input.
@@ -820,6 +831,7 @@ impl DocForm {
             }
             (DocFormKind::Protect, _) => {}
             (k, _) if r15::handles(k) => self.r15_changed(id),
+            (k, _) if r16::handles(k) => self.r16_changed(id),
             (k, _) if r14::handles(k) => self.r14_changed(id),
             (k, _) if r13::handles(k) => {
                 self.r11_changed(id);
@@ -840,6 +852,9 @@ impl DocForm {
     }
 
     fn clicked(&mut self, id: &str) -> FormOut {
+        if let Some(out) = self.r16_clicked(id) {
+            return out;
+        }
         if let Some(out) = self.r15_clicked(id) {
             return out;
         }
@@ -977,6 +992,9 @@ impl DocForm {
     }
 
     fn ok(&mut self) -> FormOut {
+        if let Some(out) = self.r16_ok() {
+            return out;
+        }
         if let Some(out) = self.r15_ok() {
             return out;
         }
@@ -1013,7 +1031,11 @@ impl DocForm {
             | DocFormKind::Categories
             | DocFormKind::Colors
             | DocFormKind::ThemeColors
-            | DocFormKind::ThemeFonts => FormOut::Close,
+            | DocFormKind::ThemeFonts
+            | DocFormKind::TrackOptions
+            | DocFormKind::AdvTrackOptions
+            | DocFormKind::MergeNew
+            | DocFormKind::MergePrint => FormOut::Close,
             DocFormKind::Toc => {
                 let levels = self.form.num("levels").clamp(1, 9);
                 let mut instr = match &self.toc_map {
@@ -3124,6 +3146,10 @@ pub(crate) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
         DocFormKind::Colors | DocFormKind::ThemeColors | DocFormKind::ThemeFonts => {
             r15::open(kind, s, c)
         }
+        DocFormKind::TrackOptions
+        | DocFormKind::AdvTrackOptions
+        | DocFormKind::MergeNew
+        | DocFormKind::MergePrint => r16::open(kind, s, c),
         DocFormKind::Zoom => {
             let mut f = DocForm::new(kind, &tr("docR4.zoomTitle", "Zoom"), (381.0, 258.0), vec![]);
             f.label(

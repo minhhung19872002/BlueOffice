@@ -40,6 +40,29 @@ pub struct MarkupOptions {
     pub hidden_reviewers: Vec<String>,
     /// All markup: deletions and formatting changes in balloons instead of inline.
     pub deletion_balloons: bool,
+    /// Show All Revisions Inline: no balloons at all (no markup area), comments marked in
+    /// the text only (BlueDoc round 16, the reference's Balloons ▸ submenu).
+    pub inline: bool,
+    /// Advanced Track Changes Options (BlueDoc round 16): insertion marks (`underline`,
+    /// `none`, `colorOnly`, `doubleUnderline`, `strikethrough`).
+    pub ins_mark: String,
+    /// Deletion marks (`strikethrough`, `colorOnly`, `doubleStrikethrough`, `hidden`,
+    /// `underline`, `doubleUnderline`).
+    pub del_mark: String,
+    /// Insertion colour (`RRGGBB`); empty = by author.
+    pub ins_color: String,
+    /// Deletion colour (`RRGGBB`); empty = by author.
+    pub del_color: String,
+    /// Changed lines: `outside` (left of the text, the default), `left`, `right`, `none`.
+    pub changed_lines: String,
+    /// Preferred balloon width (inches; the reference's default 3.7").
+    pub balloon_width: f32,
+    /// Show lines connecting balloons to the text.
+    pub connectors: bool,
+    /// Pictures by comments (the author's initials in a circle).
+    pub pictures: bool,
+    /// Comment colour (`RRGGBB`); empty = by author.
+    pub comment_color: String,
 }
 
 impl Default for MarkupOptions {
@@ -51,6 +74,16 @@ impl Default for MarkupOptions {
             comments: true,
             hidden_reviewers: Vec::new(),
             deletion_balloons: false,
+            inline: false,
+            ins_mark: "underline".to_owned(),
+            del_mark: "strikethrough".to_owned(),
+            ins_color: String::new(),
+            del_color: String::new(),
+            changed_lines: "outside".to_owned(),
+            balloon_width: DEFAULT_BALLOON_WIDTH,
+            connectors: true,
+            pictures: true,
+            comment_color: String::new(),
         }
     }
 }
@@ -58,6 +91,8 @@ impl Default for MarkupOptions {
 /// Width of the markup area holding balloons (points): 394 px at 125 % on the reference
 /// word processor (BlueDoc round 6).
 pub const AREA_WIDTH: f32 = 236.0;
+/// Preferred balloon width the markup area is measured at (inches).
+pub const DEFAULT_BALLOON_WIDTH: f32 = 3.7;
 /// Width of the simple-markup strip holding comment icons (points).
 pub const ICON_AREA_WIDTH: f32 = 24.0;
 /// Change bar colours: neutral in all markup, red in simple markup.
@@ -148,9 +183,27 @@ impl MarkupOptions {
 
     /// What the all-markup layout marks inline.
     pub fn filter(&self) -> MarkFilter {
+        let hex = |h: &str| Color::from_hex(h);
         let mut f = MarkFilter {
             hide_ins_del: !self.insertions_deletions,
             deletions_in_balloons: self.deletion_balloons,
+            ins_mark: match self.ins_mark.as_str() {
+                "none" => 1,
+                "colorOnly" => 2,
+                "doubleUnderline" => 3,
+                "strikethrough" => 4,
+                _ => 0,
+            },
+            del_mark: match self.del_mark.as_str() {
+                "colorOnly" => 1,
+                "doubleStrikethrough" => 2,
+                "hidden" => 3,
+                "underline" => 4,
+                "doubleUnderline" => 5,
+                _ => 0,
+            },
+            ins_color: hex(&self.ins_color),
+            del_color: hex(&self.del_color),
             ..MarkFilter::default()
         };
         f.hide_reviewers(self.hidden_reviewers.iter().map(String::as_str));
@@ -194,6 +247,7 @@ impl MarkupOptions {
                 // All markup: formatting changes always in balloons ("Formatted: Font: Bold"),
                 // deletions too when asked, as the reference shows revisions.
                 balloon: all
+                    && !self.inline
                     && (kind == MarkKind::Format
                         || (self.deletion_balloons && kind != MarkKind::Insert)),
             });
@@ -220,7 +274,7 @@ impl MarkupOptions {
                     date: c.date.clone(),
                     text,
                     done: c.done,
-                    balloon: true,
+                    balloon: !self.inline,
                 });
             }
         }
@@ -230,17 +284,21 @@ impl MarkupOptions {
     /// How the markup area is drawn for `marks`.
     pub fn style(&self, marks: &[Mark]) -> MarkupStyle {
         let balloons = marks.iter().any(|m| m.balloon);
+        // Preferred width: the area scales with it (the default gives the measured area).
+        let k = (self.balloon_width / DEFAULT_BALLOON_WIDTH).clamp(0.3, 3.0);
+        let area = if balloons { AREA_WIDTH * k } else { 0.0 };
+        let bars = |c: Color| (self.changed_lines != "none").then_some(c);
         match self.mode {
             MarkupMode::All => MarkupStyle {
-                area_width: if balloons { AREA_WIDTH } else { 0.0 },
-                bar_color: Some(BAR_ALL),
+                area_width: area,
+                bar_color: bars(BAR_ALL),
                 icons: false,
             },
             // Simple markup keeps the comments' balloons (only comments have one here), as
             // the reference shows them beside the clean text.
             MarkupMode::Simple => MarkupStyle {
-                area_width: if balloons { AREA_WIDTH } else { 0.0 },
-                bar_color: Some(BAR_SIMPLE),
+                area_width: area,
+                bar_color: bars(BAR_SIMPLE),
                 icons: false,
             },
             MarkupMode::None | MarkupMode::Original => MarkupStyle {
@@ -274,6 +332,37 @@ pub struct MarkupUpdate {
     /// Deletions and formatting changes in balloons.
     #[serde(default)]
     pub deletion_balloons: Option<bool>,
+    /// No balloons (Show All Revisions Inline).
+    #[serde(default)]
+    pub inline: Option<bool>,
+    /// Insertion / deletion marks and colours, changed lines, balloon width, connecting
+    /// lines, pictures (Advanced Track Changes Options).
+    #[serde(default)]
+    pub ins_mark: Option<String>,
+    /// Deletion marks.
+    #[serde(default)]
+    pub del_mark: Option<String>,
+    /// Insertion colour (`""` = by author).
+    #[serde(default)]
+    pub ins_color: Option<String>,
+    /// Deletion colour (`""` = by author).
+    #[serde(default)]
+    pub del_color: Option<String>,
+    /// Changed lines position.
+    #[serde(default)]
+    pub changed_lines: Option<String>,
+    /// Preferred balloon width (inches).
+    #[serde(default)]
+    pub balloon_width: Option<f32>,
+    /// Lines connecting balloons to the text.
+    #[serde(default)]
+    pub connectors: Option<bool>,
+    /// Pictures by comments.
+    #[serde(default)]
+    pub pictures: Option<bool>,
+    /// Comment colour (`""` = by author).
+    #[serde(default)]
+    pub comment_color: Option<String>,
 }
 
 impl MarkupOptions {
@@ -299,6 +388,36 @@ impl MarkupOptions {
         }
         if let Some(v) = u.deletion_balloons {
             self.deletion_balloons = v;
+        }
+        if let Some(v) = u.inline {
+            self.inline = v;
+        }
+        if let Some(v) = u.ins_mark {
+            self.ins_mark = v;
+        }
+        if let Some(v) = u.del_mark {
+            self.del_mark = v;
+        }
+        if let Some(v) = u.ins_color {
+            self.ins_color = v;
+        }
+        if let Some(v) = u.del_color {
+            self.del_color = v;
+        }
+        if let Some(v) = u.changed_lines {
+            self.changed_lines = v;
+        }
+        if let Some(v) = u.balloon_width.filter(|w| w.is_finite() && *w > 0.0) {
+            self.balloon_width = v;
+        }
+        if let Some(v) = u.connectors {
+            self.connectors = v;
+        }
+        if let Some(v) = u.pictures {
+            self.pictures = v;
+        }
+        if let Some(v) = u.comment_color {
+            self.comment_color = v;
         }
         *self != before
     }

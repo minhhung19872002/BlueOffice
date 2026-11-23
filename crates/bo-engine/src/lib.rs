@@ -50,6 +50,7 @@ pub mod markup;
 pub mod math_edit;
 pub mod media;
 pub mod merge;
+mod merge16;
 pub mod merge_cmd;
 pub mod merge_sources;
 pub mod nav;

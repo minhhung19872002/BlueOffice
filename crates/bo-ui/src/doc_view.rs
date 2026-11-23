@@ -109,7 +109,11 @@ pub struct DocView {
     revisions: Vec<bo_edit::RevisionItem>,
     tracking_locked: bool,
     /// Comment anchors to tint (rectangle, author colour), refreshed after each edit.
-    comment_marks: Vec<(bo_engine::nav::SelRect, Rgba)>,
+    /// Comment anchors: rectangle, author colour, first / last line of its range.
+    comment_marks: Vec<(bo_engine::nav::SelRect, Rgba, (bool, bool))>,
+    /// Mailings › Highlight Merge Fields (round 16): shade merge fields, their rectangles.
+    pub(crate) highlight_fields: bool,
+    field_marks: Vec<bo_engine::nav::SelRect>,
     selection: Option<bo_edit::Selection>,
     format: FormatState,
     words: usize,
@@ -175,6 +179,8 @@ impl DocView {
             revisions: Vec::new(),
             tracking_locked: false,
             comment_marks: Vec::new(),
+            highlight_fields: false,
+            field_marks: Vec::new(),
             selection: None,
             format: FormatState::default(),
             words: 0,

@@ -40,6 +40,8 @@ mod r13;
 pub(crate) mod r14;
 #[path = "doc_r15.rs"]
 mod r15;
+#[path = "doc_r16.rs"]
+mod r16;
 #[path = "doc_r3.rs"]
 mod r3;
 #[path = "doc_r4.rs"]
@@ -286,6 +288,7 @@ pub struct DocWindow {
     r13: Box<r13::R13>,
     r14: Box<r14::R14>,
     r15: Box<r15::R15>,
+    r16: Box<r16::R16>,
 }
 
 /// Font sizes offered by the size box (points).
@@ -389,6 +392,8 @@ impl DocWindow {
         crate::doc_r4_menus::install_strings(&mut strings);
         crate::doc_r4_fit::install_strings(&mut strings);
         crate::doc_r4_fit::install_icons(&mut icons);
+        crate::doc_review16::install_strings(&mut strings);
+        crate::doc_review16::install_icons(&mut icons);
         crate::doc_tabs7::install_icons(&mut icons);
         crate::doc_tabs7::install_strings(&mut strings);
         r14::install(&mut icons, &mut strings);
@@ -487,6 +492,7 @@ impl DocWindow {
             r13: Box::default(),
             r14: Box::default(),
             r15: Box::default(),
+            r16: Box::default(),
         }
     }
 
@@ -2093,6 +2099,7 @@ impl DocWindow {
         }
         on.extend(doc_tools::on_ids(self.view.format(), self.story_options()));
         on.extend(self.r7_on_ids());
+        on.extend(self.r16_on_ids());
         on
     }
 
@@ -2129,6 +2136,9 @@ impl DocWindow {
 
     /// Run interface command `id` from the ribbon, title bar, a menu or a shortcut.
     fn action(&mut self, id: &str) -> bool {
+        if let Some(r) = self.r16_action(id) {
+            return r;
+        }
         if let Some(r) = self.r15_action(id) {
             return r;
         }
@@ -2771,6 +2781,7 @@ impl DocWindow {
         self.r7_layout(text);
         self.r14_layout();
         self.r15_layout();
+        self.r16_layout(text);
         if let Some(d) = self.dialog.as_mut() {
             d.layout(text, self.size, self.scale);
         }
@@ -3007,6 +3018,9 @@ impl DocWindow {
                 }
                 _ => {}
             }
+        }
+        if let Some(redraw) = self.r16_input(&input) {
+            return redraw;
         }
         if let Some(redraw) = self.r14_input(&input) {
             return redraw;
@@ -3876,6 +3890,7 @@ impl DocWindow {
         self.r12_paint(p);
         self.r14_paint(p);
         self.r15_paint(p);
+        self.r16_paint(p);
         if let Some(menu) = &self.menu {
             menu.paint(p, &self.r10_menu_theme(), &self.icons);
             self.r10_paint_menu(p);

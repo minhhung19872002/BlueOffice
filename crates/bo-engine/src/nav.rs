@@ -277,6 +277,24 @@ pub fn selection_rects(layout: &LayoutDocument, sel: Selection) -> Vec<SelRect> 
     out
 }
 
+/// Rectangles of a range, one per line, the line's own height only (no paragraph spacing
+/// below the last line): comment anchors are tinted this high on the reference (24 px for
+/// an 11 pt line at 125 %, where the selection also takes the space after).
+pub fn text_rects(layout: &LayoutDocument, sel: Selection) -> Vec<SelRect> {
+    let lines = body_lines(layout);
+    let mut out = Vec::new();
+    for mut r in selection_rects(layout, sel) {
+        let line = lines
+            .iter()
+            .find(|(p, l)| *p == r.page && (l.top - r.y).abs() < 0.01 && l.rotation.is_none());
+        if let Some((_, l)) = line {
+            r.h = r.h.min(l.height);
+        }
+        out.push(r);
+    }
+    out
+}
+
 /// Nearest caret stop to `x` in a line.
 pub(crate) fn offset_at(l: &Line, x: f32) -> usize {
     let mut best = (l.start, f32::INFINITY);

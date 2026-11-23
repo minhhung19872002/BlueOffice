@@ -3017,7 +3017,23 @@ impl Session {
         if !self.doc.comments.iter().any(|c| c.id == id) {
             return Err(EditError::Unsupported(format!("no comment {id}")));
         }
-        let ids = comments::thread_ids(&self.doc, id);
+        self.delete_comments(&[id])
+    }
+
+    /// Delete comments `ids` with their replies and their marks in the text, as one undo
+    /// step (Review › Delete › Delete All Comments Shown / in Document). Unknown ids are
+    /// skipped; nothing to delete is not an error.
+    pub fn delete_comments(&mut self, ids: &[i32]) -> Result<()> {
+        let mut all: Vec<i32> = Vec::new();
+        for &id in ids {
+            if self.doc.comments.iter().any(|c| c.id == id) {
+                all.extend(comments::thread_ids(&self.doc, id));
+            }
+        }
+        if all.is_empty() {
+            return Ok(());
+        }
+        let ids = all;
         let list: Vec<bo_model::Comment> = self
             .doc
             .comments

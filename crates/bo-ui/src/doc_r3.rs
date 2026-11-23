@@ -29,7 +29,7 @@ pub(super) struct R3 {
     paste_defaults: [usize; 3],
     pub(super) form: Option<DocForm>,
     pub(super) styles_pane: Option<StylesPane>,
-    restrict: Option<RestrictPane>,
+    pub(super) restrict: Option<RestrictPane>,
     pub(super) tiles: Option<TileMenu>,
     pub(super) outline: Option<OutlineView>,
     /// Align › Align to Page (else to the margin).
@@ -149,7 +149,7 @@ impl DocWindow {
             0.0
         };
         // Reveal Formatting / Style Inspector (round 5) sits left of them.
-        own + self.r5_pane_w() + self.r7_pane_w()
+        own + self.r5_pane_w() + self.r7_pane_w() + self.r16_pane_w()
     }
 
     /// The paste mode of the next paste: chosen in Paste Options / Paste Special, else the
@@ -285,6 +285,7 @@ impl DocWindow {
                 e["r13"] = self.r13_form_extra();
                 e["r14"] = self.r14_form_extra();
                 e["r15"] = self.r15_form_extra();
+                e["r16"] = self.r16_form_extra();
                 e
             },
         }
@@ -1087,6 +1088,10 @@ impl DocWindow {
             if t == "labels" {
                 return Some(self.r3_action("mailings.labels").unwrap_or(false));
             }
+            if t == "envelopes" {
+                self.r3.merge_type = t.to_owned();
+                return Some(self.r3_action("mailings.envelopes").unwrap_or(false));
+            }
             self.r3.merge_type = t.to_owned();
             return Some(true);
         }
@@ -1800,6 +1805,7 @@ impl DocWindow {
         if let Some(rp) = &self.r3.restrict {
             rp.paint(p);
         }
+        self.r16_paint_panes(p);
     }
 
     /// Paint the round-3 popups and dialogs (over everything).

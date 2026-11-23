@@ -44,7 +44,7 @@ pub(crate) fn scaling(tab: &str) -> &'static [&'static str] {
             "ribbon.groups.views",
             "docR4.groupWindow",
         ],
-        _ => &[],
+        _ => crate::doc_review16::scaling(tab),
     }
 }
 
@@ -154,6 +154,9 @@ pub(crate) fn shrink(label: &str, stage: u8) -> Option<Group> {
             ],
         ),
         ("docR4.groupWindow", _) => g("docR4.groupWindow", vec![L("view.windowGroup")], vec![]),
+        _ if crate::doc_review16::shrink(label, stage).is_some() => {
+            crate::doc_review16::shrink(label, stage)
+        }
         ("ribbon.groups.views", _) => g(
             "ribbon.groups.views",
             vec![
@@ -312,6 +315,7 @@ pub(crate) fn group_of(id: &str) -> Option<&'static str> {
         .iter()
         .find(|g| menu(g).iter().any(|e| e.id == id))
         .copied()
+        .or_else(|| crate::doc_review16::group_of(id))
 }
 
 /// English labels into `commands.<id>` (translations under `docR4.cmd.*`).

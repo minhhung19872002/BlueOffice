@@ -467,8 +467,9 @@ impl Shell {
                         .duration_since(std::time::UNIX_EPOCH)
                         .map_or(0, |d| d.as_millis());
                     let path = std::env::temp_dir().join(format!("BlueDoc-{stamp}.docx"));
+                    let actions = self.view.take_new_document_actions();
                     if std::fs::write(&path, bytes).is_ok() {
-                        spawn_self(Some(&path));
+                        spawn_self_with(Some(&path), actions.as_deref());
                     }
                 }
             }
@@ -768,6 +769,23 @@ fn print_tool(args: &[std::ffi::OsString], mut engine: Engine) -> Result<(), Str
     let n = host6::print_document(view.engine(), &sizes, &job, &name, output)?;
     println!("printed {n} sheet(s)");
     Ok(())
+}
+
+/// [`spawn_self`] with interface commands the new window runs first (`BLUEOFFICE_ACTIONS`,
+/// e.g. Print Documents of a mail merge opens the Print page there).
+fn spawn_self_with(file: Option<&std::path::Path>, actions: Option<&str>) {
+    let Some(actions) = actions else {
+        spawn_self(file);
+        return;
+    };
+    if let Ok(exe) = std::env::current_exe() {
+        let mut cmd = std::process::Command::new(exe);
+        if let Some(f) = file {
+            cmd.arg(f);
+        }
+        cmd.env("BLUEOFFICE_ACTIONS", actions);
+        let _ = cmd.spawn();
+    }
 }
 
 fn spawn_self(file: Option<&std::path::Path>) {

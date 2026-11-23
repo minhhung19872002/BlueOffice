@@ -522,6 +522,12 @@ pub enum Command {
         /// Comment id.
         id: i32,
     },
+    /// Delete comments and their replies in one undo step (Review › Delete All Comments
+    /// Shown / in Document).
+    DeleteComments {
+        /// Comment ids.
+        ids: Vec<i32>,
+    },
     /// Select the text a comment is anchored to.
     SelectComment {
         /// Comment id.
@@ -2595,6 +2601,7 @@ impl crate::Engine {
                     }
                     Command::ResolveComment { id, done } => s.resolve_comment(id, done)?,
                     Command::DeleteComment { id } => s.delete_comment(id)?,
+                    Command::DeleteComments { ids } => s.delete_comments(&ids)?,
                     Command::SelectComment { id } => {
                         extra.1 = Some(usize::from(s.select_comment(id)));
                     }
@@ -2934,6 +2941,17 @@ impl crate::Engine {
     /// Rectangles of the main-text range `a..b` (comment anchors in the native view).
     pub fn range_rects(&self, a: Pos, b: Pos) -> Vec<SelRect> {
         nav::selection_rects(
+            self.layout.document(),
+            Selection {
+                anchor: a,
+                focus: b,
+            },
+        )
+    }
+
+    /// Rectangles of the text of range `a`–`b` without paragraph spacing (comment anchors).
+    pub fn range_text_rects(&self, a: Pos, b: Pos) -> Vec<SelRect> {
+        nav::text_rects(
             self.layout.document(),
             Selection {
                 anchor: a,

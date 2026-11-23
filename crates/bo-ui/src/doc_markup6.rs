@@ -38,6 +38,7 @@ impl DocView {
     pub(crate) fn refresh_comment_marks(&mut self) {
         use bo_engine::markup::MarkupMode;
         self.comment_marks.clear();
+        self.refresh_field_marks();
         if matches!(self.markup.mode, MarkupMode::None | MarkupMode::Original)
             || !self.markup.comments
         {
@@ -51,27 +52,78 @@ impl DocView {
             let (Some(a), Some(b)) = (c.start, c.end) else {
                 continue;
             };
-            let k = bo_layout::author_color(&c.author);
+            let k = bo_model::Color::from_hex(&self.markup.comment_color)
+                .unwrap_or_else(|| bo_layout::author_color(&c.author));
             let colour = Rgba(k.r, k.g, k.b, 255);
-            for r in self.engine.range_rects(a, b) {
-                self.comment_marks.push((r, colour));
+            // The line's height only (round 16: no paragraph spacing, as the reference).
+            let rects = self.engine.range_text_rects(a, b);
+            let n = rects.len();
+            for (i, r) in rects.into_iter().enumerate() {
+                self.comment_marks.push((r, colour, (i == 0, i + 1 == n)));
             }
         }
     }
 
-    /// Comment anchors on a page: a light tint of the author's colour framed in it
-    /// (#F8DCDD inside a #D13438 line for the first author on the reference).
+    /// Comment anchors on a page: a light tint of the author's colour (#F8DCDD for the first
+    /// author on the reference) with a 1 px #D13438 bar at the range's start and end only
+    /// (round 16, measured: no line above or below).
     pub(crate) fn paint_comment_marks(&self, p: &mut dyn Painter, slot: (usize, i32, i32)) {
         let s = self.scale();
         let (index, sx, sy) = slot;
-        for (r, c) in self.comment_marks.iter().filter(|(r, _)| r.page == index) {
+        // Highlight Merge Fields: the reference's grey field shading (#D9D9D9).
+        for r in self.field_marks.iter().filter(|r| r.page == index) {
+            let (x, y) = ((sx as f32 + r.x * s).round(), (sy as f32 + r.y * s).round());
+            let (w, h) = ((r.w * s).round().max(1.0), (r.h * s).round().max(1.0));
+            p.fill_rect(x, y, w, h, Rgba(0x80, 0x80, 0x80, 76));
+        }
+        for (r, c, (first, last)) in &self.comment_marks {
+            if r.page != index {
+                continue;
+            }
+            let (first, last) = (*first, *last);
             let (x, y) = ((sx as f32 + r.x * s).round(), (sy as f32 + r.y * s).round());
             let (w, h) = ((r.w * s).round().max(1.0), (r.h * s).round().max(1.0));
             p.fill_rect(x, y, w, h, Rgba(c.0, c.1, c.2, 42));
-            p.fill_rect(x, y, w, 1.0, *c);
-            p.fill_rect(x, y + h - 1.0, w, 1.0, *c);
-            p.fill_rect(x, y, 1.0, h, *c);
-            p.fill_rect(x + w - 1.0, y, 1.0, h, *c);
+            if first {
+                p.fill_rect(x, y, 1.0, h, *c);
+            }
+            if last {
+                p.fill_rect(x + w - 1.0, y, 1.0, h, *c);
+            }
+        }
+    }
+
+    /// Merge fields (§17.16.5.35 MERGEFIELD) shaded by Highlight Merge Fields: their text
+    /// rectangles.
+    fn refresh_field_marks(&mut self) {
+        self.field_marks.clear();
+        if !self.highlight_fields {
+            return;
+        }
+        let Some(doc) = self.engine.document() else {
+            return;
+        };
+        let mut ranges = Vec::new();
+        for (id, path) in bo_model::index::body_paragraphs(doc).iter().enumerate() {
+            let Some(p) = bo_model::index::para_at(doc, path) else {
+                continue;
+            };
+            let mut pos = 0;
+            for (_, c) in bo_edit::para::flatten(p) {
+                let l = bo_edit::para::atom_len(&c);
+                if let bo_model::RunContent::Field { instr, .. } = &c {
+                    if bo_edit::fields::field_kind(instr) == "MERGEFIELD" {
+                        ranges.push((id, pos, pos + l));
+                    }
+                }
+                pos += l;
+            }
+        }
+        for (id, a, b) in ranges {
+            self.field_marks.extend(
+                self.engine
+                    .range_text_rects(bo_edit::Pos::new(id, a), bo_edit::Pos::new(id, b)),
+            );
         }
     }
 
@@ -98,9 +150,16 @@ impl DocView {
             p.fill_rect(x0 + sw as f32, y0, 1.0, sh as f32, Rgba(198, 198, 198, 255));
         }
         let bar_w = (1.25 * self.display_scale).round().max(1.0);
+        // Changed lines › Right border (round 16): the bar mirrored into the right margin.
+        let right = self.markup.changed_lines == "right";
         for b in &m.bars {
+            let bx = if right {
+                sw as f32 / s - b.x - bar_w / s
+            } else {
+                b.x
+            };
             p.fill_rect(
-                (x0 + b.x * s).round(),
+                (x0 + bx * s).round(),
                 (y0 + b.top * s).round(),
                 bar_w,
                 ((b.bottom - b.top) * s).round().max(1.0),
@@ -116,8 +175,14 @@ impl DocView {
             bold: false,
         };
         let line = body.size * 1.3;
+        let comment_colour = bo_model::Color::from_hex(&self.markup.comment_color);
         for bl in &m.balloons {
-            let c = parse_hex(&bl.color);
+            let c = match comment_colour {
+                Some(k) if matches!(bl.kind, bo_layout::MarkKind::Comment) => {
+                    Rgba(k.r, k.g, k.b, 255)
+                }
+                _ => parse_hex(&bl.color),
+            };
             let bx = x0 + bl.x * s;
             let by = y0 + bl.y * s;
             let bh = (bl.h * s).max(line * 2.0);
@@ -135,11 +200,12 @@ impl DocView {
                 p.fill_rect(bx + k * 0.2, by + k * 0.75 - 1.0, k * 0.2, k * 0.2, c);
                 continue;
             }
-            // Dashed connector at the anchor's height to the balloon's edge.
+            // Dashed connector at the anchor's height to the balloon's edge (Show lines
+            // connecting to text, round 16).
             let ax = x0 + bl.anchor_x * s;
             let ay = (y0 + bl.anchor_y * s).round();
             let dash = (3.0 * self.display_scale).round().max(2.0);
-            let mut x = ax;
+            let mut x = if self.markup.connectors { ax } else { bx };
             while x < bx {
                 p.fill_rect(
                     x.round(),
@@ -154,7 +220,7 @@ impl DocView {
             p.fill_rect(bx.round(), by.round(), bar_w + 1.0, bh.round(), c);
             let comment = matches!(bl.kind, bo_layout::MarkKind::Comment);
             let mut tx = bx + 10.0 * s;
-            if comment {
+            if comment && self.markup.pictures {
                 // The author's initials in a filled circle.
                 let r = 7.5 * s;
                 let (cx, cy) = (bx + 6.0 * s + r, by + 2.0 * s + r);

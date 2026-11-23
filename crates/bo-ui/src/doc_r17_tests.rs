@@ -369,6 +369,26 @@ fn draw_table_draws_a_table_then_splits_and_erases() {
         .unwrap_or_default();
     let want = (300.0 / w.view.scale() * 20.0).round() as i32;
     assert!((width.0 - want).abs() <= 20, "{width:?} vs {want}");
+    // Round 18: the row is as tall as the stroke.
+    let height = w
+        .view
+        .engine()
+        .document()
+        .and_then(|d| {
+            d.sections[0].blocks.iter().find_map(|b| match b {
+                bo_model::Block::Table(t) => t.rows.first().and_then(|r| r.props.height),
+                _ => None,
+            })
+        })
+        .map(|h| h.0 .0);
+    let want_h = (80.0 / w.view.scale() * 20.0).round() as i32;
+    assert!(
+        height.is_some_and(|h| (h - want_h).abs() <= 20),
+        "{height:?} vs {want_h}"
+    );
+    // The pencil pointer over the page while drawing.
+    w.handle(Input::Move { x: x0, y: y0 }, &Fixed);
+    assert_eq!(w.cursor(), super::super::r10::pointer::PEN);
     let cell = w.view.caret_rect().expect("caret in the cell");
     stroke(
         &mut w,

@@ -39,6 +39,8 @@ pub(super) struct R17 {
     pub(super) side: Option<f32>,
     /// The rulers were shown before the Immersive Reader hid them.
     ruler_before: Option<bool>,
+    /// Shortcut keys of styles (key name, style name) set with Customize Keyboard.
+    keys: Vec<(String, String)>,
 }
 
 /// View › Immersive Reader: column width (0 very narrow … 3 wide), page colour (0 none,
@@ -145,6 +147,19 @@ impl DocWindow {
             }
             return Some(true);
         }
+        if let Some(spec) = id.strip_prefix("r17.key.assign:") {
+            if let Some((key, style)) = spec.split_once('\u{1f}') {
+                self.r17.keys.retain(|(k, _)| k != key);
+                self.r17.keys.push((key.to_owned(), style.to_owned()));
+                self.r17_save_keys();
+            }
+            return Some(true);
+        }
+        if let Some(key) = id.strip_prefix("r17.key.remove:") {
+            self.r17.keys.retain(|(k, _)| k != key);
+            self.r17_save_keys();
+            return Some(true);
+        }
         if let Some(i) = id.strip_prefix("r17.styleNum:") {
             return Some(self.r17_style_numbering(i.parse().unwrap_or(0)));
         }
@@ -248,7 +263,20 @@ impl DocWindow {
             .or(self.r3.stash.as_ref())
             .and_then(crate::doc_forms::DocForm::r17_macro_module)
             .or_else(|| self.r17.module.clone());
+        let style_name = self
+            .r3
+            .stash
+            .as_ref()
+            .filter(|f| f.kind == DocFormKind::NewStyle)
+            .map(|f| {
+                f.style_spec()["name"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_owned()
+            });
         json!({
+            "styleName": style_name,
+            "keys": self.r17.keys,
             "bookmarks": marks,
             "current": current,
             "vba": self.r17_vba(),
@@ -750,6 +778,43 @@ impl DocWindow {
                 dim: false,
             })
             .collect()
+    }
+}
+
+impl DocWindow {
+    fn r17_save_keys(&mut self) {
+        let json = serde_json::to_string(&self.r17.keys).unwrap_or_default();
+        self.requests.push(Request::SaveKeys(json));
+    }
+
+    /// The user's style shortcut keys (Customize Keyboard), read by the host at start.
+    pub fn load_key_bindings(&mut self, json: &str) {
+        self.r17.keys = serde_json::from_str(json).unwrap_or_default();
+    }
+
+    /// A style shortcut key pressed in the document applies its style (`None`: not one).
+    pub(super) fn r17_input(&mut self, input: &crate::Input) -> Option<bool> {
+        let crate::Input::Key(k, m) = *input else {
+            return None;
+        };
+        if self.r17.keys.is_empty() || self.r3.form.is_some() || self.menu.is_some() {
+            return None;
+        }
+        let name = crate::doc_forms::r17::key_name(k, m)?;
+        let style = self
+            .r17
+            .keys
+            .iter()
+            .find(|(key, _)| *key == name)?
+            .1
+            .clone();
+        let id = self
+            .view
+            .all_styles()
+            .into_iter()
+            .find(|s| s.name == style || s.id == style)
+            .map(|s| s.id)?;
+        Some(self.r3_run(vec![json!({ "cmd": "applyStyle", "id": id })]))
     }
 }
 

@@ -194,6 +194,9 @@ pub enum Request {
     /// Insert › Screenshot: capture this window and insert it with
     /// [`DocWindow::insert_picture`].
     CaptureWindow(isize),
+    /// Store the user's style shortcut keys (JSON; round 17) and give them back with
+    /// [`DocWindow::load_key_bindings`] in later sessions.
+    SaveKeys(String),
 }
 
 /// A merged e-mail for the system's mail program.
@@ -3093,6 +3096,9 @@ impl DocWindow {
                 }
                 _ => {}
             }
+        }
+        if let Some(redraw) = self.r17_input(&input) {
+            return redraw;
         }
         if let Some(redraw) = self.r16_input(&input) {
             return redraw;

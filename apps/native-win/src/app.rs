@@ -232,6 +232,10 @@ pub fn run() -> Result<(), String> {
     if let Some(text) = watermarks_path().and_then(|p| std::fs::read_to_string(p).ok()) {
         view.load_watermarks(&text);
     }
+    // Style shortcut keys (Customize Keyboard, round 17).
+    if let Some(text) = keys_path().and_then(|p| std::fs::read_to_string(p).ok()) {
+        view.load_key_bindings(&text);
+    }
     // Sizes in the region's unit and decimal separator, as the reference shows them
     // (iMeasure 1: US system, inches). BLUEOFFICE_UNITS=cm|in overrides.
     let inches = match std::env::var("BLUEOFFICE_UNITS").as_deref() {
@@ -830,6 +834,14 @@ impl Shell {
                         redraw |= self.view.insert_picture(png, "Screenshot.png");
                     }
                 }
+                Request::SaveKeys(json) => {
+                    if let Some(path) = keys_path() {
+                        if let Some(dir) = path.parent() {
+                            let _ = std::fs::create_dir_all(dir);
+                        }
+                        let _ = std::fs::write(path, json);
+                    }
+                }
                 Request::SaveWatermarks(json) => {
                     if let Some(path) = watermarks_path() {
                         if let Some(dir) = path.parent() {
@@ -889,6 +901,15 @@ impl Shell {
 
 /// Where Design › Set as Default keeps the defaults of new documents.
 /// The user's building blocks file (round 12); `BLUEOFFICE_BLOCKS` names another one.
+/// BlueOffice's own style shortcut keys file (round 17).
+fn keys_path() -> Option<std::path::PathBuf> {
+    std::env::var_os("APPDATA").map(|d| {
+        std::path::PathBuf::from(d)
+            .join("BlueOffice")
+            .join("bluedoc-keys.json")
+    })
+}
+
 /// BlueOffice's own watermark gallery file (round 17).
 fn watermarks_path() -> Option<std::path::PathBuf> {
     if let Some(p) = std::env::var_os("BLUEOFFICE_WATERMARKS") {

@@ -20,7 +20,29 @@ pub(super) fn handles(kind: DocFormKind) -> bool {
             | DocFormKind::MacroSource
             | DocFormKind::Icons
             | DocFormKind::StyleNumbering
+            | DocFormKind::CustomizeKeyboard
     )
+}
+
+/// The name of a shortcut (`Ctrl+Shift+L`, `Alt+F5`); `None` without Ctrl or Alt, or for a
+/// key a shortcut cannot use.
+pub(crate) fn key_name(k: crate::Key, m: crate::Mods) -> Option<String> {
+    if !m.ctrl && !m.alt {
+        return None;
+    }
+    let key = match k {
+        crate::Key::Letter(c) if c.is_ascii_graphic() => c.to_ascii_uppercase().to_string(),
+        crate::Key::F(n) if (1..=12).contains(&n) => format!("F{n}"),
+        _ => return None,
+    };
+    let mut s = String::new();
+    for (on, name) in [(m.ctrl, "Ctrl+"), (m.alt, "Alt+"), (m.shift, "Shift+")] {
+        if on {
+            s.push_str(name);
+        }
+    }
+    s.push_str(&key);
+    Some(s)
 }
 
 /// Number formats Format ▾ › Numbering… offers a style: (label, §17.18.59 numFmt, lvlText).
@@ -48,6 +70,7 @@ pub(super) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
         DocFormKind::MacroSource => open_source(s, c),
         DocFormKind::Icons => open_icons(s),
         DocFormKind::StyleNumbering => open_style_numbering(s),
+        DocFormKind::CustomizeKeyboard => open_keyboard(s, c),
         _ => open_bookmark(s, c),
     }
 }
@@ -330,6 +353,19 @@ impl DocForm {
                 false,
             ),
             (DocFormKind::Macros, "edit") => FormOut::Stash(DocFormKind::MacroSource),
+            (DocFormKind::CustomizeKeyboard, "assign") => return Some(self.kb_assign()),
+            (DocFormKind::CustomizeKeyboard, "remove") => {
+                let Some(key) = self.sel("current").and_then(|i| self.ids.get(i).cloned()) else {
+                    return Some(FormOut::Redraw);
+                };
+                self.ids.retain(|k| *k != key);
+                let keys = self.ids.clone();
+                self.form.set_items("current", keys, None);
+                FormOut::Run(
+                    vec![json!({ "cmd": "ui.action", "id": format!("r17.key.remove:{key}") })],
+                    false,
+                )
+            }
             _ => FormOut::Redraw,
         })
     }
@@ -385,6 +421,7 @@ impl DocForm {
                     true,
                 )
             }
+            DocFormKind::CustomizeKeyboard => self.kb_assign(),
             DocFormKind::StyleNumbering => FormOut::Run(
                 vec![json!({ "cmd": "ui.action",
                     "id": format!("r17.styleNum:{}", self.sel("formats").unwrap_or(0)) })],
@@ -725,6 +762,132 @@ fn open_video(s: &Strings) -> DocForm {
     f.disable("ok");
     f.form.focus("url");
     f
+}
+
+/// Customize Keyboard (Format ▾ › Shortcut key… of New / Modify Style): the style's
+/// current keys, a box that takes the next Ctrl / Alt combination pressed, Assign / Remove;
+/// the keys are BlueDoc's own (kept per user by the host, like the reference's template).
+fn open_keyboard(s: &Strings, c: &FormContext) -> DocForm {
+    let tr = |k: &str, fb: &str| t(s, k, fb);
+    let style = c.extra["r17"]["styleName"]
+        .as_str()
+        .unwrap_or("Normal")
+        .to_owned();
+    let mut f = DocForm::new(
+        DocFormKind::CustomizeKeyboard,
+        &tr("doc17.kbTitle", "Customize Keyboard"),
+        (560.0, 400.0),
+        vec![],
+    );
+    f.label(
+        "cmdL",
+        [18.0, 47.0, 250.0, 18.0],
+        &tr("doc17.kbCommands", "Commands:"),
+    );
+    f.list(
+        "commands",
+        [18.0, 68.0, 250.0, 120.0],
+        vec![style.clone()],
+        Some(0),
+    );
+    f.label(
+        "curL",
+        [18.0, 200.0, 250.0, 18.0],
+        &tr("doc17.kbCurrent", "Current keys:"),
+    );
+    let current: Vec<String> = c.extra["r17"]["keys"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter(|k| k[1].as_str() == Some(style.as_str()))
+                .filter_map(|k| k[0].as_str().map(str::to_owned))
+                .collect()
+        })
+        .unwrap_or_default();
+    f.list(
+        "current",
+        [18.0, 221.0, 250.0, 100.0],
+        current.clone(),
+        None,
+    );
+    f.label(
+        "newL",
+        [290.0, 200.0, 250.0, 18.0],
+        &tr("doc17.kbPress", "Press new shortcut key:"),
+    );
+    f.edit("newKey", [290.0, 221.0, 252.0, 26.0], "");
+    f.label(
+        "inL",
+        [290.0, 260.0, 250.0, 18.0],
+        &tr("doc17.kbSaveIn", "Save changes in:"),
+    );
+    f.label(
+        "in",
+        [290.0, 280.0, 250.0, 18.0],
+        &tr("doc17.kbBlueDoc", "BlueDoc (this computer)"),
+    );
+    f.label("assignedL", [290.0, 304.0, 252.0, 18.0], "");
+    f.button(
+        "assign",
+        [176.0, 350.0, 111.0, 30.0],
+        &tr("doc17.kbAssign", "Assign"),
+        true,
+    );
+    f.button(
+        "remove",
+        [303.0, 350.0, 111.0, 30.0],
+        &tr("doc17.kbRemove", "Remove"),
+        false,
+    );
+    f.button(
+        "cancel",
+        [431.0, 350.0, 111.0, 30.0],
+        &tr("docR3.close", "Close"),
+        false,
+    );
+    f.ids = current;
+    f.r17 = Some(Box::new(R17 {
+        count_label: style,
+        ..R17::default()
+    }));
+    f.form.focus("newKey");
+    f
+}
+
+impl DocForm {
+    /// Customize Keyboard takes the next Ctrl / Alt combination into its box.
+    pub(super) fn r17_key(&mut self, k: crate::Key, m: crate::Mods) -> bool {
+        if self.kind != DocFormKind::CustomizeKeyboard {
+            return false;
+        }
+        let Some(name) = key_name(k, m) else {
+            return false;
+        };
+        self.set_text("newKey", &name);
+        true
+    }
+
+    fn kb_assign(&mut self) -> FormOut {
+        let key = self.text("newKey");
+        if key.trim().is_empty() {
+            return FormOut::Redraw;
+        }
+        let style = self
+            .r17
+            .as_ref()
+            .map(|r| r.count_label.clone())
+            .unwrap_or_default();
+        if !self.ids.contains(&key) {
+            self.ids.push(key.clone());
+        }
+        let keys = self.ids.clone();
+        self.form.set_items("current", keys, None);
+        self.set_text("newKey", "");
+        FormOut::Run(
+            vec![json!({ "cmd": "ui.action", "id": format!("r17.key.assign:{key}\u{1f}{style}") })],
+            false,
+        )
+    }
 }
 
 /// Format ▾ › Numbering… of New / Modify Style: the numbering the style's paragraphs get.

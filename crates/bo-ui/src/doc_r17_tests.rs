@@ -260,3 +260,33 @@ fn style_format_numbering_gives_the_new_style_a_list() {
     let spec = f.style_spec();
     assert!(spec["numId"].as_i64().unwrap_or(0) > 0, "{spec}");
 }
+
+#[test]
+fn style_shortcut_key_assigned_and_applied() {
+    let mut w = window();
+    w.run_interface_command("text:Make me a heading", &Fixed);
+    assert!(w.action("styles.modify:Heading1"));
+    assert!(w.action("r13.styleFmt.shortcut"));
+    assert_eq!(
+        w.r3.form.as_ref().map(|f| f.kind),
+        Some(DocFormKind::CustomizeKeyboard)
+    );
+    let f = w.r3.form.as_mut().expect("keyboard");
+    let m = crate::Mods {
+        ctrl: true,
+        alt: true,
+        shift: false,
+    };
+    f.input(&Input::Key(crate::Key::Letter('1'), m));
+    assert_eq!(f.text("newKey"), "Ctrl+Alt+1");
+    let out = f.r17_ok();
+    w.form_out(out);
+    assert!(w
+        .take_requests()
+        .iter()
+        .any(|r| matches!(r, Request::SaveKeys(j) if j.contains("Ctrl+Alt+1"))));
+    w.r3.form = None;
+    w.r3.stash = None;
+    w.handle(Input::Key(crate::Key::Letter('1'), m), &Fixed);
+    assert_eq!(w.view.format().style.as_deref(), Some("Heading1"));
+}

@@ -194,6 +194,8 @@ pub(crate) enum DocFormKind {
     Icons,
     /// New / Modify Style › Format ▾ › Numbering… (round 17).
     StyleNumbering,
+    /// New / Modify Style › Format ▾ › Shortcut key… (Customize Keyboard, round 17).
+    CustomizeKeyboard,
 }
 
 /// What the owner does after an input.
@@ -783,6 +785,7 @@ impl DocForm {
         let ev = match input {
             Input::Text(s) => self.form.type_text(s),
             Input::Key(Key::Escape, _) => Event::Cancel,
+            Input::Key(k, m) if self.r17_key(*k, *m) => return FormOut::Redraw,
             Input::Key(k, m) => self.form.key(*k, *m),
             Input::Move { x, y } => {
                 self.pointer = (*x, *y);
@@ -1117,7 +1120,8 @@ impl DocForm {
             | DocFormKind::OnlineVideo
             | DocFormKind::MacroSource
             | DocFormKind::Icons
-            | DocFormKind::StyleNumbering => FormOut::Close,
+            | DocFormKind::StyleNumbering
+            | DocFormKind::CustomizeKeyboard => FormOut::Close,
             DocFormKind::Toc => {
                 let levels = self.form.num("levels").clamp(1, 9);
                 let mut instr = match &self.toc_map {
@@ -3245,7 +3249,8 @@ pub(crate) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
         | DocFormKind::OnlineVideo
         | DocFormKind::MacroSource
         | DocFormKind::Icons
-        | DocFormKind::StyleNumbering => r17::open(kind, s, c),
+        | DocFormKind::StyleNumbering
+        | DocFormKind::CustomizeKeyboard => r17::open(kind, s, c),
         DocFormKind::Zoom => {
             let mut f = DocForm::new(kind, &tr("docR4.zoomTitle", "Zoom"), (381.0, 258.0), vec![]);
             f.label(

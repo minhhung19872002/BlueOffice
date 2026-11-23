@@ -223,12 +223,12 @@ fn immersive_reader_tab_column_color_spacing_and_close() {
     let v = w.view.engine().view_layout();
     assert_eq!(v.mode, bo_engine::views::ViewMode::Immersive);
     assert!(v.immersive.spacing);
-    assert!((v.immersive.column - 432.0).abs() < 0.1);
+    assert!((v.immersive.column - 408.0).abs() < 0.1);
     assert!(w.r17_on_ids().contains(&"ir.textSpacing"));
     assert!(w.action("ir.column.0"));
     assert!(w.action("ir.color.1"));
     let v = w.view.engine().view_layout();
-    assert!((v.immersive.column - 216.0).abs() < 0.1);
+    assert!((v.immersive.column - 204.0).abs() < 0.1);
     assert_eq!(v.immersive.color, 1);
     assert!(w.action("ir.textSpacing"));
     assert!(!w.view.engine().view_layout().immersive.spacing);

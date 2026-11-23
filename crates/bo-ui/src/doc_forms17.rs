@@ -144,6 +144,8 @@ fn open_bookmark(s: &Strings, c: &FormContext) -> DocForm {
         f.bm_choose(&n);
     }
     f.form.focus("name");
+    // The name is selected in its box, as the reference opens.
+    f.form.select_all("name");
     f
 }
 
@@ -211,6 +213,15 @@ impl DocForm {
         );
         self.form.enable("delete", exists);
         self.form.enable("goTo", exists);
+        // The reference shows Go To as the default-looking button once a bookmark of the
+        // list is named, Add otherwise.
+        for (id, on) in [("add", !exists), ("goTo", exists)] {
+            if let Some(super::form::Kind::Button { default, .. }) =
+                self.form.get_mut(id).map(|c| &mut c.kind)
+            {
+                *default = on;
+            }
+        }
     }
 
     pub(super) fn r17_changed(&mut self, id: &str) {
@@ -422,15 +433,14 @@ fn open_object(s: &Strings, _c: &FormContext) -> DocForm {
         [32.0, 260.0, 464.0, 128.0],
         super::form::Kind::Group(tr("doc17.objResult", "Result")),
     );
-    f.label_on(
-        0,
-        "result",
-        [134.0, 280.0, 350.0, 40.0],
-        &tr(
-            "doc17.objResultNew",
-            "Inserts a new BlueSheet Worksheet object into your document.",
-        ),
+    let new_text = tr(
+        "doc17.objResultNew",
+        "Inserts a new BlueSheet Worksheet object into your document.",
     );
+    for (i, line) in wrap(&new_text, 44).iter().take(3).enumerate() {
+        let id = ["result", "resultB", "resultC"][i];
+        f.label_on(0, id, [134.0, 280.0 + 22.0 * i as f32, 350.0, 20.0], line);
+    }
     f.label_on(
         1,
         "fileL",
@@ -457,15 +467,14 @@ fn open_object(s: &Strings, _c: &FormContext) -> DocForm {
         [32.0, 260.0, 464.0, 128.0],
         super::form::Kind::Group(tr("doc17.objResult", "Result")),
     );
-    f.label_on(
-        1,
-        "result2",
-        [134.0, 280.0, 350.0, 60.0],
-        &tr(
-            "doc17.objResultFile",
-            "Inserts the contents of the workbook into your document so that you can edit it later with BlueSheet.",
-        ),
+    let file_text = tr(
+        "doc17.objResultFile",
+        "Inserts the contents of the workbook into your document so that you can edit it later with BlueSheet.",
     );
+    for (i, line) in wrap(&file_text, 44).iter().take(4).enumerate() {
+        let id = ["result2", "result2B", "result2C", "result2D"][i];
+        f.label_on(1, id, [134.0, 280.0 + 22.0 * i as f32, 350.0, 20.0], line);
+    }
     f.button(
         "ok",
         [510.0, 416.0, 111.0, 30.0],
@@ -479,6 +488,21 @@ fn open_object(s: &Strings, _c: &FormContext) -> DocForm {
         false,
     );
     f
+}
+
+/// `text` in lines of at most `n` characters, broken at spaces.
+fn wrap(text: &str, n: usize) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for w in text.split_whitespace() {
+        match out.last_mut() {
+            Some(l) if l.chars().count() + 1 + w.chars().count() <= n => {
+                l.push(' ');
+                l.push_str(w);
+            }
+            _ => out.push(w.to_owned()),
+        }
+    }
+    out
 }
 
 /// Public `Sub` procedures without parameters of a module's source: the macros a user can

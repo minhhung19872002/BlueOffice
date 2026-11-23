@@ -71,12 +71,8 @@ pub(crate) const MORE_BUTTONS: [&str; 3] = ["view.macros", "view.vertical", "vie
 
 /// Features of the reference BlueDoc does not have: shown dimmed, as the brief says
 /// ("-free"), so the tab keeps the reference's layout.
-pub(crate) const UNAVAILABLE: [&str; 4] = [
-    "insert.models3d",
-    "insert.equation.ink",
-    "insert.table.draw",
-    "view.newWindow",
-];
+pub(crate) const UNAVAILABLE: [&str; 3] =
+    ["insert.equation.ink", "insert.table.draw", "view.newWindow"];
 
 /// Every `&'static` id of round 4.
 pub(crate) fn static_id(id: &str) -> Option<&'static str> {

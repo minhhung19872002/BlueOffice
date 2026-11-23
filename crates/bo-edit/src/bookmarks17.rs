@@ -220,7 +220,10 @@ mod tests {
             focus: Pos::new(1, 4),
         });
         s.add_bookmark("Muc1").expect("add");
-        assert!(s.add_bookmark("_Hidden").is_err(), "names start with a letter");
+        assert!(
+            s.add_bookmark("_Hidden").is_err(),
+            "names start with a letter"
+        );
         let list = s.bookmark_list();
         assert_eq!(list.len(), 1);
         let m = list.iter().find(|b| b.name == "Muc1").expect("Muc1");

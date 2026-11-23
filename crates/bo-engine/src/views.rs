@@ -110,7 +110,7 @@ pub fn view_document(doc: &Document, view: ViewLayout) -> Option<Document> {
 }
 
 /// Text Spacing and Page Color of the Immersive Reader on the view copy: every paragraph
-/// gets 2.5 lines (§17.3.1.33 spacing) and every run 5 pt more character spacing
+/// gets 2.125 lines (§17.3.1.33 spacing) and every run 4 pt more character spacing
 /// (§17.3.2.35 spacing); sepia or black page (§17.2.1 background), white text on black.
 fn immersive_copy(d: &mut Document, im: Immersive) {
     fn walk(blocks: &mut [bo_model::Block], f: &dyn Fn(&mut bo_model::Paragraph)) {
@@ -131,11 +131,11 @@ fn immersive_copy(d: &mut Document, im: Immersive) {
     let inverse = im.color == 2;
     let edit = |p: &mut bo_model::Paragraph| {
         if im.spacing {
-            p.props.line_spacing = Some(bo_model::LineSpacing::Auto(600));
+            p.props.line_spacing = Some(bo_model::LineSpacing::Auto(510));
         }
         for r in &mut p.runs {
             if im.spacing {
-                r.props.spacing = Some(Twips(100));
+                r.props.spacing = Some(Twips(80));
             }
             if inverse {
                 r.props.color = bo_model::Color::from_hex("FFFFFF");

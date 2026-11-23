@@ -782,6 +782,7 @@ impl Shell {
                             "Pictures (*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.tif;*.tiff)",
                             "*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.tif;*.tiff",
                         )],
+                        "models" => &[("3D Models (*.glb;*.gltf)", "*.glb;*.gltf")],
                         _ => &[("All files (*.*)", "*.*")],
                     };
                     // BLUEOFFICE_PICK (a path) skips the dialog, for scripted comparisons.

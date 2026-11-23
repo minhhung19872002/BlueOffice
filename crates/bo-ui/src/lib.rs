@@ -21,6 +21,7 @@ mod doc_fontpal16;
 mod doc_forms;
 mod doc_goto;
 mod doc_grouppop16;
+mod doc_model3d17;
 mod doc_outline;
 mod doc_quick12;
 mod doc_r3_menus;

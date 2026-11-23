@@ -37,6 +37,8 @@ pub(super) struct R17 {
     voice: usize,
     /// Page Movement › Side to Side: the zoom to go back to with Vertical.
     pub(super) side: Option<f32>,
+    /// The rulers were shown before the Immersive Reader hid them.
+    ruler_before: Option<bool>,
 }
 
 /// View › Immersive Reader: column width (0 very narrow … 3 wide), page colour (0 none,
@@ -50,7 +52,7 @@ pub(super) struct Immersive {
 }
 
 /// Text column widths of the Immersive Reader in points (Wide: the whole window).
-const COLUMNS: [f32; 4] = [216.0, 324.0, 432.0, 0.0];
+const COLUMNS: [f32; 4] = [204.0, 306.0, 408.0, 0.0];
 
 /// Immersive Reader menus: (id, English label).
 const COLUMN_MENU: [(&str, &str); 4] = [
@@ -72,7 +74,8 @@ const FOCUS_MENU: [(&str, &str); 4] = [
 ];
 
 /// Commands of round 17 that are no longer dimmed: (id, `&'static` id).
-pub(crate) const IDS: [&str; 20] = [
+pub(crate) const IDS: [&str; 21] = [
+    "insert.models3d",
     "insert.screenshot",
     "view.sideToSide",
     "view.immersiveReader",
@@ -110,6 +113,9 @@ impl DocWindow {
     pub(super) fn r17_action(&mut self, id: &str) -> Option<bool> {
         // Another view closes the Immersive Reader first.
         if id.starts_with("view.layout.") && self.r17.immersive.take().is_some() {
+            if let Some(r) = self.r17.ruler_before.take() {
+                self.show_ruler = r;
+            }
             self.sync_context();
         }
         if let Some(p) = id.strip_prefix("r17.pick:") {
@@ -117,6 +123,7 @@ impl DocWindow {
                 "object" => "workbooks",
                 "textFromFile" => "documents",
                 "watermark" => "pictures",
+                "model3d" => "models",
                 _ => "all",
             };
             self.requests.push(Request::PickFile {
@@ -190,6 +197,8 @@ impl DocWindow {
                 true
             }
             "insert.icons" => self.r3_open_form(DocFormKind::Icons),
+            // 3D Models: a glTF model from a file, drawn by BlueOffice's renderer.
+            "insert.models3d" => return self.r17_action("r17.pick:model3d"),
             "insert.screenshot" => {
                 self.requests.push(Request::ListScreenshotWindows);
                 false
@@ -282,6 +291,15 @@ impl DocWindow {
                     f.r17_set_file(&name, path, &b64);
                 }
                 true
+            }
+            "model3d" => {
+                let Some(png) = crate::doc_model3d17::render(bytes) else {
+                    return false;
+                };
+                let stem = name.rsplit_once('.').map_or(name.as_str(), |(s, _)| s);
+                let ok = self.view.insert_picture(png, &format!("{stem}.png"));
+                self.sync_context();
+                ok
             }
             "watermark" => {
                 let b64 = base64::engine::general_purpose::STANDARD.encode(bytes);
@@ -515,6 +533,11 @@ impl DocWindow {
                 if self.read_mode.is_some() {
                     self.leave_read_mode();
                 }
+                // No rulers in the Immersive Reader, as the reference.
+                if self.r17.ruler_before.is_none() {
+                    self.r17.ruler_before = Some(self.show_ruler);
+                }
+                self.show_ruler = false;
                 self.r17.immersive = Some(Immersive {
                     column: 2,
                     color: 0,
@@ -526,6 +549,10 @@ impl DocWindow {
             }
             "ir.close" => {
                 self.r17.immersive = None;
+                if let Some(r) = self.r17.ruler_before.take() {
+                    self.show_ruler = r;
+                }
+                self.relayout_pending = true;
                 self.view_mode = "print";
                 let ok = self.r3_run(vec![json!({ "cmd": "setViewLayout", "mode": "print" })]);
                 self.sync_context();

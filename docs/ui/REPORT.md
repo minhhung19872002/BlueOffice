@@ -889,6 +889,12 @@ Còn: vị trí dọc hình mờ xoay — dữ liệu vòng 7 cho thấy với `
 ảnh đối chiếu cho hiệu ứng tô nền và đo màu / dải chuyển màu (sigma) thật; kiểm vị trí ký hiệu ^ / # với bản đối chiếu;
 màu tô ô theo dõi thay đổi trong bảng.
 
+Kiểm tra vòng 8: bo-layout (gồm ảnh chụp insta, không đổi), bo-docx, bo-model, bo-render, bo-raster, bo-gpu-win (`incremental`),
+`cargo test -p bo-cli` 46 / 46, test Hiệu ứng tô nền của bo-ui, test bo-engine `page_fill` / `page_design` / `markup` / `print_job` / `collab_objects` (debug, 41 test),
+canvas-host 57 / 57 + `tsc`; clippy sạch (bo-layout, bo-render, bo-raster, bo-docx, bo-model, bo-edit, bo-engine, bo-ui).
+`cargo test --release -p bo-engine`, `pnpm build:wasm` (release) + `pnpm --filter @blueoffice/platform test`: chạy trên cây
+đã gộp vào `main` (một lần build release chung, theo kế hoạch của main). Xuất PDF đối chiếu ngừng được cả vòng (xem đầu mục).
+
 Ảnh (đối chiếu trái, BlueDoc trước, BlueDoc sau; tô nền: trước | sau, chưa có cột đối chiếu):
 `scratchpad/show/docfid-54-page-fill-effects-gallery.png`, `docfid-55-picture-fill-smoothing.png`,
 `docfid-56-drop-caps-layout01.png`, `docfid-57-drop-caps-gen14.png`, `docfid-58-merged-cell-across-pages-office32.png`.

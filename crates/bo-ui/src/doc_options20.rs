@@ -199,7 +199,6 @@ pub(super) fn add_pages(f: &mut Form, s: &Strings, p: &super::options6::DocPrefs
             "View and manage the add-ins of BlueDoc.",
         ),
     );
-    heading(f, "aHead", ADDINS, 130.0, t("doc20.addinsHead", "Add-ins"));
     // The reference's table: Name / Location / Type, active and inactive groups.
     f.add(
         "aTable",
@@ -402,7 +401,7 @@ pub(super) fn addin_rows(s: &Strings) -> (Vec<[String; 3]>, Vec<[String; 3]>) {
         if k == "doc20.aiWeb" {
             inactive.push([
                 row[0].clone(),
-                tr(s, "doc20.aiServer", "Organisation catalog (not connected)"),
+                tr(s, "doc20.aiServer", "Organisation catalog"),
                 row[2].clone(),
             ]);
         } else {
@@ -422,11 +421,11 @@ pub(super) fn paint_addins(
     t: &AddinTable,
 ) {
     use bo_render::Rgba;
-    let size = (base * 1.3).round();
+    let size = base.round();
     let st = crate::TextStyle { size, bold: false };
     let bold = crate::TextStyle { size, bold: true };
     let row_h = (size * 1.6).round();
-    let cols = [r[0] + 6.0 * k, r[0] + 330.0 * k, r[0] + 590.0 * k];
+    let cols = [r[0] + 6.0 * k, r[0] + 380.0 * k, r[0] + 620.0 * k];
     let ink = Rgba(0x26, 0x26, 0x26, 255);
     let grey = Rgba(0x60, 0x60, 0x60, 255);
     let mut y = r[1];

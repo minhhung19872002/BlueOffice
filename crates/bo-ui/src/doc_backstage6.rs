@@ -1084,7 +1084,8 @@ impl DocBackstage {
                 sep,
             );
         }
-        if let Some((_, r, _, _)) = rows.last() {
+        // Above Account (round 20), which stands over Options.
+        if let Some((_, r, _, _)) = rows.iter().rev().nth(1) {
             p.fill_rect(
                 self.px(27.0),
                 (r[1] - self.px(8.0)).round(),

@@ -81,7 +81,7 @@ pub(super) fn paint(b: &DocBackstage, p: &mut dyn Painter, t: &Theme, s: &String
         &tr(
             s,
             "doc20.userHint",
-            "Comments and tracked changes carry this name (File › Options › General).",
+            "Shown on your comments and tracked changes.",
         ),
         ax + r + b.px(18.0),
         ay + b.px(4.0),
@@ -89,7 +89,7 @@ pub(super) fn paint(b: &DocBackstage, p: &mut dyn Painter, t: &Theme, s: &String
         MUTED,
     );
     // Product Information.
-    let px = cx + b.px(560.0).min((b.size.0 - cx) / 2.0);
+    let px = cx + b.px(500.0);
     b.heading(
         p,
         &tr(s, "doc20.productInfo", "Product Information"),
@@ -143,15 +143,7 @@ pub(super) fn paint(b: &DocBackstage, p: &mut dyn Painter, t: &Theme, s: &String
             small,
             MUTED,
         ),
-        (
-            tr(
-                s,
-                "doc20.noSignIn",
-                "No sign-in needed: documents stay on this computer or your organisation's BlueOffice server.",
-            ),
-            small,
-            MUTED,
-        ),
+        (tr(s, "doc20.noSignIn", "No sign-in needed."), small, MUTED),
     ];
     let mut ly = my;
     for (text, st, c) in lines {

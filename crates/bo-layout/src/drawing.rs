@@ -294,20 +294,60 @@ pub(crate) fn text_path_outline(
     let text = t.text.replace(['\r', '\n'], " ");
     let glyphs = ctx.fonts.shape(face, &text);
     let info = ctx.fonts.info(face);
-    let (asc, desc) = (f64::from(info.ascender), f64::from(info.descender));
+    let upem = f64::from(info.units_per_em.max(1));
     let advance: f64 = glyphs.iter().map(|g| f64::from(g.x_advance)).sum();
-    if advance <= 0.0 || asc - desc <= 0.0 {
-        return Vec::new();
-    }
-    let (sx, sy) = (w / advance, h / (asc - desc));
-    let mut segs = Vec::new();
+    // Glyph outlines in font units (y up), each moved to its pen position.
+    let mut placed: Vec<(f64, f64, Vec<OutlineCmd>)> = Vec::with_capacity(glyphs.len());
     let mut pen = 0.0f64;
     for g in glyphs.iter() {
         let ox = pen + f64::from(g.x_offset);
-        let oy = f64::from(g.y_offset);
+        placed.push((
+            ox,
+            f64::from(g.y_offset),
+            ctx.fonts.outline(face, g.glyph_id),
+        ));
+        pen += f64::from(g.x_advance);
+    }
+    // Measured black-box in the reference word processor's PDF export (docs/ui/REPORT.md
+    // "Dàn trang vòng 7", watermarks it wrote itself): with §19.1.2.23 `trim` the ink of
+    // the text fills the box both ways; without it the advance spans the width, the em
+    // spans the height and the baseline sits 0.9745 × ascent / (ascent + descent) of the
+    // box from its top (Calibri 0.731, Times New Roman 0.784, Arial 0.788 of the height).
+    let (sx, sy, x0, y0) = if t.trim {
+        let mut ink = [f64::MAX, f64::MAX, f64::MIN, f64::MIN];
+        for (ox, oy, cmds) in &placed {
+            for c in cmds {
+                let pts: &[(f32, f32)] = &match *c {
+                    OutlineCmd::MoveTo(x, y) | OutlineCmd::LineTo(x, y) => vec![(x, y)],
+                    OutlineCmd::QuadTo(a, b, x, y) => vec![(a, b), (x, y)],
+                    OutlineCmd::CubicTo(a, b, c, d, x, y) => vec![(a, b), (c, d), (x, y)],
+                    OutlineCmd::Close => vec![],
+                };
+                for &(x, y) in pts {
+                    let (x, y) = (ox + f64::from(x), oy + f64::from(y));
+                    ink = [ink[0].min(x), ink[1].min(y), ink[2].max(x), ink[3].max(y)];
+                }
+            }
+        }
+        if ink[2] <= ink[0] || ink[3] <= ink[1] {
+            return Vec::new();
+        }
+        (w / (ink[2] - ink[0]), h / (ink[3] - ink[1]), ink[0], ink[3])
+    } else {
+        let (asc, desc) = text_path_metrics(ctx.fonts, face);
+        if advance <= 0.0 || asc + desc <= 0.0 {
+            return Vec::new();
+        }
+        let sy = h / upem;
+        // The baseline's height above the box top in font units.
+        let base = 0.9745 * asc / (asc + desc) * h / sy;
+        (w / advance, sy, 0.0, base)
+    };
+    let mut segs = Vec::new();
+    for (ox, oy, cmds) in placed {
         // Font units, y up → box points, y down from the top of the box.
-        let p = |x: f32, y: f32| tf((ox + f64::from(x)) * sx, (asc - oy - f64::from(y)) * sy);
-        for c in ctx.fonts.outline(face, g.glyph_id) {
+        let p = |x: f32, y: f32| tf((ox + f64::from(x) - x0) * sx, (y0 - oy - f64::from(y)) * sy);
+        for c in cmds {
             segs.push(match c {
                 OutlineCmd::MoveTo(x, y) => {
                     let (x, y) = p(x, y);
@@ -328,7 +368,24 @@ pub(crate) fn text_path_outline(
                 OutlineCmd::Close => PathCmd::Z,
             });
         }
-        pen += f64::from(g.x_advance);
     }
     segs
+}
+
+/// Ascent and descent (font units, both positive) a text path is fitted with: the
+/// typographic ones when they span exactly one em (Calibri and its stand-in Carlito,
+/// whose `hhea` metrics differ from Calibri's), else the `hhea` ones.
+fn text_path_metrics(fonts: &bo_text::FontManager, face: bo_text::FaceId) -> (f64, f64) {
+    let info = fonts.info(face);
+    let hhea = (f64::from(info.ascender), -f64::from(info.descender));
+    let typo = fonts.face(face).and_then(|f| {
+        Some((
+            f64::from(f.typographic_ascender()?),
+            -f64::from(f.typographic_descender()?),
+        ))
+    });
+    match typo {
+        Some((a, d)) if (a + d - f64::from(info.units_per_em)).abs() < 1.0 => (a, d),
+        _ => hhea,
+    }
 }

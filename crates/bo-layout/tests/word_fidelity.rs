@@ -1386,3 +1386,114 @@ fn a_first_line_beside_a_wrapped_object_keeps_its_indent() {
     );
     assert!((x(1) - edge).abs() < 0.1, "second line at {}", x(1));
 }
+
+#[test]
+fn a_path_breaks_before_its_slash() {
+    // gen-20: the reference word processor starts the next line with "/the/end…".
+    let url = "https://example.com/a/very/long/path/that/keeps/going/and/going/without/any/\
+               space/at/all/until/the/end/of/the/line/and/more";
+    let d = doc(vec![para(url, 0, 0, SINGLE)]);
+    let l = run(&d);
+    let ls = lines(&l, 0);
+    assert!(ls.len() > 1);
+    for line in &ls[1..] {
+        let text: String = line.fragments.iter().map(|f| f.text.as_str()).collect();
+        assert!(text.starts_with('/'), "{text:?}");
+    }
+}
+
+#[test]
+fn single_words_beside_a_picture_go_right_and_long_words_move_below_it() {
+    // Round 7 (gen-16, calibration sw-a … sw-g): in a justified paragraph, a segment
+    // right of a wrapped picture holding one word puts it at the segment's right end; a
+    // word wider than the segment but not the column moves below the picture, unbroken.
+    let (pic_w, pic_h) = (395.0_f32, 300.0_f32);
+    let pic = RunContent::Image(Box::new(Image {
+        media: "/word/media/image1.png".into(),
+        width: Emu((pic_w * 12_700.0) as i64),
+        height: Emu((pic_h * 12_700.0) as i64),
+        anchor: Some(Anchor {
+            h_relative: "column".into(),
+            v_relative: "paragraph".into(),
+            x: Emu(0),
+            y: Emu(0),
+            wrap: Wrap::Square,
+            wrap_text: bo_model::WrapText::BothSides,
+            dist: [Emu(0), Emu(0), Emu(114_300), Emu(114_300)],
+            ..Default::default()
+        }),
+        crop: None,
+        rotation: 0,
+        description: String::new(),
+        shape: None,
+        format: None,
+        src: None,
+        ole: None,
+    }));
+    let words = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi \
+                 omicron pi rho sigma tau upsilon phi chi psi omega extraordinary a bb ccc \
+                 internationalisation dddd e ff ggg ";
+    let mut r = Run::text(words.repeat(3), RunProps::default());
+    r.content.insert(0, pic);
+    let d = doc(vec![Block::Paragraph(Paragraph::new(
+        ParaProps {
+            space_before: Some(Twips(0)),
+            space_after: Some(Twips(0)),
+            line_spacing: Some(SINGLE),
+            align: Some(Alignment::Justify),
+            ..ParaProps::default()
+        },
+        vec![r],
+    ))]);
+    let l = run(&d);
+    let ls = lines(&l, 0);
+    let right = 595.3 - 72.0;
+    let bottom = 72.0 + pic_h;
+    let mut lone = 0;
+    for (k, line) in ls.iter().enumerate() {
+        let text: String = line.fragments.iter().map(|f| f.text.as_str()).collect();
+        let word = text.trim();
+        if word.is_empty() || k + 1 == ls.len() {
+            continue;
+        }
+        if line.top + line.height <= bottom && !word.contains(' ') {
+            // The fragment ends with the trailing space, which hangs past the edge.
+            let end = line
+                .fragments
+                .iter()
+                .map(|f| f.x + f.width)
+                .fold(f32::MIN, f32::max);
+            let start = line.fragments[0].x;
+            assert!(
+                start > 72.0 + pic_w + 9.0 + 1.0,
+                "{word:?} starts at {start}"
+            );
+            assert!(
+                end > right - 0.1 && end < right + 4.0,
+                "{word:?} ends at {end}"
+            );
+            lone += 1;
+        }
+        if word.starts_with("internationalisation") {
+            assert!(line.top >= bottom - 0.5, "{word:?} at {}", line.top);
+            assert!((line.fragments[0].x - 72.0).abs() < 0.1);
+        }
+        assert!(
+            !word.ends_with("internationalisatio"),
+            "the long word is not broken: {word:?}"
+        );
+    }
+    assert!(
+        lone > 0,
+        "no single-word segment in the test: {:?}",
+        ls.iter()
+            .map(|l| (
+                l.top,
+                l.fragments
+                    .iter()
+                    .map(|f| f.text.as_str())
+                    .collect::<String>()
+            ))
+            .collect::<Vec<_>>()
+    );
+}

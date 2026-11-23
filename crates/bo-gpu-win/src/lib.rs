@@ -200,6 +200,60 @@ mod tests {
     }
 
     #[test]
+    fn shading_pattern_tiles_device_pixels_from_the_page_origin() {
+        // §17.18.78 on screen: an 8 × 8 device-pixel tile anchored at the page's top-left
+        // pixel, at any scale and in a band render alike.
+        use bo_render::{Command, PageList, Rgba};
+        let device = super::Device::new().expect("Direct2D hardware or WARP");
+        let tile = [0x80, 0x40, 0x20, 0x10, 0x08, 0x04, 0x02, 0x01];
+        let (fg, bg) = (Rgba(255, 0, 0, 255), Rgba(255, 255, 0, 255));
+        let page = PageList {
+            width: 40.0,
+            height: 40.0,
+            commands: vec![
+                Command::FillRect {
+                    x: 2.0,
+                    y: 3.0,
+                    w: 30.0,
+                    h: 30.0,
+                    color: Rgba(255, 128, 0, 255),
+                },
+                Command::FillPattern {
+                    x: 2.0,
+                    y: 3.0,
+                    w: 30.0,
+                    h: 30.0,
+                    tile,
+                    fg,
+                    bg,
+                },
+            ],
+        };
+        let fonts = bo_text::FontManager::new();
+        for ppp in [1.25_f32, 2.5] {
+            let full = device.render_page(&page, &fonts, ppp, &|_| None).unwrap();
+            let px = |img: &crate::PageImage, x: u32, y: u32| {
+                let i = ((y * img.width + x) * 4) as usize;
+                [img.pixels[i], img.pixels[i + 1], img.pixels[i + 2]]
+            };
+            for (x, y) in [(10, 10), (11, 10), (13, 21), (21, 13), (30, 30), (31, 29)] {
+                let want = if x % 8 == y % 8 {
+                    [255, 0, 0]
+                } else {
+                    [255, 255, 0]
+                };
+                assert_eq!(px(&full, x, y), want, "pixel {x},{y} at {ppp}");
+            }
+            let band = device
+                .render_page_region(&page, &fonts, ppp, &|_| None, Some([5, 9, 20, 20]))
+                .unwrap();
+            for (x, y) in [(0, 0), (3, 7), (11, 2), (19, 19)] {
+                assert_eq!(px(&band, x, y), px(&full, x + 5, y + 9), "band {x},{y}");
+            }
+        }
+    }
+
+    #[test]
     fn rectangular_clip_limits_drawing() {
         use bo_render::{Command, PageList, Rgba};
         let device = super::Device::new().expect("Direct2D hardware or WARP");

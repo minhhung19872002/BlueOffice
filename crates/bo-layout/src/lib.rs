@@ -54,7 +54,7 @@ pub use sigline::signature_line_page;
 pub use style::{author_color, para_props, ListCounters};
 pub use types::{
     stacked, Carets, Fragment, GlyphPos, Layer, LayoutDocument, Line, LineRotation, LineSource,
-    NoteKey, Page, PageDecor, PageItem, PathCmd, ShapePath, SharedStr,
+    NoteKey, Page, PageDecor, PageItem, PathCmd, ShadePattern, ShapePath, SharedStr,
 };
 
 use bo_model::change::BlockChanges;
@@ -106,7 +106,13 @@ fn number_notes(doc: &Document) -> (HashMap<NoteKey, String>, Vec<i32>, bool, bo
     let mut needs_total = false;
     let mut fields = false;
     for (si, s) in doc.sections.iter().enumerate() {
-        let (fp, ep) = (&doc.footnote_props(si), &doc.endnote_props(si));
+        let (mut fp, ep) = (doc.footnote_props(si), &doc.endnote_props(si));
+        // The reference word processor numbers footnotes from the section's own
+        // footnotePr only: a document-wide numFmt / numStart is ignored (measured
+        // black-box: notes-05, upperRoman from 3 document-wide shows "1",
+        // docs/ui/REPORT.md "Dàn trang vòng 7").
+        fp.fmt.clone_from(&s.footnote_pr.fmt);
+        fp.start = s.footnote_pr.start;
         if si == 0 || fp.restart == Some(NoteRestart::EachSect) {
             foot = fp.start.map_or(0, |n| n as i32 - 1);
         }
@@ -163,9 +169,12 @@ fn page_note_numbers(
     let mut earlier: std::collections::HashSet<i32> = std::collections::HashSet::new();
     for p in pages {
         let numbered = each(p.section);
-        let s = &doc.footnote_props(p.section);
-        let fmt = s.fmt.clone().unwrap_or(NumFormat::Decimal);
-        let mut n = s.start.map_or(0, |n| n as i32 - 1);
+        // Numbering from the section's own footnotePr (see `number_notes`).
+        let own = doc.sections.get(p.section).map(|s| &s.footnote_pr);
+        let fmt = own
+            .and_then(|s| s.fmt.clone())
+            .unwrap_or(NumFormat::Decimal);
+        let mut n = own.and_then(|s| s.start).map_or(0, |n| n as i32 - 1);
         let mut seen = Vec::new();
         for l in &p.lines {
             if let LineSource::Note {

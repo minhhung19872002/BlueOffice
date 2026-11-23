@@ -49,6 +49,25 @@ fn paint(c: Rgba) -> Paint<'static> {
     p
 }
 
+/// 8 × 8 pixmap of a shading pattern tile (`FillPattern`: bit 7 = left column, set bits
+/// `fg`, others `bg`).
+fn pattern_tile(tile: [u8; 8], fg: Rgba, bg: Rgba) -> Option<Pixmap> {
+    let mut pm = Pixmap::new(8, 8)?;
+    for (y, row) in tile.iter().enumerate() {
+        for x in 0..8 {
+            let c = if row & (0x80 >> x) != 0 { fg } else { bg };
+            let a = u16::from(c.3);
+            let pre = |v: u8| ((u16::from(v) * a + 127) / 255) as u8;
+            if let Some(px) =
+                tiny_skia::PremultipliedColorU8::from_rgba(pre(c.0), pre(c.1), pre(c.2), c.3)
+            {
+                pm.pixels_mut()[y * 8 + x] = px;
+            }
+        }
+    }
+    Some(pm)
+}
+
 /// Encoded images (PNG or JPEG) referenced by `Image` commands, keyed by id.
 pub type Images = BTreeMap<String, Vec<u8>>;
 
@@ -125,6 +144,35 @@ fn render_onto(
             Command::FillRect { x, y, w, h, color } => {
                 if let Some(r) = Rect::from_xywh(*x, *y, *w, *h) {
                     pm.fill_rect(r, &paint(fade(*color, alpha)), t, mask.as_ref());
+                }
+            }
+            Command::FillPattern {
+                x,
+                y,
+                w,
+                h,
+                tile,
+                fg,
+                bg,
+            } => {
+                if let (Some(r), Some(tile)) = (
+                    Rect::from_xywh(*x, *y, *w, *h),
+                    pattern_tile(*tile, *fg, *bg),
+                ) {
+                    // §17.18.78 on screen: device pixels, anchored at the page origin.
+                    let shader = Pattern::new(
+                        tile.as_ref(),
+                        SpreadMode::Repeat,
+                        FilterQuality::Nearest,
+                        alpha,
+                        t.invert().unwrap_or_default(),
+                    );
+                    let p = Paint {
+                        shader,
+                        anti_alias: false,
+                        ..Paint::default()
+                    };
+                    pm.fill_rect(r, &p, t, mask.as_ref());
                 }
             }
             Command::Line {
@@ -705,6 +753,42 @@ pub fn render_page_jpeg_with(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shading_pattern_tiles_device_pixels_from_the_page_origin() {
+        // §17.18.78 on screen: 8 × 8 device pixels anchored at the page origin, any scale.
+        let tile = [0x80, 0x40, 0x20, 0x10, 0x08, 0x04, 0x02, 0x01];
+        let page = PageList {
+            width: 40.0,
+            height: 40.0,
+            commands: vec![
+                Command::FillRect {
+                    x: 2.0,
+                    y: 3.0,
+                    w: 30.0,
+                    h: 30.0,
+                    color: Rgba(255, 128, 0, 255),
+                },
+                Command::FillPattern {
+                    x: 2.0,
+                    y: 3.0,
+                    w: 30.0,
+                    h: 30.0,
+                    tile,
+                    fg: Rgba(255, 0, 0, 255),
+                    bg: Rgba(255, 255, 0, 255),
+                },
+            ],
+        };
+        for scale in [1.25_f32, 2.5] {
+            let pm = render_page(&page, &FontManager::new(), scale).unwrap();
+            for (x, y) in [(10, 10), (11, 10), (13, 21), (21, 13), (30, 30), (31, 29)] {
+                let p = pm.pixel(x, y).unwrap();
+                let want = if x % 8 == y % 8 { (255, 0) } else { (255, 255) };
+                assert_eq!((p.red(), p.green()), want, "pixel {x},{y} at {scale}");
+            }
+        }
+    }
 
     #[test]
     fn blurred_path_is_soft_and_opacity_fades() {

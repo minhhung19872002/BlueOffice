@@ -100,6 +100,8 @@ pub struct RunStyle {
     pub strike: bool,
     pub double_strike: bool,
     pub highlight: Option<Color>,
+    /// Screen pattern of the character shading drawn over `highlight` (§17.18.78).
+    pub shade: Option<crate::ShadePattern>,
     pub caps: bool,
     /// Extra advance after each character (points).
     pub spacing: f32,
@@ -248,6 +250,7 @@ pub fn run_style(doc: &Document, fonts: &mut FontManager, rp: &RunProps) -> Opti
         strike: rp.strike.unwrap_or(false),
         double_strike: rp.double_strike.unwrap_or(false),
         highlight: rp.highlight.or_else(|| crate::charfx::shading_color(rp)),
+        shade: crate::charfx::run_shade_pattern(rp),
         caps: rp.caps.unwrap_or(false) || small_caps,
         spacing: rp.spacing.map_or(0.0, bo_model::Twips::to_pt),
         hidden: rp.hidden.unwrap_or(false),

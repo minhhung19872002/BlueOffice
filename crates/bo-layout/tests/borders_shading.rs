@@ -216,3 +216,176 @@ fn shading_patterns_mix_the_pattern_colour_into_paragraphs_and_cells() {
         "{r:?}"
     );
 }
+
+/// Screen patterns (round 7): the rectangles keep the mixed colour (print / PDF) and carry
+/// the reference's 8 × 8 device-pixel tile, except a percentage with auto colour on an
+/// auto fill, which the reference shows as flat grey.
+#[test]
+fn shading_patterns_carry_the_screen_tile() {
+    let pat = |val: &str, color: Option<Color>| {
+        Some(ShadingPattern {
+            val: val.into(),
+            color,
+        })
+    };
+    let blue = Color {
+        r: 0,
+        g: 0x70,
+        b: 0xC0,
+    };
+    let mut t = Table::simple(1, 1, Twips(3000));
+    t.rows[0].cells[0].props.shading = Some(Color::WHITE);
+    t.rows[0].cells[0].props.shading_pattern = pat("pct50", Some(blue));
+    let run_props = RunProps {
+        shading_pattern: pat("diagCross", None),
+        ..RunProps::default()
+    };
+    let l = run(vec![
+        p(
+            "Grey",
+            ParaProps {
+                shading_pattern: pat("pct25", None),
+                ..ParaProps::default()
+            },
+        ),
+        p(
+            "Stripes",
+            ParaProps {
+                shading_pattern: pat("horzStripe", None),
+                ..ParaProps::default()
+            },
+        ),
+        Block::Table(t),
+        Block::Paragraph(Paragraph::new(
+            ParaProps::default(),
+            vec![Run::text("run", run_props)],
+        )),
+    ]);
+    let pats: Vec<_> = l.pages[0]
+        .items
+        .iter()
+        .filter_map(|it| match it {
+            PageItem::Rect { color, pattern, .. } => Some((*color, *pattern)),
+            _ => None,
+        })
+        .collect();
+    // pct25 auto on auto: flat grey, no tile.
+    assert!(
+        pats.iter().any(|(c, p)| c.r == 191 && p.is_none()),
+        "{pats:?}"
+    );
+    // horzStripe auto on auto: black / white rows of two.
+    assert!(pats.iter().any(|(_, p)| p.is_some_and(|p| p.tile
+        == [0x00, 0x00, 0xFF, 0xFF, 0x00, 0x00, 0xFF, 0xFF]
+        && p.fg == Color::BLACK
+        && p.bg == Color::WHITE)));
+    // pct50 blue on white: a checkerboard.
+    assert!(pats
+        .iter()
+        .any(|(_, p)| p.is_some_and(|p| p.fg == blue && p.tile[0] == 0x55 && p.tile[1] == 0xAA)));
+    // The run's character shading.
+    assert!(pats
+        .iter()
+        .any(|(_, p)| p.is_some_and(|p| p.tile[1] == 0xCC && p.tile[3] == 0x33)));
+}
+
+fn baselines(l: &LayoutDocument) -> Vec<f32> {
+    l.pages[0].lines.iter().map(|l| l.baseline).collect()
+}
+
+/// Round 7 (docs/ui/REPORT.md "Dàn trang vòng 7", calibration gb-a … gb-j): consecutive
+/// paragraphs with identical borders and indents share one box — one top and one bottom
+/// line, sides (and shading) through the spacing between them; `w:between` draws a line
+/// after the spacing with `space` on each side of it.
+#[test]
+fn consecutive_paragraphs_with_the_same_box_form_one_box() {
+    let mut b = Border::single(4);
+    b.space = 1;
+    let boxed = |between: Option<Border>| ParaProps {
+        borders: Some(Borders {
+            top: Some(b.clone()),
+            left: Some(b.clone()),
+            bottom: Some(b.clone()),
+            right: Some(b.clone()),
+            inside_h: between,
+            ..Borders::default()
+        }),
+        space_after: Some(Twips(240)),
+        shading: Some(Color {
+            r: 0xDD,
+            g: 0xEB,
+            b: 0xF7,
+        }),
+        ..ParaProps::default()
+    };
+    let three = |props: ParaProps| {
+        run(vec![
+            p("One", props.clone()),
+            p("Two", props.clone()),
+            p("Three", props),
+        ])
+    };
+    let horizontal = |l: &LayoutDocument| {
+        let mut ys: Vec<f32> = rules(l)
+            .iter()
+            .filter(|r| (r.1 - r.3).abs() < 0.01)
+            .map(|r| r.1)
+            .collect();
+        ys.sort_by(f32::total_cmp);
+        ys
+    };
+    let separate = run(vec![p("One", boxed(None))]);
+    let one = three(boxed(None));
+    // One top and one bottom line for the three paragraphs.
+    assert_eq!(horizontal(&one).len(), 2, "{:?}", rules(&one));
+    // Baselines 12 pt + one line apart (no box room between the paragraphs).
+    let bl = baselines(&one);
+    let single = baselines(&separate);
+    let pitch = bl[1] - bl[0];
+    assert!((bl[0] - single[0]).abs() < 0.01);
+    assert!((pitch - (bl[2] - bl[1])).abs() < 0.01);
+    // The sides run on through the spacing: the left side lines cover top to bottom.
+    let ys = horizontal(&one);
+    let vertical: Vec<_> = rules(&one)
+        .into_iter()
+        .filter(|r| (r.0 - r.2).abs() < 0.01)
+        .collect();
+    let left_x = vertical.iter().map(|r| r.0).fold(f32::MAX, f32::min);
+    let mut left: Vec<(f32, f32)> = vertical
+        .iter()
+        .filter(|r| (r.0 - left_x).abs() < 0.01)
+        .map(|r| (r.1, r.3))
+        .collect();
+    left.sort_by(|a, b| a.0.total_cmp(&b.0));
+    // From the top line's outer edge (its centre is half its width lower).
+    assert!((left[0].0 + 0.25 - ys[0]).abs() < 0.01, "{left:?} {ys:?}");
+    for w in left.windows(2) {
+        assert!((w[0].1 - w[1].0).abs() < 0.01, "gap in the side {left:?}");
+    }
+    // Shading too, reaching the box lines' inner edges (space + 1.4 pt left of the text).
+    let r = rects(&one);
+    let mut sh: Vec<(f32, f32)> = r.iter().map(|r| (r.1, r.1 + r.3)).collect();
+    sh.sort_by(|a, b| a.0.total_cmp(&b.0));
+    for w in sh.windows(2) {
+        assert!((w[0].1 - w[1].0).abs() < 0.01, "gap in the shading {sh:?}");
+    }
+    let text_x = one.pages[0].lines[0].fragments[0].x;
+    assert!((r[0].0 - (text_x - 2.4)).abs() < 0.01, "{r:?}");
+
+    // w:between: a line between each pair, after the spacing, `space` each side of it.
+    let mut bt = Border::single(4);
+    bt.space = 1;
+    let with = three(boxed(Some(bt)));
+    assert_eq!(horizontal(&with).len(), 4, "{:?}", rules(&with));
+    let bl2 = baselines(&with);
+    assert!(
+        ((bl2[1] - bl2[0]) - (pitch + 2.0 + 0.5)).abs() < 0.02,
+        "{bl2:?} {pitch}"
+    );
+
+    // Another indent starts another box.
+    let mut moved = boxed(None);
+    moved.indent_left = Some(Twips(720));
+    let two = run(vec![p("One", boxed(None)), p("Two", moved)]);
+    assert_eq!(horizontal(&two).len(), 4);
+}

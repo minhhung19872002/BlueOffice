@@ -317,6 +317,8 @@ pub(crate) struct ParaLayout {
     pub contextual_spacing: bool,
     pub style: Option<String>,
     pub shading: Option<Color>,
+    /// Screen pattern of the shading (§17.18.78).
+    pub shading_pattern: Option<crate::ShadePattern>,
     pub borders: Option<Borders>,
     pub indent_left: f32,
     pub indent_right: f32,
@@ -350,8 +352,8 @@ pub(crate) struct RelLine {
     pub fragments: Vec<Fragment>,
     pub carets: crate::types::Carets,
     pub objects: Vec<RelObject>,
-    /// Highlight rectangles: (x, w, color) spanning ascent..descent.
-    pub highlights: Vec<(f32, f32, Color)>,
+    /// Highlight rectangles: (x, w, color, screen pattern) spanning ascent..descent.
+    pub highlights: Vec<(f32, f32, Color, Option<crate::ShadePattern>)>,
     /// Character borders (§17.3.2.4 bdr): (x, w, border) spanning ascent..descent.
     pub borders: Vec<(f32, f32, bo_model::Border)>,
     pub ascent: f32,
@@ -1268,8 +1270,23 @@ fn layout_uncached(
         }
     }
     let mut prev = 0;
+    // A break after a slash between letters (paths, URLs) goes before the slash instead:
+    // the reference word processor starts the next line with "/the/end…" (measured
+    // black-box, gen-20, docs/ui/REPORT.md "Dàn trang vòng 7").
     let breaks: Vec<usize> = unicode_linebreak::linebreaks(&index_text)
-        .map(|(i, _)| i)
+        .map(|(i, _)| {
+            let b = index_text.as_bytes();
+            if i >= 2
+                && i < b.len()
+                && b[i - 1] == b'/'
+                && b[i - 2].is_ascii_alphanumeric()
+                && b[i].is_ascii_alphanumeric()
+            {
+                i - 1
+            } else {
+                i
+            }
+        })
         .collect();
     let base_level = u8::from(props.bidi.unwrap_or(false));
     let levels = bidi_levels(&index_text, base_level == 1);
@@ -1400,12 +1417,16 @@ fn layout_uncached(
     // Segments of each line: (first piece, start x, width). One per line unless the
     // line flows around a wrapped picture.
     let mut segs: Vec<Vec<(usize, f32, f32)>> = Vec::new();
+    // Empty lines that move a word too wide for the segments beside a picture down to
+    // the picture's bottom: line index → height.
+    let mut skip_h: HashMap<usize, f32> = HashMap::new();
     if !inp.wrap.is_empty() {
         let x1 = inp.width - indent_right;
         let mut y = 0.0f32;
         let mut prev_h: Option<f32> = None;
         let mut row: Vec<(f32, f32)> = Vec::new();
         let mut cur_segs: Vec<(usize, f32, f32)> = Vec::new();
+        let mut skipped = 0u32;
         while let Some(mut word) = queue.pop_front() {
             shape_lazy(&mut word, &atoms, &styles, fonts, levels.as_deref());
             if word.pieces.is_empty() {
@@ -1442,6 +1463,36 @@ fn layout_uncached(
                 cur_segs.push((cur.len(), row[seg + 1].0, row[seg + 1].1));
                 queue.push_front(word);
                 continue;
+            }
+            // A word wider than every segment beside the picture but not than the column
+            // moves down a line at a time until it fits (measured black-box in the
+            // reference word processor, docs/ui/REPORT.md "Dàn trang vòng 7": an 88 pt word
+            // beside an 85 pt segment starts the first line below the picture, unbroken).
+            if overflow && cur.is_empty() && word.chunk == Chunk::No && skipped < 256 {
+                let x0 = indent_left + if is_first { first } else { 0.0 };
+                let narrowed = row.len() > 1 || row[0].1 < x1 - x0 - 0.01;
+                if narrowed && ink - start_x <= x1 - x0 + 0.01 {
+                    let h = prev_h
+                        .unwrap_or_else(|| row_height(&word.pieces, &styles, &mark_style, spacing));
+                    // Down to the bottom of the nearest object beside the line.
+                    let gap = inp
+                        .wrap
+                        .iter()
+                        .filter(|z| y < z.bottom && y + h > z.top)
+                        .map(|z| z.bottom - y)
+                        .fold(f32::INFINITY, f32::min);
+                    let gap = if gap.is_finite() { gap.max(0.5) } else { h };
+                    skip_h.insert(lines.len(), gap);
+                    lines.push(Vec::new());
+                    line_breaks.push(None);
+                    segs.push(std::mem::take(&mut cur_segs));
+                    row.clear();
+                    y += gap;
+                    prev_h = Some(h);
+                    skipped += 1;
+                    queue.push_front(word);
+                    continue;
+                }
             }
             // A chunk of an over-long run is cut where the segment ends.
             let cut = if overflow
@@ -1684,8 +1735,16 @@ fn layout_uncached(
             } else {
                 0.0
             };
+            // A single word in a justified segment that starts at a wrapped picture's
+            // edge goes to the segment's right end (measured black-box in the reference
+            // word processor, docs/ui/REPORT.md "Dàn trang vòng 7"; one at the margin
+            // stays left).
+            let line_left = indent_left + if li == 0 { first } else { 0.0 };
+            let lone_word_right = justify && space_count == 0 && start_x > line_left + 0.01;
             let offset = if last_tab.is_some() {
                 0.0
+            } else if lone_word_right {
+                slack
             } else {
                 match align {
                     Alignment::Center => slack / 2.0,
@@ -1766,7 +1825,7 @@ fn layout_uncached(
                     extra += per_space * p.text.chars().count() as f32;
                 }
                 if let Some(h) = st.highlight {
-                    highlights.push((x0, gx, h));
+                    highlights.push((x0, gx, h, st.shade));
                 }
                 // §17.3.2.4 bdr: adjacent runs with the same border share one box.
                 if let Some(b) = &st.border {
@@ -1841,6 +1900,10 @@ fn layout_uncached(
         // line at 1.15 / 1.5 / 2 lines adds 2.0 / 6.6 / 13.4 pt, in body and table cells).
         let text_line = ext.text_line(&mark_style);
         let (height, baseline) = match spacing {
+            _ if skip_h.contains_key(&li) => {
+                let h = skip_h.get(&li).copied().unwrap_or(0.0);
+                (h, h)
+            }
             LineSpacing::Auto(v) => {
                 let h = natural + text_line * (v as f32 / 240.0 - 1.0);
                 (h, gap + ascent)
@@ -1946,6 +2009,10 @@ fn layout_uncached(
         contextual_spacing: props.contextual_spacing.unwrap_or(false),
         style: props.style.clone(),
         shading: crate::charfx::mixed_shading(props.shading, props.shading_pattern.as_ref()),
+        shading_pattern: crate::charfx::shade_pattern(
+            props.shading,
+            props.shading_pattern.as_ref(),
+        ),
         borders: props.borders.clone(),
         indent_left,
         indent_right,

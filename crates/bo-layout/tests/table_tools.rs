@@ -317,3 +317,67 @@ fn tbl_overlap_never_moves_the_table_beside_or_below() {
     assert!((c.0 - (a.0 + 0.5)).abs() < 0.6, "{a:?} {c:?}");
     assert!(c.1 > a.1 + 30.0 && c.1 < a.1 + 60.0, "{a:?} {c:?}");
 }
+
+/// Round 7 (docs/ui/REPORT.md "Dàn trang vòng 7", cs-a … cs-f): §17.4.44 tblCellSpacing
+/// sets the cells apart — twice the spacing from the table's frame and between cells,
+/// each cell boxed on its own, rows twice the spacing apart.
+#[test]
+fn cell_spacing_sets_the_cells_apart_inside_the_frame() {
+    use bo_layout::PageItem;
+    let table = |spacing: Option<i32>| {
+        let mut t = Table::simple(2, 3, Twips(9000));
+        let b = bo_model::Border::single(4);
+        t.props.borders = Some(bo_model::Borders::all(&b));
+        if let Some(sp) = spacing {
+            t.props.unknown.push(bo_model::Raw::new(
+                format!("<w:tblCellSpacing w:w=\"{sp}\" w:type=\"dxa\"/>"),
+                0,
+            ));
+        }
+        for (k, row) in t.rows.iter_mut().enumerate() {
+            for (j, c) in row.cells.iter_mut().enumerate() {
+                c.blocks = vec![p(&format!("R{k}C{j}"))];
+            }
+        }
+        run(&doc(vec![Block::Table(t)]))
+    };
+    let verticals = |l: &LayoutDocument| {
+        let mut xs: Vec<f32> = l.pages[0]
+            .items
+            .iter()
+            .filter_map(|i| match i {
+                PageItem::Rule { x1, x2, .. } if (x1 - x2).abs() < 0.01 => Some(*x1),
+                _ => None,
+            })
+            .collect();
+        xs.sort_by(f32::total_cmp);
+        xs.dedup_by(|a, b| (*a - *b).abs() < 0.01);
+        xs
+    };
+    let baseline = |l: &LayoutDocument, s: &str| {
+        l.pages[0]
+            .lines
+            .iter()
+            .find(|x| text(x) == s)
+            .map(|x| x.baseline)
+            .unwrap()
+    };
+    let plain = table(None);
+    let spaced = table(Some(60));
+    // 4 grid lines without spacing; frame (2) + 2 per cell (6) with it.
+    assert_eq!(verticals(&plain).len(), 4);
+    let xs = verticals(&spaced);
+    assert_eq!(xs.len(), 8, "{xs:?}");
+    // First cell's left edge: 2 × 3 pt + half a 0.5 pt line inside the frame line.
+    assert!((xs[1] - xs[0] - 6.25).abs() < 0.01, "{xs:?}");
+    // Cells 2 × 3 pt + one line width apart (centre to centre).
+    assert!((xs[3] - xs[2] - 6.5).abs() < 0.01, "{xs:?}");
+    // Rows: the spacing twice above the first and between rows.
+    let (a0, a1) = (baseline(&plain, "R0C0"), baseline(&plain, "R1C0"));
+    let (b0, b1) = (baseline(&spaced, "R0C0"), baseline(&spaced, "R1C0"));
+    assert!((b0 - a0 - 6.5).abs() < 0.05, "{a0} {b0}");
+    assert!(
+        (b1 - b0 - (a1 - a0) - 6.5).abs() < 0.05,
+        "{a0} {a1} {b0} {b1}"
+    );
+}

@@ -27,6 +27,18 @@ const PREFIXES: &[&str] = &[
     "counter", "inter", "multi", "over", "semi", "super", "trans", "under",
 ];
 
+/// Syllable breaks inside the prefixes (byte offsets): un-der, in-ter, coun-ter, …
+/// (measured black-box: the reference word processor ends a line with "un-" of
+/// "understanding", docs/ui/REPORT.md "Dàn trang vòng 7", layout-02).
+const PREFIX_INNER: &[(&str, usize)] = &[
+    ("counter", 4),
+    ("inter", 2),
+    ("multi", 3),
+    ("semi", 2),
+    ("super", 2),
+    ("under", 2),
+];
+
 /// Consonant pairs that sound as one consonant and are never split.
 const DIGRAPHS: &[&str] = &["ch", "ck", "gh", "ph", "sh", "th", "wh"];
 
@@ -86,6 +98,9 @@ pub(crate) fn points(word: &str) -> Vec<usize> {
         let p = pre.len();
         if end >= p + 4 && w.starts_with(pre.as_bytes()) {
             out.push(p);
+            if let Some(&(_, k)) = PREFIX_INNER.iter().find(|(q, _)| q == pre) {
+                out.push(k);
+            }
             start = p;
             break;
         }
@@ -150,6 +165,11 @@ pub(crate) fn points(word: &str) -> Vec<usize> {
         };
         out.push(start + at);
     }
+    // "-endent": in-de-pend-ent (the reference breaks "independ-ent", layout-02).
+    if w.ends_with(b"endent") && n >= 9 {
+        out.retain(|&p| p != n - 4);
+        out.push(n - 3);
+    }
     // Both parts keep a vowel and enough letters.
     let has_vowel = |r: std::ops::Range<usize>| r.into_iter().any(|i| is_vowel(&w, i));
     out.sort_unstable();
@@ -190,6 +210,8 @@ mod tests {
         assert_eq!(show("Hundred"), "Hun-dred");
         assert_eq!(show("pumpkin"), "pump-kin");
         assert_eq!(show("monster"), "mon-ster");
+        assert_eq!(show("understanding"), "un-der-stand-ing");
+        assert_eq!(show("independent"), "in-de-pend-ent");
     }
 
     #[test]

@@ -132,9 +132,11 @@ impl Band {
 }
 
 /// Paragraph decoration (ECMA-376 Part 1, §17.3.1.24 pBdr, §17.3.1.31 shd).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Deco {
     pub shading: Option<Color>,
+    /// Screen pattern of the shading (§17.18.78).
+    pub pattern: Option<crate::ShadePattern>,
     pub borders: Option<Borders>,
     pub x0: f32,
     pub x1: f32,
@@ -205,7 +207,7 @@ fn rel_line_band(rl: &RelLine, source: LineSource) -> Band {
         })
         .collect();
     let mut items = Vec::new();
-    for &(x, w, color) in &rl.highlights {
+    for &(x, w, color, pattern) in &rl.highlights {
         items.push(PageItem::Rect {
             x,
             y: rl.baseline - rl.ascent,
@@ -213,6 +215,7 @@ fn rel_line_band(rl: &RelLine, source: LineSource) -> Band {
             h: rl.ascent + rl.descent,
             color,
             layer: Layer::Back,
+            pattern,
         });
     }
     // §17.3.2.4 bdr: a box around the run, `space` points away from the text.
@@ -449,6 +452,7 @@ fn para_block(
     });
     let deco = (pl.shading.is_some() || visible_borders).then(|| Deco {
         shading: pl.shading,
+        pattern: pl.shading_pattern,
         borders: pl.borders.clone(),
         x0: pl.indent_left,
         x1: width - pl.indent_right,
@@ -501,21 +505,125 @@ fn rule(b: &Border, x1: f32, y1: f32, x2: f32, y2: f32) -> PageItem {
     }
 }
 
+impl Deco {
+    /// Visible box lines (top, left, bottom or right).
+    fn has_box(&self) -> bool {
+        self.borders.as_ref().is_some_and(|b| {
+            [&b.top, &b.left, &b.bottom, &b.right]
+                .iter()
+                .any(|e| e.as_ref().is_some_and(Border::is_visible))
+        })
+    }
+
+    /// Whether the next paragraph shares this one's box (§17.3.1.24 pBdr: consecutive
+    /// paragraphs with identical borders and indents form one box, the `w:between` line
+    /// separating them) or, without a box, its shading (§17.3.1.31) — measured black-box
+    /// in the reference word processor's PDF export (docs/ui/REPORT.md "Dàn trang vòng 7"):
+    /// another indent or border size starts a new box.
+    pub(crate) fn groups_with(&self, next: &Deco) -> bool {
+        (self.x0 - next.x0).abs() < 0.01
+            && (self.x1 - next.x1).abs() < 0.01
+            && self.borders == next.borders
+            && (self.has_box()
+                || (self.shading.is_some()
+                    && self.shading == next.shading
+                    && self.pattern == next.pattern))
+    }
+
+    /// Horizontal extent of the shading: the text column grown to the inner edges of the
+    /// box lines (`w:space` + 1.4 pt left, + 1.5 pt right; 1.44 / 1.57 pt without lines in
+    /// the reference export).
+    fn shade_x(&self) -> (f32, f32) {
+        let side =
+            |e: Option<&Border>| e.filter(|e| e.is_visible()).map_or(0.0, |e| e.space as f32);
+        let b = self.borders.as_ref();
+        (
+            self.x0 - side(b.and_then(|b| b.left.as_ref())) - 1.4,
+            self.x1 + side(b.and_then(|b| b.right.as_ref())) + 1.5,
+        )
+    }
+}
+
+/// Place of a paragraph segment in a group of paragraphs sharing a box (see
+/// [`Deco::groups_with`]).
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct Joined {
+    /// The paragraph above shares the box: no top line (the `between` line instead);
+    /// sides and shading start at `from` (the end of the paragraph above, so they run
+    /// through the spacing between the two).
+    pub above: bool,
+    /// Top of the sides / shading when `above` (≤ the segment top).
+    pub from: f32,
+    /// The shading runs from `from` too (same shading as the paragraph above).
+    pub shade_from: bool,
+    /// The paragraph below shares the box: no bottom line.
+    pub below: bool,
+}
+
 /// Shading and border items of a paragraph segment spanning `y0..y1`.
 pub(crate) fn deco_items(d: &Deco, y0: f32, y1: f32, out: &mut Vec<PageItem>) {
+    deco_items_joined(d, y0, y1, Joined::default(), out);
+}
+
+/// Shading and border items of a paragraph segment spanning `y0..y1` in a group of
+/// paragraphs sharing a box.
+pub(crate) fn deco_items_joined(d: &Deco, y0: f32, y1: f32, j: Joined, out: &mut Vec<PageItem>) {
     if let Some(color) = d.shading {
+        let (x0, x1) = d.shade_x();
+        let top = if j.above && j.shade_from { j.from } else { y0 };
         out.push(PageItem::Rect {
-            x: d.x0,
-            y: y0,
-            w: (d.x1 - d.x0).max(0.0),
-            h: (y1 - y0).max(0.0),
+            x: x0,
+            y: top,
+            w: (x1 - x0).max(0.0),
+            h: (y1 - top).max(0.0),
             color,
             layer: Layer::Back,
+            pattern: d.pattern,
         });
     }
     if let Some(b) = &d.borders {
-        box_items(b, d, y0, y1, out);
+        box_items(b, d, y0, y1, j, out);
     }
+}
+
+/// Room of the `w:between` line (§17.3.1.24): above a paragraph joined to the one
+/// above, the line and its `w:space`; below a paragraph joined to the one below, the
+/// `w:space` — the line sits after the spacing between the two (measured black-box,
+/// docs/ui/REPORT.md "Dàn trang vòng 7").
+fn between_room(b: &Borders) -> (f32, f32) {
+    edge(b.inside_h.as_ref()).map_or((0.0, 0.0), |(e, x)| {
+        let space = e.space as f32;
+        (x + space, space)
+    })
+}
+
+/// `pb` with its box room changed for a group of paragraphs sharing a box: a paragraph
+/// joined above loses the top line's room for the `between` line's, one joined below
+/// the bottom line's for the `between` space.
+pub(crate) fn regroup(pb: &ParaBlock, above: bool, below: bool) -> ParaBlock {
+    let mut out = pb.clone();
+    let Some(b) = pb.deco.as_ref().and_then(|d| d.borders.as_ref()) else {
+        return out;
+    };
+    let (top, bottom) = box_room(b);
+    let (b_top, b_bottom) = between_room(b);
+    if above {
+        if let Some(first) = out.lines.first_mut() {
+            let dy = b_top - top;
+            let mut moved = first.translated(0.0, dy);
+            moved.h += dy;
+            moved.text_h += dy;
+            *first = moved;
+        }
+    }
+    if below {
+        if let Some(last) = out.lines.last_mut() {
+            let dy = b_bottom - bottom;
+            last.h += dy;
+            last.text_h += dy;
+        }
+    }
+    out
 }
 
 /// Distance across a border line as drawn (`double`: two strokes and the gap between).
@@ -565,8 +673,8 @@ pub(crate) fn box_room(b: &Borders) -> (f32, f32) {
 /// the side lines, side lines between the outer edges of the top and bottom ones. A
 /// shadow is a black band as wide as the line right outside the right / bottom line —
 /// the right one from the top line's inner edge down past the bottom band.
-fn box_items(b: &Borders, d: &Deco, y0: f32, y1: f32, out: &mut Vec<PageItem>) {
-    let shadow = box_shadow(b);
+fn box_items(b: &Borders, d: &Deco, y0: f32, y1: f32, j: Joined, out: &mut Vec<PageItem>) {
+    let shadow = box_shadow(b) && !j.above && !j.below;
     let (top, bottom, left, right) = (
         edge(b.top.as_ref()),
         edge(b.bottom.as_ref()),
@@ -585,21 +693,36 @@ fn box_items(b: &Borders, d: &Deco, y0: f32, y1: f32, out: &mut Vec<PageItem>) {
         + right
             .as_ref()
             .map_or(0.0, |(b, x)| b.space as f32 + 1.5 + x);
-    if let Some((e, x)) = &top {
-        let y = yt + x / 2.0;
-        out.push(rule(e, xl, y, xr, y));
+    match &top {
+        Some((e, x)) if !j.above => {
+            let y = yt + x / 2.0;
+            out.push(rule(e, xl, y, xr, y));
+        }
+        _ => {}
     }
-    if let Some((e, x)) = &bottom {
-        let y = yb - x / 2.0;
-        out.push(rule(e, xl, y, xr, y));
+    if j.above {
+        // The `between` line on the segment top, across the box like a top line.
+        if let Some((e, x)) = edge(b.inside_h.as_ref()) {
+            let y = y0 + x / 2.0;
+            out.push(rule(&e, xl, y, xr, y));
+        }
     }
+    match &bottom {
+        Some((e, x)) if !j.below => {
+            let y = yb - x / 2.0;
+            out.push(rule(e, xl, y, xr, y));
+        }
+        _ => {}
+    }
+    // Sides run on through the spacing to the paragraph below's sides.
+    let side_top = if j.above { j.from.min(yt) } else { yt };
     if let Some((e, x)) = &left {
         let xc = xl + x / 2.0;
-        out.push(rule(e, xc, yt, xc, yb));
+        out.push(rule(e, xc, side_top, xc, yb));
     }
     if let Some((e, x)) = &right {
         let xc = xr - x / 2.0;
-        out.push(rule(e, xc, yt, xc, yb));
+        out.push(rule(e, xc, side_top, xc, yb));
     }
     if !shadow {
         return;
@@ -611,6 +734,7 @@ fn box_items(b: &Borders, d: &Deco, y0: f32, y1: f32, out: &mut Vec<PageItem>) {
         h: h.max(0.0),
         color: Color::BLACK,
         layer: Layer::Front,
+        pattern: None,
     };
     let rw = right
         .as_ref()
@@ -773,6 +897,8 @@ pub(crate) struct CellBox {
     /// left, right, top, bottom
     pub margins: [f32; 4],
     pub shading: Option<Color>,
+    /// Screen pattern of the shading (§17.18.78).
+    pub pattern: Option<crate::ShadePattern>,
     /// top, right, bottom, left (visible borders only)
     pub edges: [Option<Border>; 4],
     /// Diagonal borders (visible only): top-left to bottom-right (§17.4.80 tl2br) and
@@ -792,6 +918,10 @@ pub(crate) struct CellBox {
     /// Tracked cell insertion/deletion in markup (§17.13.5.4 cellIns, §17.13.5.3
     /// cellDel): (author colour, deleted).
     pub revision: Option<(Color, bool)>,
+    /// Table with cell spacing (§17.4.44 tblCellSpacing): room above and below the
+    /// cell's own box inside the row band (0 otherwise); the cell then draws all four of
+    /// its edges around that box.
+    pub inset: [f32; 2],
 }
 
 /// A laid-out row.
@@ -807,6 +937,21 @@ pub(crate) struct RowBox {
     /// Colour of a change bar for tracked cell/table property changes (§17.13.5.36,
     /// §17.13.5.34).
     pub changed: Option<Color>,
+    /// Table with cell spacing (§17.4.44 tblCellSpacing): the table's own border frame.
+    pub frame: Option<Box<SpacedFrame>>,
+}
+
+/// Border frame of a table with cell spacing around one row's band: side lines at
+/// `x0` / `x1` (relative to the table's x), the top line on the first row, the bottom
+/// line on the last.
+#[derive(Debug, Clone)]
+pub(crate) struct SpacedFrame {
+    pub x0: f32,
+    pub x1: f32,
+    /// top, right, bottom, left (visible only)
+    pub edges: [Option<Border>; 4],
+    pub first: bool,
+    pub last: bool,
 }
 
 /// A laid-out table.
@@ -1319,6 +1464,33 @@ pub(crate) fn layout_table(
         .cell_margin_vertical
         .map_or((0.0, 0.0), |(a, b)| (a.to_pt(), b.to_pt()));
     let nrows = t.rows.len();
+    // §17.4.44 tblCellSpacing: cells drawn apart inside the table's own border frame,
+    // measured black-box in the reference word processor's PDF export (docs/ui/REPORT.md
+    // "Dàn trang vòng 7", cs-a … cs-f): twice the spacing between the frame and the cells
+    // and between cells (both ways), the cells sharing what is left in proportion to
+    // their grid columns; each cell draws its own four edges.
+    let spacing = cell_spacing(&t.props).filter(|s| *s > 0.0);
+    let visible = |b: &Option<Border>| b.clone().filter(Border::is_visible);
+    let frame_edges = [
+        visible(&tb.top),
+        visible(&tb.right),
+        visible(&tb.bottom),
+        visible(&tb.left),
+    ];
+    let half_cell = [&tb.inside_v, &tb.left]
+        .iter()
+        .find_map(|b| b.as_ref().filter(|b| b.is_visible()))
+        .map_or(0.0, |b| border_width(b) / 2.0);
+    let spaced_x = |s: f32, g: usize, span: usize| -> (f32, f32) {
+        let step = 2.0 * s + 2.0 * half_cell;
+        let room = total - 2.0 * (2.0 * s + half_cell) - ncols.saturating_sub(1) as f32 * step;
+        let k = room.max(1.0) / total.max(1.0);
+        let x = 2.0 * s + half_cell + grid.iter().take(g).map(|w| w * k + step).sum::<f32>();
+        let end = (g + span).min(ncols);
+        let w = grid[g.min(end)..end].iter().map(|w| w * k).sum::<f32>()
+            + span.saturating_sub(1) as f32 * step;
+        (x, w)
+    };
 
     // Placement of each cell in the view, per row.
     let place_at = |ri: usize, g: usize| -> Option<&CellPlace> {
@@ -1356,6 +1528,10 @@ pub(crate) fn layout_table(
                 grid[g..(g + span).min(ncols)].iter().sum()
             } else {
                 avail / ncols.max(1) as f32
+            };
+            let (cx, w) = match spacing {
+                Some(s) if !pl.hidden && g < ncols => spaced_x(s, g, span),
+                _ => (cx, w),
             };
             let continued = pl.v_merge == Some(VMerge::Continue);
             // ECMA-376 Part 1, §17.4.72 textDirection: vertical lines as long as the
@@ -1489,8 +1665,25 @@ pub(crate) fn layout_table(
             let bw = |b: &Option<Border>| b.as_ref().map_or(0.0, |b| b.size as f32 / 8.0);
             // §17.4.42 tblCellMar top / bottom add to the borders (measured black-box:
             // 7.2 / 3.6 pt margins make a Table Grid row 0.48 + 10.8 pt taller than its line).
-            let mt = bw(&edges[0]) + cell_top;
-            let mb = if last_row { bw(&edges[2]) } else { 0.0 } + cell_bottom;
+            let inset = match spacing {
+                Some(s) => [
+                    2.0 * s + if first_row { bw(&frame_edges[0]) } else { 0.0 },
+                    if last_row {
+                        2.0 * s + bw(&frame_edges[2])
+                    } else {
+                        0.0
+                    },
+                ],
+                None => [0.0, 0.0],
+            };
+            let mt = inset[0] + bw(&edges[0]) + cell_top;
+            let mb = if spacing.is_some() {
+                bw(&edges[2]) + inset[1]
+            } else if last_row {
+                bw(&edges[2])
+            } else {
+                0.0
+            } + cell_bottom;
             let needed = content_h + mt + mb;
             if rows_spanned > 1 {
                 tall.push((ri, rows_spanned, needed));
@@ -1519,6 +1712,14 @@ pub(crate) fn layout_table(
                         cell.props.shading_pattern.as_ref(),
                     )
                 },
+                pattern: if pl.hidden {
+                    None
+                } else {
+                    crate::charfx::shade_pattern(
+                        cell.props.shading,
+                        cell.props.shading_pattern.as_ref(),
+                    )
+                },
                 edges: if pl.hidden {
                     [None, None, None, None]
                 } else {
@@ -1538,6 +1739,7 @@ pub(crate) fn layout_table(
                 rows_spanned,
                 span_below: 0.0,
                 revision,
+                inset,
             });
         }
         // Row height rule (§17.4.81 trHeight).
@@ -1597,6 +1799,15 @@ pub(crate) fn layout_table(
             cant_split: row.props.cant_split,
             revision,
             changed,
+            frame: spacing.map(|_| {
+                Box::new(SpacedFrame {
+                    x0: 0.0,
+                    x1: total,
+                    edges: frame_edges.clone(),
+                    first: ri == 0,
+                    last: ri + 1 == nrows,
+                })
+            }),
         });
     }
     for (ri, span, need) in tall {
@@ -1676,6 +1887,7 @@ pub(crate) fn row_band(
                     b: tint(color.b),
                 },
                 layer: Layer::Back,
+                pattern: None,
             });
             if deleted {
                 band.items.push(PageItem::Rule {
@@ -1719,6 +1931,7 @@ pub(crate) fn row_band(
                     b: tint(color.b),
                 },
                 layer: Layer::Back,
+                pattern: None,
             });
             if deleted {
                 band.items.push(PageItem::Rule {
@@ -1732,14 +1945,21 @@ pub(crate) fn row_band(
                 });
             }
         }
+        let spaced = row.frame.is_some();
+        let (cy0, cy1) = if spaced {
+            (c.inset[0], (h - c.inset[1]).max(c.inset[0]))
+        } else {
+            (0.0, h)
+        };
         if let Some(color) = c.shading {
             band.items.push(PageItem::Rect {
                 x: x0,
-                y: 0.0,
+                y: cy0,
                 w: c.w,
-                h,
+                h: cy1 - cy0,
                 color,
                 layer: Layer::Back,
+                pattern: c.pattern,
             });
         }
         if !c.continued {
@@ -1757,6 +1977,22 @@ pub(crate) fn row_band(
             }
         }
         let [top, right, bottom, left] = &c.edges;
+        if spaced {
+            // §17.4.44: every cell is boxed on its own.
+            if let Some(b) = top {
+                band.items.push(rule(b, x0, cy0, x1, cy0));
+            }
+            if let Some(b) = bottom {
+                band.items.push(rule(b, x0, cy1, x1, cy1));
+            }
+            if let Some(b) = left {
+                band.items.push(rule(b, x0, cy0, x0, cy1));
+            }
+            if let Some(b) = right {
+                band.items.push(rule(b, x1, cy0, x1, cy1));
+            }
+            continue;
+        }
         if let Some(b) = top.as_ref().filter(|_| force_top || !c.continued) {
             band.items.push(rule(b, x0, 0.0, x1, 0.0));
         }
@@ -1806,9 +2042,43 @@ pub(crate) fn row_band(
             }
         }
     }
+    // The table's own frame around cells set apart (§17.4.44 tblCellSpacing).
+    if let Some(f) = &row.frame {
+        let (x0, x1) = (table_x + f.x0, table_x + f.x1);
+        let [top, right, bottom, left] = &f.edges;
+        if let Some(b) = top.as_ref().filter(|_| f.first || force_top) {
+            band.items.push(rule(b, x0, 0.0, x1, 0.0));
+        }
+        if let Some(b) = bottom.as_ref().filter(|_| f.last || force_bottom) {
+            band.items.push(rule(b, x0, h, x1, h));
+        }
+        if let Some(b) = left {
+            band.items.push(rule(b, x0, 0.0, x0, h));
+        }
+        if let Some(b) = right {
+            band.items.push(rule(b, x1, 0.0, x1, h));
+        }
+    }
     // After the cells' lines (the first line of a row stays its first cell's).
     band.lines.extend(row_end);
     band
+}
+
+/// Cell spacing of a table in points (§17.4.44 tblCellSpacing, kept verbatim among the
+/// unknown `w:tblPr` children; `dxa` widths only).
+fn cell_spacing(p: &bo_model::TableProps) -> Option<f32> {
+    p.unknown.iter().find_map(|r| {
+        let x: &str = &r.xml;
+        let at = x.find("tblCellSpacing")?;
+        let el = &x[at..];
+        let el = &el[..el.find('>').unwrap_or(el.len())];
+        if el.contains("w:type=\"pct\"") || el.contains("w:type=\"nil\"") {
+            return None;
+        }
+        let v = el.split("w:w=\"").nth(1)?;
+        let v = &v[..v.find('"')?];
+        v.parse::<f32>().ok().map(|tw| tw / 20.0)
+    })
 }
 
 /// Notes referenced anywhere in a row.

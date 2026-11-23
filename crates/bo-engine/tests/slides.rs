@@ -75,6 +75,9 @@ fn summary(cmds: &[Command]) -> String {
             Command::FillRect { x, y, w, h, color } => {
                 let _ = writeln!(s, "rect {x:.1},{y:.1} {w:.1}x{h:.1} {}", rgba(*color));
             }
+            Command::FillPattern { x, y, w, h, .. } => {
+                let _ = writeln!(s, "pattern {x:.1},{y:.1} {w:.1}x{h:.1}");
+            }
             Command::Line {
                 x1,
                 y1,

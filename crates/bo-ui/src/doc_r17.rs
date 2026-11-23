@@ -23,7 +23,7 @@ pub(super) struct R17 {
     /// The VBA project of the document (read once per document version).
     vba: Option<(u64, Value)>,
     /// BlueDoc windows open, as the host counted them (0: not asked yet = one).
-    count: usize,
+    pub(super) count: usize,
     /// Watermark texts the user saved with Save Selection to Watermark Gallery… (newest
     /// last), kept by the host in BlueOffice's own gallery file.
     saved_wm: Vec<String>,
@@ -1059,9 +1059,12 @@ impl DocWindow {
             }
             // As wide as the stroke (§17.4.75 tcW of the one column).
             let twips = (dx / self.view.scale() * 20.0).round() as i32;
+            // Round 18: as tall as the stroke too (§17.4.81 trHeight, at least).
+            let high = (dy / self.view.scale() * 20.0).round() as i32;
             self.r3_run(vec![
                 json!({ "cmd": "insertTable", "rows": 1, "cols": 1 }),
                 edit(json!({ "kind": "columnWidth", "twips": twips.max(360) })),
+                edit(json!({ "kind": "rowHeight", "twips": high.max(276) })),
             ])
         } else if dy > dx {
             self.r3_run(vec![edit(json!({ "kind": "splitCell" }))])

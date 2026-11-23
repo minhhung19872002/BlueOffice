@@ -226,8 +226,23 @@ fn track_changes_options_change_the_display() {
     f.set_sel("delColor", Some(7));
     f.set_text("width", "3\"");
     f.set_on("connectors", false);
+    // Round 18: the marks of the layout's round 8, moves and formatting.
+    f.set_sel("ins", Some(5));
+    f.set_on("trackMoves", false);
+    f.set_sel("moveFrom", Some(8));
+    f.set_sel("moveToColor", Some(12));
+    f.set_sel("fmt", Some(2));
+    f.set_sel("fmtColor", Some(3));
     enter(&mut w);
     let m = w.view.markup().clone();
+    assert_eq!(m.ins_mark, "bold");
+    assert!(!m.track_moves);
+    assert_eq!(m.move_from_mark, "caret");
+    assert_eq!(m.move_to_color, "008000");
+    assert_eq!(
+        (m.fmt_mark.as_str(), m.fmt_color.as_str()),
+        ("italic", "0000FF")
+    );
     assert_eq!(m.del_mark, "doubleStrikethrough");
     assert_eq!(m.del_color, "FF0000");
     assert!(!m.connectors);

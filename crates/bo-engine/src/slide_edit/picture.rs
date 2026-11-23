@@ -748,7 +748,12 @@ impl crate::Engine {
                 | PictureCommand::PictureAlign { .. }
                 | PictureCommand::PictureRotate { .. }
                 | PictureCommand::PictureOrder { .. }
-                | PictureCommand::PictureFlip { .. } => {
+                | PictureCommand::PictureFlip { .. }
+                // Shape Format of BlueDoc's shapes; slides format shapes with their own
+                // commands.
+                | PictureCommand::PictureShapeFill { .. }
+                | PictureCommand::PictureShapeOutline { .. }
+                | PictureCommand::PictureShapePreset { .. } => {
                     out.error = Some(EditError::Refused("noPicture").to_string());
                 }
             }

@@ -237,6 +237,10 @@ pub struct Ribbon {
     /// Collapse steps taken at once for a tab at a width (logical px): the reference
     /// collapses some groups before they overflow (BlueDoc's Review tab, round 16).
     forced: fn(&str, f32) -> usize,
+    /// Narrow windows shrink every tab's label (clipped) before the tab strip scrolls, as
+    /// the reference (BlueDoc, round 18); the label widths when they are shrunk.
+    shrink_tabs: bool,
+    shrunk_tabs: Option<Vec<f32>>,
 }
 
 fn home() -> Tab {
@@ -680,6 +684,32 @@ fn view_tab() -> Tab {
     }
 }
 
+/// Whether `id` is the drop-down button of a collapsed BlueDoc group.
+fn is_group_button(id: &str) -> bool {
+    crate::doc_r4_fit::GROUP_MENUS.contains(&id)
+        || crate::doc_review16::GROUP_IDS.contains(&id)
+        || crate::doc_scale18::is_group(id)
+}
+
+/// BlueDoc's full (uncollapsed) group `label` of tab `tab` (round 18: the drop-down of a
+/// collapsed group shows it).
+pub(crate) fn doc_group(tab: &str, label: &str) -> Option<Group> {
+    [
+        home(),
+        insert_tab(),
+        design_tab(),
+        layout_tab(),
+        references_tab(),
+        mailings_tab(),
+        crate::doc_review16::review_tab(),
+        view_tab(),
+    ]
+    .into_iter()
+    .filter(|t| t.label == tab)
+    .flat_map(|t| t.groups)
+    .find(|g| g.label == label)
+}
+
 impl Default for Ribbon {
     fn default() -> Self {
         Self::new()
@@ -746,6 +776,8 @@ impl Ribbon {
             shrink: |_, _| None,
             holder: |_| None,
             forced: |_, _| 0,
+            shrink_tabs: false,
+            shrunk_tabs: None,
         }
     }
 
@@ -760,6 +792,12 @@ impl Ribbon {
         self.scaling = scaling;
         self.shrink = shrink;
         self.holder = holder;
+        self
+    }
+
+    /// Shrink tab labels before the tab strip scrolls (see [`Ribbon::shrink_tabs`]).
+    pub(crate) fn with_tab_shrinking(mut self) -> Self {
+        self.shrink_tabs = true;
         self
     }
 
@@ -1109,6 +1147,45 @@ impl Ribbon {
         }
         self.tab_clip = None;
         self.tab_scroll_max = 0.0;
+        self.shrunk_tabs = None;
+        if x > width && self.shrink_tabs {
+            // Every label is cut to the same longest width that lets the tabs fit (no
+            // narrower than about three letters), with a smaller margin, as the reference.
+            let small = self.px(5.0);
+            let texts: Vec<f32> = tabs
+                .iter()
+                .map(|p| match p {
+                    Placed::Tab(_, r) => r.w - 2.0 * pad,
+                    _ => 0.0,
+                })
+                .collect();
+            let available = (width - tabs_start).max(0.0);
+            let fits =
+                |cap: f32| texts.iter().map(|t| t.min(cap) + 2.0 * small).sum::<f32>() <= available;
+            let min_cap = self.px(22.0);
+            if fits(min_cap) {
+                let (mut lo, mut hi) = (min_cap, texts.iter().copied().fold(0.0, f32::max));
+                for _ in 0..24 {
+                    let mid = f32::midpoint(lo, hi);
+                    if fits(mid) {
+                        lo = mid;
+                    } else {
+                        hi = mid;
+                    }
+                }
+                let cap = lo.floor();
+                let mut tx = tabs_start;
+                for p in &mut tabs {
+                    if let Placed::Tab(i, r) = p {
+                        r.x = tx;
+                        r.w = texts[*i].min(cap) + 2.0 * small;
+                        tx += r.w;
+                    }
+                }
+                x = tx;
+                self.shrunk_tabs = Some(texts);
+            }
+        }
         if x > width {
             let available = (width - tabs_start).max(0.0);
             let arrow = self.px(28.0).min(available / 3.0);
@@ -1187,6 +1264,14 @@ impl Ribbon {
                 .iter()
                 .map(|g| {
                     let stage = order[..steps].iter().filter(|l| **l == g.label).count();
+                    // A gallery with no whole tile left becomes its group's drop-down button
+                    // when the tab defines one, never a sliver (round 18, as the reference).
+                    // (BlueDoc's ribbon: the one that shrinks its tabs too.)
+                    if self.shrink_tabs && tile_count == 0 && g.large.contains(&Item::Gallery) {
+                        if let Some(b) = (self.shrink)(g.label, u8::MAX) {
+                            return std::borrow::Cow::Owned(b);
+                        }
+                    }
                     match u8::try_from(stage).ok().filter(|n| *n > 0) {
                         Some(n) => (self.shrink)(g.label, n)
                             .map_or(std::borrow::Cow::Borrowed(g), std::borrow::Cow::Owned),
@@ -1336,7 +1421,11 @@ impl Ribbon {
                         group_w = group_w.max(x - gap - gx + self.px(4.0));
                     }
                 }
-                let label = strings.get(g.label);
+                // A group collapsed to its drop-down button shows no group name under it (the
+                // button carries the name), as the reference (round 18).
+                let collapsed = g.rows.is_empty()
+                    && matches!(g.large.as_slice(), [Item::Large(id)] if is_group_button(id));
+                let label = if collapsed { "" } else { strings.get(g.label) };
                 let (lw, _) = text.measure(
                     label,
                     TextStyle {
@@ -1348,6 +1437,7 @@ impl Ribbon {
                 // Settings button in the label row's right corner (Font, Paragraph), as on a
                 // desktop word processor's ribbon.
                 let launcher = match g.label {
+                    _ if collapsed => None,
                     "ribbon.groups.font" => Some("format.fontSettings"),
                     "ribbon.groups.paragraph" => Some("format.paragraphSettings"),
                     "ribbon.groups.pageSetup" => Some("layout.pageSetup"),
@@ -1371,16 +1461,18 @@ impl Ribbon {
                         },
                     ));
                 }
-                placed.push(Placed::GroupLabel(
-                    g.label,
-                    Rect {
-                        x: gx,
-                        y: bottom - label_h,
-                        w: group_w,
-                        h: label_h,
-                    },
-                    lw,
-                ));
+                if !collapsed {
+                    placed.push(Placed::GroupLabel(
+                        g.label,
+                        Rect {
+                            x: gx,
+                            y: bottom - label_h,
+                            w: group_w,
+                            h: label_h,
+                        },
+                        lw,
+                    ));
+                }
                 gx += group_w;
                 placed.push(Placed::Divider(Rect {
                     x: gx,
@@ -1596,6 +1688,18 @@ impl Ribbon {
             }
             _ => None,
         })
+    }
+
+    /// Whether the tab strip scrolls (its tabs do not all fit even with shrunk labels).
+    #[cfg(test)]
+    pub(crate) fn tabs_scroll(&self) -> bool {
+        self.tab_scroll_max > 0.0
+    }
+
+    /// Where `hit` is drawn now, without falling back to the collapsed group holding it
+    /// (for things the window draws over the ribbon: boxes, check marks; round 18).
+    pub(crate) fn shown_rect(&self, hit: RibbonHit) -> Option<[f32; 4]> {
+        self.placed_rect(hit)
     }
 
     fn placed_rect(&self, hit: RibbonHit) -> Option<[f32; 4]> {
@@ -1870,7 +1974,20 @@ impl Ribbon {
                     } else {
                         t.text
                     };
-                    center_text(p, strings.get(self.tabs[*i].label), r, style, color);
+                    if let Some(w) = self.shrunk_tabs.as_ref().and_then(|t| t.get(*i)) {
+                        // A shrunk tab: the label from its start, cut at the tab's edge.
+                        let small = self.px(5.0);
+                        let at = Rect {
+                            x: r.x + small,
+                            w: *w,
+                            ..*r
+                        };
+                        p.push_clip(r.x, r.y, r.w, r.h);
+                        center_text(p, strings.get(self.tabs[*i].label), &at, style, color);
+                        p.pop_clip();
+                    } else {
+                        center_text(p, strings.get(self.tabs[*i].label), r, style, color);
+                    }
                     if active {
                         let h = self.px(3.0);
                         p.fill_rect(
@@ -2077,6 +2194,7 @@ impl Ribbon {
                     // icon about 24 px; round 17).
                     if crate::doc_r4_fit::GROUP_MENUS.contains(id)
                         || crate::doc_review16::GROUP_IDS.contains(id)
+                        || crate::doc_scale18::is_group(id)
                     {
                         let (bw, bh) = (self.px(39.2).round(), self.px(37.6).round());
                         let bx = (r.x + (r.w - bw) / 2.0).round();

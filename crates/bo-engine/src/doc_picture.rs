@@ -16,6 +16,15 @@ use std::sync::Arc;
 
 const EMU_PT: f64 = 12_700.0;
 
+/// The selected object is a shape (Shape Format commands need one; round 18).
+fn shape_of(picture: Option<&Image>) -> std::result::Result<(), String> {
+    match picture {
+        Some(img) if img.shape.is_some() => Ok(()),
+        Some(_) => Err("notShape".into()),
+        None => Err("noPicture".into()),
+    }
+}
+
 /// The anchor of a picture placed by the Position gallery: `inline`, or square-wrapped and
 /// aligned at one of nine places of the margins (§20.4.2.1 / §20.4.2.2 align, relative to
 /// `margin`), keeping the rest of `old`.
@@ -260,6 +269,68 @@ impl crate::Engine {
                             .map(|_| ())
                             .map_err(|e| e.to_string())
                     })
+                }
+                // Round 18: Shape Format › Shape Fill / Shape Outline / Edit Shape.
+                PictureCommand::PictureShapeFill { color } => shape_of(s.tools_shape().as_ref())
+                    .and_then(|()| {
+                        let fill = if color == "none" {
+                            None
+                        } else {
+                            Some(bo_model::Color::from_hex(&color).ok_or("badColor")?)
+                        };
+                        run(s.update_shape(|img| {
+                            if let Some(sh) = img.shape.as_mut() {
+                                sh.fill = fill;
+                            }
+                        }))
+                    }),
+                PictureCommand::PictureShapeOutline {
+                    color,
+                    weight,
+                    dash,
+                } => shape_of(s.tools_shape().as_ref()).and_then(|()| {
+                    let color = match color.as_deref() {
+                        Some("none") => Some(None),
+                        Some(c) => Some(Some(bo_model::Color::from_hex(c).ok_or("badColor")?)),
+                        None => None,
+                    };
+                    run(s.update_shape(|img| {
+                        let Some(sh) = img.shape.as_mut() else { return };
+                        if color == Some(None) {
+                            sh.line = None;
+                            return;
+                        }
+                        let mut line = sh.line.clone().unwrap_or(bo_model::ShapeLine {
+                            width: Emu(9525),
+                            color: bo_model::Color { r: 0, g: 0, b: 0 },
+                            dash: None,
+                        });
+                        if let Some(Some(c)) = color {
+                            line.color = c;
+                        }
+                        if let Some(w) = weight {
+                            line.width =
+                                Emu((f64::from(w.clamp(0.25, 72.0)) * EMU_PT).round() as i64);
+                        }
+                        if let Some(d) = &dash {
+                            line.dash = (d != "solid").then(|| d.clone());
+                        }
+                        sh.line = Some(line);
+                    }))
+                }),
+                PictureCommand::PictureShapePreset { preset } => {
+                    if bo_drawingml::preset(&preset).is_none() {
+                        Err("badShape".into())
+                    } else {
+                        shape_of(s.tools_shape().as_ref()).and_then(|()| {
+                            run(s.update_shape(|img| {
+                                if let Some(sh) = img.shape.as_mut() {
+                                    sh.preset.clone_from(&preset);
+                                    sh.adjust.clear();
+                                }
+                            }))
+                        })
+                    }
                 }
                 PictureCommand::PictureFlip { axis } => {
                     if axis == "horizontal" || axis == "vertical" {
@@ -587,5 +658,58 @@ impl crate::Engine {
             .as_ref()
             .map(|r| crate::picture_bg::RemovalSpec::from_settings(&r.settings));
         Some(i)
+    }
+}
+
+#[cfg(test)]
+mod shape_format18_tests {
+    use crate::Engine;
+
+    /// Round 18: Shape Format › Shape Fill / Outline / Edit Shape write the shape and
+    /// survive a .docx round trip (§20.1.8.54 solidFill, §20.1.2.2.24 ln, §20.1.9.18).
+    #[test]
+    fn shape_fill_outline_and_preset_round_trip() {
+        let mut e = Engine::with_bundled_fonts();
+        e.new_document("s.docx").expect("doc");
+        for json in [
+            r#"{"cmd":"insertShape","preset":"rect","width":100,"height":50}"#,
+            r#"{"cmd":"move","motion":"left","extend":true}"#,
+        ] {
+            e.command_json(json).expect("command");
+        }
+        for json in [
+            r#"{"cmd":"pictureShapeFill","color":"FF0000"}"#,
+            r#"{"cmd":"pictureShapeOutline","color":"0070C0","weight":3,"dash":"dash"}"#,
+            r#"{"cmd":"pictureShapePreset","preset":"ellipse"}"#,
+        ] {
+            let cmd = crate::picture_tools::PictureCommand::parse(
+                &serde_json::from_str(json).expect("json"),
+            )
+            .expect("picture command");
+            let r = e.doc_picture_command(cmd).expect("run");
+            assert_eq!(r.error, None, "{json}");
+        }
+        let bytes = e.save_docx().expect("save");
+        let mut back = Engine::with_bundled_fonts();
+        back.open(&bytes, "s.docx").expect("open");
+        let shape = back
+            .document()
+            .and_then(|d| {
+                d.sections[0].blocks.iter().find_map(|b| match b {
+                    bo_model::Block::Paragraph(p) => p.runs.iter().find_map(|r| {
+                        r.content.iter().find_map(|c| match c {
+                            bo_model::RunContent::Image(i) => i.shape.as_deref().cloned(),
+                            _ => None,
+                        })
+                    }),
+                    _ => None,
+                })
+            })
+            .expect("shape");
+        assert_eq!(shape.preset, "ellipse");
+        assert_eq!(shape.fill.map(|c| (c.r, c.g, c.b)), Some((255, 0, 0)));
+        let line = shape.line.expect("line");
+        assert_eq!((line.width.0, line.dash.as_deref()), (38_100, Some("dash")));
+        assert_eq!((line.color.r, line.color.g, line.color.b), (0, 0x70, 0xC0));
     }
 }

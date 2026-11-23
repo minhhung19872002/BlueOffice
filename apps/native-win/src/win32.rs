@@ -117,10 +117,22 @@ pub trait Handler {
     }
     /// The wait on [`Handler::frame_waitable`] succeeded: the next frame need not wait again.
     fn frame_waited(&mut self) {}
+    /// Window `hwnd` of this process was destroyed (BlueDoc round 18: one process shows
+    /// several windows; [`current_window`] tells which one each call is for).
+    fn destroyed(&mut self, _hwnd: isize) {}
+    /// Another BlueDoc window scrolled by `dy` device pixels while Synchronous Scrolling
+    /// links it to this one (round 18).
+    fn sync_scroll(&mut self, _dy: f32) {}
 }
 
 #[path = "ole_drag.rs"]
 pub mod ole_drag;
+
+/// Several windows in one process, Screen Clipping (BlueDoc round 18).
+#[path = "win32_multi18.rs"]
+pub mod multi18;
+#[allow(unused_imports)] // BlueDoc only.
+pub use multi18::current_window;
 
 thread_local! {
     static HANDLER: RefCell<Option<Box<dyn Handler>>> = RefCell::new(None);
@@ -708,8 +720,12 @@ fn client_point(hwnd: HWND, lparam: LPARAM) -> (f32, f32) {
     (pt.x as f32, pt.y as f32)
 }
 
-#[allow(clippy::too_many_lines)] // one arm per window message
 extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    multi18::dispatch(hwnd, msg, wparam, lparam, wndproc_inner)
+}
+
+#[allow(clippy::too_many_lines)] // one arm per window message
+fn wndproc_inner(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     match msg {
         WM_CHAR => {
             let unit = wparam.0 as u16;
@@ -959,6 +975,8 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                 return LRESULT(1);
             }
             let id = match shape {
+                // IDC_PEN (MAKEINTRESOURCE(32631), WinUser.h): BlueDoc's Draw Table pencil.
+                8 => PCWSTR(32631 as *const u16),
                 1 => IDC_SIZEWE,
                 2 => IDC_SIZENS,
                 3 => IDC_ARROW,
@@ -1113,8 +1131,12 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             LRESULT(0)
         }
         WM_DESTROY => {
-            // SAFETY: ends this thread's message loop.
-            unsafe { PostQuitMessage(0) };
+            with_handler(|h| h.destroyed(hwnd.0 as isize));
+            // The last window of the process ends this thread's message loop.
+            if multi18::window_closed() {
+                // SAFETY: ends this thread's message loop.
+                unsafe { PostQuitMessage(0) };
+            }
             LRESULT(0)
         }
         // SAFETY: default processing of this window's own message.
@@ -1207,6 +1229,7 @@ pub fn run(title: &str, handler: Box<dyn Handler>) -> Result<(), String> {
             (rect.right - rect.left).max(1) as u32,
             (rect.bottom - rect.top).max(1) as u32,
         );
+        multi18::window_opened();
         if let Some(Err(e)) = with_handler(|hd| hd.created(hwnd.0 as isize, w, h, scale(hwnd))) {
             return Err(e);
         }

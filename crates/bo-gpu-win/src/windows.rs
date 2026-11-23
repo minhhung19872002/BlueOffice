@@ -26,6 +26,7 @@ use windows::Win32::Graphics::DirectWrite::DWRITE_MEASURING_MODE_NATURAL;
 use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM;
 use windows::Win32::Graphics::Dxgi::{IDXGIAdapter, IDXGIDevice};
 
+mod image18;
 mod page;
 mod surface;
 pub use surface::{FontSpec, Frame, PageBitmap, WindowSurface};

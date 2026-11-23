@@ -63,6 +63,20 @@ fn is_picture(item: &RunContent) -> bool {
 /// inside a non-empty `range` (byte offsets); for a caret, the picture just before
 /// it, else just after it, else the paragraph's first floating picture.
 fn picture_index(atoms: &[Atom], range: (usize, usize)) -> Option<usize> {
+    object_index(atoms, range, is_picture)
+}
+
+/// A drawn shape or text box (not a picture; BlueDoc round 18: Shape Format).
+fn is_shape(item: &RunContent) -> bool {
+    matches!(item, RunContent::Image(img) if img.shape.is_some())
+}
+
+/// [`picture_index`] for the objects `pick` accepts.
+fn object_index(
+    atoms: &[Atom],
+    range: (usize, usize),
+    pick: fn(&RunContent) -> bool,
+) -> Option<usize> {
     let (a, b) = range;
     let mut off = 0;
     let mut before = None;
@@ -70,7 +84,7 @@ fn picture_index(atoms: &[Atom], range: (usize, usize)) -> Option<usize> {
     let mut floating = None;
     for (i, (props, item)) in atoms.iter().enumerate() {
         let l = para::atom_len(item);
-        if is_picture(item) && props.del.is_none() {
+        if pick(item) && props.del.is_none() {
             if b > a && a <= off && off + l <= b {
                 return Some(i);
             }
@@ -115,6 +129,48 @@ impl Session {
             RunContent::Image(img) => Some(*img),
             _ => None,
         }
+    }
+
+    /// (paragraph id, atom index) of the shape Shape Format acts on (round 18).
+    fn shape_target(&self) -> Option<(usize, usize)> {
+        let (a, b) = self.selection.ordered();
+        let p = bo_model::index::para_by_id(&self.doc, a.para)?;
+        let atoms = para::flatten(p);
+        let range = if a.para == b.para {
+            (a.offset, b.offset)
+        } else {
+            (a.offset, usize::MAX)
+        };
+        object_index(&atoms, range, is_shape).map(|i| (a.para, i))
+    }
+
+    /// The shape Shape Format acts on (a copy; round 18).
+    pub fn tools_shape(&self) -> Option<Image> {
+        let (id, k) = self.shape_target()?;
+        let p = bo_model::index::para_by_id(&self.doc, id)?;
+        match para::flatten(p).into_iter().nth(k)?.1 {
+            RunContent::Image(img) => Some(*img),
+            _ => None,
+        }
+    }
+
+    /// Change the shape Shape Format acts on (one undo step; round 18).
+    pub fn update_shape(&mut self, f: impl FnOnce(&mut Image)) -> Result<Selection> {
+        let (id, k) = self
+            .shape_target()
+            .ok_or_else(|| EditError::Unsupported("no shape here".into()))?;
+        self.edit(move |tx, sel| {
+            let (path, p, mut atoms) = tx.atoms(id)?;
+            let (props, item) = atoms[k].clone();
+            let RunContent::Image(img) = item else {
+                return Err(EditError::BadPosition);
+            };
+            let mut img = *img;
+            f(&mut img);
+            atoms[k] = (props, RunContent::Image(Box::new(img)));
+            tx.replace_para(&path, para::with_atoms(&p, atoms))?;
+            Ok(sel)
+        })
     }
 
     /// Change the picture the tools act on (one undo step). With `media`, the

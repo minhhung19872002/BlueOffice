@@ -30,6 +30,7 @@ mod doc_r4_fit;
 mod doc_r4_menus;
 mod doc_reveal;
 mod doc_review16;
+mod doc_scale18;
 mod doc_spacing15;
 mod doc_speech16;
 mod doc_table;
@@ -334,5 +335,10 @@ pub trait Painter {
     /// colour fringes), as the reference draws its rulers' numbers. Others ignore it.
     fn gray_text(&mut self, on: bool) {
         let _ = on;
+    }
+    /// Draw picture `id` the host registered (BlueDoc round 18: window thumbnails of Insert ›
+    /// Screenshot) scaled into `dest` (x, y, width, height). Backends without pictures skip it.
+    fn image(&mut self, id: u64, dest: [f32; 4]) {
+        let _ = (id, dest);
     }
 }

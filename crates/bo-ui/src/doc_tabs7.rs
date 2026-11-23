@@ -53,19 +53,14 @@ pub(crate) const MENUS: [&str; 27] = [
 
 /// Commands shown but not available (greyed, as the reference greys what does not apply or
 /// what BlueDoc does not have yet).
-pub(crate) const GREYED: [&str; 16] = [
+pub(crate) const GREYED: [&str; 10] = [
     "picture.artisticEffects",
     "picture.quickStyles",
     "picture.border",
     "picture.effects",
     "picture.layout",
-    "shape.edit",
+    // Round 18: Edit Shape, Shape Styles, Shape Fill and Shape Outline work.
     "shape.wordArt",
-    "shape.style.0",
-    "shape.style.1",
-    "shape.style.2",
-    "shape.fill",
-    "shape.outline",
     "shape.effects",
     "hf.onlinePictures",
     "hf.alignmentTab",

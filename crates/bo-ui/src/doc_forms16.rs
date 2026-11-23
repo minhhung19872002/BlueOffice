@@ -47,7 +47,7 @@ const PANES: [(&str, &str, &str); 3] = [
 ];
 
 /// Insertions: (value, key, English).
-const INS: [(&str, &str, &str); 5] = [
+const INS: [(&str, &str, &str); 7] = [
     ("none", "doc16.markNone", "(none)"),
     ("colorOnly", "doc16.colorOnly", "Color only"),
     ("underline", "doc16.underline", "Underline"),
@@ -57,10 +57,13 @@ const INS: [(&str, &str, &str); 5] = [
         "Double underline",
     ),
     ("strikethrough", "doc16.strikethrough", "Strikethrough"),
+    // Round 18: the marks the layout draws since its round 8 (bold, italic).
+    ("bold", "doc18.markBold", "Bold"),
+    ("italic", "doc18.markItalic", "Italic"),
 ];
 
 /// Deletions: (value, key, English).
-const DEL: [(&str, &str, &str); 6] = [
+const DEL: [(&str, &str, &str); 10] = [
     ("colorOnly", "doc16.colorOnly", "Color only"),
     ("strikethrough", "doc16.strikethrough", "Strikethrough"),
     (
@@ -75,6 +78,30 @@ const DEL: [(&str, &str, &str); 6] = [
         "doc16.doubleUnderline",
         "Double underline",
     ),
+    ("bold", "doc18.markBold", "Bold"),
+    ("italic", "doc18.markItalic", "Italic"),
+    ("caret", "doc18.markCaret", "^"),
+    ("hash", "doc18.markHash", "#"),
+];
+
+/// Formatting marks (round 18): (value, key, English).
+const FMT: [(&str, &str, &str); 8] = [
+    ("none", "doc16.markNone", "(none)"),
+    ("bold", "doc18.markBold", "Bold"),
+    ("italic", "doc18.markItalic", "Italic"),
+    ("underline", "doc16.underline", "Underline"),
+    (
+        "doubleUnderline",
+        "doc16.doubleUnderline",
+        "Double underline",
+    ),
+    ("strikethrough", "doc16.strikethrough", "Strikethrough"),
+    (
+        "doubleStrikethrough",
+        "doc16.doubleStrikethrough",
+        "Double strikethrough",
+    ),
+    ("colorOnly", "doc16.colorOnly", "Color only"),
 ];
 
 /// Colours of the colour boxes: (hex, key, English); `""` = by author.
@@ -850,7 +877,7 @@ fn open_advanced(s: &Strings, m: &Value) -> DocForm {
     let mut f = DocForm::new(
         DocFormKind::AdvTrackOptions,
         &tr("doc16.advTitle", "Advanced Track Changes Options"),
-        (543.0, 496.0),
+        (543.0, 732.0),
         vec![],
     );
     let color_at = |hex: &str| {
@@ -940,17 +967,103 @@ fn open_advanced(s: &Strings, m: &Value) -> DocForm {
     f.combo(
         "commentColor",
         [132.0, 227.0, 158.0, 26.0],
-        colors,
+        colors.clone(),
         color_at(&text("commentColor", "")),
+    );
+    // Round 18: Moves and Formatting, with the marks the layout draws (setMarkup).
+    f.group(
+        "movesG",
+        [8.0, 287.0, 527.0, 120.0],
+        &tr("doc18.movesGroup", "Moves"),
+    );
+    f.check(
+        "trackMoves",
+        [19.0, 311.0, 300.0, 26.0],
+        &tr("doc18.trackMoves", "Track moves"),
+        m["trackMoves"].as_bool().unwrap_or(true),
+    );
+    let move_rows: [(&'static str, &'static str, &'static str, &'static str); 2] = [
+        ("fromL", "moveFrom", "moveFromColorL", "moveFromColor"),
+        ("toL", "moveTo", "moveToColorL", "moveToColor"),
+    ];
+    for ((lid, id, clid, cid), (key, en, y, list, def)) in move_rows.into_iter().zip([
+        (
+            "doc18.movedFrom",
+            "Moved from:",
+            343.0,
+            &DEL[..],
+            "doubleStrikethrough",
+        ),
+        (
+            "doc18.movedTo",
+            "Moved to:",
+            375.0,
+            &INS[..],
+            "doubleUnderline",
+        ),
+    ]) {
+        f.label(lid, [18.0, y + 6.0, 110.0, 21.0], &tr(key, en));
+        let v = text(&format!("{id}Mark"), def);
+        f.combo(
+            id,
+            [132.0, y, 158.0, 26.0],
+            list.iter().map(|r| tr(r.1, r.2)).collect(),
+            list.iter().position(|r| r.0 == v).unwrap_or(0),
+        );
+        f.label(
+            clid,
+            [312.0, y + 6.0, 70.0, 21.0],
+            &tr("doc16.color", "Color:"),
+        );
+        f.combo(
+            cid,
+            [394.0, y, 138.0, 26.0],
+            colors.clone(),
+            color_at(&text(cid, "")),
+        );
+    }
+    f.group(
+        "fmtG",
+        [8.0, 417.0, 527.0, 96.0],
+        &tr("doc18.formattingGroup", "Formatting"),
+    );
+    f.check(
+        "trackFormatting",
+        [19.0, 441.0, 300.0, 26.0],
+        &tr("doc18.trackFormatting", "Track formatting"),
+        m["formatting"].as_bool().unwrap_or(true),
+    );
+    f.label(
+        "fmtL",
+        [18.0, 479.0, 110.0, 21.0],
+        &tr("doc18.formattingLabel", "Formatting:"),
+    );
+    let fv = text("fmtMark", "none");
+    f.combo(
+        "fmt",
+        [132.0, 473.0, 158.0, 26.0],
+        names(s, &FMT, |r| (r.1, r.2)),
+        FMT.iter().position(|r| r.0 == fv).unwrap_or(0),
+    );
+    f.label(
+        "fmtColorL",
+        [312.0, 479.0, 70.0, 21.0],
+        &tr("doc16.color", "Color:"),
+    );
+    f.combo(
+        "fmtColor",
+        [394.0, 473.0, 138.0, 26.0],
+        colors.clone(),
+        color_at(&text("fmtColor", "")),
     );
     f.group(
         "balloonsG",
-        [8.0, 287.0, 527.0, 120.0],
+        [8.0, 523.0, 527.0, 120.0],
         &tr("doc16.balloonsGroup", "Balloons"),
     );
     f.label(
         "useL",
-        [18.0, 321.0, 290.0, 21.0],
+        [18.0, 557.0, 290.0, 21.0],
         &tr("doc16.useBalloons", "Use Balloons (Print and Web Layout):"),
     );
     let (del, inline) = (
@@ -959,7 +1072,7 @@ fn open_advanced(s: &Strings, m: &Value) -> DocForm {
     );
     f.combo(
         "useBalloons",
-        [313.0, 315.0, 216.0, 26.0],
+        [313.0, 551.0, 216.0, 26.0],
         names(s, &USE_BALLOONS, |r| (r.0, r.1)),
         USE_BALLOONS
             .iter()
@@ -968,41 +1081,41 @@ fn open_advanced(s: &Strings, m: &Value) -> DocForm {
     );
     f.label(
         "widthL",
-        [18.0, 353.0, 110.0, 21.0],
+        [18.0, 589.0, 110.0, 21.0],
         &tr("doc16.preferredWidth", "Preferred width:"),
     );
     let inches = m["balloonWidth"].as_f64().unwrap_or(3.7) as f32;
     f.edit(
         "width",
-        [132.0, 347.0, 158.0, 26.0],
+        [132.0, 583.0, 158.0, 26.0],
         &format!("{inches:.1}\""),
     );
     f.label(
         "unitL",
-        [312.0, 353.0, 80.0, 21.0],
+        [312.0, 589.0, 80.0, 21.0],
         &tr("doc16.measureIn", "Measure in:"),
     );
     f.combo(
         "unit",
-        [394.0, 347.0, 128.0, 26.0],
+        [394.0, 583.0, 128.0, 26.0],
         names(s, &UNITS, |r| (r.0, r.1)),
         0,
     );
     f.check(
         "connectors",
-        [19.0, 378.0, 300.0, 26.0],
+        [19.0, 614.0, 300.0, 26.0],
         &tr("doc16.connectors", "Show lines connecting to text"),
         m["connectors"].as_bool().unwrap_or(true),
     );
     f.button(
         "ok",
-        [293.0, 450.0, 110.0, 36.0],
+        [293.0, 686.0, 110.0, 36.0],
         &tr("common.ok", "OK"),
         true,
     );
     f.button(
         "cancel",
-        [420.0, 450.0, 110.0, 36.0],
+        [420.0, 686.0, 110.0, 36.0],
         &tr("common.cancel", "Cancel"),
         false,
     );
@@ -1179,8 +1292,16 @@ impl DocForm {
                 Some(FormOut::Run(
                     vec![json!({
                         "cmd": "setMarkup",
-                        "insMark": INS[self.sel("ins").unwrap_or(2).min(4)].0,
-                        "delMark": DEL[self.sel("del").unwrap_or(1).min(5)].0,
+                        "insMark": INS[self.sel("ins").unwrap_or(2).min(INS.len() - 1)].0,
+                        "delMark": DEL[self.sel("del").unwrap_or(1).min(DEL.len() - 1)].0,
+                        "trackMoves": self.on("trackMoves"),
+                        "moveFromMark": DEL[self.sel("moveFrom").unwrap_or(2).min(DEL.len() - 1)].0,
+                        "moveToMark": INS[self.sel("moveTo").unwrap_or(3).min(INS.len() - 1)].0,
+                        "moveFromColor": color("moveFromColor"),
+                        "moveToColor": color("moveToColor"),
+                        "formatting": self.on("trackFormatting"),
+                        "fmtMark": FMT[self.sel("fmt").unwrap_or(0).min(FMT.len() - 1)].0,
+                        "fmtColor": color("fmtColor"),
                         "insColor": color("insColor"),
                         "delColor": color("delColor"),
                         "commentColor": color("commentColor"),

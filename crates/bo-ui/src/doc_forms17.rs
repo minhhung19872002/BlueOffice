@@ -22,6 +22,7 @@ pub(super) fn handles(kind: DocFormKind) -> bool {
             | DocFormKind::StyleNumbering
             | DocFormKind::CustomizeKeyboard
             | DocFormKind::StyleEffects
+            | DocFormKind::StyleFrame
     )
 }
 
@@ -73,6 +74,7 @@ pub(super) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
         DocFormKind::StyleNumbering => open_style_numbering(s),
         DocFormKind::CustomizeKeyboard => open_keyboard(s, c),
         DocFormKind::StyleEffects => open_style_effects(s),
+        DocFormKind::StyleFrame => open_style_frame(s),
         _ => open_bookmark(s, c),
     }
 }
@@ -355,6 +357,10 @@ impl DocForm {
                 false,
             ),
             (DocFormKind::Macros, "edit") => FormOut::Stash(DocFormKind::MacroSource),
+            (DocFormKind::StyleFrame, "removeFrame") => FormOut::Run(
+                vec![json!({ "cmd": "ui.action", "id": "r17.styleFrame:" })],
+                true,
+            ),
             (DocFormKind::CustomizeKeyboard, "assign") => return Some(self.kb_assign()),
             (DocFormKind::CustomizeKeyboard, "remove") => {
                 let Some(key) = self.sel("current").and_then(|i| self.ids.get(i).cloned()) else {
@@ -424,6 +430,12 @@ impl DocForm {
                 )
             }
             DocFormKind::CustomizeKeyboard => self.kb_assign(),
+            DocFormKind::StyleFrame => FormOut::Run(
+                vec![
+                    json!({ "cmd": "ui.action", "id": format!("r17.styleFrame:{}", self.frame_xml()) }),
+                ],
+                true,
+            ),
             DocFormKind::StyleEffects => {
                 // The same effects as Home › Text Effects (w14; [MS-DOCX] 2.6); unticked
                 // ones are removed from the style.
@@ -908,6 +920,230 @@ impl DocForm {
             vec![json!({ "cmd": "ui.action", "id": format!("r17.key.assign:{key}\u{1f}{style}") })],
             false,
         )
+    }
+}
+
+/// Frame (Format ▾ › Frame… of New / Modify Style; §17.3.1.11 framePr): text wrapping,
+/// size, horizontal and vertical position with their anchors and distances, Move with
+/// text, Lock anchor, Remove Frame.
+fn open_style_frame(s: &Strings) -> DocForm {
+    let tr = |k: &str, fb: &str| t(s, k, fb);
+    let names = |rows: &[(&str, &str)]| -> Vec<String> {
+        rows.iter()
+            .map(|(_, en)| tr(&format!("doc17.fr_{en}"), en))
+            .collect()
+    };
+    let mut f = DocForm::new(
+        DocFormKind::StyleFrame,
+        &tr("doc17.frTitle", "Frame"),
+        (420.0, 470.0),
+        vec![],
+    );
+    f.label(
+        "wrapL",
+        [18.0, 46.0, 200.0, 18.0],
+        &tr("doc17.frWrap", "Text wrapping"),
+    );
+    f.radio(
+        "wrapNone",
+        "wrap",
+        [30.0, 70.0, 120.0, 22.0],
+        &tr("doc17.frNone", "None"),
+        false,
+    );
+    f.radio(
+        "wrapAround",
+        "wrap",
+        [170.0, 70.0, 120.0, 22.0],
+        &tr("doc17.frAround", "Around"),
+        true,
+    );
+    f.label(
+        "sizeL",
+        [18.0, 104.0, 200.0, 18.0],
+        &tr("doc17.frSize", "Size"),
+    );
+    f.label(
+        "wL",
+        [30.0, 128.0, 60.0, 18.0],
+        &tr("doc17.frWidth", "Width:"),
+    );
+    f.combo(
+        "wRule",
+        [90.0, 124.0, 130.0, 26.0],
+        vec![tr("doc17.frAuto", "Auto"), tr("doc17.frExactly", "Exactly")],
+        0,
+    );
+    f.label("wAtL", [232.0, 128.0, 30.0, 18.0], &tr("doc17.frAt", "At:"));
+    f.edit("wAt", [266.0, 124.0, 130.0, 26.0], "");
+    f.label(
+        "hL",
+        [30.0, 160.0, 60.0, 18.0],
+        &tr("doc17.frHeight", "Height:"),
+    );
+    f.combo(
+        "hRule",
+        [90.0, 156.0, 130.0, 26.0],
+        vec![
+            tr("doc17.frAuto", "Auto"),
+            tr("doc17.frAtLeast", "At least"),
+            tr("doc17.frExactly", "Exactly"),
+        ],
+        0,
+    );
+    f.label("hAtL", [232.0, 160.0, 30.0, 18.0], &tr("doc17.frAt", "At:"));
+    f.edit("hAt", [266.0, 156.0, 130.0, 26.0], "");
+    f.label(
+        "horL",
+        [18.0, 194.0, 200.0, 18.0],
+        &tr("doc17.frHorizontal", "Horizontal"),
+    );
+    f.label(
+        "hPosL",
+        [30.0, 218.0, 100.0, 18.0],
+        &tr("doc17.frPosition", "Position:"),
+    );
+    f.combo("hPos", [30.0, 238.0, 170.0, 26.0], names(&H_ALIGN), 0);
+    f.label(
+        "hRelL",
+        [214.0, 218.0, 120.0, 18.0],
+        &tr("doc17.frRelative", "Relative to:"),
+    );
+    f.combo("hRel", [214.0, 238.0, 182.0, 26.0], names(&H_ANCHOR), 0);
+    f.label(
+        "hDistL",
+        [214.0, 270.0, 160.0, 18.0],
+        &tr("doc17.frDistance", "Distance from text:"),
+    );
+    f.edit("hDist", [214.0, 290.0, 182.0, 26.0], "0.13\"");
+    f.label(
+        "verL",
+        [18.0, 326.0, 200.0, 18.0],
+        &tr("doc17.frVertical", "Vertical"),
+    );
+    f.label(
+        "vPosL",
+        [30.0, 350.0, 100.0, 18.0],
+        &tr("doc17.frPosition", "Position:"),
+    );
+    f.edit("vPos", [30.0, 370.0, 170.0, 26.0], "0\"");
+    f.label(
+        "vRelL",
+        [214.0, 350.0, 120.0, 18.0],
+        &tr("doc17.frRelative", "Relative to:"),
+    );
+    f.combo("vRel", [214.0, 370.0, 182.0, 26.0], names(&V_ANCHOR), 0);
+    f.check(
+        "move",
+        [30.0, 404.0, 160.0, 22.0],
+        &tr("doc17.frMove", "Move with text"),
+        true,
+    );
+    f.check(
+        "lock",
+        [214.0, 404.0, 160.0, 22.0],
+        &tr("doc17.frLock", "Lock anchor"),
+        false,
+    );
+    f.button(
+        "removeFrame",
+        [18.0, 432.0, 120.0, 28.0],
+        &tr("doc17.frRemove", "Remove Frame"),
+        false,
+    );
+    f.button(
+        "ok",
+        [168.0, 432.0, 111.0, 28.0],
+        &tr("common.ok", "OK"),
+        true,
+    );
+    f.button(
+        "cancel",
+        [291.0, 432.0, 111.0, 28.0],
+        &tr("common.cancel", "Cancel"),
+        false,
+    );
+    f
+}
+
+/// Horizontal positions (`w:xAlign`, ST_XAlign §17.18.108) and anchors (`w:hAnchor`).
+const H_ALIGN: [(&str, &str); 5] = [
+    ("left", "Left"),
+    ("right", "Right"),
+    ("center", "Center"),
+    ("inside", "Inside"),
+    ("outside", "Outside"),
+];
+const H_ANCHOR: [(&str, &str); 3] = [("text", "Column"), ("margin", "Margin"), ("page", "Page")];
+/// Vertical anchors (`w:vAnchor`, ST_VAnchor §17.18.100).
+const V_ANCHOR: [(&str, &str); 3] = [
+    ("text", "Paragraph"),
+    ("margin", "Margin"),
+    ("page", "Page"),
+];
+
+/// A length typed as inches (`0.5"`, `0.5in` or a plain number), centimetres (`cm`) or
+/// points (`pt`), in twips.
+fn twips_of(s: &str) -> Option<i32> {
+    let t = s.trim().replace(',', ".");
+    let num: String = t
+        .chars()
+        .take_while(|c| c.is_ascii_digit() || *c == '.' || *c == '-')
+        .collect();
+    let v: f32 = num.parse().ok()?;
+    let k = match t[num.len()..].trim() {
+        "cm" => 1440.0 / 2.54,
+        "pt" => 20.0,
+        _ => 1440.0,
+    };
+    Some((v * k).round() as i32)
+}
+
+impl DocForm {
+    /// The `w:framePr` element of the Frame dialog.
+    fn frame_xml(&self) -> String {
+        let mut a = vec![];
+        if self.sel("wRule") == Some(1) {
+            if let Some(w) = twips_of(&self.text("wAt")) {
+                a.push(format!("w:w=\"{}\"", w.max(0)));
+            }
+        }
+        let h_rule = self.sel("hRule").unwrap_or(0);
+        if h_rule > 0 {
+            if let Some(h) = twips_of(&self.text("hAt")) {
+                a.push(format!("w:h=\"{}\"", h.max(0)));
+                let rule = if h_rule == 1 { "atLeast" } else { "exact" };
+                a.push(format!("w:hRule=\"{rule}\""));
+            }
+        }
+        if let Some(d) = twips_of(&self.text("hDist")) {
+            a.push(format!("w:hSpace=\"{}\"", d.max(0)));
+        }
+        let wrap = if self.chosen("wrap") == Some("wrapNone") {
+            "none"
+        } else {
+            "around"
+        };
+        a.push(format!("w:wrap=\"{wrap}\""));
+        a.push(format!(
+            "w:vAnchor=\"{}\"",
+            V_ANCHOR[self.sel("vRel").unwrap_or(0).min(2)].0
+        ));
+        a.push(format!(
+            "w:hAnchor=\"{}\"",
+            H_ANCHOR[self.sel("hRel").unwrap_or(0).min(2)].0
+        ));
+        a.push(format!(
+            "w:xAlign=\"{}\"",
+            H_ALIGN[self.sel("hPos").unwrap_or(0).min(4)].0
+        ));
+        if let Some(y) = twips_of(&self.text("vPos")).filter(|y| *y != 0) {
+            a.push(format!("w:y=\"{y}\""));
+        }
+        if self.on("lock") {
+            a.push("w:anchorLock=\"1\"".to_owned());
+        }
+        format!("<w:framePr {}/>", a.join(" "))
     }
 }
 

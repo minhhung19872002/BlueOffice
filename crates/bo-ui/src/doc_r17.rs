@@ -160,6 +160,12 @@ impl DocWindow {
             self.r17_save_keys();
             return Some(true);
         }
+        if let Some(x) = id.strip_prefix("r17.styleFrame:") {
+            if let Some(f) = self.r3.form.as_mut() {
+                f.style_set_spec_field("frameXml", json!(x));
+            }
+            return Some(true);
+        }
         if let Some(p) = id.strip_prefix("r17.styleFx:") {
             let patch: Value = serde_json::from_str(p).unwrap_or(Value::Null);
             if let Some(f) = self.r3.form.as_mut() {

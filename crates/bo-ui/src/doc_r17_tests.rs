@@ -305,3 +305,22 @@ fn style_text_effects_go_into_the_style() {
     assert!(spec["advanced"]["glow"].is_object(), "{spec}");
     assert!(spec["advanced"]["textOutline"].is_null());
 }
+
+#[test]
+fn style_frame_goes_into_the_style() {
+    let mut w = window();
+    assert!(w.action("styles.newStyle"));
+    assert!(w.action("r13.styleFmt.frame"));
+    let f = w.r3.form.as_mut().expect("frame");
+    assert_eq!(f.kind, DocFormKind::StyleFrame);
+    f.set_sel("wRule", Some(1));
+    f.set_text("wAt", "2\"");
+    let out = f.r17_ok();
+    w.form_out(out);
+    let spec = w.r3.form.as_ref().expect("style").style_spec();
+    let x = spec["frameXml"].as_str().unwrap_or_default();
+    assert!(
+        x.contains("w:w=\"2880\"") && x.contains("w:wrap=\"around\""),
+        "{x}"
+    );
+}

@@ -1,5 +1,6 @@
 ---
 source: crates/bo-engine/tests/slides.rs
+assertion_line: 198
 expression: summary(&page.commands)
 ---
 path n=5 [0.0 0.0 960.0 540.0] fill=#ffffffff
@@ -10,23 +11,19 @@ transform [1.000 0.000 0.000 1.000 36.0 18.0]
   text 28.0pt 186.3,30.3 #000000ff "(funnel)"
 pop transform
 transform [1.000 0.000 0.000 1.000 72.0 108.0]
-  line 0.0,0.2 → 576.0,0.2 w0.50
-  line 0.0,287.8 → 576.0,287.8 w0.50
-  line 0.2,0.0 → 0.2,288.0 w0.50
-  line 575.8,0.0 → 575.8,288.0 w0.50
-  text 12.0pt 231.1,19.0 #000000ff "Phễu "
-  text 12.0pt 258.6,19.0 #000000ff "bán "
-  text 12.0pt 279.6,19.0 #000000ff "hàng "
-  text 12.0pt 306.4,19.0 #000000ff "(funnel)"
-  rect 66.5,40.6 498.5x71.2 #2e75b6ff
-  text 10.0pt 305.6,79.6 #ffffffff "5000"
-  text 10.0pt 29.5,79.6 #000000ff "Truy "
-  text 10.0pt 49.3,79.6 #000000ff "cập"
-  rect 226.0,125.3 179.5x71.2 #2e75b6ff
-  text 10.0pt 305.6,164.3 #ffffffff "1800"
-  text 10.0pt 31.2,164.3 #000000ff "Đăng "
-  text 10.0pt 54.4,164.3 #000000ff "ký"
-  rect 303.8,210.0 23.9x71.2 #2e75b6ff
-  text 10.0pt 308.1,249.1 #ffffffff "240"
-  text 10.0pt 44.9,249.1 #000000ff "Mua"
+  text 17.7pt 204.2,24.5 #3c4043ff "Phễu "
+  text 17.7pt 244.7,24.5 #3c4043ff "bán "
+  text 17.7pt 275.7,24.5 #3c4043ff "hàng "
+  text 17.7pt 315.0,24.5 #3c4043ff "(funnel)"
+  rect 84.5,39.5 485.5x69.8 #2e75b6ff
+  text 13.1pt 314.0,78.9 #ffffffff "5000"
+  text 13.1pt 37.1,78.9 #3c4043ff "Truy "
+  text 13.1pt 63.0,78.9 #3c4043ff "cập"
+  rect 239.9,122.6 174.8x69.8 #2e75b6ff
+  text 13.1pt 314.0,161.9 #ffffffff "1800"
+  text 13.1pt 39.2,161.9 #3c4043ff "Đăng "
+  text 13.1pt 69.7,161.9 #3c4043ff "ký"
+  rect 315.6,205.6 23.3x69.8 #2e75b6ff
+  text 13.1pt 317.3,245.0 #ffffffff "240"
+  text 13.1pt 57.2,245.0 #3c4043ff "Mua"
 pop transform

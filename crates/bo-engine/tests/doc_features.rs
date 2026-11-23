@@ -804,9 +804,10 @@ fn corpus_long_footnotes_stay_whole() {
         let pages: Vec<(i32, Vec<usize>)> = footnote_pages(&e).into_iter().collect();
         assert_eq!(pages, expected, "{name}");
     }
-    // §17.11.11 document-wide numFmt upperRoman, numStart 3.
+    // §17.11.11 document-wide numFmt upperRoman, numStart 3: the reference word processor
+    // numbers by the section's footnotePr only (black-box, layout round 7), so no "III".
     let e = corpus("notes-05-long-footnote.docx");
-    assert!(e.layout().unwrap().pages.iter().any(|p| p
+    assert!(!e.layout().unwrap().pages.iter().any(|p| p
         .lines
         .iter()
         .any(|l| l.fragments.iter().any(|f| f.text == "III"))));

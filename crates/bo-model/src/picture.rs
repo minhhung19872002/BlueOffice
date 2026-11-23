@@ -221,6 +221,19 @@ pub struct PictureFormat {
     /// Mirrored top to bottom (`a:xfrm@flipV`, §20.1.7.6).
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub flip_v: bool,
+    /// Picture Border (§20.1.2.2.24 `ln` of `pic:spPr`; BlueDoc round 19).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub line: Option<crate::picture_style::PicLine>,
+    /// Picture Effects (§20.1.8.26 effectLst, §20.1.5 scene3d / sp3d; round 19).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effects: Option<Box<crate::picture_style::PicEffects>>,
+    /// Artistic effect ([MS-ODRAWXML] `a14:imgEffect`; round 19).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub artistic: Option<crate::picture_style::PicArtistic>,
+    /// Room the effects take around the picture (§20.4.2.6 `wp:effectExtent` l, t, r, b in
+    /// EMU): an inline picture's line makes room for it (round 19).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effect_extent: Option<[i64; 4]>,
 }
 
 impl PictureFormat {
@@ -232,6 +245,13 @@ impl PictureFormat {
             && self.svg.is_none()
             && !self.flip_h
             && !self.flip_v
+            && self.line.is_none()
+            && self
+                .effects
+                .as_deref()
+                .is_none_or(crate::picture_style::PicEffects::is_empty)
+            && self.artistic.is_none()
+            && self.effect_extent.is_none_or(|e| e == [0; 4])
     }
 }
 

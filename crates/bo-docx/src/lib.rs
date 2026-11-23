@@ -13,6 +13,7 @@ mod group;
 mod mentions;
 mod ole;
 mod page_fill;
+mod picstyle;
 mod picture;
 mod reader;
 mod shape;

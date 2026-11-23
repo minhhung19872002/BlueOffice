@@ -21,6 +21,7 @@ pub mod index;
 pub mod mention;
 pub mod ole;
 pub mod picture;
+pub mod picture_style;
 pub mod run_fx;
 pub mod sheet;
 pub mod sigline;

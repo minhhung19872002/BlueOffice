@@ -53,11 +53,8 @@ pub(crate) const MENUS: [&str; 27] = [
 
 /// Commands shown but not available (greyed, as the reference greys what does not apply or
 /// what BlueDoc does not have yet).
-pub(crate) const GREYED: [&str; 10] = [
-    "picture.artisticEffects",
-    "picture.quickStyles",
-    "picture.border",
-    "picture.effects",
+pub(crate) const GREYED: [&str; 6] = [
+    // Round 19: Artistic Effects, Quick Styles, Picture Border and Picture Effects work.
     "picture.layout",
     // Round 18: Edit Shape, Shape Styles, Shape Fill and Shape Outline work.
     "shape.wordArt",
@@ -876,7 +873,11 @@ pub(crate) fn enabled(id: &str, f: &FormatState) -> Option<bool> {
         | "picture.resetSize"
         | "picture.altText"
         | "picture.height"
-        | "picture.width" => picture,
+        | "picture.width"
+        | "picture.artisticEffects"
+        | "picture.quickStyles"
+        | "picture.border"
+        | "picture.effects" => picture,
         _ if id.starts_with("picture.change.") => picture,
         _ if id.starts_with("shape.") => picture,
         _ if id.starts_with("hf.") => true,

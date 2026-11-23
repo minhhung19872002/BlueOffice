@@ -91,7 +91,9 @@ impl Host {
         a.view.view_mut().swap_engine(b.view.view_mut());
         let changed = self.seen[i] != self.version;
         a.view.view_mut().adopt_engine(changed);
-        if changed {
+        // Round 19: each window keeps its own view (Print / Web / Draft).
+        let relaid = a.view.restore_view_mode();
+        if changed || relaid {
             let m = Measure(a.gpu.as_ref().map(|g| &g.device));
             a.view.refresh(&m);
             a.dirty = true;
@@ -150,6 +152,8 @@ impl Host {
         };
         let mut win = DocWindow::new(view, &self.setup.locale, &self.setup.name);
         configure(&mut win, self.shells[i].file.as_deref());
+        // Round 19: the new window starts in the view of the one it came from.
+        win.set_view_mode_name(self.shells[i].view.view_mode_name());
         let (place, max) = win32::multi18::window_place(self.shells[i].hwnd);
         // The new window opens a little lower and to the right, like the reference's.
         let place = [place[0] + 32, place[1] + 32, place[2], place[3]];

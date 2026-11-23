@@ -33,6 +33,7 @@ pub mod design;
 pub mod doc_bookmarks17;
 pub mod doc_chart;
 mod doc_ole;
+pub mod doc_picstyle;
 mod doc_picture;
 pub mod doc_smartart;
 pub mod doc_styles;

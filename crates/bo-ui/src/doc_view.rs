@@ -532,7 +532,18 @@ impl DocView {
     /// Run a picture tools command (`{"cmd": "picture…"}`) on the selected picture.
     pub fn picture_command(&mut self, v: &serde_json::Value) -> bool {
         let Some(cmd) = bo_engine::picture_tools::PictureCommand::parse(v) else {
-            return false;
+            // Round 19: Picture Styles.
+            let Some(ps) = bo_engine::doc_picstyle::PicStyleCommand::parse(v) else {
+                return false;
+            };
+            return match self.engine.doc_picture_style(&ps) {
+                Ok(r) => {
+                    let ok = r.error.is_none();
+                    self.apply(&r);
+                    ok
+                }
+                Err(_) => false,
+            };
         };
         match self.engine.doc_picture_command(cmd) {
             Ok(r) => {

@@ -1545,6 +1545,11 @@ impl crate::Engine {
             let r = self.doc_security(sc)?;
             return Ok(serde_json::to_string(&r).unwrap_or_default());
         }
+        // Round 19: Picture Styles (border, effects, artistic effects, quick styles).
+        if let Some(pc) = crate::doc_picstyle::PicStyleCommand::parse(&v) {
+            let r = self.doc_picture_style(&pc)?;
+            return Ok(serde_json::to_string(&r).unwrap_or_default());
+        }
         if let Some(pc) = crate::picture_tools::PictureCommand::parse(&v) {
             let r = self.doc_picture_command(pc)?;
             return Ok(serde_json::to_string(&r).unwrap_or_default());

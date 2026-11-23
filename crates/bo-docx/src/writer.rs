@@ -949,12 +949,26 @@ impl Writer<'_> {
         if let Some(svg) = p.format.svg.as_mut() {
             *svg = resolve(svg).unwrap_or_default();
         }
-        let media_changed = target.is_some_and(|t| t != img.media) && !img.media.is_empty();
+        // Round 19: an artistic effect's rendered copy is the blip, the original goes in
+        // a14:imgLayer (as the reference writes it).
+        let rendered = format
+            .artistic
+            .as_ref()
+            .and_then(|a| a.rendered.clone())
+            .filter(|r| self.doc.media.contains_key(r));
+        if let (Some(a), Some(b)) = (p.format.artistic.as_mut(), format.artistic.as_ref()) {
+            a.rendered.clone_from(&b.rendered);
+        }
+        let shown = rendered.clone().unwrap_or_else(|| img.media.clone());
+        let media_changed = target.is_some_and(|t| t != shown) && !img.media.is_empty();
         let crop = img.crop.filter(|c| c.iter().any(|v| *v != 0));
         if !media_changed && p.format == format && p.crop == crop {
             return xml.to_owned();
         }
-        let embed = media_changed.then(|| self.rels.id_for(REL_IMAGE, &img.media, false));
+        let embed = media_changed.then(|| self.rels.id_for(REL_IMAGE, &shown, false));
+        let art_layer = rendered
+            .as_ref()
+            .map(|_| self.rels.id_for(REL_IMAGE, &img.media, false));
         let rid = format
             .removal
             .as_ref()
@@ -969,8 +983,16 @@ impl Writer<'_> {
             .as_ref()
             .filter(|s| self.doc.media.contains_key(*s))
             .map(|s| self.rels.id_for(REL_IMAGE, s, false));
-        crate::picture::patch(xml, embed.as_deref(), &format, crop, layer, svg.as_deref())
-            .unwrap_or_else(|| xml.to_owned())
+        crate::picture::patch(
+            xml,
+            embed.as_deref(),
+            &format,
+            crop,
+            layer,
+            svg.as_deref(),
+            art_layer.as_deref(),
+        )
+        .unwrap_or_else(|| xml.to_owned())
     }
 
     /// `w:object` of an embedded or linked object: the source XML while the object is
@@ -1050,7 +1072,23 @@ impl Writer<'_> {
         self.drawing_id += 1;
         let id = self.drawing_id;
         self.picture_media.insert(img.media.clone());
-        let rid = self.rels.id_for(REL_IMAGE, &img.media, false);
+        // Round 19: an artistic effect's rendered copy is the blip, the original goes in
+        // a14:imgLayer (as the reference writes it).
+        let rendered = img
+            .format
+            .as_deref()
+            .and_then(|f| f.artistic.as_ref())
+            .and_then(|a| a.rendered.clone())
+            .filter(|r| self.doc.media.contains_key(r));
+        let art_layer = rendered
+            .as_ref()
+            .map(|_| self.rels.id_for(REL_IMAGE, &img.media, false));
+        if let Some(r) = &rendered {
+            self.picture_media.insert(r.clone());
+        }
+        let rid = self
+            .rels
+            .id_for(REL_IMAGE, rendered.as_ref().unwrap_or(&img.media), false);
         let (cx, cy) = (img.width.0, img.height.0);
         let crop = img.crop.map_or(String::new(), |c| {
             format!(
@@ -1090,7 +1128,14 @@ impl Writer<'_> {
         let fx = img
             .format
             .as_deref()
-            .map(|f| crate::picture::blip_children_xml(f, layer.as_deref(), svg.as_deref()))
+            .map(|f| {
+                crate::picture::blip_children_xml(
+                    f,
+                    layer.as_deref(),
+                    svg.as_deref(),
+                    art_layer.as_deref(),
+                )
+            })
             .unwrap_or_default();
         let prst = escape(
             img.format
@@ -1098,8 +1143,14 @@ impl Writer<'_> {
                 .and_then(|f| f.shape.as_deref())
                 .unwrap_or("rect"),
         );
+        // Round 19: Picture Border and Picture Effects after the geometry.
+        let style = img
+            .format
+            .as_deref()
+            .map(crate::picstyle::sp_pr_xml)
+            .unwrap_or_default();
         let graphic = format!(
-            "<a:graphic xmlns:a=\"{A_NS}\"><a:graphicData uri=\"{PIC_NS}\"><pic:pic xmlns:pic=\"{PIC_NS}\"><pic:nvPicPr><pic:cNvPr id=\"{id}\" name=\"Picture {id}\"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip xmlns:r=\"{R_NS}\" r:embed=\"{rid}\">{fx}</a:blip>{crop}<a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm{rot}><a:off x=\"0\" y=\"0\"/><a:ext cx=\"{cx}\" cy=\"{cy}\"/></a:xfrm><a:prstGeom prst=\"{prst}\"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic>"
+            "<a:graphic xmlns:a=\"{A_NS}\"><a:graphicData uri=\"{PIC_NS}\"><pic:pic xmlns:pic=\"{PIC_NS}\"><pic:nvPicPr><pic:cNvPr id=\"{id}\" name=\"Picture {id}\"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip xmlns:r=\"{R_NS}\" r:embed=\"{rid}\">{fx}</a:blip>{crop}<a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm{rot}><a:off x=\"0\" y=\"0\"/><a:ext cx=\"{cx}\" cy=\"{cy}\"/></a:xfrm><a:prstGeom prst=\"{prst}\"><a:avLst/></a:prstGeom>{style}</pic:spPr></pic:pic></a:graphicData></a:graphic>"
         );
         Self::frame(img, id, "Picture", &graphic)
     }
@@ -1359,9 +1410,16 @@ impl Writer<'_> {
     fn frame(img: &Image, id: u32, kind: &str, graphic: &str) -> String {
         let (cx, cy) = (img.width.0, img.height.0);
         let descr = escape(&img.description);
+        // Round 19: §20.4.2.6 effectExtent, the room the picture's effects take.
+        let [el, et, er, eb] = img
+            .format
+            .as_deref()
+            .and_then(|f| f.effect_extent)
+            .unwrap_or([0; 4]);
+        let ext = format!("<wp:effectExtent l=\"{el}\" t=\"{et}\" r=\"{er}\" b=\"{eb}\"/>");
         match &img.anchor {
             None => format!(
-                "<w:drawing><wp:inline xmlns:wp=\"{WP_NS}\" distT=\"0\" distB=\"0\" distL=\"0\" distR=\"0\"><wp:extent cx=\"{cx}\" cy=\"{cy}\"/><wp:docPr id=\"{id}\" name=\"{kind} {id}\" descr=\"{descr}\"/>{graphic}</wp:inline></w:drawing>"
+                "<w:drawing><wp:inline xmlns:wp=\"{WP_NS}\" distT=\"0\" distB=\"0\" distL=\"0\" distR=\"0\"><wp:extent cx=\"{cx}\" cy=\"{cy}\"/>{ext}<wp:docPr id=\"{id}\" name=\"{kind} {id}\" descr=\"{descr}\"/>{graphic}</wp:inline></w:drawing>"
             ),
             Some(a) => {
                 // §20.4.3.7 ST_WrapText
@@ -1415,7 +1473,7 @@ impl Writer<'_> {
                     None => format!("<wp:posOffset>{off}</wp:posOffset>"),
                 };
                 format!(
-                    "<w:drawing><wp:anchor xmlns:wp=\"{WP_NS}\" distT=\"{dt}\" distB=\"{db}\" distL=\"{dl}\" distR=\"{dr}\" simplePos=\"0\" relativeHeight=\"{z}\" behindDoc=\"{}\" locked=\"0\" layoutInCell=\"1\" allowOverlap=\"1\"><wp:simplePos x=\"0\" y=\"0\"/><wp:positionH relativeFrom=\"{}\">{}</wp:positionH><wp:positionV relativeFrom=\"{}\">{}</wp:positionV><wp:extent cx=\"{cx}\" cy=\"{cy}\"/><wp:effectExtent l=\"0\" t=\"0\" r=\"0\" b=\"0\"/>{wrap}<wp:docPr id=\"{id}\" name=\"{kind} {id}\" descr=\"{descr}\"/><wp:cNvGraphicFramePr/>{graphic}</wp:anchor></w:drawing>",
+                    "<w:drawing><wp:anchor xmlns:wp=\"{WP_NS}\" distT=\"{dt}\" distB=\"{db}\" distL=\"{dl}\" distR=\"{dr}\" simplePos=\"0\" relativeHeight=\"{z}\" behindDoc=\"{}\" locked=\"0\" layoutInCell=\"1\" allowOverlap=\"1\"><wp:simplePos x=\"0\" y=\"0\"/><wp:positionH relativeFrom=\"{}\">{}</wp:positionH><wp:positionV relativeFrom=\"{}\">{}</wp:positionV><wp:extent cx=\"{cx}\" cy=\"{cy}\"/>{ext}{wrap}<wp:docPr id=\"{id}\" name=\"{kind} {id}\" descr=\"{descr}\"/><wp:cNvGraphicFramePr/>{graphic}</wp:anchor></w:drawing>",
                     u8::from(a.behind),
                     escape(&a.h_relative),
                     pos(&a.h_align, a.x.0),

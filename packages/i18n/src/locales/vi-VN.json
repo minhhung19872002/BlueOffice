@@ -16752,5 +16752,25 @@
     "videoPrompt": "Nhập địa chỉ video trực tuyến hoặc mã nhúng của video:",
     "videoTitle": "Chèn video",
     "wmGeneral": "Chung"
+  },
+  "doc19": {
+    "cBlack": "Đen",
+    "cWhite": "Trắng",
+    "kPreset": "Kiểu đặt sẵn",
+    "kShadow": "Bóng",
+    "kReflection": "Phản chiếu",
+    "kGlow": "Phát sáng",
+    "kSoftEdges": "Mềm cạnh",
+    "kBevel": "Vát cạnh",
+    "kRotation": "Xoay 3-D",
+    "noPreset": "Không có kiểu đặt sẵn",
+    "noShadow": "Không bóng",
+    "noReflection": "Không phản chiếu",
+    "noGlow": "Không phát sáng",
+    "noSoftEdges": "Không mềm cạnh",
+    "noBevel": "Không vát cạnh",
+    "noRotation": "Không xoay",
+    "artNone": "Không",
+    "quickStyle": "Kiểu ảnh"
   }
 }

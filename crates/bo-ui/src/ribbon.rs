@@ -705,6 +705,8 @@ pub(crate) fn doc_group(tab: &str, label: &str) -> Option<Group> {
         view_tab(),
     ]
     .into_iter()
+    // Round 19: the contextual tabs collapse their groups too.
+    .chain(crate::doc_scale19::tabs())
     .filter(|t| t.label == tab)
     .flat_map(|t| t.groups)
     .find(|g| g.label == label)

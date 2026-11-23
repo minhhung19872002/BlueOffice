@@ -16586,7 +16586,18 @@
     "vertical": "Dọc",
     "availableWindows": "Cửa sổ hiện có",
     "noWindows": "Không có cửa sổ nào",
-    "screenClipping": "Cắt màn hình"
+    "screenClipping": "Cắt màn hình",
+    "markBold": "Đậm",
+    "markItalic": "Nghiêng",
+    "markCaret": "^",
+    "markHash": "#",
+    "movesGroup": "Di chuyển",
+    "trackMoves": "Theo dõi di chuyển",
+    "movedFrom": "Chuyển từ:",
+    "movedTo": "Chuyển đến:",
+    "formattingGroup": "Định dạng",
+    "trackFormatting": "Theo dõi định dạng",
+    "formattingLabel": "Định dạng:"
   },
   "doc17": {
     "bmAdd": "Thêm",

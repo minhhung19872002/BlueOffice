@@ -16586,7 +16586,18 @@
     "vertical": "Vertical",
     "availableWindows": "Available Windows",
     "noWindows": "No windows are available",
-    "screenClipping": "Screen Clipping"
+    "screenClipping": "Screen Clipping",
+    "markBold": "Bold",
+    "markItalic": "Italic",
+    "markCaret": "^",
+    "markHash": "#",
+    "movesGroup": "Moves",
+    "trackMoves": "Track moves",
+    "movedFrom": "Moved from:",
+    "movedTo": "Moved to:",
+    "formattingGroup": "Formatting",
+    "trackFormatting": "Track formatting",
+    "formattingLabel": "Formatting:"
   },
   "doc17": {
     "bmAdd": "Add",

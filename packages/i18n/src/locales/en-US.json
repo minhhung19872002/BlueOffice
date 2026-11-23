@@ -16567,6 +16567,11 @@
       "view_macros_view": "View Macros",
       "view_properties": "Properties"
     },
+    "fxGlow": "Glow",
+    "fxOutline": "Text Outline",
+    "fxReflection": "Reflection",
+    "fxShadow": "Shadow",
+    "fxTitle": "Format Text Effects",
     "groupClose": "Close",
     "groupImmersive": "Immersive Reader",
     "groupMedia": "Media",

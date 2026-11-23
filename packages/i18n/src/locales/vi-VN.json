@@ -16567,6 +16567,11 @@
       "view_macros_view": "Xem macro",
       "view_properties": "Thuộc tính"
     },
+    "fxGlow": "Phát sáng",
+    "fxOutline": "Viền chữ",
+    "fxReflection": "Phản chiếu",
+    "fxShadow": "Bóng",
+    "fxTitle": "Định dạng hiệu ứng chữ",
     "groupClose": "Đóng",
     "groupImmersive": "Trình đọc chân thực",
     "groupMedia": "Phương tiện",

@@ -21,6 +21,7 @@ pub(super) fn handles(kind: DocFormKind) -> bool {
             | DocFormKind::Icons
             | DocFormKind::StyleNumbering
             | DocFormKind::CustomizeKeyboard
+            | DocFormKind::StyleEffects
     )
 }
 
@@ -71,6 +72,7 @@ pub(super) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
         DocFormKind::Icons => open_icons(s),
         DocFormKind::StyleNumbering => open_style_numbering(s),
         DocFormKind::CustomizeKeyboard => open_keyboard(s, c),
+        DocFormKind::StyleEffects => open_style_effects(s),
         _ => open_bookmark(s, c),
     }
 }
@@ -422,6 +424,25 @@ impl DocForm {
                 )
             }
             DocFormKind::CustomizeKeyboard => self.kb_assign(),
+            DocFormKind::StyleEffects => {
+                // The same effects as Home › Text Effects (w14; [MS-DOCX] 2.6); unticked
+                // ones are removed from the style.
+                let pick = |on: bool, v: Value| if on { v } else { Value::Null };
+                let patch = json!({
+                    "textOutline": pick(self.on("fxOutline"), json!({ "color": "4472C4", "width": 0.75 })),
+                    "softShadow": pick(self.on("fxShadow"), json!({
+                        "color": "000000", "blur": 4.0, "distance": 3.0, "angle": 45.0, "transparency": 60,
+                    })),
+                    "glow": pick(self.on("fxGlow"), json!({ "color": "4472C4", "radius": 5.0, "transparency": 60 })),
+                    "reflection": pick(self.on("fxReflection"), json!({
+                        "size": 50, "transparency": 50, "distance": 0.0,
+                    })),
+                });
+                FormOut::Run(
+                    vec![json!({ "cmd": "ui.action", "id": format!("r17.styleFx:{patch}") })],
+                    true,
+                )
+            }
             DocFormKind::StyleNumbering => FormOut::Run(
                 vec![json!({ "cmd": "ui.action",
                     "id": format!("r17.styleNum:{}", self.sel("formats").unwrap_or(0)) })],
@@ -888,6 +909,47 @@ impl DocForm {
             false,
         )
     }
+}
+
+/// Format ▾ › Text Effects… of New / Modify Style: outline, shadow, glow and reflection of
+/// the style's text (the effects of Home › Text Effects).
+fn open_style_effects(s: &Strings) -> DocForm {
+    let tr = |k: &str, fb: &str| t(s, k, fb);
+    let mut f = DocForm::new(
+        DocFormKind::StyleEffects,
+        &tr("doc17.fxTitle", "Format Text Effects"),
+        (360.0, 260.0),
+        vec![],
+    );
+    for (i, (id, k, en)) in [
+        ("fxOutline", "doc17.fxOutline", "Text Outline"),
+        ("fxShadow", "doc17.fxShadow", "Shadow"),
+        ("fxGlow", "doc17.fxGlow", "Glow"),
+        ("fxReflection", "doc17.fxReflection", "Reflection"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        f.check(
+            id,
+            [20.0, 52.0 + 34.0 * i as f32, 300.0, 24.0],
+            &tr(k, en),
+            false,
+        );
+    }
+    f.button(
+        "ok",
+        [104.0, 214.0, 111.0, 30.0],
+        &tr("common.ok", "OK"),
+        true,
+    );
+    f.button(
+        "cancel",
+        [231.0, 214.0, 111.0, 30.0],
+        &tr("common.cancel", "Cancel"),
+        false,
+    );
+    f
 }
 
 /// Format ▾ › Numbering… of New / Modify Style: the numbering the style's paragraphs get.

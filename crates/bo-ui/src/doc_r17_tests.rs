@@ -290,3 +290,18 @@ fn style_shortcut_key_assigned_and_applied() {
     w.handle(Input::Key(crate::Key::Letter('1'), m), &Fixed);
     assert_eq!(w.view.format().style.as_deref(), Some("Heading1"));
 }
+
+#[test]
+fn style_text_effects_go_into_the_style() {
+    let mut w = window();
+    assert!(w.action("styles.newStyle"));
+    assert!(w.action("r13.styleFmt.effects"));
+    let f = w.r3.form.as_mut().expect("effects");
+    assert_eq!(f.kind, DocFormKind::StyleEffects);
+    f.set_on("fxGlow", true);
+    let out = f.r17_ok();
+    w.form_out(out);
+    let spec = w.r3.form.as_ref().expect("style").style_spec();
+    assert!(spec["advanced"]["glow"].is_object(), "{spec}");
+    assert!(spec["advanced"]["textOutline"].is_null());
+}

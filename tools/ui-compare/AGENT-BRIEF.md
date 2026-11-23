@@ -74,3 +74,21 @@ dialog with a posted command in your own instance on your own scratch copy, capt
 tests target "Microsoft Print to PDF" with an output file in scratch — never the default physical printer. If a
 document that is not one of your scratch copies shows up in a reference window (the owner may be using the app),
 stop interacting with that window at once and leave it open.
+
+## Real keyboard / mouse input (owner decision 2026-11-24)
+Default stays: drive the reference app with posted messages, UI Automation or COM on scratch copies. Real input
+(SendInput, keybd_event, SetCursorPos, `agent-desktop --headed`) is allowed ONLY while the owner is physically idle:
+1. `powershell -File tools/ui-compare/physical-idle.ps1 -Start` (watcher with low-level hooks that counts only
+   NON-injected keyboard / mouse events; a no-op when it already runs).
+2. Before every real-input burst run `physical-idle.ps1 -Check 10` — exit 0 means no physical input for ≥ 10 min.
+   Re-check between steps (at most every 30 s of input); the moment it says busy, stop sending input, leave every
+   window as it is and fall back to posted messages / ours-only images.
+3. Only into your own reference instance on a scratch copy, its window brought up just for the burst; never into
+   another window, never Print, never a shortcut that closes or saves something that is not yours; restore the
+   clipboard and the previous foreground window afterwards.
+4. One agent at a time: create `%TEMP%\bo-real-input.lock` (with your agent name) before the burst, delete it after;
+   if it exists and is younger than 10 min, wait.
+5. First use: verify the watcher ignores your synthetic input (inject one zero-distance mouse move while `-Check`
+   says idle; the idle seconds must keep growing) and note it in REPORT.
+Use it for what posted messages cannot reach (hover states, drag and drop, real typing latency of the reference,
+dropdown menus that ignore posted clicks). Record in REPORT which measurements used real input.

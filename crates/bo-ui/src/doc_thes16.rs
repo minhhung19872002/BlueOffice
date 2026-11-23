@@ -57,6 +57,10 @@ pub(crate) struct ThesPane {
     pub(crate) width_px: Option<f32>,
     /// Size is following the pointer.
     pub(crate) sizing: bool,
+    /// Move (round 17): the floating pane's top-left corner, and whether it follows the
+    /// pointer.
+    pub(crate) float: Option<(f32, f32)>,
+    pub(crate) moving: bool,
     rect: [f32; 4],
     scale: f32,
     /// Placed rows: rectangle and row.
@@ -144,6 +148,13 @@ impl ThesPane {
         self.scale = scale;
         let w = self.pane_width(scale);
         self.rect = [right - w, top, w, bottom - top];
+        if let Some((fx, fy)) = self.float {
+            // A floating pane keeps its height to 640 px and stays inside the window.
+            let h = (640.0 * scale / 1.25).min(bottom - top);
+            let x = fx.clamp(0.0, (right - w).max(0.0));
+            let y = fy.clamp(top, (bottom - h).max(top));
+            self.rect = [x, y, w, h];
+        }
         let list = self.list_rect();
         let row = self.px(21.6);
         let rows = self.all_rows();

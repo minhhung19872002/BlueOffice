@@ -27,6 +27,21 @@ pub enum ViewMode {
     Web,
     /// Print page width, no headers/footers or page decorations.
     Draft,
+    /// View › Immersive Reader (BlueDoc round 17): the web layout with a column of the
+    /// chosen width centred in the window, optional wide text spacing and page colour.
+    Immersive,
+}
+
+/// Immersive Reader settings of the view (none of them changes the document).
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Immersive {
+    /// Width of the text column in points (0: the whole window).
+    pub column: f32,
+    /// Text Spacing: wider letters, words and lines.
+    pub spacing: bool,
+    /// Page Color: 0 none, 1 sepia, 2 inverse (white text on black).
+    pub color: u8,
 }
 
 /// The view layout and, for the web layout, the window width.
@@ -36,6 +51,8 @@ pub struct ViewLayout {
     pub mode: ViewMode,
     /// Width of the web layout page in points.
     pub width: f32,
+    /// Immersive Reader settings (with [`ViewMode::Immersive`]).
+    pub immersive: Immersive,
 }
 
 /// Narrowest and widest web layout page (points).
@@ -66,11 +83,15 @@ pub fn view_document(doc: &Document, view: ViewLayout) -> Option<Document> {
         s.page_borders = None;
         // §17.6.4 cols: one column.
         s.columns = Columns::default();
-        if view.mode == ViewMode::Web {
+        if matches!(view.mode, ViewMode::Web | ViewMode::Immersive) {
             let p = &mut s.page;
             p.width = twips(width);
             p.height = twips(WEB_HEIGHT);
             p.margin_left = twips(WEB_SIDE.min(width / 8.0));
+            let col = view.immersive.column;
+            if view.mode == ViewMode::Immersive && col > 0.0 && col < width - 2.0 * WEB_SIDE {
+                p.margin_left = twips((width - col) / 2.0);
+            }
             p.margin_right = p.margin_left;
             p.margin_top = twips(WEB_TOP);
             p.margin_bottom = twips(WEB_TOP);
@@ -82,7 +103,57 @@ pub fn view_document(doc: &Document, view: ViewLayout) -> Option<Document> {
             }
         }
     }
+    if view.mode == ViewMode::Immersive {
+        immersive_copy(&mut d, view.immersive);
+    }
     Some(d)
+}
+
+/// Text Spacing and Page Color of the Immersive Reader on the view copy: every paragraph
+/// gets 2.125 lines (§17.3.1.33 spacing) and every run 4 pt more character spacing
+/// (§17.3.2.35 spacing); sepia or black page (§17.2.1 background), white text on black.
+fn immersive_copy(d: &mut Document, im: Immersive) {
+    fn walk(blocks: &mut [bo_model::Block], f: &dyn Fn(&mut bo_model::Paragraph)) {
+        for b in blocks {
+            match b {
+                bo_model::Block::Paragraph(p) => f(p),
+                bo_model::Block::Table(t) => {
+                    for row in &mut t.rows {
+                        for cell in &mut row.cells {
+                            walk(&mut cell.blocks, f);
+                        }
+                    }
+                }
+                bo_model::Block::Opaque(_) => {}
+            }
+        }
+    }
+    let inverse = im.color == 2;
+    let edit = |p: &mut bo_model::Paragraph| {
+        if im.spacing {
+            p.props.line_spacing = Some(bo_model::LineSpacing::Auto(510));
+        }
+        for r in &mut p.runs {
+            if im.spacing {
+                r.props.spacing = Some(Twips(80));
+            }
+            if inverse {
+                r.props.color = bo_model::Color::from_hex("FFFFFF");
+            }
+        }
+    };
+    for s in &mut d.sections {
+        walk(&mut s.blocks, &edit);
+    }
+    let bg = match im.color {
+        1 => bo_model::Color::from_hex("F4ECD8"),
+        2 => bo_model::Color::from_hex("000000"),
+        _ => None,
+    };
+    if bg.is_some() {
+        d.design.background = bg;
+        d.design.display_background_shape = true;
+    }
 }
 
 /// Kind of a formatting mark.
@@ -473,11 +544,20 @@ impl Engine {
     /// View commands (`None`: not one).
     pub(crate) fn view_command(&mut self, cmd: &Command) -> Result<Option<EditResult>> {
         match cmd {
-            Command::SetViewLayout { mode, width } => {
+            Command::SetViewLayout {
+                mode,
+                width,
+                immersive,
+            } => {
                 let next = ViewLayout {
                     mode: *mode,
+                    immersive: if *mode == ViewMode::Immersive {
+                        immersive.unwrap_or(self.view_layout.immersive)
+                    } else {
+                        Immersive::default()
+                    },
                     width: match mode {
-                        ViewMode::Web => width
+                        ViewMode::Web | ViewMode::Immersive => width
                             .unwrap_or(self.view_layout.width)
                             .clamp(WEB_WIDTH.0, WEB_WIDTH.1)
                             .round(),

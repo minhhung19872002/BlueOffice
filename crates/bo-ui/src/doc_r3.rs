@@ -293,6 +293,7 @@ impl DocWindow {
                         "fill": d.design.background_fill,
                     })
                 });
+                e["r17"] = self.r17_form_extra();
                 e
             },
         }
@@ -1445,12 +1446,7 @@ impl DocWindow {
         if let Some(f) = self.r3.form.as_mut() {
             if matches!(
                 input,
-                Input::Leave
-                    | Input::Drag { .. }
-                    | Input::Release { .. }
-                    | Input::Context { .. }
-                    | Input::Preedit(_)
-                    | Input::Zoom(_)
+                Input::Leave | Input::Context { .. } | Input::Preedit(_) | Input::Zoom(_)
             ) {
                 return Some(false);
             }

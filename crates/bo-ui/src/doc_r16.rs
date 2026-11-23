@@ -178,6 +178,15 @@ impl DocWindow {
                 }
                 true
             }
+            // Move (round 17): the pane floats over the document and follows the pointer
+            // until a press puts it down.
+            "r16.thes.move" => {
+                if let Some(t) = self.r16.thes.as_mut() {
+                    t.moving = true;
+                }
+                self.relayout_pending = true;
+                true
+            }
             "r16.thes.close" => {
                 self.r16.thes = None;
                 self.relayout_pending = true;
@@ -357,6 +366,7 @@ impl DocWindow {
         self.r16
             .thes
             .as_ref()
+            .filter(|t| t.float.is_none())
             .map_or(0.0, |t| t.pane_width(self.scale))
             + if self.r16.wiz.is_some() {
                 crate::doc_wizard16::WizardPane::width(self.scale)
@@ -394,6 +404,21 @@ impl DocWindow {
         if t.key(input) {
             return Some(true);
         }
+        if t.moving {
+            match *input {
+                Input::Move { x, y } | Input::Drag { x, y } => {
+                    let w = t.pane_width(scale);
+                    t.float = Some((x - w / 2.0, y - 12.0 * scale));
+                    self.relayout_pending = true;
+                    return Some(true);
+                }
+                Input::Press { .. } | Input::Key(crate::Key::Escape, _) => {
+                    t.moving = false;
+                    return Some(true);
+                }
+                _ => {}
+            }
+        }
         // Size: the left edge follows the pointer until a press.
         if t.sizing {
             match *input {
@@ -426,6 +451,7 @@ impl DocWindow {
                 }
                 crate::doc_thes16::ThesAction::PaneMenu(r) => {
                     let items = [
+                        ("r16.thes.move", "doc17.move", "Move"),
                         ("r16.thes.size", "doc16.size", "Size"),
                         ("r16.thes.close", "doc16.close", "Close"),
                     ]
@@ -1105,6 +1131,8 @@ impl DocWindow {
         };
         let at = s.selection().ordered().0;
         self.r16.ra = Some(crate::doc_speech16::ReadAloud::default());
+        // The host lists the system's voices for Settings (round 17).
+        self.requests.push(super::Request::ListVoices);
         self.r16_ra_read(at.para, at.offset, 1)
     }
 
@@ -1583,7 +1611,7 @@ impl DocWindow {
                     RaButton::Settings => {
                         let anchor = ra.settings_rect();
                         let rate = ra.rate;
-                        let items = crate::doc_speech16::SPEEDS
+                        let mut items: Vec<MenuItem> = crate::doc_speech16::SPEEDS
                             .iter()
                             .map(|(k, en, r)| MenuItem {
                                 label: self.t(k, en),
@@ -1592,6 +1620,8 @@ impl DocWindow {
                                 dim: false,
                             })
                             .collect();
+                        // The system's voices to choose from (round 17).
+                        items.extend(self.r17_voice_items());
                         self.menu = Some(Menu::open(items, anchor, self.size, self.scale));
                         true
                     }

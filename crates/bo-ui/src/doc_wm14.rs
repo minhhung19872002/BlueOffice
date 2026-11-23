@@ -81,6 +81,8 @@ pub(crate) enum WmPick {
     Custom,
     /// Remove Watermark.
     Remove,
+    /// Save Selection to Watermark Gallery… (round 17).
+    Save,
 }
 
 /// The open Watermark gallery.
@@ -102,6 +104,8 @@ pub(crate) struct WatermarkGallery {
     outlines: Vec<(String, Vec<PathSeg>, f32)>,
     /// The document's watermark (text, diagonal): its design is framed.
     pub(crate) current: Option<(String, bool)>,
+    /// Text is selected: Save Selection to Watermark Gallery… is available (round 17).
+    pub(crate) save_on: bool,
 }
 
 /// Outline of `text` in the face of `family` (em units, y down, baseline 0) and its
@@ -197,6 +201,7 @@ impl WatermarkGallery {
             hover_row: None,
             outlines: Vec::new(),
             current: None,
+            save_on: false,
         }
     }
 
@@ -308,6 +313,7 @@ impl WatermarkGallery {
         match self.row_at(y) {
             Some(0) => return Some(WmPick::Custom),
             Some(1) if self.remove_on => return Some(WmPick::Remove),
+            Some(2) if self.save_on => return Some(WmPick::Save),
             Some(_) => return Some(WmPick::Nothing),
             None => {}
         }
@@ -384,7 +390,7 @@ impl WatermarkGallery {
         };
         for (i, label) in self.footer.iter().enumerate() {
             let ry = fy + self.px(i as f32 * WM_ROW);
-            let on = i == 0 || (i == 1 && self.remove_on);
+            let on = i == 0 || (i == 1 && self.remove_on) || (i == 2 && self.save_on);
             if on && self.hover_row == Some(i) {
                 p.fill_rect(x + 1.0, ry + 1.0, w - 2.0, self.px(WM_ROW) - 1.0, HOT_ROW);
             }

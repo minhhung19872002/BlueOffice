@@ -53,9 +53,7 @@ pub(crate) const MENUS: [&str; 27] = [
 
 /// Commands shown but not available (greyed, as the reference greys what does not apply or
 /// what BlueDoc does not have yet).
-pub(crate) const GREYED: [&str; 18] = [
-    "table.drawTable",
-    "table.eraser",
+pub(crate) const GREYED: [&str; 16] = [
     "picture.artisticEffects",
     "picture.quickStyles",
     "picture.border",

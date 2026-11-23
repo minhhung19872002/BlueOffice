@@ -42,6 +42,8 @@ pub(crate) mod r14;
 mod r15;
 #[path = "doc_r16.rs"]
 mod r16;
+#[path = "doc_r17.rs"]
+pub(crate) mod r17;
 #[path = "doc_r3.rs"]
 mod r3;
 #[path = "doc_r4.rs"]
@@ -161,6 +163,40 @@ pub enum Request {
     /// Finish & Merge › Send Email Messages (round 16): hand each message to the system's
     /// mail program (the Windows host writes `.eml` drafts and opens them).
     SendMails(Vec<OutMail>),
+    /// Let the user pick a file for `purpose` (round 17: `textFromFile`, `object`,
+    /// `watermark`) among `filter` (`documents`, `workbooks`, `pictures`, `all`), then call
+    /// [`DocWindow::file_picked`].
+    PickFile {
+        /// What the file is for.
+        purpose: String,
+        /// Kind of files offered.
+        filter: String,
+    },
+    /// View › Switch Windows: list the BlueDoc windows with [`DocWindow::show_windows`].
+    ListWindows,
+    /// Count the BlueDoc windows and call [`DocWindow::set_window_count`].
+    CountWindows,
+    /// Bring this BlueDoc window (a handle the host listed) to the front.
+    ActivateWindow(isize),
+    /// View › View Side by Side / Reset Window Position: this window and the next BlueDoc
+    /// window share the screen left and right.
+    SideBySide,
+    /// Store the user's watermark gallery (JSON list of texts; round 17) and give it back
+    /// with [`DocWindow::load_watermarks`] in later sessions.
+    SaveWatermarks(String),
+    /// Read Aloud: list the system's voices with [`DocWindow::set_voices`] (round 17).
+    ListVoices,
+    /// Read Aloud: speak with voice `n` of that list.
+    SetVoice(usize),
+    /// Insert › Screenshot: list the other programs' windows with
+    /// [`DocWindow::show_screenshot_windows`] (round 17).
+    ListScreenshotWindows,
+    /// Insert › Screenshot: capture this window and insert it with
+    /// [`DocWindow::insert_picture`].
+    CaptureWindow(isize),
+    /// Store the user's style shortcut keys (JSON; round 17) and give them back with
+    /// [`DocWindow::load_key_bindings`] in later sessions.
+    SaveKeys(String),
 }
 
 /// A merged e-mail for the system's mail program.
@@ -317,6 +353,7 @@ pub struct DocWindow {
     r14: Box<r14::R14>,
     r15: Box<r15::R15>,
     r16: Box<r16::R16>,
+    r17: Box<r17::R17>,
 }
 
 /// Font sizes offered by the size box (points).
@@ -425,6 +462,7 @@ impl DocWindow {
         crate::doc_tabs7::install_icons(&mut icons);
         crate::doc_tabs7::install_strings(&mut strings);
         r14::install(&mut icons, &mut strings);
+        r17::install(&mut icons, &mut strings);
         icons.set_grey_disabled(true);
         Self {
             view,
@@ -522,6 +560,7 @@ impl DocWindow {
             r14: Box::default(),
             r15: Box::default(),
             r16: Box::default(),
+            r17: Box::default(),
         }
     }
 
@@ -1203,6 +1242,7 @@ impl DocWindow {
     fn sync_context(&mut self) {
         let mut c = Context::of(self.view.format(), self.view.story().map(|s| s.kind));
         c.outline = self.r3.outline.is_some();
+        c.immersive = self.r17_immersive_on();
         let engine = self.view.engine();
         // A drawing shape (not a picture) gets Shape Format instead of Picture Format.
         c.shape = c.picture
@@ -1223,7 +1263,8 @@ impl DocWindow {
             || (c.shape && !self.context.shape);
         let activate = story_opened
             || (self.activate_context && new_object)
-            || (c.outline && !self.context.outline);
+            || (c.outline && !self.context.outline)
+            || (c.immersive && !self.context.immersive);
         self.activate_context = false;
         if c != self.context || activate {
             self.context = c;
@@ -2133,6 +2174,10 @@ impl DocWindow {
         on.extend(doc_tools::on_ids(self.view.format(), self.story_options()));
         on.extend(self.r7_on_ids());
         on.extend(self.r16_on_ids());
+        on.extend(self.r17_on_ids());
+        if self.r17_side_to_side() {
+            on.retain(|i| *i != "view.vertical");
+        }
         on
     }
 
@@ -2169,6 +2214,9 @@ impl DocWindow {
 
     /// Run interface command `id` from the ribbon, title bar, a menu or a shortcut.
     fn action(&mut self, id: &str) -> bool {
+        if let Some(r) = self.r17_action(id) {
+            return r;
+        }
         if let Some(r) = self.r16_action(id) {
             return r;
         }
@@ -2815,6 +2863,7 @@ impl DocWindow {
         self.r14_layout();
         self.r15_layout();
         self.r16_layout(text);
+        self.r17_layout();
         if let Some(d) = self.dialog.as_mut() {
             d.layout(text, self.size, self.scale);
         }
@@ -3051,6 +3100,9 @@ impl DocWindow {
                 }
                 _ => {}
             }
+        }
+        if let Some(redraw) = self.r17_input(&input) {
+            return redraw;
         }
         if let Some(redraw) = self.r16_input(&input) {
             return redraw;
@@ -3924,6 +3976,7 @@ impl DocWindow {
         self.r14_paint(p);
         self.r15_paint(p);
         self.r16_paint(p);
+        self.r17_paint(p);
         if let Some(menu) = &self.menu {
             menu.paint(p, &self.r10_menu_theme(), &self.icons);
             self.r10_paint_menu(p);

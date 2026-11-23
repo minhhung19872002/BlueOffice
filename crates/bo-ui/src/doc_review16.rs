@@ -135,6 +135,10 @@ pub(crate) fn scaling(tab: &str) -> &'static [&'static str] {
 pub(crate) fn forced_steps(tab: &str, width: f32) -> usize {
     if tab == "ribbon.tabs.review" && width <= 1240.0 {
         3
+    } else if tab == "ribbon.tabs.insert" && width <= 1240.0 {
+        // Round 17: Pages, Links, Text (icons only) and Symbols collapse at 1500 px as
+        // the reference's, now that Media sits between Illustrations and Links.
+        4
     } else {
         0
     }

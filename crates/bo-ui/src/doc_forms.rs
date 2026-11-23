@@ -46,6 +46,8 @@ pub(crate) mod r15;
 #[path = "doc_forms16.rs"]
 pub(crate) mod r16;
 
+#[path = "doc_forms17.rs"]
+pub(crate) mod r17;
 #[path = "doc_fill18.rs"]
 pub(crate) mod r18;
 pub(crate) use r5::{open_manage_styles, ManagedStyle};
@@ -183,6 +185,28 @@ pub(crate) enum DocFormKind {
     NlColumns,
     /// Design › Page Color › Fill Effects… (layout round 8).
     FillEffects,
+    /// Insert › Links › Bookmark (round 17).
+    Bookmark,
+    /// Insert › Text › Object › Object… (round 17).
+    InsertObject,
+    /// View › Macros › View Macros (round 17, view only).
+    Macros,
+    /// Insert › Media › Online Videos (round 17).
+    OnlineVideo,
+    /// Macros › Edit: a module's source, read only (round 17).
+    MacroSource,
+    /// Insert › Icons: BlueOffice's own icon library (round 17).
+    Icons,
+    /// New / Modify Style › Format ▾ › Numbering… (round 17).
+    StyleNumbering,
+    /// New / Modify Style › Format ▾ › Shortcut key… (Customize Keyboard, round 17).
+    CustomizeKeyboard,
+    /// New / Modify Style › Format ▾ › Text Effects… (round 17).
+    StyleEffects,
+    /// New / Modify Style › Format ▾ › Frame… (round 17).
+    StyleFrame,
+    /// Insert › Pictures › Online Pictures… (round 17).
+    OnlinePicture,
 }
 
 /// What the owner does after an input.
@@ -265,6 +289,10 @@ pub(crate) struct DocForm {
     r15: Option<Box<r15::ColorsState>>,
     /// Fill Effects state (layout round 8).
     r18: Option<Box<r18::Fill18>>,
+    /// Bookmark / Object / Macros state (round 17).
+    r17: Option<Box<r17::R17>>,
+    /// The canvas a press started a drag on (Colors › Custom field / bar, round 17).
+    drag: Option<&'static str>,
 }
 
 /// Reference ids of `ST_NumberFormat` values offered for notes (§17.18.59).
@@ -475,6 +503,8 @@ impl DocForm {
             r13: None,
             r15: None,
             r18: None,
+            r17: None,
+            drag: None,
         }
     }
 
@@ -769,6 +799,7 @@ impl DocForm {
         let ev = match input {
             Input::Text(s) => self.form.type_text(s),
             Input::Key(Key::Escape, _) => Event::Cancel,
+            Input::Key(k, m) if self.r17_key(*k, *m) => return FormOut::Redraw,
             Input::Key(k, m) => self.form.key(*k, *m),
             Input::Move { x, y } => {
                 self.pointer = (*x, *y);
@@ -780,8 +811,35 @@ impl DocForm {
             }
             Input::Press { x, y, count, .. } => {
                 self.pointer = (*x, *y);
-                self.form.press(*x, *y, *count)
+                let ev = self.form.press(*x, *y, *count);
+                // Colors › Custom: a press on the field or the luminance bar keeps picking
+                // while the pointer drags (round 17).
+                self.drag = match &ev {
+                    Event::Canvas(id @ ("spectrum" | "lum"), ..) => Some(id),
+                    _ => None,
+                };
+                ev
             }
+            Input::Drag { x, y } => {
+                let Some(id) = self.drag else {
+                    return FormOut::None;
+                };
+                let (lx, ly) = self.form.to_local(*x, *y);
+                let Some(r) = self.form.get(id).map(|c| c.rect) else {
+                    return FormOut::None;
+                };
+                let (cx, cy) = ((lx - r[0]).clamp(0.0, r[2]), (ly - r[1]).clamp(0.0, r[3]));
+                return if self.r15_canvas(id, cx, cy) {
+                    FormOut::Redraw
+                } else {
+                    FormOut::None
+                };
+            }
+            Input::Release { .. } => {
+                self.drag = None;
+                return FormOut::None;
+            }
+            Input::Wheel(d) if self.r17_wheel(*d) => return FormOut::Redraw,
             Input::Wheel(d) => {
                 let (x, y) = self.pointer;
                 return if self.form.wheel(x, y, *d) {
@@ -805,6 +863,7 @@ impl DocForm {
             Event::None => FormOut::Redraw,
             Event::Cancel => FormOut::Close,
             Event::Canvas(id, x, y) if self.r18_canvas(id, *x, *y) => FormOut::Redraw,
+            Event::Canvas(id, x, y) if self.r17_canvas(id, *x, *y) => FormOut::Redraw,
             Event::Canvas(id, x, y) if self.r15_canvas(id, *x, *y) => FormOut::Redraw,
             Event::Canvas(id, x, y) if self.r13_canvas(id, *x, *y) => FormOut::Redraw,
             Event::Canvas(id, _, y) if self.r11_canvas(id, *y) => FormOut::Redraw,
@@ -853,6 +912,7 @@ impl DocForm {
             (DocFormKind::Protect, _) => {}
             (k, _) if r18::handles(k) => self.r18_changed(id),
             (k, _) if r15::handles(k) => self.r15_changed(id),
+            (k, _) if r17::handles(k) => self.r17_changed(id),
             (k, _) if r16::handles(k) => self.r16_changed(id),
             (k, _) if r14::handles(k) => self.r14_changed(id),
             (k, _) if r13::handles(k) => {
@@ -875,6 +935,9 @@ impl DocForm {
 
     fn clicked(&mut self, id: &str) -> FormOut {
         if let Some(out) = self.r18_clicked(id) {
+            return out;
+        }
+        if let Some(out) = self.r17_clicked(id) {
             return out;
         }
         if let Some(out) = self.r16_clicked(id) {
@@ -1020,6 +1083,9 @@ impl DocForm {
         if let Some(out) = self.r18_ok() {
             return out;
         }
+        if r17::handles(self.kind) {
+            return self.r17_ok();
+        }
         if let Some(out) = self.r16_ok() {
             return out;
         }
@@ -1070,7 +1136,18 @@ impl DocForm {
             | DocFormKind::NewList
             | DocFormKind::MergeEmail
             | DocFormKind::NlFind
-            | DocFormKind::NlColumns => FormOut::Close,
+            | DocFormKind::NlColumns
+            | DocFormKind::Bookmark
+            | DocFormKind::InsertObject
+            | DocFormKind::Macros
+            | DocFormKind::OnlineVideo
+            | DocFormKind::MacroSource
+            | DocFormKind::Icons
+            | DocFormKind::StyleNumbering
+            | DocFormKind::CustomizeKeyboard
+            | DocFormKind::StyleEffects
+            | DocFormKind::StyleFrame
+            | DocFormKind::OnlinePicture => FormOut::Close,
             DocFormKind::Toc => {
                 let levels = self.form.num("levels").clamp(1, 9);
                 let mut instr = match &self.toc_map {
@@ -1343,6 +1420,7 @@ impl DocForm {
         let this = self;
         let mut canvas = |id: &str, r: [f32; 4], p: &mut dyn Painter| {
             if r18::paint_canvas(this, id, r, p, &font)
+                || r17::paint_canvas(this, id, r, p, &font)
                 || r15::paint_canvas(this, id, r, p, &font)
                 || r13::paint_canvas(this, id, r, p, &font)
                 || r14::paint_canvas(this, id, r, p, &font)
@@ -3193,6 +3271,17 @@ pub(crate) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
         | DocFormKind::NlFind
         | DocFormKind::NlColumns => r16::open(kind, s, c),
         DocFormKind::FillEffects => r18::open(s, c),
+        DocFormKind::Bookmark
+        | DocFormKind::InsertObject
+        | DocFormKind::Macros
+        | DocFormKind::OnlineVideo
+        | DocFormKind::MacroSource
+        | DocFormKind::Icons
+        | DocFormKind::StyleNumbering
+        | DocFormKind::CustomizeKeyboard
+        | DocFormKind::StyleEffects
+        | DocFormKind::StyleFrame
+        | DocFormKind::OnlinePicture => r17::open(kind, s, c),
         DocFormKind::Zoom => {
             let mut f = DocForm::new(kind, &tr("docR4.zoomTitle", "Zoom"), (381.0, 258.0), vec![]);
             f.label(

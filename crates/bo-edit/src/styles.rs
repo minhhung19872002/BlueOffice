@@ -118,6 +118,14 @@ pub struct StyleSpec {
     /// Tab stops chosen with Format ▾ › Tabs… (§17.3.1.37 tabs of the style).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tabs: Option<Vec<crate::TabSpec>>,
+    /// Text effects chosen with Format ▾ › Text Effects… (w14 textOutline, shadow, glow,
+    /// reflection of the style's run properties; [MS-DOCX] 2.6; BlueDoc round 17).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub advanced: Option<Box<crate::charfx::CharAdvancedPatch>>,
+    /// Text frame chosen with Format ▾ › Frame…: the `w:framePr` element (§17.3.1.11) the
+    /// style's paragraph properties get; empty removes the style's frame (round 17).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub frame_xml: Option<String>,
 }
 
 fn twips(v: Option<Twips>) -> Option<i32> {
@@ -181,6 +189,8 @@ pub fn style_spec(doc: &Document, id: &str) -> Option<StyleSpec> {
         num_level: pp.num.map_or(0, |n| n.ilvl),
         format: None,
         tabs: None,
+        advanced: None,
+        frame_xml: None,
     })
 }
 
@@ -253,6 +263,9 @@ fn apply_spec(st: &mut Style, spec: &StyleSpec, cur: &StyleSpec) {
     if let Some(f) = &more {
         f.apply_run(Some(st.kind), &mut st.rpr);
     }
+    if let Some(p) = &spec.advanced {
+        p.apply(&mut st.rpr);
+    }
     if st.kind == StyleKind::Character {
         return;
     }
@@ -261,6 +274,12 @@ fn apply_spec(st: &mut Style, spec: &StyleSpec, cur: &StyleSpec) {
     }
     if let Some(tabs) = &spec.tabs {
         st.ppr.tabs = crate::direct_tabs(&[], tabs);
+    }
+    if let Some(xml) = &spec.frame_xml {
+        st.ppr.unknown.retain(|r| !r.xml.contains("<w:framePr"));
+        if !xml.is_empty() {
+            st.ppr.unknown.push(bo_model::Raw::new(xml.clone(), 0));
+        }
     }
     let p = &mut st.ppr;
     if changed!(align) {

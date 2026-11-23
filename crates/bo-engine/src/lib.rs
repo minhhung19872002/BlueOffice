@@ -30,6 +30,7 @@ pub mod collapse15;
 mod controls_icon;
 pub mod custom_xml;
 pub mod design;
+pub mod doc_bookmarks17;
 pub mod doc_chart;
 mod doc_ole;
 mod doc_picture;

@@ -1150,6 +1150,9 @@ pub enum Command {
         /// Window width in points (web layout; absent keeps the last one).
         #[serde(default)]
         width: Option<f32>,
+        /// Immersive Reader settings (with `mode: "immersive"`; absent keeps the last).
+        #[serde(default)]
+        immersive: Option<crate::views::Immersive>,
     },
     /// Show or hide formatting marks (¶ · → ↵) in the view's page display lists.
     ShowFormattingMarks {

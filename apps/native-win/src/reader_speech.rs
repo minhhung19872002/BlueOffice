@@ -12,6 +12,9 @@ use windows::Win32::System::Com::{
 #[derive(Default)]
 pub struct Speech {
     voice: Option<ISpVoice>,
+    /// The installed voices (BlueDoc Read Aloud › Settings, round 17).
+    #[allow(dead_code)] // BlueDoc only (BlueReader shares this module).
+    tokens: Vec<windows::Win32::Media::Speech::ISpObjectToken>,
 }
 
 fn wide(s: &str) -> Vec<u16> {
@@ -64,6 +67,79 @@ impl Speech {
         // SPRS_IS_SPEAKING (2): running.
         (st.dwRunningState & 2 != 0)
             .then_some((st.ulInputWordPos as usize, st.ulInputWordLen as usize))
+    }
+
+    /// The installed voices' names and the index of the one in use (round 17).
+    #[allow(dead_code)] // BlueDoc only (BlueReader shares this module).
+    pub fn voices(&mut self) -> (Vec<String>, usize) {
+        use windows::Win32::Media::Speech::{ISpObjectTokenCategory, SpObjectTokenCategory};
+        use windows::Win32::System::Com::CoTaskMemFree;
+        let Ok(v) = self.voice().cloned() else {
+            return (Vec::new(), 0);
+        };
+        let id = wide("HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Speech\\Voices");
+        let mut names = Vec::new();
+        let mut tokens = Vec::new();
+        let mut current = 0;
+        // SAFETY: COM is initialised (the voice exists); strings returned by SAPI are copied
+        // and freed with CoTaskMemFree.
+        unsafe {
+            let Ok(cat) = CoCreateInstance::<_, ISpObjectTokenCategory>(
+                &SpObjectTokenCategory,
+                None,
+                CLSCTX_ALL,
+            ) else {
+                return (Vec::new(), 0);
+            };
+            if cat.SetId(PCWSTR(id.as_ptr()), false).is_err() {
+                return (Vec::new(), 0);
+            }
+            let Ok(list) = cat.EnumTokens(PCWSTR::null(), PCWSTR::null()) else {
+                return (Vec::new(), 0);
+            };
+            let mut n = 0u32;
+            let _ = list.GetCount(&raw mut n);
+            let now = v.GetVoice().ok().and_then(|t| {
+                let p = t.GetId().ok()?;
+                let s = p.to_string().ok();
+                CoTaskMemFree(Some(p.0 as *const _));
+                s
+            });
+            for i in 0..n {
+                let Ok(t) = list.Item(i) else { continue };
+                let name = t.GetStringValue(PCWSTR::null()).ok().and_then(|p| {
+                    let s = p.to_string().ok();
+                    CoTaskMemFree(Some(p.0 as *const _));
+                    s
+                });
+                let tid = t.GetId().ok().and_then(|p| {
+                    let s = p.to_string().ok();
+                    CoTaskMemFree(Some(p.0 as *const _));
+                    s
+                });
+                if tid.is_some() && tid == now {
+                    current = names.len();
+                }
+                names.push(name.unwrap_or_else(|| format!("Voice {}", i + 1)));
+                tokens.push(t);
+            }
+        }
+        self.tokens = tokens;
+        (names, current)
+    }
+
+    /// Speak with voice `i` of [`Speech::voices`] from now on.
+    #[allow(dead_code)] // BlueDoc only (BlueReader shares this module).
+    pub fn set_voice(&mut self, i: usize) {
+        let Some(t) = self.tokens.get(i).cloned() else {
+            return;
+        };
+        if let Ok(v) = self.voice() {
+            // SAFETY: plain call on a live voice with a token it listed.
+            unsafe {
+                let _ = v.SetVoice(&t);
+            }
+        }
     }
 
     /// 0 stop, 1 pause, 2 resume, 10 ± n: rate n.

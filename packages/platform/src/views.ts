@@ -5,7 +5,17 @@
 import type { FindMatch, FindOptions } from './types';
 
 /** Engine layout of the view (`bo_engine::views::ViewMode`). */
-export type ViewLayoutMode = 'print' | 'web' | 'draft';
+export type ViewLayoutMode = 'print' | 'web' | 'draft' | 'immersive';
+
+/** Immersive Reader settings of the view (BlueDoc native round 17; the model is unchanged). */
+export interface ImmersiveOptions {
+  /** Text column width in points (0: the whole window). */
+  column?: number;
+  /** Wider letters, words and lines. */
+  spacing?: boolean;
+  /** Page colour: 0 none, 1 sepia, 2 inverse. */
+  color?: number;
+}
 
 /** Kind of a formatting mark (`bo_engine::views::FormatMarkKind`). */
 export type FormatMarkKind =
@@ -57,7 +67,7 @@ export interface FindResult {
 
 /** View commands sent to the engine. */
 export type ViewCommand =
-  | { cmd: 'setViewLayout'; mode: ViewLayoutMode; width?: number }
+  | { cmd: 'setViewLayout'; mode: ViewLayoutMode; width?: number; immersive?: ImmersiveOptions }
   | {
       cmd: 'showFormattingMarks';
       on: boolean;

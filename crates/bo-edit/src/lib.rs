@@ -11,6 +11,7 @@
 
 pub mod autocorrect;
 pub mod blocks;
+pub mod bookmarks17;
 pub mod charfx;
 pub mod cite;
 mod collate;

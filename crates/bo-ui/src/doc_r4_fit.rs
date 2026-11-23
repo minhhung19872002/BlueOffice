@@ -242,11 +242,7 @@ pub(crate) fn menu(id: &str) -> Vec<Entry> {
 }
 
 /// Menu entries shown dimmed: features BlueDoc does not have.
-pub(crate) const UNAVAILABLE: [&str; 3] = [
-    "view.macros.record",
-    "view.macros.pause",
-    "insert.picture.online",
-];
+pub(crate) const UNAVAILABLE: [&str; 2] = ["view.macros.record", "view.macros.pause"];
 
 /// Ids of this module that are buttons or menus (`&'static` for the ribbon).
 pub(crate) const IDS: [&str; 13] = [

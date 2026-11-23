@@ -23,6 +23,7 @@ pub(super) fn handles(kind: DocFormKind) -> bool {
             | DocFormKind::CustomizeKeyboard
             | DocFormKind::StyleEffects
             | DocFormKind::StyleFrame
+            | DocFormKind::OnlinePicture
     )
 }
 
@@ -69,6 +70,7 @@ pub(super) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
         DocFormKind::InsertObject => open_object(s, c),
         DocFormKind::Macros => open_macros(s, c),
         DocFormKind::OnlineVideo => open_video(s),
+        DocFormKind::OnlinePicture => open_online_picture(s),
         DocFormKind::MacroSource => open_source(s, c),
         DocFormKind::Icons => open_icons(s),
         DocFormKind::StyleNumbering => open_style_numbering(s),
@@ -311,7 +313,7 @@ impl DocForm {
                 self.mac_enable();
             }
             (DocFormKind::Icons, "search" | "category") => self.icons_filter(),
-            (DocFormKind::OnlineVideo, "url") => {
+            (DocFormKind::OnlineVideo | DocFormKind::OnlinePicture, "url") => {
                 let ok = video_url(&self.text("url")).is_some();
                 self.form.enable("ok", ok);
             }
@@ -460,6 +462,13 @@ impl DocForm {
                     "id": format!("r17.styleNum:{}", self.sel("formats").unwrap_or(0)) })],
                 true,
             ),
+            DocFormKind::OnlinePicture => match video_url(&self.text("url")) {
+                Some(u) => FormOut::Run(
+                    vec![json!({ "cmd": "ui.action", "id": format!("r17.picUrl:{u}") })],
+                    true,
+                ),
+                None => FormOut::Redraw,
+            },
             DocFormKind::OnlineVideo => match video_url(&self.text("url")) {
                 Some(u) => FormOut::Run(
                     vec![json!({ "cmd": "ui.action", "id": format!("r17.video:{u}") })],
@@ -751,6 +760,42 @@ pub(crate) fn video_url(s: &str) -> Option<String> {
         && s.len() > 10
         && !s.contains(char::is_whitespace))
     .then(|| s.to_owned())
+}
+
+/// Online Pictures: the address of a picture on the web (http / https); Insert downloads
+/// it and puts it at the selection.
+fn open_online_picture(s: &Strings) -> DocForm {
+    let tr = |k: &str, fb: &str| t(s, k, fb);
+    let mut f = DocForm::new(
+        DocFormKind::OnlinePicture,
+        &tr("doc17.opTitle", "Online Pictures"),
+        (560.0, 200.0),
+        vec![],
+    );
+    f.label(
+        "urlL",
+        [20.0, 52.0, 520.0, 20.0],
+        &tr(
+            "doc17.opPrompt",
+            "Enter the address of a picture on the web:",
+        ),
+    );
+    f.edit("url", [20.0, 78.0, 520.0, 28.0], "");
+    f.button(
+        "ok",
+        [302.0, 150.0, 111.0, 30.0],
+        &tr("doc17.videoInsert", "Insert"),
+        true,
+    );
+    f.button(
+        "cancel",
+        [429.0, 150.0, 111.0, 30.0],
+        &tr("common.cancel", "Cancel"),
+        false,
+    );
+    f.disable("ok");
+    f.form.focus("url");
+    f
 }
 
 /// Insert a video: the address (or embed code) of an online video; Insert puts a video

@@ -200,6 +200,8 @@ pub(crate) enum DocFormKind {
     StyleEffects,
     /// New / Modify Style › Format ▾ › Frame… (round 17).
     StyleFrame,
+    /// Insert › Pictures › Online Pictures… (round 17).
+    OnlinePicture,
 }
 
 /// What the owner does after an input.
@@ -1127,7 +1129,8 @@ impl DocForm {
             | DocFormKind::StyleNumbering
             | DocFormKind::CustomizeKeyboard
             | DocFormKind::StyleEffects
-            | DocFormKind::StyleFrame => FormOut::Close,
+            | DocFormKind::StyleFrame
+            | DocFormKind::OnlinePicture => FormOut::Close,
             DocFormKind::Toc => {
                 let levels = self.form.num("levels").clamp(1, 9);
                 let mut instr = match &self.toc_map {
@@ -3258,7 +3261,8 @@ pub(crate) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
         | DocFormKind::StyleNumbering
         | DocFormKind::CustomizeKeyboard
         | DocFormKind::StyleEffects
-        | DocFormKind::StyleFrame => r17::open(kind, s, c),
+        | DocFormKind::StyleFrame
+        | DocFormKind::OnlinePicture => r17::open(kind, s, c),
         DocFormKind::Zoom => {
             let mut f = DocForm::new(kind, &tr("docR4.zoomTitle", "Zoom"), (381.0, 258.0), vec![]);
             f.label(

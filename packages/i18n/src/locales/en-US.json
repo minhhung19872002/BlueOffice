@@ -16655,6 +16655,8 @@
     "objTitle": "Object",
     "objType": "Object type:",
     "objWorkbook": "BlueSheet Worksheet",
+    "opPrompt": "Enter the address of a picture on the web:",
+    "opTitle": "Online Pictures",
     "shotAvailable": "Available Windows",
     "shotNone": "No windows are available",
     "snFormat": "Number or bullet format:",

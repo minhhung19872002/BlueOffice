@@ -76,7 +76,8 @@ const FOCUS_MENU: [(&str, &str); 4] = [
 ];
 
 /// Commands of round 17 that are no longer dimmed: (id, `&'static` id).
-pub(crate) const IDS: [&str; 21] = [
+pub(crate) const IDS: [&str; 22] = [
+    "insert.picture.online",
     "insert.models3d",
     "insert.screenshot",
     "view.sideToSide",
@@ -133,6 +134,9 @@ impl DocWindow {
                 filter: filter.to_owned(),
             });
             return Some(false);
+        }
+        if let Some(u) = id.strip_prefix("r17.picUrl:") {
+            return Some(self.r17_online_picture(u));
         }
         if let Some(u) = id.strip_prefix("r17.video:") {
             return Some(self.r17_insert_video(u));
@@ -204,6 +208,7 @@ impl DocWindow {
                 self.r3_run(vec![json!({ "cmd": "oleInsert" })])
             }
             "insert.onlineVideo" => self.r3_open_form(DocFormKind::OnlineVideo),
+            "insert.picture.online" => self.r3_open_form(DocFormKind::OnlinePicture),
             // Page Movement: Side to Side shows the pages two by two at the window's height,
             // like facing pages; Vertical goes back to one column at the former zoom.
             "view.sideToSide" => {
@@ -419,6 +424,28 @@ impl DocWindow {
         }
         self.sync_context();
         self.relayout_pending = true;
+        ok
+    }
+
+    /// Online Pictures › Insert: download the picture (HTTPS through the same transport as
+    /// time-stamping, 16 MB at most, one minute) and insert it.
+    fn r17_online_picture(&mut self, url: &str) -> bool {
+        use bo_sign::http::HttpTransport as _;
+        let t = bo_sign::http::UreqTransport::new(std::time::Duration::from_secs(30));
+        let Ok(r) = t.get(url) else {
+            return false;
+        };
+        if !(200..300).contains(&r.status) || bo_raster::transcode_to_png(&r.body).is_none() {
+            return false;
+        }
+        let name = url
+            .rsplit('/')
+            .next()
+            .filter(|n| n.contains('.'))
+            .unwrap_or("Online picture.png")
+            .to_owned();
+        let ok = self.view.insert_picture(r.body, &name);
+        self.sync_context();
         ok
     }
 

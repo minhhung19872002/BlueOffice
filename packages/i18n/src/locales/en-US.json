@@ -16752,5 +16752,25 @@
     "videoPrompt": "Enter the address of the online video or its embed code:",
     "videoTitle": "Insert a video",
     "wmGeneral": "General"
+  },
+  "doc19": {
+    "cBlack": "Black",
+    "cWhite": "White",
+    "kPreset": "Preset",
+    "kShadow": "Shadow",
+    "kReflection": "Reflection",
+    "kGlow": "Glow",
+    "kSoftEdges": "Soft Edges",
+    "kBevel": "Bevel",
+    "kRotation": "3-D Rotation",
+    "noPreset": "No Presets",
+    "noShadow": "No Shadow",
+    "noReflection": "No Reflection",
+    "noGlow": "No Glow",
+    "noSoftEdges": "No Soft Edges",
+    "noBevel": "No Bevel",
+    "noRotation": "No Rotation",
+    "artNone": "None",
+    "quickStyle": "Picture Style"
   }
 }

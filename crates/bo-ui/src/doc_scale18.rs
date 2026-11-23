@@ -174,7 +174,11 @@ pub(crate) const GROUPS2: [(&str, &str, &str, &str); 6] = [
 
 fn all() -> impl Iterator<Item = &'static (&'static str, &'static str, &'static str, &'static str)>
 {
-    GROUPS.iter().chain(GROUPS2.iter())
+    // Round 19: the contextual tabs' buttons too.
+    GROUPS
+        .iter()
+        .chain(GROUPS2.iter())
+        .chain(crate::doc_scale19::all())
 }
 
 /// Whether `id` is one of the collapsed-group buttons of this module.
@@ -190,6 +194,9 @@ pub(crate) fn group(id: &str) -> Option<(&'static str, &'static str, &'static st
 /// Collapse steps per tab, in the reference's order (a group named again collapses one
 /// stage further; its last stage is one drop-down button).
 pub(crate) fn scaling(tab: &str) -> &'static [&'static str] {
+    if let Some(s) = crate::doc_scale19::scaling(tab) {
+        return s;
+    }
     match tab {
         "ribbon.tabs.home" => &[
             "ribbon.groups.editing",
@@ -518,10 +525,10 @@ mod tests {
                     let first = all()
                         .find(|g| {
                             crate::ribbon::doc_group(g.1, g.2).is_some_and(|g2| {
-                                g2.large
-                                    .iter()
-                                    .chain(g2.rows.iter().flatten())
-                                    .any(|j| j == i)
+                                g2.large.iter().chain(g2.rows.iter().flatten()).any(|j| {
+                                    matches!(j, Item::Large(y) | Item::Labeled(y)
+                                            | Item::Button(y) if y == x)
+                                })
                             })
                         })
                         .map(|g| g.0);

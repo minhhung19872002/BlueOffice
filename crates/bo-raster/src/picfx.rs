@@ -266,6 +266,8 @@ pub fn derive_id_png(bytes: &[u8], id: &str) -> Option<Vec<u8>> {
         mask_shape(&mut img, &c);
     }
     mirror(&mut img, flip_of_id(id));
+    // Round 19: picture styles (artistic effect, soft edges, effect images…).
+    let img = crate::picstyle::apply_style(img, id);
     crate::rgba_to_png(img)
 }
 
@@ -317,7 +319,7 @@ pub fn resolve_rgba(src: &dyn ImageSource, id: &str) -> Option<Rgba> {
         mask_shape(&mut img, &c);
     }
     mirror(&mut img, flip_of_id(id));
-    Some(img)
+    Some(crate::picstyle::apply_style(img, id))
 }
 
 /// Area-average resampling to `w` × `h` (downsampling; also works upwards).

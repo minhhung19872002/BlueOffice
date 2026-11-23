@@ -46,6 +46,8 @@ mod r16;
 pub(crate) mod r17;
 #[path = "doc_r18.rs"]
 pub(crate) mod r18;
+#[path = "doc_r19.rs"]
+pub(crate) mod r19;
 #[path = "doc_r3.rs"]
 mod r3;
 #[path = "doc_r4.rs"]
@@ -2235,6 +2237,9 @@ impl DocWindow {
 
     /// Run interface command `id` from the ribbon, title bar, a menu or a shortcut.
     fn action(&mut self, id: &str) -> bool {
+        if let Some(r) = self.r19_action(id) {
+            return r;
+        }
         if let Some(r) = self.r18_action(id) {
             return r;
         }

@@ -103,6 +103,8 @@ fn props_of(pic: &XmlElement) -> PicProps {
             .filter(|s| *s != "rect")
             .map(str::to_owned);
     }
+    // Round 19: Picture Border, Picture Effects, artistic effect.
+    crate::picstyle::read(pic, &mut p.format);
     p
 }
 
@@ -202,6 +204,8 @@ pub(crate) fn patch(
             }
         }
     }
+    // Round 19: Picture Border, Picture Effects, artistic effect.
+    crate::picstyle::patch(pic, format);
     let _ = prefix;
     let mut out = String::new();
     write_element(&root, &mut out);
@@ -224,6 +228,8 @@ pub(crate) fn blip_children_xml(
             .map(|(r, b)| (r, &b.settings)),
     );
     write_svg_blip(&mut kids, svg);
+    // Round 19: the artistic effect ([MS-ODRAWXML] a14:imgEffect).
+    crate::picstyle::add_artistic(&mut kids, format.artistic.as_ref());
     let mut out = String::new();
     for k in &kids {
         write_element(k, &mut out);

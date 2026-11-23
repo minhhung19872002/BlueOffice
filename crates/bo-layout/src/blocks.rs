@@ -255,18 +255,17 @@ fn rel_line_band(rl: &RelLine, source: LineSource) -> Band {
             items.extend(its);
             boxed.extend(lines);
         } else {
-            items.push(PageItem::Image {
-                x: o.x,
+            // Round 19: with its picture style (border, effects).
+            items.extend(crate::picstyle::picture_items(
+                &o.image,
+                o.x,
                 y,
-                w: o.w,
-                h: o.h,
-                media: o.image.display_id(),
-                crop: crop_of(&o.image),
-                rotation: rotation_of(&o.image),
-                layer: Layer::Front,
-                alpha: 1.0,
-                z: 0,
-            });
+                o.w,
+                o.h,
+                Layer::Front,
+                1.0,
+                0,
+            ));
         }
         // A tracked picture is framed in its author's colour, a deleted one crossed out.
         if let Some((color, deleted)) = o.revision {
@@ -1620,22 +1619,20 @@ pub(crate) fn layout_table(
                     content.push((top + iy, band));
                     continue;
                 }
-                band.items.push(PageItem::Image {
-                    x: ix,
-                    y: 0.0,
-                    w: img.width.to_pt(),
-                    h: img.height.to_pt(),
-                    media: img.display_id(),
-                    crop: crop_of(img),
-                    rotation: rotation_of(img),
-                    layer: if img.anchor.as_ref().is_some_and(|a| a.behind) {
+                band.items.extend(crate::picstyle::picture_items(
+                    img,
+                    ix,
+                    0.0,
+                    img.width.to_pt(),
+                    img.height.to_pt(),
+                    if img.anchor.as_ref().is_some_and(|a| a.behind) {
                         Layer::Back
                     } else {
                         Layer::Front
                     },
-                    alpha: 1.0,
-                    z: 0,
-                });
+                    1.0,
+                    0,
+                ));
                 content.push((top + iy, band));
             }
             let mut content_h = stack.h;

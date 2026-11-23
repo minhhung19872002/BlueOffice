@@ -285,6 +285,8 @@ impl Session {
     /// [`Image::display_id`]) in one of the body paragraphs `paras`, tried in order:
     /// the picture's atom from its start to its end (a click on a picture selects it).
     pub fn picture_selection(&self, paras: &[usize], media: &str) -> Option<Selection> {
+        // Round 19: a picture drawn with in-place style tokens is still the picture.
+        let media = &*bo_model::picture_style::strip_style(media);
         let paths = body_paragraphs(&self.doc);
         for &id in paras {
             let Some(p) = paths.get(id).and_then(|path| para_at(&self.doc, path)) else {

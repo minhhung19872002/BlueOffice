@@ -400,19 +400,9 @@ pub(crate) fn float_item(
     let draw = |x: f32, y: f32, layer: Layer| -> (Vec<PageItem>, Vec<Line>) {
         match &f.drawing {
             Some(d) => d.placed(x, y, f.para),
+            // Round 19: with its picture style (border, effects).
             None => (
-                vec![PageItem::Image {
-                    x,
-                    y,
-                    w,
-                    h,
-                    media: img.display_id(),
-                    crop: crate::blocks::crop_of(img),
-                    rotation: crate::blocks::rotation_of(img),
-                    layer,
-                    alpha: 1.0,
-                    z: 0,
-                }],
+                crate::picstyle::picture_items(img, x, y, w, h, layer, 1.0, 0),
                 Vec::new(),
             ),
         }
@@ -1935,7 +1925,11 @@ impl Flow {
             if ctx.view == crate::RevisionView::Markup {
                 if let (Some(rev), Some(PageItem::Image { x, y, w, h, .. })) = (
                     src.and_then(|p| float_revision(p, &img.img)),
-                    items.iter().find(|i| matches!(i, PageItem::Image { .. })),
+                    // Round 19: the picture itself is its last image (effect images come first).
+                    items
+                        .iter()
+                        .rev()
+                        .find(|i| matches!(i, PageItem::Image { .. })),
                 ) {
                     float_frame(*x, *y, *w, *h, rev, &mut float_items);
                 }

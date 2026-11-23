@@ -37,6 +37,7 @@ mod math;
 mod page;
 mod page_fill;
 mod paragraph;
+mod picstyle;
 mod ruby;
 mod sigline;
 mod style;

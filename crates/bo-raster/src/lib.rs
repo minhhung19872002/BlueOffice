@@ -9,6 +9,7 @@ pub mod compose;
 pub mod gif;
 pub mod jpeg;
 pub mod picfx;
+pub mod picstyle;
 
 use bo_render::{Command, GradientStop, ImageSource, PageList, PathSeg, Rgba};
 use bo_text::{FaceId, FontManager, PathCmd};

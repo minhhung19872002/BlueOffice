@@ -31,6 +31,7 @@ mod doc_r4_menus;
 mod doc_reveal;
 mod doc_review16;
 mod doc_scale18;
+mod doc_scale19;
 mod doc_spacing15;
 mod doc_speech16;
 mod doc_table;

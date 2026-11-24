@@ -87,4 +87,9 @@ The owner allows agents to control the computer freely with real input (SendInpu
    they cannot reach (hover, drag and drop, dropdowns ignoring posted clicks, true typing latency).
 4. `tools/ui-compare/physical-idle.ps1 -Check 0` tells whether the owner touched the PC recently; it is optional
    now — use it to avoid bursts while the owner is typing, not as a gate.
+5. Mandatory guard (incident 2026-11-24 09:38: a click and three ESC presses landed in the owner's terminal because
+   SetForegroundWindow silently failed): before EVERY real click / key, check that your own process owns both
+   `GetForegroundWindow()` and `WindowFromPoint(x, y)` (and the window is not minimised); if not, skip the input and
+   report. Never send keys "to the foreground" blindly. Screen captures with real input: only areas fully covered by
+   your own window (PrintWindow of your window preferred); delete any capture that shows another window.
 Record in REPORT which measurements used real input.

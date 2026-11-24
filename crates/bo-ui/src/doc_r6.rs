@@ -869,6 +869,10 @@ impl DocWindow {
             options::OptOut::Redraw => true,
             options::OptOut::AutoCorrect => self.r8_open_autocorrect(),
             options::OptOut::R21(out) => self.r21_options_out(out),
+            options::OptOut::R22(id) => {
+                self.r6.options = None;
+                self.action(&id)
+            }
             options::OptOut::Close => {
                 self.r6.options = None;
                 true
@@ -887,9 +891,25 @@ impl DocWindow {
 
     /// The title bar's quick access commands.
     pub(super) fn r6_set_quick(&mut self, ids: &[String]) {
+        // Round 22: entries changed with Modify… (`command|name|symbol`) get their own
+        // button: the symbol's icon and the name as its tip; the press runs the command.
+        for id in ids.iter().filter(|i| i.contains('|')) {
+            let (cmd, name, sym) = crate::doc_forms::options6::r21::split_quick(id);
+            let icon = crate::ribbon::icon_of(sym.unwrap_or(cmd)).to_owned();
+            self.icons.alias(id, &icon);
+            if let Some(n) = name {
+                self.strings.set(&format!("commands.{id}"), n);
+            }
+        }
         let ids: Vec<&'static str> = ids
             .iter()
             .filter_map(|id| {
+                if id.contains('|') {
+                    let (cmd, ..) = crate::doc_forms::options6::r21::split_quick(id);
+                    let known = options::QUICK_CHOICES.iter().any(|(c, ..)| *c == cmd)
+                        || crate::doc_ribbon21::static_command(cmd).is_some();
+                    return known.then(|| crate::doc_ribbon21::intern(id));
+                }
                 options::QUICK_CHOICES
                     .iter()
                     .find(|(c, ..)| c == id)

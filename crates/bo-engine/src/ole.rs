@@ -63,6 +63,19 @@ pub enum OleCommand {
         /// A linked object updates automatically.
         #[serde(default)]
         auto_update: bool,
+        /// Display as icon (round 22): the object shows an icon with `caption` below it.
+        #[serde(default)]
+        icon: bool,
+        /// Caption under the icon (Change Icon…); `None` = the file name or "Worksheet".
+        #[serde(default)]
+        caption: Option<String>,
+        /// Icon drawing chosen in Change Icon… (0 = cells, 1 = chart).
+        #[serde(default)]
+        icon_style: u8,
+        /// Change Icon › Browse…: an `.ico`, `.exe` / `.dll` (icon resource) or PNG file,
+        /// base64; its icon replaces the drawing.
+        #[serde(default)]
+        icon_file: Option<String>,
     },
     /// Write cell inputs into the shown area of the selected embedded workbook,
     /// re-embed it and draw its preview again.

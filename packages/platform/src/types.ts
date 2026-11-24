@@ -1189,6 +1189,8 @@ export type EditCommand =
   /** Text or picture watermark of every page; absent removes it. */
   | { cmd: 'setWatermark'; watermark?: WatermarkSpec | null }
   | { cmd: 'applyTheme' | 'applyStyleSet' | 'applyDocumentStyleSet'; id: string }
+  /** Round 22: style shortcut key saved in the document ([MS-DOCX] keymap code; `null` removes it). */
+  | { cmd: 'setStyleKey'; key: number; style: string | null }
   /** Design › Effects: BlueOffice's theme effect sets (`flat`, `soft`, `lifted`, `glow`, `inset`, `gloss`, `outline`, `deep`). */
   | { cmd: 'applyThemeEffects'; id: string }
   /** Design › Customize Colors / Fonts: twelve clrScheme colours (RRGGBB) and / or major / minor Latin fonts, named. */

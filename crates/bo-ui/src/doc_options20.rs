@@ -237,10 +237,8 @@ pub(super) fn add_pages(f: &mut Form, s: &Strings, p: &super::options6::DocPrefs
         Some(ADDINS),
         [350.0, 720.0, 260.0, 30.0],
         Kind::Combo {
-            items: vec![
-                t("doc20.manageWeb", "Web Add-ins"),
-                t("doc20.manageScripts", "BlueScript scripts"),
-            ],
+            // Round 22: every choice opens its list with Go….
+            items: super::r22::MANAGE.iter().map(|(k, en)| t(k, en)).collect(),
             sel: 0,
         },
     );

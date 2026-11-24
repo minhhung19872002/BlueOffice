@@ -70,8 +70,9 @@ fn border_effects_artistic_and_quick_styles_run_from_the_menus() {
     // Picture Effects ▾ lists the categories; each opens its presets.
     assert!(w.action("picture.effects"));
     assert_eq!(w.menu.as_ref().map(|m| m.items().len()), Some(7));
+    // Round 22: each category is a gallery of thumbnails (No Shadow + 18 presets).
     assert!(w.action("r19.fxmenu:shadow"));
-    assert_eq!(w.menu.as_ref().map(|m| m.items().len()), Some(19));
+    assert_eq!(w.r22.gallery.as_ref().map(|g| g.cells().len()), Some(19));
     assert!(w.action("r19.fx:shadow=outerBottomRight"));
     assert!(w.action("r19.fx:glow=8:ED7D31"));
     assert!(w.action("r19.fx:softEdge=5"));
@@ -81,16 +82,11 @@ fn border_effects_artistic_and_quick_styles_run_from_the_menus() {
     assert_eq!(fx.camera.as_deref(), Some("perspectiveLeft"));
     // The checked entry follows the picture.
     assert!(w.action("r19.fxmenu:rotation"));
-    let checked: Vec<String> = w
-        .menu
+    let checked = w
+        .r22
+        .gallery
         .as_ref()
-        .map(|m| {
-            m.items()
-                .iter()
-                .filter(|i| i.checked)
-                .map(|i| i.label.clone())
-                .collect()
-        })
+        .map(crate::doc_thumbs22::ThumbGallery::checked_tips)
         .unwrap_or_default();
     assert_eq!(checked, vec!["Perspective Left".to_owned()]);
     // Artistic Effects ▾: None + 22 effects.

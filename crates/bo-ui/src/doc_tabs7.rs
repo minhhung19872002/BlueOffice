@@ -53,9 +53,9 @@ pub(crate) const MENUS: [&str; 27] = [
 
 /// Commands shown but not available (greyed, as the reference greys what does not apply or
 /// what BlueDoc does not have yet).
-pub(crate) const GREYED: [&str; 4] = [
-    // Round 19: Artistic Effects, Quick Styles, Picture Border and Picture Effects work.
-    "picture.layout",
+pub(crate) const GREYED: [&str; 3] = [
+    // Round 19: Artistic Effects, Quick Styles, Picture Border and Picture Effects work;
+    // round 22: Picture Layout.
     // Round 18: Edit Shape, Shape Styles, Shape Fill and Shape Outline work; round 20:
     // Shape Effects and the WordArt Styles group.
     "hf.onlinePictures",
@@ -468,7 +468,8 @@ pub(crate) fn shape_tab() -> Tab {
             Group {
                 label: "doc20.groupText",
                 large: vec![],
-                rows: vec![vec![S("shape.alignText")]],
+                // Round 22: Text Direction above Align Text, as the reference.
+                rows: vec![vec![S("shape.textDirection")], vec![S("shape.alignText")]],
             },
             accessibility_group(),
             arrange_group(),

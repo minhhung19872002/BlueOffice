@@ -481,3 +481,31 @@ fn slide_alternate_content_object_is_drawn_and_kept() {
     }
     assert_eq!(n, 1);
 }
+
+/// Round 22: Insert › Object › Display as icon — the object shows an icon picture with
+/// its caption and is written with `DrawAspect="Icon"`.
+#[test]
+fn doc_object_displayed_as_icon() {
+    let mut e = Engine::with_bundled_fonts();
+    e.new_document("a.docx").unwrap();
+    let data = b64(&workbook());
+    let cmd = serde_json::json!({
+        "cmd": "oleInsert", "data": data, "icon": true, "caption": "Doanh thu.xlsx"
+    });
+    doc_cmd(&mut e, &cmd.to_string());
+    let objs = objects(e.document().unwrap());
+    assert_eq!(objs.len(), 1);
+    assert!(objs[0].ole.as_ref().unwrap().icon);
+    // An icon, not the cells: small and about as wide as the caption.
+    let (w, h) = (objs[0].width.0 / 12_700, objs[0].height.0 / 12_700);
+    assert!(
+        (40..=90).contains(&w) && (40..=60).contains(&h),
+        "{w} x {h}"
+    );
+    let bytes = e.save_docx().unwrap();
+    keep(&bytes, "ole-icon.docx");
+    assert!(main_xml(&bytes).contains("DrawAspect=\"Icon\""));
+    let mut f = Engine::with_bundled_fonts();
+    f.open(&bytes, "x.docx").unwrap();
+    assert!(objects(f.document().unwrap())[0].ole.as_ref().unwrap().icon);
+}

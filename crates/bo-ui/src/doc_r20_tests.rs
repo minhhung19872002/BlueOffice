@@ -167,12 +167,10 @@ fn wordart_styles_change_the_shape_text() {
     });
     w.handle(Input::Tick, &Fixed);
     assert!(shape(&w).text.is_some(), "a text box");
-    for id in [
-        "shape.wordArt",
-        "shape.textFill",
-        "shape.textOutline",
-        "shape.textEffects",
-    ] {
+    // Round 22: Quick Styles is a gallery of thumbnails.
+    assert!(w.action("shape.wordArt"));
+    assert!(w.r22.gallery.as_ref().is_some_and(|g| g.cells().len() > 2));
+    for id in ["shape.textFill", "shape.textOutline", "shape.textEffects"] {
         assert!(w.action(id), "{id}");
         assert!(menu_len(&w).is_some_and(|n| n > 2), "{id}");
     }

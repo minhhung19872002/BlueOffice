@@ -383,11 +383,12 @@ impl DocWindow {
         true
     }
 
-    /// Width the pane takes at the right.
+    /// Width the pane takes at the right (none while it floats, round 22).
     pub(super) fn r21_pane_w(&self) -> f32 {
         self.r21
             .fmt
             .as_ref()
+            .filter(|p| p.floating.is_none())
             .map_or(0.0, |p| p.pane_width(self.scale))
     }
 
@@ -400,9 +401,23 @@ impl DocWindow {
         let y = self.chrome_bottom();
         let h = (self.size.1 - self.status_h() - y).max(1.0);
         let scale = self.scale;
-        let w = self.r21_pane_w();
+        let size = self.size;
         if let Some(p) = self.r21.fmt.as_mut() {
-            p.layout([x, y, w, h], scale);
+            let w = p.pane_width(scale);
+            // Round 22: a floating pane keeps its place (inside the window), 70 % as tall.
+            let r = match p.floating {
+                Some((fx, fy)) => {
+                    let fh = (h * 0.7).max(200.0 * scale).min(h);
+                    [
+                        fx.min(size.0 - w).max(0.0),
+                        fy.min(size.1 - fh).max(0.0),
+                        w,
+                        fh,
+                    ]
+                }
+                None => [x, y, w, h],
+            };
+            p.layout(r, scale);
         }
     }
 
@@ -447,6 +462,26 @@ impl DocWindow {
     fn r21_pane_input(&mut self, input: &crate::Input) -> Option<bool> {
         let pointer = self.pointer;
         let p = self.r21.fmt.as_mut()?;
+        // Round 22: keys go to a number being typed into a spin box.
+        if p.typing() && matches!(input, crate::Input::Text(_) | crate::Input::Key(..)) {
+            let act = p.key_input(input)?;
+            return Some(self.r21_pane_act(act));
+        }
+        // Round 22: moving the floating pane by its title.
+        match *input {
+            crate::Input::Press { x, y, count, .. }
+                if p.contains(x, y) && p.title_press(x, y, count) =>
+            {
+                self.relayout_pending = true;
+                return Some(true);
+            }
+            crate::Input::Drag { x, y } | crate::Input::Move { x, y } if p.drag_to(x, y) => {
+                self.relayout_pending = true;
+                return Some(true);
+            }
+            crate::Input::Release { .. } if p.drag_end() => return Some(true),
+            _ => {}
+        }
         match *input {
             crate::Input::Move { x, y } if p.contains(x, y) => Some(p.hover(x, y)),
             crate::Input::Wheel(dy) if p.contains(pointer.0, pointer.1) => Some(p.wheel(dy)),
@@ -539,6 +574,14 @@ impl DocWindow {
             "fp21.paneClose" => {
                 self.menu = None;
                 self.r21.fmt = None;
+                self.relayout_pending = true;
+                true
+            }
+            "fp22.paneMove" => {
+                self.menu = None;
+                if let Some(p) = self.r21.fmt.as_mut() {
+                    p.float_out();
+                }
                 self.relayout_pending = true;
                 true
             }

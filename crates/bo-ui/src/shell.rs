@@ -52,6 +52,8 @@ pub(crate) mod r19;
 pub(crate) mod r20;
 #[path = "doc_r21.rs"]
 pub(crate) mod r21;
+#[path = "doc_r22.rs"]
+pub(crate) mod r22;
 #[path = "doc_r3.rs"]
 mod r3;
 #[path = "doc_r4.rs"]
@@ -388,6 +390,7 @@ pub struct DocWindow {
     r18: Box<r18::R18>,
     r20: Box<r20::R20>,
     r21: Box<r21::R21>,
+    r22: Box<r22::R22>,
 }
 
 /// Font sizes offered by the size box (points).
@@ -500,6 +503,7 @@ impl DocWindow {
         r14::install(&mut icons, &mut strings);
         r17::install(&mut icons, &mut strings);
         r20::install(&mut icons, &mut strings);
+        r22::install(&mut icons, &mut strings);
         icons.set_grey_disabled(true);
         Self {
             view,
@@ -602,6 +606,7 @@ impl DocWindow {
             r18: Box::default(),
             r20: Box::default(),
             r21: Box::default(),
+            r22: Box::default(),
         }
     }
 
@@ -1295,7 +1300,18 @@ impl DocWindow {
                 .session()
                 .and_then(bo_edit::Session::tools_picture)
                 .is_some_and(|i| i.shape.is_some() && i.media.is_empty());
-        c.picture &= !c.shape;
+        // Round 22: as the reference — Shape Format while a shape is selected (a click on
+        // its border) or its text is edited; a floating shape anchored in the caret's
+        // paragraph alone shows no Picture Format.
+        let shape_selected = engine.session().is_some_and(|s| {
+            let (a, b) = s.selection().ordered();
+            s.drawing_selection(a.para, a.offset)
+                .is_some_and(|d| d.ordered() == (a, b))
+                && s.tools_shape().is_some()
+        });
+        let in_text_box = self.view.story().is_some_and(|s| s.kind == "textBox");
+        c.shape |= shape_selected || in_text_box;
+        c.picture = self.view.format().picture_tools && !c.shape;
         c.equation = engine.equation_selected();
         if c == self.context && !self.activate_context {
             return;
@@ -2265,6 +2281,9 @@ impl DocWindow {
         if let Some(r) = self.r21_guard(id) {
             return r;
         }
+        if let Some(r) = self.r22_action(id) {
+            return r;
+        }
         if let Some(r) = self.r20_action(id) {
             return r;
         }
@@ -3044,6 +3063,10 @@ impl DocWindow {
             if let Some(r) = self.r21_input(&input) {
                 return r;
             }
+        }
+        // Round 22: an open thumbnail gallery takes the pointer.
+        if let Some(r) = self.r22_input(&input) {
+            return r;
         }
         if let Some(r) = self.r7_input(&input) {
             return r;
@@ -4065,6 +4088,7 @@ impl DocWindow {
         self.r16_paint(p);
         self.r17_paint(p);
         self.r18_paint(p);
+        self.r22_paint(p);
         if let Some(menu) = &self.menu {
             menu.paint(p, &self.r10_menu_theme(), &self.icons);
             self.r10_paint_menu(p);

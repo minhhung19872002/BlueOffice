@@ -218,3 +218,121 @@ fn inserted_gif_becomes_png() {
     assert!(name.ends_with(".png"));
     assert!(data.starts_with(b"\x89PNG"));
 }
+
+/// Round 22: a click on a shape's border selects the shape (not its text); a click
+/// inside a text box still edits its text; a click inside a shape without text selects it.
+#[test]
+fn click_on_shape_border_selects_the_shape() {
+    let mut e = Engine::with_bundled_fonts();
+    e.new_document("a.docx").unwrap();
+    cmd(&mut e, r#"{"cmd":"insertText","text":"Thân bài "}"#);
+    let r = cmd(
+        &mut e,
+        r#"{"cmd":"insertShape","textBox":true,"width":150,"height":60}"#,
+    );
+    let d = r["drawing"].clone();
+    cmd(&mut e, r#"{"cmd":"insertText","text":"Hộp"}"#);
+    let (bx, by) = (d["x"].as_f64().unwrap(), d["y"].as_f64().unwrap());
+    let (para, at) = (d["para"].as_u64().unwrap(), d["at"].as_u64().unwrap());
+    // On the top border (1 pt inside the frame), with the box open.
+    let r = cmd(
+        &mut e,
+        &format!(
+            r#"{{"cmd":"click","page":0,"x":{},"y":{}}}"#,
+            bx + 40.0,
+            by + 1.0
+        ),
+    );
+    assert!(r.get("story").is_none(), "{:?}", r.get("story"));
+    let sel = &r["selection"];
+    assert_eq!(sel["anchor"]["p"], para);
+    assert_eq!(sel["anchor"]["o"], at);
+    assert!(sel["focus"]["o"].as_u64().unwrap() > at, "{sel}");
+    assert_eq!(r["drawing"]["para"], para);
+    // Inside: the text box opens.
+    let r = cmd(
+        &mut e,
+        &format!(
+            r#"{{"cmd":"click","page":0,"x":{},"y":{}}}"#,
+            bx + 40.0,
+            by + 20.0
+        ),
+    );
+    assert_eq!(r["story"]["kind"], "textBox");
+    // Just outside the left edge, with the box closed first.
+    cmd(&mut e, r#"{"cmd":"closeTextBox"}"#);
+    let r = cmd(
+        &mut e,
+        &format!(
+            r#"{{"cmd":"click","page":0,"x":{},"y":{}}}"#,
+            bx - 1.0,
+            by + 30.0
+        ),
+    );
+    assert!(r.get("story").is_none());
+    assert_eq!(r["selection"]["anchor"]["o"], at);
+
+    // A shape without text (own document): a click inside selects it.
+    let mut e = Engine::with_bundled_fonts();
+    e.new_document("b.docx").unwrap();
+    cmd(&mut e, r#"{"cmd":"insertText","text":"Thân bài "}"#);
+    let r = cmd(
+        &mut e,
+        r#"{"cmd":"insertShape","preset":"ellipse","textBox":false,"width":100,"height":80}"#,
+    );
+    let d = r["drawing"].clone();
+    assert!(
+        d.is_object(),
+        "{:?} {:?}",
+        r.get("error"),
+        r.get("selection")
+    );
+    let (sx, sy) = (d["x"].as_f64().unwrap(), d["y"].as_f64().unwrap());
+    cmd(&mut e, r#"{"cmd":"click","page":0,"x":80,"y":700}"#);
+    let r = cmd(
+        &mut e,
+        &format!(
+            r#"{{"cmd":"click","page":0,"x":{},"y":{}}}"#,
+            sx + 50.0,
+            sy + 40.0
+        ),
+    );
+    let sel = &r["selection"];
+    assert_eq!(sel["anchor"]["p"], d["para"]);
+    assert_eq!(sel["anchor"]["o"], d["at"]);
+    assert_ne!(sel["focus"]["o"], d["at"], "{sel}");
+}
+
+/// Round 22: a style shortcut key saved in the document survives the file ([MS-DOCX]
+/// keymap customizations part) and is one undo step.
+#[test]
+fn style_shortcut_keys_saved_in_the_document() {
+    let mut e = Engine::with_bundled_fonts();
+    e.new_document("k.docx").unwrap();
+    // Ctrl+Shift+H (0x0200 | 0x0100 | 'H').
+    cmd(
+        &mut e,
+        r#"{"cmd":"setStyleKey","key":840,"style":"Heading 1"}"#,
+    );
+    assert_eq!(
+        e.document().unwrap().design.key_map,
+        vec![(0x0348, "Heading 1".to_owned())]
+    );
+    let bytes = e.save_docx().unwrap();
+    let mut f = Engine::with_bundled_fonts();
+    f.open(&bytes, "k.docx").unwrap();
+    assert_eq!(
+        f.document().unwrap().design.key_map,
+        vec![(0x0348, "Heading 1".to_owned())]
+    );
+    // Saved again unchanged: the part stays; removed: the part goes.
+    let again = reopen(&f).save_docx().unwrap();
+    let mut g = Engine::with_bundled_fonts();
+    g.open(&again, "k.docx").unwrap();
+    assert_eq!(g.document().unwrap().design.key_map.len(), 1);
+    cmd(&mut e, r#"{"cmd":"undo"}"#);
+    assert_eq!(e.document().unwrap().design.key_map, Vec::new());
+    let empty = e.save_docx().unwrap();
+    let pkg = bo_opc::Package::read(&empty, &bo_opc::Limits::default()).unwrap();
+    assert!(pkg.part("/word/customizations.xml").is_none());
+}

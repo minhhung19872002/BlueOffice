@@ -165,6 +165,20 @@ pub(crate) fn shape_drawing(
     }
     // Round 20: gradient / picture fills, transparency and Shape Effects.
     if let Some(st) = shape.style.as_deref().filter(|s| !s.is_empty()) {
+        // Round 22: a linear gradient turns with the shape (§20.1.8.33 rotWithShape, the
+        // default); the outline is already turned, the gradient's box is not.
+        let turned;
+        let st = match &st.gradient {
+            Some(g) if img.rotation != 0 && st.rot_with_shape != Some(false) => {
+                let mut c = st.clone();
+                if let Some(cg) = c.gradient.as_mut() {
+                    cg.angle = (g.angle + img.rotation).rem_euclid(21_600_000);
+                }
+                turned = c;
+                &turned
+            }
+            _ => st,
+        };
         paths = crate::shapestyle::styled(ctx.doc, st, paths, w as f32, h as f32);
     }
     let mut out = Drawing::default();
@@ -194,20 +208,80 @@ pub(crate) fn shape_drawing(
     let (x0, y0) = (l.min(r) + il, t.min(b) + it);
     let inner_w = ((r - l).abs() - il - ir).max(1.0);
     let inner_h = ((b - t).abs() - it - ib).max(0.0);
+    // Round 22: text direction, Wrap text in shape and Resize shape to fit text
+    // (§21.1.2.1.1 bodyPr vert / wrap, §21.1.2.1.4 spAutoFit).
+    let body = shape.style.as_deref();
+    let turn = match body.and_then(|b| b.vert.as_deref()) {
+        Some("vert") => 90,
+        Some("vert270") => -90,
+        _ => 0,
+    };
+    let no_wrap = body.is_some_and(|b| b.no_wrap);
+    let line_len = if turn == 0 { inner_w } else { inner_h.max(1.0) };
+    let wrap_w = if no_wrap { 20_000.0 } else { line_len };
     let saved = (ctx.textbox.replace((at, 0)), ctx.other_lists.clone());
-    let st = stack_blocks(ctx, blocks, inner_w, false, None);
+    let st = stack_blocks(ctx, blocks, wrap_w, false, None);
     ctx.textbox = saved.0;
     ctx.other_lists = saved.1;
     let st = st?;
-    let dy = match shape.anchor {
-        TextAnchor::Top => 0.0,
-        TextAnchor::Center => ((inner_h - st.h) / 2.0).max(0.0),
-        TextAnchor::Bottom => (inner_h - st.h).max(0.0),
-    };
-    for (top, band) in &st.bands {
-        let band = band.translated(x0, y0 + dy + top);
+    if turn != 0 {
+        // The lines run down (or up) the box; the anchor places the stack across it.
+        let room = (inner_w - st.h).max(0.0);
+        let along = match (shape.anchor, turn > 0) {
+            (TextAnchor::Center, _) => room / 2.0,
+            (TextAnchor::Top, true) | (TextAnchor::Bottom, false) => room,
+            _ => 0.0,
+        };
+        let band = crate::blocks::rotate_content(st.bands, turn, st.h, line_len, along);
+        let band = band.translated(x0, y0);
         out.lines.extend(band.lines);
         out.items.extend(band.items);
+    } else {
+        let dy = match shape.anchor {
+            TextAnchor::Top => 0.0,
+            TextAnchor::Center => ((inner_h - st.h) / 2.0).max(0.0),
+            TextAnchor::Bottom => (inner_h - st.h).max(0.0),
+        };
+        for (top, band) in &st.bands {
+            let band = band.translated(x0, y0 + dy + top);
+            out.lines.extend(band.lines);
+            out.items.extend(band.items);
+        }
+    }
+    // Resize shape to fit text: the outline grows down to hold the text.
+    if body.is_some_and(|b| b.auto_fit) && turn == 0 && img.rotation == 0 && st.h > inner_h + 0.5 {
+        let grow = st.h - inner_h;
+        if let Some(PageItem::Shape { h: sh, paths, .. }) = out.items.first_mut() {
+            *sh += grow;
+            let k = (h as f32 + grow) / (h as f32).max(1.0);
+            for p in paths.iter_mut() {
+                for c in &mut p.segs {
+                    scale_y(c, k);
+                }
+            }
+        }
+    }
+    // Round 22: Text Effects › Transform — the text drawn warped (§20.1.9.19 prstTxWarp).
+    if let Some(name) = body.and_then(|b| b.warp.as_deref()) {
+        let bx = [x0, y0, x0 + inner_w, y0 + inner_h.max(1.0)];
+        let paths = crate::shapestyle::warp_text(ctx.fonts, name, &mut out.lines, bx);
+        if !paths.is_empty() {
+            out.items.push(PageItem::Shape {
+                x: 0.0,
+                y: 0.0,
+                w: w as f32,
+                h: h as f32,
+                paths,
+                source: LineSource::TextBox {
+                    para: 0,
+                    at,
+                    sub: 0,
+                },
+                layer: layer_of(img),
+                alpha: 1.0,
+                z: 0,
+            });
+        }
     }
     // Round 20: a reflection shows the shape's text too (mirrored glyph outlines).
     if let Some(st) = shape.style.as_deref() {
@@ -419,5 +493,22 @@ fn text_path_metrics(fonts: &bo_text::FontManager, face: bo_text::FaceId) -> (f6
     match typo {
         Some((a, d)) if (a + d - f64::from(info.units_per_em)).abs() < 1.0 => (a, d),
         _ => hhea,
+    }
+}
+
+/// Stretch a path command vertically by `k` from the box top (Resize shape to fit text).
+fn scale_y(c: &mut PathCmd, k: f32) {
+    match c {
+        PathCmd::M(_, y) | PathCmd::L(_, y) => *y *= k,
+        PathCmd::Q(_, b, _, y) => {
+            *b *= k;
+            *y *= k;
+        }
+        PathCmd::C(_, b, _, d, _, y) => {
+            *b *= k;
+            *d *= k;
+            *y *= k;
+        }
+        PathCmd::Z => {}
     }
 }

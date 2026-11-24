@@ -687,6 +687,12 @@ impl DocWindow {
                 ] {
                     items.push(sub_item(self.r20_t(key, en), k.to_owned()));
                 }
+                // Round 22: Transform ▸ (the warp gallery).
+                items.push(item(
+                    format!("{} \u{25B8}", self.r20_t("doc22.transform", "Transform")),
+                    "r22.transform".into(),
+                    false,
+                ));
                 items.push(item(
                     self.r20_t("doc20.noTextEffects", "No Text Effects"),
                     "r20.te:none=none".into(),

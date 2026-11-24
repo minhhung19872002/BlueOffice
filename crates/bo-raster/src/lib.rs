@@ -656,6 +656,16 @@ pub fn transcode_to_png(bytes: &[u8]) -> Option<Vec<u8>> {
         .and_then(|p| p.encode_png().ok())
 }
 
+/// Straight RGBA pixels of a PNG picture (round 22: icons of Display as icon).
+pub fn decode_png_rgba(bytes: &[u8]) -> Option<codecs::Rgba> {
+    let pm = Pixmap::decode_png(bytes).ok()?;
+    Some(codecs::Rgba {
+        width: pm.width(),
+        height: pm.height(),
+        pixels: compose::to_rgba(&pm),
+    })
+}
+
 /// Encode straight RGBA pixels as PNG.
 pub fn rgba_to_png(img: codecs::Rgba) -> Option<Vec<u8>> {
     pixmap_of(img).and_then(|p| p.encode_png().ok())

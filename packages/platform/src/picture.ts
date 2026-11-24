@@ -204,7 +204,10 @@ export type PictureCommand =
    * inner, color, transparency, size, blur, angle, distance; reflection: transparency, size,
    * blur, distance; glow: size, color, transparency; bevel: type, width, height).
    */
-  | { cmd: 'shapeTextInsets'; insets: [number, number, number, number] };
+  | { cmd: 'shapeTextInsets'; insets: [number, number, number, number] }
+  | { cmd: 'shapeRotateWithShape'; on: boolean }
+  | { cmd: 'shapeTextLayout'; vert?: 'horz' | 'vert' | 'vert270'; autoFit?: boolean; wrap?: boolean }
+  | { cmd: 'shapeTextWarp'; preset: string };
 
 /** Text wrapping of a picture (Wrap Text menu). */
 export type PictureWrap =

@@ -214,7 +214,22 @@ impl DocWindow {
             rows.push(self.r10_row("copyLink", "ctx.link.copy", None));
             rows.push(self.r10_row("removeLink", "ctx.link.remove", None));
         }
-        if picture {
+        // Round 22: a selected shape (or one whose text is edited) gets the reference's
+        // shape entries: Edit Text, Wrap Text ▸, Edit Alt Text, More Layout Options…,
+        // Format Shape….
+        let shape = self.context.shape;
+        if shape {
+            let mut r = self.r10_row("link", "insert.link", Some("insert.link"));
+            r.sep = true;
+            rows.push(r);
+            rows.push(self.r10_row("caption", "references.insertCaption", None));
+            let mut r = self.r10_row("wrapText", "ctx.sub.wrap", None);
+            r.arrow = true;
+            rows.push(r);
+            rows.push(self.r10_row("altText", "picture.altText", None));
+            rows.push(self.r10_row("sizePosition", "picture.layoutOptions", None));
+            rows.push(self.r10_row("formatShape", "fp21.formatShape", None));
+        } else if picture {
             let mut r = self.r10_row("changePicture", "picture.change.file", None);
             r.sep = true;
             rows.push(r);
@@ -227,7 +242,8 @@ impl DocWindow {
             rows.push(r);
             rows.push(self.r10_row("altText", "picture.altText", None));
             rows.push(self.r10_row("sizePosition", "picture.layoutOptions", None));
-            rows.push(self.r10_row("formatPicture", "picture.layout", None));
+            // Round 22: Format Picture… opens the Format Picture pane.
+            rows.push(self.r10_row("formatPicture", "fp22.formatPicture", None));
         } else if table {
             if syn.is_some() {
                 let mut r = self.r10_row("synonyms", "ctx.sub.syn", None);

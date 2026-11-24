@@ -328,6 +328,12 @@ fn home() -> Tab {
                     vec![Item::Labeled("edit.replace")],
                 ],
             },
+            // Round 22: the reference's Add-ins group (BlueDoc's own add-ins).
+            Group {
+                label: "doc22.groupAddins",
+                large: vec![Item::Large("home.addins")],
+                rows: vec![],
+            },
         ],
     }
 }
@@ -3019,7 +3025,7 @@ mod tests {
                         ribbon.scroll = 0.0;
                         ribbon.layout(&Fixed, &strings, logical_width * scale, scale, 40.0);
                         let mut seen = std::collections::HashSet::new();
-                        for _ in 0..30 {
+                        for _ in 0..60 {
                             for id in &ids {
                                 if let Some([x, y, w, h]) = ribbon.rect_of(RibbonHit::Command(id)) {
                                     if ribbon.hit(x + w / 2.0, y + h / 2.0)
@@ -3171,6 +3177,7 @@ mod tests {
         crate::doc_review16::install_strings(&mut strings);
         crate::shell::r14::install(&mut icons, &mut strings);
         crate::shell::r17::install(&mut icons, &mut strings);
+        crate::shell::r22::install(&mut icons, &mut strings);
         for tab in &ribbon.tabs {
             assert!(!tab.groups.is_empty(), "{} is empty", tab.label);
             for g in &tab.groups {

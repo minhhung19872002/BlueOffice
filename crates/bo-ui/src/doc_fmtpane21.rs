@@ -97,6 +97,13 @@ pub(crate) struct Vals {
     pub(crate) text_line_w: f64,
     /// The picture's colour adjustments as read (Recolor, grayscale… are kept).
     pub(crate) raw_fx: bo_model::picture::PictureFx,
+    /// Round 22: the gradient / picture fill turns with the shape.
+    pub(crate) rot_with: bool,
+    /// Round 22 (Text Box): text direction (0 horizontal, 1 rotated 90°, 2 rotated 270°),
+    /// Resize shape to fit text, Wrap text in shape.
+    pub(crate) text_dir: usize,
+    pub(crate) auto_fit: bool,
+    pub(crate) wrap: bool,
 }
 
 impl Default for Vals {
@@ -132,6 +139,10 @@ impl Default for Vals {
             text_line: None,
             text_line_w: 0.75,
             raw_fx: bo_model::picture::PictureFx::default(),
+            rot_with: true,
+            text_dir: 0,
+            auto_fit: false,
+            wrap: true,
         }
     }
 }
@@ -174,6 +185,14 @@ impl Vals {
                     v.fill = 3;
                 }
                 v.fill_transp = s.fill_alpha.map_or(0.0, |a| 100.0 - pc(a));
+                v.rot_with = s.rot_with_shape != Some(false);
+                v.text_dir = match s.vert.as_deref() {
+                    Some("vert") => 1,
+                    Some("vert270") => 2,
+                    _ => 0,
+                };
+                v.auto_fit = s.auto_fit;
+                v.wrap = !s.no_wrap;
                 v.line_transp = s.line_alpha.map_or(0.0, |a| 100.0 - pc(a));
                 effects = s.effects.as_ref();
             }
@@ -329,6 +348,8 @@ enum RowKind {
     /// Pattern fill: the 48 preset patterns.
     Patterns,
     Button(&'static str, &'static str, &'static str),
+    /// Round 22: a check box (id, label key, English).
+    Check(&'static str, &'static str, &'static str),
 }
 
 /// The open pane.
@@ -351,6 +372,103 @@ pub(crate) struct FmtPane {
     bright: (usize, u32, f64),
     /// Size ▸ in the title menu: the wider pane.
     wide: bool,
+    /// Round 22: a number typed into spin box `id` (text, the first key replaces it).
+    typing: Option<(&'static str, String, bool)>,
+    /// Round 22: the section heading last pressed (framed).
+    focus: Option<&'static str>,
+    /// Round 22 (title menu › Move): the pane floats with its top-left here (window px);
+    /// `None` = docked at the right.
+    pub(crate) floating: Option<(f32, f32)>,
+    /// A drag of the floating pane's title: the pointer's offset from the top-left.
+    drag: Option<(f32, f32)>,
+}
+
+/// Round 22: drop-downs drawn as swatch buttons (a sample and ▾) like the reference's.
+fn is_swatch(id: &str) -> bool {
+    matches!(
+        id,
+        "shadowPresets"
+            | "reflPresets"
+            | "glowPresets"
+            | "softPresets"
+            | "rotation"
+            | "bevel"
+            | "gradPreset"
+            | "texture"
+            | "tshadow"
+            | "treflection"
+            | "tglow"
+            | "recolor"
+    )
+}
+
+/// Round 22: Picture Color › Recolor presets (label key, English).
+const RECOLORS: [(&str, &str); 10] = [
+    ("doc22.rcNone", "No Recolor"),
+    ("doc22.rcGrayscale", "Grayscale"),
+    ("doc22.rcSepia", "Sepia"),
+    ("doc22.rcBlackWhite", "Black and White: 50%"),
+    ("doc22.rcBlue", "Blue, Accent color 1 Light"),
+    ("doc22.rcOrange", "Orange, Accent color 2 Light"),
+    ("doc22.rcGray", "Gray, Accent color 3 Light"),
+    ("doc22.rcGold", "Gold, Accent color 4 Light"),
+    ("doc22.rcLightBlue", "Blue, Accent color 5 Light"),
+    ("doc22.rcGreen", "Green, Accent color 6 Light"),
+];
+
+/// Accent colours of the tint presets (the default theme's accents 1–6).
+const TINTS: [u32; 6] = [
+    0x44_72C4, 0xED_7D31, 0xA5_A5A5, 0xFF_C000, 0x5B_9BD5, 0x70_AD47,
+];
+
+/// The recolour preset of `fx` (index into [`RECOLORS`]).
+fn recolor_of(fx: &bo_model::picture::PictureFx) -> usize {
+    if fx.grayscale {
+        return 1;
+    }
+    if fx.bilevel.is_some() {
+        return 3;
+    }
+    match fx.duotone {
+        Some([0x4a_3519, _]) => 2,
+        Some([c, _]) => TINTS.iter().position(|t| *t == c).map_or(0, |i| i + 4),
+        None => 0,
+    }
+}
+
+/// Round 22: the frame of a swatch button and its ▾ (the sample goes in the left part).
+fn paint_swatch_button(p: &mut dyn Painter, b: [f32; 4], k: f32, hover: bool) -> [f32; 4] {
+    let edge = Rgba(0xAB, 0xAB, 0xAB, 255);
+    p.fill_rect(b[0], b[1], b[2], b[3], edge);
+    p.fill_rect(
+        b[0] + 1.0,
+        b[1] + 1.0,
+        b[2] - 2.0,
+        b[3] - 2.0,
+        if hover {
+            Rgba(0xE5, 0xF1, 0xFB, 255)
+        } else {
+            Rgba(0xFF, 0xFF, 0xFF, 255)
+        },
+    );
+    // ▾ in the right part.
+    let (ax, ay) = (b[0] + b[2] - 9.0 * k, b[1] + b[3] / 2.0);
+    p.path(
+        &[
+            PathSeg::M(ax - 4.0 * k, ay - 2.0 * k),
+            PathSeg::L(ax + 4.0 * k, ay - 2.0 * k),
+            PathSeg::L(ax, ay + 2.5 * k),
+            PathSeg::Z,
+        ],
+        Some(Rgba(0x26, 0x26, 0x26, 255)),
+        None,
+    );
+    [
+        b[0] + 4.0 * k,
+        b[1] + 4.0 * k,
+        b[2] - 22.0 * k,
+        b[3] - 8.0 * k,
+    ]
 }
 
 /// Pane width (the reference's 357 px at 125 %).
@@ -378,6 +496,10 @@ impl FmtPane {
             pattern: None,
             bright: (usize::MAX, 0, 0.0),
             wide: false,
+            typing: None,
+            focus: section,
+            floating: None,
+            drag: None,
         }
     }
 
@@ -499,6 +621,12 @@ impl FmtPane {
                 })
                 .collect(),
             "paneMenu" => vec![
+                // Round 22: Move (the pane floats; drag its title; double-click docks it).
+                (
+                    "fp22.paneMove".to_owned(),
+                    t("doc22.fpPaneMove", "Move"),
+                    false,
+                ),
                 (
                     "fp21.paneSize".to_owned(),
                     t("doc21.fpPaneSize", "Size"),
@@ -641,6 +769,14 @@ impl FmtPane {
                                     29.0,
                                 );
                                 push(Spin("stopBright", "doc21.fpBrightness", "Brightness"), 29.0);
+                                push(
+                                    RowKind::Check(
+                                        "rotWith",
+                                        "doc22.fpRotateWithShape",
+                                        "Rotate with shape",
+                                    ),
+                                    29.0,
+                                );
                             }
                             4 => {
                                 push(Patterns, 142.0);
@@ -650,6 +786,14 @@ impl FmtPane {
                             3 => {
                                 push(Button("picInsert", "doc21.fpInsert", "Insert..."), 34.0);
                                 push(Choice("texture", "doc21.fpTexture", "Texture"), 31.0);
+                                push(
+                                    RowKind::Check(
+                                        "rotWith",
+                                        "doc22.fpRotateWithShape",
+                                        "Rotate with shape",
+                                    ),
+                                    29.0,
+                                );
                             }
                             _ => {}
                         }
@@ -746,6 +890,8 @@ impl FmtPane {
                 push(sec("color", "doc21.fpPictureColor", "Picture Color"), 31.0);
                 if open("color") {
                     push(Spin("fxSat", "doc21.fpSaturation", "Saturation"), 29.0);
+                    // Round 22: Recolor presets (grayscale, sepia, black and white, tints).
+                    push(Choice("recolor", "doc22.fpRecolor", "Recolor"), 31.0);
                 }
                 push(
                     sec(
@@ -785,6 +931,19 @@ impl FmtPane {
                 Choice("anchor", "doc21.fpVertical", "Vertical alignment"),
                 31.0,
             );
+            // Round 22: Text direction, the autofit choice, Wrap text in shape.
+            push(
+                Choice("textDir", "doc22.fpTextDirection", "Text direction"),
+                31.0,
+            );
+            push(
+                RowKind::Radio("fit", 0, "doc22.fpNoAutofit", "Do not Autofit"),
+                24.0,
+            );
+            push(
+                RowKind::Radio("fit", 1, "doc22.fpResizeToFit", "Resize shape to fit text"),
+                24.0,
+            );
             for (id, k, en) in [
                 ("insL", "doc21.fpLeftMargin", "Left margin"),
                 ("insR", "doc21.fpRightMargin", "Right margin"),
@@ -793,6 +952,10 @@ impl FmtPane {
             ] {
                 push(Spin(id, k, en), 31.0);
             }
+            push(
+                RowKind::Check("wrapText", "doc22.fpWrapText", "Wrap text in shape"),
+                29.0,
+            );
         }
     }
 
@@ -1146,6 +1309,23 @@ impl FmtPane {
                 .enumerate()
                 .map(|(i, (_, k, en))| e(format!("fp21.anchor:{i}"), k, en, v.anchor == i))
                 .collect(),
+            "recolor" => {
+                let cur = recolor_of(&v.raw_fx);
+                RECOLORS
+                    .iter()
+                    .enumerate()
+                    .map(|(i, (k, en))| e(format!("fp22.rc:{i}"), k, en, cur == i))
+                    .collect()
+            }
+            "textDir" => [
+                ("doc22.horizontal", "Horizontal"),
+                ("doc22.rotate90", "Rotate all text 90°"),
+                ("doc22.rotate270", "Rotate all text 270°"),
+            ]
+            .iter()
+            .enumerate()
+            .map(|(i, (k, en))| e(format!("fp22.dir:{i}"), k, en, v.text_dir == i))
+            .collect(),
             "shadowPresets" | "tshadow" => std::iter::once(none("shadow"))
                 .chain(
                     bo_engine::doc_picstyle::SHADOWS
@@ -1260,6 +1440,23 @@ impl FmtPane {
                 json!({ "cmd": "pictureBorder", "dash": d })
             }];
         }
+        if let Some(i) = choice.strip_prefix("fp22.rc:") {
+            let i: usize = i.parse().unwrap_or(0);
+            let fx = &mut self.vals.raw_fx;
+            fx.grayscale = i == 1;
+            fx.duotone = match i {
+                2 => Some([0x4a_3519, 0xf2_e6d0]),
+                4..=9 => Some([TINTS[i - 4], 0xFF_FFFF]),
+                _ => None,
+            };
+            fx.bilevel = (i == 3).then_some(50_000);
+            return vec![self.fx_cmd()];
+        }
+        if let Some(i) = choice.strip_prefix("fp22.dir:") {
+            self.vals.text_dir = i.parse().unwrap_or(0).min(2);
+            let vert = ["horz", "vert", "vert270"][self.vals.text_dir];
+            return vec![json!({ "cmd": "shapeTextLayout", "vert": vert })];
+        }
         if let Some(i) = choice.strip_prefix("fp21.anchor:") {
             self.vals.anchor = i.parse().unwrap_or(0).min(2);
             return vec![
@@ -1298,7 +1495,10 @@ impl FmtPane {
     fn box_rect(&self, row: &Row) -> [f32; 4] {
         let y = self.content_top() + self.px(row.y) - self.scroll;
         let (w, h) = match row.kind {
-            RowKind::Color(..) => (self.px(36.0), self.px(23.0)),
+            // Round 22: Color and the preset galleries are swatch buttons (60 × 34 px at
+            // 125 %, as the reference's).
+            RowKind::Color(..) => (self.px(48.0), self.px(27.0)),
+            RowKind::Choice(id, ..) if is_swatch(id) => (self.px(48.0), self.px(27.0)),
             RowKind::Choice(..) => (self.px(98.0), self.px(23.0)),
             RowKind::Button(..) => (self.px(80.0), self.px(25.0)),
             _ => (self.px(86.0), self.px(23.0)),
@@ -1447,8 +1647,112 @@ impl FmtPane {
 
     /// A press at (x, y) window px.
     #[allow(clippy::too_many_lines)]
+    /// Round 22: undock the pane to float near where it was.
+    pub(crate) fn float_out(&mut self) {
+        self.floating = Some((
+            (self.rect[0] - self.px(80.0)).max(0.0),
+            self.rect[1] + self.px(40.0),
+        ));
+    }
+
+    /// Round 22: a press on the floating pane's title starts moving it; a double-click docks
+    /// it again. `true` when the press was taken.
+    pub(crate) fn title_press(&mut self, x: f32, y: f32, count: u8) -> bool {
+        let Some(_) = self.floating else {
+            return false;
+        };
+        let m = self.menu_rect();
+        let on_title = y >= self.rect[1] && y < self.rect[1] + self.px(44.0) && x < m[0];
+        if !on_title {
+            return false;
+        }
+        if count >= 2 {
+            self.floating = None;
+            self.drag = None;
+        } else {
+            self.drag = Some((x - self.rect[0], y - self.rect[1]));
+        }
+        true
+    }
+
+    /// Round 22: the pointer moved while the title is held: the pane follows.
+    pub(crate) fn drag_to(&mut self, x: f32, y: f32) -> bool {
+        let Some((dx, dy)) = self.drag else {
+            return false;
+        };
+        self.floating = Some(((x - dx).max(0.0), (y - dy).max(0.0)));
+        true
+    }
+
+    /// Round 22: the title was let go.
+    pub(crate) fn drag_end(&mut self) -> bool {
+        self.drag.take().is_some()
+    }
+
+    /// Round 22: a number is being typed into a spin box.
+    pub(crate) fn typing(&self) -> bool {
+        self.typing.is_some()
+    }
+
+    /// Round 22: keys while a number is typed into a spin box: digits, sign and decimal
+    /// separator edit it, Enter / Tab apply it, Escape cancels.
+    pub(crate) fn key_input(&mut self, input: &crate::Input) -> Option<PaneAct> {
+        let (_, buf, fresh) = self.typing.as_mut()?;
+        Some(match input {
+            crate::Input::Text(s) => {
+                for c in s.chars() {
+                    if c.is_ascii_digit() || matches!(c, '.' | ',' | '-') {
+                        if *fresh {
+                            buf.clear();
+                            *fresh = false;
+                        }
+                        buf.push(c);
+                    }
+                }
+                PaneAct::Redraw
+            }
+            crate::Input::Key(crate::Key::Backspace, _) => {
+                if *fresh {
+                    buf.clear();
+                    *fresh = false;
+                } else {
+                    buf.pop();
+                }
+                PaneAct::Redraw
+            }
+            crate::Input::Key(crate::Key::Enter | crate::Key::Tab, _) => {
+                match self.commit_typing() {
+                    Some(cmds) if !cmds.is_empty() => PaneAct::Run(cmds),
+                    _ => PaneAct::Redraw,
+                }
+            }
+            crate::Input::Key(crate::Key::Escape, _) => {
+                self.typing = None;
+                PaneAct::Redraw
+            }
+            _ => PaneAct::None,
+        })
+    }
+
+    /// Apply the typed number (unit letters and spaces ignored; a comma is a decimal point).
+    fn commit_typing(&mut self) -> Option<Vec<Value>> {
+        let (id, buf, fresh) = self.typing.take()?;
+        if fresh {
+            return Some(Vec::new());
+        }
+        let v: f64 = buf.replace(',', ".").trim().parse().ok()?;
+        let (_, _, lo, hi, _) = self.spin(id);
+        Some(self.set_spin(id, v.clamp(lo, hi)))
+    }
+
     pub(crate) fn press(&mut self, x: f32, y: f32) -> PaneAct {
         let inr = |r: [f32; 4]| x >= r[0] && x < r[0] + r[2] && y >= r[1] && y < r[1] + r[3];
+        // Round 22: a press anywhere else applies a number being typed.
+        if self.typing.is_some() {
+            if let Some(cmds) = self.commit_typing().filter(|c| !c.is_empty()) {
+                return PaneAct::Run(cmds);
+            }
+        }
         if inr(self.close_rect()) {
             return PaneAct::Close;
         }
@@ -1507,9 +1811,17 @@ impl FmtPane {
                 if !self.open.remove(id) {
                     self.open.insert(id);
                 }
+                self.focus = Some(id);
                 PaneAct::Redraw
             }
+            RowKind::Radio("fit", val, ..) => {
+                self.vals.auto_fit = val == 1;
+                PaneAct::Run(vec![
+                    json!({ "cmd": "shapeTextLayout", "autoFit": val == 1 }),
+                ])
+            }
             RowKind::Radio(group, val, ..) => self.radio(group, val),
+            RowKind::Check(id, ..) => self.r22_check(id),
             RowKind::Color(id, ..) | RowKind::Choice(id, ..) if inr(b) => PaneAct::Menu(id, b),
             RowKind::Button("picInsert", ..) if inr(b) => PaneAct::PickPicture,
             RowKind::Button("fxReset", ..) if inr(b) => {
@@ -1545,6 +1857,11 @@ impl FmtPane {
                 match spin_hit(b, self.scale, x, y) {
                     Some(SpinHit::Up) => PaneAct::Run(self.set_spin(id, val + step)),
                     Some(SpinHit::Down) => PaneAct::Run(self.set_spin(id, val - step)),
+                    // Round 22: a press in the box's text starts typing a number.
+                    _ if inr(b) => {
+                        self.typing = Some((id, fmt(val), true));
+                        PaneAct::Redraw
+                    }
                     _ => PaneAct::None,
                 }
             }
@@ -1625,6 +1942,34 @@ impl FmtPane {
     }
 
     /// An option button of `group` set to `val`.
+    /// Round 22: the state of check box `id`.
+    fn r22_checked(&self, id: &str) -> bool {
+        match id {
+            "rotWith" => self.vals.rot_with,
+            "wrapText" => self.vals.wrap,
+            _ => false,
+        }
+    }
+
+    /// Round 22: a press on check box `id`.
+    fn r22_check(&mut self, id: &str) -> PaneAct {
+        match id {
+            "rotWith" => {
+                self.vals.rot_with = !self.vals.rot_with;
+                PaneAct::Run(vec![
+                    json!({ "cmd": "shapeRotateWithShape", "on": self.vals.rot_with }),
+                ])
+            }
+            "wrapText" => {
+                self.vals.wrap = !self.vals.wrap;
+                PaneAct::Run(vec![
+                    json!({ "cmd": "shapeTextLayout", "wrap": self.vals.wrap }),
+                ])
+            }
+            _ => PaneAct::None,
+        }
+    }
+
     fn radio(&mut self, group: &str, val: u8) -> PaneAct {
         let shape = self.target == Target::Shape;
         if group == "fill" {
@@ -1708,14 +2053,16 @@ impl FmtPane {
     #[allow(clippy::too_many_lines)]
     pub(crate) fn paint(&self, p: &mut dyn Painter, t: &dyn Fn(&str, &str) -> String) {
         let [x0, y0, w, h] = self.rect;
-        let bg = Rgba(0xF3, 0xF3, 0xF3, 255);
+        // Round 22: the reference's pane grey (#E6E6E6 measured at 125 %).
+        let bg = Rgba(0xE6, 0xE6, 0xE6, 255);
         let ink = Rgba(0x26, 0x26, 0x26, 255);
         let grey = Rgba(0x60, 0x60, 0x60, 255);
         let accent = Rgba(0x2B, 0x57, 0x9A, 255);
         let edge = Rgba(0xC8, 0xC8, 0xC8, 255);
         p.fill_rect(x0, y0, w, h, bg);
         p.fill_rect(x0, y0, 1.0, h, edge);
-        let size = self.px(12.0);
+        // Round 22: 1 px larger, as the reference's pane text.
+        let size = self.px(12.8);
         let st = TextStyle { size, bold: false };
         let bold = TextStyle { size, bold: true };
         let line = size * 1.33;
@@ -1729,7 +2076,7 @@ impl FmtPane {
             x0 + self.px(12.0),
             y0 + self.px(8.0),
             TextStyle {
-                size: self.px(20.0),
+                size: self.px(21.5),
                 bold: false,
             },
             ink,
@@ -1834,7 +2181,56 @@ impl FmtPane {
                         ]
                     };
                     p.path(&segs, None, Some((ink, 1.3 * k)));
-                    p.text(&t(key, en), x0 + self.px(30.0), ty, bold, ink);
+                    // Round 22: bold headings (weight 700) and the reference's frame around
+                    // the heading last pressed.
+                    let font = crate::Font {
+                        family: "Segoe UI",
+                        size,
+                        weight: 700,
+                        italic: false,
+                        underline: false,
+                    };
+                    p.text_font(&t(key, en), x0 + self.px(30.0), ty, &font, ink);
+                    if self.focus == Some(*id) {
+                        let fr = [
+                            x0 + self.px(8.0),
+                            ry + self.px(2.0),
+                            w - self.px(16.0),
+                            rh - self.px(4.0),
+                        ];
+                        let d = (1.5 * k).round().max(1.0);
+                        let dark = Rgba(0x26, 0x26, 0x26, 255);
+                        p.fill_rect(fr[0], fr[1], fr[2], d, dark);
+                        p.fill_rect(fr[0], fr[1] + fr[3] - d, fr[2], d, dark);
+                        p.fill_rect(fr[0], fr[1], d, fr[3], dark);
+                        p.fill_rect(fr[0] + fr[2] - d, fr[1], d, fr[3], dark);
+                    }
+                }
+                RowKind::Check(id, key, en) => {
+                    let on = self.r22_checked(id);
+                    let d = self.px(13.0);
+                    let (bx, by) = (lx, ry + (rh - d) / 2.0);
+                    p.fill_rect(bx, by, d, d, if on { accent } else { grey });
+                    if on {
+                        p.path(
+                            &[
+                                PathSeg::M(bx + d * 0.22, by + d * 0.52),
+                                PathSeg::L(bx + d * 0.42, by + d * 0.72),
+                                PathSeg::L(bx + d * 0.8, by + d * 0.3),
+                            ],
+                            None,
+                            Some((Rgba(0xFF, 0xFF, 0xFF, 255), 1.5 * k)),
+                        );
+                    } else {
+                        p.fill_rect(
+                            bx + k,
+                            by + k,
+                            d - 2.0 * k,
+                            d - 2.0 * k,
+                            Rgba(0xFF, 0xFF, 0xFF, 255),
+                        );
+                    }
+                    p.text(&t(key, en), lx + d + self.px(8.0), ty, st, ink);
                 }
                 RowKind::Radio(group, val, key, en) => {
                     let on = match *group {
@@ -1842,6 +2238,7 @@ impl FmtPane {
                         "line" => self.vals.line == *val,
                         "tfill" => self.vals.text_fill.is_some() == (*val == 1),
                         "tline" => self.vals.text_line.is_some() == (*val == 1),
+                        "fit" => self.vals.auto_fit == (*val == 1),
                         _ => false,
                     };
                     let d = self.px(13.0);
@@ -1862,35 +2259,69 @@ impl FmtPane {
                 RowKind::Color(id, key, en) => {
                     p.text(&t(key, en), lx, ty, st, ink);
                     let rgb = self.color_of(id);
-                    p.fill_rect(b[0], b[1], b[2], b[3], Rgba(0x8A, 0x8A, 0x8A, 255));
-                    p.fill_rect(
-                        b[0] + 1.0,
-                        b[1] + 1.0,
-                        b[2] - 2.0,
-                        b[3] - 2.0,
-                        Rgba(0xFF, 0xFF, 0xFF, 255),
-                    );
-                    let sw = b[2] - self.px(14.0);
-                    p.fill_rect(
-                        b[0] + self.px(3.0),
-                        b[1] + self.px(4.0),
-                        sw - self.px(3.0),
-                        b[3] - self.px(8.0),
-                        rgba(rgb),
-                    );
-                    // Drop-down mark.
-                    let mx = b[0] + b[2] - self.px(7.0);
-                    let my = b[1] + b[3] / 2.0;
+                    // Round 22: a swatch button as the reference's — a paint bucket (own
+                    // drawing) over a bar of the colour, then ▾.
+                    let hover = self.hover.is_some_and(|(hx, hy)| {
+                        hx >= b[0] && hx < b[0] + b[2] && hy >= b[1] && hy < b[1] + b[3]
+                    });
+                    let sw = paint_swatch_button(p, b, k, hover);
+                    let bar = (3.5 * k).round();
+                    p.fill_rect(sw[0], sw[1] + sw[3] - bar, sw[2], bar, rgba(rgb));
+                    let (bx, by, bs) = (sw[0] + sw[2] / 2.0 - 6.0 * k, sw[1], 11.0 * k);
                     p.path(
                         &[
-                            PathSeg::M(mx - 3.0 * k, my - 1.5 * k),
-                            PathSeg::L(mx + 3.0 * k, my - 1.5 * k),
-                            PathSeg::L(mx, my + 2.0 * k),
+                            PathSeg::M(bx + bs * 0.15, by + bs * 0.35),
+                            PathSeg::L(bx + bs * 0.5, by),
+                            PathSeg::L(bx + bs * 0.95, by + bs * 0.45),
+                            PathSeg::L(bx + bs * 0.55, by + bs * 0.85),
                             PathSeg::Z,
                         ],
-                        Some(ink),
+                        Some(Rgba(0xFF, 0xFF, 0xFF, 255)),
+                        Some((Rgba(0x40, 0x40, 0x40, 255), k)),
+                    );
+                    p.path(
+                        &[
+                            PathSeg::M(bx + bs * 1.05, by + bs * 0.55),
+                            PathSeg::L(bx + bs * 1.15, by + bs * 0.8),
+                            PathSeg::L(bx + bs * 0.95, by + bs * 0.8),
+                            PathSeg::Z,
+                        ],
+                        Some(rgba(rgb)),
                         None,
                     );
+                }
+                RowKind::Choice(id, key, en) if is_swatch(id) => {
+                    p.text(&t(key, en), lx, ty, st, ink);
+                    let hover = self.hover.is_some_and(|(hx, hy)| {
+                        hx >= b[0] && hx < b[0] + b[2] && hy >= b[1] && hy < b[1] + b[3]
+                    });
+                    let sw = paint_swatch_button(p, b, k, hover);
+                    // The sample: the gradient, or a little white page framed grey (the
+                    // effect presets).
+                    if *id == "gradPreset" {
+                        let n = 12;
+                        for q in 0..n {
+                            let c = self.color_at(f64::from(q) / f64::from(n - 1) * 100.0);
+                            p.fill_rect(
+                                sw[0] + sw[2] * q as f32 / n as f32,
+                                sw[1],
+                                sw[2] / n as f32 + 1.0,
+                                sw[3],
+                                rgba(c),
+                            );
+                        }
+                    } else {
+                        let d = sw[3];
+                        let sx = sw[0] + (sw[2] - d) / 2.0;
+                        p.fill_rect(sx, sw[1], d, d, Rgba(0x80, 0x80, 0x80, 255));
+                        p.fill_rect(
+                            sx + 1.0,
+                            sw[1] + 1.0,
+                            d - 2.0,
+                            d - 2.0,
+                            Rgba(0xFF, 0xFF, 0xFF, 255),
+                        );
+                    }
                 }
                 RowKind::Choice(id, key, en) => {
                     p.text(&t(key, en), lx, ty, st, ink);
@@ -1955,11 +2386,20 @@ impl FmtPane {
                         "be" => self.vals.bevel.is_none(),
                         _ => false,
                     };
-                    let text = if unset {
+                    let typed = self
+                        .typing
+                        .as_ref()
+                        .filter(|(tid, ..)| tid == id)
+                        .map(|(_, buf, _)| buf.clone());
+                    let text = if let Some(t) = &typed {
+                        t.clone()
+                    } else if unset {
                         String::new()
                     } else {
                         format!("{}{unit}", fmt(val))
                     };
+                    #[allow(clippy::cast_precision_loss)]
+                    let caret = typed.map(|t| t.chars().count() as f32 * st.size * 0.52);
                     let hover = self
                         .hover
                         .and_then(|(hx, hy)| spin_hit(b, self.scale, hx, hy));
@@ -1972,7 +2412,7 @@ impl FmtPane {
                             style: st,
                             ink,
                             enabled: !(*id == "gradAngle" && self.vals.grad_kind != 0),
-                            caret: None,
+                            caret,
                             hover,
                         },
                     );
@@ -2174,6 +2614,11 @@ impl FmtPane {
                 let (_, k, en) = ANCHORS[v.anchor.min(2)];
                 t(k, en)
             }
+            "textDir" => match v.text_dir {
+                1 => t("doc22.rotate90", "Rotate all text 90°"),
+                2 => t("doc22.rotate270", "Rotate all text 270°"),
+                _ => t("doc22.horizontal", "Horizontal"),
+            },
             "bevel" => v
                 .bevel
                 .as_ref()

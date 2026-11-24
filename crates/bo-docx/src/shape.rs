@@ -144,6 +144,30 @@ pub(crate) fn shape_from_wsp(wsp: &XmlElement, theme: Option<&Theme>) -> Shape {
             Some("b") => TextAnchor::Bottom,
             _ => TextAnchor::Top,
         };
+        // Round 22: text direction (§20.1.10.82 ST_TextVerticalType), wrapping and
+        // §21.1.2.1.4 spAutoFit.
+        let vert = match b.attr("vert") {
+            Some(v @ ("vert" | "vert270" | "eaVert" | "wordArtVert")) => {
+                Some(if v == "vert270" { "vert270" } else { "vert" }.to_owned())
+            }
+            _ => None,
+        };
+        let auto_fit = b.elements().any(|e| e.local() == "spAutoFit");
+        let no_wrap = b.attr("wrap") == Some("none");
+        // §20.1.9.19 prstTxWarp (Text Effects › Transform).
+        let warp = b
+            .elements()
+            .find(|e| e.local() == "prstTxWarp")
+            .and_then(|e| e.attr("prst"))
+            .filter(|p| *p != "textNoShape" && p.len() < 40)
+            .map(str::to_owned);
+        if vert.is_some() || auto_fit || no_wrap || warp.is_some() {
+            let st = s.style.get_or_insert_with(Default::default);
+            st.vert = vert;
+            st.auto_fit = auto_fit;
+            st.no_wrap = no_wrap;
+            st.warp = warp;
+        }
     }
     s
 }
@@ -514,8 +538,30 @@ pub(crate) fn shape_graphic(
         TextAnchor::Bottom => "b",
     };
     let [l, t, r, b] = s.insets.map(|e| e.0);
+    let st = s.style.as_deref();
+    let vert = st.and_then(|st| st.vert.as_deref()).unwrap_or("horz");
+    let wrap = if st.is_some_and(|st| st.no_wrap) {
+        "none"
+    } else {
+        "square"
+    };
+    // §21.1.2.1.1 bodyPr: prstTxWarp comes before the autofit choice.
+    let warp = st
+        .and_then(|st| st.warp.as_deref())
+        .map(|p| {
+            format!(
+                "<a:prstTxWarp prst=\"{}\"><a:avLst/></a:prstTxWarp>",
+                xml_escape(p)
+            )
+        })
+        .unwrap_or_default();
+    let fit = if st.is_some_and(|st| st.auto_fit) {
+        "<a:spAutoFit/>"
+    } else {
+        "<a:noAutofit/>"
+    };
     x.push_str(&format!(
-        "<wps:bodyPr rot=\"0\" vert=\"horz\" wrap=\"square\" lIns=\"{l}\" tIns=\"{t}\" rIns=\"{r}\" bIns=\"{b}\" anchor=\"{anchor}\" anchorCtr=\"0\"><a:noAutofit/></wps:bodyPr>"
+        "<wps:bodyPr rot=\"0\" vert=\"{vert}\" wrap=\"{wrap}\" lIns=\"{l}\" tIns=\"{t}\" rIns=\"{r}\" bIns=\"{b}\" anchor=\"{anchor}\" anchorCtr=\"0\">{warp}{fit}</wps:bodyPr>"
     ));
     let _ = id;
     x.push_str("</wps:wsp></a:graphicData></a:graphic>");

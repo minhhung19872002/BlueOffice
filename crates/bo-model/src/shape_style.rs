@@ -71,6 +71,25 @@ pub struct ShapeStyle {
     /// Shape Effects.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub effects: Option<PicEffects>,
+    /// `rotWithShape` of the gradient / picture fill (§20.1.8.33, §20.1.8.14): `Some(false)`
+    /// keeps the fill upright when the shape turns (round 22, Format Shape › Rotate with
+    /// shape); `None` = the default, turning with it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rot_with_shape: Option<bool>,
+    /// Round 22 (Format Shape › Text Box › Text direction): §21.1.2.1.1 bodyPr `vert` —
+    /// `vert` (turned 90°) or `vert270` (turned 270°); `None` = horizontal.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vert: Option<String>,
+    /// Resize shape to fit text (§21.1.2.1.4 spAutoFit).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub auto_fit: bool,
+    /// Wrap text in shape off (§21.1.2.1.1 bodyPr `wrap="none"`).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub no_wrap: bool,
+    /// Text Effects › Transform (round 22): §20.1.9.19 bodyPr `prstTxWarp` preset name
+    /// (`textArchUp`, `textWave1`, …); `None` = no transform.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warp: Option<String>,
 }
 
 impl ShapeStyle {
@@ -81,6 +100,10 @@ impl ShapeStyle {
             && self.fill_alpha.is_none_or(|a| a >= 100_000)
             && self.line_alpha.is_none_or(|a| a >= 100_000)
             && self.effects.as_ref().is_none_or(PicEffects::is_empty)
+            && self.vert.is_none()
+            && !self.auto_fit
+            && !self.no_wrap
+            && self.warp.is_none()
     }
 }
 

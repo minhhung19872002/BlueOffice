@@ -53,6 +53,14 @@ export type OleCommand =
       /** Link to this file path instead of embedding (desktop). */
       link?: string;
       autoUpdate?: boolean;
+      /** Display as icon (documents only): an icon with `caption` below it. */
+      icon?: boolean;
+      /** Caption under the icon; absent = "Worksheet". */
+      caption?: string;
+      /** Icon drawing chosen in Change Icon (0 = cells, 1 = chart). */
+      iconStyle?: number;
+      /** Change Icon › Browse…: an .ico, .exe / .dll or PNG file (base64) whose icon is shown. */
+      iconFile?: string;
     }
   | { cmd: 'oleEdit'; cells: string[][] }
   | { cmd: 'oleSetData'; data: string }

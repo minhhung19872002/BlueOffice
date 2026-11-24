@@ -29,27 +29,6 @@ pub(super) fn handles(kind: DocFormKind) -> bool {
     )
 }
 
-/// Points of `text` ("1 pt", "0,5", "12") rounded to twips.
-fn twips_of(text: &str) -> Option<i32> {
-    let v: f32 = text
-        .trim()
-        .trim_end_matches("pt")
-        .trim()
-        .replace(',', ".")
-        .parse()
-        .ok()?;
-    Some((v * 20.0).round() as i32)
-}
-
-fn pt_text(twips: i32) -> String {
-    let v = twips as f32 / 20.0;
-    if (v - v.round()).abs() < 0.01 {
-        format!("{} pt", v.round() as i32)
-    } else {
-        format!("{v:.1} pt")
-    }
-}
-
 /// The word `w` with a hyphen at byte offset `at` (and `·` at the other points).
 pub(crate) fn hyphenated(word: &str, points: &[usize], at: usize) -> String {
     let mut out = String::new();
@@ -69,42 +48,46 @@ pub(super) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
     let x = &c.extra["r24"];
     match kind {
         DocFormKind::DropCap24 => {
+            // The reference's dialog at 125 %: 321 × 390 px, three position tiles with
+            // their names under them, then Font / Lines to drop / Distance from text.
             let mut f = DocForm::new(
                 kind,
                 &tr("doc24.dropCapTitle", "Drop Cap"),
-                (360.0, 330.0),
+                (321.0, 390.0),
                 vec![],
             );
             f.group(
                 "posG",
-                [16.0, 46.0, 328.0, 18.0],
+                [14.0, 46.0, 293.0, 18.0],
                 &tr("doc24.position", "Position"),
             );
             let pos = x["position"].as_str().unwrap_or("none");
-            for (i, (id, k, en)) in [
-                ("none", "doc24.dcNone", "None"),
-                ("drop", "doc24.dcDropped", "Dropped"),
-                ("margin", "doc24.dcMargin", "In margin"),
+            for (i, (id, tile, k, en)) in [
+                ("none", "dcTile0", "doc24.dcNone", "None"),
+                ("drop", "dcTile1", "doc24.dcDropped", "Dropped"),
+                ("margin", "dcTile2", "doc24.dcMargin", "In margin"),
             ]
             .iter()
             .enumerate()
             {
+                let x0 = 33.0 + 94.0 * i as f32;
+                f.canvas(tile, [x0, 72.0, 76.0, 76.0]);
                 f.radio(
                     id,
                     "pos",
-                    [30.0 + 104.0 * i as f32, 74.0, 100.0, 20.0],
+                    [x0 - 6.0, 150.0, 92.0, 20.0],
                     &tr(k, en),
                     pos == *id,
                 );
             }
             f.group(
                 "optG",
-                [16.0, 110.0, 328.0, 18.0],
+                [14.0, 180.0, 293.0, 18.0],
                 &tr("doc24.options", "Options"),
             );
             f.label(
                 "fontL",
-                [30.0, 138.0, 200.0, 18.0],
+                [33.0, 206.0, 200.0, 18.0],
                 &tr("doc24.font", "Font:"),
             );
             let mut fonts = c.fonts.clone();
@@ -113,21 +96,26 @@ pub(super) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
                 fonts.insert(0, cur.clone());
             }
             let fi = fonts.iter().position(|n| *n == cur).unwrap_or(0);
-            f.combo("font", [30.0, 160.0, 300.0, 26.0], fonts, fi);
+            f.combo("font", [33.0, 229.0, 270.0, 24.0], fonts, fi);
             f.label(
                 "linesL",
-                [30.0, 196.0, 160.0, 18.0],
+                [33.0, 262.0, 120.0, 18.0],
                 &tr("doc24.linesToDrop", "Lines to drop:"),
             );
             let lines = x["lines"].as_i64().unwrap_or(3) as i32;
-            f.spin("lines", [200.0, 192.0, 130.0, 26.0], lines, 1, 10);
+            f.spin("lines", [155.0, 258.0, 148.0, 24.0], lines, 1, 10);
             f.label(
                 "distL",
-                [30.0, 232.0, 160.0, 18.0],
+                [33.0, 292.0, 120.0, 18.0],
                 &tr("doc24.distance", "Distance from text:"),
             );
             let dist = x["distance"].as_i64().unwrap_or(0) as i32;
-            f.edit("distance", [200.0, 228.0, 130.0, 26.0], &pt_text(dist));
+            f.edit(
+                "distance",
+                [155.0, 288.0, 148.0, 24.0],
+                &super::r13::show_len(dist, c.inches),
+            );
+            f.preview = vec![if c.inches { "in" } else { "cm" }.to_owned()];
             if pos == "none" {
                 for id in ["font", "lines", "distance"] {
                     f.disable(id);
@@ -137,34 +125,39 @@ pub(super) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
             f
         }
         DocFormKind::Hyphenation24 => {
+            // The reference's dialog at 125 %: 403 × 227 px.
             let mut f = DocForm::new(
                 kind,
                 &tr("doc24.hyphTitle", "Hyphenation"),
-                (360.0, 280.0),
+                (403.0, 227.0),
                 vec![],
             );
             f.check(
                 "auto",
-                [18.0, 50.0, 320.0, 20.0],
+                [18.0, 48.0, 340.0, 20.0],
                 &tr("doc24.autoHyph", "Automatically hyphenate document"),
                 x["auto"] == true,
             );
             f.check(
                 "caps",
-                [18.0, 78.0, 320.0, 20.0],
+                [18.0, 73.0, 340.0, 20.0],
                 &tr("doc24.hyphCaps", "Hyphenate words in CAPS"),
                 x["noCaps"] != true,
             );
             f.label(
                 "zoneL",
-                [18.0, 116.0, 190.0, 18.0],
+                [18.0, 114.0, 180.0, 18.0],
                 &tr("doc24.hyphZone", "Hyphenation zone:"),
             );
             let zone = x["zone"].as_i64().unwrap_or(360) as i32;
-            f.edit("zone", [214.0, 112.0, 126.0, 26.0], &pt_text(zone));
+            f.edit(
+                "zone",
+                [201.0, 110.0, 128.0, 24.0],
+                &super::r13::show_len(zone, c.inches),
+            );
             f.label(
                 "limitL",
-                [18.0, 152.0, 190.0, 18.0],
+                [18.0, 143.0, 180.0, 18.0],
                 &tr("doc24.hyphLimit", "Limit consecutive hyphens to:"),
             );
             let limit = x["limit"].as_i64().unwrap_or(0);
@@ -172,16 +165,17 @@ pub(super) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
             items.extend((1..=10).map(|n| n.to_string()));
             f.combo(
                 "limit",
-                [214.0, 148.0, 126.0, 26.0],
+                [201.0, 139.0, 128.0, 24.0],
                 items,
                 (limit.clamp(0, 10)) as usize,
             );
             f.button(
                 "manual",
-                [18.0, 228.0, 110.0, 28.0],
+                [18.0, 180.0, 113.0, 28.0],
                 &tr("doc24.manual", "Manual..."),
                 false,
             );
+            f.preview = vec![if c.inches { "in" } else { "cm" }.to_owned()];
             f.ok_cancel(s);
             f
         }
@@ -347,6 +341,19 @@ impl DocForm {
         }
     }
 
+    /// A click on a Drop Cap position tile chooses it.
+    pub(super) fn r24_canvas(&mut self, id: &str) -> bool {
+        let pos = match id {
+            "dcTile0" => "none",
+            "dcTile1" => "drop",
+            "dcTile2" => "margin",
+            _ => return false,
+        };
+        self.set_radio(pos);
+        self.r24_changed(pos);
+        true
+    }
+
     pub(crate) fn r24_changed(&mut self, id: &str) {
         if self.kind == DocFormKind::DropCap24 && matches!(id, "none" | "drop" | "margin") {
             let on = self.chosen("pos") != Some("none");
@@ -438,13 +445,13 @@ impl DocForm {
                         "position": pos,
                         "font": (!font.trim().is_empty()).then(|| font.trim().to_owned()),
                         "lines": self.spin_value("lines").clamp(1, 10),
-                        "distance": twips_of(&self.text("distance")).unwrap_or(0).clamp(0, 31_680),
+                        "distance": self.r24_len("distance").unwrap_or(0).clamp(0, 31_680),
                     })
                 });
                 FormOut::Run(vec![json!({ "cmd": "setDropCap", "dropCap": spec })], true)
             }
             DocFormKind::Hyphenation24 => {
-                let zone = twips_of(&self.text("zone")).unwrap_or(360).clamp(0, 31_680);
+                let zone = self.r24_len("zone").unwrap_or(360).clamp(0, 31_680);
                 let limit = self.sel("limit").unwrap_or(0);
                 FormOut::Run(
                     vec![json!({ "cmd": "setHyphenation", "hyphenation": {
@@ -460,7 +467,102 @@ impl DocForm {
         })
     }
 
+    /// A length box in the window's unit (a bare number), any unit typed.
+    fn r24_len(&self, id: &str) -> Option<i32> {
+        let bare = if self.preview.first().is_some_and(|u| u == "in") {
+            1440.0
+        } else {
+            566.929
+        };
+        super::r13::parse_len(&self.text(id), bare)
+    }
+
     fn spin_value(&self, id: &str) -> i32 {
         self.text(id).trim().parse().unwrap_or(1)
     }
+}
+
+/// Paint a round-24 canvas: the Drop Cap position tiles (BlueOffice's drawing: grey text
+/// lines and a large letter where the drop cap goes; the chosen tile framed in the accent).
+pub(super) fn paint_canvas(
+    f: &DocForm,
+    id: &str,
+    r: [f32; 4],
+    p: &mut dyn crate::Painter,
+    font: &crate::Font,
+) -> bool {
+    use bo_render::Rgba;
+    let which = match id {
+        "dcTile0" => 0,
+        "dcTile1" => 1,
+        "dcTile2" => 2,
+        _ => return false,
+    };
+    let chosen = f.chosen("pos") == Some(["none", "drop", "margin"][which]);
+    let k = r[3] / 76.0;
+    let edge = Rgba(0x7a, 0x7a, 0x7a, 255);
+    if chosen {
+        let a = Rgba(0x00, 0x5a, 0x9e, 255);
+        p.fill_rect(r[0] - 2.0, r[1] - 2.0, r[2] + 4.0, r[3] + 4.0, a);
+        p.fill_rect(
+            r[0] - 1.0,
+            r[1] - 1.0,
+            r[2] + 2.0,
+            r[3] + 2.0,
+            Rgba(255, 255, 255, 255),
+        );
+    }
+    p.fill_rect(r[0], r[1], r[2], r[3], edge);
+    p.fill_rect(
+        r[0] + 1.0,
+        r[1] + 1.0,
+        r[2] - 2.0,
+        r[3] - 2.0,
+        Rgba(255, 255, 255, 255),
+    );
+    let grey = Rgba(0xa6, 0xa6, 0xa6, 255);
+    let line = |p: &mut dyn crate::Painter, x0: f32, y: f32| {
+        p.fill_rect(
+            r[0] + x0 * k,
+            r[1] + y * k,
+            r[2] - (x0 + 8.0) * k,
+            (4.0 * k).max(2.0),
+            grey,
+        );
+    };
+    // Where the letter sits: none (small, in the line), dropped (beside three lines), in
+    // the margin (left of the lines).
+    let (letter_x, text_x, size) = match which {
+        0 => (8.0, 8.0, 9.0),
+        1 => (7.0, 34.0, 30.0),
+        _ => (3.0, 30.0, 30.0),
+    };
+    for i in 0..6 {
+        let y = 10.0 + 10.0 * i as f32;
+        let x0 = if which == 0 {
+            if i == 0 {
+                16.0
+            } else {
+                8.0
+            }
+        } else if i < 3 || which == 2 {
+            text_x
+        } else {
+            8.0
+        };
+        line(p, x0, y);
+    }
+    let style = crate::TextStyle {
+        size: size * k,
+        bold: false,
+    };
+    let _ = font;
+    p.text(
+        "W",
+        r[0] + letter_x * k,
+        r[1] + if which == 0 { 4.0 } else { 6.0 } * k,
+        style,
+        Rgba(0x20, 0x20, 0x20, 255),
+    );
+    true
 }

@@ -29,8 +29,10 @@ pub(super) struct R24 {
     peek_ran: bool,
     /// The tab pressed on the collapsed ribbon.
     tab_press: Option<usize>,
-    /// The display options button is hovered.
+    /// The ribbon's collapse button is hovered.
     hover_display: bool,
+    /// The title bar's Ribbon Display Options button is hovered.
+    hover_title: bool,
     /// The building block whose properties the Create New Building Block dialog edits.
     editing: Option<String>,
 }
@@ -103,22 +105,38 @@ impl DocWindow {
         true
     }
 
-    /// The display options menu: Show Tabs Only, Always Show Ribbon (the reference's
-    /// Ribbon Display Options button).
+    /// The title bar's Ribbon Display Options button, left of Minimize: [x, y, w, h].
+    pub(super) fn r24_title_rect(&self) -> Option<[f32; 4]> {
+        if self.read_mode.is_some() || self.backstage.is_some() {
+            return None;
+        }
+        let bw = (46.0 * self.scale).round();
+        Some([self.size.0 - 4.0 * bw, 0.0, bw, self.title.height()])
+    }
+
+    /// Whether (x, y) is on the title bar's Ribbon Display Options button (the host lets
+    /// the window have that press instead of starting a window drag).
+    pub(super) fn r24_in_title_button(&self, x: f32, y: f32) -> bool {
+        self.r24_title_rect()
+            .is_some_and(|r| x >= r[0] && x < r[0] + r[2] && y >= r[1] && y < r[1] + r[3])
+    }
+
+    /// The display options menu: Show Tabs, Show Tabs and Commands (the reference's
+    /// Ribbon Display Options button in the title bar).
     fn r24_display_menu(&mut self) -> bool {
-        let Some(r) = self.r24_display_rect() else {
+        let Some(r) = self.r24_title_rect() else {
             return false;
         };
         let collapsed = self.ribbon.collapsed();
         let items = vec![
             MenuItem {
-                label: self.r24_t("doc24.showTabsOnly", "Show tabs only"),
+                label: self.r24_t("doc24.showTabsOnly", "Show Tabs"),
                 choice: Choice::Command("r24.ribbon:tabs".into()),
                 checked: collapsed,
                 dim: false,
             },
             MenuItem {
-                label: self.r24_t("doc24.alwaysShowRibbon", "Always show Ribbon"),
+                label: self.r24_t("doc24.alwaysShowRibbon", "Show Tabs and Commands"),
                 choice: Choice::Command("r24.ribbon:always".into()),
                 checked: !collapsed,
                 dim: false,
@@ -170,6 +188,18 @@ impl DocWindow {
         }
         if let Some(v) = id.strip_prefix("r24.diag:") {
             return Some(self.r24_diagonal(v == "down"));
+        }
+        if let Some(v) = id.strip_prefix("r24.shapeStyle:") {
+            let (fill, line) = v.split_once(':').unwrap_or((v, v));
+            self.r22.gallery = None;
+            let a = self
+                .view
+                .picture_command(&json!({ "cmd": "pictureShapeFill", "color": fill }));
+            let b = self.view.picture_command(
+                &json!({ "cmd": "pictureShapeOutline", "color": line, "weight": 1.0 }),
+            );
+            self.sync_context();
+            return Some(a || b);
         }
         if let Some(key) = id.strip_prefix("r24.bbDelete:") {
             let key = key.to_owned();
@@ -233,6 +263,7 @@ impl DocWindow {
                 };
                 self.r4_open_gallery_at("insert.equation", r)
             }
+            "shape.styleMore" => self.r24_shape_styles(),
             "r24.dropCapOptions" => self.r24_open(crate::doc_forms::DocFormKind::DropCap24),
             "r24.hyphOptions" => self.r24_open(crate::doc_forms::DocFormKind::Hyphenation24),
             "r24.hyphManual" | "r24.manualHyph" => {
@@ -297,6 +328,85 @@ impl DocWindow {
             .take(255)
             .collect();
         one
+    }
+
+    /// Shape Styles ▾ (More): the Theme Styles gallery — black and the six accent colours
+    /// in six intensities (outline, fill, light fill, subtle, moderate, intense), as the
+    /// reference lays it out; BlueOffice's own drawing of each cell (a rounded box in the
+    /// style's fill and outline).
+    fn r24_shape_styles(&mut self) -> bool {
+        const COLORS: [&str; 7] = [
+            "000000", "4472C4", "ED7D31", "A5A5A5", "FFC000", "5B9BD5", "70AD47",
+        ];
+        let mix = |hex: &str, to: u8, k: f32| {
+            let v = u32::from_str_radix(hex, 16).unwrap_or(0);
+            let c = |s: u32| {
+                let x = ((v >> s) & 0xff) as f32;
+                (x + (f32::from(to) - x) * k).round().clamp(0.0, 255.0) as u8
+            };
+            format!("{:02X}{:02X}{:02X}", c(16), c(8), c(0))
+        };
+        let rgb = |h: &str| {
+            let v = u32::from_str_radix(h, 16).unwrap_or(0);
+            Rgba((v >> 16) as u8, (v >> 8) as u8, v as u8, 255)
+        };
+        let rows: [(&str, &str); 6] = [
+            ("doc24.ssOutline", "Colored Outline"),
+            ("doc24.ssFill", "Colored Fill"),
+            ("doc24.ssLight", "Light 1 Outline, Colored Fill"),
+            ("doc24.ssSubtle", "Subtle Effect"),
+            ("doc24.ssModerate", "Moderate Effect"),
+            ("doc24.ssIntense", "Intense Effect"),
+        ];
+        let mut cells = Vec::new();
+        for (row, (k, en)) in rows.iter().enumerate() {
+            let name = self.r24_t(k, en);
+            for c in COLORS {
+                let (fill, line) = match row {
+                    0 => ("FFFFFF".to_owned(), c.to_owned()),
+                    1 => (c.to_owned(), mix(c, 0, 0.35)),
+                    2 => (c.to_owned(), "FFFFFF".to_owned()),
+                    3 => (mix(c, 255, 0.8), c.to_owned()),
+                    4 => (mix(c, 255, 0.4), mix(c, 0, 0.2)),
+                    _ => (mix(c, 0, 0.25), "FFFFFF".to_owned()),
+                };
+                let ink = if row == 0 || row == 3 { c } else { "FFFFFF" };
+                let box_path = vec![
+                    PathSeg::M(0.08, 0.12),
+                    PathSeg::L(0.92, 0.12),
+                    PathSeg::L(0.92, 0.88),
+                    PathSeg::L(0.08, 0.88),
+                    PathSeg::Z,
+                ];
+                cells.push(crate::doc_thumbs22::Cell {
+                    thumb: crate::doc_thumbs22::Thumb::Text {
+                        texts: vec![("Abc".to_owned(), 0.22, 0.3, 0.32, rgb(ink))],
+                        paths: vec![(box_path, Some(rgb(&fill)), Some((rgb(&line), 1.5)))],
+                    },
+                    command: format!("r24.shapeStyle:{fill}:{line}"),
+                    tip: format!("{name} - {c}"),
+                    checked: false,
+                });
+            }
+        }
+        let anchor = self
+            .ribbon
+            .rect_of(RibbonHit::Command("shape.style.0"))
+            .unwrap_or([self.size.0 / 3.0, 120.0, 66.0, 60.0]);
+        self.menu = None;
+        let g = crate::doc_thumbs22::ThumbGallery::open(
+            vec![crate::doc_thumbs22::Section {
+                title: self.r24_t("doc24.themeStyles", "Theme Styles"),
+                cells,
+            }],
+            Vec::new(),
+            (7, (60.0, 46.0)),
+            [anchor[0], anchor[1], anchor[2], 0.0],
+            self.size,
+            self.scale,
+        );
+        self.r22.gallery = Some(g);
+        true
     }
 
     /// A message box with a Close button (the reference's message boxes).
@@ -592,8 +702,10 @@ impl DocWindow {
             }
             Input::Move { x, y } => {
                 let on = self.r24_in_display(x, y);
-                if on != self.r24.hover_display {
+                let title = self.r24_in_title_button(x, y);
+                if on != self.r24.hover_display || title != self.r24.hover_title {
                     self.r24.hover_display = on;
+                    self.r24.hover_title = title;
                     return Some(true);
                 }
             }
@@ -601,10 +713,11 @@ impl DocWindow {
                 if self.menu.is_none() && self.dialog.is_none() && self.backstage.is_none() =>
             {
                 if self.r24_in_display(x, y) {
-                    // The pin of the peeking ribbon: Always Show Ribbon.
-                    if self.ribbon.peek() {
-                        return Some(self.r24_set_collapsed(false));
-                    }
+                    // ^ Collapse the Ribbon; the peeking ribbon's pin shows it again.
+                    let peek = self.ribbon.peek();
+                    return Some(self.r24_set_collapsed(!peek));
+                }
+                if self.r24_in_title_button(x, y) {
                     return Some(self.r24_display_menu());
                 }
                 let tab = match self.ribbon.hit(x, y) {
@@ -708,6 +821,86 @@ impl DocWindow {
                 ]
             };
             p.path(&segs, None, Some((ink, (1.0 * s).round().max(1.0))));
+        }
+        // Shape Styles' More button: the gallery's scroll column (▲ ▼ and the More mark),
+        // drawn over the large button's place.
+        if let Some(r) = self
+            .ribbon
+            .rect_of(RibbonHit::Command("shape.styleMore"))
+            .filter(|_| !self.ribbon.collapsed() || self.ribbon.peek())
+        {
+            let s = self.scale;
+            let (x, w) = (r[0].round(), r[2].round());
+            let (y, h) = ((r[1] + 4.0 * s).round(), (r[3] - 8.0 * s).round());
+            p.fill_rect(r[0], r[1], r[2], r[3], self.theme.ribbon);
+            let edge = Rgba(0xc6, 0xc6, 0xc6, 255);
+            p.fill_rect(x, y, w, h, edge);
+            p.fill_rect(x + 1.0, y + 1.0, w - 2.0, h - 2.0, Rgba(255, 255, 255, 255));
+            let ink = Rgba(0x60, 0x60, 0x60, 255);
+            let cx = x + w / 2.0;
+            let third = h / 3.0;
+            for i in 0..3 {
+                let cy = y + third * (i as f32 + 0.5);
+                if i > 0 {
+                    p.fill_rect(x + 2.0, y + third * i as f32, w - 4.0, 1.0, edge);
+                }
+                let a = 3.0 * s;
+                let segs = match i {
+                    0 => vec![
+                        PathSeg::M(cx - a, cy + a / 2.0),
+                        PathSeg::L(cx, cy - a / 2.0),
+                        PathSeg::L(cx + a, cy + a / 2.0),
+                        PathSeg::Z,
+                    ],
+                    1 => vec![
+                        PathSeg::M(cx - a, cy - a / 2.0),
+                        PathSeg::L(cx, cy + a / 2.0),
+                        PathSeg::L(cx + a, cy - a / 2.0),
+                        PathSeg::Z,
+                    ],
+                    _ => {
+                        p.fill_rect(cx - a, (cy - a).round(), 2.0 * a, (s).round().max(1.0), ink);
+                        vec![
+                            PathSeg::M(cx - a, cy),
+                            PathSeg::L(cx, cy + a),
+                            PathSeg::L(cx + a, cy),
+                            PathSeg::Z,
+                        ]
+                    }
+                };
+                p.path(&segs, Some(ink), None);
+            }
+        }
+        // The title bar's Ribbon Display Options button: a window frame with an up arrow
+        // in it (BlueOffice's drawing), in the window buttons' ink.
+        if let Some(r) = self.r24_title_rect() {
+            if self.r24.hover_title {
+                p.fill_rect(r[0], r[1], r[2], r[3], self.theme.hover);
+            }
+            let s = self.scale;
+            let (cx, cy) = (
+                (r[0] + r[2] / 2.0).round() + 0.5,
+                (r[1] + r[3] / 2.0).round() + 0.5,
+            );
+            let (hw, hh) = ((6.0 * s).round(), (5.0 * s).round());
+            let w = s.max(1.0).round();
+            let ink = self.theme.text;
+            p.path(
+                &[
+                    PathSeg::M(cx - hw, cy - hh),
+                    PathSeg::L(cx + hw, cy - hh),
+                    PathSeg::L(cx + hw, cy + hh),
+                    PathSeg::L(cx - hw, cy + hh),
+                    PathSeg::Z,
+                    PathSeg::M(cx - hw, cy - hh + 3.0 * s),
+                    PathSeg::L(cx + hw, cy - hh + 3.0 * s),
+                    PathSeg::M(cx - 3.0 * s, cy + 2.5 * s),
+                    PathSeg::L(cx, cy - 0.5 * s),
+                    PathSeg::L(cx + 3.0 * s, cy + 2.5 * s),
+                ],
+                None,
+                Some((ink, w)),
+            );
         }
     }
 }

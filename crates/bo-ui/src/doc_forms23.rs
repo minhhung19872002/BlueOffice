@@ -978,6 +978,13 @@ fn open_font(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
         &tr("doc23.ctxAlts", "Use Contextual Alternates"),
         x["contextualAlternates"] == true,
     );
+    // Round 24: OpenType features are [MS-DOCX] w14 — greyed in a document kept in an
+    // older layout mode (compatibilityMode < 14), as the reference's Compatibility Mode.
+    if x["compat"].as_u64().is_some_and(|c| c < 14) {
+        for id in ["lig", "numSp", "numForm", "sets", "ctxAlts"] {
+            f.disable(id);
+        }
+    }
     f.group_page(
         1,
         "previewL2",

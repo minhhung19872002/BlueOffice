@@ -2637,6 +2637,10 @@ impl DocWindow {
         if self.menu.is_some() {
             return NcHit::Client;
         }
+        // Round 24: the Ribbon Display Options button left of Minimize.
+        if self.r24_in_title_button(x, y) {
+            return NcHit::Client;
+        }
         self.title.hit(x, y)
     }
 

@@ -712,6 +712,8 @@ impl DocWindow {
             let t = &s.doc().theme_fonts;
             c.extra["r23"]["themeBody"] = json!(t.minor_latin);
             c.extra["r23"]["themeHeadings"] = json!(t.major_latin);
+            // Round 24: the layout mode (OpenType features need 14 or later).
+            c.extra["r23"]["compat"] = json!(s.doc().compat_mode);
         }
         if kind == crate::doc_forms::DocFormKind::Font23 {
             c.fonts = self.view.font_list().into_iter().map(|f| f.name).collect();

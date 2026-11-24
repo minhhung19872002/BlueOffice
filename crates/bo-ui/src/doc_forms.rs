@@ -898,6 +898,7 @@ impl DocForm {
         match ev {
             Event::None => FormOut::Redraw,
             Event::Cancel => FormOut::Close,
+            Event::Canvas(id, ..) if self.r24_canvas(id) => FormOut::Redraw,
             Event::Canvas(id, x, y) if self.r18_canvas(id, *x, *y) => FormOut::Redraw,
             Event::Canvas(id, x, y) if self.r22_canvas(id, *x, *y) => FormOut::Redraw,
             Event::Canvas(id, x, y) if self.r17_canvas(id, *x, *y) => FormOut::Redraw,
@@ -1495,6 +1496,7 @@ impl DocForm {
         let mut canvas = |id: &str, r: [f32; 4], p: &mut dyn Painter| {
             if r18::paint_canvas(this, id, r, p, &font)
                 || r23::paint_canvas(this, id, r, p, &font)
+                || r24::paint_canvas(this, id, r, p, &font)
                 || r22::paint_canvas(this, id, r, p, &font)
                 || r17::paint_canvas(this, id, r, p, &font)
                 || r15::paint_canvas(this, id, r, p, &font)

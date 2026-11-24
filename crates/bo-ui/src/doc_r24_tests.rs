@@ -108,8 +108,12 @@ fn collapse_the_ribbon_and_peek() {
     w.handle(Input::Tick, &Fixed);
     assert!(!w.ribbon.collapsed());
     assert!((w.view_top() - full_top).abs() < 0.5);
-    // The display options button: Show tabs only.
-    let r = w.r24_display_rect().expect("button");
+    // The title bar's Ribbon Display Options button: Show Tabs.
+    let r = w.r24_title_rect().expect("button");
+    assert_eq!(
+        w.nc_hit(r[0] + 4.0, r[1] + 4.0),
+        crate::titlebar::NcHit::Client
+    );
     click(&mut w, (r[0] + r[2] / 2.0, r[1] + r[3] / 2.0));
     let rows: Vec<String> = w
         .menu
@@ -119,12 +123,17 @@ fn collapse_the_ribbon_and_peek() {
         .iter()
         .map(|i| i.label.clone())
         .collect();
-    assert_eq!(rows, ["Show tabs only", "Always show Ribbon"]);
+    assert_eq!(rows, ["Show Tabs", "Show Tabs and Commands"]);
     assert!(w.action("r24.ribbon:tabs"));
     assert!(w.ribbon.collapsed());
     // The ribbon's right-click menu has Collapse the Ribbon.
     assert!(w.action("r24.ribbon:toggle"));
     assert!(!w.ribbon.collapsed());
+    // ^ at the ribbon's bottom right collapses it.
+    w.handle(Input::Tick, &Fixed);
+    let r = w.r24_display_rect().expect("collapse button");
+    click(&mut w, (r[0] + r[2] / 2.0, r[1] + r[3] / 2.0));
+    assert!(w.ribbon.collapsed());
 }
 
 // Text Highlight Color with no selection turns the highlighter pen on: a drag highlights
@@ -424,4 +433,39 @@ fn quick_parts_autotext_and_organizer() {
         .items_for_test("list")
         .iter()
         .any(|r| r.starts_with("mine\t")));
+}
+
+// Shape Format › Shape Styles › More: the Theme Styles gallery (7 colours × 6 intensities)
+// restyles the selected shape.
+#[test]
+fn shape_styles_more_gallery() {
+    let mut w = window(Ctx::Shape);
+    w.ribbon.select_tab(crate::doc_tabs7::SHAPE_FORMAT);
+    w.relayout(&Fixed);
+    assert!(w.action("shape.styleMore"));
+    let g = w.r22.gallery.as_ref().expect("gallery");
+    let cells = g.cells();
+    assert_eq!(cells.len(), 42);
+    let cmd = cells[8].2.to_owned();
+    assert!(cmd.starts_with("r24.shapeStyle:4472C4:"), "{cmd}");
+    assert!(w.action(&cmd));
+    assert!(w.r22.gallery.is_none());
+    assert!(w.view.modified());
+}
+
+// Font › Advanced: OpenType features are greyed for a document in an older layout mode
+// (the reference's Compatibility Mode), on for current documents.
+#[test]
+fn opentype_features_greyed_in_compatibility_mode() {
+    use crate::doc_forms::DocFormKind;
+    let mut w = window(Ctx::Text);
+    let mut c = w.form_context();
+    c.extra["r23"] = crate::doc_forms::r23::extra(w.view.format());
+    c.extra["r23"]["compat"] = serde_json::json!(12);
+    let f = crate::doc_forms::open(DocFormKind::Font23, &w.strings, &c);
+    assert!(!f.enabled_for_test("lig"));
+    assert!(!f.enabled_for_test("ctxAlts"));
+    c.extra["r23"]["compat"] = serde_json::json!(15);
+    let f = crate::doc_forms::open(DocFormKind::Font23, &w.strings, &c);
+    assert!(f.enabled_for_test("lig"));
 }

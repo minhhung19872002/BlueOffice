@@ -448,7 +448,13 @@ pub(crate) fn shape_tab() -> Tab {
             },
             Group {
                 label: "docR7.g.shapeStyles",
-                large: vec![L("shape.style.0"), L("shape.style.1"), L("shape.style.2")],
+                large: vec![
+                    L("shape.style.0"),
+                    L("shape.style.1"),
+                    L("shape.style.2"),
+                    // Round 24: the gallery's More button (Theme Styles gallery).
+                    L("shape.styleMore"),
+                ],
                 rows: vec![
                     vec![B("shape.fill")],
                     vec![B("shape.outline")],
@@ -1021,7 +1027,9 @@ pub(crate) fn trailing(id: &str) -> bool {
 
 /// Width (logical px) of the shape style tiles (reference 66 px at 125 %).
 pub(crate) fn large_w(id: &str) -> Option<f32> {
-    id.starts_with("shape.style.").then_some(66.0)
+    id.starts_with("shape.style.")
+        .then_some(66.0)
+        .or_else(|| (id == "shape.styleMore").then_some(18.0))
 }
 
 /// Icons (BlueOffice's own drawings in the shared filled style).

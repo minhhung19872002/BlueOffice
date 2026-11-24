@@ -843,7 +843,8 @@
       "openList": "Mở danh sách của điều khiển (Alt+Mũi tên xuống)",
       "deleteItem": "Xoá mục lặp lại"
     },
-    "fp21": {"shapeStyles": "Định dạng hình", "wordArt": "Định dạng hiệu ứng chữ", "pictureStyles": "Định dạng ảnh"}
+    "fp21": {"shapeStyles": "Định dạng hình", "wordArt": "Định dạng hiệu ứng chữ", "pictureStyles": "Định dạng ảnh"},
+    "shape": {"styleMore": "Thêm kiểu hình"}
   },
   "status": {
     "page": "Trang {{current}}/{{total}}",
@@ -17302,8 +17303,8 @@
     "number": "Số",
     "date": "Ngày",
     "dateOrder": "dmy",
-    "showTabsOnly": "Chỉ hiện các thẻ",
-    "alwaysShowRibbon": "Luôn hiện dải lệnh",
+    "showTabsOnly": "Hiện các thẻ",
+    "alwaysShowRibbon": "Hiện các thẻ và lệnh",
     "searchFor": "Tìm kiếm \"{{text}}\"",
     "readAloud": "Đọc to",
     "translate": "Dịch",
@@ -17346,6 +17347,13 @@
     "editProps": "Sửa thuộc tính...",
     "hyphDone": "Đã gạch nối xong: không còn từ đầu dòng nào gạch nối được.",
     "builtinBlock": "Không sửa được khối dựng sẵn có sẵn.",
-    "modifyBlock": "Sửa khối dựng sẵn"
+    "modifyBlock": "Sửa khối dựng sẵn",
+    "ssOutline": "Viền màu",
+    "ssFill": "Tô màu",
+    "ssLight": "Viền sáng, tô màu",
+    "ssSubtle": "Hiệu ứng nhẹ",
+    "ssModerate": "Hiệu ứng vừa",
+    "ssIntense": "Hiệu ứng đậm",
+    "themeStyles": "Kiểu chủ đề"
   }
 }

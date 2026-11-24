@@ -843,7 +843,8 @@
       "openList": "Open the control list (Alt+Down)",
       "deleteItem": "Delete repeating item"
     },
-    "fp21": {"shapeStyles": "Format Shape", "wordArt": "Format Text Effects", "pictureStyles": "Format Picture"}
+    "fp21": {"shapeStyles": "Format Shape", "wordArt": "Format Text Effects", "pictureStyles": "Format Picture"},
+    "shape": {"styleMore": "More Shape Styles"}
   },
   "status": {
     "page": "Page {{current}} of {{total}}",
@@ -17302,8 +17303,8 @@
     "number": "Number",
     "date": "Date",
     "dateOrder": "mdy",
-    "showTabsOnly": "Show tabs only",
-    "alwaysShowRibbon": "Always show Ribbon",
+    "showTabsOnly": "Show Tabs",
+    "alwaysShowRibbon": "Show Tabs and Commands",
     "searchFor": "Search \"{{text}}\"",
     "readAloud": "Read Aloud",
     "translate": "Translate",
@@ -17346,6 +17347,13 @@
     "editProps": "Edit Properties...",
     "hyphDone": "Hyphenation is complete: no line-start word can be hyphenated.",
     "builtinBlock": "Built-in building blocks cannot be changed.",
-    "modifyBlock": "Modify Building Block"
+    "modifyBlock": "Modify Building Block",
+    "ssOutline": "Colored Outline",
+    "ssFill": "Colored Fill",
+    "ssLight": "Light 1 Outline, Colored Fill",
+    "ssSubtle": "Subtle Effect",
+    "ssModerate": "Moderate Effect",
+    "ssIntense": "Intense Effect",
+    "themeStyles": "Theme Styles"
   }
 }

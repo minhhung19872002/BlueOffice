@@ -427,7 +427,8 @@ fn ribbon_context_menu_adds_to_the_quick_access_toolbar() {
         &Fixed,
     );
     let n = w.menu.as_ref().map(|m| m.items().len());
-    assert_eq!(n, Some(4));
+    // Round 24 added Collapse the Ribbon.
+    assert_eq!(n, Some(5));
     assert!(w.action("r23.qatAdd:format.strike"));
     assert!(w.r6.prefs.quick.iter().any(|q| q == "format.strike"));
     assert!(w.action("r23.qatBelow"));

@@ -7,6 +7,7 @@
 //! A child module of `doc_forms`.
 use super::{DocForm, DocFormKind, FormContext, FormOut};
 use crate::strings::Strings;
+use bo_render::PathSeg;
 use serde_json::{json, Value};
 
 fn t(s: &Strings, key: &str, fallback: &str) -> String {
@@ -62,24 +63,24 @@ pub(super) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
                 &tr("doc24.position", "Position"),
             );
             let pos = x["position"].as_str().unwrap_or("none");
-            for (i, (id, tile, k, en)) in [
-                ("none", "dcTile0", "doc24.dcNone", "None"),
-                ("drop", "dcTile1", "doc24.dcDropped", "Dropped"),
-                ("margin", "dcTile2", "doc24.dcMargin", "In margin"),
+            // Picture tiles to click (the chosen one framed) with their names under them,
+            // as the reference (no radio buttons).
+            for (i, (lab, tile, k, en)) in [
+                ("dcL0", "dcTile0", "doc24.dcNone", "None"),
+                ("dcL1", "dcTile1", "doc24.dcDropped", "Dropped"),
+                ("dcL2", "dcTile2", "doc24.dcMargin", "In margin"),
             ]
             .iter()
             .enumerate()
             {
                 let x0 = 33.0 + 94.0 * i as f32;
                 f.canvas(tile, [x0, 72.0, 76.0, 76.0]);
-                f.radio(
-                    id,
-                    "pos",
-                    [x0 - 6.0, 150.0, 92.0, 20.0],
-                    &tr(k, en),
-                    pos == *id,
-                );
+                let text = tr(k, en);
+                // Centred under the tile (about 7 px per character at 125 %).
+                let w = 7.2 * text.chars().count() as f32;
+                f.label(lab, [x0 + 38.0 - w / 2.0, 152.0, w + 8.0, 18.0], &text);
             }
+            f.ids = vec![pos.to_owned()];
             f.group(
                 "optG",
                 [14.0, 180.0, 293.0, 18.0],
@@ -349,18 +350,26 @@ impl DocForm {
             "dcTile2" => "margin",
             _ => return false,
         };
-        self.set_radio(pos);
-        self.r24_changed(pos);
+        self.r24_set_pos(pos);
         true
     }
 
-    pub(crate) fn r24_changed(&mut self, id: &str) {
-        if self.kind == DocFormKind::DropCap24 && matches!(id, "none" | "drop" | "margin") {
-            let on = self.chosen("pos") != Some("none");
-            for c in ["font", "lines", "distance"] {
-                self.form.enable(c, on);
-            }
+    /// Drop Cap: the chosen position (`none`, `drop`, `margin`).
+    pub(crate) fn r24_pos(&self) -> &str {
+        self.ids.first().map_or("none", String::as_str)
+    }
+
+    /// Drop Cap: choose a position (the options are greyed for None).
+    pub(crate) fn r24_set_pos(&mut self, pos: &str) {
+        self.ids = vec![pos.to_owned()];
+        let on = pos != "none";
+        for c in ["font", "lines", "distance"] {
+            self.form.enable(c, on);
         }
+    }
+
+    pub(crate) fn r24_changed(&mut self, id: &str) {
+        let _ = id;
     }
 
     pub(super) fn r24_clicked(&mut self, id: &str) -> Option<FormOut> {
@@ -438,7 +447,8 @@ impl DocForm {
         }
         Some(match self.kind {
             DocFormKind::DropCap24 => {
-                let pos = self.chosen("pos").unwrap_or("none");
+                let pos = self.r24_pos().to_owned();
+                let pos = pos.as_str();
                 let spec = (pos != "none").then(|| {
                     let font = self.text("font");
                     json!({
@@ -498,7 +508,7 @@ pub(super) fn paint_canvas(
         "dcTile2" => 2,
         _ => return false,
     };
-    let chosen = f.chosen("pos") == Some(["none", "drop", "margin"][which]);
+    let chosen = f.r24_pos() == ["none", "drop", "margin"][which];
     let k = r[3] / 76.0;
     let edge = Rgba(0x7a, 0x7a, 0x7a, 255);
     if chosen {
@@ -552,17 +562,31 @@ pub(super) fn paint_canvas(
         };
         line(p, x0, y);
     }
-    let style = crate::TextStyle {
-        size: size * k,
-        bold: false,
-    };
+    // A serif "W" drawn as strokes (BlueOffice's drawing; the dialog font has no serifs):
+    // thick and thin diagonals with serifs on the three tops.
     let _ = font;
-    p.text(
-        "W",
-        r[0] + letter_x * k,
-        r[1] + if which == 0 { 4.0 } else { 6.0 } * k,
-        style,
-        Rgba(0x20, 0x20, 0x20, 255),
-    );
+    let ink = Rgba(0x20, 0x20, 0x20, 255);
+    let h = size * k * 0.72;
+    let w = h * 1.25;
+    let x = r[0] + letter_x * k;
+    let y = r[1] + if which == 0 { 7.0 } else { 10.0 } * k;
+    let pt = |u: f32, v: f32| (x + u * w, y + v * h);
+    let thick = (h * 0.11).max(1.0);
+    let thin = (h * 0.045).max(1.0);
+    let seg = |p: &mut dyn crate::Painter, a: (f32, f32), b: (f32, f32), wd: f32| {
+        p.path(
+            &[PathSeg::M(a.0, a.1), PathSeg::L(b.0, b.1)],
+            None,
+            Some((ink, wd)),
+        );
+    };
+    // Downstrokes thick, upstrokes thin (a roman letter's contrast).
+    seg(p, pt(0.08, 0.0), pt(0.3, 1.0), thick);
+    seg(p, pt(0.3, 1.0), pt(0.5, 0.18), thin);
+    seg(p, pt(0.5, 0.18), pt(0.7, 1.0), thick);
+    seg(p, pt(0.7, 1.0), pt(0.92, 0.0), thin);
+    for (u0, u1) in [(-0.04, 0.2), (0.4, 0.58), (0.82, 1.02)] {
+        seg(p, pt(u0, 0.0), pt(u1, 0.0), thin);
+    }
     true
 }

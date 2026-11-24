@@ -466,7 +466,11 @@ impl DocWindow {
                 self.r21_open_pane(crate::doc_fmtpane21::Page::Layout, None, false)
             }
             // Alt Text of a shape (pictures: round 7).
-            "picture.altText" if self.context.shape => self.r23_shape_alt_text(),
+            // Round 24: also when the right-click moved the caret off the shape (no picture
+            // selected): the paragraph's shape.
+            "picture.altText" if self.context.shape || !self.context.picture => {
+                self.r23_shape_alt_text()
+            }
             "r23.fontDefault" => {
                 self.r3_run(vec![json!({ "cmd": "styleUpdateToMatch", "id": "Normal" })])
             }
@@ -628,11 +632,15 @@ impl DocWindow {
     /// Alt Text… of the selected shape (§20.4.2.5 docPr descr), as for pictures.
     fn r23_shape_alt_text(&mut self) -> bool {
         self.menu = None;
+        // Round 24: from inside a text box's text, Alt Text is the text box's.
+        if self.view.story().is_some() {
+            self.view.run_command(Command::CloseTextBox);
+        }
         let Some(s) = self.view.engine().session() else {
             return false;
         };
-        let desc = s.tools_shape().map(|i| i.description).unwrap_or_default();
         let (a, b) = s.selection().ordered();
+        let old = s.selection();
         let Some(p) = bo_model::index::para_by_id(s.doc(), a.para) else {
             return false;
         };
@@ -642,15 +650,49 @@ impl DocWindow {
         } else {
             text.len()
         };
-        let Some(at) = text
+        let object = bo_model::index::OBJECT;
+        let hit = text
             .char_indices()
-            .filter(|(i, c)| *c == bo_model::index::OBJECT && *i + c.len_utf8() >= a.offset)
+            .filter(|(i, c)| *c == object && *i + c.len_utf8() >= a.offset)
             .find(|(i, _)| *i <= end)
+            .map(|(i, _)| i);
+        let objects: Vec<usize> = text
+            .char_indices()
+            .filter(|(_, c)| *c == object)
             .map(|(i, _)| i)
-        else {
+            .collect();
+        let para = a.para;
+        // Round 24: else the paragraph's first object that is a shape (a right-click beside
+        // a selected text box moves the caret off it): each object tried as the selection.
+        let at = hit.or_else(|| {
+            let found = objects.into_iter().find(|&i| {
+                self.view.run_command(Command::SetSelection {
+                    selection: bo_edit::Selection {
+                        anchor: bo_edit::Pos::new(para, i),
+                        focus: bo_edit::Pos::new(para, i + object.len_utf8()),
+                    },
+                });
+                self.view
+                    .engine()
+                    .session()
+                    .is_some_and(|s| s.tools_shape().is_some())
+            });
+            if found.is_none() {
+                self.view
+                    .run_command(Command::SetSelection { selection: old });
+            }
+            found
+        });
+        let Some(at) = at else {
             return false;
         };
-        let para = a.para;
+        let desc = self
+            .view
+            .engine()
+            .session()
+            .and_then(bo_edit::Session::tools_shape)
+            .map(|i| i.description)
+            .unwrap_or_default();
         self.r3_open_form(crate::doc_forms::DocFormKind::AltText);
         if let Some(f) = self.r3.form.as_mut() {
             f.ids = vec![para.to_string(), at.to_string()];

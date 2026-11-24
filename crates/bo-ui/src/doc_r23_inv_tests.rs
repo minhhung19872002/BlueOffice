@@ -117,6 +117,15 @@ fn enrich(w: &mut DocWindow) {
         });
         w.view.run_command(Command::CloseHeaderFooter);
     }
+    // A footnote and an endnote before the selection too (Previous Footnote / Endnote).
+    for endnote in [false, true] {
+        caret(w, 0, 0);
+        w.view.run_command(Command::InsertNote {
+            endnote,
+            text: "Earlier".into(),
+        });
+        w.view.run_command(Command::CloseHeaderFooter);
+    }
     caret(w, 0, 0);
     if let Some(c) = crate::commands::command("format.bullets") {
         w.view.run_command(c);

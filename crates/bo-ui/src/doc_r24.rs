@@ -18,6 +18,10 @@ use serde_json::json;
 #[path = "doc_r24_tests.rs"]
 mod tests;
 
+/// Menu entries of round 24 the window runs itself (no engine command of their own).
+#[cfg(test)]
+pub(crate) const WINDOW: [&str; 3] = ["r24.dropCapOptions", "r24.hyphManual", "r24.hyphOptions"];
+
 /// Round-24 state of the window.
 #[derive(Default)]
 pub(super) struct R24 {
@@ -621,9 +625,23 @@ impl DocWindow {
     }
 
     /// Context menu rows of round 24 (label, command): Search "…", Read Aloud, Translate.
-    pub(super) fn r24_ctx_rows(&self) -> Vec<(String, String)> {
+    /// `group` 0: Search "…" (before Synonyms); 1: Read Aloud, Translate (after it).
+    pub(super) fn r24_ctx_rows(&self, group: u8) -> Vec<(String, String)> {
         let text = self.r24_lookup_text();
         let mut v = Vec::new();
+        if group == 1 {
+            v.push((
+                self.r24_t("doc24.readAloud", "Read Aloud"),
+                "r24.readAloud".into(),
+            ));
+            if !text.is_empty() {
+                v.push((
+                    self.r24_t("doc24.translate", "Translate"),
+                    "r24.translate".into(),
+                ));
+            }
+            return v;
+        }
         if !text.is_empty() {
             let short: String = if text.chars().count() > 20 {
                 let mut s: String = text.chars().take(20).collect();
@@ -635,16 +653,6 @@ impl DocWindow {
             v.push((
                 self.strings.fmt("doc24.searchFor", &[("text", &short)]),
                 "r24.search".into(),
-            ));
-        }
-        v.push((
-            self.r24_t("doc24.readAloud", "Read Aloud"),
-            "r24.readAloud".into(),
-        ));
-        if v.len() > 1 {
-            v.push((
-                self.r24_t("doc24.translate", "Translate"),
-                "r24.translate".into(),
             ));
         }
         v
@@ -903,6 +911,14 @@ impl DocWindow {
             );
         }
     }
+}
+
+/// BlueDoc's title bar with room for the Ribbon Display Options button left of the window
+/// buttons (the search box moves left by one button).
+pub(super) fn title_bar() -> crate::titlebar::TitleBar {
+    let mut t = crate::titlebar::TitleBar::new();
+    t.set_right_reserve(46.0);
+    t
 }
 
 pub(crate) fn install(_icons: &mut crate::icons::Icons, _s: &mut crate::strings::Strings) {}

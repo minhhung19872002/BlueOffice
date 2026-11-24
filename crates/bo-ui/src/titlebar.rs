@@ -64,6 +64,9 @@ pub struct TitleBar {
     /// Round 21 (BlueDoc): the quick access buttons in a strip below the ribbon (window y
     /// and height of the strip) instead of the bar.
     below: Option<(f32, f32)>,
+    /// Logical px kept free left of the window buttons (BlueDoc round 24: its Ribbon
+    /// Display Options button); 0 for the other windows.
+    right_reserve: f32,
 }
 
 /// A separator between quick access buttons (Quick Access Toolbar option, round 21).
@@ -96,7 +99,13 @@ impl TitleBar {
             custom_quick: None,
             undo_menu: false,
             below: None,
+            right_reserve: 0.0,
         }
+    }
+
+    /// Keep `px` logical pixels free left of the window buttons (an owner's own button).
+    pub(crate) fn set_right_reserve(&mut self, px: f32) {
+        self.right_reserve = px;
     }
 
     /// Show the list arrow of Undo (the steps it can revert) next to the Undo button.
@@ -204,7 +213,7 @@ impl TitleBar {
         }
         let sw = self.px(300.0).min((width * 0.25).max(self.px(160.0)));
         self.search = R {
-            x: (width - 3.0 * bw - sw - self.px(16.0)).round(),
+            x: (width - 3.0 * bw - self.px(self.right_reserve) - sw - self.px(16.0)).round(),
             y: ((h - self.px(26.0)) / 2.0).round(),
             w: sw,
             h: self.px(26.0),

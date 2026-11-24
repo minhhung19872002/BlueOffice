@@ -1343,19 +1343,37 @@ impl DocWindow {
         }
         let endnote = which.ends_with("End");
         let forward = which.starts_with("next");
-        let caret = self.view.caret_para().unwrap_or(0);
-        let mut paras: Vec<usize> = notes
+        // Round 24: by position (a note later in the caret's own paragraph counts).
+        let caret = self.view.engine().session().map_or((0, 0), |s| {
+            let f = s.selection().focus;
+            (f.para, f.offset)
+        });
+        let mut refs: Vec<(usize, usize)> = notes
             .iter()
             .filter(|n| n["endnote"].as_bool() == Some(endnote))
-            .filter_map(|n| n["para"].as_u64().map(|p| p as usize))
+            .filter_map(|n| {
+                let p = n["para"].as_u64()? as usize;
+                Some((p, n["offset"].as_u64().unwrap_or(0) as usize))
+            })
             .collect();
-        paras.sort_unstable();
+        refs.sort_unstable();
         let target = if forward {
-            paras.into_iter().find(|p| *p > caret)
+            refs.into_iter().find(|r| *r > caret)
         } else {
-            paras.into_iter().rev().find(|p| *p < caret)
+            refs.into_iter().rev().find(|r| *r < caret)
         };
-        target.is_some_and(|p| self.view.goto_para(p))
+        let Some((para, offset)) = target else {
+            return false;
+        };
+        if !self.view.goto_para(para) {
+            return false;
+        }
+        let at = bo_edit::Pos::new(para, offset);
+        self.view
+            .run_command(bo_engine::edit::Command::SetSelection {
+                selection: bo_edit::Selection::caret(at),
+            });
+        true
     }
 
     fn open_r3_menu_dyn(&mut self, id: &str) -> bool {

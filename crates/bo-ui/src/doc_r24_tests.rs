@@ -231,7 +231,8 @@ fn diagonal_cell_borders() {
 #[test]
 fn context_search_read_aloud_translate() {
     let mut w = window(Ctx::Text);
-    let rows = w.r24_ctx_rows();
+    let mut rows = w.r24_ctx_rows(0);
+    rows.extend(w.r24_ctx_rows(1));
     let labels: Vec<&str> = rows.iter().map(|r| r.0.as_str()).collect();
     assert_eq!(labels, ["Search \"wrold\"", "Read Aloud", "Translate"]);
     assert!(w.action("r24.search"));
@@ -248,7 +249,7 @@ fn context_search_read_aloud_translate() {
     w.view.run_command(Command::SetSelection {
         selection: Selection::caret(Pos::new(1, 2)),
     });
-    assert_eq!(w.r24_ctx_rows()[0].0, "Search \"Second\"");
+    assert_eq!(w.r24_ctx_rows(0)[0].0, "Search \"Second\"");
 }
 
 // Sort Text › Type: Number.
@@ -303,8 +304,7 @@ fn drop_cap_options_dialog() {
     let f = w.r3.form.as_mut().expect("Drop Cap");
     assert_eq!(f.kind, DocFormKind::DropCap24);
     assert!(!f.enabled_for_test("lines"), "greyed with None");
-    f.set_radio("drop");
-    f.r24_changed("drop");
+    f.r24_set_pos("drop");
     assert!(f.enabled_for_test("lines"));
     f.set_text("lines", "2");
     f.set_text("distance", "6 pt");
@@ -316,7 +316,7 @@ fn drop_cap_options_dialog() {
     // Opening again shows what the paragraph has.
     assert!(w.action("r24.dropCapOptions"));
     let f = w.r3.form.as_ref().expect("Drop Cap");
-    assert_eq!(f.chosen("pos"), Some("drop"));
+    assert_eq!(f.r24_pos(), "drop");
 }
 
 // Layout › Hyphenation › Hyphenation Options…: automatic, CAPS, zone, limit.
@@ -468,4 +468,46 @@ fn opentype_features_greyed_in_compatibility_mode() {
     c.extra["r23"]["compat"] = serde_json::json!(15);
     let f = crate::doc_forms::open(DocFormKind::Font23, &w.strings, &c);
     assert!(f.enabled_for_test("lig"));
+}
+
+// The second inventory sample: Next Footnote moves to the note in the caret's own
+// paragraph; View Alt Text… of the selected text box opens the Alt Text dialog.
+#[test]
+fn rich_sample_notes_and_text_box_alt_text() {
+    use super::super::r23::inv_tests::RICH;
+    RICH.with(|r| r.set(true));
+    let mut w = window(Ctx::Text);
+    let mut b = window(Ctx::Shape);
+    RICH.with(|r| r.set(false));
+    let before = w.view.engine().session().map(bo_edit::Session::selection);
+    assert!(w.action("references.note.nextFoot"));
+    let after = w.view.engine().session().map(bo_edit::Session::selection);
+    assert_ne!(before, after);
+    let s = b.view.engine().session().expect("session");
+    let sel = s.selection();
+    let text = s.para_text(sel.anchor.para).unwrap_or_default();
+    let shape = s.tools_shape().is_some();
+    let ctx = b.context.shape;
+    assert!(
+        b.action("picture.altText"),
+        "{sel:?} {text:?} {shape} {ctx}"
+    );
+    assert!(b.r3.form.is_some());
+    // The same through the shape's context menu (as the inventory opens it).
+    RICH.with(|r| r.set(true));
+    let mut c = window(Ctx::Shape);
+    RICH.with(|r| r.set(false));
+    let (x, y) = super::super::r23::inv_tests::context_point(&c, Ctx::Shape);
+    c.handle(Input::Context { x, y }, &Fixed);
+    let s = c.view.engine().session().expect("session");
+    let sel = s.selection();
+    let text = s.para_text(sel.anchor.para).unwrap_or_default();
+    let story = c.view.story().is_some();
+    let paras: Vec<String> = (0..s.paragraph_count())
+        .map(|i| s.para_text(i).unwrap_or_default())
+        .collect();
+    assert!(
+        c.action("picture.altText"),
+        "{sel:?} {text:?} story {story} {paras:?}"
+    );
 }

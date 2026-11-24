@@ -2141,7 +2141,8 @@ impl Ribbon {
                     if let Some(c) = tint(RibbonHit::Tab(*i)) {
                         radius_rect(p, r, c);
                     }
-                    let active = *i == self.active;
+                    // Round 24: a collapsed ribbon shows no selected tab until it peeks.
+                    let active = *i == self.active && (!self.collapsed || self.peek);
                     let style = TextStyle {
                         bold: active,
                         ..tab_style
@@ -2165,7 +2166,7 @@ impl Ribbon {
                     } else {
                         center_text(p, strings.get(self.tabs[*i].label), r, style, color);
                     }
-                    if active && (!self.collapsed || self.peek) {
+                    if active {
                         let h = self.px(3.0);
                         p.fill_rect(
                             r.x + self.px(10.0),

@@ -515,7 +515,7 @@ impl DocWindow {
         icons.set_grey_disabled(true);
         Self {
             view,
-            title: TitleBar::new(),
+            title: r24::title_bar(),
             name: name.to_owned(),
             requests: Vec::new(),
             ribbon: Ribbon::new()

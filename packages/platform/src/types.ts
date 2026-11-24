@@ -580,6 +580,8 @@ export interface NoteInfo {
   endnote: boolean;
   text: string;
   para: number | null;
+  /** Byte offset of the reference in its paragraph's index text. */
+  offset?: number;
 }
 
 /** Font picker entry (mirrors `bo_engine::fonts::FontChoice`). */

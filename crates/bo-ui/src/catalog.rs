@@ -519,7 +519,8 @@ mod tests {
                 assert!(
                     command(entry.id, &page).is_some()
                         || crate::commands::WINDOW.contains(&entry.id)
-                        || crate::shell::r23::WINDOW.contains(&entry.id),
+                        || crate::shell::r23::WINDOW.contains(&entry.id)
+                        || crate::shell::r24::WINDOW.contains(&entry.id),
                     "{}",
                     entry.id
                 );

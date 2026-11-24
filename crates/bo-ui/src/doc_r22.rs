@@ -1000,7 +1000,8 @@ impl DocWindow {
                     return Some(true);
                 }
                 let cmd = g.press(x, y);
-                if let Some(cmd) = cmd {
+                // Round 23: a greyed footer row answers an empty command (nothing happens).
+                if let Some(cmd) = cmd.filter(|c| !c.is_empty()) {
                     self.r22.gallery = None;
                     self.action(&cmd);
                 }

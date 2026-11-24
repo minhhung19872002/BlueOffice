@@ -1351,6 +1351,8 @@ impl Ribbon {
         // The gallery is the first group to compact as the window narrows. Its
         // menu remains available even when no preview tile fits.
         let mut tile_count = TILES;
+        // Round 23: BlueDoc narrows its three last tiles before it drops to two.
+        let mut narrow = false;
         // Collapse steps taken (scaling order of the active tab).
         let order = (self.scaling)(self.tabs[self.active].label);
         let mut steps = (self.forced)(self.tabs[self.active].label, width / scale).min(order.len());
@@ -1385,7 +1387,8 @@ impl Ribbon {
                 for item in g.large.iter().filter(|i| !trailing(i)) {
                     if *item == Item::Gallery {
                         {
-                            let (tw, more) = (self.px(78.0), self.px(20.0));
+                            let (tw, more) =
+                                (self.px(if narrow { 64.0 } else { 78.0 }), self.px(20.0));
                             for i in 0..tile_count {
                                 let r = Rect {
                                     x: lx + i as f32 * (tw + gap),
@@ -1603,7 +1606,9 @@ impl Ribbon {
                         .iter()
                         .any(|g| g.label == *l && g.large.contains(&Item::Gallery))
                 });
-            if gallery && !other_first {
+            if gallery && !other_first && self.shrink_tabs && tile_count == 3 && !narrow {
+                narrow = true;
+            } else if gallery && !other_first {
                 tile_count -= 1;
             } else if steps < order.len() {
                 steps += 1;

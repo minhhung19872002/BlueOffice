@@ -17295,6 +17295,7 @@
     "selectObj": "Select",
     "objTextBox": "Text Box",
     "objShape": "Shape",
-    "objPicture": "Picture"
+    "objPicture": "Picture",
+    "themeNote": "This is the theme's font: the document's theme decides which font is used."
   }
 }

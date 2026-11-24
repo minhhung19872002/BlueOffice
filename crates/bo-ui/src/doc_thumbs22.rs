@@ -71,6 +71,8 @@ pub(crate) struct ThumbGallery {
     scale: f32,
     hover: Option<(usize, usize)>,
     footer_hover: Option<usize>,
+    /// Round 23: footer rows shown greyed (they do nothing now).
+    footer_dim: Vec<usize>,
 }
 
 impl ThumbGallery {
@@ -93,6 +95,7 @@ impl ThumbGallery {
             scale,
             hover: None,
             footer_hover: None,
+            footer_dim: Vec::new(),
         };
         let (w, h) = g.size();
         g.x = g.x.min(screen.0 - w - 2.0).max(0.0);
@@ -121,6 +124,12 @@ impl ThumbGallery {
 
     fn rows_of(&self, s: &Section) -> usize {
         s.cells.len().div_ceil(self.cols)
+    }
+
+    /// Grey footer rows `rows` (round 23: Change List Level outside a list).
+    pub(crate) fn with_dim_footer(mut self, rows: Vec<usize>) -> Self {
+        self.footer_dim = rows;
+        self
     }
 
     /// Width and height (window px).
@@ -218,6 +227,9 @@ impl ThumbGallery {
     /// The command a press at (x, y) picks.
     pub(crate) fn press(&self, x: f32, y: f32) -> Option<String> {
         if let Some(i) = self.footer_at(x, y) {
+            if self.footer_dim.contains(&i) {
+                return Some(String::new());
+            }
             return self.footer.get(i).map(|f| f.1.clone());
         }
         let (s, c) = self.cell_at(x, y)?;
@@ -302,7 +314,8 @@ impl ThumbGallery {
             );
             for (i, (label, _)) in self.footer.iter().enumerate() {
                 let y = top + self.row_h() * i as f32;
-                if self.footer_hover == Some(i) {
+                let dim = self.footer_dim.contains(&i);
+                if self.footer_hover == Some(i) && !dim {
                     p.fill_rect(self.x + 1.0, y, w - 2.0, self.row_h(), t.hover);
                 }
                 p.text(
@@ -310,7 +323,11 @@ impl ThumbGallery {
                     self.x + self.px(32.0),
                     y + (self.row_h() - ui.size * 1.33) / 2.0,
                     ui,
-                    t.text,
+                    if dim {
+                        Rgba(0xa0, 0xa0, 0xa0, 255)
+                    } else {
+                        t.text
+                    },
                 );
             }
         }

@@ -183,6 +183,21 @@ fn swatch(hex: &str) -> Thumb {
     )])
 }
 
+/// The thin frame of a library cell (the reference draws one around each entry).
+fn frame() -> crate::doc_thumbs22::ThumbPath {
+    (
+        vec![
+            PathSeg::M(-0.06, -0.06),
+            PathSeg::L(1.06, -0.06),
+            PathSeg::L(1.06, 1.06),
+            PathSeg::L(-0.06, 1.06),
+            PathSeg::Z,
+        ],
+        None,
+        Some((Rgba(0xc8, 0xc8, 0xc8, 255), 1.0)),
+    )
+}
+
 /// A list sample cell: three markers, each followed by a grey line (BlueOffice's drawing of
 /// a list), with the markers drawn as text.
 fn list_thumb(markers: [&str; 3], indent: bool) -> Thumb {
@@ -210,6 +225,7 @@ fn list_thumb(markers: [&str; 3], indent: bool) -> Thumb {
             ));
         }
     }
+    paths.push(frame());
     Thumb::Text { texts, paths }
 }
 
@@ -249,7 +265,16 @@ impl DocWindow {
     ) -> bool {
         self.menu = None;
         let anchor = self.r23_anchor(owner);
-        let g = ThumbGallery::open(sections, footer, grid, anchor, self.size, self.scale);
+        // Change List Level and Set Numbering Value are greyed outside a list (reference).
+        let in_list = self.r23_list_level().is_some();
+        let dim = footer
+            .iter()
+            .enumerate()
+            .filter(|(_, (_, c))| !in_list && (c == "r23.levels" || c == "r23.setValue"))
+            .map(|(i, _)| i)
+            .collect();
+        let g = ThumbGallery::open(sections, footer, grid, anchor, self.size, self.scale)
+            .with_dim_footer(dim);
         self.r23.gallery_at = g.rect();
         self.r22.gallery = Some(g);
         true
@@ -333,6 +358,17 @@ impl DocWindow {
         if let Some(v) = id.strip_prefix("r23.tefx:") {
             let v = v.to_owned();
             return Some(self.r23_apply_text_effect(&v));
+        }
+        // The drop-down part of a split button by command (keyboard access, scripts).
+        if let Some(v) = id.strip_prefix("r23.open:") {
+            return Some(match v {
+                "format.bullets" => self.r23_bullets(),
+                "format.numbering" => self.r23_numbering(),
+                "format.highlight" => self.r23_highlights(),
+                "format.underline" => self.r23_underlines(),
+                "edit.find" => self.r23_find_menu(),
+                _ => false,
+            });
         }
         if let Some(v) = id.strip_prefix("r23.selObj:") {
             let (p, a) = v.split_once(':').unwrap_or(("0", "0"));
@@ -662,6 +698,11 @@ impl DocWindow {
         if kind == crate::doc_forms::DocFormKind::SelPane23 {
             c.extra["r23"]["objects"] = json!(self.r23_objects());
         }
+        if let Some(s) = self.view.engine().session() {
+            let t = &s.doc().theme_fonts;
+            c.extra["r23"]["themeBody"] = json!(t.minor_latin);
+            c.extra["r23"]["themeHeadings"] = json!(t.major_latin);
+        }
         if kind == crate::doc_forms::DocFormKind::Font23 {
             c.fonts = self.view.font_list().into_iter().map(|f| f.name).collect();
         }
@@ -712,7 +753,7 @@ impl DocWindow {
             cells.push(Cell {
                 thumb: Thumb::Text {
                     texts: vec![(ch.to_owned(), 0.3, 0.12, 0.6, Rgba(0x26, 0x26, 0x26, 255))],
-                    paths: Vec::new(),
+                    paths: vec![frame()],
                 },
                 command: format!("r23.bullet:{ch}"),
                 tip: self.r23_t(k, en),

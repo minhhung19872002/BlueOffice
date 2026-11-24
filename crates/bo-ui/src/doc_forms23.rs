@@ -585,6 +585,14 @@ fn open_font(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
         ],
     );
     let font = x["font"].as_str().unwrap_or("").to_owned();
+    // The theme's body / heading fonts are listed (and chosen) as "+Body" / "+Headings".
+    let font = if x["themeBody"].as_str() == Some(font.as_str()) || font.is_empty() {
+        "+Body".to_owned()
+    } else if x["themeHeadings"].as_str() == Some(font.as_str()) {
+        "+Headings".to_owned()
+    } else {
+        font
+    };
     f.label_on(
         0,
         "fontL",
@@ -712,6 +720,9 @@ fn open_font(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
             sel: 0,
         },
     );
+    // Greyed as the reference's while the style is (none); BlueDoc keeps the text colour
+    // for underlines (no underline colour of its own yet).
+    f.disable("ulColor");
     f.group_page(
         0,
         "effects",
@@ -738,10 +749,17 @@ fn open_font(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
         0,
         "note",
         [24.0, 545.0, 544.0, 36.0],
-        &tr(
-            "doc23.fontNote",
-            "The same font is used on screen and when printing.",
-        ),
+        &if font.starts_with('+') {
+            tr(
+                "doc23.themeNote",
+                "This is the theme's font: the document's theme decides which font is used.",
+            )
+        } else {
+            tr(
+                "doc23.fontNote",
+                "The same font is used on screen and when printing.",
+            )
+        },
     );
     // Advanced: Character Spacing.
     f.group_page(
@@ -1207,7 +1225,12 @@ impl DocForm {
         let x = self.r23_initial();
         let mut cmds = Vec::new();
         let font = self.text("font");
-        let font = font.trim();
+        let font = match font.trim() {
+            "+Body" => x["themeBody"].as_str().unwrap_or("").to_owned(),
+            "+Headings" => x["themeHeadings"].as_str().unwrap_or("").to_owned(),
+            other => other.to_owned(),
+        };
+        let font = font.as_str();
         if !font.is_empty() && x["font"].as_str() != Some(font) {
             cmds.push(text_cmd(CharFormat::Font {
                 name: font.to_owned(),

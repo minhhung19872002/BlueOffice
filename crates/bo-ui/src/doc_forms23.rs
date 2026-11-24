@@ -32,6 +32,7 @@ pub(super) fn handles(kind: DocFormKind) -> bool {
             | DocFormKind::DefineNumber
             | DocFormKind::DefineMultilevel
             | DocFormKind::SortText
+            | DocFormKind::Field23
     )
 }
 
@@ -114,6 +115,24 @@ const EFFECTS: [(&str, &str, &str); 7] = [
     ("smallCaps", "doc23.smallCaps", "Small caps"),
     ("allCaps", "doc23.allCaps", "All caps"),
     ("hidden", "doc23.hidden", "Hidden"),
+];
+
+/// Field names of the Field dialog (§17.16.5) with a short description of BlueOffice's own.
+const FIELDS: [(&str, &str); 14] = [
+    ("AUTHOR", "The document's author (document property)."),
+    ("CREATEDATE", "The date the document was created."),
+    ("DATE", "Today's date."),
+    ("FILENAME", "The document's file name."),
+    ("NUMPAGES", "The number of pages in the document."),
+    ("NUMWORDS", "The number of words in the document."),
+    ("PAGE", "The number of the page the field is on."),
+    ("PRINTDATE", "The date the document was last printed."),
+    ("SAVEDATE", "The date the document was last saved."),
+    ("SECTION", "The number of the current section."),
+    ("SECTIONPAGES", "The number of pages in the section."),
+    ("SUBJECT", "The document's subject (document property)."),
+    ("TIME", "The time now."),
+    ("TITLE", "The document's title (document property)."),
 ];
 
 /// Number styles of Define New Number Format: (numFmt, sample of 1).
@@ -439,6 +458,41 @@ pub(super) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
             f.ok_cancel(s);
             f
         }
+        DocFormKind::Field23 => {
+            let mut f = DocForm::new(kind, &tr("doc23.fieldTitle", "Field"), (640.0, 430.0), vec![]);
+            f.group("chooseG", [16.0, 46.0, 280.0, 18.0], &tr("doc23.chooseField", "Please choose a field"));
+            f.label("catL", [30.0, 72.0, 120.0, 18.0], &tr("doc23.categories", "Categories:"));
+            f.combo(
+                "cat",
+                [30.0, 92.0, 250.0, 26.0],
+                vec![tr("doc23.allCats", "(All)")],
+                0,
+            );
+            f.label("namesL", [30.0, 128.0, 120.0, 18.0], &tr("doc23.fieldNames", "Field names:"));
+            f.list(
+                "names",
+                [30.0, 148.0, 250.0, 200.0],
+                FIELDS.iter().map(|(n, _)| (*n).to_owned()).collect(),
+                Some(0),
+            );
+            f.group("propsG", [310.0, 46.0, 314.0, 18.0], &tr("doc23.fieldCodes", "Field codes"));
+            // Descriptions in the interface language, looked up when the name changes.
+            f.preview = FIELDS
+                .iter()
+                .map(|(n, d)| tr(&format!("doc23.fd{n}"), d))
+                .collect();
+            f.label("descL", [324.0, 72.0, 290.0, 40.0], &f.preview[0].clone());
+            f.label("codeL", [324.0, 128.0, 290.0, 18.0], &tr("doc23.fieldCode", "Field code:"));
+            f.edit("code", [324.0, 148.0, 290.0, 26.0], FIELDS[0].0);
+            f.check(
+                "keep",
+                [324.0, 190.0, 290.0, 20.0],
+                &tr("doc23.preserve", "Preserve formatting during updates"),
+                true,
+            );
+            f.ok_cancel(s);
+            f
+        }
         _ => open_font(kind, s, c),
     }
 }
@@ -619,13 +673,13 @@ fn open_font(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
     f.group_page(
         1,
         "spacingG",
-        [24.0, 100.0, 544.0, 18.0],
+        [24.0, 89.0, 544.0, 18.0],
         &tr("doc23.charSpacing", "Character Spacing"),
     );
     f.label_on(
         1,
         "scaleL",
-        [38.0, 132.0, 90.0, 18.0],
+        [38.0, 110.0, 60.0, 18.0],
         &tr("doc23.scale", "Scale:"),
     );
     let scale = x["scale"].as_u64().unwrap_or(100) as u32;
@@ -637,7 +691,7 @@ fn open_font(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
     f.form.add(
         "scale",
         Some(1),
-        [130.0, 128.0, 176.0, 26.0],
+        [101.0, 106.0, 223.0, 25.0],
         Kind::Combo {
             items: scales,
             sel: sc,
@@ -647,13 +701,13 @@ fn open_font(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
     f.label_on(
         1,
         "spacingL",
-        [38.0, 166.0, 90.0, 18.0],
+        [38.0, 141.0, 60.0, 18.0],
         &tr("doc23.spacing", "Spacing:"),
     );
     f.form.add(
         "spacing",
         Some(1),
-        [130.0, 162.0, 176.0, 26.0],
+        [101.0, 137.0, 223.0, 25.0],
         Kind::Combo {
             items: vec![
                 tr("doc23.normal", "Normal"),
@@ -670,13 +724,13 @@ fn open_font(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
     f.label_on(
         1,
         "spByL",
-        [330.0, 166.0, 34.0, 18.0],
+        [338.0, 141.0, 30.0, 18.0],
         &tr("doc23.by", "By:"),
     );
     f.edit_on(
         1,
         "spBy",
-        [370.0, 162.0, 100.0, 24.0],
+        [369.0, 137.0, 110.0, 25.0],
         &if spacing == 0 {
             String::new()
         } else {
@@ -687,13 +741,13 @@ fn open_font(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
     f.label_on(
         1,
         "posL",
-        [38.0, 200.0, 90.0, 18.0],
+        [38.0, 173.0, 60.0, 18.0],
         &tr("doc23.position", "Position:"),
     );
     f.form.add(
         "position",
         Some(1),
-        [130.0, 196.0, 176.0, 26.0],
+        [101.0, 169.0, 93.0, 25.0],
         Kind::Combo {
             items: vec![
                 tr("doc23.normal", "Normal"),
@@ -710,13 +764,13 @@ fn open_font(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
     f.label_on(
         1,
         "posByL",
-        [330.0, 200.0, 34.0, 18.0],
+        [338.0, 173.0, 30.0, 18.0],
         &tr("doc23.by", "By:"),
     );
     f.edit_on(
         1,
         "posBy",
-        [370.0, 196.0, 100.0, 24.0],
+        [369.0, 169.0, 110.0, 25.0],
         &if position == 0 {
             String::new()
         } else {
@@ -727,27 +781,27 @@ fn open_font(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
     f.check_on(
         1,
         "kern",
-        [38.0, 236.0, 160.0, 20.0],
+        [38.0, 207.0, 170.0, 20.0],
         &tr("doc23.kerning", "Kerning for fonts:"),
         kern.is_some(),
     );
     f.edit_on(
         1,
         "kernAt",
-        [204.0, 232.0, 70.0, 24.0],
+        [212.0, 204.0, 60.0, 25.0],
         &kern.map_or(String::new(), |k| pt_text(k as i32)),
     );
     f.label_on(
         1,
         "kernL",
-        [282.0, 236.0, 200.0, 18.0],
+        [280.0, 208.0, 200.0, 18.0],
         &tr("doc23.pointsAbove", "Points and above"),
     );
     // OpenType Features.
     f.group_page(
         1,
         "otG",
-        [24.0, 276.0, 544.0, 18.0],
+        [24.0, 244.0, 544.0, 18.0],
         &tr("doc23.openType", "OpenType Features"),
     );
     let combo = |f: &mut DocForm,
@@ -764,13 +818,13 @@ fn open_font(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
                 _ => "setsL",
             },
             Some(1),
-            [38.0, y + 4.0, 120.0, 18.0],
+            [38.0, y + 4.0, 110.0, 18.0],
             Kind::Label(label),
         );
         f.form.add(
             id,
             Some(1),
-            [170.0, y, 200.0, 26.0],
+            [151.0, y, 223.0, 25.0],
             Kind::Combo { items, sel },
         );
     };
@@ -778,7 +832,7 @@ fn open_font(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
     combo(
         &mut f,
         "lig",
-        304.0,
+        270.0,
         tr("doc23.ligatures", "Ligatures:"),
         LIGATURES.iter().map(|(_, k, fb)| tr(k, fb)).collect(),
         LIGATURES.iter().position(|l| l.0 == lig).unwrap_or(0),
@@ -787,7 +841,7 @@ fn open_font(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
     combo(
         &mut f,
         "numSp",
-        338.0,
+        302.0,
         tr("doc23.numSpacing", "Number spacing:"),
         NUM_SPACING.iter().map(|(_, k, fb)| tr(k, fb)).collect(),
         NUM_SPACING.iter().position(|l| l.0 == nsp).unwrap_or(0),
@@ -796,7 +850,7 @@ fn open_font(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
     combo(
         &mut f,
         "numForm",
-        372.0,
+        334.0,
         tr("doc23.numForms", "Number forms:"),
         NUM_FORMS.iter().map(|(_, k, fb)| tr(k, fb)).collect(),
         NUM_FORMS.iter().position(|l| l.0 == nfm).unwrap_or(0),
@@ -806,7 +860,7 @@ fn open_font(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
     combo(
         &mut f,
         "sets",
-        406.0,
+        366.0,
         tr("doc23.stylisticSets", "Stylistic sets:"),
         sets,
         x["stylisticSet"].as_u64().unwrap_or(0).min(20) as usize,
@@ -814,18 +868,18 @@ fn open_font(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
     f.check_on(
         1,
         "ctxAlts",
-        [38.0, 444.0, 300.0, 20.0],
+        [38.0, 402.0, 300.0, 20.0],
         &tr("doc23.ctxAlts", "Use Contextual Alternates"),
         x["contextualAlternates"] == true,
     );
     f.group_page(
         1,
         "previewL2",
-        [24.0, 476.0, 544.0, 18.0],
+        [24.0, 442.0, 544.0, 18.0],
         &tr("doc23.previewG", "Preview"),
     );
     f.form
-        .add("prev23b", Some(1), [38.0, 502.0, 522.0, 52.0], Kind::Canvas);
+        .add("prev23b", Some(1), [38.0, 468.0, 522.0, 52.0], Kind::Canvas);
     f.button(
         "setDefault",
         [10.0, 617.0, 112.0, 28.0],
@@ -850,8 +904,10 @@ fn open_font(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
         &tr("common.cancel", "Cancel"),
         false,
     );
-    // The state the dialog opened with (OK changes only what differs).
+    // The state the dialog opened with (OK changes only what differs); the preview shows
+    // the selected text as the reference.
     f.words = vec![("r23".to_owned(), x.to_string())];
+    f.preview = vec![c.selection.lines().next().unwrap_or("").chars().take(60).collect()];
     f
 }
 
@@ -891,6 +947,12 @@ impl DocForm {
                     self.form.set_text(edit, &v);
                 }
             }
+        }
+        if self.kind == DocFormKind::Field23 && id == "names" {
+            let i = self.sel("names").unwrap_or(0).min(FIELDS.len() - 1);
+            let desc = self.preview.get(i).cloned().unwrap_or_default();
+            self.form.set_text("code", FIELDS[i].0);
+            self.set_label("descL", &desc);
         }
         if self.kind == DocFormKind::DefineNumber && id == "style" {
             let fmt = NUMBER_STYLES[self.sel("style").unwrap_or(0).min(5)].0;
@@ -1025,6 +1087,16 @@ impl DocForm {
                     vec![json!({ "cmd": "defineList", "levels": levels, "apply": true })],
                     true,
                 )
+            }
+            DocFormKind::Field23 => {
+                let mut instr = self.text("code").trim().to_owned();
+                if instr.is_empty() {
+                    return Some(FormOut::Redraw);
+                }
+                if self.on("keep") && !instr.contains("MERGEFORMAT") {
+                    instr.push_str(" \\* MERGEFORMAT");
+                }
+                FormOut::Run(vec![json!({ "cmd": "insertField", "instr": instr })], true)
             }
             DocFormKind::SortText => {
                 let descending = self.chosen("order") == Some("desc");
@@ -1231,10 +1303,10 @@ pub(super) fn paint_canvas(
                 let v = u32::from_str_radix(h, 16).unwrap_or(0);
                 Rgba((v >> 16) as u8, (v >> 8) as u8, v as u8, 255)
             };
-            let mut sample = if family.is_empty() {
-                "AaBbCcYyZz".to_owned()
-            } else {
-                family.clone()
+            let mut sample = match f.preview.first().filter(|s| !s.trim().is_empty()) {
+                Some(s) => s.clone(),
+                None if family.is_empty() => "AaBbCcYyZz".to_owned(),
+                None => family.clone(),
             };
             if f.on("allCaps") {
                 sample = sample.to_uppercase();

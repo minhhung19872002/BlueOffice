@@ -14,7 +14,7 @@ use crate::ribbon::RibbonHit;
 use crate::Input;
 use bo_engine::edit::Command;
 use bo_render::{PathSeg, Rgba};
-use serde_json::json;
+use serde_json::{json, Value};
 
 #[cfg(test)]
 #[path = "doc_r23_inv_tests.rs"]
@@ -40,7 +40,8 @@ pub(super) struct R23 {
 }
 
 /// Split buttons of Home: the left part runs the command, the arrow part opens its menu.
-pub(crate) const SPLIT: [&str; 4] = [
+pub(crate) const SPLIT: [&str; 5] = [
+    "format.underline",
     "format.bullets",
     "format.numbering",
     "format.highlight",
@@ -99,6 +100,26 @@ pub(crate) const MULTILEVEL: [(&str, [&str; 3]); 4] = [
     ),
 ];
 
+/// Text effect presets of Text Effects and Typography ▾ (BlueOffice's own combinations):
+/// fill, outline, halo (black: a shadow; other: a glow).
+pub(crate) const TEXT_PRESETS: [(&str, Option<&str>, Option<&str>); 15] = [
+    ("000000", None, Some("000000")),
+    ("4472C4", None, Some("000000")),
+    ("ED7D31", None, Some("000000")),
+    ("FFFFFF", Some("4472C4"), None),
+    ("FFFFFF", Some("ED7D31"), None),
+    ("FFFFFF", Some("000000"), Some("000000")),
+    ("4472C4", Some("1F3864"), None),
+    ("ED7D31", Some("843C0C"), None),
+    ("A5A5A5", Some("404040"), None),
+    ("FFC000", None, Some("FFC000")),
+    ("5B9BD5", None, Some("5B9BD5")),
+    ("70AD47", None, Some("70AD47")),
+    ("1F3864", None, Some("8FAADC")),
+    ("C00000", None, Some("F4B183")),
+    ("FFFFFF", Some("7F7F7F"), Some("A5A5A5")),
+];
+
 /// Entries of a round-23 menu button (the catalog lists them so the ribbon draws the
 /// drop-down mark); `None` for other ids.
 pub(crate) fn menu(id: &str) -> Option<Vec<Entry>> {
@@ -118,6 +139,10 @@ pub(crate) fn menu(id: &str) -> Option<Vec<Entry>> {
             e("r23.setValue", "doc23.setValue"),
         ],
         "format.highlight" => vec![e("r23.hl:none", "doc23.noColor")],
+        "format.underline" => vec![
+            e("r23.ul:single", "doc23.uSingle"),
+            e("r23.ulMore", "doc23.moreUnderlines"),
+        ],
         "edit.find" => vec![
             e("edit.find", "doc23.find"),
             e("r23.advancedFind", "doc23.advancedFind"),
@@ -257,6 +282,7 @@ impl DocWindow {
                     "format.bullets" => self.r23_bullets(),
                     "format.numbering" => self.r23_numbering(),
                     "format.highlight" => self.r23_highlights(),
+                    "format.underline" => self.r23_underlines(),
                     _ => self.r23_find_menu(),
                 });
             }
@@ -274,7 +300,7 @@ impl DocWindow {
                 }
                 // The catalog lists these as menus (for the drop-down mark): run the
                 // button's own command here.
-                "format.bullets" | "format.numbering" => {
+                "format.underline" | "format.bullets" | "format.numbering" => {
                     crate::commands::command(split).map(|c| self.view.run_command(c))
                 }
                 _ => None,
@@ -288,6 +314,31 @@ impl DocWindow {
         }
         if let Some(v) = id.strip_prefix("r23.level:") {
             return Some(self.r23_set_level(v.parse().unwrap_or(0)));
+        }
+        if let Some(v) = id.strip_prefix("r23.ul:") {
+            self.menu = None;
+            let patch = json!({ "underline": v });
+            return Some(self.r3_run(vec![json!({ "cmd": "formatText",
+                "format": { "kind": "advanced", "patch": patch } })]));
+        }
+        if let Some(v) = id.strip_prefix("r23.tefxMenu:") {
+            let v = v.to_owned();
+            return Some(self.r23_text_effects_menu(&v));
+        }
+        if let Some(v) = id.strip_prefix("r23.tefx:") {
+            let v = v.to_owned();
+            return Some(self.r23_apply_text_effect(&v));
+        }
+        if let Some(v) = id.strip_prefix("r23.qatAdd:") {
+            self.menu = None;
+            let mut p = self.r6.prefs.clone();
+            if p.quick.iter().any(|q| q == v) {
+                return Some(false);
+            }
+            p.quick.push(v.to_owned());
+            self.r6_set_quick(&p.quick);
+            self.r6_store_prefs(p);
+            return Some(true);
         }
         if let Some(v) = id.strip_prefix("r23.tb:") {
             let v = v.to_owned();
@@ -324,6 +375,40 @@ impl DocWindow {
             "r23.setValue" => self.r23_open_form(K::SetNumbering),
             "r23.defineMultilevel" => self.r23_open_form(K::DefineMultilevel),
             "r23.defineListStyle" => self.r23_open_form(K::NewStyle),
+            "r23.ulMore" => self.r23_open_form(K::Font23),
+            "layout.lineNumbers.options" => self.r23_open_form(K::LineNumbers),
+            "layout.lineNumbers.suppress" => {
+                self.menu = None;
+                let on = !self.r23_suppressed();
+                self.view.run_command(Command::FormatParagraph {
+                    format: bo_edit::ParaFormat::SuppressLineNumbers { on },
+                })
+            }
+            "insert.quickParts.field" => self.r23_open_form(K::Field23),
+            "r23.qatCustomize" | "r23.ribbonCustomize" => {
+                self.menu = None;
+                self.r6_open_options();
+                if let Some(o) = self.r6.options.as_mut() {
+                    o.set_page(if id == "r23.qatCustomize" { 8 } else { 7 });
+                }
+                true
+            }
+            "r23.qatBelow" => {
+                self.menu = None;
+                let mut p = self.r6.prefs.clone();
+                p.extra.qat_below = !p.extra.qat_below;
+                self.r21_apply(&p);
+                self.r6_store_prefs(p);
+                true
+            }
+            // Size and Position… of a picture or shape: the Format pane's Layout &
+            // Properties page (BlueDoc's Layout options live there).
+            "picture.layoutOptions" => {
+                self.menu = None;
+                self.r21_open_pane(crate::doc_fmtpane21::Page::Layout, None, false)
+            }
+            // Alt Text of a shape (pictures: round 7).
+            "picture.altText" if self.context.shape => self.r23_shape_alt_text(),
             "r23.fontDefault" => {
                 self.r3_run(vec![json!({ "cmd": "styleUpdateToMatch", "id": "Normal" })])
             }
@@ -349,6 +434,7 @@ impl DocWindow {
                 self.view
                     .run_command(Command::SetListNumbering { numbering })
             }
+            "format.textEffects" => self.r23_text_effects(),
             "format.multilevel" => self.r23_multilevel(),
             "format.lineSpacing" => self.r23_line_spacing(),
             "format.paraBorders" => self.r23_borders(),
@@ -379,6 +465,42 @@ impl DocWindow {
             "format.paraBorders.horizontalLine" => self.r23_horizontal_line(),
             _ => return None,
         })
+    }
+
+    /// Right-click on the ribbon: Add to Quick Access Toolbar (on a command), Customize
+    /// Quick Access Toolbar…, Show Quick Access Toolbar Below / Above the Ribbon, Customize
+    /// the Ribbon… — the reference's ribbon menu.
+    pub(super) fn r23_ribbon_menu(&mut self, x: f32, y: f32) -> bool {
+        let mut rows: Vec<(String, String, bool)> = Vec::new();
+        if let Some(RibbonHit::Command(id)) = self.ribbon.hit(x, y) {
+            let on = self.r6.prefs.quick.iter().any(|q| q == id);
+            rows.push((
+                self.r23_t("doc23.qatAdd", "Add to Quick Access Toolbar"),
+                format!("r23.qatAdd:{id}"),
+                on,
+            ));
+        }
+        rows.push((
+            self.r23_t("doc23.qatCustomize", "Customize Quick Access Toolbar..."),
+            "r23.qatCustomize".into(),
+            false,
+        ));
+        rows.push((
+            if self.r6.prefs.extra.qat_below {
+                self.r23_t("doc23.qatAbove", "Show Quick Access Toolbar Above the Ribbon")
+            } else {
+                self.r23_t("doc23.qatBelow", "Show Quick Access Toolbar Below the Ribbon")
+            },
+            "r23.qatBelow".into(),
+            false,
+        ));
+        let sep = rows.len();
+        rows.push((
+            self.r23_t("doc23.ribbonCustomize", "Customize the Ribbon..."),
+            "r23.ribbonCustomize".into(),
+            false,
+        ));
+        self.r23_menu(rows, [x, y, 1.0, 0.0], vec![sep])
     }
 
     /// Context menu rows of round 23 (label, command): `group` 0 a field under the caret,
@@ -431,6 +553,45 @@ impl DocWindow {
             }
             _ => Vec::new(),
         }
+    }
+
+    /// Alt Text… of the selected shape (§20.4.2.5 docPr descr), as for pictures.
+    fn r23_shape_alt_text(&mut self) -> bool {
+        self.menu = None;
+        let Some(s) = self.view.engine().session() else {
+            return false;
+        };
+        let desc = s.tools_shape().map(|i| i.description).unwrap_or_default();
+        let (a, b) = s.selection().ordered();
+        let Some(p) = bo_model::index::para_by_id(s.doc(), a.para) else {
+            return false;
+        };
+        let text = bo_model::index::para_index_text(p);
+        let end = if b.para == a.para { b.offset } else { text.len() };
+        let Some(at) = text
+            .char_indices()
+            .filter(|(i, c)| *c == bo_model::index::OBJECT && *i + c.len_utf8() >= a.offset)
+            .find(|(i, _)| *i <= end)
+            .map(|(i, _)| i)
+        else {
+            return false;
+        };
+        let para = a.para;
+        self.r3_open_form(crate::doc_forms::DocFormKind::AltText);
+        if let Some(f) = self.r3.form.as_mut() {
+            f.ids = vec![para.to_string(), at.to_string()];
+            f.set_text("alt", &desc);
+        }
+        true
+    }
+
+    /// The caret's paragraph suppresses line numbers (§17.3.1.34 suppressLineNumbers).
+    fn r23_suppressed(&self) -> bool {
+        self.view
+            .engine()
+            .session()
+            .and_then(|s| bo_model::index::para_by_id(s.doc(), s.selection().focus.para))
+            .is_some_and(|p| p.props.suppress_line_numbers == Some(true))
     }
 
     /// Open round-23 dialog `kind` with the selection's state.
@@ -715,6 +876,241 @@ impl DocWindow {
             return false;
         };
         self.r23_define(fmt, text)
+    }
+
+    /// Underline ▾: the reference's eight line styles (§17.18.99), then More Underlines….
+    fn r23_underlines(&mut self) -> bool {
+        let anchor = self.r23_anchor("format.underline");
+        let current = self.view.format().advanced.underline.clone();
+        let rows: Vec<(String, String, bool)> = [
+            ("single", "doc23.uSingle", "Single"),
+            ("double", "doc23.uDouble", "Double"),
+            ("thick", "doc23.uThick", "Thick"),
+            ("dotted", "doc23.uDotted", "Dotted"),
+            ("dash", "doc23.uDash", "Dash"),
+            ("dotDash", "doc23.uDotDash", "Dot dash"),
+            ("dotDotDash", "doc23.uDotDotDash", "Dot dot dash"),
+            ("wave", "doc23.uWave", "Wave"),
+        ]
+        .iter()
+        .map(|(v, k, en)| (self.r23_t(k, en), format!("r23.ul:{v}"), false))
+        .chain([(
+            self.r23_t("doc23.moreUnderlines", "More Underlines..."),
+            "r23.ulMore".to_owned(),
+            false,
+        )])
+        .collect();
+        let open = self.r23_menu(rows, anchor, vec![8]);
+        if let Some(m) = self.menu.as_mut() {
+            let mut items = m.items().to_vec();
+            for it in &mut items {
+                it.checked = matches!(&it.choice,
+                    Choice::Command(c) if c.strip_prefix("r23.ul:") == Some(current.as_str()));
+            }
+            *m = Menu::open(items, anchor, self.size, self.scale).with_decor(vec![None; 9], vec![8]);
+        }
+        open
+    }
+
+    // ----- Text Effects and Typography -----
+
+    /// Home › Text Effects and Typography ▾: fifteen effect presets (BlueOffice's own
+    /// combinations of fill, outline, shadow and glow), then Outline ▸, Shadow ▸,
+    /// Reflection ▸, Glow ▸, Number Styles ▸, Ligatures ▸, Stylistic Sets ▸.
+    fn r23_text_effects(&mut self) -> bool {
+        let cells = TEXT_PRESETS
+            .iter()
+            .enumerate()
+            .map(|(i, (fill, outline, halo))| Cell {
+                thumb: Thumb::Letter {
+                    fill: rgb(fill),
+                    outline: outline.map(rgb),
+                    halo: halo.map(rgb),
+                },
+                command: format!("r23.tefx:preset={i}"),
+                tip: format!("{} {}", self.r23_t("doc23.effect", "Effect"), i + 1),
+                checked: false,
+            })
+            .collect();
+        let sub = |w: &Self, k: &str, en: &str, id: &str| {
+            (
+                format!("{}  \u{25B8}", w.r23_t(k, en)),
+                format!("r23.tefxMenu:{id}"),
+            )
+        };
+        let footer = vec![
+            sub(self, "doc23.teOutline", "Outline", "outline"),
+            sub(self, "doc23.teShadow", "Shadow", "shadow"),
+            sub(self, "doc23.teReflection", "Reflection", "reflection"),
+            sub(self, "doc23.teGlow", "Glow", "glow"),
+            sub(self, "doc23.teNumberStyles", "Number Styles", "numbers"),
+            sub(self, "doc23.teLigatures", "Ligatures", "ligatures"),
+            sub(self, "doc23.teSets", "Stylistic Sets", "sets"),
+        ];
+        self.r23_gallery(
+            "format.textEffects",
+            vec![Section {
+                title: String::new(),
+                cells,
+            }],
+            footer,
+            (5, (48.0, 48.0)),
+        )
+    }
+
+    fn r23_text_effects_menu(&mut self, which: &str) -> bool {
+        let rows: Vec<(String, String, bool)> = match which {
+            "outline" => {
+                let mut v = vec![(
+                    self.r23_t("doc23.noOutline", "No Outline"),
+                    "r23.tefx:outline=none".to_owned(),
+                    false,
+                )];
+                for (hex, k, en) in &HIGHLIGHTS[..12] {
+                    v.push((self.r23_t(k, en), format!("r23.tefx:outline={hex}"), false));
+                }
+                v
+            }
+            "shadow" => [
+                ("none", "doc23.noShadow", "No Shadow"),
+                ("br", "doc23.shOffsetBR", "Offset: Bottom Right"),
+                ("b", "doc23.shOffsetB", "Offset: Bottom"),
+                ("r", "doc23.shOffsetR", "Offset: Right"),
+                ("c", "doc23.shOffsetC", "Offset: Center"),
+            ]
+            .iter()
+            .map(|(id, k, en)| (self.r23_t(k, en), format!("r23.tefx:shadow={id}"), false))
+            .collect(),
+            "reflection" => [
+                ("none", "doc23.noReflection", "No Reflection"),
+                ("tight", "doc23.rfTight", "Tight Reflection: Touching"),
+                ("half", "doc23.rfHalf", "Half Reflection: Touching"),
+                ("full", "doc23.rfFull", "Full Reflection: Touching"),
+            ]
+            .iter()
+            .map(|(id, k, en)| (self.r23_t(k, en), format!("r23.tefx:reflection={id}"), false))
+            .collect(),
+            "glow" => {
+                let mut v = vec![(
+                    self.r23_t("doc23.noGlow", "No Glow"),
+                    "r23.tefx:glow=none".to_owned(),
+                    false,
+                )];
+                for hex in ["4472C4", "ED7D31", "A5A5A5", "FFC000", "5B9BD5", "70AD47"] {
+                    v.push((
+                        format!("{}: 5 pt, #{hex}", self.r23_t("doc23.glow", "Glow")),
+                        format!("r23.tefx:glow={hex}"),
+                        false,
+                    ));
+                }
+                v
+            }
+            "numbers" => [
+                ("default", "doc23.default", "Default"),
+                ("propLining", "doc23.nsPropLining", "Proportional Lining"),
+                ("tabLining", "doc23.nsTabLining", "Tabular Lining"),
+                ("propOld", "doc23.nsPropOld", "Proportional Old-style"),
+                ("tabOld", "doc23.nsTabOld", "Tabular Old-style"),
+            ]
+            .iter()
+            .map(|(id, k, en)| (self.r23_t(k, en), format!("r23.tefx:numbers={id}"), false))
+            .collect(),
+            "ligatures" => [
+                ("", "doc23.ligNone", "None"),
+                ("standard", "doc23.ligStandard", "Standard Only"),
+                ("standardContextual", "doc23.ligStdCtx", "Standard and Contextual"),
+                (
+                    "historicalDiscretional",
+                    "doc23.ligHistDisc",
+                    "Historical and Discretionary",
+                ),
+                ("all", "doc23.ligAll", "All"),
+            ]
+            .iter()
+            .map(|(id, k, en)| (self.r23_t(k, en), format!("r23.tefx:ligatures={id}"), false))
+            .collect(),
+            _ => std::iter::once((
+                self.r23_t("doc23.default", "Default"),
+                "r23.tefx:sets=0".to_owned(),
+                false,
+            ))
+            .chain((1..=20).map(|i| {
+                (
+                    format!("{} {i}", self.r23_t("doc23.set", "Set")),
+                    format!("r23.tefx:sets={i}"),
+                    false,
+                )
+            }))
+            .collect(),
+        };
+        let g = self.r23.gallery_at;
+        let at = [g[0] + g[2] - 4.0, g[1] + g[3] * 0.55, 1.0, 0.0];
+        self.r22.gallery = None;
+        self.r23_menu(rows, at, Vec::new())
+    }
+
+    fn r23_apply_text_effect(&mut self, v: &str) -> bool {
+        self.menu = None;
+        self.r22.gallery = None;
+        let (kind, val) = v.split_once('=').unwrap_or((v, ""));
+        let glow = |hex: &str| json!({ "color": hex, "radius": 5.0, "transparency": 60 });
+        let shadow = |angle: f32, distance: f32| json!({
+            "color": "000000", "blur": 4.0, "distance": distance, "angle": angle,
+            "transparency": 60,
+        });
+        let mut color: Option<String> = None;
+        let patch = match kind {
+            "outline" if val == "none" => json!({ "textOutline": null }),
+            "outline" => json!({ "textOutline": { "color": val, "width": 0.75 } }),
+            "shadow" => match val {
+                "br" => json!({ "softShadow": shadow(45.0, 3.0) }),
+                "b" => json!({ "softShadow": shadow(90.0, 3.0) }),
+                "r" => json!({ "softShadow": shadow(0.0, 3.0) }),
+                "c" => json!({ "softShadow": shadow(0.0, 0.0) }),
+                _ => json!({ "softShadow": null }),
+            },
+            "reflection" => match val {
+                "tight" => json!({ "reflection": { "size": 33, "transparency": 50, "distance": 0.0 } }),
+                "half" => json!({ "reflection": { "size": 50, "transparency": 50, "distance": 0.0 } }),
+                "full" => json!({ "reflection": { "size": 100, "transparency": 50, "distance": 0.0 } }),
+                _ => json!({ "reflection": null }),
+            },
+            "glow" if val == "none" => json!({ "glow": null }),
+            "glow" => json!({ "glow": glow(val) }),
+            "numbers" => {
+                let (sp, form) = match val {
+                    "propLining" => ("proportional", "lining"),
+                    "tabLining" => ("tabular", "lining"),
+                    "propOld" => ("proportional", "oldStyle"),
+                    "tabOld" => ("tabular", "oldStyle"),
+                    _ => ("", ""),
+                };
+                json!({ "numSpacing": sp, "numForm": form })
+            }
+            "ligatures" => json!({ "ligatures": val }),
+            "sets" => json!({ "stylisticSet": val.parse::<u8>().unwrap_or(0) }),
+            "preset" => {
+                let i: usize = val.parse().unwrap_or(0);
+                let (fill, outline, halo) = TEXT_PRESETS[i.min(TEXT_PRESETS.len() - 1)];
+                color = Some(fill.to_owned());
+                let dark = halo.is_some_and(|h| h == "000000");
+                json!({
+                    "textOutline": outline.map(|o| json!({ "color": o, "width": 0.75 })),
+                    "softShadow": if dark { shadow(45.0, 3.0) } else { Value::Null },
+                    "glow": match halo { Some(h) if h != "000000" => glow(h), _ => Value::Null },
+                })
+            }
+            _ => return false,
+        };
+        let mut cmds = Vec::new();
+        if let Some(hex) = color {
+            cmds.push(json!({ "cmd": "formatText",
+                "format": serde_json::to_value(bo_edit::CharFormat::Color { hex: Some(hex) })
+                    .unwrap_or(Value::Null) }));
+        }
+        cmds.push(json!({ "cmd": "formatText",
+            "format": { "kind": "advanced", "patch": patch } }));
+        self.r3_run(cmds)
     }
 
     // ----- Highlight -----

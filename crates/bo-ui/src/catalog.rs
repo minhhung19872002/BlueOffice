@@ -205,6 +205,9 @@ pub fn menu(id: &str) -> Vec<Entry> {
             e("layout.lineNumbers.continuous", "Continuous"),
             e("layout.lineNumbers.newPage", "Restart each page"),
             e("layout.lineNumbers.newSection", "Restart each section"),
+            // Round 23: the reference's last two rows.
+            e("layout.lineNumbers.suppress", "doc23.lnSuppress"),
+            e("layout.lineNumbers.options", "doc23.lnOptions"),
         ],
         "layout.hyphenation" => vec![
             e("layout.hyphenation.none", "None"),

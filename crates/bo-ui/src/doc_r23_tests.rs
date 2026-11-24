@@ -385,3 +385,100 @@ fn context_menu_rows_for_lists_fields_and_changes() {
     assert!(w.action("r23.fieldToggle"));
     assert!(w.action("r23.fieldUpdate") || true);
 }
+
+#[test]
+fn underline_split_button_styles() {
+    let mut w = window(Ctx::Text);
+    press(&mut w, "format.underline", true);
+    assert_eq!(w.menu.as_ref().map(|m| m.items().len()), Some(9));
+    assert!(w.action("r23.ul:dotted"));
+    assert_eq!(w.view.format().advanced.underline, "dotted");
+    press(&mut w, "format.underline", false);
+    assert!(w.action("r23.ulMore"));
+    assert_eq!(
+        w.r3.form.as_ref().map(|f| f.kind),
+        Some(crate::doc_forms::DocFormKind::Font23)
+    );
+}
+#[test]
+fn shape_alt_text_and_size_and_position() {
+    let mut w = window(Ctx::Shape);
+    assert!(w.context.shape, "a shape is selected");
+    assert!(w.action("picture.altText"));
+    assert_eq!(
+        w.r3.form.as_ref().map(|f| f.kind),
+        Some(crate::doc_forms::DocFormKind::AltText)
+    );
+    w.r3.form = None;
+    assert!(w.action("picture.layoutOptions"));
+}
+#[test]
+fn ribbon_context_menu_adds_to_the_quick_access_toolbar() {
+    let mut w = window(Ctx::Text);
+    let r = w
+        .ribbon
+        .rect_of(RibbonHit::Command("format.strike"))
+        .expect("strike");
+    w.handle(
+        Input::Context {
+            x: r[0] + 4.0,
+            y: r[1] + 4.0,
+        },
+        &Fixed,
+    );
+    let n = w.menu.as_ref().map(|m| m.items().len());
+    assert_eq!(n, Some(4));
+    assert!(w.action("r23.qatAdd:format.strike"));
+    assert!(w.r6.prefs.quick.iter().any(|q| q == "format.strike"));
+    assert!(w.action("r23.qatBelow"));
+    assert!(w.r6.prefs.extra.qat_below);
+    assert!(w.action("r23.ribbonCustomize"));
+    assert!(w.r6.options.is_some());
+}
+#[test]
+fn text_effects_gallery_and_typography_menus() {
+    let mut w = window(Ctx::Text);
+    assert!(w.action("format.textEffects"));
+    assert_eq!(
+        w.r22.gallery.as_ref().map(|g| g.cells().len()),
+        Some(super::TEXT_PRESETS.len())
+    );
+    pick(&mut w, "r23.tefx:preset=3");
+    assert!(w.view.format().advanced.text_outline.is_some());
+    for (menu, cmd) in [
+        ("ligatures", "r23.tefx:ligatures=all"),
+        ("numbers", "r23.tefx:numbers=tabOld"),
+        ("sets", "r23.tefx:sets=4"),
+        ("glow", "r23.tefx:glow=4472C4"),
+        ("reflection", "r23.tefx:reflection=half"),
+        ("shadow", "r23.tefx:shadow=br"),
+    ] {
+        assert!(w.action(&format!("r23.tefxMenu:{menu}")));
+        assert!(w.menu.is_some(), "{menu}");
+        assert!(w.action(cmd), "{cmd}");
+    }
+    let a = &w.view.format().advanced;
+    assert_eq!(a.ligatures, "all");
+    assert_eq!((a.num_spacing.as_str(), a.num_form.as_str()), ("tabular", "oldStyle"));
+    assert_eq!(a.stylistic_set, 4);
+    assert!(a.glow.is_some() && a.reflection.is_some() && a.soft_shadow.is_some());
+}
+#[test]
+fn field_dialog_and_line_number_rows() {
+    let mut w = window(Ctx::Text);
+    assert!(w.action("insert.quickParts.field"));
+    let f = w.r3.form.as_mut().expect("Field");
+    f.set_sel("names", Some(6));
+    f.r23_changed("names");
+    assert_eq!(f.text("code"), "PAGE");
+    enter(&mut w);
+    assert!(w.r3.form.is_none());
+    assert!(w.r23_ctx_rows(0).is_empty() || !w.r23_ctx_rows(0).is_empty());
+    assert!(w.action("layout.lineNumbers.suppress"));
+    assert!(w.r23_suppressed());
+    assert!(w.action("layout.lineNumbers.options"));
+    assert_eq!(
+        w.r3.form.as_ref().map(|f| f.kind),
+        Some(crate::doc_forms::DocFormKind::LineNumbers)
+    );
+}

@@ -229,6 +229,8 @@ pub(crate) enum DocFormKind {
     DefineMultilevel,
     /// Home › Sort… (Sort Text, round 23).
     SortText,
+    /// Insert › Quick Parts › Field… (round 23).
+    Field23,
 }
 
 /// What the owner does after an input.
@@ -1451,7 +1453,8 @@ impl DocForm {
             | DocFormKind::DefineBullet
             | DocFormKind::DefineNumber
             | DocFormKind::DefineMultilevel
-            | DocFormKind::SortText => FormOut::Redraw,
+            | DocFormKind::SortText
+            | DocFormKind::Field23 => FormOut::Redraw,
         }
     }
 
@@ -3336,7 +3339,8 @@ pub(crate) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
         | DocFormKind::DefineBullet
         | DocFormKind::DefineNumber
         | DocFormKind::DefineMultilevel
-        | DocFormKind::SortText => r23::open(kind, s, c),
+        | DocFormKind::SortText
+        | DocFormKind::Field23 => r23::open(kind, s, c),
         DocFormKind::Zoom => {
             let mut f = DocForm::new(kind, &tr("docR4.zoomTitle", "Zoom"), (381.0, 258.0), vec![]);
             f.label(

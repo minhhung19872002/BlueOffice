@@ -328,13 +328,47 @@ fn inventory() {
         return;
     };
     let only = std::env::var("BO_INV23_TAB").ok();
+    std::fs::write(path, build(only.as_deref())).expect("write");
+}
+
+/// Entries that do nothing in the inventory's sample windows for a documented reason
+/// (round 23 REPORT "Vòng 113"): (command prefix, why).
+const ALLOWED: [(&str, &str); 5] = [
+    // No footnotes / endnotes in the sample document: nothing to move to.
+    ("references.note.", "no notes in the sample"),
+    // The sample shape has no text: WordArt styles have no runs to change.
+    ("r20.", "the sample shape holds no text"),
+    // Equation tab buttons need an equation being edited (the sample has none).
+    ("eq.", "no equation in the sample"),
+    // Stop Highlighting ends the highlighter pen (greyed on the reference when off).
+    ("r23.hl:stop", "highlighter pen is not on"),
+    ("ctx.none", "a heading row"),
+];
+
+/// Every menu / gallery entry the inventory ran must change something (the document, the
+/// window or a host request); the dead ones the baseline found (99) cannot come back.
+#[test]
+fn no_dead_menu_entries() {
+    let out = build(None);
+    let dead: Vec<&str> = out
+        .lines()
+        .filter(|l| l.ends_with("\tNONE") || l.contains("\tNONE\t"))
+        .filter(|l| {
+            let cmd = l.split('\t').nth(2).unwrap_or("");
+            !ALLOWED.iter().any(|(p, _)| cmd.starts_with(p))
+        })
+        .collect();
+    assert!(dead.is_empty(), "dead entries:\n{}", dead.join("\n"));
+}
+
+fn build(only: Option<&str>) -> String {
     let mut out = String::from("tab › group › button\tentry\tcommand\tstate\teffect\n");
     let probe_w = window(Ctx::Text);
     let mut tabs = crate::doc_ribbon21::main_tabs();
     tabs.extend(crate::doc_ribbon21::tool_tabs());
     for tab in &tabs {
         let tl = label(&probe_w, tab.label);
-        if only.as_deref().is_some_and(|o| !tl.contains(o)) {
+        if only.is_some_and(|o| !tl.contains(o)) {
             continue;
         }
         let ctx = ctx_of(&tl);
@@ -400,7 +434,7 @@ fn inventory() {
         let _ = writeln!(out, "{name}\t(menu {} rows)\t\t\t", r.len());
         dump_menu(&mut out, &open, name, &r, 0);
     }
-    std::fs::write(path, out).expect("write");
+    out
 }
 /// A window point over the context's object (the selection for text).
 pub(super) fn context_point(w: &DocWindow, ctx: Ctx) -> (f32, f32) {

@@ -3434,6 +3434,14 @@ impl DocWindow {
             if let Some(RibbonHit::Style(i)) = self.ribbon.hit(x, y) {
                 return self.r12_style_menu(i, x, y);
             }
+            // Round 23: the ribbon's own menu (Quick Access Toolbar, Customize the Ribbon).
+            if self.read_mode.is_none()
+                && !self.r4.focus
+                && y >= self.ribbon.top()
+                && y < self.ribbon.bottom()
+            {
+                return self.r23_ribbon_menu(x, y);
+            }
             if y >= self.view_top() && y < self.size.1 - self.status_h() {
                 self.r10_context_menu(x, y, text);
                 return true;

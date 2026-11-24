@@ -89,7 +89,9 @@ pub fn static_id(id: &str) -> &'static str {
 }
 
 /// Commands the window handles itself (dialogs, view state, format painter, mail merge).
-pub const WINDOW: [&str; 33] = [
+pub const WINDOW: [&str; 34] = [
+    // Round 22: Home › Add-ins (File › Options › Add-ins).
+    "home.addins",
     "view.readMode",
     "layout.pageSetup",
     "view.printLayout",

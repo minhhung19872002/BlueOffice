@@ -140,6 +140,9 @@
     "comingLater": "Sẽ có ở phiên bản sau"
   },
   "commands": {
+    "home": {
+      "addins": "Phần bổ trợ"
+    },
     "slide": {
       "new": "Trang chiếu mới",
       "layout": "Bố cục",
@@ -17051,6 +17054,8 @@
     "rotationOptions": "Tùy chọn xoay 3-D...",
     "resultNewIcon": "Chèn đối tượng trang tính BlueSheet mới vào tài liệu dưới dạng biểu tượng.",
     "resultFileIcon": "Chèn nội dung sổ làm việc vào tài liệu dưới dạng biểu tượng.",
-    "browse": "Duyệt..."
+    "browse": "Duyệt...",
+    "addins": "Phần bổ trợ",
+    "groupAddins": "Phần bổ trợ"
   }
 }

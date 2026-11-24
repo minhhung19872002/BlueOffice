@@ -140,6 +140,9 @@
     "comingLater": "Coming in a later release"
   },
   "commands": {
+    "home": {
+      "addins": "Add-ins"
+    },
     "slide": {
       "new": "New Slide",
       "layout": "Layout",
@@ -17051,6 +17054,8 @@
     "rotationOptions": "3-D Rotation Options...",
     "resultNewIcon": "Inserts a new BlueSheet Worksheet object into your document as an icon.",
     "resultFileIcon": "Inserts the contents of the workbook into your document as an icon.",
-    "browse": "Browse..."
+    "browse": "Browse...",
+    "addins": "Add-ins",
+    "groupAddins": "Add-ins"
   }
 }

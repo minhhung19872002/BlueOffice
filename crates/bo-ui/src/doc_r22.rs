@@ -450,6 +450,14 @@ impl DocWindow {
             return Some(self.action(&cmd));
         }
         Some(match id {
+            // Home › Add-ins: File › Options at the Add-ins page.
+            "home.addins" => {
+                self.r6_open_options();
+                if let Some(o) = self.r6.options.as_mut() {
+                    o.set_page(9);
+                }
+                true
+            }
             "shape.textDirection" => self.r22_text_direction(),
             _ if id.starts_with("r22.vert:") => self.r22_run(&json!({
                 "cmd": "shapeTextLayout", "vert": &id["r22.vert:".len()..]
@@ -1025,7 +1033,30 @@ pub(crate) fn install(icons: &mut crate::icons::Icons, s: &mut crate::strings::S
             v.as_str()
         },
     );
+    let v = s.get("doc22.addins").to_owned();
+    s.set(
+        "commands.home.addins",
+        if v == "doc22.addins" {
+            "Add-ins"
+        } else {
+            v.as_str()
+        },
+    );
+    if s.get("doc22.groupAddins") == "doc22.groupAddins" {
+        s.set("doc22.groupAddins", "Add-ins");
+    }
     let rgb = |r, g, b| Some(Rgba(r, g, b, 255));
+    // Add-ins: three tiles and a fourth one set apart (own drawing).
+    icons.add_solid(
+        "home.addins",
+        &[
+            (
+                "M3 13h7v7h-7ZM12 13h7v7h-7ZM3 4h7v7h-7Z",
+                rgb(0x44, 0x44, 0x44),
+            ),
+            ("M16.5 2l5 5l-5 5l-5-5Z", rgb(0x2f, 0x6f, 0xba)),
+        ],
+    );
     // Text Direction: a letter column and a turning arrow.
     icons.add_solid(
         "shape.textDirection",

@@ -55,7 +55,7 @@ fn selection(w: &DocWindow) -> Option<Selection> {
     w.view.engine().session().map(bo_edit::Session::selection)
 }
 
-fn painted(w: &mut DocWindow) -> HashSet<String> {
+pub(crate) fn painted(w: &mut DocWindow) -> HashSet<String> {
     w.handle(Input::Tick, &Fixed);
     LAST_SEL.with(|c| c.set(selection(w)));
     let mut t = Texts::default();
@@ -307,7 +307,7 @@ pub(crate) fn window(ctx: Ctx) -> DocWindow {
 }
 
 /// What running `id` changed: "doc", "ui(+n)", "req", combinations, or "—".
-fn effect(w: &mut DocWindow, before: &HashSet<String>, ret: bool) -> String {
+pub(crate) fn effect(w: &mut DocWindow, before: &HashSet<String>, ret: bool) -> String {
     let sel_before = LAST_SEL.with(std::cell::Cell::get);
     let after = painted(w);
     let new = after.difference(before).count();
@@ -337,7 +337,7 @@ fn effect(w: &mut DocWindow, before: &HashSet<String>, ret: bool) -> String {
 }
 
 /// Rows of the open menu or gallery: (label, command, dim).
-fn rows(w: &DocWindow) -> Option<Vec<(String, String, bool)>> {
+pub(crate) fn rows(w: &DocWindow) -> Option<Vec<(String, String, bool)>> {
     if let Some(m) = &w.menu {
         return Some(
             m.items()

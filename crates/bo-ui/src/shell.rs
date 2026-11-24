@@ -58,6 +58,8 @@ pub(crate) mod r22;
 pub(crate) mod r23;
 #[path = "doc_r24.rs"]
 pub(crate) mod r24;
+#[path = "doc_r25.rs"]
+pub(crate) mod r25;
 #[path = "doc_r3.rs"]
 mod r3;
 #[path = "doc_r4.rs"]
@@ -397,6 +399,7 @@ pub struct DocWindow {
     r22: Box<r22::R22>,
     r23: Box<r23::R23>,
     r24: Box<r24::R24>,
+    r25: Box<r25::R25>,
 }
 
 /// Font sizes offered by the size box (points).
@@ -617,6 +620,7 @@ impl DocWindow {
             r22: Box::default(),
             r23: Box::default(),
             r24: Box::default(),
+            r25: Box::default(),
         }
     }
 

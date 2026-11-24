@@ -273,7 +273,7 @@ fn dump_menu(
         if (cmd == "ctx.none" || cmd == "ctx.pasteRow") && label.is_empty() {
             continue;
         }
-        let runnable = !*dim && cmd != "ctx.none" && !cmd.contains(':') || cmd.starts_with("r2");
+        let runnable = !*dim && cmd != "ctx.none" && (!cmd.contains(':') || cmd.starts_with("r2"));
         let eff = if runnable {
             let mut w = open();
             let before = painted(&mut w);
@@ -333,7 +333,10 @@ fn inventory() {
 
 /// Entries that do nothing in the inventory's sample windows for a documented reason
 /// (round 23 REPORT "Vòng 113"): (command prefix, why).
-const ALLOWED: [(&str, &str); 5] = [
+const ALLOWED: [(&str, &str); 7] = [
+    // "None" of the list libraries on a paragraph that is not in a list.
+    ("r23.bullet:none", "the sample paragraph has no list"),
+    ("r23.number:none", "the sample paragraph has no list"),
     // No footnotes / endnotes in the sample document: nothing to move to.
     ("references.note.", "no notes in the sample"),
     // The sample shape has no text: WordArt styles have no runs to change.

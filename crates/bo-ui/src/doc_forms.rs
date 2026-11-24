@@ -231,6 +231,8 @@ pub(crate) enum DocFormKind {
     SortText,
     /// Insert › Quick Parts › Field… (round 23).
     Field23,
+    /// Selection Pane: the document's drawing objects (round 23).
+    SelPane23,
 }
 
 /// What the owner does after an input.
@@ -1454,7 +1456,8 @@ impl DocForm {
             | DocFormKind::DefineNumber
             | DocFormKind::DefineMultilevel
             | DocFormKind::SortText
-            | DocFormKind::Field23 => FormOut::Redraw,
+            | DocFormKind::Field23
+            | DocFormKind::SelPane23 => FormOut::Redraw,
         }
     }
 
@@ -3340,7 +3343,8 @@ pub(crate) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
         | DocFormKind::DefineNumber
         | DocFormKind::DefineMultilevel
         | DocFormKind::SortText
-        | DocFormKind::Field23 => r23::open(kind, s, c),
+        | DocFormKind::Field23
+        | DocFormKind::SelPane23 => r23::open(kind, s, c),
         DocFormKind::Zoom => {
             let mut f = DocForm::new(kind, &tr("docR4.zoomTitle", "Zoom"), (381.0, 258.0), vec![]);
             f.label(

@@ -33,6 +33,7 @@ pub(super) fn handles(kind: DocFormKind) -> bool {
             | DocFormKind::DefineMultilevel
             | DocFormKind::SortText
             | DocFormKind::Field23
+            | DocFormKind::SelPane23
     )
 }
 
@@ -385,7 +386,10 @@ pub(super) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
             // Nine levels: format text | numFmt index | linked heading (0 none).
             f.preview = (0..9)
                 .map(|i| {
-                    let text: String = (1..=i + 1).map(|n| format!("%{n}.")).collect();
+                    let text = (1..=i + 1).fold(String::new(), |mut t, n| {
+                        t.push_str(&format!("%{n}."));
+                        t
+                    });
                     format!("{text}|0|0")
                 })
                 .collect();
@@ -459,30 +463,55 @@ pub(super) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
             f
         }
         DocFormKind::Field23 => {
-            let mut f = DocForm::new(kind, &tr("doc23.fieldTitle", "Field"), (640.0, 430.0), vec![]);
-            f.group("chooseG", [16.0, 46.0, 280.0, 18.0], &tr("doc23.chooseField", "Please choose a field"));
-            f.label("catL", [30.0, 72.0, 120.0, 18.0], &tr("doc23.categories", "Categories:"));
+            let mut f = DocForm::new(
+                kind,
+                &tr("doc23.fieldTitle", "Field"),
+                (640.0, 430.0),
+                vec![],
+            );
+            f.group(
+                "chooseG",
+                [16.0, 46.0, 280.0, 18.0],
+                &tr("doc23.chooseField", "Please choose a field"),
+            );
+            f.label(
+                "catL",
+                [30.0, 72.0, 120.0, 18.0],
+                &tr("doc23.categories", "Categories:"),
+            );
             f.combo(
                 "cat",
                 [30.0, 92.0, 250.0, 26.0],
                 vec![tr("doc23.allCats", "(All)")],
                 0,
             );
-            f.label("namesL", [30.0, 128.0, 120.0, 18.0], &tr("doc23.fieldNames", "Field names:"));
+            f.label(
+                "namesL",
+                [30.0, 128.0, 120.0, 18.0],
+                &tr("doc23.fieldNames", "Field names:"),
+            );
             f.list(
                 "names",
                 [30.0, 148.0, 250.0, 200.0],
                 FIELDS.iter().map(|(n, _)| (*n).to_owned()).collect(),
                 Some(0),
             );
-            f.group("propsG", [310.0, 46.0, 314.0, 18.0], &tr("doc23.fieldCodes", "Field codes"));
+            f.group(
+                "propsG",
+                [310.0, 46.0, 314.0, 18.0],
+                &tr("doc23.fieldCodes", "Field codes"),
+            );
             // Descriptions in the interface language, looked up when the name changes.
             f.preview = FIELDS
                 .iter()
                 .map(|(n, d)| tr(&format!("doc23.fd{n}"), d))
                 .collect();
             f.label("descL", [324.0, 72.0, 290.0, 40.0], &f.preview[0].clone());
-            f.label("codeL", [324.0, 128.0, 290.0, 18.0], &tr("doc23.fieldCode", "Field code:"));
+            f.label(
+                "codeL",
+                [324.0, 128.0, 290.0, 18.0],
+                &tr("doc23.fieldCode", "Field code:"),
+            );
             f.edit("code", [324.0, 148.0, 290.0, 26.0], FIELDS[0].0);
             f.check(
                 "keep",
@@ -491,6 +520,51 @@ pub(super) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
                 true,
             );
             f.ok_cancel(s);
+            f
+        }
+        DocFormKind::SelPane23 => {
+            let mut f = DocForm::new(
+                kind,
+                &tr("doc23.selPaneTitle", "Selection"),
+                (360.0, 420.0),
+                vec![],
+            );
+            f.label(
+                "head",
+                [16.0, 46.0, 330.0, 18.0],
+                &tr("doc23.shapesOnPage", "Shapes on This Page"),
+            );
+            let objs = x["objects"].as_array().cloned().unwrap_or_default();
+            let labels: Vec<String> = objs
+                .iter()
+                .map(|o| o[0].as_str().unwrap_or("").to_owned())
+                .collect();
+            f.ids = objs
+                .iter()
+                .map(|o| o[1].as_str().unwrap_or("").to_owned())
+                .collect();
+            let n = labels.len();
+            f.list(
+                "objects",
+                [16.0, 70.0, 328.0, 280.0],
+                labels,
+                (n > 0).then_some(0),
+            );
+            f.button(
+                "ok",
+                [114.0, 370.0, 112.0, 28.0],
+                &tr("doc23.selectObj", "Select"),
+                true,
+            );
+            f.button(
+                "cancel",
+                [232.0, 370.0, 112.0, 28.0],
+                &tr("docR3.close", "Close"),
+                false,
+            );
+            if n == 0 {
+                f.disable("ok");
+            }
             f
         }
         _ => open_font(kind, s, c),
@@ -907,7 +981,14 @@ fn open_font(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
     // The state the dialog opened with (OK changes only what differs); the preview shows
     // the selected text as the reference.
     f.words = vec![("r23".to_owned(), x.to_string())];
-    f.preview = vec![c.selection.lines().next().unwrap_or("").chars().take(60).collect()];
+    f.preview = vec![c
+        .selection
+        .lines()
+        .next()
+        .unwrap_or("")
+        .chars()
+        .take(60)
+        .collect()];
     f
 }
 
@@ -1088,6 +1169,13 @@ impl DocForm {
                     true,
                 )
             }
+            DocFormKind::SelPane23 => match self.sel("objects").and_then(|i| self.ids.get(i)) {
+                Some(at) => FormOut::Run(
+                    vec![json!({ "cmd": "ui.action", "id": format!("r23.selObj:{at}") })],
+                    true,
+                ),
+                None => FormOut::Close,
+            },
             DocFormKind::Field23 => {
                 let mut instr = self.text("code").trim().to_owned();
                 if instr.is_empty() {

@@ -370,8 +370,8 @@ fn context_menu_rows_for_lists_fields_and_changes() {
     w.handle(Input::Context { x, y }, &Fixed);
     let l = labels(&w);
     assert!(l.iter().any(|r| r == "Restart at 1"), "{l:?}");
-    assert!(w.action("r23.continue") || true);
-    assert!(w.action("r23.restart1") || true);
+    w.action("r23.continue");
+    w.action("r23.restart1");
     // A field: Update Field / Toggle Field Codes.
     let mut w = window(Ctx::Text);
     w.view.run_command(bo_engine::edit::Command::InsertField {
@@ -381,9 +381,9 @@ fn context_menu_rows_for_lists_fields_and_changes() {
         motion: bo_engine::nav::Motion::Left,
         extend: false,
     });
-    assert!(!w.r23_ctx_rows(0).is_empty());
+    assert_ne!(w.r23_ctx_rows(0), Vec::new());
     assert!(w.action("r23.fieldToggle"));
-    assert!(w.action("r23.fieldUpdate") || true);
+    w.action("r23.fieldUpdate");
 }
 
 #[test]
@@ -459,7 +459,10 @@ fn text_effects_gallery_and_typography_menus() {
     }
     let a = &w.view.format().advanced;
     assert_eq!(a.ligatures, "all");
-    assert_eq!((a.num_spacing.as_str(), a.num_form.as_str()), ("tabular", "oldStyle"));
+    assert_eq!(
+        (a.num_spacing.as_str(), a.num_form.as_str()),
+        ("tabular", "oldStyle")
+    );
     assert_eq!(a.stylistic_set, 4);
     assert!(a.glow.is_some() && a.reflection.is_some() && a.soft_shadow.is_some());
 }
@@ -473,7 +476,6 @@ fn field_dialog_and_line_number_rows() {
     assert_eq!(f.text("code"), "PAGE");
     enter(&mut w);
     assert!(w.r3.form.is_none());
-    assert!(w.r23_ctx_rows(0).is_empty() || !w.r23_ctx_rows(0).is_empty());
     assert!(w.action("layout.lineNumbers.suppress"));
     assert!(w.r23_suppressed());
     assert!(w.action("layout.lineNumbers.options"));
@@ -481,4 +483,18 @@ fn field_dialog_and_line_number_rows() {
         w.r3.form.as_ref().map(|f| f.kind),
         Some(crate::doc_forms::DocFormKind::LineNumbers)
     );
+}
+
+#[test]
+fn selection_pane_lists_and_selects_objects() {
+    let mut w = window(Ctx::Shape);
+    w.view.run_command(bo_engine::edit::Command::SetSelection {
+        selection: bo_edit::Selection::caret(bo_edit::Pos::new(0, 0)),
+    });
+    assert!(w.action("layout.selectionPane"));
+    let f = w.r3.form.as_ref().expect("Selection");
+    assert_eq!(f.kind, crate::doc_forms::DocFormKind::SelPane23);
+    assert_eq!(f.ids.len(), 1);
+    enter(&mut w);
+    assert!(w.view.has_selection());
 }

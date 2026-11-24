@@ -17289,6 +17289,12 @@
     "fdTIME": "The time now.",
     "fdTITLE": "The document's title (document property).",
     "lnSuppress": "Suppress for Current Paragraph",
-    "lnOptions": "Line Numbering Options..."
+    "lnOptions": "Line Numbering Options...",
+    "selPaneTitle": "Selection",
+    "shapesOnPage": "Shapes on This Page",
+    "selectObj": "Select",
+    "objTextBox": "Text Box",
+    "objShape": "Shape",
+    "objPicture": "Picture"
   }
 }

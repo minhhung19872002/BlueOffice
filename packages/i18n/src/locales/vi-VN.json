@@ -17289,6 +17289,12 @@
     "fdTIME": "Giờ hiện tại.",
     "fdTITLE": "Tiêu đề của tài liệu (thuộc tính tài liệu).",
     "lnSuppress": "Bỏ đánh số cho đoạn hiện tại",
-    "lnOptions": "Tùy chọn đánh số dòng..."
+    "lnOptions": "Tùy chọn đánh số dòng...",
+    "selPaneTitle": "Vùng chọn",
+    "shapesOnPage": "Hình trên trang này",
+    "selectObj": "Chọn",
+    "objTextBox": "Hộp văn bản",
+    "objShape": "Hình",
+    "objPicture": "Ảnh"
   }
 }

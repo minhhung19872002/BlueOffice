@@ -39,6 +39,10 @@ pub(super) struct R23 {
     press: Option<(f32, f32)>,
 }
 
+/// Menu entries of round 23 that the window runs itself (no engine command of their own).
+#[cfg(test)]
+pub(crate) const WINDOW: [&str; 2] = ["layout.lineNumbers.suppress", "layout.lineNumbers.options"];
+
 /// Split buttons of Home: the left part runs the command, the arrow part opens its menu.
 pub(crate) const SPLIT: [&str; 5] = [
     "format.underline",
@@ -276,6 +280,7 @@ impl DocWindow {
 
     /// Round-23 commands; `None` passes `id` on to the earlier rounds.
     pub(super) fn r23_action(&mut self, id: &str) -> Option<bool> {
+        use crate::doc_forms::DocFormKind as K;
         if let Some(&split) = SPLIT.iter().find(|s| **s == id) {
             if self.r23_on_arrow(split) {
                 return Some(match split {
@@ -329,6 +334,18 @@ impl DocWindow {
             let v = v.to_owned();
             return Some(self.r23_apply_text_effect(&v));
         }
+        if let Some(v) = id.strip_prefix("r23.selObj:") {
+            let (p, a) = v.split_once(':').unwrap_or(("0", "0"));
+            let (p, a) = (p.parse().unwrap_or(0), a.parse().unwrap_or(0));
+            let sel = self
+                .view
+                .engine()
+                .session()
+                .and_then(|s| s.drawing_selection(p, a));
+            return Some(sel.is_some_and(|selection| {
+                self.view.run_command(Command::SetSelection { selection })
+            }));
+        }
         if let Some(v) = id.strip_prefix("r23.qatAdd:") {
             self.menu = None;
             let mut p = self.r6.prefs.clone();
@@ -366,16 +383,17 @@ impl DocWindow {
             let v = v.to_owned();
             return Some(self.r23_sort(&v));
         }
-        use crate::doc_forms::DocFormKind as K;
         Some(match id {
-            "format.fontSettings" | "format.fontDialog" => self.r23_open_form(K::Font23),
+            "format.fontSettings" | "format.fontDialog" | "r23.ulMore" => {
+                self.r23_open_form(K::Font23)
+            }
             "format.sortParagraphs" => self.r23_open_form(K::SortText),
             "r23.defineBullet" => self.r23_open_form(K::DefineBullet),
             "r23.defineNumber" => self.r23_open_form(K::DefineNumber),
             "r23.setValue" => self.r23_open_form(K::SetNumbering),
             "r23.defineMultilevel" => self.r23_open_form(K::DefineMultilevel),
             "r23.defineListStyle" => self.r23_open_form(K::NewStyle),
-            "r23.ulMore" => self.r23_open_form(K::Font23),
+            "layout.selectionPane" => self.r23_open_form(K::SelPane23),
             "layout.lineNumbers.options" => self.r23_open_form(K::LineNumbers),
             "layout.lineNumbers.suppress" => {
                 self.menu = None;
@@ -487,9 +505,15 @@ impl DocWindow {
         ));
         rows.push((
             if self.r6.prefs.extra.qat_below {
-                self.r23_t("doc23.qatAbove", "Show Quick Access Toolbar Above the Ribbon")
+                self.r23_t(
+                    "doc23.qatAbove",
+                    "Show Quick Access Toolbar Above the Ribbon",
+                )
             } else {
-                self.r23_t("doc23.qatBelow", "Show Quick Access Toolbar Below the Ribbon")
+                self.r23_t(
+                    "doc23.qatBelow",
+                    "Show Quick Access Toolbar Below the Ribbon",
+                )
             },
             "r23.qatBelow".into(),
             false,
@@ -567,7 +591,11 @@ impl DocWindow {
             return false;
         };
         let text = bo_model::index::para_index_text(p);
-        let end = if b.para == a.para { b.offset } else { text.len() };
+        let end = if b.para == a.para {
+            b.offset
+        } else {
+            text.len()
+        };
         let Some(at) = text
             .char_indices()
             .filter(|(i, c)| *c == bo_model::index::OBJECT && *i + c.len_utf8() >= a.offset)
@@ -594,12 +622,46 @@ impl DocWindow {
             .is_some_and(|p| p.props.suppress_line_numbers == Some(true))
     }
 
+    /// The document's drawing objects: (name, "para:offset"), named by kind and number as
+    /// the reference's Selection Pane does ("Picture 1", "Text Box 2", "Rectangle 3").
+    fn r23_objects(&self) -> Vec<(String, String)> {
+        let Some(s) = self.view.engine().session() else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        for para in 0..s.paragraph_count() {
+            let Some(p) = bo_model::index::para_by_id(s.doc(), para) else {
+                continue;
+            };
+            let text = bo_model::index::para_index_text(p);
+            for (at, ch) in text.char_indices() {
+                if ch != bo_model::index::OBJECT {
+                    continue;
+                }
+                let Some(img) = s.drawing(para, at) else {
+                    continue;
+                };
+                let kind = match &img.shape {
+                    Some(sh) if sh.text.is_some() => self.r23_t("doc23.objTextBox", "Text Box"),
+                    Some(_) => self.r23_t("doc23.objShape", "Shape"),
+                    None => self.r23_t("doc23.objPicture", "Picture"),
+                };
+                let name = format!("{kind} {}", out.len() + 1);
+                out.push((name, format!("{para}:{at}")));
+            }
+        }
+        out
+    }
+
     /// Open round-23 dialog `kind` with the selection's state.
     fn r23_open_form(&mut self, kind: crate::doc_forms::DocFormKind) -> bool {
         self.menu = None;
         self.r22.gallery = None;
         let mut c = self.form_context();
         c.extra["r23"] = crate::doc_forms::r23::extra(self.view.format());
+        if kind == crate::doc_forms::DocFormKind::SelPane23 {
+            c.extra["r23"]["objects"] = json!(self.r23_objects());
+        }
         if kind == crate::doc_forms::DocFormKind::Font23 {
             c.fonts = self.view.font_list().into_iter().map(|f| f.name).collect();
         }
@@ -907,7 +969,8 @@ impl DocWindow {
                 it.checked = matches!(&it.choice,
                     Choice::Command(c) if c.strip_prefix("r23.ul:") == Some(current.as_str()));
             }
-            *m = Menu::open(items, anchor, self.size, self.scale).with_decor(vec![None; 9], vec![8]);
+            *m =
+                Menu::open(items, anchor, self.size, self.scale).with_decor(vec![None; 9], vec![8]);
         }
         open
     }
@@ -988,7 +1051,13 @@ impl DocWindow {
                 ("full", "doc23.rfFull", "Full Reflection: Touching"),
             ]
             .iter()
-            .map(|(id, k, en)| (self.r23_t(k, en), format!("r23.tefx:reflection={id}"), false))
+            .map(|(id, k, en)| {
+                (
+                    self.r23_t(k, en),
+                    format!("r23.tefx:reflection={id}"),
+                    false,
+                )
+            })
             .collect(),
             "glow" => {
                 let mut v = vec![(
@@ -1018,7 +1087,11 @@ impl DocWindow {
             "ligatures" => [
                 ("", "doc23.ligNone", "None"),
                 ("standard", "doc23.ligStandard", "Standard Only"),
-                ("standardContextual", "doc23.ligStdCtx", "Standard and Contextual"),
+                (
+                    "standardContextual",
+                    "doc23.ligStdCtx",
+                    "Standard and Contextual",
+                ),
                 (
                     "historicalDiscretional",
                     "doc23.ligHistDisc",
@@ -1054,10 +1127,12 @@ impl DocWindow {
         self.r22.gallery = None;
         let (kind, val) = v.split_once('=').unwrap_or((v, ""));
         let glow = |hex: &str| json!({ "color": hex, "radius": 5.0, "transparency": 60 });
-        let shadow = |angle: f32, distance: f32| json!({
-            "color": "000000", "blur": 4.0, "distance": distance, "angle": angle,
-            "transparency": 60,
-        });
+        let shadow = |angle: f32, distance: f32| {
+            json!({
+                "color": "000000", "blur": 4.0, "distance": distance, "angle": angle,
+                "transparency": 60,
+            })
+        };
         let mut color: Option<String> = None;
         let patch = match kind {
             "outline" if val == "none" => json!({ "textOutline": null }),
@@ -1070,9 +1145,15 @@ impl DocWindow {
                 _ => json!({ "softShadow": null }),
             },
             "reflection" => match val {
-                "tight" => json!({ "reflection": { "size": 33, "transparency": 50, "distance": 0.0 } }),
-                "half" => json!({ "reflection": { "size": 50, "transparency": 50, "distance": 0.0 } }),
-                "full" => json!({ "reflection": { "size": 100, "transparency": 50, "distance": 0.0 } }),
+                "tight" => {
+                    json!({ "reflection": { "size": 33, "transparency": 50, "distance": 0.0 } })
+                }
+                "half" => {
+                    json!({ "reflection": { "size": 50, "transparency": 50, "distance": 0.0 } })
+                }
+                "full" => {
+                    json!({ "reflection": { "size": 100, "transparency": 50, "distance": 0.0 } })
+                }
                 _ => json!({ "reflection": null }),
             },
             "glow" if val == "none" => json!({ "glow": null }),

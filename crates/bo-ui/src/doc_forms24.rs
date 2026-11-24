@@ -368,10 +368,6 @@ impl DocForm {
         }
     }
 
-    pub(crate) fn r24_changed(&mut self, id: &str) {
-        let _ = id;
-    }
-
     pub(super) fn r24_clicked(&mut self, id: &str) -> Option<FormOut> {
         if !handles(self.kind) {
             return None;

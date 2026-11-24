@@ -262,9 +262,7 @@ impl DocWindow {
             // Equation › Equation: the equation gallery (not the placeholder list that
             // marks the button with ▾).
             "eq.equation" => {
-                let Some(r) = self.ribbon.rect_of(RibbonHit::Command("eq.equation")) else {
-                    return None;
-                };
+                let r = self.ribbon.rect_of(RibbonHit::Command("eq.equation"))?;
                 self.r4_open_gallery_at("insert.equation", r)
             }
             "shape.styleMore" => self.r24_shape_styles(),
@@ -469,7 +467,7 @@ impl DocWindow {
                     .view
                     .engine()
                     .session()
-                    .map(|s| s.doc().hyphenation.clone())
+                    .map(|s| s.doc().hyphenation)
                     .unwrap_or_default();
                 json!({
                     "auto": h.auto, "noCaps": h.no_caps,

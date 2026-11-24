@@ -337,7 +337,7 @@ fn hyphenation_options_dialog() {
         .view
         .engine()
         .session()
-        .map(|s| s.doc().hyphenation.clone())
+        .map(|s| s.doc().hyphenation)
         .expect("hyphenation");
     assert!(h.auto && h.no_caps);
     assert_eq!(h.zone.map(|z| z.0), Some(180));
@@ -412,7 +412,11 @@ fn quick_parts_autotext_and_organizer() {
         .position(|r| r.starts_with("mine\t"))
         .expect("mine listed");
     f.set_sel("list", Some(i));
-    let before = w.view.engine().session().map(|s| s.paragraph_count());
+    let before = w
+        .view
+        .engine()
+        .session()
+        .map(bo_edit::Session::paragraph_count);
     let out = w.r3.form.as_mut().expect("form").click_for_test("insert");
     assert!(w.form_out(out));
     assert!(w.view.modified());

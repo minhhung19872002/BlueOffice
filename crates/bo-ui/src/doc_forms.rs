@@ -948,7 +948,7 @@ impl DocForm {
                 self.form.enable("bookmark", range);
             }
             (DocFormKind::Protect, _) => {}
-            (k, _) if r24::handles(k) => self.r24_changed(id),
+            (k, _) if r24::handles(k) => {}
             (k, _) if r23::handles(k) => self.r23_changed(id),
             (k, _) if r18::handles(k) => self.r18_changed(id),
             (k, _) if r15::handles(k) => self.r15_changed(id),

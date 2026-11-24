@@ -179,7 +179,12 @@ fn enrich(w: &mut DocWindow) {
 
 /// Select the sample's equation (the Equation tab shows).
 fn select_equation(w: &mut DocWindow) {
-    let Some(n) = w.view.engine().session().map(|s| s.paragraph_count()) else {
+    let Some(n) = w
+        .view
+        .engine()
+        .session()
+        .map(bo_edit::Session::paragraph_count)
+    else {
         return;
     };
     for para in 0..n {

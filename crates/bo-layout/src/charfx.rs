@@ -132,6 +132,8 @@ pub struct TextFx {
     pub fill: Option<FxPaint>,
     /// §17.3.2.43 w: horizontal glyph scale (1 = 100 %).
     pub scale_x: f32,
+    /// §17.3.2.40 u `@w:color`: the underline's own colour (`None`: the text colour).
+    pub underline_color: Option<bo_model::Color>,
 }
 
 impl TextFx {
@@ -179,6 +181,9 @@ impl TextFx {
                 .and_then(|f| f.fill.as_ref())
                 .map(|f| FxPaint::from_fill(&f.fill)),
             scale_x: rp.scale.map_or(1.0, |w| w.clamp(1, 600) as f32 / 100.0),
+            underline_color: rp
+                .underline_color
+                .filter(|_| rp.underline.is_some_and(|u| u != bo_model::Underline::None)),
         };
         (t != TextFx {
             scale_x: 1.0,
@@ -340,6 +345,25 @@ mod tests {
             ..RunProps::default()
         };
         assert!((TextFx::of(&rp).unwrap().scale_x - 1.5).abs() < 1e-6);
+    }
+
+    /// §17.3.2.40 u @w:color: the underline's own colour, only with an underline.
+    #[test]
+    fn underline_color_only_with_an_underline() {
+        let red = bo_model::Color::from_hex("FF0000");
+        let rp = RunProps {
+            underline_color: red,
+            ..RunProps::default()
+        };
+        assert_eq!(TextFx::of(&rp), None);
+        let rp = RunProps {
+            underline: Some(bo_model::Underline::Single),
+            underline_color: red,
+            ..RunProps::default()
+        };
+        let fx = TextFx::of(&rp).unwrap();
+        assert_eq!(fx.underline_color, red);
+        assert!(!fx.replaces_fill());
     }
 
     #[test]

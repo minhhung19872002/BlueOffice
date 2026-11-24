@@ -166,6 +166,9 @@ pub struct CharAdvanced {
     /// §17.3.2.40 u: `ST_Underline` name (§17.18.99; `""` = none).
     #[serde(default)]
     pub underline: String,
+    /// §17.3.2.40 u `@w:color` `RRGGBB` (`None` = automatic, the text colour).
+    #[serde(default)]
+    pub underline_color: Option<String>,
     /// §17.3.2.9 dstrike.
     #[serde(default)]
     pub double_strike: bool,
@@ -264,6 +267,7 @@ impl CharAdvanced {
                 .underline
                 .filter(|u| *u != bo_model::Underline::None)
                 .map_or_else(String::new, |u| u.as_str().to_owned()),
+            underline_color: r.underline_color.map(Color::to_hex),
             double_strike: r.double_strike.unwrap_or(false),
             small_caps: r.small_caps.unwrap_or(false),
             all_caps: r.caps.unwrap_or(false),
@@ -343,6 +347,9 @@ pub struct CharAdvancedPatch {
     pub underline: Option<String>,
     /// Double strikethrough (§17.3.2.9 dstrike; turning it on turns strike off).
     pub double_strike: Option<bool>,
+    /// Underline colour (§17.3.2.40 u `@w:color`; `null` = automatic).
+    #[serde(deserialize_with = "double")]
+    pub underline_color: Option<Option<String>>,
 }
 
 fn opt_str(v: &str) -> Option<String> {
@@ -394,6 +401,9 @@ impl CharAdvancedPatch {
                 "" | "none" => None,
                 name => Some(bo_model::Underline::parse(name)),
             };
+        }
+        if let Some(c) = &self.underline_color {
+            r.underline_color = c.as_deref().and_then(Color::from_hex);
         }
         if let Some(v) = self.double_strike {
             r.double_strike = flag(v);

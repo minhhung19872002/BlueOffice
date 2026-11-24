@@ -17297,5 +17297,16 @@
     "objShape": "Hình",
     "objPicture": "Ảnh",
     "themeNote": "Đây là phông chữ của chủ đề: chủ đề của tài liệu quyết định phông chữ được dùng."
+  },
+  "doc24": {
+    "number": "Số",
+    "date": "Ngày",
+    "dateOrder": "dmy",
+    "showTabsOnly": "Chỉ hiện các thẻ",
+    "alwaysShowRibbon": "Luôn hiện dải lệnh",
+    "searchFor": "Tìm kiếm \"{{text}}\"",
+    "readAloud": "Đọc to",
+    "translate": "Dịch",
+    "collapseRibbon": "Thu gọn dải lệnh"
   }
 }

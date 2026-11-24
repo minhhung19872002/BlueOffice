@@ -18,7 +18,7 @@ use serde_json::{json, Value};
 
 #[cfg(test)]
 #[path = "doc_r23_inv_tests.rs"]
-mod inv_tests;
+pub(super) mod inv_tests;
 
 #[cfg(test)]
 #[path = "doc_r23_tests.rs"]
@@ -36,7 +36,7 @@ pub(super) struct R23 {
     /// Select ▾ › Select Objects: presses on the page select drawing objects.
     pub(super) select_objects: bool,
     /// Where the last press was (a split button's part is told by it; taken once).
-    press: Option<(f32, f32)>,
+    pub(super) press: Option<(f32, f32)>,
 }
 
 /// Menu entries of round 23 that the window runs itself (no engine command of their own).
@@ -270,7 +270,11 @@ impl DocWindow {
         let dim = footer
             .iter()
             .enumerate()
-            .filter(|(_, (_, c))| !in_list && (c == "r23.levels" || c == "r23.setValue"))
+            .filter(|(_, (_, c))| {
+                (!in_list && (c == "r23.levels" || c == "r23.setValue"))
+                    // Round 24: Stop Highlighting only while the highlighter pen is on.
+                    || (c == "r23.hl:stop" && !self.r24.pen)
+            })
             .map(|(i, _)| i)
             .collect();
         let g = ThumbGallery::open(sections, footer, grid, anchor, self.size, self.scale)
@@ -560,6 +564,12 @@ impl DocWindow {
             "r23.ribbonCustomize".into(),
             false,
         ));
+        // Round 24: Collapse the Ribbon (Ctrl+F1) — checked while collapsed.
+        rows.push((
+            self.r23_t("doc24.collapseRibbon", "Collapse the Ribbon"),
+            "r24.ribbon:toggle".into(),
+            false,
+        ));
         self.r23_menu(rows, [x, y, 1.0, 0.0], vec![sep])
     }
 
@@ -715,7 +725,7 @@ impl DocWindow {
     /// Sort Text OK: the selected paragraphs (less the first with a header row) sorted.
     fn r23_sort(&mut self, v: &str) -> bool {
         let descending = v.starts_with("desc");
-        if v.ends_with(":header") {
+        if v.contains(":header") {
             if let Some(s) = self.view.engine().session() {
                 let sel = s.selection();
                 let (a, b) = if sel.anchor.para <= sel.focus.para {
@@ -732,8 +742,23 @@ impl DocWindow {
                 }
             }
         }
-        self.view
-            .run_command(Command::SortParagraphs { descending })
+        // Round 24: Type Number / Date.
+        let by = if v.ends_with(":number") {
+            bo_edit::sort_by::SortType::Number
+        } else if v.ends_with(":date") {
+            bo_edit::sort_by::SortType::Date
+        } else {
+            return self
+                .view
+                .run_command(Command::SortParagraphs { descending });
+        };
+        // Numeric dates read day first in the Vietnamese interface (as its short date).
+        let day_first = self.locale_day_first();
+        self.view.run_command(Command::SortParagraphsBy {
+            descending,
+            by,
+            day_first,
+        })
     }
 
     // ----- Bullets / Numbering / Multilevel List -----
@@ -1356,19 +1381,18 @@ impl DocWindow {
                 "r23.tb:insideV".to_owned(),
                 !in_table,
             ),
-            // Diagonal cell borders (§17.4.80 tl2br / tr2bl): BlueDoc's tables cannot
-            // draw them yet.
+            // Diagonal cell borders (§17.4.80 tl2br / tr2bl, round 24): table cells only.
             (
                 "doc23.bDiagDown",
                 "Diagonal Down Border",
-                "r23.diag".to_owned(),
-                true,
+                "r24.diag:down".to_owned(),
+                !in_table,
             ),
             (
                 "doc23.bDiagUp",
                 "Diagonal Up Border",
-                "r23.diag".to_owned(),
-                true,
+                "r24.diag:up".to_owned(),
+                !in_table,
             ),
             (
                 "doc23.bHorizontalLine",

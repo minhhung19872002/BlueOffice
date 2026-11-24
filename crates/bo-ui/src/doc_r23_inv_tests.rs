@@ -54,12 +54,131 @@ fn painted(w: &mut DocWindow) -> HashSet<String> {
 
 /// Where the inventory runs: plain text, a table cell, a picture, a shape, a header.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(super) enum Ctx {
+pub(crate) enum Ctx {
     Text,
     Table,
     Picture,
     Shape,
     Header,
+    /// Round 24: an equation selected (the Equation tab).
+    Equation,
+}
+
+thread_local! {
+    /// Round 24: the second sample — the windows also hold footnotes and endnotes, a list
+    /// paragraph (the selection's), a hyperlink, a field, an equation, a comment, a tracked
+    /// change, a chart, and the shape has text.
+    pub(crate) static RICH: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// The second sample's content around the base text (round 24).
+fn enrich(w: &mut DocWindow) {
+    let caret = |w: &mut DocWindow, p: usize, o: usize| {
+        w.view.run_command(Command::SetSelection {
+            selection: Selection::caret(Pos::new(p, o)),
+        });
+    };
+    let end = |w: &DocWindow, p: usize| {
+        w.view
+            .engine()
+            .session()
+            .and_then(|s| s.para_text(p))
+            .map_or(0, |t| t.len())
+    };
+    // Paragraph 0 ("Hello wrold one two three"): a hyperlink on "two", a footnote and an
+    // endnote at its end, bulleted.
+    w.view.run_command(Command::SetSelection {
+        selection: Selection {
+            anchor: Pos::new(0, 16),
+            focus: Pos::new(0, 19),
+        },
+    });
+    w.view.run_command(Command::SetLink {
+        target: "https://example.com/".into(),
+        display: String::new(),
+    });
+    for endnote in [false, true] {
+        let e = end(w, 0);
+        caret(w, 0, e);
+        w.view.run_command(Command::InsertNote {
+            endnote,
+            text: "A note".into(),
+        });
+        w.view.run_command(Command::CloseHeaderFooter);
+    }
+    caret(w, 0, 0);
+    if let Some(c) = crate::commands::command("format.bullets") {
+        w.view.run_command(c);
+    }
+    // After paragraph 1: a field, an equation, a commented word, a tracked insertion and a
+    // chart, each in a paragraph of its own.
+    let e = end(w, 1);
+    caret(w, 1, e);
+    w.view.run_command(Command::InsertText {
+        text: "\nDate: ".into(),
+    });
+    w.view.run_command(Command::InsertField {
+        instr: "DATE".into(),
+    });
+    w.view.run_command(Command::InsertText {
+        text: "\nEquation ".into(),
+    });
+    let _ = w.r3_run(vec![
+        json!({ "cmd": "insertEquation", "text": "a^2+b^2=c^2" }),
+    ]);
+    w.view.run_command(Command::InsertText {
+        text: "\nComment here".into(),
+    });
+    let p = w
+        .view
+        .engine()
+        .session()
+        .map_or(0, |s| s.selection().focus.para);
+    w.view.run_command(Command::SetSelection {
+        selection: Selection {
+            anchor: Pos::new(p, 0),
+            focus: Pos::new(p, 7),
+        },
+    });
+    w.view.run_command(Command::AddComment {
+        text: "A comment".into(),
+        mentions: Vec::new(),
+        task: None,
+    });
+    let e = end(w, p);
+    caret(w, p, e);
+    w.view.run_command(Command::SetTrackChanges { on: true });
+    w.view.run_command(Command::InsertText {
+        text: " tracked".into(),
+    });
+    w.view.run_command(Command::SetTrackChanges { on: false });
+    w.view
+        .run_command(Command::InsertText { text: "\n".into() });
+    let _ = w.r3_run(vec![json!({ "cmd": "insertChart", "kind": "column" })]);
+}
+
+/// Select the sample's equation (the Equation tab shows).
+fn select_equation(w: &mut DocWindow) {
+    let Some(n) = w.view.engine().session().map(|s| s.paragraph_count()) else {
+        return;
+    };
+    for para in 0..n {
+        let text = w
+            .view
+            .engine()
+            .session()
+            .and_then(|s| s.para_text(para))
+            .unwrap_or_default();
+        if text.starts_with("Equation ") {
+            w.view.run_command(Command::SetSelection {
+                selection: Selection {
+                    anchor: Pos::new(para, "Equation ".len()),
+                    focus: Pos::new(para, text.len()),
+                },
+            });
+            return;
+        }
+    }
 }
 
 fn png() -> Vec<u8> {
@@ -74,7 +193,7 @@ fn png() -> Vec<u8> {
     out
 }
 
-pub(super) fn window(ctx: Ctx) -> DocWindow {
+pub(crate) fn window(ctx: Ctx) -> DocWindow {
     let mut engine = Engine::with_bundled_fonts();
     engine.new_document("a.docx").expect("new");
     let mut w = DocWindow::new(DocView::new(engine).expect("view"), "en-US", "a.docx");
@@ -89,6 +208,23 @@ pub(super) fn window(ctx: Ctx) -> DocWindow {
     w.view.run_command(Command::InsertText {
         text: "Hello wrold one two three\nSecond paragraph here".into(),
     });
+    // Round 24: the second sample; the equation the Equation tab works on.
+    if RICH.with(std::cell::Cell::get) {
+        enrich(&mut w);
+    } else if ctx == Ctx::Equation {
+        w.view.run_command(Command::SetSelection {
+            selection: Selection::caret(Pos::new(1, 0)),
+        });
+        w.view.run_command(Command::InsertText {
+            text: "Equation \n".into(),
+        });
+        w.view.run_command(Command::SetSelection {
+            selection: Selection::caret(Pos::new(1, "Equation ".len())),
+        });
+        let _ = w.r3_run(vec![
+            json!({ "cmd": "insertEquation", "text": "a^2+b^2=c^2" }),
+        ]);
+    }
     w.view.run_command(Command::SetSelection {
         selection: Selection {
             anchor: Pos::new(0, 6),
@@ -118,8 +254,10 @@ pub(super) fn window(ctx: Ctx) -> DocWindow {
             });
         }
         Ctx::Shape => {
+            // The second sample's shape holds text (a text box).
             w.r3_run(vec![json!({
-                "cmd": "insertShape", "preset": "rect", "width": 120.0, "height": 60.0
+                "cmd": "insertShape", "preset": "rect", "width": 120.0, "height": 60.0,
+                "textBox": RICH.with(std::cell::Cell::get)
             })]);
             w.view.exec(Command::Move {
                 motion: bo_engine::nav::Motion::Left,
@@ -131,6 +269,7 @@ pub(super) fn window(ctx: Ctx) -> DocWindow {
                 .view
                 .run_json(&json!({ "cmd": "editHeaderFooter", "page": 0, "header": true }));
         }
+        Ctx::Equation => select_equation(&mut w),
     }
     w.handle(Input::Tick, &Fixed);
     let _ = w.take_requests();
@@ -215,6 +354,8 @@ fn ctx_of(tab: &str) -> Ctx {
         Ctx::Shape
     } else if t.contains("header") {
         Ctx::Header
+    } else if t.contains("equation") {
+        Ctx::Equation
     } else {
         Ctx::Text
     }
@@ -364,6 +505,31 @@ fn no_dead_menu_entries() {
     assert!(dead.is_empty(), "dead entries:\n{}", dead.join("\n"));
 }
 
+/// Round 24: the second sample (notes, a list paragraph, a hyperlink, a field, an
+/// equation, a comment, a tracked change, a chart, a shape with text): only heading rows may
+/// do nothing (`BO_INV24=<file>` writes its table).
+#[test]
+fn no_dead_menu_entries_rich() {
+    RICH.with(|r| r.set(true));
+    let out = build(None);
+    RICH.with(|r| r.set(false));
+    if let Ok(path) = std::env::var("BO_INV24") {
+        let _ = std::fs::write(path, &out);
+    }
+    let dead: Vec<&str> = out
+        .lines()
+        .filter(|l| l.ends_with("\tNONE") || l.contains("\tNONE\t"))
+        .filter(|l| {
+            let cmd = l.split('\t').nth(2).unwrap_or("");
+            !ALLOWED_RICH.iter().any(|(p, _)| cmd.starts_with(p))
+        })
+        .collect();
+    assert!(dead.is_empty(), "dead entries:\n{}", dead.join("\n"));
+}
+
+/// What may do nothing in the second sample: (command prefix, why).
+const ALLOWED_RICH: [(&str, &str); 1] = [("ctx.none", "a heading row")];
+
 fn build(only: Option<&str>) -> String {
     let mut out = String::from("tab › group › button\tentry\tcommand\tstate\teffect\n");
     let probe_w = window(Ctx::Text);
@@ -440,7 +606,7 @@ fn build(only: Option<&str>) -> String {
     out
 }
 /// A window point over the context's object (the selection for text).
-pub(super) fn context_point(w: &DocWindow, ctx: Ctx) -> (f32, f32) {
+pub(crate) fn context_point(w: &DocWindow, ctx: Ctx) -> (f32, f32) {
     let layout = w.view.engine().layout().expect("layout");
     let slot = w.view.slots()[0];
     let s = w.view.scale();

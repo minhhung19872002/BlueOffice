@@ -98,6 +98,8 @@ export interface CharAdvanced {
   combineBrackets: string;
   /** Underline style (§17.18.99 `ST_Underline`: `single`, `words`, `double`, `dotted`, `wave`, …); `''` = none. */
   underline: string;
+  /** Underline colour `RRGGBB` (§17.3.2.40 u `@w:color`); `null` = automatic (the text colour). */
+  underlineColor: string | null;
   /** Double strikethrough (§17.3.2.9 dstrike). */
   doubleStrike: boolean;
   /** Small capitals (§17.3.2.33 smallCaps), state only. */

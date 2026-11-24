@@ -915,7 +915,9 @@ fn line_commands(line: &Line, fonts: &FontManager, commands: &mut Vec<Command>) 
         let thickness = (f32::from(info.underline_thickness) * scale).max(0.5);
         // Underline: ECMA-376 Part 1, §17.3.2.40; position from the font's `post` table.
         let uy = f.y - f32::from(info.underline_position) * scale;
-        underline_commands(f, uy, thickness, color, commands);
+        // §17.3.2.40 u @w:color: the underline's own colour when set.
+        let ul_color = fx.and_then(|x| x.underline_color).map_or(color, Rgba::from);
+        underline_commands(f, uy, thickness, ul_color, commands);
         let mut deco = |y: f32, width: f32, dash: Option<[f32; 2]>| {
             commands.push(Command::Line {
                 x1: f.x,

@@ -246,6 +246,10 @@ pub struct Ribbon {
     shrunk_tabs: Option<Vec<f32>>,
     /// Round 21: the Quick Access Toolbar shown in a strip below the ribbon.
     qat_below: bool,
+    /// BlueDoc round 24: Show Tabs Only (Collapse the Ribbon, Ctrl+F1): only the tab strip
+    /// is docked; `peek` shows the groups over the document after a tab is clicked.
+    collapsed: bool,
+    peek: bool,
 }
 
 fn home() -> Tab {
@@ -811,6 +815,8 @@ impl Ribbon {
             shrink_tabs: false,
             shrunk_tabs: None,
             qat_below: false,
+            collapsed: false,
+            peek: false,
         }
     }
 
@@ -1156,6 +1162,51 @@ impl Ribbon {
     /// Height of the whole ribbon in device pixels (round 21: with the Quick Access
     /// Toolbar's strip when it is shown below).
     pub fn height(&self) -> f32 {
+        if self.collapsed && !self.peek {
+            // Show Tabs Only: the tab strip and the line under it.
+            return self.strip_h() + self.px(4.0) + self.qat_strip_h();
+        }
+        self.base_h() + self.qat_strip_h()
+    }
+
+    /// Round 24: Show Tabs Only (the ribbon collapsed to its tabs).
+    pub(crate) fn collapsed(&self) -> bool {
+        self.collapsed
+    }
+
+    /// Round 24: collapse the ribbon to its tabs (or show it all again).
+    pub(crate) fn set_collapsed(&mut self, on: bool) {
+        self.collapsed = on;
+        self.peek = false;
+    }
+
+    /// Round 24: the collapsed ribbon's groups shown over the document (after a tab click).
+    pub(crate) fn peek(&self) -> bool {
+        self.peek
+    }
+
+    /// Round 24: show (or hide) the collapsed ribbon's groups over the document.
+    pub(crate) fn set_peek(&mut self, on: bool) {
+        self.peek = on && self.collapsed;
+    }
+
+    /// Height the ribbon takes from the document (the tab strip only while collapsed, even
+    /// when it peeks over the document).
+    pub(crate) fn dock_height(&self) -> f32 {
+        if self.collapsed {
+            self.strip_h() + self.px(4.0) + self.qat_strip_h()
+        } else {
+            self.base_h() + self.qat_strip_h()
+        }
+    }
+
+    /// Index of the active tab.
+    pub(crate) fn active(&self) -> usize {
+        self.active
+    }
+
+    /// Height of the whole ribbon as when it is shown in full (for the peeking overlay).
+    pub(crate) fn full_height(&self) -> f32 {
         self.base_h() + self.qat_strip_h()
     }
 
@@ -1750,7 +1801,9 @@ impl Ribbon {
 
     /// What is under a window position.
     pub fn hit(&self, x: f32, y: f32) -> Option<RibbonHit> {
-        let content_visible = self.content_clip.is_none_or(|clip| clip.contains(x, y));
+        // Round 24: a collapsed ribbon shows its groups only while peeking.
+        let hidden = self.collapsed && !self.peek && y >= self.top + self.strip_h();
+        let content_visible = !hidden && self.content_clip.is_none_or(|clip| clip.contains(x, y));
         let tab_visible = self.tab_clip.is_none_or(|clip| clip.contains(x, y));
         self.placed.iter().find_map(|p| match p {
             Placed::File(r) if r.contains(x, y) => Some(RibbonHit::File),
@@ -2047,6 +2100,10 @@ impl Ribbon {
                     | Placed::GroupLabel(..)
                     | Placed::Divider(..)
             );
+            // Round 24: Show Tabs Only draws no groups unless the ribbon is peeking.
+            if self.collapsed && !self.peek && (is_group || matches!(placed, Placed::Scroll(..))) {
+                continue;
+            }
             let needed_clip = if is_group {
                 self.content_clip
             } else if matches!(placed, Placed::Tab(..)) {
@@ -2108,7 +2165,7 @@ impl Ribbon {
                     } else {
                         center_text(p, strings.get(self.tabs[*i].label), r, style, color);
                     }
-                    if active {
+                    if active && (!self.collapsed || self.peek) {
                         let h = self.px(3.0);
                         p.fill_rect(
                             r.x + self.px(10.0),

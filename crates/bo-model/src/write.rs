@@ -1911,6 +1911,10 @@ pub struct RunProps {
     pub italic: Option<bool>,
     /// Underline style (`w:u`).
     pub underline: Option<Underline>,
+    /// Underline colour (§17.3.2.40 u `@w:color`, `ST_HexColor`); `None` = automatic
+    /// (the text colour). Inherited independently of the style.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub underline_color: Option<Color>,
     /// Single strikethrough (`w:strike`).
     pub strike: Option<bool>,
     /// Double strikethrough (`w:dstrike`).
@@ -2060,6 +2064,7 @@ impl RunProps {
             bold: self.bold.or(base.bold),
             italic: self.italic.or(base.italic),
             underline: self.underline.or(base.underline),
+            underline_color: self.underline_color.or(base.underline_color),
             strike: self.strike.or(base.strike),
             double_strike: self.double_strike.or(base.double_strike),
             // §17.3.2.6: the colour and its theme colour are one property.

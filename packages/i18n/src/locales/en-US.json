@@ -17297,5 +17297,16 @@
     "objShape": "Shape",
     "objPicture": "Picture",
     "themeNote": "This is the theme's font: the document's theme decides which font is used."
+  },
+  "doc24": {
+    "number": "Number",
+    "date": "Date",
+    "dateOrder": "mdy",
+    "showTabsOnly": "Show tabs only",
+    "alwaysShowRibbon": "Always show Ribbon",
+    "searchFor": "Search \"{{text}}\"",
+    "readAloud": "Read Aloud",
+    "translate": "Translate",
+    "collapseRibbon": "Collapse the Ribbon"
   }
 }

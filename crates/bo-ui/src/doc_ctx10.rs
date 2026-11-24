@@ -304,6 +304,18 @@ impl DocWindow {
                 r.sep = true;
                 rows.push(r);
             }
+            // Round 24: Search "…", Read Aloud, Translate (the reference's rows after
+            // Synonyms).
+            for (i, (label, id)) in self.r24_ctx_rows().into_iter().enumerate() {
+                rows.push(Row {
+                    label,
+                    id,
+                    icon: None,
+                    dim: false,
+                    arrow: false,
+                    sep: i == 0 && syn.is_none(),
+                });
+            }
             if link.is_none() {
                 let mut r = self.r10_row("link", "insert.link", Some("insert.link"));
                 r.sep = true;

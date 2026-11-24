@@ -419,3 +419,33 @@ fn self_closing_body_paragraph_is_a_paragraph() {
     assert_eq!(again.sections[0].blocks.len(), 3);
     assert!(matches!(&again.sections[0].blocks[1], Block::Paragraph(_)));
 }
+
+/// ECMA-376 Part 1, §17.3.2.40 u `@w:color`: the underline colour is read into the model
+/// and written back after an edit (BlueDoc round 24).
+#[test]
+fn underline_color_round_trip() {
+    let body = r#"<w:p><w:r><w:rPr><w:u w:val="double" w:color="FF0000"/></w:rPr><w:t>red</w:t></w:r><w:r><w:rPr><w:u w:val="single" w:color="auto"/></w:rPr><w:t>auto</w:t></w:r></w:p>"#;
+    let mut doc = read_docx(&docx(body)).unwrap();
+    let Block::Paragraph(p) = &mut doc.sections[0].blocks[0] else {
+        panic!("paragraph")
+    };
+    assert_eq!(p.runs[0].props.underline, Some(Underline::Double));
+    assert_eq!(
+        p.runs[0].props.underline_color.map(bo_model::Color::to_hex),
+        Some("FF0000".to_owned())
+    );
+    assert_eq!(p.runs[1].props.underline_color, None);
+    p.runs[1].props.underline_color = bo_model::Color::from_hex("0070C0");
+    p.src = None;
+    let out = bo_docx::write_docx(&doc).unwrap();
+    let pkg = Package::read(&out, &bo_opc::Limits::default()).unwrap();
+    let xml = String::from_utf8(pkg.part("/word/document.xml").unwrap().data.clone()).unwrap();
+    assert!(
+        xml.contains(r#"<w:u w:val="double" w:color="FF0000"/>"#),
+        "{xml}"
+    );
+    assert!(
+        xml.contains(r#"<w:u w:val="single" w:color="0070C0"/>"#),
+        "{xml}"
+    );
+}

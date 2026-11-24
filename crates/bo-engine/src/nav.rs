@@ -370,6 +370,62 @@ pub fn picture_at(
     s.picture_selection(&paras, media)
 }
 
+/// Points around a shape's frame that count as its border for a click (round 22).
+pub(crate) const SHAPE_BORDER_PT: f32 = 3.0;
+
+/// `true` when (`x`, `y`) lies on the border band of the frame (`sx`, `sy`, `w`, `h`):
+/// within 2 pt outside it or [`SHAPE_BORDER_PT`] inside it.
+pub(crate) fn on_frame_border(sx: f32, sy: f32, w: f32, h: f32, x: f32, y: f32) -> bool {
+    let out = 2.0;
+    let inside_outer = x >= sx - out && x <= sx + w + out && y >= sy - out && y <= sy + h + out;
+    let b = SHAPE_BORDER_PT.min(w / 3.0).min(h / 3.0);
+    let inside_inner = x > sx + b && x < sx + w - b && y > sy + b && y < sy + h - b;
+    inside_outer && !inside_inner
+}
+
+/// A drawing shape selected by a click (round 22, like the reference word processor): a
+/// click on the border of any shape, or anywhere inside a shape without a text box,
+/// selects the whole object instead of placing the caret.
+pub fn shape_at(
+    layout: &LayoutDocument,
+    s: &bo_edit::Session,
+    page: usize,
+    x: f32,
+    y: f32,
+) -> Option<Selection> {
+    if STORY.with(std::cell::Cell::get) != Story::Body {
+        return None;
+    }
+    let p = layout.pages.get(page)?;
+    p.items.iter().rev().find_map(|it| {
+        let bo_layout::PageItem::Shape {
+            x: sx,
+            y: sy,
+            w,
+            h,
+            source: LineSource::TextBox { para, at, .. },
+            layer,
+            ..
+        } = it
+        else {
+            return None;
+        };
+        if *para == LineSource::NO_PARA || *layer == bo_layout::Layer::Back {
+            return None;
+        }
+        let inside = x >= *sx && x <= sx + w && y >= *sy && y <= sy + h;
+        let border = on_frame_border(*sx, *sy, *w, *h, x, y);
+        if !inside && !border {
+            return None;
+        }
+        let img = s.drawing(*para as usize, *at as usize)?;
+        let text_box = img.shape.as_ref().is_some_and(|sh| sh.text.is_some());
+        (border || !text_box)
+            .then(|| s.drawing_selection(*para as usize, *at as usize))
+            .flatten()
+    })
+}
+
 /// Position under a point of a page (nearest line, then nearest caret stop).
 pub fn hit_test(layout: &LayoutDocument, page: usize, x: f32, y: f32) -> Option<Pos> {
     let p = layout.pages.get(page)?;

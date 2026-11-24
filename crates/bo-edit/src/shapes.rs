@@ -97,6 +97,22 @@ impl Session {
         }
     }
 
+    /// Selection covering the drawing object at (`para`, `at`) — the shape selected as a
+    /// whole, like a click on its border (round 22).
+    pub fn drawing_selection(&self, para: usize, at: usize) -> Option<Selection> {
+        let paths = bo_model::index::body_paragraphs(&self.doc);
+        let p = bo_model::index::para_at(&self.doc, paths.get(para)?)?;
+        let (_, spans) = para_index(p);
+        spans.into_iter().find_map(|s| {
+            (s.start == at && matches!(p.runs[s.run].content[s.item], RunContent::Image(_))).then(
+                || Selection {
+                    anchor: crate::Pos::new(para, s.start),
+                    focus: crate::Pos::new(para, s.end),
+                },
+            )
+        })
+    }
+
     /// Change the drawing object at (`para`, `at`) with `f` (one undo step).
     pub fn edit_drawing(
         &mut self,

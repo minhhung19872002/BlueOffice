@@ -2216,8 +2216,13 @@ impl crate::Engine {
                             };
                             s.set_selection(new);
                             // A click on a picture selects it (CORE-PIC-001).
+                            // A click on a shape's border, or inside a shape without text,
+                            // selects the shape (round 22).
                             let picked = (count == 1 && !extend)
-                                .then(|| nav::picture_at(layout, s, page, x, y))
+                                .then(|| {
+                                    nav::shape_at(layout, s, page, x, y)
+                                        .or_else(|| nav::picture_at(layout, s, page, x, y))
+                                })
                                 .flatten();
                             if let Some(pic) = picked {
                                 s.set_selection(pic);

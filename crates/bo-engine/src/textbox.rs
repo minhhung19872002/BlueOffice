@@ -293,8 +293,12 @@ impl Engine {
             } => {
                 let hit = self.drawing_hit(*page, *x, *y);
                 let current = self.textbox.as_ref().map(|b| (b.para, b.at));
+                // A click on the frame's border selects the shape itself (round 22).
+                let border = hit
+                    .as_ref()
+                    .is_some_and(|d| nav::on_frame_border(d.x, d.y, d.w, d.h, *x, *y));
                 match &hit {
-                    Some(d) if d.text_box && *count == 1 => {
+                    Some(d) if d.text_box && *count == 1 && !border => {
                         if current != Some((d.para, d.at)) {
                             self.open_text_box(d.para, d.at, *page)?;
                         }

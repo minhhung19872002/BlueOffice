@@ -2474,6 +2474,8 @@ fn read_rpr(r: &mut XmlReader<'_>) -> Result<RunProps> {
                 // §17.18.99 ST_Underline (absent val = single)
                 p.underline =
                     Some(attr(e, b"val").map_or(Underline::Single, |v| Underline::parse(&v)));
+                // §17.3.2.40 u @w:color (ST_HexColor; `auto` = the text colour).
+                p.underline_color = color_attr(e, b"color");
             }
             b"rtl" => p.rtl = Some(on_off(e)),    // §17.3.2.30
             b"cs" => p.complex = Some(on_off(e)), // §17.3.2.7

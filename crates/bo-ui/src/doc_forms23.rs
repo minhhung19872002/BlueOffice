@@ -420,10 +420,15 @@ pub(super) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
                 [214.0, 76.0, 50.0, 18.0],
                 &tr("doc23.type", "Type:"),
             );
+            // Round 24: Text, Number, Date as the reference's Type box.
             f.combo(
                 "type",
                 [262.0, 72.0, 110.0, 26.0],
-                vec![tr("doc23.text", "Text")],
+                vec![
+                    tr("doc23.text", "Text"),
+                    tr("doc24.number", "Number"),
+                    tr("doc24.date", "Date"),
+                ],
                 0,
             );
             f.radio(
@@ -711,18 +716,27 @@ fn open_font(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
         [365.0, 261.0, 150.0, 18.0],
         &tr("doc23.ulColorL", "Underline color:"),
     );
+    // §17.3.2.40 u @w:color: Automatic (the text colour) or a colour of its own.
+    let mut ul_colors = vec![tr("doc23.automatic", "Automatic")];
+    ul_colors.extend(COLORS.iter().map(|(_, k, fb)| tr(k, fb)));
+    let cur = x["underlineColor"].as_str().unwrap_or("");
+    let uci = COLORS
+        .iter()
+        .position(|c| c.0.eq_ignore_ascii_case(cur))
+        .map_or(0, |i| i + 1);
     f.form.add(
         "ulColor",
         Some(0),
         [365.0, 280.0, 143.0, 26.0],
         Kind::Combo {
-            items: vec![tr("doc23.automatic", "Automatic")],
-            sel: 0,
+            items: ul_colors,
+            sel: uci,
         },
     );
-    // Greyed as the reference's while the style is (none); BlueDoc keeps the text colour
-    // for underlines (no underline colour of its own yet).
-    f.disable("ulColor");
+    // Greyed as the reference's while the style is (none).
+    if ui == 0 {
+        f.disable("ulColor");
+    }
     f.group_page(
         0,
         "effects",
@@ -964,6 +978,13 @@ fn open_font(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
         &tr("doc23.ctxAlts", "Use Contextual Alternates"),
         x["contextualAlternates"] == true,
     );
+    // Round 24: OpenType features are [MS-DOCX] w14 — greyed in a document kept in an
+    // older layout mode (compatibilityMode < 14), as the reference's Compatibility Mode.
+    if x["compat"].as_u64().is_some_and(|c| c < 14) {
+        for id in ["lig", "numSp", "numForm", "sets", "ctxAlts"] {
+            f.disable(id);
+        }
+    }
     f.group_page(
         1,
         "previewL2",
@@ -1017,6 +1038,12 @@ impl DocForm {
     }
 
     /// The selection's state the Font dialog opened with.
+    /// Whether control `id` is enabled (tests).
+    #[cfg(test)]
+    pub(crate) fn enabled_for_test(&self, id: &str) -> bool {
+        self.form.get(id).is_some_and(|c| c.enabled)
+    }
+
     fn r23_initial(&self) -> Value {
         self.words
             .iter()
@@ -1046,6 +1073,11 @@ impl DocForm {
                     self.form.set_text(edit, &v);
                 }
             }
+        }
+        // Underline color is greyed while the underline style is (none) (reference).
+        if id == "underline" {
+            let on = self.sel("underline").unwrap_or(0) > 0;
+            self.form.enable("ulColor", on);
         }
         if self.kind == DocFormKind::Field23 && id == "names" {
             let i = self.sel("names").unwrap_or(0).min(FIELDS.len() - 1);
@@ -1207,9 +1239,14 @@ impl DocForm {
             DocFormKind::SortText => {
                 let descending = self.chosen("order") == Some("desc");
                 let header = self.chosen("head") == Some("header");
+                let by = match self.sel("type") {
+                    Some(1) => ":number",
+                    Some(2) => ":date",
+                    _ => "",
+                };
                 FormOut::Run(
                     vec![json!({ "cmd": "ui.action",
-                        "id": format!("r23.sort:{}{}",
+                        "id": format!("r23.sort:{}{}{by}",
                             if descending { "desc" } else { "asc" },
                             if header { ":header" } else { "" }) })],
                     true,
@@ -1274,6 +1311,12 @@ impl DocForm {
         let ul = UNDERLINES[self.sel("underline").unwrap_or(0).min(UNDERLINES.len() - 1)].0;
         if x["underline"].as_str().unwrap_or("") != ul {
             patch.insert("underline".into(), json!(ul));
+        }
+        let uci = self.sel("ulColor").unwrap_or(0);
+        let ul_hex = (uci > 0).then(|| COLORS[(uci - 1).min(COLORS.len() - 1)].0.to_owned());
+        let old_ul = x["underlineColor"].as_str().map(str::to_uppercase);
+        if !ul.is_empty() && ul_hex != old_ul {
+            patch.insert("underlineColor".into(), json!(ul_hex));
         }
         // Toggles of the effects that differ.
         for (id, fmt) in [
@@ -1535,6 +1578,7 @@ pub(crate) fn extra(f: &bo_edit::FormatState) -> Value {
         "color": f.color,
         "underline": if a.underline.is_empty() && f.underline { "single" } else { a.underline.as_str() },
         "strike": f.strike,
+        "underlineColor": a.underline_color,
         "dstrike": a.double_strike,
         "super": f.superscript,
         "sub": f.subscript,

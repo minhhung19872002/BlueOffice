@@ -3814,7 +3814,14 @@ fn rpr_children(p: &RunProps) -> Vec<(String, String)> {
     }
     if let Some(u) = p.underline {
         // §17.3.2.40 u, §17.18.99 ST_Underline
-        v.push(("u".into(), format!("<w:u w:val=\"{}\"/>", u.as_str())));
+        // §17.3.2.40 @w:color: the underline colour (absent = automatic).
+        let color = p
+            .underline_color
+            .map_or_else(String::new, |c| format!(" w:color=\"{}\"", c.to_hex()));
+        v.push((
+            "u".into(),
+            format!("<w:u w:val=\"{}\"{color}/>", u.as_str()),
+        ));
     }
     if p.shading.is_some() || p.shading_pattern.is_some() {
         // §17.3.2.32 shd: pattern (§17.18.78), pattern colour and fill.

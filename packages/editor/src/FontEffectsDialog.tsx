@@ -47,6 +47,7 @@ export const PLAIN: CharAdvanced = {
   combine: false,
   combineBrackets: '',
   underline: '',
+  underlineColor: null,
   doubleStrike: false,
   smallCaps: false,
   allCaps: false,

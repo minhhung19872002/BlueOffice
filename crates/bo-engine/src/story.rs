@@ -540,6 +540,13 @@ pub(crate) fn sub_command(
         Command::SortParagraphs { descending } => {
             s.sort_paragraphs(*descending)?;
         }
+        Command::SortParagraphsBy {
+            descending,
+            by,
+            day_first,
+        } => {
+            s.sort_paragraphs_by(*descending, *by, *day_first)?;
+        }
         Command::SelectSentence { page, x, y } => {
             if let Some(p) = nav::hit_test(layout, hit_page.unwrap_or(*page), *x, *y - dy) {
                 s.set_selection(s.sentence_at(p));

@@ -174,7 +174,10 @@ fn the_text_context_menu_has_the_reference_rows_and_the_mini_toolbar() {
             "",
             "Font...",
             "Paragraph...",
+            "Search \"two\"",
             "Synonyms",
+            "Read Aloud",
+            "Translate",
             "Link",
             "New Comment"
         ]

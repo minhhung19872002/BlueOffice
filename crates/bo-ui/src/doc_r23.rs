@@ -18,7 +18,7 @@ use serde_json::{json, Value};
 
 #[cfg(test)]
 #[path = "doc_r23_inv_tests.rs"]
-mod inv_tests;
+pub(super) mod inv_tests;
 
 #[cfg(test)]
 #[path = "doc_r23_tests.rs"]
@@ -36,7 +36,7 @@ pub(super) struct R23 {
     /// Select ▾ › Select Objects: presses on the page select drawing objects.
     pub(super) select_objects: bool,
     /// Where the last press was (a split button's part is told by it; taken once).
-    press: Option<(f32, f32)>,
+    pub(super) press: Option<(f32, f32)>,
 }
 
 /// Menu entries of round 23 that the window runs itself (no engine command of their own).
@@ -270,7 +270,11 @@ impl DocWindow {
         let dim = footer
             .iter()
             .enumerate()
-            .filter(|(_, (_, c))| !in_list && (c == "r23.levels" || c == "r23.setValue"))
+            .filter(|(_, (_, c))| {
+                (!in_list && (c == "r23.levels" || c == "r23.setValue"))
+                    // Round 24: Stop Highlighting only while the highlighter pen is on.
+                    || (c == "r23.hl:stop" && !self.r24.pen)
+            })
             .map(|(i, _)| i)
             .collect();
         let g = ThumbGallery::open(sections, footer, grid, anchor, self.size, self.scale)
@@ -462,7 +466,11 @@ impl DocWindow {
                 self.r21_open_pane(crate::doc_fmtpane21::Page::Layout, None, false)
             }
             // Alt Text of a shape (pictures: round 7).
-            "picture.altText" if self.context.shape => self.r23_shape_alt_text(),
+            // Round 24: also when the right-click moved the caret off the shape (no picture
+            // selected): the paragraph's shape.
+            "picture.altText" if self.context.shape || !self.context.picture => {
+                self.r23_shape_alt_text()
+            }
             "r23.fontDefault" => {
                 self.r3_run(vec![json!({ "cmd": "styleUpdateToMatch", "id": "Normal" })])
             }
@@ -560,6 +568,12 @@ impl DocWindow {
             "r23.ribbonCustomize".into(),
             false,
         ));
+        // Round 24: Collapse the Ribbon (Ctrl+F1) — checked while collapsed.
+        rows.push((
+            self.r23_t("doc24.collapseRibbon", "Collapse the Ribbon"),
+            "r24.ribbon:toggle".into(),
+            false,
+        ));
         self.r23_menu(rows, [x, y, 1.0, 0.0], vec![sep])
     }
 
@@ -618,11 +632,15 @@ impl DocWindow {
     /// Alt Text… of the selected shape (§20.4.2.5 docPr descr), as for pictures.
     fn r23_shape_alt_text(&mut self) -> bool {
         self.menu = None;
+        // Round 24: from inside a text box's text, Alt Text is the text box's.
+        if self.view.story().is_some() {
+            self.view.run_command(Command::CloseTextBox);
+        }
         let Some(s) = self.view.engine().session() else {
             return false;
         };
-        let desc = s.tools_shape().map(|i| i.description).unwrap_or_default();
         let (a, b) = s.selection().ordered();
+        let old = s.selection();
         let Some(p) = bo_model::index::para_by_id(s.doc(), a.para) else {
             return false;
         };
@@ -632,15 +650,49 @@ impl DocWindow {
         } else {
             text.len()
         };
-        let Some(at) = text
+        let object = bo_model::index::OBJECT;
+        let hit = text
             .char_indices()
-            .filter(|(i, c)| *c == bo_model::index::OBJECT && *i + c.len_utf8() >= a.offset)
+            .filter(|(i, c)| *c == object && *i + c.len_utf8() >= a.offset)
             .find(|(i, _)| *i <= end)
+            .map(|(i, _)| i);
+        let objects: Vec<usize> = text
+            .char_indices()
+            .filter(|(_, c)| *c == object)
             .map(|(i, _)| i)
-        else {
+            .collect();
+        let para = a.para;
+        // Round 24: else the paragraph's first object that is a shape (a right-click beside
+        // a selected text box moves the caret off it): each object tried as the selection.
+        let at = hit.or_else(|| {
+            let found = objects.into_iter().find(|&i| {
+                self.view.run_command(Command::SetSelection {
+                    selection: bo_edit::Selection {
+                        anchor: bo_edit::Pos::new(para, i),
+                        focus: bo_edit::Pos::new(para, i + object.len_utf8()),
+                    },
+                });
+                self.view
+                    .engine()
+                    .session()
+                    .is_some_and(|s| s.tools_shape().is_some())
+            });
+            if found.is_none() {
+                self.view
+                    .run_command(Command::SetSelection { selection: old });
+            }
+            found
+        });
+        let Some(at) = at else {
             return false;
         };
-        let para = a.para;
+        let desc = self
+            .view
+            .engine()
+            .session()
+            .and_then(bo_edit::Session::tools_shape)
+            .map(|i| i.description)
+            .unwrap_or_default();
         self.r3_open_form(crate::doc_forms::DocFormKind::AltText);
         if let Some(f) = self.r3.form.as_mut() {
             f.ids = vec![para.to_string(), at.to_string()];
@@ -702,6 +754,8 @@ impl DocWindow {
             let t = &s.doc().theme_fonts;
             c.extra["r23"]["themeBody"] = json!(t.minor_latin);
             c.extra["r23"]["themeHeadings"] = json!(t.major_latin);
+            // Round 24: the layout mode (OpenType features need 14 or later).
+            c.extra["r23"]["compat"] = json!(s.doc().compat_mode);
         }
         if kind == crate::doc_forms::DocFormKind::Font23 {
             c.fonts = self.view.font_list().into_iter().map(|f| f.name).collect();
@@ -715,7 +769,7 @@ impl DocWindow {
     /// Sort Text OK: the selected paragraphs (less the first with a header row) sorted.
     fn r23_sort(&mut self, v: &str) -> bool {
         let descending = v.starts_with("desc");
-        if v.ends_with(":header") {
+        if v.contains(":header") {
             if let Some(s) = self.view.engine().session() {
                 let sel = s.selection();
                 let (a, b) = if sel.anchor.para <= sel.focus.para {
@@ -732,8 +786,23 @@ impl DocWindow {
                 }
             }
         }
-        self.view
-            .run_command(Command::SortParagraphs { descending })
+        // Round 24: Type Number / Date.
+        let by = if v.ends_with(":number") {
+            bo_edit::sort_by::SortType::Number
+        } else if v.ends_with(":date") {
+            bo_edit::sort_by::SortType::Date
+        } else {
+            return self
+                .view
+                .run_command(Command::SortParagraphs { descending });
+        };
+        // Numeric dates read day first in the Vietnamese interface (as its short date).
+        let day_first = self.locale_day_first();
+        self.view.run_command(Command::SortParagraphsBy {
+            descending,
+            by,
+            day_first,
+        })
     }
 
     // ----- Bullets / Numbering / Multilevel List -----
@@ -1356,19 +1425,18 @@ impl DocWindow {
                 "r23.tb:insideV".to_owned(),
                 !in_table,
             ),
-            // Diagonal cell borders (§17.4.80 tl2br / tr2bl): BlueDoc's tables cannot
-            // draw them yet.
+            // Diagonal cell borders (§17.4.80 tl2br / tr2bl, round 24): table cells only.
             (
                 "doc23.bDiagDown",
                 "Diagonal Down Border",
-                "r23.diag".to_owned(),
-                true,
+                "r24.diag:down".to_owned(),
+                !in_table,
             ),
             (
                 "doc23.bDiagUp",
                 "Diagonal Up Border",
-                "r23.diag".to_owned(),
-                true,
+                "r24.diag:up".to_owned(),
+                !in_table,
             ),
             (
                 "doc23.bHorizontalLine",

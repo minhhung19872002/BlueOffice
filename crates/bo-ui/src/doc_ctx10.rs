@@ -298,11 +298,35 @@ impl DocWindow {
                     sep: i == 1,
                 });
             }
+            // Round 24: Search "…" before Synonyms, Read Aloud and Translate after it (the
+            // reference's rows).
+            let search = self.r24_ctx_rows(0);
+            for (i, (label, id)) in search.iter().cloned().enumerate() {
+                rows.push(Row {
+                    label,
+                    id,
+                    icon: None,
+                    dim: false,
+                    arrow: false,
+                    sep: i == 0,
+                });
+            }
             if syn.is_some() {
                 let mut r = self.r10_row("synonyms", "ctx.sub.syn", None);
                 r.arrow = true;
-                r.sep = true;
+                r.sep = search.is_empty();
                 rows.push(r);
+            }
+            let first_more = search.is_empty() && syn.is_none();
+            for (i, (label, id)) in self.r24_ctx_rows(1).into_iter().enumerate() {
+                rows.push(Row {
+                    label,
+                    id,
+                    icon: None,
+                    dim: false,
+                    arrow: false,
+                    sep: i == 0 && first_more,
+                });
             }
             if link.is_none() {
                 let mut r = self.r10_row("link", "insert.link", Some("insert.link"));

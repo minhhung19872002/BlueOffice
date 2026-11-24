@@ -46,6 +46,7 @@ pub mod section;
 pub mod shapes;
 pub mod sigline;
 pub mod smartart;
+pub mod sort_by;
 pub mod styles;
 pub mod table;
 pub mod table_tools;

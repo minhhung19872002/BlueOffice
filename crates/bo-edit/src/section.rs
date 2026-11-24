@@ -147,6 +147,10 @@ pub struct NoteInfo {
     pub text: String,
     /// Body paragraph holding the reference (when referenced).
     pub para: Option<usize>,
+    /// Byte offset of the reference in that paragraph's index text (Next / Previous
+    /// Footnote move to it).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub offset: Option<usize>,
 }
 
 /// Footnote/endnote options sent by hosts (§17.11.11 footnotePr, §17.11.4 endnotePr).
@@ -722,8 +726,11 @@ impl Session {
             let Some(p) = para_at(&self.doc, path) else {
                 continue;
             };
+            let mut at = 0usize;
             for r in &p.runs {
                 for c in &r.content {
+                    let here = at;
+                    at += bo_model::index::item_text(c).len();
                     let (end, nid) = match c {
                         RunContent::FootnoteRef(n) => (false, *n),
                         RunContent::EndnoteRef(n) => (true, *n),
@@ -741,6 +748,7 @@ impl Session {
                                 endnote: end,
                                 text: note_text(b),
                                 para: Some(id),
+                                offset: Some(here),
                             });
                         }
                     }

@@ -118,6 +118,19 @@ pub enum Command {
         #[serde(default)]
         descending: bool,
     },
+    /// Sort the selected paragraphs by their text, first number or first date (Sort Text
+    /// dialog, "Type"); paragraphs without a number / date first.
+    SortParagraphsBy {
+        /// Descending instead of ascending.
+        #[serde(default)]
+        descending: bool,
+        /// `text`, `number` or `date`.
+        #[serde(default)]
+        by: bo_edit::sort_by::SortType,
+        /// Numeric dates are day / month / year (else month / day / year).
+        #[serde(default)]
+        day_first: bool,
+    },
     /// Ctrl+click: select the sentence at a point (with the spaces after it).
     SelectSentence {
         /// 0-based page index.
@@ -2413,6 +2426,13 @@ impl crate::Engine {
                     }
                     Command::SortParagraphs { descending } => {
                         s.sort_paragraphs(descending)?;
+                    }
+                    Command::SortParagraphsBy {
+                        descending,
+                        by,
+                        day_first,
+                    } => {
+                        s.sort_paragraphs_by(descending, by, day_first)?;
                     }
                     Command::SplitParagraph => {
                         let n = s.paragraph_count();

@@ -172,6 +172,10 @@ impl DocWindow {
         if self.r17.draw.is_some() {
             return pointer::PEN;
         }
+        // Round 24: the highlighter pen.
+        if self.r24.pen {
+            return pointer::PEN;
+        }
         pointer::TEXT
     }
 

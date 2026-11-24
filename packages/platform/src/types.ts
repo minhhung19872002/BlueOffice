@@ -484,6 +484,7 @@ export type TableEdit =
   | { kind: 'shading'; hex: string | null; whole?: boolean; pattern?: ShadingPatternSpec | null }
   /** Exact borders of the table or (cells) of the selected cells (round 12). */
   | ({ kind: 'setBorders'; cells?: boolean } & BorderEdges)
+  | { kind: 'cellDiagonal'; down?: boolean; pen?: BorderPen | null }
   /** §17.4.63 tblCaption / §17.4.58 tblDescription; empty removes. */
   | { kind: 'altText'; title: string; description: string }
   /** §17.4.58 tblpPr and §17.4.56 tblOverlap. */
@@ -579,6 +580,8 @@ export interface NoteInfo {
   endnote: boolean;
   text: string;
   para: number | null;
+  /** Byte offset of the reference in its paragraph's index text. */
+  offset?: number;
 }
 
 /** Font picker entry (mirrors `bo_engine::fonts::FontChoice`). */
@@ -960,6 +963,7 @@ export type EditCommand =
     }
   /** Sort the selected paragraphs by their text (Vietnamese dictionary order). */
   | { cmd: 'sortParagraphs'; descending?: boolean }
+  | { cmd: 'sortParagraphsBy'; descending?: boolean; by?: 'text' | 'number' | 'date'; dayFirst?: boolean }
   | { cmd: 'move'; motion: Motion; extend?: boolean }
   | { cmd: 'insertText'; text: string }
   | { cmd: 'formatText'; format: CharFormat }

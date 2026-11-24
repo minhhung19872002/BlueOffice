@@ -395,6 +395,12 @@ impl DocWindow {
         let Some(anchor) = self.ribbon.rect_of(RibbonHit::Command(id)) else {
             return false;
         };
+        self.r4_open_gallery_at(id, anchor)
+    }
+
+    /// Gallery `id` under `anchor` (round 24: Equation › Equation opens Insert's equation
+    /// gallery under its own button).
+    pub(super) fn r4_open_gallery_at(&mut self, id: &'static str, anchor: [f32; 4]) -> bool {
         let Some((sections, rows, look, draw)) = self.gallery(id) else {
             return false;
         };

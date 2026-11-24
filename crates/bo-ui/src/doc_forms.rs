@@ -56,6 +56,8 @@ pub(crate) mod r18;
 pub(crate) mod r22;
 #[path = "doc_forms23.rs"]
 pub(crate) mod r23;
+#[path = "doc_forms24.rs"]
+pub(crate) mod r24;
 pub(crate) use r5::{open_manage_styles, ManagedStyle};
 pub(crate) use r7::INSPECT;
 
@@ -233,6 +235,14 @@ pub(crate) enum DocFormKind {
     Field23,
     /// Selection Pane: the document's drawing objects (round 23).
     SelPane23,
+    /// Insert › Drop Cap › Drop Cap Options… (round 24).
+    DropCap24,
+    /// Layout › Hyphenation › Hyphenation Options… (round 24).
+    Hyphenation24,
+    /// Layout › Hyphenation › Manual… (round 24).
+    ManualHyph24,
+    /// Insert › Quick Parts › Building Blocks Organizer… (round 24).
+    Organizer24,
 }
 
 /// What the owner does after an input.
@@ -888,6 +898,7 @@ impl DocForm {
         match ev {
             Event::None => FormOut::Redraw,
             Event::Cancel => FormOut::Close,
+            Event::Canvas(id, ..) if self.r24_canvas(id) => FormOut::Redraw,
             Event::Canvas(id, x, y) if self.r18_canvas(id, *x, *y) => FormOut::Redraw,
             Event::Canvas(id, x, y) if self.r22_canvas(id, *x, *y) => FormOut::Redraw,
             Event::Canvas(id, x, y) if self.r17_canvas(id, *x, *y) => FormOut::Redraw,
@@ -937,6 +948,7 @@ impl DocForm {
                 self.form.enable("bookmark", range);
             }
             (DocFormKind::Protect, _) => {}
+            (k, _) if r24::handles(k) => {}
             (k, _) if r23::handles(k) => self.r23_changed(id),
             (k, _) if r18::handles(k) => self.r18_changed(id),
             (k, _) if r15::handles(k) => self.r15_changed(id),
@@ -963,6 +975,9 @@ impl DocForm {
     }
 
     fn clicked(&mut self, id: &str) -> FormOut {
+        if let Some(out) = self.r24_clicked(id) {
+            return out;
+        }
         if let Some(out) = self.r23_clicked(id) {
             return out;
         }
@@ -1115,6 +1130,9 @@ impl DocForm {
     }
 
     fn ok(&mut self) -> FormOut {
+        if let Some(out) = self.r24_ok() {
+            return out;
+        }
         if let Some(out) = self.r23_ok() {
             return out;
         }
@@ -1458,6 +1476,11 @@ impl DocForm {
             | DocFormKind::SortText
             | DocFormKind::Field23
             | DocFormKind::SelPane23 => FormOut::Redraw,
+            // Round 24: answered by `r24_ok` above.
+            DocFormKind::DropCap24
+            | DocFormKind::Hyphenation24
+            | DocFormKind::ManualHyph24
+            | DocFormKind::Organizer24 => FormOut::Redraw,
         }
     }
 
@@ -1473,6 +1496,7 @@ impl DocForm {
         let mut canvas = |id: &str, r: [f32; 4], p: &mut dyn Painter| {
             if r18::paint_canvas(this, id, r, p, &font)
                 || r23::paint_canvas(this, id, r, p, &font)
+                || r24::paint_canvas(this, id, r, p, &font)
                 || r22::paint_canvas(this, id, r, p, &font)
                 || r17::paint_canvas(this, id, r, p, &font)
                 || r15::paint_canvas(this, id, r, p, &font)
@@ -3345,6 +3369,10 @@ pub(crate) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
         | DocFormKind::SortText
         | DocFormKind::Field23
         | DocFormKind::SelPane23 => r23::open(kind, s, c),
+        DocFormKind::DropCap24
+        | DocFormKind::Hyphenation24
+        | DocFormKind::ManualHyph24
+        | DocFormKind::Organizer24 => r24::open(kind, s, c),
         DocFormKind::Zoom => {
             let mut f = DocForm::new(kind, &tr("docR4.zoomTitle", "Zoom"), (381.0, 258.0), vec![]);
             f.label(

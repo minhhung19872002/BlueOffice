@@ -56,6 +56,8 @@ pub(crate) mod r21;
 pub(crate) mod r22;
 #[path = "doc_r23.rs"]
 pub(crate) mod r23;
+#[path = "doc_r24.rs"]
+pub(crate) mod r24;
 #[path = "doc_r3.rs"]
 mod r3;
 #[path = "doc_r4.rs"]
@@ -394,6 +396,7 @@ pub struct DocWindow {
     r21: Box<r21::R21>,
     r22: Box<r22::R22>,
     r23: Box<r23::R23>,
+    r24: Box<r24::R24>,
 }
 
 /// Font sizes offered by the size box (points).
@@ -508,10 +511,11 @@ impl DocWindow {
         r20::install(&mut icons, &mut strings);
         r22::install(&mut icons, &mut strings);
         r23::install(&mut icons, &mut strings);
+        r24::install(&mut icons, &mut strings);
         icons.set_grey_disabled(true);
         Self {
             view,
-            title: TitleBar::new(),
+            title: r24::title_bar(),
             name: name.to_owned(),
             requests: Vec::new(),
             ribbon: Ribbon::new()
@@ -612,6 +616,7 @@ impl DocWindow {
             r21: Box::default(),
             r22: Box::default(),
             r23: Box::default(),
+            r24: Box::default(),
         }
     }
 
@@ -2286,6 +2291,9 @@ impl DocWindow {
         if let Some(r) = self.r21_guard(id) {
             return r;
         }
+        if let Some(r) = self.r24_action(id) {
+            return r;
+        }
         if let Some(r) = self.r23_action(id) {
             return r;
         }
@@ -2629,6 +2637,10 @@ impl DocWindow {
         if self.menu.is_some() {
             return NcHit::Client;
         }
+        // Round 24: the Ribbon Display Options button left of Minimize.
+        if self.r24_in_title_button(x, y) {
+            return NcHit::Client;
+        }
         self.title.hit(x, y)
     }
 
@@ -2879,8 +2891,9 @@ impl DocWindow {
         if self.read_mode.is_some() || self.r4.focus {
             self.title.height()
         } else {
-            // Round 21: the Protected View bar below the ribbon.
-            self.ribbon.bottom() + self.r21_bar_h()
+            // Round 21: the Protected View bar below the ribbon. Round 24: a peeking
+            // ribbon floats over the document (the document does not move).
+            self.ribbon.bottom() - self.r24_peek_h() + self.r21_bar_h()
         }
     }
 
@@ -3071,6 +3084,10 @@ impl DocWindow {
             if let Some(r) = self.r21_input(&input) {
                 return r;
             }
+        }
+        // Round 24: Ctrl+F1, the collapsed ribbon, the highlighter pen.
+        if let Some(r) = self.r24_input(&input) {
+            return r;
         }
         // Round 23: the Shading palette, Select Objects.
         if let Some(r) = self.r23_input(&input) {
@@ -4110,6 +4127,7 @@ impl DocWindow {
         self.r18_paint(p);
         self.r22_paint(p);
         self.r23_paint(p);
+        self.r24_paint(p);
         if let Some(menu) = &self.menu {
             menu.paint(p, &self.r10_menu_theme(), &self.icons);
             self.r10_paint_menu(p);

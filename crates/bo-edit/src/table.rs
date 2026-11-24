@@ -201,6 +201,16 @@ pub enum TableEdit {
         #[serde(flatten)]
         edges: Box<BorderEdges>,
     },
+    /// One diagonal of each selected cell (Borders ▾ › Diagonal Down / Up Border): §17.4.80
+    /// tl2br (`down`) or §17.4.79 tr2bl, set to `pen` or removed; the other edges stay.
+    CellDiagonal {
+        /// Top left to bottom right (else top right to bottom left).
+        #[serde(default)]
+        down: bool,
+        /// The line (`None` removes it).
+        #[serde(default)]
+        pen: Option<BorderPen>,
+    },
     /// Apply a border preset to the table (`w:tblBorders`).
     Borders {
         /// Which edges get borders.
@@ -1455,6 +1465,17 @@ impl Session {
                 }
             }
             TableEdit::Wrap { around } => tools::set_wrap(&mut t, *around),
+            TableEdit::CellDiagonal { down, pen } => {
+                let k = usize::from(!*down);
+                for r in r0..=r1 {
+                    for g in g0..=g1 {
+                        if let Some(i) = cell_covering(&t.rows[r], g) {
+                            t.rows[r].cells[i].props.diagonals[k] =
+                                pen.as_ref().map(BorderPen::border);
+                        }
+                    }
+                }
+            }
             TableEdit::SetBorders { cells, edges } => {
                 let BorderEdges {
                     top,

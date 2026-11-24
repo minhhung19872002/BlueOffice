@@ -987,6 +987,7 @@ impl SlideWindow {
                 icon: false,
                 caption: None,
                 icon_style: 0,
+                icon_file: None,
             });
         }
         self.insert_file_as(bytes, name, kind == InsertFile::AlbumPicture)

@@ -181,7 +181,40 @@ pub(crate) fn add_object_icon(f: &mut DocForm, s: &Strings) {
     f.form.show("iconCaption", false);
     f.edit("iconStyle", [0.0, 0.0, 0.0, 0.0], "0");
     f.form.show("iconStyle", false);
+    f.edit("iconFile", [0.0, 0.0, 0.0, 0.0], "");
+    f.form.show("iconFile", false);
+    // The Result text "… as an icon." shown while Display as icon is on, as the reference.
+    let texts = [
+        t(
+            s,
+            "doc22.resultNewIcon",
+            "Inserts a new BlueSheet Worksheet object into your document as an icon.",
+        ),
+        t(
+            s,
+            "doc22.resultFileIcon",
+            "Inserts the contents of the workbook into your document as an icon.",
+        ),
+    ];
+    for (page, ids) in [(0, ["rIcon0", "rIcon0b"]), (1, ["rIcon1", "rIcon1b"])] {
+        let lines = wrap(&texts[page], 44);
+        for (i, id) in ids.iter().enumerate() {
+            let line = lines.get(i).cloned().unwrap_or_default();
+            f.label_on(
+                page,
+                id,
+                [134.0, 280.0 + 22.0 * i as f32, 350.0, 20.0],
+                &line,
+            );
+            f.form.show(id, false);
+        }
+    }
 }
+
+/// Result lines of Insert › Object without the icon (page 0, page 1).
+const RESULT_IDS: [&str; 7] = [
+    "result", "resultB", "resultC", "result2", "result2B", "result2C", "result2D",
+];
 
 /// The Change Icon dialog: `c.extra["r22"]` = `{caption, style}`.
 pub(crate) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
@@ -194,6 +227,8 @@ pub(crate) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
         .unwrap_or(DEFAULT_CAPTION)
         .to_owned();
     let style = c.extra["r22"]["style"].as_u64().unwrap_or(0);
+    let file = c.extra["r22"]["file"].as_str().unwrap_or("").to_owned();
+    let file_name = c.extra["r22"]["fileName"].as_str().unwrap_or("").to_owned();
     let mut f = DocForm::new(
         kind,
         &tr("doc22.changeIconTitle", "Change Icon"),
@@ -208,8 +243,21 @@ pub(crate) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
     f.label(
         "file",
         [92.0, 53.0, 260.0, 18.0],
-        &tr("doc22.builtInIcons", "BlueOffice icons (built in)"),
+        &if file_name.is_empty() {
+            tr("doc22.builtInIcons", "BlueOffice icons (built in)")
+        } else {
+            file_name
+        },
     );
+    // Browse…: an .ico, .exe / .dll (its icon resources are only read) or .png file.
+    f.button(
+        "browse",
+        [360.0, 46.0, 110.0, 30.0],
+        &tr("doc22.browse", "Browse..."),
+        false,
+    );
+    f.edit("iconFile", [0.0, 0.0, 0.0, 0.0], &file);
+    f.form.show("iconFile", false);
     f.label(
         "iconL",
         [18.0, 90.0, 60.0, 18.0],
@@ -298,6 +346,44 @@ pub(crate) fn paint_icon(p: &mut dyn crate::Painter, x: f32, y: f32, size: f32, 
     }
 }
 
+/// The icon of a picked file, before it is read by the engine: a page with a blue corner
+/// (own drawing; the file's own picture is put in the object when it is inserted).
+fn paint_file_icon(p: &mut dyn crate::Painter, x: f32, y: f32, size: f32, font: &crate::Font<'_>) {
+    let k = size / 32.0;
+    p.fill_rect(
+        x + 4.0 * k,
+        y,
+        24.0 * k,
+        31.0 * k,
+        Rgba(0x80, 0x80, 0x80, 255),
+    );
+    p.fill_rect(
+        x + 5.0 * k,
+        y + k,
+        22.0 * k,
+        29.0 * k,
+        Rgba(255, 255, 255, 255),
+    );
+    p.fill_rect(
+        x + 8.0 * k,
+        y + 8.0 * k,
+        16.0 * k,
+        16.0 * k,
+        Rgba(0x0F, 0x6C, 0xBD, 255),
+    );
+    let small = crate::Font {
+        size: font.size * 0.8,
+        ..*font
+    };
+    p.text_font(
+        "+",
+        x + 13.0 * k,
+        y + 9.0 * k,
+        &small,
+        Rgba(255, 255, 255, 255),
+    );
+}
+
 /// Paint the icon preview of Insert › Object and the icon list of Change Icon.
 pub(super) fn paint_canvas(
     f: &DocForm,
@@ -311,7 +397,11 @@ pub(super) fn paint_canvas(
             let k = r[3] / 90.0;
             let style = f.text("iconStyle").parse().unwrap_or(0);
             let size = 36.0 * k;
-            paint_icon(p, r[0] + (r[2] - size) / 2.0, r[1] + 4.0 * k, size, style);
+            if style == 2 {
+                paint_file_icon(p, r[0] + (r[2] - size) / 2.0, r[1] + 4.0 * k, size, font);
+            } else {
+                paint_icon(p, r[0] + (r[2] - size) / 2.0, r[1] + 4.0 * k, size, style);
+            }
             let mut caption = f.text("iconCaption");
             if caption.is_empty() {
                 caption = object_caption(f);
@@ -342,7 +432,8 @@ pub(super) fn paint_canvas(
                 Rgba(255, 255, 255, 255),
             );
             let sel: u64 = f.text("iconStyle").parse().unwrap_or(0);
-            for i in 0..2u64 {
+            let rows = if f.text("iconFile").is_empty() { 2 } else { 3 };
+            for i in 0..rows {
                 let y = r[1] + 2.0 * k + ICON_ROW * k * i as f32;
                 if i == sel {
                     p.fill_rect(
@@ -354,7 +445,11 @@ pub(super) fn paint_canvas(
                     );
                 }
                 let size = 36.0 * k;
-                paint_icon(p, r[0] + (r[2] - size) / 2.0, y + 4.0 * k, size, i);
+                if i == 2 {
+                    paint_file_icon(p, r[0] + (r[2] - size) / 2.0, y + 4.0 * k, size, font);
+                } else {
+                    paint_icon(p, r[0] + (r[2] - size) / 2.0, y + 4.0 * k, size, i);
+                }
             }
             true
         }
@@ -391,6 +486,12 @@ impl DocForm {
     /// Display as icon toggled on page 0 or 1: show the preview and Change Icon….
     pub(super) fn r22_icon_toggled(&mut self, id: &str) {
         let on = self.on(id);
+        for rid in RESULT_IDS {
+            self.form.show(rid, !on);
+        }
+        for rid in ["rIcon0", "rIcon0b", "rIcon1", "rIcon1b"] {
+            self.form.show(rid, on);
+        }
         let (other, prev, prev1) = if id == "asIcon" {
             ("asIcon1", "iconPrev", "changeIcon")
         } else {
@@ -418,27 +519,52 @@ impl DocForm {
         }
         cmd["icon"] = json!(true);
         cmd["caption"] = json!(caption);
-        cmd["iconStyle"] = json!(self.text("iconStyle").parse::<u64>().unwrap_or(0));
+        let style = self.text("iconStyle").parse::<u64>().unwrap_or(0);
+        if style == 2 && !self.text("iconFile").is_empty() {
+            cmd["iconFile"] = json!(self.text("iconFile"));
+            cmd["iconStyle"] = json!(0);
+        } else {
+            cmd["iconStyle"] = json!(style.min(1));
+        }
     }
 
-    /// The (caption, icon drawing) Change Icon starts from.
-    pub(crate) fn r22_icon_state(&self) -> (String, u64) {
+    /// The (caption, icon drawing, icon file) Change Icon starts from.
+    pub(crate) fn r22_icon_state(&self) -> (String, u64, String) {
         let mut caption = self.text("iconCaption");
         if caption.trim().is_empty() {
             caption = object_caption(self);
         }
-        (caption, self.text("iconStyle").parse().unwrap_or(0))
+        (
+            caption,
+            self.text("iconStyle").parse().unwrap_or(0),
+            self.text("iconFile"),
+        )
+    }
+
+    /// Change Icon › Browse… read a file: its icon becomes the third choice, chosen.
+    pub(crate) fn r22_set_icon_file(&mut self, name: &str, b64: &str) {
+        if self.kind != DocFormKind::ChangeIcon {
+            return;
+        }
+        self.set_label("file", name);
+        self.set_text("iconFile", b64);
+        self.set_text("iconStyle", "2");
     }
 
     /// Change Icon answered: keep its caption and icon in the Object dialog.
-    pub(crate) fn r22_set_icon(&mut self, style: u64, caption: &str) {
+    pub(crate) fn r22_set_icon(&mut self, style: u64, caption: &str, file: &str) {
         self.set_text("iconCaption", caption);
         self.set_text("iconStyle", &style.to_string());
+        self.set_text("iconFile", file);
     }
 
     /// Buttons of round-22 dialogs; `None` when not handled here.
     pub(super) fn r22_clicked(&mut self, id: &str) -> Option<FormOut> {
         match (self.kind, id) {
+            (DocFormKind::ChangeIcon, "browse") => Some(FormOut::Run(
+                vec![json!({ "cmd": "ui.action", "id": "r17.pick:changeIcon" })],
+                false,
+            )),
             (DocFormKind::InsertObject, "changeIcon" | "changeIcon1") => Some(FormOut::Run(
                 vec![json!({ "cmd": "ui.action", "id": "r22.changeIcon" })],
                 false,
@@ -453,7 +579,12 @@ impl DocForm {
             return false;
         }
         let row = (y / ICON_ROW).floor();
-        if (0.0..2.0).contains(&row) {
+        let rows = if self.text("iconFile").is_empty() {
+            2.0
+        } else {
+            3.0
+        };
+        if (0.0..rows).contains(&row) {
             self.set_text("iconStyle", &(row as u64).to_string());
         }
         true
@@ -469,8 +600,16 @@ impl DocForm {
         }
         let style: u64 = self.text("iconStyle").parse().unwrap_or(0);
         let caption = self.text("caption");
+        let file = if style == 2 {
+            self.text("iconFile")
+        } else {
+            String::new()
+        };
         Some(FormOut::Run(
-            vec![json!({ "cmd": "ui.action", "id": format!("r22.iconSet:{style}:{caption}") })],
+            vec![json!({
+                "cmd": "ui.action",
+                "id": format!("r22.iconSet:{style}:{caption}\u{1f}{file}")
+            })],
             true,
         ))
     }

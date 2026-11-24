@@ -331,7 +331,7 @@ fn style_shortcut_keys_saved_in_the_document() {
     g.open(&again, "k.docx").unwrap();
     assert_eq!(g.document().unwrap().design.key_map.len(), 1);
     cmd(&mut e, r#"{"cmd":"undo"}"#);
-    assert!(e.document().unwrap().design.key_map.is_empty());
+    assert_eq!(e.document().unwrap().design.key_map, Vec::new());
     let empty = e.save_docx().unwrap();
     let pkg = bo_opc::Package::read(&empty, &bo_opc::Limits::default()).unwrap();
     assert!(pkg.part("/word/customizations.xml").is_none());

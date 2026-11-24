@@ -15750,7 +15750,8 @@
     "wrapThrough": "T&hrough",
     "wrapTopBottom": "T&op and Bottom",
     "wrapBehind": "Behin&d Text",
-    "wrapFront": "I&n Front of Text"
+    "wrapFront": "I&n Front of Text",
+    "formatShape": "F&ormat Shape..."
   },
   "findFmt11": {
     "pvBefore": "Text of the paragraph before this one.",
@@ -17047,6 +17048,9 @@
     "glowOptions": "Glow Options...",
     "softOptions": "Soft Edges Options...",
     "options3d": "3-D Options...",
-    "rotationOptions": "3-D Rotation Options..."
+    "rotationOptions": "3-D Rotation Options...",
+    "resultNewIcon": "Inserts a new BlueSheet Worksheet object into your document as an icon.",
+    "resultFileIcon": "Inserts the contents of the workbook into your document as an icon.",
+    "browse": "Browse..."
   }
 }

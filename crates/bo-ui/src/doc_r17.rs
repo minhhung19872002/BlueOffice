@@ -142,6 +142,7 @@ impl DocWindow {
                 "textFromFile" => "documents",
                 "watermark" => "pictures",
                 "model3d" => "models",
+                "changeIcon" => "icons",
                 _ => "all",
             };
             self.requests.push(Request::PickFile {
@@ -424,6 +425,14 @@ impl DocWindow {
             }
             // Round 21: Options › Import/Export ▾ › Import customization file.
             "ribbon21" => self.r21_file_picked(bytes),
+            // Round 22: Change Icon › Browse….
+            "changeIcon" => {
+                let b64 = base64::engine::general_purpose::STANDARD.encode(bytes);
+                if let Some(f) = self.r3.form.as_mut() {
+                    f.r22_set_icon_file(&name, &b64);
+                }
+                true
+            }
             // Round 21: Format Shape › Picture or texture fill › Insert….
             "fp21pic" => self.r21_pane_picture(bytes),
             _ => false,

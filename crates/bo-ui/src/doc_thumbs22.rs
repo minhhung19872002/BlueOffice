@@ -13,12 +13,15 @@ const MENU_EDGE: Rgba = Rgba(198, 198, 198, 255);
 const BAND: Rgba = Rgba(240, 240, 240, 255);
 const PICKED: Rgba = Rgba(0x9c, 0xc3, 0xe6, 255);
 
+/// A thumbnail path: segments, fill, stroke (colour, width at 100 %).
+pub(crate) type ThumbPath = (Vec<PathSeg>, Option<Rgba>, Option<(Rgba, f32)>);
+
 /// What a cell shows.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Thumb {
     /// Paths in the unit box (0..1 both ways, y down): (segments, fill, stroke colour and
     /// width in cell pixels at 100 %).
-    Paths(Vec<(Vec<PathSeg>, Option<Rgba>, Option<(Rgba, f32)>)>),
+    Paths(Vec<ThumbPath>),
     /// A large letter "A": fill, outline, halo (glow / shadow) colours.
     Letter {
         fill: Rgba,
@@ -87,8 +90,9 @@ impl ThumbGallery {
         };
         let (w, h) = g.size();
         g.x = g.x.min(screen.0 - w - 2.0).max(0.0);
-        if g.y + h > screen.1 {
-            g.y = (anchor[1] - h).max(0.0);
+        // Too tall below the button: moved up only as far as needed (never over the top).
+        if g.y + h > screen.1 - 4.0 {
+            g.y = (screen.1 - 4.0 - h).max(0.0);
         }
         g
     }
@@ -350,15 +354,21 @@ impl ThumbGallery {
                 let font = Font {
                     family: "Calibri",
                     size: bh * 1.05,
-                    weight: 700,
+                    weight: 400,
                     italic: false,
                     underline: false,
                 };
                 let (x, y) = (bx + bw * 0.22, by - bh * 0.12);
                 if let Some(c) = halo {
-                    let d = self.px(2.0);
-                    for (dx, dy) in [(d, d), (-d, d), (d, -d), (-d, -d), (d, 0.0), (0.0, d)] {
-                        p.text_font("A", x + dx, y + dy, &font, *c);
+                    // A soft shadow down-right (a glow colour all round).
+                    let d = self.px(1.5);
+                    let offs: &[(f32, f32)] = if c.0 == 0 && c.1 == 0 && c.2 == 0 {
+                        &[(1.0, 1.0)]
+                    } else {
+                        &[(1.0, 1.0), (-1.0, 1.0), (1.0, -1.0), (-1.0, -1.0)]
+                    };
+                    for (dx, dy) in offs {
+                        p.text_font("A", x + dx * d, y + dy * d, &font, *c);
                     }
                 }
                 if let Some(c) = outline {
@@ -395,6 +405,7 @@ impl ThumbGallery {
 /// box being edited gets a dashed frame.
 pub(crate) fn paint_handles(p: &mut dyn Painter, r: [f32; 4], scale: f32, editing: bool) {
     let grey = Rgba(0x70, 0x70, 0x70, 255);
+    let ring_c = Rgba(0x4a, 0x4a, 0x4a, 255);
     let [x, y, w, h] = r.map(f32::round);
     if editing {
         let dash = (3.0 * scale).round().max(2.0);
@@ -418,7 +429,7 @@ pub(crate) fn paint_handles(p: &mut dyn Painter, r: [f32; 4], scale: f32, editin
         p.fill_rect(x, y, 1.0, h, grey);
         p.fill_rect(x + w, y, 1.0, h, grey);
     }
-    let rad = 3.6 * scale;
+    let rad = 4.6 * scale;
     let ring = |p: &mut dyn Painter, cx: f32, cy: f32| {
         let n = 16;
         let segs: Vec<PathSeg> = (0..=n)
@@ -435,7 +446,7 @@ pub(crate) fn paint_handles(p: &mut dyn Painter, r: [f32; 4], scale: f32, editin
         p.path(
             &segs,
             Some(Rgba(255, 255, 255, 255)),
-            Some((grey, scale.max(1.0))),
+            Some((ring_c, scale.max(1.0))),
         );
     };
     for (u, v) in [
@@ -451,9 +462,9 @@ pub(crate) fn paint_handles(p: &mut dyn Painter, r: [f32; 4], scale: f32, editin
         ring(p, x + w * u, y + h * v);
     }
     // The turning handle: a stem and an open circle with an arrow head (own drawing).
-    let (cx, top) = (x + w / 2.0, y - 22.0 * scale);
-    p.fill_rect(cx, top + 6.0 * scale, 1.0, y - top - 6.0 * scale, grey);
-    let r2 = 6.0 * scale;
+    let (cx, top) = (x + w / 2.0, y - 27.0 * scale);
+    p.fill_rect(cx, top + 9.0 * scale, 1.0, y - top - 9.0 * scale, grey);
+    let r2 = 8.5 * scale;
     let n = 14;
     let segs: Vec<PathSeg> = (0..=n)
         .map(|i| {
@@ -466,17 +477,17 @@ pub(crate) fn paint_handles(p: &mut dyn Painter, r: [f32; 4], scale: f32, editin
             }
         })
         .collect();
-    p.path(&segs, None, Some((grey, 1.5 * scale)));
+    p.path(&segs, None, Some((ring_c, 1.8 * scale)));
     let (s, c) = (-1.2f32).sin_cos();
     let (ax, ay) = (cx + r2 * c, top + r2 * s);
     p.path(
         &[
-            PathSeg::M(ax - 3.0 * scale, ay - 3.0 * scale),
-            PathSeg::L(ax + 1.5 * scale, ay - 0.5 * scale),
-            PathSeg::L(ax - 1.0 * scale, ay + 3.5 * scale),
+            PathSeg::M(ax - 4.5 * scale, ay - 4.0 * scale),
+            PathSeg::L(ax + 2.5 * scale, ay - 0.5 * scale),
+            PathSeg::L(ax - 1.5 * scale, ay + 5.0 * scale),
             PathSeg::Z,
         ],
-        Some(grey),
+        Some(ring_c),
         None,
     );
 }

@@ -470,8 +470,10 @@ pub(crate) fn warp_text(
                         O::Close => Seg::Close,
                     };
                     match seg {
-                        Seg::Move(x, y) | Seg::Line(x, y) => grow(x, y),
-                        Seg::Quad(_, _, x, y) | Seg::Cubic(_, _, _, _, x, y) => grow(x, y),
+                        Seg::Move(x, y)
+                        | Seg::Line(x, y)
+                        | Seg::Quad(_, _, x, y)
+                        | Seg::Cubic(_, _, _, _, x, y) => grow(x, y),
                         Seg::Close => {}
                     }
                     segs.push(seg);

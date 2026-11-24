@@ -101,13 +101,15 @@ impl crate::Engine {
         &mut self,
         b: Built,
         link: Option<OleLink>,
-        icon: Option<(&str, u8)>,
+        icon: Option<(&str, u8, Option<&bo_raster::codecs::Rgba>)>,
     ) -> std::result::Result<(), String> {
         let (mw, mh) = self.doc_max_size();
         // Display as icon: the icon picture replaces the preview of the cells.
         let (png, size) = match icon {
-            Some((caption, style)) => crate::ole_icon::icon_png(&mut self.fonts, caption, style)
-                .ok_or_else(|| "noIcon".to_owned())?,
+            Some((caption, style, custom)) => {
+                crate::ole_icon::icon_png(&mut self.fonts, caption, style, custom)
+                    .ok_or_else(|| "noIcon".to_owned())?
+            }
             None => (b.png, b.size),
         };
         let (w, h) = ole::fit(size, mw, mh);
@@ -229,7 +231,15 @@ impl crate::Engine {
                     icon,
                     caption,
                     icon_style,
+                    icon_file,
                 } => {
+                    let custom = match icon_file.as_deref().filter(|_| icon) {
+                        Some(f) => Some(
+                            crate::ole_icon::decode_icon_file(&ole::decode(f)?)
+                                .ok_or_else(|| EngineError::BadCommand("badIcon".into()))?,
+                        ),
+                        None => None,
+                    };
                     let src = data.as_deref().map(ole::decode).transpose()?;
                     let link = link.filter(|l| !l.trim().is_empty());
                     if link.is_some() && src.is_none() {
@@ -256,7 +266,7 @@ impl crate::Engine {
                                 self.doc_insert_built(
                                     b,
                                     link,
-                                    icon.as_deref().map(|c| (c, icon_style)),
+                                    icon.as_deref().map(|c| (c, icon_style, custom.as_ref())),
                                 )
                             }
                             Err(e) => Err(e.to_string()),

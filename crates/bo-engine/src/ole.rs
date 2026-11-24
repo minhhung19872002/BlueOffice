@@ -72,6 +72,10 @@ pub enum OleCommand {
         /// Icon drawing chosen in Change Icon… (0 = cells, 1 = chart).
         #[serde(default)]
         icon_style: u8,
+        /// Change Icon › Browse…: an `.ico`, `.exe` / `.dll` (icon resource) or PNG file,
+        /// base64; its icon replaces the drawing.
+        #[serde(default)]
+        icon_file: Option<String>,
     },
     /// Write cell inputs into the shown area of the selected embedded workbook,
     /// re-embed it and draw its preview again.

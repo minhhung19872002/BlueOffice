@@ -63,7 +63,7 @@ fn alpha(c: Rgba, a: u8) -> Rgba {
     Rgba(c.0, c.1, c.2, a)
 }
 
-type Paths = Vec<(Vec<PathSeg>, Option<Rgba>, Option<(Rgba, f32)>)>;
+type Paths = Vec<crate::doc_thumbs22::ThumbPath>;
 
 /// The corners (top-left, top-right, bottom-right, bottom-left) of a sample turned by a
 /// 3-D Rotation preset (BlueOffice's own reading of the camera names).
@@ -481,12 +481,16 @@ impl DocWindow {
             }
             // Insert › Object › Change Icon… over the Object dialog, and its answer.
             "r22.changeIcon" => {
-                let Some((caption, style)) = self.r3.form.as_ref().map(|f| f.r22_icon_state())
+                let Some((caption, style, file)) = self
+                    .r3
+                    .form
+                    .as_ref()
+                    .map(crate::doc_forms::DocForm::r22_icon_state)
                 else {
                     return Some(false);
                 };
                 let mut c = self.form_context();
-                c.extra["r22"] = json!({ "caption": caption, "style": style });
+                c.extra["r22"] = json!({ "caption": caption, "style": style, "file": file });
                 let f = crate::doc_forms::open(
                     crate::doc_forms::DocFormKind::ChangeIcon,
                     &self.strings,
@@ -512,9 +516,10 @@ impl DocWindow {
             }
             _ if id.starts_with("r22.iconSet:") => {
                 let rest = &id["r22.iconSet:".len()..];
-                let (style, caption) = rest.split_once(':').unwrap_or(("0", rest));
+                let (style, rest) = rest.split_once(':').unwrap_or(("0", rest));
+                let (caption, file) = rest.split_once('\u{1f}').unwrap_or((rest, ""));
                 if let Some(f) = self.r3.form.as_mut() {
-                    f.r22_set_icon(style.parse().unwrap_or(0), caption);
+                    f.r22_set_icon(style.parse().unwrap_or(0), caption, file);
                 }
                 true
             }
@@ -586,7 +591,7 @@ impl DocWindow {
                 cells: warp.into_iter().map(|(n, t)| cell(n, t)).collect(),
             },
         ];
-        self.r22_open("shape.textEffects", sections, Vec::new(), (4, (62.0, 58.0)))
+        self.r22_open("shape.textEffects", sections, Vec::new(), (4, (58.0, 50.0)))
     }
 
     /// Picture Format › Picture Layout ▾: the picture layouts of the SmartArt library.

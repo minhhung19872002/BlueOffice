@@ -1614,7 +1614,9 @@ impl DocView {
             p.pop_clip();
             return;
         }
-        if (self.caret_on || self.glide.is_some()) && self.rects.is_empty() {
+        // Round 22: no body caret while a shape or picture is selected (as the reference).
+        let object = self.engine.selected_frame().is_some_and(|f| !f.2);
+        if (self.caret_on || self.glide.is_some()) && self.rects.is_empty() && !object {
             if let Some([x, y, w, h]) = self.caret_shown() {
                 p.fill_rect(x.round(), y.round(), w, h.round(), CARET);
             }

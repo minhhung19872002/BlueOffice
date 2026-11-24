@@ -827,6 +827,11 @@ impl Shell {
                             "*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.tif;*.tiff",
                         )],
                         "models" => &[("3D Models (*.glb;*.gltf)", "*.glb;*.gltf")],
+                        // Round 22: Change Icon › Browse… (icon resources are only read).
+                        "icons" => &[
+                            ("Icons (*.ico;*.exe;*.dll;*.png)", "*.ico;*.exe;*.dll;*.png"),
+                            ("All files (*.*)", "*.*"),
+                        ],
                         // Round 21: BlueOffice's own customisation files.
                         "customization" => &[
                             ("BlueOffice customizations (*.bocustom)", "*.bocustom"),

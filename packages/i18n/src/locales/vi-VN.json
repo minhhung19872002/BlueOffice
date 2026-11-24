@@ -15750,7 +15750,8 @@
     "wrapThrough": "&Xuyên qua",
     "wrapTopBottom": "&Trên và dưới",
     "wrapBehind": "&Sau văn bản",
-    "wrapFront": "&Trước văn bản"
+    "wrapFront": "&Trước văn bản",
+    "formatShape": "Định dạng &hình..."
   },
   "findFmt11": {
     "pvBefore": "Nội dung của đoạn văn đứng trước đoạn này.",
@@ -17047,6 +17048,9 @@
     "glowOptions": "Tùy chọn phát sáng...",
     "softOptions": "Tùy chọn viền mềm...",
     "options3d": "Tùy chọn 3-D...",
-    "rotationOptions": "Tùy chọn xoay 3-D..."
+    "rotationOptions": "Tùy chọn xoay 3-D...",
+    "resultNewIcon": "Chèn đối tượng trang tính BlueSheet mới vào tài liệu dưới dạng biểu tượng.",
+    "resultFileIcon": "Chèn nội dung sổ làm việc vào tài liệu dưới dạng biểu tượng.",
+    "browse": "Duyệt..."
   }
 }

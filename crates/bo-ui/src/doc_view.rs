@@ -1574,6 +1574,18 @@ impl DocView {
                     SELECTION,
                 );
             }
+            // Round 22: the selected shape or picture framed with sizing handles.
+            if let Some((page, f, editing)) = self.engine.selected_frame() {
+                if page == slot.index {
+                    let r = [
+                        slot.x as f32 + f[0] * s,
+                        slot.y as f32 + f[1] * s,
+                        f[2] * s,
+                        f[3] * s,
+                    ];
+                    crate::doc_thumbs22::paint_handles(p, r, self.display_scale, editing);
+                }
+            }
         }
         if !self.preedit.is_empty() {
             if let Some([x, y, _, h]) = self.caret_rect() {

@@ -217,6 +217,8 @@ pub(crate) enum OptOut {
     AutoCorrect,
     /// Round 21: import / export a customisation file, Customize Keyboard.
     R21(r21::Out),
+    /// Round 22: close Options and run this window command (Add-ins › Manage › Go…).
+    R22(String),
 }
 
 /// The open Options dialog.
@@ -1224,6 +1226,10 @@ impl OptionsDialog {
                 OptOut::Redraw
             }
             Event::Clicked("pAutoB") => OptOut::AutoCorrect,
+            Event::Clicked("aGo") => OptOut::R22(format!(
+                "r22.addins:{}",
+                self.form.sel("aManage").unwrap_or(0)
+            )),
             Event::Clicked(id) if super::options20::handles(id) => {
                 super::options20::clicked(&mut self.form, id);
                 OptOut::Redraw

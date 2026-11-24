@@ -386,6 +386,7 @@ impl crate::Engine {
                 cells,
                 link,
                 auto_update,
+                ..
             } => {
                 let src = data.as_deref().map(ole::decode).transpose()?;
                 let link = link.filter(|l| !l.trim().is_empty());

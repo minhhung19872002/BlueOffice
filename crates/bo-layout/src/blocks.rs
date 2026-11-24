@@ -1342,7 +1342,13 @@ pub(crate) fn rotate_item(it: &mut PageItem, r: &LineRotation) {
 /// lines `len` long stacked `thick` deep become columns; `rot` 90 = top to bottom
 /// (first line on the right), -90 = bottom to top (first line on the left). The
 /// result is one band `len` tall, moved `shift` points right.
-fn rotate_content(bands: Vec<(f32, Band)>, rot: i32, thick: f32, len: f32, shift: f32) -> Band {
+pub(crate) fn rotate_content(
+    bands: Vec<(f32, Band)>,
+    rot: i32,
+    thick: f32,
+    len: f32,
+    shift: f32,
+) -> Band {
     let mut all = Band::empty(len);
     for (top, b) in bands {
         all.absorb(b.translated(0.0, top));

@@ -391,20 +391,28 @@ impl DocForm {
                 FormOut::Run(vec![json!({ "cmd": "bookmarkAdd", "name": name })], true)
             }
             DocFormKind::InsertObject => {
+                // Round 22: Display as icon adds the icon, its caption and drawing.
+                let with_icon = |mut c: Value, f: &Self| {
+                    f.r22_icon_fields(&mut c);
+                    c
+                };
                 if self.form.tab == 0 {
-                    return FormOut::Run(vec![json!({ "cmd": "oleInsert" })], true);
+                    let c = with_icon(json!({ "cmd": "oleInsert" }), self);
+                    return FormOut::Run(vec![c], true);
                 }
                 let path = self.text("fileName");
                 if self.on("link") && !path.trim().is_empty() {
                     let data = self.files[0].as_ref().map(|f| f.1.clone());
-                    return FormOut::Run(
-                        vec![json!({ "cmd": "oleInsert", "link": path.trim(), "data": data })],
-                        true,
+                    let c = with_icon(
+                        json!({ "cmd": "oleInsert", "link": path.trim(), "data": data }),
+                        self,
                     );
+                    return FormOut::Run(vec![c], true);
                 }
                 match &self.files[0] {
                     Some((_, b64)) => {
-                        FormOut::Run(vec![json!({ "cmd": "oleInsert", "data": b64 })], true)
+                        let c = with_icon(json!({ "cmd": "oleInsert", "data": b64 }), self);
+                        FormOut::Run(vec![c], true)
                     }
                     None => FormOut::Redraw,
                 }
@@ -589,6 +597,8 @@ fn open_object(s: &Strings, _c: &FormContext) -> DocForm {
         &tr("common.cancel", "Cancel"),
         false,
     );
+    // Round 22: Display as icon and Change Icon….
+    super::r22::add_object_icon(&mut f, s);
     f
 }
 
@@ -873,7 +883,7 @@ fn open_keyboard(s: &Strings, c: &FormContext) -> DocForm {
         [18.0, 200.0, 250.0, 18.0],
         &tr("doc17.kbCurrent", "Current keys:"),
     );
-    let current: Vec<String> = c.extra["r17"]["keys"]
+    let mut current: Vec<String> = c.extra["r17"]["keys"]
         .as_array()
         .map(|a| {
             a.iter()
@@ -882,6 +892,14 @@ fn open_keyboard(s: &Strings, c: &FormContext) -> DocForm {
                 .collect()
         })
         .unwrap_or_default();
+    // Round 22: and the keys saved in the document.
+    for k in c.extra["r17"]["docKeys"].as_array().into_iter().flatten() {
+        if let (Some(key), Some(st)) = (k[0].as_str(), k[1].as_str()) {
+            if st == style && !current.iter().any(|c| c == key) {
+                current.push(key.to_owned());
+            }
+        }
+    }
     f.list(
         "current",
         [18.0, 221.0, 250.0, 100.0],
@@ -899,10 +917,16 @@ fn open_keyboard(s: &Strings, c: &FormContext) -> DocForm {
         [290.0, 260.0, 250.0, 18.0],
         &tr("doc17.kbSaveIn", "Save changes in:"),
     );
-    f.label(
+    // Round 22: Save changes in this computer's keys or the document ([MS-DOCX] keymaps).
+    let doc_name = c.extra["r17"]["docName"]
+        .as_str()
+        .unwrap_or("Document")
+        .to_owned();
+    f.combo(
         "in",
-        [290.0, 280.0, 250.0, 18.0],
-        &tr("doc17.kbBlueDoc", "BlueDoc (this computer)"),
+        [290.0, 280.0, 252.0, 26.0],
+        vec![tr("doc17.kbBlueDoc", "BlueDoc (this computer)"), doc_name],
+        0,
     );
     f.label("assignedL", [290.0, 304.0, 252.0, 18.0], "");
     f.button(
@@ -961,8 +985,16 @@ impl DocForm {
         let keys = self.ids.clone();
         self.form.set_items("current", keys, None);
         self.set_text("newKey", "");
+        // Round 22: saved in the document when "Save changes in" names it.
+        let scope = if self.sel("in") == Some(1) {
+            "\u{1f}doc"
+        } else {
+            ""
+        };
         FormOut::Run(
-            vec![json!({ "cmd": "ui.action", "id": format!("r17.key.assign:{key}\u{1f}{style}") })],
+            vec![
+                json!({ "cmd": "ui.action", "id": format!("r17.key.assign:{key}\u{1f}{style}{scope}") }),
+            ],
             false,
         )
     }

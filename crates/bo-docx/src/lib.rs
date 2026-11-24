@@ -10,6 +10,7 @@ mod custom_xml;
 pub mod diagram;
 mod forms;
 mod group;
+mod keymap;
 mod mentions;
 mod ole;
 mod page_fill;

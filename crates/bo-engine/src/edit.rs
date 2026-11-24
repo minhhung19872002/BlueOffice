@@ -1545,6 +1545,28 @@ impl crate::Engine {
             let r = self.doc_security(sc)?;
             return Ok(serde_json::to_string(&r).unwrap_or_default());
         }
+        // Round 22: style shortcut keys saved in the document
+        // (`{"cmd":"setStyleKey","key":code,"style":"Heading 1"|null}`).
+        if v.get("cmd").and_then(serde_json::Value::as_str) == Some("setStyleKey") {
+            let key = v
+                .get("key")
+                .and_then(serde_json::Value::as_u64)
+                .and_then(|k| u16::try_from(k).ok())
+                .ok_or_else(|| crate::EngineError::BadCommand("key".into()))?;
+            let style = v.get("style").and_then(serde_json::Value::as_str);
+            let read_only = self.sec.read_only;
+            let s = self
+                .session
+                .as_mut()
+                .ok_or(crate::EngineError::NoDocument)?;
+            let error = if read_only {
+                Some(crate::security::READ_ONLY.to_owned())
+            } else {
+                s.set_style_key(key, style).err().map(|e| e.to_string())
+            };
+            let r = self.edit_result(Vec::new(), (None, None, None), error)?;
+            return Ok(serde_json::to_string(&r).unwrap_or_default());
+        }
         // Round 19: Picture Styles (border, effects, artistic effects, quick styles).
         if let Some(pc) = crate::doc_picstyle::PicStyleCommand::parse(&v) {
             let r = self.doc_picture_style(&pc)?;

@@ -40,6 +40,7 @@ mod doc_table;
 mod doc_tabs7;
 mod doc_templates6;
 mod doc_thes16;
+mod doc_thumbs22;
 mod doc_tiles;
 mod doc_tips;
 mod doc_tools;

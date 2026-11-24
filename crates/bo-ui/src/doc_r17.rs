@@ -167,16 +167,38 @@ impl DocWindow {
             return Some(true);
         }
         if let Some(spec) = id.strip_prefix("r17.key.assign:") {
-            if let Some((key, style)) = spec.split_once('\u{1f}') {
-                self.r17.keys.retain(|(k, _)| k != key);
-                self.r17.keys.push((key.to_owned(), style.to_owned()));
-                self.r17_save_keys();
+            if let Some((key, rest)) = spec.split_once('\u{1f}') {
+                // Round 22: `…\u{1f}doc` saves the key in the document.
+                if let Some(style) = rest.strip_suffix("\u{1f}doc") {
+                    if let Some(code) = crate::doc_forms::r22::key_code(key) {
+                        self.r3_run(vec![json!({
+                            "cmd": "setStyleKey", "key": code, "style": style
+                        })]);
+                    }
+                } else {
+                    self.r17.keys.retain(|(k, _)| k != key);
+                    self.r17.keys.push((key.to_owned(), rest.to_owned()));
+                    self.r17_save_keys();
+                }
             }
             return Some(true);
         }
         if let Some(key) = id.strip_prefix("r17.key.remove:") {
             self.r17.keys.retain(|(k, _)| k != key);
             self.r17_save_keys();
+            // Round 22: a key saved in the document goes too.
+            if let Some(code) = crate::doc_forms::r22::key_code(key) {
+                let saved = self
+                    .view
+                    .engine()
+                    .document()
+                    .is_some_and(|d| d.design.key_map.iter().any(|(k, _)| *k == code));
+                if saved {
+                    self.r3_run(vec![
+                        json!({ "cmd": "setStyleKey", "key": code, "style": null }),
+                    ]);
+                }
+            }
             return Some(true);
         }
         if let Some(x) = id.strip_prefix("r17.styleFrame:") {
@@ -330,6 +352,14 @@ impl DocWindow {
         json!({
             "styleName": style_name,
             "keys": self.r17.keys,
+            // Round 22: the keys saved in the document, by name.
+            "docKeys": self.view.engine().document().map(|d| {
+                d.design
+                    .key_map
+                    .iter()
+                    .filter_map(|(k, s)| Some((crate::doc_forms::r22::key_label(*k)?, s.clone())))
+                    .collect::<Vec<_>>()
+            }),
             "bookmarks": marks,
             "current": current,
             "vba": self.r17_vba(),
@@ -1087,17 +1117,36 @@ impl DocWindow {
         let crate::Input::Key(k, m) = *input else {
             return None;
         };
-        if self.r17.keys.is_empty() || self.r3.form.is_some() || self.menu.is_some() {
+        let doc_keys = self
+            .view
+            .engine()
+            .document()
+            .is_some_and(|d| !d.design.key_map.is_empty());
+        if (self.r17.keys.is_empty() && !doc_keys) || self.r3.form.is_some() || self.menu.is_some()
+        {
             return None;
         }
         let name = crate::doc_forms::r17::key_name(k, m)?;
-        let style = self
-            .r17
-            .keys
-            .iter()
-            .find(|(key, _)| *key == name)?
-            .1
-            .clone();
+        // Round 22: the document's own keys come before this computer's.
+        let in_doc = crate::doc_forms::r22::key_code(&name).and_then(|code| {
+            self.view.engine().document().and_then(|d| {
+                d.design
+                    .key_map
+                    .iter()
+                    .find(|(c, _)| *c == code)
+                    .map(|(_, s)| s.clone())
+            })
+        });
+        let style = match in_doc {
+            Some(s) => s,
+            None => self
+                .r17
+                .keys
+                .iter()
+                .find(|(key, _)| *key == name)?
+                .1
+                .clone(),
+        };
         let id = self
             .view
             .all_styles()

@@ -12,10 +12,14 @@
 //!   loses columns.
 //! * Header & Footer — Options (1300), Position (1100), Navigation (1000), Insert (950).
 //!
+//! * Table Layout (round 22, the tab picked with one real click so UI Automation reads the
+//!   right one) — Alignment (1400), Merge (1250), Draw (1200), Cell Size (1100), Table
+//!   (1000), Rows & Columns (900); Data is always one button.
+//!
 //! Builds on round 18's machinery (`doc_scale18`): the buttons here join its list.
 
 use crate::doc_tabs7::{EQUATION, SHAPE_FORMAT};
-use crate::doc_tools::{HEADER_FOOTER, PICTURE_FORMAT, TABLE_DESIGN};
+use crate::doc_tools::{HEADER_FOOTER, PICTURE_FORMAT, TABLE_DESIGN, TABLE_LAYOUT};
 
 /// Collapsed-group buttons of the contextual tabs: (button id, tab, group label, icon of).
 pub(crate) const GROUPS: [(&str, &str, &str, &str); 13] = [
@@ -116,10 +120,53 @@ pub(crate) const GROUPS_HF: [(&str, &str, &str, &str); 3] = [
     ),
 ];
 
+/// Table Layout's collapsed groups (round 22).
+pub(crate) const GROUPS_TL: [(&str, &str, &str, &str); 6] = [
+    (
+        "r22g.tlAlignment",
+        TABLE_LAYOUT,
+        "ribbon.groups.cellAlignment",
+        "table.textDirection",
+    ),
+    (
+        "r22g.tlMerge",
+        TABLE_LAYOUT,
+        "ribbon.groups.merge",
+        "table.mergeCells",
+    ),
+    (
+        "r22g.tlDraw",
+        TABLE_LAYOUT,
+        "docR7.g.draw",
+        "table.drawTable",
+    ),
+    (
+        "r22g.tlCellSize",
+        TABLE_LAYOUT,
+        "ribbon.groups.cellSize",
+        "table.autoFit",
+    ),
+    (
+        "r22g.tlTable",
+        TABLE_LAYOUT,
+        "ribbon.groups.table",
+        "table.select",
+    ),
+    (
+        "r22g.tlRowsColumns",
+        TABLE_LAYOUT,
+        "ribbon.groups.rowsColumns",
+        "table.insertRowBelow",
+    ),
+];
+
 /// All the buttons of this module.
 pub(crate) fn all(
 ) -> impl Iterator<Item = &'static (&'static str, &'static str, &'static str, &'static str)> {
-    GROUPS.iter().chain(GROUPS_HF.iter())
+    GROUPS
+        .iter()
+        .chain(GROUPS_HF.iter())
+        .chain(GROUPS_TL.iter())
 }
 
 /// Collapse steps of a contextual tab, in the reference's order (`None`: not one).
@@ -143,6 +190,14 @@ pub(crate) fn scaling(tab: &str) -> Option<&'static [&'static str]> {
             "docR7.g.shapeStyles",
         ],
         EQUATION => &["docR7.g.structures", "docR7.g.tools", "docR7.g.conversions"],
+        TABLE_LAYOUT => &[
+            "ribbon.groups.cellAlignment",
+            "ribbon.groups.merge",
+            "docR7.g.draw",
+            "ribbon.groups.cellSize",
+            "ribbon.groups.table",
+            "ribbon.groups.rowsColumns",
+        ],
         HEADER_FOOTER => &[
             "hf.options",
             "docR7.g.position",

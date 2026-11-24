@@ -302,3 +302,37 @@ fn click_on_shape_border_selects_the_shape() {
     assert_eq!(sel["anchor"]["o"], d["at"]);
     assert_ne!(sel["focus"]["o"], d["at"], "{sel}");
 }
+
+/// Round 22: a style shortcut key saved in the document survives the file ([MS-DOCX]
+/// keymap customizations part) and is one undo step.
+#[test]
+fn style_shortcut_keys_saved_in_the_document() {
+    let mut e = Engine::with_bundled_fonts();
+    e.new_document("k.docx").unwrap();
+    // Ctrl+Shift+H (0x0200 | 0x0100 | 'H').
+    cmd(
+        &mut e,
+        r#"{"cmd":"setStyleKey","key":840,"style":"Heading 1"}"#,
+    );
+    assert_eq!(
+        e.document().unwrap().design.key_map,
+        vec![(0x0348, "Heading 1".to_owned())]
+    );
+    let bytes = e.save_docx().unwrap();
+    let mut f = Engine::with_bundled_fonts();
+    f.open(&bytes, "k.docx").unwrap();
+    assert_eq!(
+        f.document().unwrap().design.key_map,
+        vec![(0x0348, "Heading 1".to_owned())]
+    );
+    // Saved again unchanged: the part stays; removed: the part goes.
+    let again = reopen(&f).save_docx().unwrap();
+    let mut g = Engine::with_bundled_fonts();
+    g.open(&again, "k.docx").unwrap();
+    assert_eq!(g.document().unwrap().design.key_map.len(), 1);
+    cmd(&mut e, r#"{"cmd":"undo"}"#);
+    assert!(e.document().unwrap().design.key_map.is_empty());
+    let empty = e.save_docx().unwrap();
+    let pkg = bo_opc::Package::read(&empty, &bo_opc::Limits::default()).unwrap();
+    assert!(pkg.part("/word/customizations.xml").is_none());
+}

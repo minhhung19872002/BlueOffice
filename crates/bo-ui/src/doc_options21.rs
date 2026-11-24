@@ -111,6 +111,52 @@ pub(crate) struct State {
     /// "Choose commands from" of each page.
     src_cache: usize,
     qsrc: usize,
+    /// Round 22 (Quick Access Toolbar › Modify…): the symbol chosen while the panel is open.
+    sym: Option<&'static str>,
+}
+
+/// Round 22: symbols offered by Quick Access Toolbar › Modify… (BlueOffice's own icons).
+pub(crate) const SYMBOLS: [&str; 30] = [
+    "edit.copy",
+    "edit.cut",
+    "edit.paste",
+    "file.save",
+    "file.print",
+    "format.bold",
+    "format.italic",
+    "format.underline",
+    "format.alignCenter",
+    "insert.table",
+    "insert.picture",
+    "insert.shapes",
+    "insert.link",
+    "insert.comment",
+    "insert.textBox",
+    "insert.symbol",
+    "insert.equation",
+    "insert.chart",
+    "review.spelling",
+    "review.trackChanges",
+    "view.zoom",
+    "layout.margins",
+    "layout.orientation",
+    "layout.columns",
+    "design.pageColor",
+    "design.watermark",
+    "picture.crop",
+    "shape.fill",
+    "table.borders",
+    "insert.dateTime",
+];
+
+/// Round 22: a Quick Access Toolbar entry modified with Modify… is stored as
+/// `command|display name|symbol`; (command, name, symbol).
+pub(crate) fn split_quick(entry: &str) -> (&str, Option<&str>, Option<&str>) {
+    let mut it = entry.splitn(3, '|');
+    let cmd = it.next().unwrap_or(entry);
+    let name = it.next().filter(|n| !n.is_empty());
+    let sym = it.next().filter(|n| !n.is_empty());
+    (cmd, name, sym)
 }
 
 fn tr(s: &Strings, key: &str, fallback: &str) -> String {
@@ -200,12 +246,17 @@ impl State {
             ],
             src_cache: 0,
             qsrc: 0,
+            sym: None,
         }
     }
 
     fn label(&self, c: &str) -> String {
         if c == SEPARATOR {
             return self.separator.clone();
+        }
+        // Round 22: a modified entry shows its own name.
+        if let (_, Some(name), _) = split_quick(c) {
+            return name.to_owned();
         }
         self.labels.get(c).cloned().unwrap_or_else(|| c.to_owned())
     }
@@ -466,7 +517,12 @@ impl State {
                 label: self.label(c),
                 open: None,
                 check: None,
-                icon: (c != SEPARATOR).then(|| rb::static_command(c)).flatten(),
+                icon: (c != SEPARATOR)
+                    .then(|| match split_quick(c) {
+                        (_, _, Some(sym)) => SYMBOLS.iter().copied().find(|s| *s == sym),
+                        (cmd, ..) => rb::static_command(cmd),
+                    })
+                    .flatten(),
                 bold: false,
                 height: ROW,
             })
@@ -674,6 +730,8 @@ impl State {
                         g.name.clone()
                     }
                 }),
+            // Round 22: the Quick Access Toolbar entry's display name.
+            Node::Quick(i) => self.qat.get(i).map(|c| self.label(c)).unwrap_or_default(),
             _ => String::new(),
         }
     }
@@ -697,6 +755,14 @@ impl State {
                     .and_then(|t| t.groups.get_mut(j))
                 {
                     name.clone_into(&mut g.name);
+                }
+            }
+            // Round 22: Modify… keeps the command and stores the name and symbol.
+            Node::Quick(i) => {
+                if let Some(c) = self.qat.get_mut(i) {
+                    let (cmd, _, old) = split_quick(c);
+                    let sym = self.sym.or(old).unwrap_or("");
+                    *c = format!("{cmd}|{name}|{sym}");
                 }
             }
             _ => {}
@@ -991,6 +1057,20 @@ pub(super) fn add_pages(f: &mut super::Form, s: &Strings) {
         [695.0, 430.0, 105.0, 35.0],
         button(t("common.cancel", "Cancel")),
     );
+    // Round 22: Quick Access Toolbar › Modify… (the rename panel with a symbol grid).
+    f.add(
+        "r22QModify",
+        Some(QAT),
+        [rx + 196.0, 645.0, 104.0, 35.0],
+        button(t("doc22.modify", "Modify...")),
+    );
+    f.add(
+        "r22SymL",
+        None,
+        [400.0, 212.0, 200.0, 25.0],
+        Kind::Label(t("doc22.symbol", "Symbol:")),
+    );
+    f.add("r22Sym", None, [400.0, 240.0, 400.0, 144.0], Kind::Canvas);
     f.add("r21Pop", None, [0.0, 0.0, 0.0, 0.0], Kind::Canvas);
     for id in [
         "r21RenBg",
@@ -1088,6 +1168,16 @@ pub(super) fn event(d: &mut OptionsDialog, ev: &Event) -> Option<OptOut> {
     }
     if let Some(n) = d.r21.rename.clone() {
         return Some(match ev {
+            // Round 22: a symbol picked in Modify….
+            Event::Canvas("r22Sym", x, y) => {
+                let (col, row) = ((*x / 40.0) as usize, (*y / 36.0) as usize);
+                if col < 10 {
+                    if let Some(s) = SYMBOLS.get(row * 10 + col) {
+                        d.r21.sym = Some(s);
+                    }
+                }
+                OptOut::Redraw
+            }
             Event::Clicked("r21RenOk") | Event::Ok => {
                 let name = d.form.text("r21RenE");
                 d.r21.set_name(&n, &name);
@@ -1194,6 +1284,20 @@ pub(super) fn event(d: &mut OptionsDialog, ev: &Event) -> Option<OptOut> {
             quick_add(&mut d.r21);
             OptOut::Redraw
         }
+        Event::Clicked("r22QModify") => {
+            if let Some(Node::Quick(i)) = d.r21.qright.sel {
+                if d.r21.qat.get(i).is_some_and(|c| c != SEPARATOR) {
+                    let (cmd, _, sym) = split_quick(&d.r21.qat[i]);
+                    d.r21.sym = SYMBOLS
+                        .iter()
+                        .copied()
+                        .find(|s| Some(*s) == sym || *s == cmd);
+                    open_rename(d, Node::Quick(i));
+                    modify_layout(d, true);
+                }
+            }
+            OptOut::Redraw
+        }
         Event::Clicked("qRemove") => {
             if let Some(Node::Quick(i)) = d.r21.qright.sel {
                 if i < d.r21.qat.len() {
@@ -1228,6 +1332,53 @@ fn close_rename(d: &mut OptionsDialog) {
     d.r21.rename = None;
     for id in ["r21RenBg", "r21RenL", "r21RenE", "r21RenOk", "r21RenCancel"] {
         d.form.show(id, false);
+    }
+    modify_layout(d, false);
+}
+
+/// Round 22: the rename panel grown for Modify… (symbol grid above the name), or back.
+fn modify_layout(d: &mut OptionsDialog, modify: bool) {
+    let page = d.page;
+    let rects: [(&str, [f32; 4], [f32; 4]); 5] = [
+        (
+            "r21RenBg",
+            [380.0, 300.0, 440.0, 190.0],
+            [380.0, 196.0, 440.0, 330.0],
+        ),
+        (
+            "r21RenL",
+            [400.0, 330.0, 380.0, 25.0],
+            [400.0, 400.0, 380.0, 25.0],
+        ),
+        (
+            "r21RenE",
+            [400.0, 362.0, 400.0, 31.0],
+            [400.0, 430.0, 400.0, 31.0],
+        ),
+        (
+            "r21RenOk",
+            [580.0, 430.0, 105.0, 35.0],
+            [580.0, 476.0, 105.0, 35.0],
+        ),
+        (
+            "r21RenCancel",
+            [695.0, 430.0, 105.0, 35.0],
+            [695.0, 476.0, 105.0, 35.0],
+        ),
+    ];
+    for (id, plain, grown) in rects {
+        if let Some(c) = d.form.get_mut(id) {
+            c.rect = if modify { grown } else { plain };
+        }
+    }
+    for id in ["r22SymL", "r22Sym"] {
+        if let Some(c) = d.form.get_mut(id) {
+            c.page = Some(page);
+        }
+        d.form.show(id, modify);
+    }
+    if !modify {
+        d.r21.sym = None;
     }
 }
 
@@ -1435,6 +1586,39 @@ pub(super) fn paint(
         "r21RenBg" => {
             p.fill_rect(r[0] - 1.0, r[1] - 1.0, r[2] + 2.0, r[3] + 2.0, EDGE);
             p.fill_rect(r[0], r[1], r[2], r[3], Rgba(0xFF, 0xFF, 0xFF, 255));
+        }
+        // Round 22: the Modify… symbols, ten to a row, the chosen one framed.
+        "r22Sym" => {
+            p.fill_rect(r[0] - 1.0, r[1] - 1.0, r[2] + 2.0, r[3] + 2.0, EDGE);
+            p.fill_rect(r[0], r[1], r[2], r[3], Rgba(0xFF, 0xFF, 0xFF, 255));
+            for (i, sym) in SYMBOLS.iter().enumerate() {
+                let (cx, cy) = (
+                    r[0] + (i % 10) as f32 * 40.0 * k,
+                    r[1] + (i / 10) as f32 * 36.0 * k,
+                );
+                if s.sym == Some(*sym) {
+                    let blue = Rgba(0x0F, 0x6C, 0xBD, 255);
+                    let pale = Rgba(0xCC, 0xE4, 0xF7, 255);
+                    p.fill_rect(cx + 2.0 * k, cy + 2.0 * k, 36.0 * k, 32.0 * k, blue);
+                    p.fill_rect(cx + 3.0 * k, cy + 3.0 * k, 34.0 * k, 30.0 * k, pale);
+                }
+                if let Some(ic) = icons {
+                    let size = (20.0 * k).round();
+                    ic.draw(
+                        p,
+                        crate::ribbon::icon_of(sym),
+                        (cx + 20.0 * k - size / 2.0).round(),
+                        (cy + 18.0 * k - size / 2.0).round(),
+                        size,
+                        IconColors {
+                            ink: Rgba(0x44, 0x44, 0x44, 255),
+                            accent: Rgba(0x2B, 0x57, 0x9A, 255),
+                            on: Rgba(0xFF, 0xFF, 0xFF, 255),
+                            tinted: true,
+                        },
+                    );
+                }
+            }
         }
         "r21Pop" => {
             if let Some((which, _)) = s.pop {
@@ -1726,6 +1910,28 @@ mod tests {
         // A foreign file leaves a message.
         assert!(import(&mut d, "{}"));
         assert_eq!(d.r21.qat.len(), n + 2);
+    }
+
+    /// Round 22: Modify… gives a Quick Access Toolbar entry its own name and symbol.
+    #[test]
+    fn quick_access_modify_names_and_symbol() {
+        let mut d = dialog();
+        d.set_page(QAT);
+        d.r21.qleft.sel = Some(Node::SCmd("edit.find"));
+        event(&mut d, &Event::Clicked("qAdd"));
+        let i = d.r21.qat.len() - 1;
+        d.r21.qright.sel = Some(Node::Quick(i));
+        event(&mut d, &Event::Clicked("r22QModify"));
+        assert!(d.r21.rename.is_some());
+        // The third symbol of the first row, then a new name.
+        event(&mut d, &Event::Canvas("r22Sym", 2.5 * 40.0, 10.0));
+        assert_eq!(d.r21.sym, Some(SYMBOLS[2]));
+        d.form.set_text("r21RenE", "Look up");
+        event(&mut d, &Event::Clicked("r21RenOk"));
+        assert!(d.r21.rename.is_none());
+        assert_eq!(d.r21.qat[i], format!("edit.find|Look up|{}", SYMBOLS[2]));
+        assert_eq!(d.r21.quick_rows()[i].label, "Look up");
+        assert_eq!(split_quick(&d.r21.qat[i]).0, "edit.find");
     }
 
     #[test]

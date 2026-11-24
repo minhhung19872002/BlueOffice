@@ -224,6 +224,32 @@ pub(crate) fn picture_items(
             let (dx, dy) = (px - cx, py - cy);
             (cx + dx * c - dy * s, cy + dx * s + dy * c)
         };
+        // Round 22: a picture cropped to a shape (§20.1.9.18 prstGeom of pic:spPr) has its
+        // outline along that shape, not the box.
+        if let Some(segs) = f.shape.as_deref().filter(|p| *p != "rect").and_then(|p| {
+            shape_outline(p, w, h, &|px, py| {
+                let (tx, ty) = turn(x + px, y + py);
+                (tx - x, ty - y)
+            })
+        }) {
+            out.push(PageItem::Shape {
+                x,
+                y,
+                w,
+                h,
+                paths: vec![crate::types::ShapePath {
+                    segs,
+                    fill: None,
+                    stroke: Some((width, color, l.dash.clone())),
+                    style: None,
+                }],
+                source: crate::types::LineSource::Other,
+                layer,
+                alpha: 1.0,
+                z,
+            });
+            return out;
+        }
         let pts = [
             turn(x, y),
             turn(x + w, y),
@@ -250,4 +276,43 @@ pub(crate) fn picture_items(
         }
     }
     out
+}
+
+/// The outline of preset geometry `prst` (§20.1.9.18) over a `w` × `h` box, each point
+/// mapped by `tf`; `None` for unknown presets.
+fn shape_outline(
+    prst: &str,
+    w: f32,
+    h: f32,
+    tf: &dyn Fn(f32, f32) -> (f32, f32),
+) -> Option<Vec<crate::types::PathCmd>> {
+    use crate::types::PathCmd;
+    use bo_drawingml::geom::Seg;
+    let geom = bo_drawingml::geom::eval_preset(prst, &[], f64::from(w), f64::from(h))?.ok()?;
+    let f = |x: f64, y: f64| tf(x as f32, y as f32);
+    let mut out = Vec::new();
+    for p in geom.paths.iter().filter(|p| p.stroke) {
+        for s in &p.segs {
+            out.push(match *s {
+                Seg::Move(x, y) => {
+                    let (x, y) = f(x, y);
+                    PathCmd::M(x, y)
+                }
+                Seg::Line(x, y) => {
+                    let (x, y) = f(x, y);
+                    PathCmd::L(x, y)
+                }
+                Seg::Quad(a, b, x, y) => {
+                    let ((a, b), (x, y)) = (f(a, b), f(x, y));
+                    PathCmd::Q(a, b, x, y)
+                }
+                Seg::Cubic(a, b, c, d, x, y) => {
+                    let ((a, b), (c, d), (x, y)) = (f(a, b), f(c, d), f(x, y));
+                    PathCmd::C(a, b, c, d, x, y)
+                }
+                Seg::Close => PathCmd::Z,
+            });
+        }
+    }
+    (!out.is_empty()).then_some(out)
 }

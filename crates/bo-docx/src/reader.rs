@@ -176,6 +176,13 @@ pub fn read_docx(bytes: &[u8]) -> Result<Document> {
     {
         crate::mentions::read_tasks(&p.data, &mut doc.comments);
     }
+    // Round 22: style shortcut keys saved in the document ([MS-DOCX] keymap part).
+    if let Some(p) = pkg
+        .related_part(&main, crate::keymap::REL_KEYMAP)?
+        .and_then(|n| pkg.part(&n))
+    {
+        doc.design.key_map = crate::keymap::read(&p.data);
+    }
     let (prefix, suffix) = read_body(&main_part.data, &ctx, &mut doc, &mut media)?;
     // §17.12 glossary document: the building blocks of the document / template.
     if let Some(name) = pkg.related_part(&main, glossary::REL_GLOSSARY)? {

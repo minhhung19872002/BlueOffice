@@ -95,6 +95,19 @@ pub(crate) fn read(
             s.line_alpha = Some(xml_alpha(ln, "solidFill").unwrap_or_else(|| alpha_of(a)));
         }
     }
+    // §20.1.8.33 / §20.1.8.14 rotWithShape="0": the fill stays upright (round 22).
+    if s.gradient.is_some() || s.picture.is_some() {
+        let off = sp
+            .and_then(|sp| {
+                sp.elements()
+                    .find(|e| matches!(e.local(), "gradFill" | "blipFill"))
+            })
+            .and_then(|e| e.attr("rotWithShape"))
+            .is_some_and(|v| v == "0" || v == "false");
+        if off {
+            s.rot_with_shape = Some(false);
+        }
+    }
     s.effects = sp.and_then(crate::picstyle::read_shape_effects);
     (!s.is_empty()).then_some(s)
 }
@@ -112,6 +125,15 @@ fn srgb(color: u32, alpha: i32) -> String {
     }
 }
 
+/// `rotWithShape` of a gradient / picture fill (round 22).
+fn rot_attr(s: &ShapeStyle) -> &'static str {
+    if s.rot_with_shape == Some(false) {
+        "0"
+    } else {
+        "1"
+    }
+}
+
 /// The fill of a styled shape (`None`: the plain solid / no fill applies). `rid` is the
 /// relationship id of a picture fill's media.
 pub(crate) fn fill_xml(
@@ -120,7 +142,7 @@ pub(crate) fn fill_xml(
     rid: Option<&str>,
 ) -> Option<String> {
     if let Some(g) = &s.gradient {
-        let mut x = String::from("<a:gradFill rotWithShape=\"1\"><a:gsLst>");
+        let mut x = format!("<a:gradFill rotWithShape=\"{}\"><a:gsLst>", rot_attr(s));
         for st in &g.stops {
             x.push_str(&format!(
                 "<a:gs pos=\"{}\">{}</a:gs>",
@@ -160,8 +182,9 @@ pub(crate) fn fill_xml(
         } else {
             "<a:stretch><a:fillRect/></a:stretch>".to_owned()
         };
+        let rot = rot_attr(s);
         return Some(format!(
-            "<a:blipFill dpi=\"0\" rotWithShape=\"1\"><a:blip r:embed=\"{rid}\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\">{amt}</a:blip><a:srcRect/>{mode}</a:blipFill>"
+            "<a:blipFill dpi=\"0\" rotWithShape=\"{rot}\"><a:blip r:embed=\"{rid}\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\">{amt}</a:blip><a:srcRect/>{mode}</a:blipFill>"
         ));
     }
     match (solid, s.fill_alpha) {

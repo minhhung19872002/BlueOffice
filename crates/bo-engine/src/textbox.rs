@@ -153,6 +153,48 @@ impl Engine {
         None
     }
 
+    /// The selected drawing object for the host to frame with sizing handles (round 22):
+    /// (page, `[x, y, w, h]` points, `true` while its text is edited). A shape or picture is
+    /// selected when the selection covers exactly its anchor; an open text box counts too.
+    pub fn selected_frame(&self) -> Option<(usize, [f32; 4], bool)> {
+        if let Some(be) = self.textbox.as_ref() {
+            let d = self.drawing_frame(be.para, be.at)?;
+            return Some((d.page, [d.x, d.y, d.w, d.h], true));
+        }
+        let s = self.session.as_ref()?;
+        let (a, b) = s.selection().ordered();
+        if a == b {
+            return None;
+        }
+        let sel = s.drawing_selection(a.para, a.offset)?;
+        if sel.ordered() != (a, b) {
+            return None;
+        }
+        let img = s.drawing(a.para, a.offset)?;
+        if img.shape.is_some() {
+            let d = self.drawing_frame(a.para, a.offset)?;
+            return Some((d.page, [d.x, d.y, d.w, d.h], false));
+        }
+        // A picture: its image on the page that holds its paragraph.
+        let id = img.display_id();
+        let layout = self.layout()?;
+        layout.pages.iter().enumerate().find_map(|(pi, page)| {
+            let here = page
+                .lines
+                .iter()
+                .any(|l| matches!(l.source, LineSource::Body(p) if p as usize == a.para));
+            if !here {
+                return None;
+            }
+            page.items.iter().find_map(|it| match it {
+                PageItem::Image {
+                    x, y, w, h, media, ..
+                } if *media == id || *media == img.media => Some((pi, [*x, *y, *w, *h], false)),
+                _ => None,
+            })
+        })
+    }
+
     /// Open the text box at (`para`, `at`) for editing on page `page`.
     pub fn open_text_box(&mut self, para: usize, at: usize, page: usize) -> Result<()> {
         self.close_header_footer()?;

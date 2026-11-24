@@ -190,6 +190,7 @@ pub fn write_docx(doc: &Document) -> Result<Vec<u8>> {
     if crate::custom_xml::write_parts(&mut w.pkg, &main, &mut w.rels.list, doc)? {
         w.rels.changed = true;
     }
+    w.write_keymap(&main)?;
     if w.rels.changed || doc.source.is_none() {
         let rels = w.rels.list.clone();
         w.pkg.set_relationships(&main, &rels);
@@ -2129,6 +2130,34 @@ impl Writer<'_> {
             self.rels
                 .id_for(crate::reader::REL_COMMENTS_IDS, &part, false);
         }
+        Ok(())
+    }
+
+    /// Round 22: the style shortcut keys of the document ([MS-DOCX] keymap customizations
+    /// part). A part read from the file stays as it is while its keys are unchanged.
+    fn write_keymap(&mut self, main: &str) -> Result<()> {
+        use crate::keymap::{read, write, CT_KEYMAP, REL_KEYMAP};
+        let keys = &self.doc.design.key_map;
+        let part = self.pkg.related_part(main, REL_KEYMAP)?;
+        let existing = part
+            .as_ref()
+            .and_then(|p| self.pkg.part(p))
+            .map(|p| read(&p.data))
+            .unwrap_or_default();
+        if existing == *keys {
+            return Ok(());
+        }
+        let name = part.unwrap_or_else(|| "/word/customizations.xml".into());
+        if keys.is_empty() {
+            self.pkg.remove_part(&name);
+            let before = self.rels.list.len();
+            self.rels.list.retain(|r| r.rel_type != REL_KEYMAP);
+            self.rels.changed |= self.rels.list.len() != before;
+            return Ok(());
+        }
+        self.pkg
+            .add_part(&name, CT_KEYMAP, write(keys).into_bytes())?;
+        self.rels.id_for(REL_KEYMAP, &name, false);
         Ok(())
     }
 

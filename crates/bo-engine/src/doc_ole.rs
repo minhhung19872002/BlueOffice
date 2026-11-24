@@ -101,10 +101,17 @@ impl crate::Engine {
         &mut self,
         b: Built,
         link: Option<OleLink>,
+        icon: Option<(&str, u8)>,
     ) -> std::result::Result<(), String> {
         let (mw, mh) = self.doc_max_size();
-        let (w, h) = ole::fit(b.size, mw, mh);
-        let preview = (self.doc_new_part("media", "image", "png"), Arc::new(b.png));
+        // Display as icon: the icon picture replaces the preview of the cells.
+        let (png, size) = match icon {
+            Some((caption, style)) => crate::ole_icon::icon_png(&mut self.fonts, caption, style)
+                .ok_or_else(|| "noIcon".to_owned())?,
+            None => (b.png, b.size),
+        };
+        let (w, h) = ole::fit(size, mw, mh);
+        let preview = (self.doc_new_part("media", "image", "png"), Arc::new(png));
         let (package, pkg_part) = if link.is_some() {
             (String::new(), None)
         } else {
@@ -115,7 +122,7 @@ impl crate::Engine {
             prog_id: PROG_ID_XLSX.into(),
             package,
             link,
-            icon: false,
+            icon: icon.is_some(),
         };
         let s = self
             .session
@@ -219,6 +226,9 @@ impl crate::Engine {
                     cells,
                     link,
                     auto_update,
+                    icon,
+                    caption,
+                    icon_style,
                 } => {
                     let src = data.as_deref().map(ole::decode).transpose()?;
                     let link = link.filter(|l| !l.trim().is_empty());
@@ -238,7 +248,16 @@ impl crate::Engine {
                                     item,
                                     auto_update,
                                 });
-                                self.doc_insert_built(b, link)
+                                let icon = icon.then(|| {
+                                    caption.filter(|c| !c.trim().is_empty()).unwrap_or_else(|| {
+                                        crate::ole_icon::DEFAULT_CAPTION.to_owned()
+                                    })
+                                });
+                                self.doc_insert_built(
+                                    b,
+                                    link,
+                                    icon.as_deref().map(|c| (c, icon_style)),
+                                )
                             }
                             Err(e) => Err(e.to_string()),
                         }

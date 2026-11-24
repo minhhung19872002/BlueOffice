@@ -59,6 +59,7 @@ pub mod merge_sources;
 pub mod nav;
 mod notes;
 pub mod ole;
+mod ole_icon;
 pub mod open_setup;
 mod page_layout;
 pub mod pdf_export;

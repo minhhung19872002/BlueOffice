@@ -227,7 +227,8 @@ impl DocWindow {
             rows.push(r);
             rows.push(self.r10_row("altText", "picture.altText", None));
             rows.push(self.r10_row("sizePosition", "picture.layoutOptions", None));
-            rows.push(self.r10_row("formatPicture", "picture.layout", None));
+            // Round 22: Format Picture… opens the Format Picture pane.
+            rows.push(self.r10_row("formatPicture", "fp22.formatPicture", None));
         } else if table {
             if syn.is_some() {
                 let mut r = self.r10_row("synonyms", "ctx.sub.syn", None);

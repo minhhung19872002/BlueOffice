@@ -52,6 +52,8 @@ pub(crate) mod options20;
 pub(crate) mod r17;
 #[path = "doc_fill18.rs"]
 pub(crate) mod r18;
+#[path = "doc_forms22.rs"]
+pub(crate) mod r22;
 pub(crate) use r5::{open_manage_styles, ManagedStyle};
 pub(crate) use r7::INSPECT;
 
@@ -209,6 +211,10 @@ pub(crate) enum DocFormKind {
     StyleFrame,
     /// Insert › Pictures › Online Pictures… (round 17).
     OnlinePicture,
+    /// Insert › Object › Display as icon › Change Icon… (round 22).
+    ChangeIcon,
+    /// File › Options › Add-ins › Manage ▾ › Go… (round 22).
+    AddinList,
 }
 
 /// What the owner does after an input.
@@ -865,6 +871,7 @@ impl DocForm {
             Event::None => FormOut::Redraw,
             Event::Cancel => FormOut::Close,
             Event::Canvas(id, x, y) if self.r18_canvas(id, *x, *y) => FormOut::Redraw,
+            Event::Canvas(id, x, y) if self.r22_canvas(id, *x, *y) => FormOut::Redraw,
             Event::Canvas(id, x, y) if self.r17_canvas(id, *x, *y) => FormOut::Redraw,
             Event::Canvas(id, x, y) if self.r15_canvas(id, *x, *y) => FormOut::Redraw,
             Event::Canvas(id, x, y) if self.r13_canvas(id, *x, *y) => FormOut::Redraw,
@@ -914,6 +921,7 @@ impl DocForm {
             (DocFormKind::Protect, _) => {}
             (k, _) if r18::handles(k) => self.r18_changed(id),
             (k, _) if r15::handles(k) => self.r15_changed(id),
+            (DocFormKind::InsertObject, "asIcon" | "asIcon1") => self.r22_icon_toggled(id),
             (k, _) if r17::handles(k) => self.r17_changed(id),
             (k, _) if r16::handles(k) => self.r16_changed(id),
             (k, _) if r14::handles(k) => self.r14_changed(id),
@@ -936,6 +944,9 @@ impl DocForm {
     }
 
     fn clicked(&mut self, id: &str) -> FormOut {
+        if let Some(out) = self.r22_clicked(id) {
+            return out;
+        }
         if let Some(out) = self.r18_clicked(id) {
             return out;
         }
@@ -1082,6 +1093,9 @@ impl DocForm {
     }
 
     fn ok(&mut self) -> FormOut {
+        if let Some(out) = self.r22_ok() {
+            return out;
+        }
         if let Some(out) = self.r18_ok() {
             return out;
         }
@@ -1149,7 +1163,9 @@ impl DocForm {
             | DocFormKind::CustomizeKeyboard
             | DocFormKind::StyleEffects
             | DocFormKind::StyleFrame
-            | DocFormKind::OnlinePicture => FormOut::Close,
+            | DocFormKind::OnlinePicture
+            | DocFormKind::ChangeIcon
+            | DocFormKind::AddinList => FormOut::Close,
             DocFormKind::Toc => {
                 let levels = self.form.num("levels").clamp(1, 9);
                 let mut instr = match &self.toc_map {
@@ -1422,6 +1438,7 @@ impl DocForm {
         let this = self;
         let mut canvas = |id: &str, r: [f32; 4], p: &mut dyn Painter| {
             if r18::paint_canvas(this, id, r, p, &font)
+                || r22::paint_canvas(this, id, r, p, &font)
                 || r17::paint_canvas(this, id, r, p, &font)
                 || r15::paint_canvas(this, id, r, p, &font)
                 || r13::paint_canvas(this, id, r, p, &font)
@@ -3284,6 +3301,7 @@ pub(crate) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
         | DocFormKind::StyleEffects
         | DocFormKind::StyleFrame
         | DocFormKind::OnlinePicture => r17::open(kind, s, c),
+        DocFormKind::ChangeIcon | DocFormKind::AddinList => r22::open(kind, s, c),
         DocFormKind::Zoom => {
             let mut f = DocForm::new(kind, &tr("docR4.zoomTitle", "Zoom"), (381.0, 258.0), vec![]);
             f.label(

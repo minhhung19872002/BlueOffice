@@ -646,6 +646,28 @@ impl Session {
         Ok(())
     }
 
+    /// Round 22: assign shortcut `key` ([MS-DOCX] keymap code) to paragraph style `style`
+    /// in the document, or remove it (`None`); one undo step.
+    pub fn set_style_key(&mut self, key: u16, style: Option<&str>) -> Result<()> {
+        let old = (self.doc.design.clone(), self.doc.theme_fonts.clone());
+        let mut new = old.clone();
+        new.0.key_map.retain(|(k, _)| *k != key);
+        if let Some(st) = style.filter(|s| !s.trim().is_empty()) {
+            new.0.key_map.push((key, st.to_owned()));
+        }
+        if new == old {
+            return Ok(());
+        }
+        self.edit(|tx, sel| {
+            tx.push(Op::Design {
+                old: Box::new(old),
+                new: Box::new(new),
+            })?;
+            Ok(sel)
+        })?;
+        Ok(())
+    }
+
     /// Apply style set `id` (paragraph spacing of Normal and Heading 1).
     pub fn apply_style_set(&mut self, id: &str) -> Result<()> {
         let set = STYLE_SETS

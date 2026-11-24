@@ -233,6 +233,22 @@ pub(crate) fn styled(
                 if p.fill.is_none() && p.stroke.is_none() {
                     continue;
                 }
+                // Round 22: a blurred reflection (blurRad) is drawn as soft silhouettes in
+                // strips, each with the fade of its height.
+                let blur = pt(r.blur);
+                if blur > 0.1 {
+                    if let Some(c) = color {
+                        out.extend(blurred_strips(
+                            &mirror(&p.segs),
+                            c,
+                            (st * fill_alpha, end * fill_alpha),
+                            blur,
+                            (top, span),
+                            w,
+                        ));
+                        continue;
+                    }
+                }
                 out.push(ShapePath {
                     segs: mirror(&p.segs),
                     fill: p.fill.and(color),
@@ -395,6 +411,173 @@ pub(crate) fn styled(
     out
 }
 
+/// Text Effects › Transform (round 22, §20.1.9.19 prstTxWarp): the glyphs of `lines`
+/// (box-relative) as outlines mapped through preset `name` evaluated for the text box `bx`
+/// (`[x0, y0, x1, y1]`), as BlueSlide's WordArt; the lines keep their carets but lose
+/// their glyphs (the outlines are drawn instead).
+pub(crate) fn warp_text(
+    fonts: &bo_text::FontManager,
+    name: &str,
+    lines: &mut [crate::types::Line],
+    bx: [f32; 4],
+) -> Vec<ShapePath> {
+    use bo_drawingml::geom::Seg;
+    use bo_text::PathCmd as O;
+    let Some(warp) = bo_drawingml::textwarp::TextWarp::new(
+        name,
+        &[],
+        f64::from(bx[2] - bx[0]).max(1.0),
+        f64::from(bx[3] - bx[1]).max(1.0),
+    ) else {
+        return Vec::new();
+    };
+    // Glyph outlines in box points, one path per fragment.
+    let mut runs: Vec<(Vec<Seg>, Color)> = Vec::new();
+    let mut ink: Option<[f64; 4]> = None;
+    let mut grow = |x: f64, y: f64| {
+        let b = ink.get_or_insert([x, y, x, y]);
+        b[0] = b[0].min(x);
+        b[1] = b[1].min(y);
+        b[2] = b[2].max(x);
+        b[3] = b[3].max(y);
+    };
+    for l in lines.iter() {
+        for f in &l.fragments {
+            let upem = f32::from(fonts.info(f.face).units_per_em.max(1));
+            let k = f.size / upem;
+            let mut segs = Vec::new();
+            for g in f.glyphs.iter() {
+                let (ox, oy) = (f.x + g.x, f.y + g.y);
+                let p = |x: f32, y: f32| (f64::from(ox + x * k), f64::from(oy - y * k));
+                for c in fonts.outline(f.face, g.id) {
+                    let seg = match c {
+                        O::MoveTo(x, y) => {
+                            let (x, y) = p(x, y);
+                            Seg::Move(x, y)
+                        }
+                        O::LineTo(x, y) => {
+                            let (x, y) = p(x, y);
+                            Seg::Line(x, y)
+                        }
+                        O::QuadTo(a, b, x, y) => {
+                            let ((a, b), (x, y)) = (p(a, b), p(x, y));
+                            Seg::Quad(a, b, x, y)
+                        }
+                        O::CubicTo(a, b, c2, d, x, y) => {
+                            let ((a, b), (c2, d), (x, y)) = (p(a, b), p(c2, d), p(x, y));
+                            Seg::Cubic(a, b, c2, d, x, y)
+                        }
+                        O::Close => Seg::Close,
+                    };
+                    match seg {
+                        Seg::Move(x, y) | Seg::Line(x, y) => grow(x, y),
+                        Seg::Quad(_, _, x, y) | Seg::Cubic(_, _, _, _, x, y) => grow(x, y),
+                        Seg::Close => {}
+                    }
+                    segs.push(seg);
+                }
+            }
+            if !segs.is_empty() {
+                runs.push((segs, f.color));
+            }
+        }
+    }
+    let Some(src) = ink else {
+        return Vec::new();
+    };
+    // Warped outlines are relative to the text box's top-left.
+    let (dx, dy) = (f64::from(bx[0]), f64::from(bx[1]));
+    let src = [src[0] - dx, src[1] - dy, src[2] - dx, src[3] - dy];
+    let to = |v: f64| v as f32;
+    let out = runs
+        .into_iter()
+        .map(|(segs, color)| {
+            let local: Vec<Seg> = segs
+                .iter()
+                .map(|s| match *s {
+                    Seg::Move(x, y) => Seg::Move(x - dx, y - dy),
+                    Seg::Line(x, y) => Seg::Line(x - dx, y - dy),
+                    Seg::Quad(a, b, x, y) => Seg::Quad(a - dx, b - dy, x - dx, y - dy),
+                    Seg::Cubic(a, b, c, d, x, y) => {
+                        Seg::Cubic(a - dx, b - dy, c - dx, d - dy, x - dx, y - dy)
+                    }
+                    Seg::Close => Seg::Close,
+                })
+                .collect();
+            let segs = warp
+                .warp_segs(&local, src)
+                .into_iter()
+                .map(|s| match s {
+                    Seg::Move(x, y) => PathCmd::M(to(x + dx), to(y + dy)),
+                    Seg::Line(x, y) => PathCmd::L(to(x + dx), to(y + dy)),
+                    Seg::Quad(a, b, x, y) => {
+                        PathCmd::Q(to(a + dx), to(b + dy), to(x + dx), to(y + dy))
+                    }
+                    Seg::Cubic(a, b, c, d, x, y) => PathCmd::C(
+                        to(a + dx),
+                        to(b + dy),
+                        to(c + dx),
+                        to(d + dy),
+                        to(x + dx),
+                        to(y + dy),
+                    ),
+                    Seg::Close => PathCmd::Z,
+                })
+                .collect();
+            ShapePath {
+                segs,
+                fill: Some(color),
+                stroke: None,
+                style: None,
+            }
+        })
+        .collect();
+    for l in lines.iter_mut() {
+        for f in &mut l.fragments {
+            f.glyphs = std::sync::Arc::from(Vec::new());
+        }
+    }
+    out
+}
+
+/// Strips of a blurred reflection (§20.1.8.50 reflection `blurRad`, round 22): `segs`
+/// drawn as soft silhouettes blurred by `blur` points, in strips from `top` over `span`
+/// points, each with the opacity of its place between (`alpha.0`, `alpha.1`).
+fn blurred_strips(
+    segs: &[PathCmd],
+    color: Color,
+    alpha: (f32, f32),
+    blur: f32,
+    (top, span): (f32, f32),
+    w: f32,
+) -> Vec<ShapePath> {
+    const STRIPS: usize = 6;
+    let step = span / STRIPS as f32;
+    (0..STRIPS)
+        .map(|i| {
+            let (y0, y1) = (top + step * i as f32, top + step * (i + 1) as f32);
+            let t = (i as f32 + 0.5) / STRIPS as f32;
+            ShapePath {
+                segs: segs.to_vec(),
+                fill: Some(color),
+                stroke: None,
+                style: Some(Box::new(PathStyle {
+                    fill_alpha: alpha.0 + (alpha.1 - alpha.0) * t,
+                    blur: Some((blur, 0.0)),
+                    clip: Some(vec![
+                        PathCmd::M(-w, y0),
+                        PathCmd::L(2.0 * w, y0),
+                        PathCmd::L(2.0 * w, y1),
+                        PathCmd::L(-w, y1),
+                        PathCmd::Z,
+                    ]),
+                    ..PathStyle::default()
+                })),
+            }
+        })
+        .collect()
+}
+
 /// The reflection of a shape's text (§20.1.8.50 reflection): the glyph outlines of `lines`
 /// (box-relative) mirrored below the `w` × `h` box, fading like the shape's reflection.
 #[allow(clippy::cast_possible_truncation)]
@@ -445,6 +628,18 @@ pub(crate) fn text_reflection(
                 }
             }
             if segs.is_empty() {
+                continue;
+            }
+            // Round 22: blurred reflection (blurRad), as the shape's.
+            if pt(r.blur) > 0.1 {
+                out.extend(blurred_strips(
+                    &segs,
+                    f.color,
+                    (st, end),
+                    pt(r.blur),
+                    (top, span),
+                    w,
+                ));
                 continue;
             }
             out.push(ShapePath {

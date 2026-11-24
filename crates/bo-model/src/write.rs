@@ -327,6 +327,11 @@ pub struct DocDesign {
     /// §19.1.2.5); `None` = the plain page colour `background`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub background_fill: Option<PageFill>,
+    /// Style shortcut keys saved in the document (round 22, [MS-DOCX] keymap
+    /// customizations `wne:keymaps`): (key code — virtual key in the low byte, 0x01 Shift /
+    /// 0x02 Ctrl / 0x04 Alt in the high byte —, style name).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub key_map: Vec<(u16, String)>,
 }
 
 /// Kind of a page background fill effect (ECMA-376 Part 4, §19.1.2.5 fill `type`,

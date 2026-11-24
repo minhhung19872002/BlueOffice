@@ -18,7 +18,10 @@
 //! `{"cmd":"shapeTextOutline","color":"RRGGBB"|"none","weight":pt?}`;
 //! `{"cmd":"shapeTextEffect","kind":"shadow"|"reflection"|"glow"|"none","preset":…}`;
 //! `{"cmd":"wordArtStyle","index":n}` (BlueOffice's own WordArt quick styles);
-//! `{"cmd":"shapeTextInsets","insets":[left,top,right,bottom]}` (pt, round 21).
+//! `{"cmd":"shapeTextInsets","insets":[left,top,right,bottom]}` (pt, round 21);
+//! `{"cmd":"shapeRotateWithShape","on":bool}`,
+//! `{"cmd":"shapeTextLayout","vert":"horz"|"vert"|"vert270","autoFit":bool,"wrap":bool}`
+//! `{"cmd":"shapeTextWarp","preset":"textArchUp"|…|"none"}` (round 22).
 
 use crate::edit::EditResult;
 use crate::picture_tools::PictureCommand;
@@ -54,6 +57,16 @@ pub enum ShapeStyleCommand {
     /// Round 21 (Format Shape › Layout & Properties › Text Box): text insets left, top,
     /// right, bottom in pt (§21.1.2.1.1 bodyPr lIns / tIns / rIns / bIns).
     Insets([f64; 4]),
+    /// Round 22 (Format Shape › Fill › Rotate with shape): the gradient / picture fill turns
+    /// with the shape (§20.1.8.33 / §20.1.8.14 rotWithShape).
+    RotateWithShape(bool),
+    /// Round 22 (Shape Format › Text Direction, Format Shape › Text Box): text direction
+    /// (`horz`, `vert`, `vert270`), Resize shape to fit text, Wrap text in shape — each
+    /// `None` keeps the current value.
+    TextLayout(Option<String>, Option<bool>, Option<bool>),
+    /// Round 22 (Text Effects › Transform): preset text warp (§20.1.9.19 prstTxWarp);
+    /// `none` removes it.
+    Warp(String),
 }
 
 impl ShapeStyleCommand {
@@ -101,6 +114,13 @@ impl ShapeStyleCommand {
                 let n: Vec<f64> = a.iter().filter_map(Value::as_f64).collect();
                 ShapeStyleCommand::Insets(<[f64; 4]>::try_from(n).ok()?)
             }
+            "shapeTextLayout" => ShapeStyleCommand::TextLayout(
+                s("vert"),
+                v.get("autoFit").and_then(Value::as_bool),
+                v.get("wrap").and_then(Value::as_bool),
+            ),
+            "shapeTextWarp" => ShapeStyleCommand::Warp(s("preset")?),
+            "shapeRotateWithShape" => ShapeStyleCommand::RotateWithShape(v.get("on")?.as_bool()?),
             "wordArtStyle" => {
                 ShapeStyleCommand::WordArt(usize::try_from(v.get("index")?.as_u64()?).ok()?)
             }
@@ -560,6 +580,31 @@ fn apply(
         ShapeStyleCommand::Effect(kind, preset) => {
             st.effects = crate::doc_picstyle::apply_effect(kind, preset, st.effects.take())?;
         }
+        ShapeStyleCommand::TextLayout(vert, fit, wrap) => {
+            if let Some(v) = vert {
+                st.vert = match v.as_str() {
+                    "horz" => None,
+                    "vert" | "vert270" => Some(v.clone()),
+                    _ => return Err("badDirection".into()),
+                };
+            }
+            if let Some(f) = fit {
+                st.auto_fit = *f;
+            }
+            if let Some(w) = wrap {
+                st.no_wrap = !*w;
+            }
+        }
+        ShapeStyleCommand::Warp(p) => {
+            st.warp = match p.as_str() {
+                "none" | "textNoShape" => None,
+                _ if bo_drawingml::textwarp::warp_preset(p).is_some() => Some(p.clone()),
+                _ => return Err("badWarp".into()),
+            };
+        }
+        ShapeStyleCommand::RotateWithShape(on) => {
+            st.rot_with_shape = (!*on).then_some(false);
+        }
         ShapeStyleCommand::Insets(ins) => {
             for (slot, pt) in sh.insets.iter_mut().zip(ins) {
                 #[allow(clippy::cast_possible_truncation)]
@@ -680,6 +725,42 @@ mod tests {
     fn run(e: &mut Engine, v: &Value) -> Value {
         let out = e.command_json(&v.to_string()).expect("command");
         serde_json::from_str(&out).unwrap_or(Value::Null)
+    }
+
+    /// Round 22: Rotate with shape off keeps the fill upright; it survives the file.
+    #[test]
+    fn rotate_with_shape_survives_docx() {
+        let mut e = engine_with_shape();
+        run(
+            &mut e,
+            &json!({"cmd": "shapeGradient", "variation": "light", "index": 1}),
+        );
+        run(&mut e, &json!({"cmd": "shapeRotateWithShape", "on": false}));
+        let st = shape(&e)
+            .and_then(|i| i.shape)
+            .and_then(|s| s.style)
+            .expect("style");
+        assert_eq!(st.rot_with_shape, Some(false));
+        let (back, _) = saved_style(&mut e);
+        assert_eq!(back.expect("saved").rot_with_shape, Some(false));
+        run(&mut e, &json!({"cmd": "shapeRotateWithShape", "on": true}));
+        let (back, _) = saved_style(&mut e);
+        assert_eq!(back.expect("saved").rot_with_shape, None);
+        // Text direction, autofit and wrapping go into bodyPr and come back.
+        run(
+            &mut e,
+            &json!({"cmd": "shapeTextLayout", "vert": "vert270", "autoFit": true, "wrap": false}),
+        );
+        let (back, _) = saved_style(&mut e);
+        let back = back.expect("saved");
+        assert_eq!(back.vert.as_deref(), Some("vert270"));
+        assert!(back.auto_fit && back.no_wrap);
+        run(
+            &mut e,
+            &json!({"cmd": "shapeTextWarp", "preset": "textArchUp"}),
+        );
+        let (back, _) = saved_style(&mut e);
+        assert_eq!(back.expect("saved").warp.as_deref(), Some("textArchUp"));
     }
 
     #[test]

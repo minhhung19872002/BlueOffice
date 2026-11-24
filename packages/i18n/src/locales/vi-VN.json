@@ -16974,6 +16974,13 @@
     "fpTransparency": "Độ trong suốt",
     "fpType": "Kiểu",
     "fpVertical": "Căn dọc",
-    "fpWidth": "Độ rộng"
+    "fpWidth": "Độ rộng",
+    "fpPatternFill": "Tô hoa văn",
+    "fpForeground": "Màu trước",
+    "fpBackground": "Màu nền",
+    "fpPresetGradients": "Chuyển màu có sẵn",
+    "fpDirection": "Hướng",
+    "fpPaneSize": "Kích thước",
+    "fpPaneClose": "Đóng"
   }
 }

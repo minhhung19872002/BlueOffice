@@ -16974,6 +16974,13 @@
     "fpTransparency": "Transparency",
     "fpType": "Type",
     "fpVertical": "Vertical alignment",
-    "fpWidth": "Width"
+    "fpWidth": "Width",
+    "fpPatternFill": "Pattern fill",
+    "fpForeground": "Foreground",
+    "fpBackground": "Background",
+    "fpPresetGradients": "Preset gradients",
+    "fpDirection": "Direction",
+    "fpPaneSize": "Size",
+    "fpPaneClose": "Close"
   }
 }

@@ -385,11 +385,10 @@ impl DocWindow {
 
     /// Width the pane takes at the right.
     pub(super) fn r21_pane_w(&self) -> f32 {
-        if self.r21.fmt.is_some() {
-            fp::width(self.scale)
-        } else {
-            0.0
-        }
+        self.r21
+            .fmt
+            .as_ref()
+            .map_or(0.0, |p| p.pane_width(self.scale))
     }
 
     /// Place the pane (at layout): the leftmost of the panes at the right.
@@ -400,7 +399,8 @@ impl DocWindow {
         let x = self.doc_right();
         let y = self.chrome_bottom();
         let h = (self.size.1 - self.status_h() - y).max(1.0);
-        let (w, scale) = (fp::width(self.scale), self.scale);
+        let scale = self.scale;
+        let w = self.r21_pane_w();
         if let Some(p) = self.r21.fmt.as_mut() {
             p.layout([x, y, w, h], scale);
         }
@@ -493,14 +493,11 @@ impl DocWindow {
                         })
                         .collect()
                 } else {
-                    p.menu(id)
+                    let t = |k: &str, en: &str| tr(&self.strings, k, en);
+                    p.menu_labels(id, &t)
                         .into_iter()
-                        .map(|(choice, k, en, on)| MenuItem {
-                            label: if k.is_empty() {
-                                en
-                            } else {
-                                tr(&self.strings, &k, &en)
-                            },
+                        .map(|(choice, label, on)| MenuItem {
+                            label,
                             choice: Choice::Command(choice),
                             checked: on,
                             dim: false,
@@ -538,6 +535,20 @@ impl DocWindow {
                     }
                     None => false,
                 }
+            }
+            "fp21.paneClose" => {
+                self.menu = None;
+                self.r21.fmt = None;
+                self.relayout_pending = true;
+                true
+            }
+            "fp21.paneSize" => {
+                self.menu = None;
+                if let Some(p) = self.r21.fmt.as_mut() {
+                    p.toggle_size();
+                }
+                self.relayout_pending = true;
+                true
             }
             _ if id.starts_with("fp21.color:") => {
                 let rest = &id["fp21.color:".len()..];

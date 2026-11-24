@@ -69,6 +69,8 @@ pub(crate) struct Vals {
     /// (position %, colour, transparency %).
     pub(crate) stops: Vec<(f64, u32, f64)>,
     pub(crate) stop: usize,
+    /// Path gradients: fillToRect l, t, r, b (%).
+    pub(crate) grad_focus: [f64; 4],
     /// 0 none, 1 solid.
     pub(crate) line: u8,
     pub(crate) line_color: u32,
@@ -107,6 +109,7 @@ impl Default for Vals {
             grad_angle: 90.0,
             stops: vec![(0.0, 0x44_72C4, 0.0), (100.0, 0xFF_FFFF, 0.0)],
             stop: 0,
+            grad_focus: [50.0; 4],
             line: 1,
             line_color: 0x2F_528F,
             line_transp: 0.0,
@@ -160,6 +163,7 @@ impl Vals {
                         .position(|k| *k == g.kind)
                         .unwrap_or(0);
                     v.grad_angle = f64::from(g.angle) / 60_000.0;
+                    v.grad_focus = g.focus.map(|f| f64::from(f) / 1000.0);
                     v.stops = g
                         .stops
                         .iter()
@@ -322,6 +326,8 @@ enum RowKind {
     Spin(&'static str, &'static str, &'static str),
     Choice(&'static str, &'static str, &'static str),
     Stops,
+    /// Pattern fill: the 48 preset patterns.
+    Patterns,
     Button(&'static str, &'static str, &'static str),
 }
 
@@ -338,6 +344,13 @@ pub(crate) struct FmtPane {
     scale: f32,
     scroll: f32,
     hover: Option<(f32, f32)>,
+    /// Pattern fill chosen here (preset, foreground, background): the document keeps it as a
+    /// tiled picture.
+    pattern: Option<(usize, u32, u32)>,
+    /// Brightness of a gradient stop: (stop, colour it started from, %).
+    bright: (usize, u32, f64),
+    /// Size ▸ in the title menu: the wider pane.
+    wide: bool,
 }
 
 /// Pane width (the reference's 357 px at 125 %).
@@ -362,6 +375,146 @@ impl FmtPane {
             scale: 1.0,
             scroll: 0.0,
             hover: None,
+            pattern: None,
+            bright: (usize::MAX, 0, 0.0),
+            wide: false,
+        }
+    }
+
+    /// Width of this pane (window px).
+    pub(crate) fn pane_width(&self, scale: f32) -> f32 {
+        if self.wide {
+            (360.0 * scale).round()
+        } else {
+            width(scale)
+        }
+    }
+
+    /// Title menu › Size: switch between the reference's width and a wider pane.
+    pub(crate) fn toggle_size(&mut self) {
+        self.wide = !self.wide;
+    }
+
+    /// The fill option shown (a pattern is a tiled picture in the document).
+    fn fill_kind(&self) -> u8 {
+        if self.pattern.is_some() && self.vals.fill == 3 {
+            4
+        } else {
+            self.vals.fill
+        }
+    }
+
+    /// The pattern fill as a tiled two-colour picture.
+    fn pattern_cmd(&self) -> Value {
+        use base64::Engine as _;
+        let (i, fg, bg) = self.pattern.unwrap_or((0, 0x44_72C4, 0xFF_FFFF));
+        let name = crate::slide_bgpane::PATTERNS[i.min(crate::slide_bgpane::PATTERNS.len() - 1)];
+        let bmp = pattern_bmp(crate::slide_bgpane::pattern_bits(name), fg, bg);
+        json!({
+            "cmd": "shapePictureFill",
+            "data": base64::engine::general_purpose::STANDARD.encode(bmp),
+            "tile": true,
+        })
+    }
+
+    /// Choices of drop-down `id` with their labels: (choice, label, checked).
+    pub(crate) fn menu_labels(
+        &self,
+        id: &str,
+        t: &dyn Fn(&str, &str) -> String,
+    ) -> Vec<(String, String, bool)> {
+        const DIRS: [(&str, &str, f64, [f64; 4]); 9] = [
+            (
+                "doc20.dTlBr",
+                "Diagonal, top left to bottom right",
+                45.0,
+                [0.0, 0.0, 100.0, 100.0],
+            ),
+            ("doc20.dDown", "Downwards", 90.0, [50.0, 0.0, 50.0, 100.0]),
+            (
+                "doc20.dTrBl",
+                "Diagonal, top right to bottom left",
+                135.0,
+                [100.0, 0.0, 0.0, 100.0],
+            ),
+            (
+                "doc20.dRight",
+                "To the right",
+                0.0,
+                [0.0, 50.0, 100.0, 50.0],
+            ),
+            (
+                "doc20.dCenter",
+                "Out from the centre",
+                -1.0,
+                [50.0, 50.0, 50.0, 50.0],
+            ),
+            (
+                "doc20.dLeft",
+                "To the left",
+                180.0,
+                [100.0, 50.0, 0.0, 50.0],
+            ),
+            (
+                "doc20.dBlTr",
+                "Diagonal, bottom left to top right",
+                315.0,
+                [0.0, 100.0, 100.0, 0.0],
+            ),
+            ("doc20.dUp", "Upwards", 270.0, [50.0, 100.0, 50.0, 0.0]),
+            (
+                "doc20.dBrTl",
+                "Diagonal, bottom right to top left",
+                225.0,
+                [100.0, 100.0, 0.0, 0.0],
+            ),
+        ];
+        match id {
+            "gradPreset" => {
+                let mut out = Vec::new();
+                for (var, k, en) in [
+                    ("light", "doc20.light", "Light"),
+                    ("dark", "doc20.dark", "Dark"),
+                ] {
+                    for (i, d) in DIRS.iter().enumerate() {
+                        out.push((
+                            format!("fp21.gv:{var}:{i}"),
+                            format!("{}: {}", t(k, en), t(d.0, d.1)),
+                            false,
+                        ));
+                    }
+                }
+                out
+            }
+            "gradDir" => DIRS
+                .iter()
+                .filter(|d| self.vals.grad_kind != 0 || d.2 >= 0.0)
+                .map(|d| {
+                    let choice = if self.vals.grad_kind == 0 {
+                        format!("fp21.ga:{}", d.2)
+                    } else {
+                        format!("fp21.gf:{},{},{},{}", d.3[0], d.3[1], d.3[2], d.3[3])
+                    };
+                    (choice, t(d.0, d.1), false)
+                })
+                .collect(),
+            "paneMenu" => vec![
+                (
+                    "fp21.paneSize".to_owned(),
+                    t("doc21.fpPaneSize", "Size"),
+                    self.wide,
+                ),
+                (
+                    "fp21.paneClose".to_owned(),
+                    t("doc21.fpPaneClose", "Close"),
+                    false,
+                ),
+            ],
+            _ => self
+                .menu(id)
+                .into_iter()
+                .map(|(c, k, en, on)| (c, if k.is_empty() { en } else { t(&k, &en) }, on))
+                .collect(),
         }
     }
 
@@ -391,7 +544,7 @@ impl FmtPane {
     /// Rows of the current page.
     #[allow(clippy::too_many_lines)]
     fn rows(&self) -> Vec<Row> {
-        use RowKind::{Button, Choice, Color, Radio, Section, Spin, Stops};
+        use RowKind::{Button, Choice, Color, Patterns, Radio, Section, Spin, Stops};
         let mut out = Vec::new();
         let mut y = 0.0;
         let v = &self.vals;
@@ -455,10 +608,11 @@ impl FmtPane {
                             (1, "doc21.fpSolidFill", "Solid fill"),
                             (2, "doc21.fpGradientFill", "Gradient fill"),
                             (3, "doc21.fpPictureFill", "Picture or texture fill"),
+                            (4, "doc21.fpPatternFill", "Pattern fill"),
                         ] {
                             push(Radio("fill", i, k, en), 24.0);
                         }
-                        match v.fill {
+                        match self.fill_kind() {
                             1 => {
                                 push(Color("fillColor", "doc21.fpColor", "Color"), 31.0);
                                 push(
@@ -467,10 +621,18 @@ impl FmtPane {
                                 );
                             }
                             2 => {
+                                push(
+                                    Choice(
+                                        "gradPreset",
+                                        "doc21.fpPresetGradients",
+                                        "Preset gradients",
+                                    ),
+                                    28.0,
+                                );
                                 push(Choice("gradKind", "doc21.fpType", "Type"), 28.0);
-                                if v.grad_kind == 0 {
-                                    push(Spin("gradAngle", "doc21.fpAngle", "Angle"), 29.0);
-                                }
+                                push(Choice("gradDir", "doc21.fpDirection", "Direction"), 28.0);
+                                // Greyed for the other types, as the reference.
+                                push(Spin("gradAngle", "doc21.fpAngle", "Angle"), 29.0);
                                 push(Stops, 58.0);
                                 push(Color("stopColor", "doc21.fpColor", "Color"), 31.0);
                                 push(Spin("stopPos", "doc21.fpPosition", "Position"), 29.0);
@@ -478,6 +640,12 @@ impl FmtPane {
                                     Spin("stopTransp", "doc21.fpTransparency", "Transparency"),
                                     29.0,
                                 );
+                                push(Spin("stopBright", "doc21.fpBrightness", "Brightness"), 29.0);
+                            }
+                            4 => {
+                                push(Patterns, 142.0);
+                                push(Color("patFg", "doc21.fpForeground", "Foreground"), 31.0);
+                                push(Color("patBg", "doc21.fpBackground", "Background"), 31.0);
                             }
                             3 => {
                                 push(Button("picInsert", "doc21.fpInsert", "Insert..."), 34.0);
@@ -643,6 +811,17 @@ impl FmtPane {
             "gradAngle" => (v.grad_angle, 1.0, 0.0, 359.9, "\u{B0}"),
             "stopPos" => (stop.0, 1.0, 0.0, 100.0, "%"),
             "stopTransp" => (stop.2, 1.0, 0.0, 100.0, "%"),
+            "stopBright" => (
+                if self.bright.0 == v.stop {
+                    self.bright.2
+                } else {
+                    0.0
+                },
+                1.0,
+                -100.0,
+                100.0,
+                "%",
+            ),
             "shTransp" => (sh[0], 1.0, 0.0, 100.0, "%"),
             "shSize" => (sh[1], 1.0, 1.0, 200.0, "%"),
             "shBlur" => (sh[2], 1.0, 0.0, 100.0, " pt"),
@@ -681,6 +860,20 @@ impl FmtPane {
         let (_, _, lo, hi, _) = self.spin(id);
         let x = (x.clamp(lo, hi) * 100.0).round() / 100.0;
         let shape = self.target == Target::Shape;
+        if id == "stopBright" {
+            let stop = self.vals.stop;
+            let current = self.vals.stops.get(stop).map_or(0, |s| s.1);
+            let base = if self.bright.0 == stop {
+                self.bright.1
+            } else {
+                current
+            };
+            self.bright = (stop, base, x);
+            if let Some(s) = self.vals.stops.get_mut(stop) {
+                s.1 = brighten(base, x);
+            }
+            return vec![self.gradient_cmd()];
+        }
         let effect = |kind: &str, preset: String| json!({ "cmd": if shape { "shapeEffect" } else { "pictureEffect" }, "kind": kind, "preset": preset });
         let v = &mut self.vals;
         match id {
@@ -840,6 +1033,7 @@ impl FmtPane {
         let kind = ["linear", "circle", "rect", "shape"][v.grad_kind.min(3)];
         json!({
             "cmd": "shapeGradient",
+            "focus": v.grad_focus,
             "kind": kind,
             "angle": v.grad_angle,
             "stops": stops,
@@ -881,7 +1075,18 @@ impl FmtPane {
                 if let Some(s) = v.stops.get_mut(v.stop) {
                     s.1 = rgb;
                 }
+                self.bright = (usize::MAX, 0, 0.0);
                 vec![self.gradient_cmd()]
+            }
+            "patFg" | "patBg" => {
+                let mut pat = self.pattern.unwrap_or((0, 0x44_72C4, 0xFF_FFFF));
+                if id == "patFg" {
+                    pat.1 = rgb;
+                } else {
+                    pat.2 = rgb;
+                }
+                self.pattern = Some(pat);
+                vec![self.pattern_cmd()]
             }
             "shadowColor" => {
                 v.shadow_color = rgb;
@@ -1023,6 +1228,25 @@ impl FmtPane {
         } else {
             "pictureEffect"
         };
+        if let Some(rest) = choice.strip_prefix("fp21.gv:") {
+            let (var, i) = rest.split_once(':').unwrap_or((rest, "0"));
+            self.vals.fill = 2;
+            self.pattern = None;
+            return vec![json!({
+                "cmd": "shapeGradient", "variation": var, "index": i.parse::<u64>().unwrap_or(0)
+            })];
+        }
+        if let Some(a) = choice.strip_prefix("fp21.ga:") {
+            self.vals.grad_angle = a.parse().unwrap_or(90.0);
+            return vec![self.gradient_cmd()];
+        }
+        if let Some(f) = choice.strip_prefix("fp21.gf:") {
+            let n: Vec<f64> = f.split(',').filter_map(|x| x.parse().ok()).collect();
+            if let Ok(f) = <[f64; 4]>::try_from(n) {
+                self.vals.grad_focus = f;
+            }
+            return vec![self.gradient_cmd()];
+        }
         if let Some(i) = choice.strip_prefix("fp21.gk:") {
             self.vals.grad_kind = i.parse().unwrap_or(0).min(3);
             return vec![self.gradient_cmd()];
@@ -1137,10 +1361,44 @@ impl FmtPane {
 
     // -------------------------------------------------------------- input
 
-    pub(crate) fn wheel(&mut self, dy: f32) -> bool {
+    /// How far the rows scroll.
+    fn max_scroll(&self) -> f32 {
         let total: f32 = self.rows().iter().map(|r| r.h).sum::<f32>() * self.scale;
         let room = self.rect[1] + self.rect[3] - self.content_top();
-        let max = (total - room).max(0.0);
+        (total - room).max(0.0)
+    }
+
+    /// Track and thumb of the scroll bar (window px) when the rows overflow.
+    fn scroll_bar(&self) -> Option<([f32; 4], [f32; 4])> {
+        let max = self.max_scroll();
+        if max <= 0.0 {
+            return None;
+        }
+        let top = self.content_top();
+        let room = self.rect[1] + self.rect[3] - top;
+        let w = self.px(10.0);
+        let track = [self.rect[0] + self.rect[2] - w - self.px(4.0), top, w, room];
+        let th = (room * room / (room + max)).max(self.px(24.0));
+        let ty = top + (room - th) * (self.scroll / max);
+        Some((track, [track[0], ty, w, th]))
+    }
+
+    /// The title's ▾ (Move / Size / Close menu of a task pane).
+    fn menu_rect(&self) -> [f32; 4] {
+        let c = self.close_rect();
+        [c[0] - self.px(30.0), c[1], c[2], c[3]]
+    }
+
+    /// The pattern grid of a Patterns row (window px).
+    fn pattern_rect(&self, row: &Row) -> [f32; 4] {
+        let y = self.content_top() + self.px(row.y) - self.scroll + self.px(4.0);
+        let x0 = self.rect[0] + self.px(36.0);
+        let w = (self.px(22.0) * 8.0).min(self.rect[2] - self.px(36.0 + 32.0));
+        [x0, y, w, w / 8.0 * 6.0]
+    }
+
+    pub(crate) fn wheel(&mut self, dy: f32) -> bool {
+        let max = self.max_scroll();
         let s = (self.scroll - dy * self.px(40.0)).clamp(0.0, max);
         std::mem::replace(&mut self.scroll, s) != s
     }
@@ -1156,6 +1414,26 @@ impl FmtPane {
         let inr = |r: [f32; 4]| x >= r[0] && x < r[0] + r[2] && y >= r[1] && y < r[1] + r[3];
         if inr(self.close_rect()) {
             return PaneAct::Close;
+        }
+        let m = self.menu_rect();
+        if inr(m) {
+            return PaneAct::Menu("paneMenu", m);
+        }
+        // The scroll bar: a press pages towards it.
+        if let Some((track, thumb)) = self.scroll_bar() {
+            if inr(track) {
+                let page = track[3] * 0.8;
+                let dy = if y < thumb[1] {
+                    -page
+                } else if y > thumb[1] + thumb[3] {
+                    page
+                } else {
+                    0.0
+                };
+                let max = self.max_scroll();
+                self.scroll = (self.scroll + dy).clamp(0.0, max);
+                return PaneAct::Redraw;
+            }
         }
         if self.target == Target::Shape {
             let t = self.tab_rects();
@@ -1200,6 +1478,24 @@ impl FmtPane {
             RowKind::Button("fxReset", ..) if inr(b) => {
                 self.vals.fx = [0.0, 0.0, 0.0, 100.0, 0.0];
                 PaneAct::Run(vec![self.fx_cmd()])
+            }
+            RowKind::Spin("gradAngle", ..) if self.vals.grad_kind != 0 => PaneAct::None,
+            RowKind::Patterns => {
+                let g = self.pattern_rect(&row);
+                let cell = g[2] / 8.0;
+                if x < g[0] || y < g[1] {
+                    return PaneAct::None;
+                }
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                let (cx, cy) = (((x - g[0]) / cell) as usize, ((y - g[1]) / cell) as usize);
+                let i = cy * 8 + cx;
+                if cx >= 8 || i >= crate::slide_bgpane::PATTERNS.len() {
+                    return PaneAct::None;
+                }
+                let mut pat = self.pattern.unwrap_or((0, self.vals.fill_color, 0xFF_FFFF));
+                pat.0 = i;
+                self.pattern = Some(pat);
+                PaneAct::Run(vec![self.pattern_cmd()])
             }
             RowKind::Spin(id, ..) => {
                 let (val, step, ..) = self.spin(id);
@@ -1288,6 +1584,15 @@ impl FmtPane {
     /// An option button of `group` set to `val`.
     fn radio(&mut self, group: &str, val: u8) -> PaneAct {
         let shape = self.target == Target::Shape;
+        if group == "fill" {
+            if val == 4 {
+                let c = self.vals.fill_color;
+                self.pattern = Some(self.pattern.unwrap_or((0, c, 0xFF_FFFF)));
+                self.vals.fill = 3;
+                return PaneAct::Run(vec![self.pattern_cmd()]);
+            }
+            self.pattern = None;
+        }
         let v = &mut self.vals;
         let cmds = match (group, val) {
             ("fill", 0) => {
@@ -1399,6 +1704,18 @@ impl FmtPane {
             None,
             Some((grey, 1.2 * k)),
         );
+        // Task pane options ▾.
+        let m = self.menu_rect();
+        let (mx, my) = (m[0] + m[2] / 2.0, m[1] + m[3] / 2.0);
+        p.path(
+            &[
+                PathSeg::M(mx - 5.0 * k, my - 2.5 * k),
+                PathSeg::L(mx, my + 2.5 * k),
+                PathSeg::L(mx + 5.0 * k, my - 2.5 * k),
+            ],
+            None,
+            Some((grey, 1.2 * k)),
+        );
         if self.target == Target::Shape {
             let tr = self.tab_rects();
             for (i, (key, en)) in [
@@ -1478,7 +1795,7 @@ impl FmtPane {
                 }
                 RowKind::Radio(group, val, key, en) => {
                     let on = match *group {
-                        "fill" => self.vals.fill == *val,
+                        "fill" => self.fill_kind() == *val,
                         "line" => self.vals.line == *val,
                         "tfill" => self.vals.text_fill.is_some() == (*val == 1),
                         "tline" => self.vals.text_line.is_some() == (*val == 1),
@@ -1535,6 +1852,7 @@ impl FmtPane {
                 RowKind::Choice(id, key, en) => {
                     p.text(&t(key, en), lx, ty, st, ink);
                     let text = self.choice_text(id, t);
+                    let swatch = matches!(*id, "gradPreset" | "gradDir");
                     paint_combo(
                         p,
                         b,
@@ -1548,6 +1866,25 @@ impl FmtPane {
                             hover: None,
                         },
                     );
+                    if swatch {
+                        let sw = [
+                            b[0] + self.px(4.0),
+                            b[1] + self.px(4.0),
+                            self.px(40.0),
+                            b[3] - self.px(8.0),
+                        ];
+                        let n = 16;
+                        for q in 0..n {
+                            let c = self.color_at(f64::from(q) / f64::from(n - 1) * 100.0);
+                            p.fill_rect(
+                                sw[0] + sw[2] * q as f32 / n as f32,
+                                sw[1],
+                                sw[2] / n as f32 + 1.0,
+                                sw[3],
+                                rgba(c),
+                            );
+                        }
+                    }
                 }
                 RowKind::Spin(id, key, en) => {
                     p.text(&t(key, en), lx, ty, st, ink);
@@ -1575,11 +1912,46 @@ impl FmtPane {
                             text: &text,
                             style: st,
                             ink,
-                            enabled: true,
+                            enabled: !(*id == "gradAngle" && self.vals.grad_kind != 0),
                             caret: None,
                             hover,
                         },
                     );
+                }
+                RowKind::Patterns => {
+                    let g = self.pattern_rect(&row);
+                    let cell = g[2] / 8.0;
+                    let (sel, fg, bg) = self.pattern.unwrap_or((usize::MAX, 0x44_72C4, 0xFF_FFFF));
+                    for (i, name) in crate::slide_bgpane::PATTERNS.iter().enumerate() {
+                        let (cx, cy) = (g[0] + cell * (i % 8) as f32, g[1] + cell * (i / 8) as f32);
+                        let r = [cx + 1.0, cy + 1.0, cell - 2.0, cell - 2.0];
+                        p.fill_rect(r[0], r[1], r[2], r[3], rgba(bg));
+                        let bits = crate::slide_bgpane::pattern_bits(name);
+                        let d = r[2] / 8.0;
+                        for (ry, row_bits) in bits.iter().enumerate() {
+                            for bx in 0..8 {
+                                if row_bits & (0x80 >> bx) != 0 {
+                                    p.fill_rect(
+                                        r[0] + d * bx as f32,
+                                        r[1] + d * ry as f32,
+                                        d,
+                                        d,
+                                        rgba(fg),
+                                    );
+                                }
+                            }
+                        }
+                        let edge_c = if i == sel {
+                            Rgba(0xD2, 0x6E, 0x00, 255)
+                        } else {
+                            Rgba(0xA0, 0xA0, 0xA0, 255)
+                        };
+                        let t = if i == sel { 2.0 } else { 1.0 };
+                        p.fill_rect(cx, cy, cell, t, edge_c);
+                        p.fill_rect(cx, cy + cell - t, cell, t, edge_c);
+                        p.fill_rect(cx, cy, t, cell, edge_c);
+                        p.fill_rect(cx + cell - t, cy, t, cell, edge_c);
+                    }
                 }
                 RowKind::Button(_, key, en) => {
                     p.fill_rect(b[0], b[1], b[2], b[3], Rgba(0xAD, 0xAD, 0xAD, 255));
@@ -1618,24 +1990,17 @@ impl FmtPane {
                     for (i, s) in self.vals.stops.iter().enumerate() {
                         let sx = bar[0] + bar[2] * (s.0 / 100.0) as f32;
                         let sel = i == self.vals.stop;
-                        let m = [sx - 5.0 * k, bar[1] + bar[3] - 2.0 * k, 10.0 * k, 12.0 * k];
-                        p.fill_rect(
-                            m[0],
-                            m[1],
-                            m[2],
-                            m[3],
-                            if sel {
-                                Rgba(0xD2, 0x6E, 0x00, 255)
+                        // A pentagon marker pointing down at the bar's bottom edge, the
+                        // chosen one outlined (BlueOffice's own drawing).
+                        let top = bar[1] - 2.0 * k;
+                        p.path(
+                            &stop_marker(sx, top, k),
+                            Some(rgba(s.1)),
+                            Some(if sel {
+                                (Rgba(0xD2, 0x6E, 0x00, 255), 2.0 * k)
                             } else {
-                                grey
-                            },
-                        );
-                        p.fill_rect(
-                            m[0] + 1.5 * k,
-                            m[1] + 1.5 * k,
-                            m[2] - 3.0 * k,
-                            m[3] - 3.0 * k,
-                            rgba(s.1),
+                                (grey, k)
+                            }),
                         );
                     }
                     for (r, plus) in [(add, true), (remove, false)] {
@@ -1647,25 +2012,27 @@ impl FmtPane {
                             r[3] - 2.0,
                             Rgba(0xFF, 0xFF, 0xFF, 255),
                         );
-                        let (cx, cy) = (r[0] + r[2] / 2.0, r[1] + r[3] / 2.0);
-                        p.fill_rect(
-                            cx - 5.0 * k,
-                            cy - 0.75 * k,
-                            10.0 * k,
-                            1.5 * k,
-                            if plus {
-                                Rgba(0x10, 0x7C, 0x10, 255)
-                            } else {
-                                Rgba(0xC4, 0x2B, 0x1C, 255)
-                            },
+                        // A small stop marker with a + (add) or a × (remove).
+                        p.path(
+                            &stop_marker(r[0] + 9.0 * k, r[1] + 4.0 * k, k),
+                            Some(Rgba(0xFF, 0xFF, 0xFF, 255)),
+                            Some((Rgba(0x60, 0x60, 0x60, 255), k)),
                         );
+                        let (cx, cy) = (r[0] + 17.0 * k, r[1] + 8.0 * k);
                         if plus {
-                            p.fill_rect(
-                                cx - 0.75 * k,
-                                cy - 5.0 * k,
-                                1.5 * k,
-                                10.0 * k,
-                                Rgba(0x10, 0x7C, 0x10, 255),
+                            let g = Rgba(0x10, 0x7C, 0x10, 255);
+                            p.fill_rect(cx - 3.5 * k, cy - 0.75 * k, 7.0 * k, 1.5 * k, g);
+                            p.fill_rect(cx - 0.75 * k, cy - 3.5 * k, 1.5 * k, 7.0 * k, g);
+                        } else {
+                            p.path(
+                                &[
+                                    PathSeg::M(cx - 3.0 * k, cy - 3.0 * k),
+                                    PathSeg::L(cx + 3.0 * k, cy + 3.0 * k),
+                                    PathSeg::M(cx + 3.0 * k, cy - 3.0 * k),
+                                    PathSeg::L(cx - 3.0 * k, cy + 3.0 * k),
+                                ],
+                                None,
+                                Some((Rgba(0xC4, 0x2B, 0x1C, 255), 1.5 * k)),
                             );
                         }
                     }
@@ -1673,6 +2040,22 @@ impl FmtPane {
             }
         }
         p.pop_clip();
+        if let Some((track, thumb)) = self.scroll_bar() {
+            p.fill_rect(
+                track[0],
+                track[1],
+                track[2],
+                track[3],
+                Rgba(0xE8, 0xE8, 0xE8, 255),
+            );
+            p.fill_rect(
+                thumb[0] + 2.0,
+                thumb[1],
+                thumb[2] - 4.0,
+                thumb[3],
+                Rgba(0xA6, 0xA6, 0xA6, 255),
+            );
+        }
     }
 
     fn color_of(&self, id: &str) -> u32 {
@@ -1681,6 +2064,8 @@ impl FmtPane {
             "fillColor" => v.fill_color,
             "lineColor" => v.line_color,
             "stopColor" => v.stops.get(v.stop).map_or(0, |s| s.1),
+            "patFg" => self.pattern.map_or(0x44_72C4, |p| p.1),
+            "patBg" => self.pattern.map_or(0xFF_FFFF, |p| p.2),
             "shadowColor" => v.shadow_color,
             "glowColor" => v.glow_color,
             "tfillColor" => v.text_fill.unwrap_or(0),
@@ -1757,6 +2142,58 @@ fn words(name: &str) -> String {
         }
     }
     out
+}
+
+/// Outline of a gradient stop marker: a pentagon pointing down, `top` its upper edge.
+fn stop_marker(x: f32, top: f32, k: f32) -> [PathSeg; 6] {
+    [
+        PathSeg::M(x - 5.0 * k, top + 4.0 * k),
+        PathSeg::L(x, top),
+        PathSeg::L(x + 5.0 * k, top + 4.0 * k),
+        PathSeg::L(x + 5.0 * k, top + 14.0 * k),
+        PathSeg::L(x - 5.0 * k, top + 14.0 * k),
+        PathSeg::Z,
+    ]
+}
+
+/// `c` lighter (`pct` > 0, towards white) or darker (towards black).
+fn brighten(c: u32, pct: f64) -> u32 {
+    let f = (pct / 100.0).clamp(-1.0, 1.0);
+    let ch = |sh: u32| {
+        let v = f64::from((c >> sh) & 0xFF);
+        let n = if f >= 0.0 {
+            v + (255.0 - v) * f
+        } else {
+            v * (1.0 + f)
+        };
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let n = n.round().clamp(0.0, 255.0) as u32;
+        n << sh
+    };
+    ch(16) | ch(8) | ch(0)
+}
+
+/// An 8 × 8 two-colour bitmap of a pattern (`rows` bits set = foreground).
+fn pattern_bmp(rows: [u8; 8], fg: u32, bg: u32) -> Vec<u8> {
+    let mut b = b"BM".to_vec();
+    let size: u32 = 14 + 40 + 8 + 8 * 4;
+    b.extend_from_slice(&size.to_le_bytes());
+    b.extend_from_slice(&[0; 4]);
+    b.extend_from_slice(&(14u32 + 40 + 8).to_le_bytes());
+    b.extend_from_slice(&40u32.to_le_bytes());
+    b.extend_from_slice(&8i32.to_le_bytes());
+    b.extend_from_slice(&8i32.to_le_bytes());
+    b.extend_from_slice(&1u16.to_le_bytes());
+    b.extend_from_slice(&1u16.to_le_bytes());
+    b.extend_from_slice(&[0; 24]);
+    #[allow(clippy::cast_possible_truncation)]
+    let bgra = |c: u32| [c as u8, (c >> 8) as u8, (c >> 16) as u8, 0];
+    b.extend_from_slice(&bgra(bg));
+    b.extend_from_slice(&bgra(fg));
+    for r in rows.iter().rev() {
+        b.extend_from_slice(&[*r, 0, 0, 0]);
+    }
+    b
 }
 
 fn rgb_of(c: bo_model::Color) -> u32 {

@@ -54,6 +54,8 @@ pub(crate) mod r17;
 pub(crate) mod r18;
 #[path = "doc_forms22.rs"]
 pub(crate) mod r22;
+#[path = "doc_forms23.rs"]
+pub(crate) mod r23;
 pub(crate) use r5::{open_manage_styles, ManagedStyle};
 pub(crate) use r7::INSPECT;
 
@@ -215,6 +217,18 @@ pub(crate) enum DocFormKind {
     ChangeIcon,
     /// File › Options › Add-ins › Manage ▾ › Go… (round 22).
     AddinList,
+    /// Home › Font dialog with its Font and Advanced tabs (round 23).
+    Font23,
+    /// Numbering ▾ › Set Numbering Value… (round 23).
+    SetNumbering,
+    /// Bullets ▾ › Define New Bullet… (round 23).
+    DefineBullet,
+    /// Numbering ▾ › Define New Number Format… (round 23).
+    DefineNumber,
+    /// Multilevel List ▾ › Define New Multilevel List… (round 23).
+    DefineMultilevel,
+    /// Home › Sort… (Sort Text, round 23).
+    SortText,
 }
 
 /// What the owner does after an input.
@@ -919,6 +933,7 @@ impl DocForm {
                 self.form.enable("bookmark", range);
             }
             (DocFormKind::Protect, _) => {}
+            (k, _) if r23::handles(k) => self.r23_changed(id),
             (k, _) if r18::handles(k) => self.r18_changed(id),
             (k, _) if r15::handles(k) => self.r15_changed(id),
             (DocFormKind::InsertObject, "asIcon" | "asIcon1") => self.r22_icon_toggled(id),
@@ -944,6 +959,9 @@ impl DocForm {
     }
 
     fn clicked(&mut self, id: &str) -> FormOut {
+        if let Some(out) = self.r23_clicked(id) {
+            return out;
+        }
         if let Some(out) = self.r22_clicked(id) {
             return out;
         }
@@ -1093,6 +1111,9 @@ impl DocForm {
     }
 
     fn ok(&mut self) -> FormOut {
+        if let Some(out) = self.r23_ok() {
+            return out;
+        }
         if let Some(out) = self.r22_ok() {
             return out;
         }
@@ -1424,6 +1445,13 @@ impl DocForm {
                     true,
                 )
             }
+            // Round 23: answered by `r23_ok` above.
+            DocFormKind::Font23
+            | DocFormKind::SetNumbering
+            | DocFormKind::DefineBullet
+            | DocFormKind::DefineNumber
+            | DocFormKind::DefineMultilevel
+            | DocFormKind::SortText => FormOut::Redraw,
         }
     }
 
@@ -1438,6 +1466,7 @@ impl DocForm {
         let this = self;
         let mut canvas = |id: &str, r: [f32; 4], p: &mut dyn Painter| {
             if r18::paint_canvas(this, id, r, p, &font)
+                || r23::paint_canvas(this, id, r, p, &font)
                 || r22::paint_canvas(this, id, r, p, &font)
                 || r17::paint_canvas(this, id, r, p, &font)
                 || r15::paint_canvas(this, id, r, p, &font)
@@ -3302,6 +3331,12 @@ pub(crate) fn open(kind: DocFormKind, s: &Strings, c: &FormContext) -> DocForm {
         | DocFormKind::StyleFrame
         | DocFormKind::OnlinePicture => r17::open(kind, s, c),
         DocFormKind::ChangeIcon | DocFormKind::AddinList => r22::open(kind, s, c),
+        DocFormKind::Font23
+        | DocFormKind::SetNumbering
+        | DocFormKind::DefineBullet
+        | DocFormKind::DefineNumber
+        | DocFormKind::DefineMultilevel
+        | DocFormKind::SortText => r23::open(kind, s, c),
         DocFormKind::Zoom => {
             let mut f = DocForm::new(kind, &tr("docR4.zoomTitle", "Zoom"), (381.0, 258.0), vec![]);
             f.label(

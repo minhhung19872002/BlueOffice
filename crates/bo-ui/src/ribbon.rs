@@ -326,6 +326,8 @@ fn home() -> Tab {
                 rows: vec![
                     vec![Item::Labeled("edit.find")],
                     vec![Item::Labeled("edit.replace")],
+                    // Round 23: Select ▾ as the reference's third row.
+                    vec![Item::Labeled("edit.select")],
                 ],
             },
             // Round 22: the reference's Add-ins group (BlueDoc's own add-ins).
@@ -1590,10 +1592,23 @@ impl Ribbon {
             if gx <= width || (!gallery && steps >= order.len()) {
                 break (placed, gx);
             }
-            if gallery {
+            // BlueDoc (round 23, measured on the reference's Home at 1500 px): the style
+            // gallery keeps three tiles while a group before it in the scaling order
+            // (Editing) can still collapse.
+            let other_first = self.shrink_tabs
+                && tile_count <= 3
+                && order.get(steps).is_some_and(|l| {
+                    !self.tabs[self.active]
+                        .groups
+                        .iter()
+                        .any(|g| g.label == *l && g.large.contains(&Item::Gallery))
+                });
+            if gallery && !other_first {
                 tile_count -= 1;
-            } else {
+            } else if steps < order.len() {
                 steps += 1;
+            } else {
+                tile_count -= 1;
             }
         };
         self.content_clip = None;
@@ -3178,6 +3193,7 @@ mod tests {
         crate::shell::r14::install(&mut icons, &mut strings);
         crate::shell::r17::install(&mut icons, &mut strings);
         crate::shell::r22::install(&mut icons, &mut strings);
+        crate::shell::r23::install(&mut icons, &mut strings);
         for tab in &ribbon.tabs {
             assert!(!tab.groups.is_empty(), "{} is empty", tab.label);
             for g in &tab.groups {

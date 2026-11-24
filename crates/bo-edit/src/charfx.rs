@@ -163,6 +163,18 @@ pub struct CharAdvanced {
     pub combine: bool,
     /// §17.18.8 `ST_CombineBrackets` (`""` = none).
     pub combine_brackets: String,
+    /// §17.3.2.40 u: `ST_Underline` name (§17.18.99; `""` = none).
+    #[serde(default)]
+    pub underline: String,
+    /// §17.3.2.9 dstrike.
+    #[serde(default)]
+    pub double_strike: bool,
+    /// §17.3.2.33 smallCaps.
+    #[serde(default)]
+    pub small_caps: bool,
+    /// §17.3.2.5 caps.
+    #[serde(default)]
+    pub all_caps: bool,
 }
 
 fn fx_hex(c: &FxColor) -> String {
@@ -248,6 +260,13 @@ impl CharAdvanced {
                 .as_ref()
                 .and_then(|e| e.combine_brackets.clone())
                 .unwrap_or_default(),
+            underline: r
+                .underline
+                .filter(|u| *u != bo_model::Underline::None)
+                .map_or_else(String::new, |u| u.as_str().to_owned()),
+            double_strike: r.double_strike.unwrap_or(false),
+            small_caps: r.small_caps.unwrap_or(false),
+            all_caps: r.caps.unwrap_or(false),
         }
     }
 }
@@ -320,6 +339,10 @@ pub struct CharAdvancedPatch {
     pub combine: Option<bool>,
     /// Brackets of combined text (`""` = none).
     pub combine_brackets: Option<String>,
+    /// Underline style (§17.18.99 `ST_Underline` name; `""` or `none` removes it).
+    pub underline: Option<String>,
+    /// Double strikethrough (§17.3.2.9 dstrike; turning it on turns strike off).
+    pub double_strike: Option<bool>,
 }
 
 fn opt_str(v: &str) -> Option<String> {
@@ -365,6 +388,18 @@ impl CharAdvancedPatch {
         }
         if let Some(k) = self.kern {
             r.kern = k.map(|k| HalfPoints(k.clamp(1, 3276)));
+        }
+        if let Some(u) = &self.underline {
+            r.underline = match u.as_str() {
+                "" | "none" => None,
+                name => Some(bo_model::Underline::parse(name)),
+            };
+        }
+        if let Some(v) = self.double_strike {
+            r.double_strike = flag(v);
+            if v {
+                r.strike = None;
+            }
         }
         let mut fx = r.effects.take().map(|b| *b).unwrap_or_default();
         if let Some(g) = &self.glow {

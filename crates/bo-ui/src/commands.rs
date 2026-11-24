@@ -85,6 +85,13 @@ pub fn static_id(id: &str) -> &'static str {
         .or_else(|| crate::doc_r4_menus::static_id(id))
         .or_else(|| crate::doc_r4_fit::static_id(id))
         .or_else(|| crate::doc_review16::static_id(id))
+        // Round 23: Home's split buttons and Select.
+        .or_else(|| {
+            crate::shell::r23::SPLIT
+                .into_iter()
+                .chain(["edit.select"])
+                .find(|s| *s == id)
+        })
         .unwrap_or("")
 }
 

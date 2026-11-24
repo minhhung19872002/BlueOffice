@@ -30,6 +30,12 @@ pub(crate) enum Thumb {
     },
     /// Nothing (a "No …" cell): a slashed square.
     None,
+    /// Round 23: texts (text, x, y of its top in the unit box, size as a share of the
+    /// box height, colour) over paths (list library samples, bullets).
+    Text {
+        texts: Vec<(String, f32, f32, f32, Rgba)>,
+        paths: Vec<ThumbPath>,
+    },
 }
 
 /// One cell.
@@ -378,6 +384,21 @@ impl ThumbGallery {
                     }
                 }
                 p.text_font("A", x, y, &font, *fill);
+            }
+            Thumb::Text { texts, paths } => {
+                if !paths.is_empty() {
+                    self.paint_thumb(p, &Thumb::Paths(paths.clone()), r);
+                }
+                for (text, tx, ty, size, color) in texts {
+                    let font = Font {
+                        family: "Calibri",
+                        size: (bh * size).max(6.0),
+                        weight: 400,
+                        italic: false,
+                        underline: false,
+                    };
+                    p.text_font(text, bx + tx * bw, by + ty * bh, &font, *color);
+                }
             }
             Thumb::None => {
                 let grey = Rgba(0x9a, 0x9a, 0x9a, 255);

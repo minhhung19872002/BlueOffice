@@ -46,6 +46,10 @@ export const PLAIN: CharAdvanced = {
   shading: null,
   combine: false,
   combineBrackets: '',
+  underline: '',
+  doubleStrike: false,
+  smallCaps: false,
+  allCaps: false,
 };
 
 /** The fields of `next` that differ from `initial` (the patch to send). */

@@ -50,6 +50,10 @@ const fn e(id: &'static str, label: &'static str) -> Entry {
 
 /// Entries of the menu button `id`.
 pub fn menu(id: &str) -> Vec<Entry> {
+    // Round 23: Home's split buttons and Select ▾.
+    if let Some(m) = crate::shell::r23::menu(id) {
+        return m;
+    }
     match id {
         // Line spacing multiples and the space before / after toggles, as in a desktop
         // word processor's line spacing menu (§17.3.1.33 spacing).

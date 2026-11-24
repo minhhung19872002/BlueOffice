@@ -1,0 +1,6 @@
+# Test threads get the stack the native window code runs on in the apps (the UI thread of
+# apps/native-win has 64 MiB): BlueDoc's window tests lay documents out deep inside input
+# handling, and unoptimised (debug) frames are large — 2 MiB, libtest's default, is too
+# tight (docs/ui/REPORT.md "Vòng 111"). An explicit RUST_MIN_STACK in the environment wins.
+[env]
+RUST_MIN_STACK = "8388608"

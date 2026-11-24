@@ -20,6 +20,10 @@ use super::form::{Event, Form, Kind};
 use crate::{Font, Input, Key, Painter, TextMeasure};
 use bo_render::{PathSeg, Rgba};
 
+/// Round 21: Customize Ribbon and Quick Access Toolbar pages in full.
+#[path = "doc_options21.rs"]
+pub(crate) mod r21;
+
 /// Application preferences of BlueDoc.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct DocPrefs {
@@ -128,7 +132,11 @@ impl DocPrefs {
                     p.quick = v
                         .split(',')
                         .map(str::trim)
-                        .filter(|s| QUICK_CHOICES.iter().any(|(id, ..)| id == s))
+                        .filter(|s| {
+                            QUICK_CHOICES.iter().any(|(id, ..)| id == s)
+                                || *s == crate::doc_ribbon21::SEPARATOR
+                                || crate::doc_ribbon21::static_command(s).is_some()
+                        })
                         .map(str::to_owned)
                         .collect();
                 }
@@ -207,6 +215,8 @@ pub(crate) enum OptOut {
     Apply(DocPrefs),
     /// Proofing › AutoCorrect Options… (round 8): open the AutoCorrect dialog over this one.
     AutoCorrect,
+    /// Round 21: import / export a customisation file, Customize Keyboard.
+    R21(r21::Out),
 }
 
 /// The open Options dialog.
@@ -219,6 +229,8 @@ pub(crate) struct OptionsDialog {
     cats: Vec<String>,
     /// The Add-ins page's table (round 20).
     addins: super::options20::AddinTable,
+    /// Customize Ribbon and Quick Access Toolbar (round 21).
+    r21: r21::State,
 }
 
 /// Translated text of `key`, or `fallback`.
@@ -1089,6 +1101,7 @@ impl OptionsDialog {
         );
         // Round 20: Customize Ribbon, Add-ins and Trust Center (`doc_options20`).
         super::options20::add_pages(&mut f, s, p);
+        r21::add_pages(&mut f, s);
         f.ok_cancel(&t("common.ok", "OK"), &t("common.cancel", "Cancel"));
         if let Some(c) = f.get_mut("ok") {
             c.rect = [790.0, 804.0, 115.0, 33.0];
@@ -1097,14 +1110,22 @@ impl OptionsDialog {
             c.rect = [919.0, 804.0, 115.0, 33.0];
         }
         f.set_page(0);
-        Self {
+        let mut d = Self {
             form: f,
             page: 0,
             prefs: p.clone(),
             pointer: (0.0, 0.0),
             cats: CATS.iter().map(|(k, fb)| t(k, fb)).collect(),
             addins: super::options20::AddinTable::new(s),
-        }
+            r21: r21::State::new(s, p),
+        };
+        r21::init(&mut d);
+        d
+    }
+
+    /// A customisation file the host read (round 21, Import/Export ▾ › Import).
+    pub(crate) fn r21_import(&mut self, text: &str) -> bool {
+        r21::import(self, text)
     }
 
     pub(crate) fn layout(&mut self, m: &dyn TextMeasure, size: (f32, f32), scale: f32) {
@@ -1131,6 +1152,9 @@ impl OptionsDialog {
     }
 
     pub(crate) fn input(&mut self, input: &Input) -> OptOut {
+        if let Some(o) = r21::input(self, input) {
+            return o;
+        }
         let ev = match input {
             Input::Text(s) => self.form.type_text(s),
             Input::Key(Key::Escape, _) => Event::Cancel,
@@ -1162,6 +1186,9 @@ impl OptionsDialog {
     }
 
     fn event(&mut self, ev: &Event) -> OptOut {
+        if let Some(o) = r21::event(self, ev) {
+            return o;
+        }
         match ev {
             Event::Cancel | Event::Clicked("cancel") => OptOut::Close,
             Event::Canvas("cats", _, y) => {
@@ -1252,17 +1279,32 @@ impl OptionsDialog {
         p.units = f.sel("vUnits").unwrap_or(2).min(2) as u8;
         p.recent_count = u32::try_from(f.num("vRecent").clamp(0, 50)).unwrap_or(50);
         super::options20::collect(f, &mut p);
+        r21::collect(self, &mut p);
         p
     }
 
+    #[allow(dead_code)]
     pub(crate) fn paint(&self, p: &mut dyn Painter, window: (f32, f32), caret_on: bool) {
+        self.paint_with(p, window, caret_on, None);
+    }
+
+    /// [`OptionsDialog::paint`] with the window's icons (round 21's command lists).
+    pub(crate) fn paint_with(
+        &self,
+        p: &mut dyn Painter,
+        window: (f32, f32),
+        caret_on: bool,
+        icons: Option<&crate::icons::Icons>,
+    ) {
         // Device pixels per reference pixel.
         let k = self.form.scale_k();
         let base = self.form.font().size;
         let page = self.page;
         let cats = &self.cats;
         let addins = &self.addins;
+        let st21 = &self.r21;
         let mut canvas = |id: &str, r: [f32; 4], p: &mut dyn Painter| match id {
+            _ if r21::paint(st21, p, id, r, k, base, icons) => {}
             "bg" => p.fill_rect(r[0], r[1], r[2], r[3], Rgba(255, 255, 255, 255)),
             "cats" => paint_cats(p, r, k, base, page, cats),
             "mTab" | "mSpace" | "mPara" | "mHidden" | "mHyphen" | "mAnchor" => {
@@ -1543,7 +1585,8 @@ mod tests {
         let mut d = OptionsDialog::open(&s, &DocPrefs::default());
         d.set_page(8);
         assert_eq!(d.page(), 8);
-        d.form_mut().set_sel("qFrom", Some(3));
+        // Round 21: the page's own command list (`doc_options21`).
+        r21::pick_quick(&mut d, "file.print");
         assert_eq!(d.event(&Event::Clicked("qAdd")), OptOut::Redraw);
         d.form_mut().set_on("dAll", true);
         d.form_mut().set_text("gUser", "Binh Tran");

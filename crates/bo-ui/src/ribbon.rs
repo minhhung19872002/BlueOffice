@@ -53,7 +53,10 @@ pub(crate) fn icon_of(id: &str) -> &str {
         "format.fontSettings"
         | "format.paragraphSettings"
         | "layout.pageSetup"
-        | "references.notesLauncher" => "launcher",
+        | "references.notesLauncher"
+        | "fp21.shapeStyles"
+        | "fp21.wordArt"
+        | "fp21.pictureStyles" => "launcher",
         "insert.shapes" => "insert.rect",
         "insert.dateTime" => "format.date",
         "insert.dropCap" => "format.fontGrow",
@@ -241,6 +244,8 @@ pub struct Ribbon {
     /// the reference (BlueDoc, round 18); the label widths when they are shrunk.
     shrink_tabs: bool,
     shrunk_tabs: Option<Vec<f32>>,
+    /// Round 21: the Quick Access Toolbar shown in a strip below the ribbon.
+    qat_below: bool,
 }
 
 fn home() -> Tab {
@@ -707,6 +712,8 @@ pub(crate) fn doc_group(tab: &str, label: &str) -> Option<Group> {
     .into_iter()
     // Round 19: the contextual tabs collapse their groups too.
     .chain(crate::doc_scale19::tabs())
+    // Round 21: custom groups of the ribbon customisation.
+    .chain(crate::doc_ribbon21::lookup_tabs())
     .filter(|t| t.label == tab)
     .flat_map(|t| t.groups)
     .find(|g| g.label == label)
@@ -795,6 +802,7 @@ impl Ribbon {
             forced: |_, _| 0,
             shrink_tabs: false,
             shrunk_tabs: None,
+            qat_below: false,
         }
     }
 
@@ -1137,9 +1145,47 @@ impl Ribbon {
         self.px(18.0).max(self.label_row)
     }
 
-    /// Height of the whole ribbon in device pixels.
+    /// Height of the whole ribbon in device pixels (round 21: with the Quick Access
+    /// Toolbar's strip when it is shown below).
     pub fn height(&self) -> f32 {
+        self.base_h() + self.qat_strip_h()
+    }
+
+    /// Height of the tabs and groups.
+    fn base_h(&self) -> f32 {
         self.strip_h() + self.px(4.0) + self.band_h() + self.label_h() + self.px(4.0)
+    }
+
+    /// Height of the Quick Access Toolbar's strip below the ribbon (0 when it is above).
+    pub(crate) fn qat_strip_h(&self) -> f32 {
+        if self.qat_below {
+            self.px(34.0)
+        } else {
+            0.0
+        }
+    }
+
+    /// Round 21: show the Quick Access Toolbar below the ribbon.
+    pub(crate) fn set_qat_below(&mut self, on: bool) {
+        self.qat_below = on;
+    }
+
+    /// Whether the Quick Access Toolbar is below the ribbon.
+    pub(crate) fn qat_below(&self) -> bool {
+        self.qat_below
+    }
+
+    /// Round 21 (Customize Ribbon): new scaling rules (see [`Ribbon::with_scaling`]).
+    pub(crate) fn set_scaling(
+        &mut self,
+        scaling: fn(&str) -> &'static [&'static str],
+        shrink: fn(&str, u8) -> Option<Group>,
+        holder: fn(&str) -> Option<&'static str>,
+    ) {
+        self.scaling = scaling;
+        self.shrink = shrink;
+        self.holder = holder;
+        self.placed.clear();
     }
 
     /// Lay the ribbon out for a window `width` device pixels wide at display `scale`.
@@ -1290,7 +1336,7 @@ impl Ribbon {
         let content_top = strip + self.px(4.0);
         let (btn, gap, row_gap) = (self.px(28.0), self.px(2.0), self.px(8.0));
         let label_h = self.label_h();
-        let bottom = self.height() - self.px(4.0);
+        let bottom = self.base_h() - self.px(4.0);
         let content_h = self.band_h();
         // Two rows of small buttons, centred in the band.
         let rows_top = content_top + ((content_h - (2.0 * btn + row_gap)) / 2.0).floor();
@@ -1490,6 +1536,10 @@ impl Ribbon {
                     "ribbon.groups.footnotes" => Some("references.notesLauncher"),
                     // BlueDoc Review › Markup: Change Tracking Options (round 16).
                     "doc16.groupMarkup" => Some("review.trackingOptions"),
+                    // BlueDoc round 21: the Format Shape / Format Picture pane.
+                    "docR7.g.shapeStyles" => Some("fp21.shapeStyles"),
+                    "docR7.g.wordArt" => Some("fp21.wordArt"),
+                    "docR7.g.pictureStyles" => Some("fp21.pictureStyles"),
                     _ => None,
                 };
                 if let Some(id) = launcher {
@@ -1551,7 +1601,7 @@ impl Ribbon {
                 x: arrow,
                 y: self.top + strip,
                 w: viewport,
-                h: self.height() - strip,
+                h: self.base_h() - strip,
             });
             for p in &mut placed {
                 let (Placed::Item(_, r)
@@ -1564,7 +1614,7 @@ impl Ribbon {
                 };
                 r.x += arrow - self.scroll;
             }
-            let h = self.height() - strip;
+            let h = self.base_h() - strip;
             placed.push(Placed::Scroll(
                 false,
                 Rect {
@@ -1620,7 +1670,7 @@ impl Ribbon {
             })
             .fold(0.0_f32, f32::max);
         let y = self.top + self.strip_h();
-        [0.0, y, right, self.height() - self.strip_h()]
+        [0.0, y, right, self.base_h() - self.strip_h()]
     }
 
     /// Window y of the ribbon's top edge.

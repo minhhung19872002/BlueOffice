@@ -17,7 +17,8 @@
 //! `{"cmd":"shapeTextFill","color":"RRGGBB"|"none","gradient":[from,to,angle]?}`;
 //! `{"cmd":"shapeTextOutline","color":"RRGGBB"|"none","weight":pt?}`;
 //! `{"cmd":"shapeTextEffect","kind":"shadow"|"reflection"|"glow"|"none","preset":…}`;
-//! `{"cmd":"wordArtStyle","index":n}` (BlueOffice's own WordArt quick styles).
+//! `{"cmd":"wordArtStyle","index":n}` (BlueOffice's own WordArt quick styles);
+//! `{"cmd":"shapeTextInsets","insets":[left,top,right,bottom]}` (pt, round 21).
 
 use crate::edit::EditResult;
 use crate::picture_tools::PictureCommand;
@@ -50,6 +51,9 @@ pub enum ShapeStyleCommand {
     WordArt(usize),
     /// Text › Align Text: "t", "ctr" or "b" (§21.1.2.1.1 bodyPr anchor).
     Anchor(String),
+    /// Round 21 (Format Shape › Layout & Properties › Text Box): text insets left, top,
+    /// right, bottom in pt (§21.1.2.1.1 bodyPr lIns / tIns / rIns / bIns).
+    Insets([f64; 4]),
 }
 
 impl ShapeStyleCommand {
@@ -92,6 +96,11 @@ impl ShapeStyleCommand {
                 s("preset").unwrap_or_else(|| "none".into()),
             ),
             "shapeTextAnchor" => ShapeStyleCommand::Anchor(s("anchor")?),
+            "shapeTextInsets" => {
+                let a = v.get("insets")?.as_array()?;
+                let n: Vec<f64> = a.iter().filter_map(Value::as_f64).collect();
+                ShapeStyleCommand::Insets(<[f64; 4]>::try_from(n).ok()?)
+            }
             "wordArtStyle" => {
                 ShapeStyleCommand::WordArt(usize::try_from(v.get("index")?.as_u64()?).ok()?)
             }
@@ -550,6 +559,13 @@ fn apply(
         }
         ShapeStyleCommand::Effect(kind, preset) => {
             st.effects = crate::doc_picstyle::apply_effect(kind, preset, st.effects.take())?;
+        }
+        ShapeStyleCommand::Insets(ins) => {
+            for (slot, pt) in sh.insets.iter_mut().zip(ins) {
+                #[allow(clippy::cast_possible_truncation)]
+                let emu = (pt.clamp(0.0, 1584.0) * 12_700.0).round() as i64;
+                *slot = bo_model::Emu(emu);
+            }
         }
         _ => {
             let (patch, color) = text_patch(cmd)?;

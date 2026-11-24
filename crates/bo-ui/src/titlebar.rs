@@ -61,7 +61,13 @@ pub struct TitleBar {
     custom_quick: Option<Vec<&'static str>>,
     /// A narrow list arrow right of Undo ([`UNDO_LIST`], BlueDoc).
     undo_menu: bool,
+    /// Round 21 (BlueDoc): the quick access buttons in a strip below the ribbon (window y
+    /// and height of the strip) instead of the bar.
+    below: Option<(f32, f32)>,
 }
+
+/// A separator between quick access buttons (Quick Access Toolbar option, round 21).
+pub const QUICK_SEPARATOR: &str = "|";
 
 /// Id of the list arrow right of the quick access Undo button.
 pub const UNDO_LIST: &str = "edit.undoList";
@@ -89,6 +95,7 @@ impl TitleBar {
             app: ("BlueDoc", "app.doc"),
             custom_quick: None,
             undo_menu: false,
+            below: None,
         }
     }
 
@@ -162,10 +169,17 @@ impl TitleBar {
             }
         }
         let arrow = self.px(14.0);
+        let sep = self.px(9.0);
         self.quick = ids
             .iter()
             .map(|id| {
-                let w = if *id == UNDO_LIST { arrow } else { size };
+                let w = if *id == UNDO_LIST {
+                    arrow
+                } else if *id == QUICK_SEPARATOR {
+                    sep
+                } else {
+                    size
+                };
                 let r = R {
                     x,
                     y: ((h - size) / 2.0).round(),
@@ -183,6 +197,11 @@ impl TitleBar {
                 (*id, r)
             })
             .collect();
+        if let Some(strip) = self.below {
+            // Round 21: the buttons go below the ribbon; the name follows the app's.
+            x = self.px(40.0) + app + self.px(12.0);
+            self.place_below(strip);
+        }
         let sw = self.px(300.0).min((width * 0.25).max(self.px(160.0)));
         self.search = R {
             x: (width - 3.0 * bw - sw - self.px(16.0)).round(),
@@ -210,12 +229,45 @@ impl TitleBar {
         }
     }
 
+    /// Round 21: show the quick access buttons in a strip below the ribbon (`Some((y, h))`,
+    /// window pixels) or in the bar (`None`); takes effect at once.
+    pub fn set_quick_below(&mut self, strip: Option<(f32, f32)>) {
+        self.below = strip;
+        if let Some(strip) = strip {
+            self.place_below(strip);
+        }
+    }
+
+    /// Whether window y `y` is in the strip below the ribbon holding the quick buttons.
+    pub fn in_quick_strip(&self, y: f32) -> bool {
+        self.below.is_some_and(|(sy, sh)| y >= sy && y < sy + sh)
+    }
+
+    /// The quick access buttons from the left of the strip below the ribbon.
+    fn place_below(&mut self, (sy, sh): (f32, f32)) {
+        let mut x = self.px(8.0);
+        let gap = self.px(2.0);
+        for (_, r) in &mut self.quick {
+            r.x = x;
+            r.y = (sy + (sh - r.h) / 2.0).round();
+            x += r.w + gap;
+        }
+    }
+
     /// What is at a window position (y below the bar is [`NcHit::Client`]).
     pub fn hit(&self, x: f32, y: f32) -> NcHit {
         self.hit_full(x, y).0
     }
 
     fn hit_full(&self, x: f32, y: f32) -> (NcHit, Option<&'static str>) {
+        if self.in_quick_strip(y) {
+            let id = self
+                .quick
+                .iter()
+                .find(|(id, r)| *id != QUICK_SEPARATOR && r.contains(x, y))
+                .map(|(id, _)| *id);
+            return (NcHit::Client, id);
+        }
         if y < 0.0 || y >= self.height() {
             return (NcHit::Client, None);
         }
@@ -223,7 +275,11 @@ impl TitleBar {
         if let Some(i) = self.buttons.iter().position(|b| b.contains(x, y)) {
             return (kinds[i], None);
         }
-        if let Some((id, _)) = self.quick.iter().find(|(_, r)| r.contains(x, y)) {
+        if let Some((id, _)) = self
+            .quick
+            .iter()
+            .find(|(id, r)| self.below.is_none() && *id != QUICK_SEPARATOR && r.contains(x, y))
+        {
             return (NcHit::Client, Some(id));
         }
         if self.search.contains(x, y) {
@@ -283,7 +339,50 @@ impl TitleBar {
         let line = self.style(false).size * 1.33;
         let ty = ((h - line) / 2.0).round();
         p.text(self.app.0, self.px(40.0), ty, self.style(true), t.text);
+        if self.below.is_none() {
+            self.paint_quick(p, t, icons, modified, format);
+        }
+        self.paint_rest(p, t, icons, strings, name, modified, ty);
+    }
+
+    /// Round 21: the quick access buttons in their strip below the ribbon (painted by the
+    /// window after the ribbon); nothing when they are in the bar.
+    pub fn paint_quick_below(
+        &self,
+        p: &mut dyn Painter,
+        t: &Theme,
+        icons: &Icons,
+        modified: bool,
+        format: &FormatState,
+    ) {
+        if let Some((sy, sh)) = self.below {
+            p.fill_rect(0.0, sy, self.width, sh, t.bg);
+            p.fill_rect(0.0, sy + sh - 1.0, self.width, 1.0, t.border);
+            self.paint_quick(p, t, icons, modified, format);
+        }
+    }
+
+    /// The quick access buttons.
+    fn paint_quick(
+        &self,
+        p: &mut dyn Painter,
+        t: &Theme,
+        icons: &Icons,
+        modified: bool,
+        format: &FormatState,
+    ) {
+        let ink = IconColors {
+            ink: t.text,
+            accent: t.accent,
+            on: t.accent_on,
+            tinted: false,
+        };
         for (id, r) in &self.quick {
+            if *id == QUICK_SEPARATOR {
+                let x = (r.x + r.w / 2.0).round();
+                p.fill_rect(x, r.y + self.px(5.0), 1.0, r.h - self.px(10.0), t.border);
+                continue;
+            }
             let enabled = match *id {
                 "file.save" => modified,
                 UNDO_LIST => commands::enabled("edit.undo", format),
@@ -320,13 +419,34 @@ impl TitleBar {
             }
             icons.draw(
                 p,
-                id,
+                crate::ribbon::icon_of(id),
                 r.x + (r.w - size) / 2.0,
                 r.y + (r.h - size) / 2.0,
                 size,
                 colors,
             );
         }
+    }
+
+    /// Name, save state, search box and window buttons.
+    #[allow(clippy::too_many_arguments)]
+    fn paint_rest(
+        &self,
+        p: &mut dyn Painter,
+        t: &Theme,
+        icons: &Icons,
+        strings: &Strings,
+        name: &str,
+        modified: bool,
+        ty: f32,
+    ) {
+        let ink = IconColors {
+            ink: t.text,
+            accent: t.accent,
+            on: t.accent_on,
+            tinted: false,
+        };
+        let line = self.style(false).size * 1.33;
         // Document name and save state.
         p.text(name, self.title_x, ty, self.style(false), t.text);
         let state = strings.get(if modified {

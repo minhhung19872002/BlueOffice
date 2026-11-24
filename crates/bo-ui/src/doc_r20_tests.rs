@@ -96,7 +96,8 @@ fn shape_fill_gradient_texture_and_picture() {
 #[test]
 fn fill_effects_for_a_shape_fills_the_shape() {
     let mut w = window_with_shape();
-    assert!(w.action("r20.fillEffects:0"));
+    // Round 21: More Gradients… opens the Format Shape pane; the Fill Effects dialog itself.
+    assert!(w.r20_fill_effects(0));
     assert!(w.r20.shape_dialog);
     // A page gradient from the dialog becomes the shape's gradient.
     let cmds = w.r20_translate(vec![json!({

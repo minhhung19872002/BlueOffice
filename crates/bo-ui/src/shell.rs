@@ -50,6 +50,8 @@ pub(crate) mod r18;
 pub(crate) mod r19;
 #[path = "doc_r20.rs"]
 pub(crate) mod r20;
+#[path = "doc_r21.rs"]
+pub(crate) mod r21;
 #[path = "doc_r3.rs"]
 mod r3;
 #[path = "doc_r4.rs"]
@@ -203,6 +205,16 @@ pub enum Request {
     /// Store the user's style shortcut keys (JSON; round 17) and give them back with
     /// [`DocWindow::load_key_bindings`] in later sessions.
     SaveKeys(String),
+    /// Round 21 (Options › Import/Export ▾ › Export): pick a name (`name` offered, files of
+    /// kind `filter`) and write `text` there.
+    SaveText {
+        /// File name offered.
+        name: String,
+        /// Kind of file (`customization`).
+        filter: String,
+        /// Content.
+        text: String,
+    },
     /// View › New Window: show this document in another window (round 18).
     NewWindow,
     /// View › View Side by Side (on: this window and the next one side by side) and
@@ -375,6 +387,7 @@ pub struct DocWindow {
     r17: Box<r17::R17>,
     r18: Box<r18::R18>,
     r20: Box<r20::R20>,
+    r21: Box<r21::R21>,
 }
 
 /// Font sizes offered by the size box (points).
@@ -588,6 +601,7 @@ impl DocWindow {
             r17: Box::default(),
             r18: Box::default(),
             r20: Box::default(),
+            r21: Box::default(),
         }
     }
 
@@ -1299,7 +1313,9 @@ impl DocWindow {
         self.activate_context = false;
         if c != self.context || activate {
             self.context = c;
-            self.ribbon.set_contextual(doc_tools::tabs(c), activate);
+            // Round 21: as File › Options › Customize Ribbon has them.
+            let tabs = crate::doc_ribbon21::build_tools(doc_tools::tabs(c));
+            self.ribbon.set_contextual(tabs, activate);
             self.relayout_pending = true;
         }
     }
@@ -2246,6 +2262,9 @@ impl DocWindow {
 
     /// Run interface command `id` from the ribbon, title bar, a menu or a shortcut.
     fn action(&mut self, id: &str) -> bool {
+        if let Some(r) = self.r21_guard(id) {
+            return r;
+        }
         if let Some(r) = self.r20_action(id) {
             return r;
         }
@@ -2735,6 +2754,9 @@ impl DocWindow {
         let top = self.title.height();
         self.ribbon
             .layout(text, &self.strings, self.size.0, self.scale, top);
+        self.r21_place_quick();
+        self.r21_layout_bar();
+        self.r21_layout_pane();
         let mut top = self.chrome_bottom();
         if self.show_ruler {
             top += Ruler::height(self.scale);
@@ -2830,7 +2852,8 @@ impl DocWindow {
         if self.read_mode.is_some() || self.r4.focus {
             self.title.height()
         } else {
-            self.ribbon.bottom()
+            // Round 21: the Protected View bar below the ribbon.
+            self.ribbon.bottom() + self.r21_bar_h()
         }
     }
 
@@ -2892,6 +2915,8 @@ impl DocWindow {
     pub fn handle(&mut self, input: Input, text: &dyn TextMeasure) -> bool {
         let redraw = self.route(input, text);
         self.sync_context();
+        // Round 21: the Format Shape / Picture pane follows the selection.
+        self.r21_sync();
         if self.relayout_pending {
             self.relayout_pending = false;
             self.relayout(text);
@@ -3013,6 +3038,12 @@ impl DocWindow {
         }
         if let Some(r) = self.r6_input(&input, text) {
             return r;
+        }
+        // Round 21: Protected View lets nothing edit the document.
+        if self.backstage.is_none() && self.dialog.is_none() {
+            if let Some(r) = self.r21_input(&input) {
+                return r;
+            }
         }
         if let Some(r) = self.r7_input(&input) {
             return r;
@@ -3299,7 +3330,8 @@ impl DocWindow {
             self.rest = 0;
             self.tooltip = None;
         }
-        let in_title = |w: &Self, y: f32| y < w.title.height();
+        // Round 21: the quick access buttons may sit in a strip below the ribbon.
+        let in_title = |w: &Self, y: f32| y < w.title.height() || w.title.in_quick_strip(y);
         let in_ribbon = |w: &Self, y: f32| {
             w.read_mode.is_none() && !w.r4.focus && y >= w.ribbon.top() && y < w.ribbon.bottom()
         };
@@ -3823,6 +3855,16 @@ impl DocWindow {
                     &self.styles,
                     &on,
                 );
+                // Round 21: the Quick Access Toolbar below the ribbon.
+                self.title.paint_quick_below(
+                    p,
+                    &self.theme,
+                    &self.icons,
+                    self.view.modified(),
+                    self.view.format(),
+                );
+                // Round 21: the Protected View bar.
+                self.r21_paint_bar(p);
             }
             if let Some((first, odd_even, _)) = self.story_options() {
                 crate::doc_table::paint_checks(

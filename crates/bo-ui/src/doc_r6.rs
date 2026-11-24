@@ -702,7 +702,7 @@ impl DocWindow {
             }
         }
         if let Some(o) = &self.r6.options {
-            o.paint(p, self.size, true);
+            o.paint_with(p, self.size, true, Some(&self.icons));
         }
     }
 
@@ -805,6 +805,7 @@ impl DocWindow {
         self.r6_apply_prefs(&p);
         self.r6_set_quick(&p.quick);
         self.r20_apply_ribbon(&p.extra.hidden_tabs);
+        self.r21_apply(&p);
         self.r6.prefs = p;
     }
 
@@ -867,6 +868,7 @@ impl DocWindow {
             options::OptOut::None => false,
             options::OptOut::Redraw => true,
             options::OptOut::AutoCorrect => self.r8_open_autocorrect(),
+            options::OptOut::R21(out) => self.r21_options_out(out),
             options::OptOut::Close => {
                 self.r6.options = None;
                 true
@@ -875,6 +877,7 @@ impl DocWindow {
                 self.r6.options = None;
                 self.r6_set_quick(&p.quick);
                 self.r20_apply_ribbon(&p.extra.hidden_tabs);
+                self.r21_apply(&p);
                 self.r6_store_prefs(p);
                 self.relayout(text);
                 true
@@ -883,7 +886,7 @@ impl DocWindow {
     }
 
     /// The title bar's quick access commands.
-    fn r6_set_quick(&mut self, ids: &[String]) {
+    pub(super) fn r6_set_quick(&mut self, ids: &[String]) {
         let ids: Vec<&'static str> = ids
             .iter()
             .filter_map(|id| {
@@ -891,6 +894,12 @@ impl DocWindow {
                     .iter()
                     .find(|(c, ..)| c == id)
                     .map(|(c, ..)| *c)
+                    // Round 21: any command of the catalog, separators.
+                    .or_else(|| crate::doc_ribbon21::static_command(id))
+                    .or_else(|| {
+                        (id == crate::doc_ribbon21::SEPARATOR)
+                            .then_some(crate::titlebar::QUICK_SEPARATOR)
+                    })
             })
             .collect();
         self.title.set_quick_commands(ids);

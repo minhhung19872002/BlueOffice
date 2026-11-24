@@ -63,11 +63,10 @@ Quy trình chủ dự án đã chốt (memory `parallel-app-parity-workflow.md`)
 - [scripts/publish.ps1](scripts/publish.ps1) — mở thử + đưa exe vào `out\desktop`.
 
 ## Lưu ý / Pitfalls
-- Phím/chuột thật (SendInput/keybd_event/SetCursorPos, `agent-desktop --headed`) CHỈ khi chủ dự án không dùng máy:
-  `tools/ui-compare/physical-idle.ps1 -Start` rồi `-Check 10` trước mỗi lượt (chỉ đếm thao tác không giả lập; bận thì dừng
-  ngay), một agent một lúc (`%TEMP%o-real-input.lock`), chỉ vào instance tham chiếu của mình trên bản sao; quy tắc đủ ở
-  `tools/ui-compare/AGENT-BRIEF.md` (quyết định 2026-11-24). Ngoài lúc đó: thông điệp giả lập / UIA / COM; bản tham chiếu
-  nào bỏ qua thông điệp giả lập (menu thả, Ctrl, kéo thả OLE) thì chấp nhận ảnh chỉ của mình, ghi rõ.
+- Phím/chuột thật (SendInput/keybd_event/SetCursorPos, `agent-desktop --headed`) được dùng thoải mái, không cần chờ chủ dự
+  án rảnh (quyết định 2026-11-24): chỉ vào instance tham chiếu của mình trên bản sao (hoặc app của mình), một agent một lúc
+  (`%TEMP%o-real-input.lock`), không Print, trả clipboard + cửa sổ trước; ưu tiên thông điệp giả lập / UIA / COM khi được.
+  Quy tắc đủ ở `tools/ui-compare/AGENT-BRIEF.md`.
 - Không chụp danh sách tệp gần đây của bản tham chiếu; lỡ chụp thì xoá ảnh.
 - Tệp khoá `~$*.docx` trong `tests/corpus/doc` (Word đang mở tệp mẫu) làm đỏ `whole_corpus_lays_out_renders_and_exports`
   — không phải lỗi code.

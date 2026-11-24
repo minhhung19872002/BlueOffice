@@ -1383,6 +1383,43 @@ impl FmtPane {
         Some((track, [track[0], ty, w, th]))
     }
 
+    /// The slider left of spin box `id` (window px), for the settings the reference gives one.
+    fn slider_rect(&self, id: &str, b: [f32; 4]) -> Option<[f32; 4]> {
+        let with = matches!(
+            id,
+            "fillTransp"
+                | "lineTransp"
+                | "stopTransp"
+                | "stopBright"
+                | "shTransp"
+                | "shSize"
+                | "shBlur"
+                | "shAngle"
+                | "shDist"
+                | "rfTransp"
+                | "rfSize"
+                | "rfBlur"
+                | "rfDist"
+                | "glSize"
+                | "glTransp"
+                | "softSize"
+                | "fxSharp"
+                | "fxBright"
+                | "fxContrast"
+                | "fxSat"
+                | "fxTransp"
+        );
+        with.then(|| {
+            let w = self.px(28.0);
+            [
+                b[0] - w - self.px(10.0),
+                b[1] + self.px(4.0),
+                w,
+                b[3] - self.px(8.0),
+            ]
+        })
+    }
+
     /// The title's ▾ (Move / Size / Close menu of a task pane).
     fn menu_rect(&self) -> [f32; 4] {
         let c = self.close_rect();
@@ -1496,6 +1533,12 @@ impl FmtPane {
                 pat.0 = i;
                 self.pattern = Some(pat);
                 PaneAct::Run(vec![self.pattern_cmd()])
+            }
+            RowKind::Spin(id, ..) if self.slider_rect(id, b).is_some_and(inr) => {
+                let r = self.slider_rect(id, b).unwrap_or(b);
+                let (_, _, lo, hi, _) = self.spin(id);
+                let f = f64::from(((x - r[0]) / r[2]).clamp(0.0, 1.0));
+                PaneAct::Run(self.set_spin(id, (lo + (hi - lo) * f).round()))
             }
             RowKind::Spin(id, ..) => {
                 let (val, step, ..) = self.spin(id);
@@ -1888,6 +1931,22 @@ impl FmtPane {
                 }
                 RowKind::Spin(id, key, en) => {
                     p.text(&t(key, en), lx, ty, st, ink);
+                    if let Some(r) = self.slider_rect(id, b) {
+                        // The slider beside the box, as the reference's effect settings.
+                        let (v, _, lo, hi, _) = self.spin(id);
+                        let cy = r[1] + r[3] / 2.0;
+                        p.fill_rect(r[0], cy.round(), r[2], 1.0, Rgba(0x80, 0x80, 0x80, 255));
+                        #[allow(clippy::cast_possible_truncation)]
+                        let f = (((v - lo) / (hi - lo).max(1e-9)).clamp(0.0, 1.0)) as f32;
+                        let tx = (r[0] + r[2] * f - 2.0 * k).round();
+                        p.fill_rect(
+                            tx,
+                            r[1],
+                            (4.0 * k).round(),
+                            r[3],
+                            Rgba(0x40, 0x40, 0x40, 255),
+                        );
+                    }
                     let (val, _, _, _, unit) = self.spin(id);
                     let unset = match &id[..2] {
                         "sh" => self.vals.shadow.is_none(),

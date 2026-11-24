@@ -761,6 +761,11 @@ mod tests {
         );
         let (back, _) = saved_style(&mut e);
         assert_eq!(back.expect("saved").warp.as_deref(), Some("textArchUp"));
+        // Kept for OpenXmlValidator when `BO_SHAPE_OUT` names a folder.
+        if let Ok(dir) = std::env::var("BO_SHAPE_OUT") {
+            let bytes = e.save_docx().expect("save");
+            let _ = std::fs::write(std::path::Path::new(&dir).join("shape-r22.docx"), bytes);
+        }
     }
 
     #[test]

@@ -396,6 +396,13 @@ impl FmtPane {
         let mut y = 0.0;
         let v = &self.vals;
         let mut push = |kind: RowKind, h: f32| {
+            // Row pitch measured on the reference at 125 %: option buttons 36 px, boxes
+            // 43 px (29 / 34 logical px).
+            let h = match kind {
+                Radio(..) => 29.0,
+                Spin(..) | Color(..) | Choice(..) => 34.0,
+                _ => h,
+            };
             out.push(Row { y, h, kind });
             y += h;
         };
@@ -503,44 +510,39 @@ impl FmtPane {
                 push(sec("shadow", "doc21.fpShadow", "Shadow"), 31.0);
                 if open("shadow") {
                     push(Choice("shadowPresets", "doc21.fpPresets", "Presets"), 31.0);
-                    if v.shadow.is_some() {
-                        push(Color("shadowColor", "doc21.fpColor", "Color"), 31.0);
-                        for (id, k, en) in [
-                            ("shTransp", "doc21.fpTransparency", "Transparency"),
-                            ("shSize", "doc21.fpSize", "Size"),
-                            ("shBlur", "doc21.fpBlur", "Blur"),
-                            ("shAngle", "doc21.fpAngle", "Angle"),
-                            ("shDist", "doc21.fpDistance", "Distance"),
-                        ] {
-                            push(Spin(id, k, en), 29.0);
-                        }
+                    // The settings show (empty) before an effect is chosen, as the reference.
+                    push(Color("shadowColor", "doc21.fpColor", "Color"), 31.0);
+                    for (id, k, en) in [
+                        ("shTransp", "doc21.fpTransparency", "Transparency"),
+                        ("shSize", "doc21.fpSize", "Size"),
+                        ("shBlur", "doc21.fpBlur", "Blur"),
+                        ("shAngle", "doc21.fpAngle", "Angle"),
+                        ("shDist", "doc21.fpDistance", "Distance"),
+                    ] {
+                        push(Spin(id, k, en), 29.0);
                     }
                 }
                 push(sec("reflection", "doc21.fpReflection", "Reflection"), 31.0);
                 if open("reflection") {
                     push(Choice("reflPresets", "doc21.fpPresets", "Presets"), 31.0);
-                    if v.reflection.is_some() {
-                        for (id, k, en) in [
-                            ("rfTransp", "doc21.fpTransparency", "Transparency"),
-                            ("rfSize", "doc21.fpSize", "Size"),
-                            ("rfBlur", "doc21.fpBlur", "Blur"),
-                            ("rfDist", "doc21.fpDistance", "Distance"),
-                        ] {
-                            push(Spin(id, k, en), 29.0);
-                        }
+                    for (id, k, en) in [
+                        ("rfTransp", "doc21.fpTransparency", "Transparency"),
+                        ("rfSize", "doc21.fpSize", "Size"),
+                        ("rfBlur", "doc21.fpBlur", "Blur"),
+                        ("rfDist", "doc21.fpDistance", "Distance"),
+                    ] {
+                        push(Spin(id, k, en), 29.0);
                     }
                 }
                 push(sec("glow", "doc21.fpGlow", "Glow"), 31.0);
                 if open("glow") {
                     push(Choice("glowPresets", "doc21.fpPresets", "Presets"), 31.0);
-                    if v.glow.is_some() {
-                        push(Color("glowColor", "doc21.fpColor", "Color"), 31.0);
-                        push(Spin("glSize", "doc21.fpSize", "Size"), 29.0);
-                        push(
-                            Spin("glTransp", "doc21.fpTransparency", "Transparency"),
-                            29.0,
-                        );
-                    }
+                    push(Color("glowColor", "doc21.fpColor", "Color"), 31.0);
+                    push(Spin("glSize", "doc21.fpSize", "Size"), 29.0);
+                    push(
+                        Spin("glTransp", "doc21.fpTransparency", "Transparency"),
+                        29.0,
+                    );
                 }
                 push(sec("soft", "doc21.fpSoftEdges", "Soft Edges"), 31.0);
                 if open("soft") {
@@ -550,10 +552,8 @@ impl FmtPane {
                 push(sec("format3d", "doc21.fp3dFormat", "3-D Format"), 31.0);
                 if open("format3d") {
                     push(Choice("bevel", "doc21.fpTopBevel", "Top bevel"), 31.0);
-                    if v.bevel.is_some() {
-                        push(Spin("bevelW", "doc21.fpWidth", "Width"), 29.0);
-                        push(Spin("bevelH", "doc21.fpHeight", "Height"), 29.0);
-                    }
+                    push(Spin("bevelW", "doc21.fpWidth", "Width"), 29.0);
+                    push(Spin("bevelH", "doc21.fpHeight", "Height"), 29.0);
                 }
                 push(
                     sec("rotation3d", "doc21.fp3dRotation", "3-D Rotation"),
@@ -1552,7 +1552,18 @@ impl FmtPane {
                 RowKind::Spin(id, key, en) => {
                     p.text(&t(key, en), lx, ty, st, ink);
                     let (val, _, _, _, unit) = self.spin(id);
-                    let text = format!("{}{unit}", fmt(val));
+                    let unset = match &id[..2] {
+                        "sh" => self.vals.shadow.is_none(),
+                        "rf" => self.vals.reflection.is_none(),
+                        "gl" => self.vals.glow.is_none(),
+                        "be" => self.vals.bevel.is_none(),
+                        _ => false,
+                    };
+                    let text = if unset {
+                        String::new()
+                    } else {
+                        format!("{}{unit}", fmt(val))
+                    };
                     let hover = self
                         .hover
                         .and_then(|(hx, hy)| spin_hit(b, self.scale, hx, hy));
@@ -1908,6 +1919,51 @@ mod tests {
             .rows()
             .iter()
             .any(|r| matches!(r.kind, RowKind::Spin("fxBright", ..))));
+    }
+
+    struct Null;
+    impl crate::Painter for Null {
+        fn clear(&mut self, _: Rgba) {}
+        fn fill_rect(&mut self, _: f32, _: f32, _: f32, _: f32, _: Rgba) {}
+        fn page(&mut self, _: usize, _: i32, _: i32) {}
+        fn text(&mut self, _: &str, _: f32, _: f32, _: TextStyle, _: Rgba) {}
+        fn path(&mut self, _: &[PathSeg], _: Option<Rgba>, _: Option<(Rgba, f32)>) {}
+        fn push_clip(&mut self, _: f32, _: f32, _: f32, _: f32) {}
+        fn pop_clip(&mut self) {}
+    }
+
+    #[test]
+    fn every_page_paints_with_every_section_open() {
+        for target in [Target::Shape, Target::Picture] {
+            for text in [false, true] {
+                let mut p = FmtPane::new(target, Page::FillLine, None);
+                p.text_tab = text;
+                p.layout([1000.0, 100.0, width(1.25), 900.0], 1.25);
+                p.vals.shadow = Some([60.0, 100.0, 4.0, 45.0, 3.0, 0.0]);
+                p.vals.reflection = Some([48.0, 55.0, 0.5, 0.0]);
+                p.vals.glow = Some([8.0, 60.0]);
+                p.vals.bevel = Some(("circle".into(), 6.0, 6.0));
+                for page in p.pages() {
+                    p.page = page;
+                    for fill in 0..4 {
+                        p.vals.fill = fill;
+                        for r in p.rows() {
+                            if let RowKind::Section(id, ..) = r.kind {
+                                p.open.insert(id);
+                            }
+                        }
+                        p.paint(&mut Null, &|_, en| en.to_owned());
+                        // Every row's controls answer a press.
+                        let top = p.content_top();
+                        for r in p.rows() {
+                            let b = p.box_rect(&r);
+                            let _ = p.press(b[0] + 2.0, top + r.y * 1.25 + 4.0);
+                            let _ = p.press(b[0] + b[2] - 3.0, b[1] + 3.0);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     #[test]

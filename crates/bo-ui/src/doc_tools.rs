@@ -436,6 +436,8 @@ pub(crate) fn enabled(id: &str, f: &FormatState) -> Option<bool> {
     Some(match id {
         "table.mergeCells" => f.table.as_ref().is_some_and(|t| t.multi_cell),
         "picture.group" | "outline.showDocument" | "outline.collapseSubdocs" => false,
+        // Round 21: the Format Shape / Picture pane launchers (on the contextual tabs).
+        "fp21.shapeStyles" | "fp21.wordArt" | "fp21.pictureStyles" => true,
         _ if id.starts_with("outline.") => true,
         _ if id.starts_with("table.") => in_table,
         _ if id.starts_with("picture.") => f.picture.is_some() || f.picture_tools,

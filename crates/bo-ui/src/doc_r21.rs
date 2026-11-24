@@ -712,6 +712,9 @@ mod tests {
             extend: true,
         });
         w.handle(Input::Tick, &Fixed);
+        // The launchers can be pressed (enabled on their tabs).
+        let f = bo_edit::FormatState::default();
+        assert!(crate::commands::enabled("fp21.shapeStyles", &f));
         assert!(w.action("r20.fillEffects:0"));
         let shape = |w: &DocWindow| w.r21_selected().and_then(|s| s.1.shape).expect("shape");
         assert_eq!(w.r21.fmt.as_ref().map(|p| p.vals.fill), Some(2));

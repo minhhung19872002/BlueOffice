@@ -45,8 +45,19 @@ impl crate::Painter for Texts {
     fn pop_clip(&mut self) {}
 }
 
+thread_local! {
+    /// Round 24: the selection when the window was last painted (a command that only moves
+    /// the selection — Next Footnote — has an effect too).
+    static LAST_SEL: std::cell::Cell<Option<Selection>> = const { std::cell::Cell::new(None) };
+}
+
+fn selection(w: &DocWindow) -> Option<Selection> {
+    w.view.engine().session().map(bo_edit::Session::selection)
+}
+
 fn painted(w: &mut DocWindow) -> HashSet<String> {
     w.handle(Input::Tick, &Fixed);
+    LAST_SEL.with(|c| c.set(selection(w)));
     let mut t = Texts::default();
     w.paint(&mut t);
     t.0.into_iter().collect()
@@ -259,6 +270,10 @@ pub(crate) fn window(ctx: Ctx) -> DocWindow {
                 "cmd": "insertShape", "preset": "rect", "width": 120.0, "height": 60.0,
                 "textBox": RICH.with(std::cell::Cell::get)
             })]);
+            // The text box's text is not being edited: the shape is selected.
+            if RICH.with(std::cell::Cell::get) {
+                w.view.run_command(Command::CloseTextBox);
+            }
             w.view.exec(Command::Move {
                 motion: bo_engine::nav::Motion::Left,
                 extend: true,
@@ -279,11 +294,15 @@ pub(crate) fn window(ctx: Ctx) -> DocWindow {
 
 /// What running `id` changed: "doc", "ui(+n)", "req", combinations, or "—".
 fn effect(w: &mut DocWindow, before: &HashSet<String>, ret: bool) -> String {
+    let sel_before = LAST_SEL.with(std::cell::Cell::get);
     let after = painted(w);
     let new = after.difference(before).count();
     let mut out = Vec::new();
     if w.view.modified() {
         out.push("doc".to_owned());
+    }
+    if sel_before.is_some() && selection(w) != sel_before {
+        out.push("sel".to_owned());
     }
     if new > 0 {
         out.push(format!("ui+{new}"));

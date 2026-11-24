@@ -275,3 +275,153 @@ fn underline_color_in_font_dialog() {
     assert_eq!(a.underline, "single");
     assert_eq!(a.underline_color.as_deref(), Some("FF0000"));
 }
+
+/// The drop cap frame of the document (its letter is a paragraph of its own).
+fn first_frame(w: &DocWindow) -> Option<bo_model::FrameProps> {
+    let s = w.view.engine().session().expect("session");
+    (0..s.paragraph_count())
+        .find_map(|i| bo_model::index::para_by_id(s.doc(), i).and_then(|p| p.props.frame))
+}
+
+// Insert › Drop Cap › Drop Cap Options…: position, lines, distance (§17.3.1.11 framePr).
+#[test]
+fn drop_cap_options_dialog() {
+    use crate::doc_forms::DocFormKind;
+    let mut w = window(Ctx::Text);
+    let rows = crate::catalog::menu("insert.dropCap");
+    assert!(rows.iter().any(|e| e.id == "r24.dropCapOptions"));
+    assert!(w.action("r24.dropCapOptions"));
+    let f = w.r3.form.as_mut().expect("Drop Cap");
+    assert_eq!(f.kind, DocFormKind::DropCap24);
+    assert!(!f.enabled_for_test("lines"), "greyed with None");
+    f.set_radio("drop");
+    f.r24_changed("drop");
+    assert!(f.enabled_for_test("lines"));
+    f.set_text("lines", "2");
+    f.set_text("distance", "6 pt");
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert!(w.r3.form.is_none());
+    let frame = first_frame(&w).expect("frame");
+    assert_eq!(frame.drop_cap, bo_model::DropCap::Drop);
+    assert_eq!(frame.h_space.0, 120);
+    // Opening again shows what the paragraph has.
+    assert!(w.action("r24.dropCapOptions"));
+    let f = w.r3.form.as_ref().expect("Drop Cap");
+    assert_eq!(f.chosen("pos"), Some("drop"));
+}
+
+// Layout › Hyphenation › Hyphenation Options…: automatic, CAPS, zone, limit.
+#[test]
+fn hyphenation_options_dialog() {
+    let mut w = window(Ctx::Text);
+    let rows = crate::catalog::menu("layout.hyphenation");
+    assert!(rows.iter().any(|e| e.id == "r24.hyphOptions"));
+    assert!(rows.iter().any(|e| e.id == "r24.hyphManual"));
+    assert!(w.action("r24.hyphOptions"));
+    let f = w.r3.form.as_mut().expect("Hyphenation");
+    f.set_on("auto", true);
+    f.set_on("caps", false);
+    f.set_text("zone", "9 pt");
+    f.set_sel("limit", Some(2));
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    let h = w
+        .view
+        .engine()
+        .session()
+        .map(|s| s.doc().hyphenation.clone())
+        .expect("hyphenation");
+    assert!(h.auto && h.no_caps);
+    assert_eq!(h.zone.map(|z| z.0), Some(180));
+    assert_eq!(h.consecutive_limit, Some(2));
+}
+
+// Layout › Hyphenation › Manual: each line-start word that can be hyphenated, Yes puts an
+// optional hyphen (§17.3.3.29) at the chosen point.
+#[test]
+fn manual_hyphenation() {
+    use crate::doc_forms::DocFormKind;
+    let mut w = window(Ctx::Text);
+    w.view.run_command(Command::SelectAll);
+    let long = "information ".repeat(40);
+    w.view.run_command(Command::InsertText { text: long });
+    w.handle(Input::Tick, &Fixed);
+    assert!(w.action("r24.hyphManual"));
+    let f = w.r3.form.as_mut().expect("Manual Hyphenation");
+    assert_eq!(f.kind, DocFormKind::ManualHyph24);
+    let shown = f.text("at");
+    assert!(shown.contains('-'), "{shown}");
+    let out = f.click_for_test("yes");
+    assert!(w.form_out(out));
+    let text = w
+        .view
+        .engine()
+        .session()
+        .and_then(|s| s.para_text(0))
+        .unwrap_or_default();
+    assert!(text.contains('\u{ad}'), "an optional hyphen");
+    // Cancel ends it.
+    if let Some(f) = w.r3.form.as_mut() {
+        let out = f.click_for_test("cancel");
+        w.form_out(out);
+    }
+}
+
+// Insert › Quick Parts: AutoText ▸, Building Blocks Organizer…, Save Selection to Quick
+// Part Gallery….
+#[test]
+fn quick_parts_autotext_and_organizer() {
+    use crate::doc_forms::DocFormKind;
+    let mut w = window(Ctx::Text);
+    let rows = crate::doc_r4_menus::menu("insert.quickParts");
+    for id in ["r24.autoText", "r24.organizer", "r24.saveQuickPart"] {
+        assert!(rows.iter().any(|e| e.id == id), "{id}");
+    }
+    // Save the selection as AutoText, then it is in AutoText ▸.
+    assert!(w.action("r24.saveAutoText"));
+    let f = w.r3.form.as_mut().expect("Create New Building Block");
+    assert_eq!(f.kind, DocFormKind::NewBlock);
+    f.set_text("name", "mine");
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert!(w.action("r24.autoText"));
+    let labels: Vec<String> = w
+        .menu
+        .as_ref()
+        .expect("AutoText menu")
+        .items()
+        .iter()
+        .map(|i| i.label.clone())
+        .collect();
+    assert!(labels.iter().any(|l| l == "mine"), "{labels:?}");
+    // The organizer lists it with the library's blocks; Insert puts it in.
+    assert!(w.action("r24.organizer"));
+    let f = w.r3.form.as_mut().expect("Organizer");
+    assert_eq!(f.kind, DocFormKind::Organizer24);
+    let items = f.items_for_test("list");
+    assert!(items.len() > 5);
+    let i = items
+        .iter()
+        .position(|r| r.starts_with("mine\t"))
+        .expect("mine listed");
+    f.set_sel("list", Some(i));
+    let before = w.view.engine().session().map(|s| s.paragraph_count());
+    let out = w.r3.form.as_mut().expect("form").click_for_test("insert");
+    assert!(w.form_out(out));
+    assert!(w.view.modified());
+    let _ = before;
+    // Delete takes it out of the list.
+    assert!(w.action("r24.organizer"));
+    let f = w.r3.form.as_mut().expect("Organizer");
+    let items = f.items_for_test("list");
+    let i = items
+        .iter()
+        .position(|r| r.starts_with("mine\t"))
+        .expect("mine");
+    f.set_sel("list", Some(i));
+    let out = f.click_for_test("delete");
+    w.form_out(out);
+    let f = w.r3.form.as_ref().expect("Organizer again");
+    assert!(!f
+        .items_for_test("list")
+        .iter()
+        .any(|r| r.starts_with("mine\t")));
+}

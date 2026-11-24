@@ -199,6 +199,8 @@ pub fn menu(id: &str) -> Vec<Entry> {
             e("insert.dropCap.none", "None"),
             e("insert.dropCap.drop", "Dropped"),
             e("insert.dropCap.margin", "In margin"),
+            // Round 24.
+            e("r24.dropCapOptions", "doc24.dropCapOptions"),
         ],
         "layout.lineNumbers" => vec![
             e("layout.lineNumbers.none", "None"),
@@ -212,6 +214,9 @@ pub fn menu(id: &str) -> Vec<Entry> {
         "layout.hyphenation" => vec![
             e("layout.hyphenation.none", "None"),
             e("layout.hyphenation.auto", "Automatic"),
+            // Round 24.
+            e("r24.hyphManual", "doc24.manualMenu"),
+            e("r24.hyphOptions", "doc24.hyphOptions"),
         ],
         "references.insertCaption" => vec![
             e("references.caption.Figure", "Figure"),

@@ -31,6 +31,8 @@ pub(super) struct R24 {
     tab_press: Option<usize>,
     /// The display options button is hovered.
     hover_display: bool,
+    /// The building block whose properties the Create New Building Block dialog edits.
+    editing: Option<String>,
 }
 
 /// Percent-encode `s` for a URL query (RFC 3986 unreserved characters kept).
@@ -169,6 +171,35 @@ impl DocWindow {
         if let Some(v) = id.strip_prefix("r24.diag:") {
             return Some(self.r24_diagonal(v == "down"));
         }
+        if let Some(key) = id.strip_prefix("r24.bbDelete:") {
+            let key = key.to_owned();
+            return Some(self.r24_delete_block(&key));
+        }
+        if let Some(key) = id.strip_prefix("r24.bbEdit:") {
+            let key = key.to_owned();
+            return Some(self.r24_edit_block(&key));
+        }
+        if let Some(key) = id.strip_prefix("r24.bbInsert:") {
+            self.menu = None;
+            let v = json!({ "cmd": "insertBuildingBlock", "key": key });
+            return Some(self.view.run_json(&v).is_some());
+        }
+        // Edit Properties… OK: the block's new properties (not a new block).
+        if let Some(spec) = id.strip_prefix("blocks12.save:") {
+            if let Some(key) = self.r24.editing.take() {
+                let Ok(spec) = serde_json::from_str::<serde_json::Value>(spec) else {
+                    return Some(false);
+                };
+                let out = self.view.run_json(&json!({
+                    "cmd": "editBuildingBlock", "key": key, "spec": spec,
+                }));
+                if let Some(file) = out.as_ref().and_then(|v| v["blocks"]["store"].as_str()) {
+                    self.requests.push(Request::SaveBlockStore(file.to_owned()));
+                }
+                return Some(self.r24_open(crate::doc_forms::DocFormKind::Organizer24));
+            }
+            return None;
+        }
         Some(match id {
             // The button with no selection: the highlighter pen (on / off).
             "format.highlight" if collapsed_sel && !self.r24_on_highlight_arrow() => {
@@ -193,6 +224,31 @@ impl DocWindow {
             "r24.readAloud" => {
                 self.menu = None;
                 self.action("review.readAloud")
+            }
+            // Equation › Equation: the equation gallery (not the placeholder list that
+            // marks the button with ▾).
+            "eq.equation" => {
+                let Some(r) = self.ribbon.rect_of(RibbonHit::Command("eq.equation")) else {
+                    return None;
+                };
+                self.r4_open_gallery_at("insert.equation", r)
+            }
+            "r24.dropCapOptions" => self.r24_open(crate::doc_forms::DocFormKind::DropCap24),
+            "r24.hyphOptions" => self.r24_open(crate::doc_forms::DocFormKind::Hyphenation24),
+            "r24.hyphManual" | "r24.manualHyph" => {
+                self.r24_open(crate::doc_forms::DocFormKind::ManualHyph24)
+            }
+            "r24.organizer" => self.r24_open(crate::doc_forms::DocFormKind::Organizer24),
+            "r24.autoText" => self.r24_autotext_menu(),
+            "r24.saveQuickPart" | "r24.saveAutoText" => {
+                self.menu = None;
+                self.r3_open_form(crate::doc_forms::DocFormKind::NewBlock);
+                // Gallery: Quick Parts / AutoText (NEW_BLOCK_GALLERIES order).
+                let g = if id == "r24.saveAutoText" { 2 } else { 1 };
+                if let Some(f) = self.r3.form.as_mut() {
+                    f.set_sel("gallery", Some(g));
+                }
+                true
             }
             _ => return None,
         })
@@ -241,6 +297,217 @@ impl DocWindow {
             .take(255)
             .collect();
         one
+    }
+
+    /// A message box with a Close button (the reference's message boxes).
+    fn r24_message(&mut self, key: &str, en: &str, text: String) -> bool {
+        let title = self.r24_t(key, en);
+        let close = self.r24_t("common.close", "Close");
+        self.menu = None;
+        self.dialog = Some(crate::dialog::Dialog::new(
+            crate::dialog::DialogKind::WordCount,
+            title,
+            Vec::new(),
+            vec![(close, crate::dialog::DialogButton::Cancel)],
+            vec![text],
+        ));
+        self.relayout_pending = true;
+        true
+    }
+
+    /// Every building block (document, user, library) as `buildingBlocks` lists them.
+    fn r24_blocks(&mut self) -> Vec<serde_json::Value> {
+        self.view
+            .run_json(&json!({ "cmd": "buildingBlocks" }))
+            .and_then(|v| v["blocks"]["list"].as_array().cloned())
+            .unwrap_or_default()
+    }
+
+    /// Open a round-24 dialog with its state in `extra["r24"]`.
+    fn r24_open(&mut self, kind: crate::doc_forms::DocFormKind) -> bool {
+        use crate::doc_forms::DocFormKind as K;
+        self.menu = None;
+        self.r22.gallery = None;
+        let mut c = self.form_context();
+        c.extra["r24"] = match kind {
+            K::DropCap24 => {
+                let frame = self.view.engine().session().and_then(|s| {
+                    // The caret's paragraph or the drop cap letter's paragraph before it.
+                    let at = s.selection().focus.para;
+                    [Some(at), at.checked_sub(1)]
+                        .into_iter()
+                        .flatten()
+                        .find_map(|i| {
+                            bo_model::index::para_by_id(s.doc(), i).and_then(|p| p.props.frame)
+                        })
+                });
+                c.fonts = self.view.font_list().into_iter().map(|f| f.name).collect();
+                match frame {
+                    Some(f) => json!({
+                        "position": f.drop_cap.as_str(), "lines": f.lines,
+                        "distance": f.h_space.0,
+                    }),
+                    None => json!({ "position": "none" }),
+                }
+            }
+            K::Hyphenation24 => {
+                let h = self
+                    .view
+                    .engine()
+                    .session()
+                    .map(|s| s.doc().hyphenation.clone())
+                    .unwrap_or_default();
+                json!({
+                    "auto": h.auto, "noCaps": h.no_caps,
+                    "zone": h.zone.map_or(360, |z| z.0),
+                    "limit": h.consecutive_limit.unwrap_or(0),
+                })
+            }
+            K::ManualHyph24 => {
+                let words = self.r24_hyphen_candidates();
+                if words.is_empty() {
+                    // The reference says so in a message box.
+                    let text = self.r24_t(
+                        "doc24.hyphDone",
+                        "Hyphenation is complete: no line-start word can be hyphenated.",
+                    );
+                    return self.r24_message("doc24.hyphTitle", "Hyphenation", text);
+                }
+                json!({ "words": words })
+            }
+            K::Organizer24 => json!({ "blocks": self.r24_blocks() }),
+            _ => json!({}),
+        };
+        let f = crate::doc_forms::open(kind, &self.strings, &c);
+        self.r3.form = Some(f);
+        self.relayout_pending = true;
+        true
+    }
+
+    /// Manual hyphenation candidates: the first word of each line that continues a
+    /// paragraph, when it can be hyphenated (BlueOffice's English rules, ADR-0011), as
+    /// "para|offset|word|points".
+    fn r24_hyphen_candidates(&self) -> Vec<String> {
+        let Some(layout) = self.view.engine().layout() else {
+            return Vec::new();
+        };
+        let Some(s) = self.view.engine().session() else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        let mut last: Option<u32> = None;
+        for page in &layout.pages {
+            for line in &page.lines {
+                let bo_layout::LineSource::Body(p) = line.source else {
+                    last = None;
+                    continue;
+                };
+                let continues = last == Some(p);
+                last = Some(p);
+                if !continues {
+                    continue;
+                }
+                let Some((start, _)) = line.carets.get(0) else {
+                    continue;
+                };
+                let text = s.para_text(p as usize).unwrap_or_default();
+                let start = (start as usize).min(text.len());
+                let word: String = text[start..]
+                    .chars()
+                    .take_while(|c| c.is_alphabetic())
+                    .collect();
+                let points = bo_layout::hyphenation_points(&word);
+                if word.chars().count() < 5 || points.is_empty() {
+                    continue;
+                }
+                let pts: Vec<String> = points.iter().map(ToString::to_string).collect();
+                out.push(format!("{p}|{start}|{word}|{}", pts.join(",")));
+            }
+        }
+        out
+    }
+
+    /// Quick Parts › AutoText ▸: the AutoText blocks, Save Selection to AutoText Gallery.
+    fn r24_autotext_menu(&mut self) -> bool {
+        let anchor = self
+            .ribbon
+            .rect_of(RibbonHit::Command("insert.quickParts"))
+            .unwrap_or([self.size.0 / 3.0, 120.0, 40.0, 30.0]);
+        let mut items: Vec<MenuItem> = self
+            .r24_blocks()
+            .iter()
+            .filter(|b| b["gallery"] == "autoTxt")
+            .map(|b| MenuItem {
+                label: b["name"].as_str().unwrap_or("").to_owned(),
+                choice: Choice::Command(format!(
+                    "r24.bbInsert:{}",
+                    b["key"].as_str().unwrap_or("")
+                )),
+                checked: false,
+                dim: false,
+            })
+            .collect();
+        let sep = items.len();
+        items.push(MenuItem {
+            label: self.r24_t("doc24.saveAutoText", "Save Selection to AutoText Gallery"),
+            choice: Choice::Command("r24.saveAutoText".into()),
+            checked: false,
+            dim: !self.view.has_selection(),
+        });
+        let n = items.len();
+        let seps = if sep > 0 { vec![sep] } else { Vec::new() };
+        let at = [anchor[0], anchor[1] + anchor[3], anchor[2], 0.0];
+        self.menu =
+            Some(Menu::open(items, at, self.size, self.scale).with_decor(vec![None; n], seps));
+        true
+    }
+
+    /// Building Blocks Organizer › Delete: the block goes (user blocks: the host stores the
+    /// file again); the organizer shows the list again.
+    fn r24_delete_block(&mut self, key: &str) -> bool {
+        let out = self
+            .view
+            .run_json(&json!({ "cmd": "deleteBuildingBlock", "key": key }));
+        if let Some(file) = out.as_ref().and_then(|v| v["blocks"]["store"].as_str()) {
+            self.requests.push(Request::SaveBlockStore(file.to_owned()));
+        }
+        self.r24_open(crate::doc_forms::DocFormKind::Organizer24)
+    }
+
+    /// Building Blocks Organizer › Edit Properties…: the Create New Building Block dialog
+    /// with the block's properties; its OK changes them.
+    fn r24_edit_block(&mut self, key: &str) -> bool {
+        let blocks = self.r24_blocks();
+        let Some(b) = blocks.iter().find(|b| b["key"] == key).cloned() else {
+            return false;
+        };
+        if b["store"] == "builtin" {
+            // Built-in blocks cannot change (the engine refuses).
+            let text = self.r24_t(
+                "doc24.builtinBlock",
+                "Built-in building blocks cannot be changed.",
+            );
+            return self.r24_message("doc24.organizerTitle", "Building Blocks Organizer", text);
+        }
+        self.r3_open_form(crate::doc_forms::DocFormKind::NewBlock);
+        let title = self.r24_t("doc24.modifyBlock", "Modify Building Block");
+        if let Some(f) = self.r3.form.as_mut() {
+            f.set_title(&title);
+            f.set_text("name", b["name"].as_str().unwrap_or(""));
+            f.set_text("category", b["category"].as_str().unwrap_or(""));
+            f.set_text("desc", b["description"].as_str().unwrap_or(""));
+            let gallery = b["gallery"].as_str().unwrap_or("");
+            if let Some(i) = [
+                "tbls", "docParts", "autoTxt", "coverPg", "hdrs", "ftrs", "txtBox",
+            ]
+            .iter()
+            .position(|g| *g == gallery)
+            {
+                f.set_sel("gallery", Some(i));
+            }
+        }
+        self.r24.editing = Some(key.to_owned());
+        true
     }
 
     /// Context menu rows of round 24 (label, command): Search "…", Read Aloud, Translate.

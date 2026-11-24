@@ -106,11 +106,16 @@ pub(crate) fn menu(id: &str) -> Vec<Entry> {
             e("insert.pageNumber.remove", "Remove Page Numbers"),
         ],
         "insert.quickParts" => vec![
+            // Round 24: AutoText ▸ (the reference's first row).
+            e("r24.autoText", "doc24.autoText"),
             e("insert.quickParts.title", "Document Property: Title"),
             e("insert.quickParts.author", "Document Property: Author"),
             e("insert.quickParts.subject", "Document Property: Subject"),
             e("insert.quickParts.company", "Document Property: Company"),
             e("insert.quickParts.field", "Field..."),
+            // Round 24.
+            e("r24.organizer", "doc24.organizerMenu"),
+            e("r24.saveQuickPart", "doc24.saveQuickPart"),
         ],
         "insert.object" => vec![
             e("insert.object.object", "Object..."),

@@ -54,6 +54,8 @@ pub(crate) mod r20;
 pub(crate) mod r21;
 #[path = "doc_r22.rs"]
 pub(crate) mod r22;
+#[path = "doc_r23.rs"]
+pub(crate) mod r23;
 #[path = "doc_r3.rs"]
 mod r3;
 #[path = "doc_r4.rs"]
@@ -391,6 +393,7 @@ pub struct DocWindow {
     r20: Box<r20::R20>,
     r21: Box<r21::R21>,
     r22: Box<r22::R22>,
+    r23: Box<r23::R23>,
 }
 
 /// Font sizes offered by the size box (points).
@@ -504,6 +507,7 @@ impl DocWindow {
         r17::install(&mut icons, &mut strings);
         r20::install(&mut icons, &mut strings);
         r22::install(&mut icons, &mut strings);
+        r23::install(&mut icons, &mut strings);
         icons.set_grey_disabled(true);
         Self {
             view,
@@ -607,6 +611,7 @@ impl DocWindow {
             r20: Box::default(),
             r21: Box::default(),
             r22: Box::default(),
+            r23: Box::default(),
         }
     }
 
@@ -2281,6 +2286,9 @@ impl DocWindow {
         if let Some(r) = self.r21_guard(id) {
             return r;
         }
+        if let Some(r) = self.r23_action(id) {
+            return r;
+        }
         if let Some(r) = self.r22_action(id) {
             return r;
         }
@@ -3064,6 +3072,10 @@ impl DocWindow {
                 return r;
             }
         }
+        // Round 23: the Shading palette, Select Objects.
+        if let Some(r) = self.r23_input(&input) {
+            return r;
+        }
         // Round 22: an open thumbnail gallery takes the pointer.
         if let Some(r) = self.r22_input(&input) {
             return r;
@@ -3421,6 +3433,14 @@ impl DocWindow {
             // Round 12: the style gallery's menu.
             if let Some(RibbonHit::Style(i)) = self.ribbon.hit(x, y) {
                 return self.r12_style_menu(i, x, y);
+            }
+            // Round 23: the ribbon's own menu (Quick Access Toolbar, Customize the Ribbon).
+            if self.read_mode.is_none()
+                && !self.r4.focus
+                && y >= self.ribbon.top()
+                && y < self.ribbon.bottom()
+            {
+                return self.r23_ribbon_menu(x, y);
             }
             if y >= self.view_top() && y < self.size.1 - self.status_h() {
                 self.r10_context_menu(x, y, text);
@@ -4089,6 +4109,7 @@ impl DocWindow {
         self.r17_paint(p);
         self.r18_paint(p);
         self.r22_paint(p);
+        self.r23_paint(p);
         if let Some(menu) = &self.menu {
             menu.paint(p, &self.r10_menu_theme(), &self.icons);
             self.r10_paint_menu(p);
@@ -4554,9 +4575,13 @@ mod tests {
                 "{id} on the ribbon"
             );
         }
+        // Round 23: the reference's Font dialog (Font / Advanced tabs).
         w.action("format.fontSettings");
-        assert_eq!(w.dialog.as_ref().map(|d| d.kind), Some(DialogKind::Font));
-        w.dialog = None;
+        assert_eq!(
+            w.r3.form.as_ref().map(|f| f.kind),
+            Some(crate::doc_forms::DocFormKind::Font23)
+        );
+        w.r3.form = None;
         // Paragraph dialog (round 13: the reference's layout): Left indent 0.5" on Enter.
         w.action("format.paragraphSettings");
         let f = w.r3.form.as_mut().expect("Paragraph dialog");
@@ -4566,17 +4591,11 @@ mod tests {
         w.form_out(out);
         assert!(w.r3.form.is_none());
         assert_eq!(w.view.format().indent_left, 720);
-        // Font dialog: the size field (second) takes 7,5 pt.
+        // Font dialog: size 7,5 pt and Bold.
         w.action("format.fontSettings");
-        w.handle(Input::Key(Key::Tab, Mods::default()), &Fixed);
-        for _ in 0..4 {
-            w.handle(Input::Key(Key::Backspace, Mods::default()), &Fixed);
-        }
-        w.handle(Input::Text("7,5".into()), &Fixed);
-        // Bold check box (fourth field): Tab twice from the size, Space ticks it.
-        w.handle(Input::Key(Key::Tab, Mods::default()), &Fixed);
-        w.handle(Input::Key(Key::Tab, Mods::default()), &Fixed);
-        w.handle(Input::Text(" ".into()), &Fixed);
+        let f = w.r3.form.as_mut().expect("Font dialog");
+        f.set_text("size", "7,5");
+        f.set_text("fstyle", "Bold");
         w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
         assert_eq!(w.view.format().size_half_points, Some(15));
         assert!(w.view.format().bold);

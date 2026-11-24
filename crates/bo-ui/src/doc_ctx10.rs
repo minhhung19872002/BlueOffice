@@ -205,6 +205,17 @@ impl DocWindow {
         } else {
             self.r10_word_synonyms(x, y)
         };
+        // Round 23: a field under the caret (Update Field, Edit Field…, Toggle Field Codes).
+        for (i, (label, id)) in self.r23_ctx_rows(0).into_iter().enumerate() {
+            rows.push(Row {
+                label,
+                id,
+                icon: None,
+                dim: false,
+                arrow: false,
+                sep: i == 0,
+            });
+        }
         if let Some(target) = &link {
             let _ = target;
             let mut r = self.r10_row("editLink", "insert.link", Some("insert.link"));
@@ -276,6 +287,17 @@ impl DocWindow {
             rows.push(r);
             glyphs.push((rows.len(), "ctx.para"));
             rows.push(self.r10_row("paragraph", "format.paragraphSettings", None));
+            // Round 23: a list paragraph (Adjust List Indents…, Restart at 1, …).
+            for (i, (label, id)) in self.r23_ctx_rows(1).into_iter().enumerate() {
+                rows.push(Row {
+                    label,
+                    id,
+                    icon: None,
+                    dim: false,
+                    arrow: false,
+                    sep: i == 1,
+                });
+            }
             if syn.is_some() {
                 let mut r = self.r10_row("synonyms", "ctx.sub.syn", None);
                 r.arrow = true;
@@ -290,6 +312,17 @@ impl DocWindow {
             let mut r = self.r10_row("newComment", "review.newComment", Some("review.newComment"));
             r.sep = link.is_some();
             rows.push(r);
+        }
+        // Round 23: a tracked change, a comment or a note reference under the caret.
+        for (i, (label, id)) in self.r23_ctx_rows(2).into_iter().enumerate() {
+            rows.push(Row {
+                label,
+                id,
+                icon: None,
+                dim: false,
+                arrow: false,
+                sep: i == 0,
+            });
         }
         let items = rows
             .iter()

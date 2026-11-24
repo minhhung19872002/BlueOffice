@@ -50,6 +50,10 @@ const fn e(id: &'static str, label: &'static str) -> Entry {
 
 /// Entries of the menu button `id`.
 pub fn menu(id: &str) -> Vec<Entry> {
+    // Round 23: Home's split buttons and Select ▾.
+    if let Some(m) = crate::shell::r23::menu(id) {
+        return m;
+    }
     match id {
         // Line spacing multiples and the space before / after toggles, as in a desktop
         // word processor's line spacing menu (§17.3.1.33 spacing).
@@ -201,6 +205,9 @@ pub fn menu(id: &str) -> Vec<Entry> {
             e("layout.lineNumbers.continuous", "Continuous"),
             e("layout.lineNumbers.newPage", "Restart each page"),
             e("layout.lineNumbers.newSection", "Restart each section"),
+            // Round 23: the reference's last two rows.
+            e("layout.lineNumbers.suppress", "doc23.lnSuppress"),
+            e("layout.lineNumbers.options", "doc23.lnOptions"),
         ],
         "layout.hyphenation" => vec![
             e("layout.hyphenation.none", "None"),
@@ -506,7 +513,8 @@ mod tests {
             for entry in menu(id) {
                 assert!(
                     command(entry.id, &page).is_some()
-                        || crate::commands::WINDOW.contains(&entry.id),
+                        || crate::commands::WINDOW.contains(&entry.id)
+                        || crate::shell::r23::WINDOW.contains(&entry.id),
                     "{}",
                     entry.id
                 );
